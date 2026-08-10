@@ -1,4 +1,352 @@
 -- Generated stage-0 compiler. Update with: nupp fixpoint --update-bootstrap
+package.preload["nupp"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+const nupp = { }
+return nupp
+
+end
+package.preload["nupp.bytes"] = function(...)
+const __nuppFfi = require("ffi"); const __nuppBuffer = require("string.buffer"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local bytes = { }
+
+local function needBytes ( avail , need )
+if avail < ( need ) then
+error ( ( "bytes.Reader: need %d bytes, have %d" ) : format ( need , avail ) )
+end
+end
+
+
+
+bytes.Reader = {} bytes.Reader.__index = bytes.Reader
+
+
+
+
+
+
+
+
+
+
+
+function bytes . newReader ( data )
+local buf
+if type ( data ) == "string" then
+buf = __nuppBuffer . new ( ) : set ( data )
+else
+buf = data
+end
+
+return setmetatable( { buf = buf } , bytes.Reader)
+end
+
+
+function bytes . Reader : remaining ( )
+return # self . buf
+end
+
+
+function bytes . Reader : skip ( n )
+local _ , avail = self . buf : ref ( )
+needBytes ( avail , n )
+self . buf : skip ( n )
+
+return self
+end
+
+
+function bytes . Reader : readBytes ( n )
+local _ , avail = self . buf : ref ( )
+needBytes ( avail , n )
+
+return self . buf : get ( n )
+end
+
+
+function bytes . Reader : readUint8 ( )
+local ptr , avail = self . buf : ref ( )
+needBytes ( avail , 1 )
+local view = __nuppFfi.cast("uint8_t *" , ptr )
+local v = view [ 0 ]
+self . buf : skip ( 1 )
+
+return v
+end
+
+
+function bytes . Reader : readInt8 ( )
+local ptr , avail = self . buf : ref ( )
+needBytes ( avail , 1 )
+local view = __nuppFfi.cast("int8_t *" , ptr )
+local v = view [ 0 ]
+self . buf : skip ( 1 )
+
+return v
+end
+
+
+function bytes . Reader : readUint16 ( )
+local ptr , avail = self . buf : ref ( )
+needBytes ( avail , 2 )
+local view = __nuppFfi.cast("uint16_t *" , ptr )
+local v = view [ 0 ]
+self . buf : skip ( 2 )
+
+return v
+end
+
+
+function bytes . Reader : readInt16 ( )
+local ptr , avail = self . buf : ref ( )
+needBytes ( avail , 2 )
+local view = __nuppFfi.cast("int16_t *" , ptr )
+local v = view [ 0 ]
+self . buf : skip ( 2 )
+
+return v
+end
+
+
+function bytes . Reader : readUint32 ( )
+local ptr , avail = self . buf : ref ( )
+needBytes ( avail , 4 )
+local view = __nuppFfi.cast("uint32_t *" , ptr )
+local v = view [ 0 ]
+self . buf : skip ( 4 )
+
+return v
+end
+
+
+function bytes . Reader : readInt32 ( )
+local ptr , avail = self . buf : ref ( )
+needBytes ( avail , 4 )
+local view = __nuppFfi.cast("int32_t *" , ptr )
+local v = view [ 0 ]
+self . buf : skip ( 4 )
+
+return v
+end
+
+
+function bytes . Reader : readUint64 ( )
+local ptr , avail = self . buf : ref ( )
+needBytes ( avail , 8 )
+local view = __nuppFfi.cast("uint64_t *" , ptr )
+local v = view [ 0 ]
+self . buf : skip ( 8 )
+
+return v
+end
+
+
+function bytes . Reader : readInt64 ( )
+local ptr , avail = self . buf : ref ( )
+needBytes ( avail , 8 )
+local view = __nuppFfi.cast("int64_t *" , ptr )
+local v = view [ 0 ]
+self . buf : skip ( 8 )
+
+return v
+end
+
+
+function bytes . Reader : readFloat32 ( )
+local ptr , avail = self . buf : ref ( )
+needBytes ( avail , 4 )
+local view = __nuppFfi.cast("float *" , ptr )
+local v = view [ 0 ]
+self . buf : skip ( 4 )
+
+return v
+end
+
+
+function bytes . Reader : readFloat64 ( )
+local ptr , avail = self . buf : ref ( )
+needBytes ( avail , 8 )
+local view = __nuppFfi.cast("double *" , ptr )
+local v = view [ 0 ]
+self . buf : skip ( 8 )
+
+return v
+end
+
+
+bytes.Writer = {} bytes.Writer.__index = bytes.Writer
+
+
+
+
+
+
+
+
+function bytes . newWriter ( buf )
+return setmetatable( { buf = buf or __nuppBuffer . new ( ) } , bytes.Writer)
+end
+
+
+function bytes . Writer : writeBytes ( s )
+self . buf : put ( s )
+
+return self
+end
+
+
+function bytes . Writer : writeUint8 ( v )
+local ptr = self . buf : reserve ( 1 )
+local view = __nuppFfi.cast("uint8_t *" , ptr )
+view [ 0 ] = v
+self . buf : commit ( 1 )
+
+return self
+end
+
+
+function bytes . Writer : writeInt8 ( v )
+local ptr = self . buf : reserve ( 1 )
+local view = __nuppFfi.cast("int8_t *" , ptr )
+view [ 0 ] = v
+self . buf : commit ( 1 )
+
+return self
+end
+
+
+function bytes . Writer : writeUint16 ( v )
+local ptr = self . buf : reserve ( 2 )
+local view = __nuppFfi.cast("uint16_t *" , ptr )
+view [ 0 ] = v
+self . buf : commit ( 2 )
+
+return self
+end
+
+
+function bytes . Writer : writeInt16 ( v )
+local ptr = self . buf : reserve ( 2 )
+local view = __nuppFfi.cast("int16_t *" , ptr )
+view [ 0 ] = v
+self . buf : commit ( 2 )
+
+return self
+end
+
+
+function bytes . Writer : writeUint32 ( v )
+local ptr = self . buf : reserve ( 4 )
+local view = __nuppFfi.cast("uint32_t *" , ptr )
+view [ 0 ] = v
+self . buf : commit ( 4 )
+
+return self
+end
+
+
+function bytes . Writer : writeInt32 ( v )
+local ptr = self . buf : reserve ( 4 )
+local view = __nuppFfi.cast("int32_t *" , ptr )
+view [ 0 ] = v
+self . buf : commit ( 4 )
+
+return self
+end
+
+
+function bytes . Writer : writeUint64 ( v )
+local ptr = self . buf : reserve ( 8 )
+local view = __nuppFfi.cast("uint64_t *" , ptr )
+view [ 0 ] = v
+self . buf : commit ( 8 )
+
+return self
+end
+
+
+function bytes . Writer : writeInt64 ( v )
+local ptr = self . buf : reserve ( 8 )
+local view = __nuppFfi.cast("int64_t *" , ptr )
+view [ 0 ] = v
+self . buf : commit ( 8 )
+
+return self
+end
+
+
+function bytes . Writer : writeFloat32 ( v )
+local ptr = self . buf : reserve ( 4 )
+local view = __nuppFfi.cast("float *" , ptr )
+view [ 0 ] = v
+self . buf : commit ( 4 )
+
+return self
+end
+
+
+function bytes . Writer : writeFloat64 ( v )
+local ptr = self . buf : reserve ( 8 )
+local view = __nuppFfi.cast("double *" , ptr )
+view [ 0 ] = v
+self . buf : commit ( 8 )
+
+return self
+end
+
+
+
+function bytes . Writer : buffer ( )
+return self . buf
+end
+
+return bytes
+
+end
 package.preload["nupp.compiler"] = function(...)
 local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
@@ -227,6 +575,38 @@ return
 end
 local target = unwrap ( node )
 local kind = target and target . kind
+
+
+
+
+if kind == "funcExpr" or kind == "shortfn" then
+local body = target . body
+if body then
+local info = {
+node = target ,
+body = body ,
+params = { } ,
+paramNames = { } ,
+contract = body . effectContract ,
+summary = summary ( ) ,
+}
+for _ , param in ipairs ( body . params or { } ) do
+if param . name and not param . namedVararg then
+local at = # info . paramNames + 1
+if param . name . definition then
+info . params [ param . name . definition ] = at
+end
+info . paramNames [ at ] = param . name . text
+end
+end
+functions [ # functions + 1 ] = info
+target . effectInfo = info
+if body . body then
+walk ( body . body )
+end
+return
+end
+end
 if kind == "localFuncStmt" or kind == "funcStmt" or kind == "inlineMethod" or kind == "constructorDecl" then
 local body = target . body
 local info = {
@@ -994,6 +1374,8 @@ end
 
 
 
+
+
 function analysis . queries ( facts )
 if not facts or not facts . byDefinition then
 return nil
@@ -1002,6 +1384,26 @@ local bound = { }
 local prepared = { }
 bound . visible = queries . visible
 bound . free = queries . free
+
+
+
+
+local byName = { }
+for _ , info in ipairs ( facts . functions or { } ) do
+local token = info . node and ( info . node . name or info . node . token ) or nil
+local text = token and ( token . text or token . name and token . name . text ) or nil
+if type ( text ) == "string" and byName [ text ] == nil then
+byName [ text ] = info
+end
+end
+
+
+
+
+
+function bound . named ( name )
+return type ( name ) == "string" and byName [ name ] or nil
+end
 
 
 
@@ -1544,7 +1946,7 @@ return ansi
 
 end
 package.preload["nupp.compiler.build.cache"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local names={"encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;target.empty_array=json.empty_array;target.array_mt=json.array_mt;target.empty_array_mt=json.empty_array_mt;for _,name in ipairs(names)do target[name]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","empty_array","array_mt","empty_array_mt","encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
 
 
 
@@ -1797,7 +2199,7 @@ return cache
 
 end
 package.preload["nupp.compiler.build.deps"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local names={"encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;target.empty_array=json.empty_array;target.array_mt=json.array_mt;target.empty_array_mt=json.empty_array_mt;for _,name in ipairs(names)do target[name]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","empty_array","array_mt","empty_array_mt","encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
 
 
 
@@ -3739,11 +4141,22 @@ local modules = { }
 
 
 
-local function typeFingerprint ( t , active )
+
+
+
+
+
+
+local function typeFingerprint (
+t ,
+active ,
+binders
+)
 if not t then
 return "nil"
 end
 active = active or { }
+binders = binders or { order = { } , count = 0 }
 if active [ t ] then
 
 
@@ -3774,65 +4187,82 @@ local fields = { }
 for _ , field in ipairs ( t . fields or { } ) do
 fields [
 # fields + 1
-] = field . name .. ":r=" .. typeFingerprint (
-field . read ,
-active
-) .. ":w=" .. typeFingerprint ( field . write , active )
+] = field . name .. ":r=" .. typeFingerprint ( field . read , active , binders ) .. ":w=" .. typeFingerprint ( field . write , active , binders )
 end
 fields [
 # fields + 1
-] = "index:r=" .. typeFingerprint (
-t . indexReadKey ,
-active
-) .. ":" .. typeFingerprint (
-t . indexReadValue ,
-active
-) .. ":w=" .. typeFingerprint ( t . indexWriteKey , active ) .. ":" .. typeFingerprint ( t . indexWriteValue , active )
+] = "index:r=" .. typeFingerprint ( t . indexReadKey , active , binders ) .. ":" .. typeFingerprint ( t . indexReadValue , active , binders ) .. ":w=" .. typeFingerprint ( t . indexWriteKey , active , binders ) .. ":" .. typeFingerprint ( t . indexWriteValue , active , binders )
 value = "shape(" .. table . concat ( fields , "," ) .. ")"
 elseif tag == "func" then
 local params , returns = { } , { }
 for index , item in ipairs ( t . params or { } ) do
 params [
 # params + 1
-] = tostring ( t . paramModes and t . paramModes [ index ] or "plain" ) .. ":" .. typeFingerprint ( item , active )
+] = tostring (
+t . paramNames and t . paramNames [ index ] or ""
+) .. "=" .. tostring (
+t . paramModes and t . paramModes [ index ] or "plain"
+) .. ":" .. typeFingerprint ( item , active , binders )
 end
 for _ , item in ipairs ( t . rets or { } ) do
-returns [ # returns + 1 ] = typeFingerprint ( item , active )
+returns [ # returns + 1 ] = typeFingerprint ( item , active , binders )
 end
+
+
+
+
 value = "fn(" .. table . concat (
 params ,
 ","
-) .. ( t . vararg and ",..." or "" ) .. ")->(" .. table . concat ( returns , "," ) .. ")"
+) .. (
+t . vararg and ",..." or ""
+) .. ")->(" .. table . concat ( returns , "," ) .. ")" .. ( t . noYield and "!noyield" or "" )
 elseif tag == "array" or tag == "ptr" then
-value = tag .. "(" .. typeFingerprint ( t . elem , active ) .. ")"
+value = tag .. "(" .. typeFingerprint ( t . elem , active , binders ) .. ")"
 elseif tag == "owned" then
-value = tag .. "(" .. table . concat ( t . cleanups or { } , "," ) .. "," .. typeFingerprint ( t . inner , active ) .. ")"
+local cleanupIds = { }
+for j , cleanup in ipairs ( t . cleanups or { } ) do
+cleanupIds [ j ] = cleanup . id
+end
+value = tag .. "(" .. table . concat ( cleanupIds , "," ) .. "," .. typeFingerprint ( t . inner , active , binders ) .. ")"
 elseif tag == "borrowed" or tag == "pinned" then
-value = tag .. "(" .. typeFingerprint ( t . inner , active ) .. ")"
+value = tag .. "(" .. typeFingerprint ( t . inner , active , binders ) .. ")"
 elseif tag == "map" then
 value = "map(r=" .. (
-t . readable and typeFingerprint ( t . key , active ) or "nil"
+t . readable and typeFingerprint ( t . key , active , binders ) or "nil"
 ) .. ":" .. (
-t . readable and typeFingerprint ( t . value , active ) or "nil"
-) .. ",w=" .. typeFingerprint ( t . writeKey , active ) .. ":" .. typeFingerprint ( t . writeValue , active ) .. ")"
+t . readable and typeFingerprint ( t . value , active , binders ) or "nil"
+) .. ",w=" .. typeFingerprint ( t . writeKey , active , binders ) .. ":" .. typeFingerprint ( t . writeValue , active , binders ) .. ")"
 elseif tag == "tuple" then
 local items = { }
 for _ , item in ipairs ( t . elems or { } ) do
-items [ # items + 1 ] = typeFingerprint ( item , active )
+items [ # items + 1 ] = typeFingerprint ( item , active , binders )
 end
 value = "tuple(" .. table . concat ( items , "," ) .. ")"
 elseif tag == "union" or tag == "intersection" then
 local items = { }
 for _ , item in ipairs ( t . members or { } ) do
-items [ # items + 1 ] = typeFingerprint ( item , active )
+items [ # items + 1 ] = typeFingerprint ( item , active , binders )
 end
 table . sort ( items )
 ;
 value = tag .. "(" .. table . concat ( items , tag == "union" and "|" or "&" ) .. ")"
 elseif tag == "literal" then
-value = "literal(" .. stable ( t . constant ) .. ":" .. typeFingerprint ( t . base , active ) .. ")"
+value = "literal(" .. stable ( t . constant ) .. ":" .. typeFingerprint ( t . base , active , binders ) .. ")"
 elseif tag == "typevar" then
-value = "typevar(" .. t . name .. ")"
+
+
+
+
+
+
+local at = binders . order [ t ]
+if not at then
+at = binders . count + 1
+binders . count = at
+binders . order [ t ] = at
+end
+value = "typevar#" .. at
 else
 value = tag or tostring ( t )
 end
@@ -4892,7 +5322,7 @@ return process
 
 end
 package.preload["nupp.compiler.build.project"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local names={"encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;target.empty_array=json.empty_array;target.array_mt=json.array_mt;target.empty_array_mt=json.empty_array_mt;for _,name in ipairs(names)do target[name]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","empty_array","array_mt","empty_array_mt","encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
 
 
 
@@ -5884,7 +6314,7 @@ return store
 
 end
 package.preload["nupp.compiler.build.tasks"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local names={"encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;target.empty_array=json.empty_array;target.array_mt=json.array_mt;target.empty_array_mt=json.empty_array_mt;for _,name in ipairs(names)do target[name]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","empty_array","array_mt","empty_array_mt","encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
 
 
 
@@ -7025,6 +7455,7 @@ local loopclosure = require ( "nupp.compiler.check.loopclosure" )
 local undocumentedraise = require ( "nupp.compiler.check.undocumentedraise" )
 local unused = require ( "nupp.compiler.check.unused" )
 local discard = require ( "nupp.compiler.check.discard" )
+local nosuspendMod = require ( "nupp.compiler.check.nosuspend" )
 local analysis = require ( "nupp.compiler.analysis" )
 local narrow = require ( "nupp.compiler.check.narrow" )
 local calls = require ( "nupp.compiler.check.calls" )
@@ -7042,6 +7473,8 @@ local annotationMod = require ( "nupp.compiler.annotations" )
 local state = require ( "nupp.compiler.check.state" )
 
 local checkMod = { }
+
+
 
 
 
@@ -7211,6 +7644,146 @@ end
 
 
 
+
+local function bodyOf ( value )
+if not value or cst . isToken ( value ) then
+return nil
+end
+if value . kind == "funcbody" then
+return value
+end
+if value . kind == "funcExpr" or value . kind == "shortfn" then
+return value . body
+end
+
+return nil
+end
+
+
+
+
+
+
+
+
+
+
+local function provenNonYielding ( node , body )
+local contract = node and node . effectContract or body and body . effectContract
+if contract and contract . yields ~= nil then
+return contract . yields ~= true
+end
+local summary = body and body . effectSummary
+if not summary then
+return false
+end
+if summary . top == true or summary . external == true then
+return false
+end
+
+return summary . yields ~= true
+end
+
+
+
+
+
+
+
+
+
+
+
+local function qualifyExport ( t , value )
+if not t then
+return t
+end
+if t . tag == "func" then
+
+
+
+
+
+
+local body = bodyOf ( value )
+local contract = value and not cst . isToken ( value ) and value . effectContract or nil
+if not body and not contract then
+return t
+end
+
+return T . withYields ( t , not provenNonYielding ( value , body ) )
+end
+
+
+
+
+if t . tag == "shape" and t . indexReadKey == nil and t . indexWriteKey == nil and value and not cst . isToken (
+value
+) and value . kind == "tableExpr" then
+local written = { }
+for _ , field in ipairs ( value . fields or { } ) do
+if field . kind == "fieldNamed" and field . name and field . value then
+written [ field . name . text ] = field . value
+end
+end
+local fields = { }
+for _ , field in ipairs ( t . fields or { } ) do
+local paired = written [ field . name ]
+fields [
+# fields + 1
+] = {
+name = field . name ,
+read = field . read and qualifyExport ( field . read , paired ) or nil ,
+write = field . write and qualifyExport ( field . write , paired ) or nil ,
+type = field . type and qualifyExport ( field . type , paired ) or nil ,
+}
+end
+
+return T . shape ( fields , nil , true )
+end
+
+return t
+end
+
+
+
+
+
+
+
+
+
+local function finalizeBoundary ( c )
+if not c . moduleType then
+return
+end
+
+
+if c . moduleTypeFromFields then
+local fields = { }
+for name , ft in pairs ( c . moduleFields ) do
+local qualified = qualifyExport ( ft , c . moduleFieldValues [ name ] )
+c . moduleFields [ name ] = qualified
+if c . moduleFieldConst [ name ] then
+fields [ # fields + 1 ] = { name = name , read = qualified }
+else
+fields [ # fields + 1 ] = { name = name , type = qualified }
+end
+end
+if # fields > 0 then
+c . moduleType = T . shape ( fields )
+end
+return
+end
+
+
+
+
+c . moduleType = qualifyExport ( c . moduleType , c . moduleReturnValue )
+end
+
+
+
 function checkMod . check (
 result ,
 filename ,
@@ -7272,7 +7845,7 @@ packTypes = { } ,
 typeDefs = { } ,
 pending = { } ,
 parent = nil
-} , retStack = { } , retPackStack = { } , ownReturnStack = { } , borrowReturnStack = { } , varargPackStack = { } , yieldPackStack = { } , resumePackStack = { } , protocolStack = { } , disposerFieldStack = { } , validatedCleanupContracts = { } , unsafeDepth = 0 , functionDepth = 0 , captureWatches = { } , allowed = { } , nextStat = nil , hoisting = false , resolvingAlias = { } , lastCallRets = nil , moduleFields = { } , moduleFieldTokens = { } , moduleFieldConst = { } , constModulePaths = { } , moduleLocalAnnotated = false , } , state.Checker)
+} , retStack = { } , retPackStack = { } , ownReturnStack = { } , borrowReturnStack = { } , varargPackStack = { } , yieldPackStack = { } , resumePackStack = { } , protocolStack = { } , disposerFieldStack = { } , validatedCleanupContracts = { } , unsafeDepth = 0 , noSuspendDepth = 0 , handledDepth = 0 , functionDepth = 0 , captureWatches = { } , allowed = { } , nextStat = nil , hoisting = false , resolvingAlias = { } , lastCallRets = nil , moduleFields = { } , moduleFieldTokens = { } , moduleFieldConst = { } , moduleFieldValues = { } , constModulePaths = { } , moduleLocalAnnotated = false , } , state.Checker)
 c . rootScope = c . scope
 c . recordEffect = function ( effect )
 result . effects [ effect ] = true
@@ -7305,6 +7878,7 @@ c . raises = undocumentedraise . install ( c )
 
 c . unused = unused . install ( c )
 c . discard = discard . install ( c )
+c . nosuspend = nosuspendMod . install ( c )
 resolve . install ( c )
 local ownershipKind = own . ownershipKind
 
@@ -8000,6 +8574,7 @@ c . apply = apply
 
 
 
+
 metatable . install ( c )
 
 
@@ -8065,6 +8640,9 @@ return
 end
 c . moduleFields [ member . text ] = t or T . any
 c . moduleFieldTokens [ member . text ] = member
+if value then
+c . moduleFieldValues [ member . text ] = value
+end
 if constant then
 c . moduleFieldConst [ member . text ] = true
 local path = modulePath ( target )
@@ -8121,6 +8699,26 @@ c . checkStat = checkStat
 
 
 
+local function hoistNestedNominals ( owner , entries )
+owner . nestedTypes = owner . nestedTypes or { }
+for _ , entry in ipairs ( entries or { } ) do
+if entry . kind == "recordDecl" then
+local nested = entry . hoistedType or T . nominal ( entry . name . text , entry . declKind )
+entry . hoistedType = nested
+nested . byname = nested . byname or { }
+nested . writeByname = nested . writeByname or { }
+nested . staticByname = nested . staticByname or { }
+nested . staticWriteByname = nested . staticWriteByname or { }
+nested . runtimePath = ( owner . runtimePath or owner . name ) .. "." .. entry . name . text
+owner . nestedTypes [ entry . name . text ] = nested
+hoistNestedNominals ( nested , entry . entries )
+end
+end
+end
+
+
+
+
 
 local function hoistDeclarations ( block )
 for _ , stat in ipairs ( block . stats or { } ) do
@@ -8134,10 +8732,13 @@ local n , entry = c . declaredNominal ( decl , decl . declKind )
 decl . hoistedType , decl . hoistedEntry = n , entry
 n . byname = n . byname or { }
 n . writeByname = n . writeByname or { }
+n . staticByname = n . staticByname or { }
+n . staticWriteByname = n . staticWriteByname or { }
 local key = c . declKey ( decl )
 if c . qualifierOf ( decl ) then
 n . runtimePath = key
 end
+hoistNestedNominals ( n , decl . entries )
 c . bindType ( key , n , nil )
 elseif k == "typeAlias" and decl . name and decl . value then
 local waiting = { node = decl . value , tok = decl . name , decl = decl }
@@ -8162,10 +8763,18 @@ end
 if ownerKey then
 local owner = c . lookupType ( ownerKey )
 local member = memberTok and memberTok . text
-if owner and owner . tag == "nominal" and owner . byname and member and not owner . byname [ member ] then
+local isStatic = owner and not fname . method and (
+owner . declKind == "record" or owner . declKind == "interface"
+)
+local members = owner and ( isStatic and owner . staticByname or owner . byname )
+if owner and owner . tag == "nominal" and members and member and not members [ member ] then
 local signature = c . signatureOf ( decl . body , fname . method and owner or nil )
-owner . byname [ member ] = signature
+members [ member ] = signature
+if not isStatic then
 owner . writeByname [ member ] = signature
+else
+owner . staticWriteByname [ member ] = signature
+end
 end
 end
 end
@@ -8283,10 +8892,12 @@ end
 end
 
 local facts = analysis . run ( result , c )
+finalizeBoundary ( c )
 
 
 c . unused . sweep ( )
 c . discard . sweep ( analysis . queries ( facts ) )
+c . nosuspend . sweep ( analysis . queries ( facts ) )
 table . sort ( c . diags , function ( a , b )
 return a . offset < b . offset
 end )
@@ -8852,6 +9463,40 @@ else
 boundEntry . threadPhase = "unknown"
 end
 end
+
+
+
+
+
+
+
+
+
+
+
+
+if boundEntry and initNode and initNode . kind == "name" and initNode . token then
+local globals = c . env and c . env . globals or { }
+local coroutineGlobal = globals . coroutine
+local source = c . lookupEntry ( initNode . token . text )
+local isLibrary = coroutineGlobal ~= nil and source == coroutineGlobal
+if not isLibrary and source ~= nil then
+isLibrary = source . coroutineLibrary == true
+end
+
+
+
+
+
+if not isLibrary
+and coroutineGlobal ~= nil
+and initNode . token . definition ~= nil
+and initNode . token . definition == coroutineGlobal . definition
+then
+isLibrary = true
+end
+boundEntry . coroutineLibrary = isLibrary
+end
 if boundEntry and initNode and initNode . wrappedProtocol then
 boundEntry . wrappedProtocol = initNode . wrappedProtocol
 boundEntry . wrappedPhase = "new"
@@ -9305,6 +9950,20 @@ local inferFfiIntrinsic = ffiMod . install ( c )
 
 local handlers = { }
 
+local function withoutNil ( t )
+if t . tag ~= "union" then
+return t
+end
+local nonnil = { }
+for _ , member in ipairs ( t . members ) do
+if member ~= T . nil_ then
+nonnil [ # nonnil + 1 ] = member
+end
+end
+
+return T . union ( nonnil )
+end
+
 handlers . call = function ( node )
 
 
@@ -9336,12 +9995,6 @@ if argsNode and argsNode . kind == "args" then
 argExprs = argsNode . exprs or { }
 argStr = argsNode . str
 argTable = argsNode . table
-end
-if baseName == "coroutine" and memberName == "yield" then
-local obligation = c . liveSuspensionObligation ( )
-if obligation then
-c . diag ( "NUPP2603" , node , ( "cannot suspend while temporal obligation %q is live" ) : format ( obligation ) )
-end
 end
 local intrinsic = ownershipIntrinsic ( c , callee )
 if intrinsic then
@@ -9426,6 +10079,7 @@ end
 if c . ownershipKind ( valueT ) or not c . pointerShaped ( valueT ) then
 c . diag ( "NUPP2602" , args [ 1 ] or node , "fromRaw expects an unmanaged pointer" )
 end
+cleanups = c . own . resolveCleanups ( cleanups , node )
 node . ownershipIntrinsic = "fromRaw"
 node . ownerCleanups = cleanups
 return T . owned ( rawType ( valueT ) , cleanups )
@@ -9453,12 +10107,6 @@ args [ 1 ] or node ,
 .. "to a declared takes parameter"
 )
 end
-
-
-
-
-c . validateCleanups ( valueT , disposed . cleanups , args [ 1 ] or node , nil , true )
-c . own . requireReachableCleanups ( valueT , disposed . cleanups , args [ 1 ] or node )
 node . ownershipIntrinsic = "dispose"
 node . ownerCleanups = disposed . cleanups or { }
 return T . nil_
@@ -9511,8 +10159,100 @@ local intrinsic = inferFfiIntrinsic ( node , calleeName , baseName , memberName 
 if intrinsic then
 return intrinsic
 end
+if callee and callee . kind == "dotIndex" then
+callee . callCallee = true
+end
 local calleeT = callee and c . infer ( callee ) or T . any
+if node . kind == "safeCall" then
+calleeT = withoutNil ( calleeT )
+end
 node . calleeType = rawType ( calleeT )
+c . nosuspend . call ( node )
+
+
+
+
+
+
+
+
+
+
+if memberName == "yield" and callee and callee . kind == "dotIndex" then
+local base = callee . obj
+local baseTok = base and base . kind == "name" and base . token or nil
+local coroutineGlobal = c . env and c . env . globals and c . env . globals . coroutine or nil
+local resolved = baseTok and c . lookupEntry ( baseTok . text ) or nil
+
+
+
+local isCoroutine = false
+if resolved ~= nil and resolved . coroutineLibrary == true then
+
+isCoroutine = true
+elseif baseTok and coroutineGlobal then
+if resolved ~= nil then
+isCoroutine = resolved == coroutineGlobal or (
+resolved . definition ~= nil and resolved . definition == coroutineGlobal . definition
+)
+else
+isCoroutine = baseTok . text == "coroutine"
+end
+end
+if isCoroutine then
+local obligation = c . liveSuspensionObligation ( )
+if obligation then
+c . diag (
+"NUPP2603" ,
+node ,
+( "cannot suspend while temporal obligation %q is live" ) : format ( obligation ) ,
+nil ,
+{
+help = "suspend inside a `handle suspension` region, where a "
+.. "handler is responsible for resuming or cancelling it" ,
+}
+)
+end
+end
+end
+
+
+
+
+
+
+
+local function bodyOfArgument ( index )
+local argument = argExprs [ index ]
+if not argument or cst . isToken ( argument ) then
+return nil
+end
+if argument . kind == "funcExpr" or argument . kind == "shortfn" then
+return argument . body or argument
+end
+
+return nil
+end
+
+
+
+
+
+if node . kind == "call" and callee and callee . kind == "dotIndex" then
+local base = callee . obj
+local baseTok = base and base . kind == "name" and base . token or nil
+local globals = c . env and c . env . globals or { }
+local isPrelude = function ( name )
+local entry = globals [ name ]
+
+return baseTok ~= nil and entry ~= nil and baseTok . definition == entry . definition
+end
+if memberName == "sort" and isPrelude ( "table" ) then
+c . nosuspend . callback ( bodyOfArgument ( 2 ) , "`table.sort`" )
+elseif memberName == "gsub" and isPrelude ( "string" ) then
+c . nosuspend . callback ( bodyOfArgument ( 3 ) , "`string.gsub`" )
+end
+end
 local wrappedEntry = calleeName ~= "" and c . lookupEntry ( calleeName ) or nil
 if wrappedEntry and wrappedEntry . wrappedProtocol then
 local protocol = wrappedEntry . wrappedProtocol
@@ -9540,6 +10280,7 @@ end
 
 
 
+
 local tableGlobal = c . env and c . env . globals and c . env . globals . table or nil
 local tableBase = callee and callee . kind == "dotIndex" and callee . obj or nil
 local tableToken = tableBase and tableBase . kind == "name" and tableBase . token or nil
@@ -9551,7 +10292,7 @@ and tableToken
 and tableGlobal
 and tableToken . definition == tableGlobal . definition
 and (
-memberName == "new" or memberName == "clear"
+memberName == "new" or memberName == "clear" or memberName == "clone"
 ) then
 node . tableIntrinsic = memberName
 end
@@ -9590,6 +10331,19 @@ if calleeName == "setmetatable" and calleeT . tag ~= "func" then
 c . checkMetatableLiteral ( argExprs [ 2 ] , nil , T . metatable ( T . any ) )
 end
 local first , rets , pack = c . inferCall ( node , calleeT , node . args , knownAts )
+if callee and callee . staticOverloadOwner and callee . staticOverloadName and node . overloadWinner then
+local owner = callee . staticOverloadOwner
+local name = callee . staticOverloadName
+local selectedMember = methodslots . member ( name , node . overloadWinner )
+for _ , entry in ipairs ( owner . staticEntries and owner . staticEntries [ name ] or { } ) do
+local candidate = specializeSelf ( owner , entry . signature , owner )
+if candidate . id == node . overloadWinner . id or entry . member == selectedMember then
+callee . overloadMember = entry . member
+break
+end
+end
+callee . overloadMember = callee . overloadMember or selectedMember
+end
 if wrappedEntry and wrappedEntry . wrappedProtocol then
 wrappedEntry . wrappedPhase = "started"
 end
@@ -9865,7 +10619,12 @@ nil ,
 nil ,
 nil ,
 bodyType . paramPack ,
-wrappedReturns
+wrappedReturns ,
+nil ,
+nil ,
+nil ,
+nil ,
+bodyType . paramNames
 )
 node . wrappedProtocol = T . protocolThread (
 bodyType . paramPack ,
@@ -9876,6 +10635,12 @@ bodyType . retPack
 pack , rets = T . pack ( { first } ) , { first }
 end
 end
+end
+if node . kind == "safeCall" then
+local calledPack = pack or ( rets and T . pack ( rets ) or T . pack ( { } , { kind = "unknown" , type = T . any } ) )
+pack = T . packUnion ( { calledPack , T . pack ( { T . nil_ } ) } )
+first = T . optional ( first )
+rets = pack . head
 end
 c . lastCallRets = rets
 node . valuePack = pack or ( rets and T . pack ( rets ) or T . pack ( { } , { kind = "unknown" , type = T . any } ) )
@@ -9894,22 +10659,30 @@ local ot = c . infer ( receiver )
 
 
 local optional = node . safeObj ~= nil or node . safeMethod ~= nil
-local function withoutNil ( t )
-if t . tag ~= "union" then
-return t
-end
-local nonnil = { }
-for _ , m in ipairs ( t . members ) do
-if m ~= T . nil_ then
-nonnil [ # nonnil + 1 ] = m
-end
-end
-
-return T . union ( nonnil )
-end
-
 if node . safeObj then
 ot = withoutNil ( ot )
+end
+local rawReceiver = rawType ( ot )
+local staticOwner = rawReceiver . tag == "metatable" and rawType ( rawReceiver . of ) or nil
+local static = staticOwner
+and staticOwner . tag == "nominal"
+and staticOwner . staticByname
+and staticOwner . staticByname [
+member . text
+]
+if static then
+local owner = staticOwner
+c . diag (
+"NUPP2004" ,
+member ,
+( "%q is a static function and does not accept a receiver" ) : format ( member . text ) ,
+nil ,
+{ help = ( "call it with `%s.%s(...)`" ) : format ( owner . name , member . text ) }
+)
+local first , rets , pack = c . inferCall ( node , static , node . args )
+c . lastCallRets = rets
+node . valuePack = pack or ( rets and T . pack ( rets ) or T . pack ( { } , { kind = "unknown" , type = T . any } ) )
+return first
 end
 local mt , fieldDef , fieldDefs = c . fieldType ( ot , member . text )
 if mt and node . safeMethod then
@@ -9950,9 +10723,15 @@ end
 end
 node . overloadMember = node . overloadMember or selectedMember
 end
+if optional then
+local calledPack = pack or ( rets and T . pack ( rets ) or T . pack ( { } , { kind = "unknown" , type = T . any } ) )
+pack = T . packUnion ( { calledPack , T . pack ( { T . nil_ } ) } )
+first = T . optional ( first )
+rets = pack . head
+end
 c . lastCallRets = rets
 node . valuePack = pack or ( rets and T . pack ( rets ) or T . pack ( { } , { kind = "unknown" , type = T . any } ) )
-return optional and T . optional ( first ) or first
+return first
 end
 if ot ~= T . any and ot ~= T . table_ and ot . tag ~= "map" then
 if ot . tag == "shape" or ot . tag == "nominal" then
@@ -10010,8 +10789,10 @@ local calls = { }
 
 local isA = relations . isA
 local rawType = T . unwrapOwnership
-local substType = generics . subst
-local substPack = generics . substPack
+
+
+local substType = generics . materialize
+local substPack = generics . materializePack
 local unify = generics . unify
 local unifyPack = generics . unifyPack
 local instantiateNominal = generics . instantiate
@@ -10034,6 +10815,22 @@ members [ # members + 1 ] = member
 end
 
 return members
+end
+
+
+
+
+
+
+local function isExpansionPath ( node )
+if not node then
+return false
+end
+if node . kind == "name" then
+return true
+end
+
+return node . kind == "dotIndex" and isExpansionPath ( node . obj )
 end
 
 local function probeArm ( ft , argPack , cdefCall )
@@ -10161,6 +10958,54 @@ local related = definition and c . related ( definition , "called function is de
 return { related = related and { related } or nil , help = "compare the call with the declared parameter list" }
 end
 
+
+
+
+local function expansionsOf ( t )
+t = rawType ( t )
+if t . tag == "typevar" and t . bound then
+return expansionsOf ( t . bound )
+end
+if t . tag == "nominal" then
+return t . expansions or { }
+end
+if t . tag ~= "union" then
+return { }
+end
+local common = nil
+for _ , member in ipairs ( t . members ) do
+local found = expansionsOf ( member )
+if not common then
+common = { }
+for arity , names in pairs ( found ) do
+local copied = { }
+for j , name in ipairs ( names ) do
+copied [ j ] = name
+end
+common [ arity ] = copied
+end
+else
+for arity , names in pairs ( common ) do
+local other = found [ arity ]
+local same = other and # other == # names
+if same then
+for j , name in ipairs ( names ) do
+if other [ j ] ~= name then
+same = false
+break
+end
+end
+end
+if not same then
+common [ arity ] = nil
+end
+end
+end
+end
+
+return common or { }
+end
+
 c . fieldType = function ( t , name )
 t = rawType ( t )
 if t . tag == "ptr" then
@@ -10169,7 +11014,17 @@ end
 
 
 if t . tag == "metatable" then
-return c . fieldType ( t . of , name )
+local owner = rawType ( t . of )
+if owner . tag == "nominal" then
+local ft = owner . staticByname and owner . staticByname [ name ]
+local definition = owner . staticFieldDefs and owner . staticFieldDefs [ name ]
+if not ft then
+ft = owner . byname and owner . byname [ name ]
+definition = owner . fieldDefs and owner . fieldDefs [ name ]
+end
+return ft and specializeSelf ( owner , ft , owner ) or nil , definition
+end
+return c . fieldType ( owner , name )
 end
 
 
@@ -10249,7 +11104,17 @@ if t . tag == "ptr" then
 return c . fieldWriteType ( t . elem , name )
 end
 if t . tag == "metatable" then
-return c . fieldWriteType ( t . of , name )
+local owner = rawType ( t . of )
+if owner . tag == "nominal" then
+local ft = owner . staticWriteByname and owner . staticWriteByname [ name ]
+local definition = owner . staticWriteFieldDefs and owner . staticWriteFieldDefs [ name ]
+if not ft then
+ft = owner . writeByname and owner . writeByname [ name ]
+definition = owner . writeFieldDefs and owner . writeFieldDefs [ name ]
+end
+return ft and specializeSelf ( owner , ft , owner ) or nil , definition
+end
+return c . fieldWriteType ( owner , name )
 end
 if t . tag == "typevar" and t . bound then
 local bound = t . bound
@@ -10320,7 +11185,15 @@ if t . tag == "ptr" then
 return c . fieldNames ( t . elem , writing )
 end
 if t . tag == "metatable" then
-return c . fieldNames ( t . of , writing )
+local owner = rawType ( t . of )
+local names = c . fieldNames ( owner , writing )
+if owner . tag == "nominal" then
+local statics = writing and owner . staticWriteByname or owner . staticByname
+for name in pairs ( statics or { } ) do
+names [ name ] = true
+end
+end
+return names
 end
 if t . tag == "typevar" and t . bound then
 return c . fieldNames ( t . bound , writing )
@@ -10682,7 +11555,9 @@ signature . paramPack ,
 T . pack ( { calleeT } ) ,
 signature . packParams ,
 signature . yieldPack ,
-signature . resumePack
+signature . resumePack ,
+signature . noYield ,
+signature . paramNames
 )
 builtSignatures [ # builtSignatures + 1 ] = built
 bySignature [ built ] = entries [ index ] or { index = index , signature = signature }
@@ -10721,7 +11596,9 @@ selectedSignature . paramPack ,
 T . pack ( { instance } ) ,
 nil ,
 selectedSignature . yieldPack ,
-selectedSignature . resumePack
+selectedSignature . resumePack ,
+selectedSignature . noYield ,
+selectedSignature . paramNames
 )
 end
 node . valuePack = pack
@@ -10814,11 +11691,11 @@ if # ( valueT . cleanups or { } ) == 0 then
 opaque = true
 else
 for _ , cleanup in ipairs ( valueT . cleanups ) do
-cleanups [ # cleanups + 1 ] = "@field|" .. name .. "|" .. cleanup
+cleanups [ # cleanups + 1 ] = T . fieldCleanup ( name , cleanup )
 end
 end
 elseif c . ownershipKind ( valueT ) == "pinned" then
-cleanups [ # cleanups + 1 ] = "@dropfield|" .. name
+cleanups [ # cleanups + 1 ] = T . dropFieldCleanup ( name )
 end
 end
 end
@@ -10850,7 +11727,15 @@ end
 
 for _ , arg in ipairs ( args ) do
 if not cst . isToken ( arg ) then
-local argumentType = c . infer ( arg )
+local value = ( arg . kind == "namedArg" or arg . kind == "expandArg" ) and arg . value or arg
+if arg . kind == "namedArg" or arg . kind == "expandArg" then
+c . diag (
+"NUPP2006" ,
+arg ,
+"named arguments and value expansion require a statically known callable"
+)
+end
+local argumentType = c . infer ( value )
 if c . ownershipKind ( argumentType ) then
 c . diag (
 "NUPP2603" ,
@@ -10864,11 +11749,302 @@ end
 return T . any , nil
 end
 
+local advanced = false
+for _ , argument in ipairs ( args ) do
+if not cst . isToken ( argument ) and ( argument . kind == "namedArg" or argument . kind == "expandArg" ) then
+advanced = true
+break
+end
+end
 
 
+
+
+local advancedOverloadSelected = false
 local ats = knownAts or { }
 local argPack
-if knownAts then
+local argNodes = { }
+if advanced then
+local rawArguments = { }
+local namedStarted = false
+for sourceIndex , argument in ipairs ( args ) do
+if not cst . isToken ( argument ) and argument . kind == "namedArg" then
+namedStarted = true
+local value = argument . value or argument
+rawArguments [
+# rawArguments + 1
+] = {
+kind = "named" ,
+name = argument . name and argument . name . text or "" ,
+node = value ,
+type = c . infer ( value ) ,
+source = argument ,
+}
+elseif not cst . isToken ( argument ) and argument . kind == "expandArg" then
+if namedStarted then
+c . diag ( "NUPP2006" , argument , "a positional expansion cannot follow a named argument" )
+end
+local value = argument . value or argument
+if not isExpansionPath ( value ) then
+c . diag (
+"NUPP2006" ,
+value ,
+"an expansion operand must be a name or dotted field path" ,
+nil ,
+{
+help = "bind the producing expression to a local, then expand "
+.. "that local or one of its dotted fields" ,
+}
+)
+end
+local valueType = c . infer ( value )
+if c . ownershipKind ( valueType ) then
+c . diag ( "NUPP2603" , value , "an owned or borrowed container cannot be expanded" )
+end
+rawArguments [
+# rawArguments + 1
+] = {
+kind = "expand" ,
+node = value ,
+type = valueType ,
+expansions = expansionsOf ( valueType ) ,
+source = argument ,
+}
+else
+if namedStarted then
+c . diag ( "NUPP2006" , argument , "a positional argument cannot follow a named argument" )
+end
+local valueType
+if cst . isToken ( argument ) then
+valueType = argument . kind == "string" and T . string or T . any
+else
+valueType = c . infer ( argument )
+end
+local valuePack = not namedStarted and sourceIndex == # args and not cst . isToken (
+argument
+) and argument . valuePack or nil
+rawArguments [
+# rawArguments + 1
+] = { kind = "plain" , node = argument , type = valueType , pack = valuePack , source = argument , }
+end
+end
+
+local function normalizations ( ft )
+local labels = { }
+for j , name in ipairs ( ft . paramNames or { } ) do
+if name ~= "" then
+labels [ name ] = j
+end
+end
+local named , firstNamed , lastNamed , priorNamed = { } , nil , 0 , 0
+local positional = { }
+for _ , argument in ipairs ( rawArguments ) do
+if argument . kind == "named" then
+local index = labels [ argument . name ]
+if not index then
+return { } , ( "unknown named argument %q" ) : format ( argument . name )
+end
+if named [ index ] then
+return { } , ( "named argument %q is supplied twice" ) : format ( argument . name )
+end
+if index <= priorNamed then
+return { } , "named arguments must follow parameter order"
+end
+priorNamed = index
+firstNamed = firstNamed and math . min ( firstNamed , index ) or index
+lastNamed = math . max ( lastNamed , index )
+named [ index ] = argument
+else
+positional [ # positional + 1 ] = argument
+end
+end
+
+local states = { { types = { } , nodes = { } , lowered = { } } }
+for _ , argument in ipairs ( positional ) do
+local nextStates = { }
+if argument . kind == "plain" then
+for _ , current in ipairs ( states ) do
+local copy = { types = { } , nodes = { } , lowered = { } }
+for j , item in ipairs ( current . types ) do
+copy . types [ j ] = item
+copy . nodes [ j ] = current . nodes [ j ]
+end
+for j , item in ipairs ( current . lowered ) do
+copy . lowered [ j ] = item
+end
+local pack = argument . pack
+if pack and not pack . tail and # pack . head > 0 then
+for _ , itemType in ipairs ( pack . head ) do
+copy . types [ # copy . types + 1 ] = itemType
+copy . nodes [ # copy . nodes + 1 ] = argument . node
+end
+else
+copy . types [ # copy . types + 1 ] = argument . type
+copy . nodes [ # copy . nodes + 1 ] = argument . node
+end
+copy . lowered [
+# copy . lowered + 1
+] = { generatedKind = "expr" , expr = argument . node , pack = argument . pack }
+nextStates [ # nextStates + 1 ] = copy
+end
+else
+local arities = { }
+for arity in pairs ( argument . expansions or { } ) do
+arities [ # arities + 1 ] = arity
+end
+table . sort ( arities )
+if # arities == 0 then
+return { } , ( "%s has no declared expansion" ) : format ( T . tostring ( argument . type ) )
+end
+for _ , current in ipairs ( states ) do
+for _ , arity in ipairs ( arities ) do
+local names = argument . expansions [ arity ]
+local copy = { types = { } , nodes = { } , lowered = { } }
+for j , item in ipairs ( current . types ) do
+copy . types [ j ] = item
+copy . nodes [ j ] = current . nodes [ j ]
+end
+for j , item in ipairs ( current . lowered ) do
+copy . lowered [ j ] = item
+end
+local readable = true
+for _ , name in ipairs ( names ) do
+local fieldType = c . fieldType ( argument . type , name )
+if not fieldType or c . ownershipKind ( fieldType ) then
+readable = false
+break
+end
+copy . types [ # copy . types + 1 ] = fieldType
+copy . nodes [ # copy . nodes + 1 ] = argument . node
+copy . lowered [
+# copy . lowered + 1
+] = { generatedKind = "field" , source = argument . node , name = name }
+end
+if readable then
+nextStates [ # nextStates + 1 ] = copy
+end
+end
+end
+end
+states = nextStates
+end
+
+local completed = { }
+for _ , current in ipairs ( states ) do
+if not firstNamed then
+completed [
+# completed + 1
+] = {
+pack = T . pack ( current . types ) ,
+types = current . types ,
+nodes = current . nodes ,
+lowered = current . lowered ,
+}
+elseif # current . types < firstNamed then
+local total = math . max ( # current . types , lastNamed )
+local types , nodes , lowered = { } , { } , { }
+for j = 1 , total do
+if j <= # current . types then
+types [ j ] = current . types [ j ]
+nodes [ j ] = current . nodes [ j ]
+lowered [ j ] = current . lowered [ j ]
+elseif named [ j ] then
+types [ j ] = named [ j ] . type
+nodes [ j ] = named [ j ] . node
+lowered [ j ] = { generatedKind = "expr" , expr = named [ j ] . node }
+else
+types [ j ] = T . nil_
+nodes [ j ] = node
+lowered [ j ] = { generatedKind = "nil" }
+end
+end
+completed [
+# completed + 1
+] = { pack = T . pack ( types ) , types = types , nodes = nodes , lowered = lowered }
+end
+end
+
+return completed
+end
+
+local function chooseFor ( ft )
+local choices , why = normalizations ( ft )
+if # choices == 0 then
+return nil , nil , why
+end
+if # choices == 1 then
+local specialized , rejected = probeSignature ( ft , choices [ 1 ] . pack , node . cdefCall )
+if specialized then
+return choices [ 1 ] , specialized
+end
+return nil , nil , rejected or "arguments do not fit"
+end
+local accepted = { }
+for _ , choice in ipairs ( choices ) do
+local specialized = probeSignature ( ft , choice . pack , node . cdefCall )
+if specialized then
+accepted [ # accepted + 1 ] = { choice = choice , signature = specialized }
+end
+end
+if # accepted == 1 then
+return accepted [ 1 ] . choice , accepted [ 1 ] . signature
+elseif # accepted > 1 then
+return nil , nil , "several expansion arities accept this call"
+end
+
+return nil , nil , "no declared expansion arity accepts this call"
+end
+
+local selected
+if overloads then
+local survivors , originals , rejections , choices = { } , { } , { } , { }
+for _ , candidate in ipairs ( overloads ) do
+local choice , specialized , why = chooseFor ( candidate )
+if choice and specialized then
+survivors [ # survivors + 1 ] = specialized
+originals [ # originals + 1 ] = candidate
+choices [ # choices + 1 ] = choice
+else
+rejections [ # rejections + 1 ] = T . tostring ( candidate ) .. ": " .. ( why or "arguments do not fit" )
+end
+end
+node . overloadCandidates = overloads
+if # survivors == 0 then
+c . diag (
+"NUPP2125" ,
+node ,
+"no overload accepts this call: " .. table . concat ( rejections , "; " ) ,
+nil ,
+callDetails ( node )
+)
+return T . any , nil , T . pack ( { } , { kind = "unknown" , type = T . any } )
+elseif # survivors > 1 then
+c . diag (
+"NUPP2126" ,
+node ,
+"several overloads accept this call: " .. signaturesText ( survivors ) ,
+nil ,
+callDetails ( node )
+)
+return T . any , nil , T . pack ( { } , { kind = "unknown" , type = T . any } )
+end
+calleeT = survivors [ 1 ]
+node . overloadWinner = originals [ 1 ]
+node . signatureType = calleeT
+selected = choices [ 1 ]
+advancedOverloadSelected = true
+else
+selected = chooseFor ( calleeT )
+if not selected then
+local _ , _ , why = chooseFor ( calleeT )
+local code = why and why : find ( "several" , 1 , true ) and "NUPP2126" or "NUPP2125"
+c . diag ( code , node , why or "call arguments cannot be bound" , nil , callDetails ( node ) )
+return T . any , nil , T . pack ( { } , { kind = "unknown" , type = T . any } )
+end
+end
+ats , argNodes , argPack = selected . types , selected . nodes , selected . pack
+argsNode . loweredArgs = selected . lowered
+elseif knownAts then
 argPack = T . pack ( knownAts )
 elseif # args == 1 and cst . isToken ( args [ 1 ] ) then
 ats [ 1 ] = args [ 1 ] . kind == "string" and T . string or T . any
@@ -10892,12 +12068,13 @@ ats [ j ] = T . packAt ( argPack , j ) or T . nil_
 end
 argPack = T . pack ( ats )
 end
-local argNodes = { }
+if not advanced then
 for j = 1 , # argPack . head do
 argNodes [ j ] = args [ math . min ( j , # args ) ] or node
 end
+end
 
-if overloads then
+if overloads and not advancedOverloadSelected then
 local survivors , originals , rejections = { } , { } , { }
 for _ , candidate in ipairs ( overloads ) do
 local specialized , why = probeSignature ( candidate , selectionPack , node . cdefCall )
@@ -11232,7 +12409,9 @@ paramPack ,
 retPack ,
 calleeT . packParams ,
 calleeT . yieldPack ,
-calleeT . resumePack
+calleeT . resumePack ,
+calleeT . noYield ,
+calleeT . paramNames
 )
 
 return T . packAt ( retPack , 1 ) or T . nil_ , retPack . head , retPack
@@ -11335,7 +12514,7 @@ c . bindVar ( structName . text , n , true , structName )
 end
 
 handlers . cdefFunc = function ( stat )
-local params , paramModes = { } , { }
+local params , paramModes , paramNames = { } , { } , { }
 local outputByName = { }
 for _ , output in ipairs ( stat . ownedOuts or { } ) do
 output . kind = "owned"
@@ -11388,6 +12567,7 @@ outputByName [ pname and pname . text or "" ] = nil
 else
 params [ # params + 1 ] = pt
 paramModes [ # params ] = mode
+paramNames [ # params ] = pname and pname . text or ""
 logicalByName [ pname and pname . text or "" ] = # params
 end
 end
@@ -11410,7 +12590,13 @@ end
 if base . tag ~= "ptr" and base ~= T . cstring and base ~= T . voidptr then
 c . diag ( "NUPP2203" , stat . ret , "@owned applies to pointer returns only" )
 end
-stat . ownCleanups = resolvedOwnedCleanups ( rt , stat . ownCleanups , stat . ownOpaque , stat . ownTok or stat )
+stat . ownCleanups = resolvedOwnedCleanups (
+rt ,
+stat . ownCleanups ,
+stat . ownOpaque ,
+stat . ownTok or stat ,
+stat . cleanupRegistrationNode
+)
 rets [ 1 ] = T . owned ( rt , stat . ownCleanups )
 end
 if not ( reifiableField ( rt , true ) or rt == T . number ) then
@@ -11432,6 +12618,13 @@ c . diag ( "NUPP2602" , output . at or stat , "a borrowed output source must be 
 end
 rets [ # rets + 1 ] = T . borrowed ( valueType )
 else
+output . cleanups = resolvedOwnedCleanups (
+output . valueType ,
+output . cleanups ,
+false ,
+output . at or stat ,
+output . cleanupRegistrationNode
+)
 local ownedOutput = T . owned ( valueType , output . cleanups )
 validateCleanups (
 T . owned ( output . valueType , output . cleanups ) ,
@@ -11456,7 +12649,14 @@ nil ,
 nil ,
 ffiOut ,
 nil ,
-false
+false ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+paramNames
 )
 local cdefName = stat . name
 if not cdefName then
@@ -11464,7 +12664,12 @@ return
 end
 c . bindVar ( cdefName . text , cdefType , true , cdefName , "function" )
 if stat . disposeContract then
-registerDefaultDisposer ( cdefType , cdefName . text , stat . disposeTok or stat )
+registerDefaultDisposer (
+cdefType ,
+cdefName . text ,
+stat . disposeTok or stat ,
+stat . cleanupRegistrationNode
+)
 end
 if cdefName . definition then
 cdefName . definition . cdef = true
@@ -11589,7 +12794,6 @@ local alwaysExits = c . alwaysExits
 local analyzeCond , applyFacts = c . analyzeCond , c . applyFacts
 local borrowRoot , moveExpression = c . borrowRoot , c . moveExpression
 local ownershipKind , ownershipState = c . ownershipKind , c . ownershipState
-local validateCleanups = c . validateCleanups
 
 local handlers = { }
 
@@ -11669,6 +12873,10 @@ c . moduleType = ts [ 1 ]
 
 
 
+c . moduleReturnValue = stat . exprs and stat . exprs [ 1 ] or nil
+
+
+
 
 local returned = stat . exprs and stat . exprs [ 1 ]
 local returnedName = returned and returned . kind == "name" and returned . token or nil
@@ -11687,6 +12895,10 @@ end
 end
 if # fields > 0 then
 c . moduleType = T . shape ( fields )
+
+
+
+c . moduleTypeFromFields = true
 end
 end
 if c . opts and c . opts . strict and c . moduleType then
@@ -11828,10 +13040,6 @@ end
 
 
 
-
-
-validateCleanups ( acquired , cleanups , binding . expr , "NUPP2615" , true )
-c . own . requireReachableCleanups ( acquired , cleanups , binding . expr )
 if ownershipKind ( acquired ) == "owned" then
 moveExpression ( binding . expr , acquired , "with acquisition" )
 end
@@ -12065,6 +13273,65 @@ c . checkBlock ( stat . body , true )
 c . popScope ( )
 end
 
+handlers . handleStmt = function ( stat )
+
+
+
+
+if stat . handler then
+c . infer ( stat . handler )
+end
+
+
+
+
+local function escapes ( node , insideLoop )
+if not node or cst . isToken ( node ) then
+return
+end
+local kind = node . kind
+if kind == "funcExpr" or kind == "shortfn" or kind == "localFuncStmt" or kind == "funcStmt" then
+return
+end
+if kind == "returnStmt" or ( kind == "breakStmt" and not insideLoop ) then
+c . diag (
+"NUPP2706" ,
+node ,
+"control cannot leave a `handle suspension` region yet" ,
+nil ,
+{ help = "put the value in a local declared outside the region, and " .. "leave after it" }
+)
+return
+end
+local loops = insideLoop
+or kind == "whileStmt"
+or kind == "repeatStmt"
+or kind == "fornumStmt"
+or kind == "forinStmt"
+for _ , child in ipairs ( node . stats or { } ) do
+escapes ( child , loops )
+end
+for _ , child in ipairs ( node ) do
+escapes ( child , loops )
+end
+end
+
+escapes ( stat . body , false )
+c . handledDepth = c . handledDepth + 1
+c . pushScope ( )
+c . checkBlock ( stat . body , true )
+c . popScope ( )
+c . handledDepth = c . handledDepth - 1
+end
+
+handlers . noSuspendStmt = function ( stat )
+c . noSuspendDepth = c . noSuspendDepth + 1
+c . pushScope ( )
+c . checkBlock ( stat . body , true )
+c . popScope ( )
+c . noSuspendDepth = c . noSuspendDepth - 1
+end
+
 handlers . unsafeStmt = function ( stat )
 c . unsafeDepth = c . unsafeDepth + 1
 c . pushScope ( )
@@ -12175,9 +13442,36 @@ local state = require ( "nupp.compiler.check.state" )
 local declare = { }
 
 local isA = relations . isA
-local substType = generics . subst
+
+
+local substType = generics . rebind
 local addSelf = generics . addSelf
 local dropSelf = generics . dropSelf
+
+local function hasReceiver ( body , declKind )
+
+
+
+if declKind == "struct" then
+return true
+end
+local first = body and body . params and body . params [ 1 ]
+
+return first ~= nil and first . name ~= nil and first . name . text == "self"
+end
+
+
+
+
+local function implementationLabelsFit ( have , want )
+for j , wanted in ipairs ( want . paramNames or { } ) do
+if wanted ~= "" and ( have . paramNames and have . paramNames [ j ] or "" ) ~= wanted then
+return false
+end
+end
+
+return true
+end
 
 
 
@@ -12465,6 +13759,7 @@ end
 
 return nil
 end
+
 
 
 
@@ -12827,12 +14122,17 @@ end
 
 n . byname = n . byname or { }
 n . writeByname = n . writeByname or { }
+n . staticByname = n . staticByname or { }
+n . staticWriteByname = n . staticWriteByname or { }
 n . metamethods = n . metamethods or { }
 n . nestedTypes = n . nestedTypes or { }
 n . methodEntries = { }
 n . methodDispatchEntries = { }
 n . overloadedMethods = { }
+n . staticEntries = { }
+n . overloadedStatics = { }
 n . defaultEntries = { }
+n . expansions = { }
 
 c . bindDeclaredType ( stat , n )
 
@@ -12853,6 +14153,8 @@ end
 n . fieldOrder = { }
 n . fieldDefs = { }
 n . writeFieldDefs = { }
+n . staticFieldDefs = { }
+n . staticWriteFieldDefs = { }
 stat . resolvedType = n
 
 
@@ -12860,7 +14162,7 @@ stat . resolvedType = n
 for _ , e in ipairs ( stat . entries ) do
 if e . kind == "recordDecl" then
 local nestedKind = e . declKind
-local nested = T . nominal ( e . name . text , nestedKind )
+local nested = e . hoistedType or T . nominal ( e . name . text , nestedKind )
 e . hoistedType = nested
 
 
@@ -12894,15 +14196,7 @@ n . supertypes [ # n . supertypes + 1 ] = super
 
 superNode . resolvedSupertype = super
 for _ , disposer in ipairs ( super . defaultDisposers or { } ) do
-local seen = false
-for _ , current in ipairs ( n . defaultDisposers or { } ) do
-if current == disposer then
-seen = true
-end
-end
-if not seen then
-n . defaultDisposers [ # n . defaultDisposers + 1 ] = disposer
-end
+c . own . addDefaultDisposer ( n , disposer )
 end
 local selfMap = super . selfType and { [ super . selfType ] = n . selfType } or { }
 for name , inherited in pairs ( super . byname or { } ) do
@@ -12948,6 +14242,33 @@ if not n . metamethods [ name ] then
 n . metamethods [ name ] = substType ( inherited , selfMap )
 end
 end
+for arity , inherited in pairs ( super . expansions or { } ) do
+local prior = n . expansions [ arity ]
+local same = prior and # prior == # inherited
+if same then
+for j , field in ipairs ( inherited ) do
+if prior [ j ] ~= field then
+same = false
+break
+end
+end
+end
+if prior and not same then
+c . diag (
+"NUPP2118" ,
+superNode ,
+( "inherited expansions of arity %d disagree" ) : format ( arity ) ,
+nil ,
+{ help = "interfaces inherited together must project the same ordered fields" }
+)
+elseif not prior then
+local copied = { }
+for j , field in ipairs ( inherited ) do
+copied [ j ] = field
+end
+n . expansions [ arity ] = copied
+end
+end
 end
 end
 
@@ -12971,13 +14292,17 @@ end
 
 
 local inlineSignatures = { }
+local staticSignatures = { }
 for _ , e in ipairs ( stat . entries ) do
 if e . kind == "inlineMethod" then
-local signature = c . signatureOf ( e . body , n )
+local receiver = hasReceiver ( e . body , stat . declKind )
+e . inlineStatic = not receiver
+local signature = c . signatureOf ( e . body , receiver and n or nil )
 local name = e . name . text
-local group = inlineSignatures [ name ] or { }
+local groups = receiver and inlineSignatures or staticSignatures
+local group = groups [ name ] or { }
 group [ # group + 1 ] = signature
-inlineSignatures [ name ] = group
+groups [ name ] = group
 end
 end
 for name , localSignatures in pairs ( inlineSignatures ) do
@@ -13015,6 +14340,15 @@ n . byname [ name ] = combined
 n . writeByname [ name ] = combined
 n . overloadedMethods [ name ] = # members > 1
 end
+end
+for name , signatures in pairs ( staticSignatures ) do
+if inlineSignatures [ name ] or n . byname [ name ] then
+c . diag ( "NUPP2118" , stat , ( "static member %q conflicts with an instance member" ) : format ( name ) )
+end
+local combined = # signatures == 1 and signatures [ 1 ] or T . intersection ( signatures )
+n . staticByname [ name ] = combined
+n . staticWriteByname [ name ] = combined
+n . overloadedStatics [ name ] = # signatures > 1
 end
 local localMembers , localMetamethods = { } , { }
 for _ , e in ipairs ( stat . entries ) do
@@ -13054,7 +14388,7 @@ e ,
 "@dispose member must be a function whose first " .. "parameter takes the resource"
 )
 else
-n . defaultDisposers [ # n . defaultDisposers + 1 ] = "@method:" .. e . name . text
+c . own . addDefaultDisposer ( n , T . methodCleanup ( e . name . text ) )
 end
 end
 local name = e . name . text
@@ -13238,7 +14572,8 @@ if not state then
 state = { read = true , write = true , method = true }
 localMembers [ name ] = state
 end
-local declaredGroup = inlineSignatures [ name ] or { }
+local receiver = hasReceiver ( e . body , stat . declKind )
+local declaredGroup = ( receiver and inlineSignatures or staticSignatures ) [ name ] or { }
 if isDisposer and # declaredGroup > 1 then
 c . diag (
 "NUPP2602" ,
@@ -13246,33 +14581,42 @@ e . name ,
 "a disposal method has one resource contract and cannot " .. "be overloaded"
 )
 end
-if isDisposer then
+if isDisposer and not receiver then
+c . diag ( "NUPP2602" , e . name , "a disposal method must declare `self` as its first parameter" )
+isDisposer = false
+elseif isDisposer then
 e . body . disposeContract = true
 e . body . disposeMethod = true
 end
-local ft = addSelf ( c . checkFuncbody ( e . body , n ) , n , isDisposer and "takes" or nil )
+local checked = c . checkFuncbody ( e . body , receiver and n or nil )
+local ft = receiver and addSelf ( checked , n , isDisposer and "takes" or nil ) or checked
 c . raises . check ( e , e . body )
-local callable = dropSelf ( ft )
+local callable = ( receiver and dropSelf ( ft ) or ft )
 local parameterKey = methodslots . parameters ( callable )
 local memberName = methodslots . member ( name , callable )
-local entries = n . methodEntries [ name ] or { }
+local entryGroups = receiver and n . methodEntries or n . staticEntries
+local entries = entryGroups [ name ] or { }
 for _ , prior in ipairs ( entries ) do
 if prior . parameterKey == parameterKey then
 c . diag (
 "NUPP2118" ,
 e . name ,
 (
-"method %q already has an entry with parameter pack %s"
-) : format ( name , T . tostringPack ( callable . paramPack ) ) ,
+"%s %q already has an entry with parameter pack %s"
+) : format (
+receiver and "method" or "static function" ,
+name ,
+T . tostringPack ( callable . paramPack )
+) ,
 nil ,
 {
-help = "method overloads need distinguishable "
+help = "overloads need distinguishable "
 .. "parameter packs; return types do not select one"
 }
 )
 end
 end
-local definition = c . definition ( e . name , "method" )
+local definition = c . definition ( e . name , receiver and "method" or "function" )
 definition . type = ft
 local entry = {
 signature = ft ,
@@ -13282,12 +14626,14 @@ parameterKey = parameterKey ,
 definition = definition
 }
 entries [ # entries + 1 ] = entry
-n . methodEntries [ name ] = entries
+entryGroups [ name ] = entries
+if receiver then
 e . methodEntry = entry
+end
 
 
 
-if stat . declKind == "interface" then
+if receiver and stat . declKind == "interface" then
 n . defaults = n . defaults or { }
 n . defaults [ name ] = true
 n . defaultEntries [
@@ -13299,8 +14645,16 @@ slot = memberName ,
 entry = entry
 }
 end
-e . overridesDefault = inheritedDefault ( n , memberName )
-if e . overridesDefault and not isOverride then
+e . overridesDefault = receiver and inheritedDefault ( n , memberName ) or nil
+if not receiver and isOverride then
+c . diag (
+"NUPP2118" ,
+e . name ,
+"a static function cannot override an instance default" ,
+nil ,
+{ help = "add `self` as the first parameter, or remove @override" }
+)
+elseif e . overridesDefault and not isOverride then
 c . diag (
 "NUPP2118" ,
 e . name ,
@@ -13325,11 +14679,16 @@ help = "remove @override, or declare the interface "
 )
 end
 if isDisposer then
-n . defaultDisposers [ # n . defaultDisposers + 1 ] = "@method:" .. name
+c . own . addDefaultDisposer ( n , T . methodCleanup ( name ) )
 end
+if receiver then
 n . fieldDefs [ name ] = n . fieldDefs [ name ] or definition
 n . writeFieldDefs [ name ] = n . fieldDefs [ name ]
-c . markToken ( e . name , definition , ft , "method" )
+else
+n . staticFieldDefs [ name ] = n . staticFieldDefs [ name ] or definition
+n . staticWriteFieldDefs [ name ] = n . staticFieldDefs [ name ]
+end
+c . markToken ( e . name , definition , ft , receiver and "method" or "function" )
 elseif e . kind == "recordDecl" or e . kind == "typeAlias" then
 if stat . declKind == "struct" then
 c . diag ( "NUPP2201" , e , "struct bodies hold fields only (no nested declarations)" )
@@ -13355,6 +14714,55 @@ end
 end
 
 
+
+for _ , e in ipairs ( stat . entries ) do
+if e . kind == "expansionDecl" then
+local names , seen = { } , { }
+for j , token in ipairs ( e . names or { } ) do
+names [ j ] = token . text
+if seen [ token . text ] then
+c . diag ( "NUPP2118" , token , ( "expansion repeats field %q" ) : format ( token . text ) )
+else
+seen [ token . text ] = true
+end
+local fieldType , definition = c . fieldType ( n , token . text )
+if not fieldType then
+c . diag (
+"NUPP2118" ,
+token ,
+( "expansion field %q is not readable on %s" ) : format ( token . text , n . name )
+)
+elseif c . ownershipKind ( fieldType ) then
+c . diag (
+"NUPP2118" ,
+token ,
+( "expansion field %q is affine and cannot be projected" ) : format ( token . text ) ,
+nil ,
+{ help = "pass the container explicitly so ownership remains visible" }
+)
+else
+c . markToken ( token , definition , fieldType , "property" )
+end
+end
+local arity = # names
+if arity > 0 then
+local inherited = n . expansions [ arity ]
+if inherited then
+c . diag (
+"NUPP2118" ,
+e ,
+( "%s already has an expansion of arity %d" ) : format ( n . name , arity ) ,
+nil ,
+{ help = "remove the duplicate, or choose a different number of fields" }
+)
+else
+n . expansions [ arity ] = names
+end
+end
+end
+end
+
+
 for name , entries in pairs ( n . methodEntries ) do
 local byMember , order , inheritedMembers = { } , { } , { }
 for _ , entry in ipairs ( n . methodDispatchEntries [ name ] or { } ) do
@@ -13364,8 +14772,22 @@ end
 byMember [ entry . member ] = entry
 inheritedMembers [ entry . member ] = entry
 end
+local inheritedClaims = { }
 for _ , entry in ipairs ( entries ) do
 local inherited = inheritedMembers [ entry . member ]
+if not inherited then
+local localCallable = dropSelf ( entry . signature )
+local positionalKey = methodslots . unlabeledParameters ( localCallable )
+for _ , candidate in pairs ( inheritedMembers ) do
+local inheritedCallable = dropSelf ( candidate . signature )
+if methodslots . unlabeledParameters (
+inheritedCallable
+) == positionalKey and implementationLabelsFit ( localCallable , inheritedCallable ) then
+inherited = candidate
+break
+end
+end
+end
 if inherited then
 local localCallable = dropSelf ( entry . signature )
 local inheritedCallable = dropSelf ( inherited . signature )
@@ -13378,6 +14800,17 @@ entry . declaration . name ,
 "method %q does not satisfy its inherited " .. "overload: %s"
 ) : format ( name , why or "incompatible signature" )
 )
+end
+local priorClaim = inheritedClaims [ inherited . member ]
+if priorClaim and priorClaim ~= entry then
+c . diag (
+"NUPP2118" ,
+entry . declaration . name ,
+( "several local overloads implement the same inherited slot of %q" ) : format ( name )
+)
+else
+inheritedClaims [ inherited . member ] = entry
+entry . member = inherited . member
 end
 end
 if not byMember [ entry . member ] then
@@ -13407,6 +14840,13 @@ end
 end
 end
 if n . overloadedMethods [ name ] then
+for _ , entry in ipairs ( entries ) do
+entry . declaration . overloadMember = entry . member
+end
+end
+end
+for _ , entries in pairs ( n . staticEntries ) do
+if # entries > 1 then
 for _ , entry in ipairs ( entries ) do
 entry . declaration . overloadMember = entry . member
 end
@@ -13481,7 +14921,10 @@ elseif stat . declKind == "record" then
 c . bindDeclaredVar ( stat , T . metatable ( n ) )
 suggestStruct ( stat , n )
 else
-c . bindDeclaredVar ( stat , T . any )
+
+
+
+c . bindDeclaredVar ( stat , T . metatable ( n ) )
 end
 c . publishType ( stat , n , projectEntry )
 end
@@ -14106,25 +15549,6 @@ help = "make all but one declaration local or attach " .. "them to their module 
 return T . any
 end
 end
-
-
-
-
-
-
-
-
-
-
-
-if not entry and nameText == "buffer" and c . env and c . env . resolveModule then
-local moduleType = c . env . resolveModule ( c . env , "string.buffer" )
-if moduleType then
-node . bufferIntrinsic = true
-c . markToken ( nameTok , nil , moduleType , "variable" )
-return moduleType
-end
-end
 c . markToken (
 nameTok ,
 entry and entry . definition ,
@@ -14294,7 +15718,7 @@ local body = node . body
 return body and c . checkFuncbody ( body ) or T . any
 elseif kind == "shortfn" then
 c . pushScope ( )
-local params = { }
+local params , paramNames = { } , { }
 local vararg = false
 local expectedParams = nil
 local expected = expectedShortfns [ node ]
@@ -14317,6 +15741,7 @@ c . bindVar ( pname . text , T . table_ , false , pname , "parameter" , true )
 end
 else
 params [ # params + 1 ] = pt
+paramNames [ # params ] = pname and pname . text or ""
 if pname then
 c . bindVar ( pname . text , pt , p . type ~= nil , pname , "parameter" )
 end
@@ -14360,7 +15785,12 @@ nil ,
 nil ,
 nil ,
 T . pack ( params , vararg and { kind = "unknown" , type = T . any } or nil ) ,
-retPack
+retPack ,
+nil ,
+nil ,
+nil ,
+nil ,
+paramNames
 )
 elseif kind == "istring" then
 
@@ -15328,6 +16758,7 @@ local calleeT = calleeName and c . lookupVar ( calleeName ) or nil
 
 
 
+
 local intrinsic = cst . ownershipIntrinsicSpelling ( node . obj )
 local args = node . args and node . args . exprs or { }
 for j , arg in ipairs ( args ) do
@@ -15422,7 +16853,15 @@ end
 
 
 c . checkFuncbody = function ( body , selfType )
-local params , rets , paramModes = { } , { } , { }
+local params , rets , paramModes , paramNames = { } , { } , { } , { }
+
+
+
+
+local explicitSelf = selfType and body . params and body . params [ 1 ]
+if not ( explicitSelf and explicitSelf . name and explicitSelf . name . text == "self" ) then
+explicitSelf = nil
+end
 local inferredModes , declaredModes = inferredParameterModes ( body )
 local vararg = false
 local varargType = nil
@@ -15441,11 +16880,21 @@ if body . generics then
 typeParams , typeBounds , packParams = c . bindGenerics ( body . generics , "function" )
 end
 if selfType then
-c . bindVar ( "self" , selfType )
+c . bindVar (
+"self" ,
+selfType ,
+explicitSelf and explicitSelf . type ~= nil ,
+explicitSelf and explicitSelf . name or nil ,
+"parameter"
+)
 end
 local paramPackTail = nil
 for _ , p in ipairs ( body . params ) do
-if p . namedVararg then
+if p == explicitSelf then
+
+
+
+elseif p . namedVararg then
 vararg = true
 if p . type then
 if p . type . kind == "tpack" then
@@ -15459,6 +16908,7 @@ c . bindVar ( p . name . text , T . table_ , false , p . name , "parameter" , tr
 elseif p . name then
 local pt = p . type and c . resolveType ( p . type ) or ( expectedParams and expectedParams [ # params + 1 ] ) or T . any
 params [ # params + 1 ] = pt
+paramNames [ # params ] = p . name . text
 local mode = inferredModes [ # params ] or "borrows"
 if not declaredModes [
 # params
@@ -15531,7 +16981,8 @@ body . ownCleanups = resolvedOwnedCleanups (
 annotated [ 1 ] ,
 body . ownCleanups ,
 body . ownOpaque ,
-body . ownTok or body
+body . ownTok or body ,
+body . cleanupRegistrationNode
 )
 annotated [ 1 ] = T . owned ( annotated [ 1 ] , body . ownCleanups )
 rets [ 1 ] = annotated [ 1 ]
@@ -15775,7 +17226,9 @@ paramPack ,
 retPack ,
 packParams ,
 yieldPack ,
-resumePack
+resumePack ,
+nil ,
+paramNames
 )
 end
 
@@ -15783,8 +17236,12 @@ end
 
 
 c . signatureOf = function ( body , selfType )
-local params , modes = { } , { }
+local params , modes , paramNames = { } , { } , { }
 local inferredModes , declaredModes = inferredParameterModes ( body or { } )
+local explicitSelf = selfType and body and body . params and body . params [ 1 ]
+if not ( explicitSelf and explicitSelf . name and explicitSelf . name . text == "self" ) then
+explicitSelf = nil
+end
 local typeParams , typeBounds , packParams
 c . pushScope ( )
 if body and body . generics then
@@ -15793,23 +17250,25 @@ end
 if selfType then
 params [ 1 ] = selfType
 modes [ 1 ] = "plain"
+paramNames [ 1 ] = "self"
 end
-local parameterIndex = 0
 local varargType = nil
 local paramPackTail = nil
 local vararg = body and body . varargs or false
-for _ , p in ipairs ( body and body . params or { } ) do
-if p . name and not p . namedVararg then
-parameterIndex = parameterIndex + 1
+for sourceIndex , p in ipairs ( body and body . params or { } ) do
+if p == explicitSelf then
+
+elseif p . name and not p . namedVararg then
 local pt = p . type and c . resolveType ( p . type ) or T . any
-local mode = inferredModes [ parameterIndex ] or "borrows"
+local mode = inferredModes [ sourceIndex ] or "borrows"
 if not declaredModes [
-parameterIndex
+sourceIndex
 ] and mode ~= "takes" and not pointerShaped ( pt ) and not ( pt . tag == "nominal" and pt . affineResource ) then
 mode = "plain"
 end
 params [ # params + 1 ] = pt
 modes [ # modes + 1 ] = mode
+paramNames [ # params ] = p . name . text
 else
 
 vararg = true
@@ -15856,7 +17315,9 @@ paramPack ,
 retPack ,
 packParams ,
 yieldPack ,
-resumePack
+resumePack ,
+nil ,
+paramNames
 )
 end
 
@@ -15887,7 +17348,7 @@ c . bindVar ( nameTok . text , ft )
 c . unused . declared ( nameTok , c . scope . vars [ nameTok . text ] , "function" )
 c . raises . check ( stat , body )
 if body . disposeContract then
-registerDefaultDisposer ( ft , nameTok . text , body . disposeTok or stat )
+registerDefaultDisposer ( ft , nameTok . text , body . disposeTok or stat , body . cleanupRegistrationNode )
 end
 end
 
@@ -15921,6 +17382,9 @@ c . raises . check ( stat , body )
 if not fname . method and ownerKey == c . moduleLocal and memberTok then
 c . moduleFields [ memberTok . text ] = ft
 c . moduleFieldTokens [ memberTok . text ] = memberTok
+
+
+c . moduleFieldValues [ memberTok . text ] = body
 end
 
 
@@ -15933,7 +17397,12 @@ if not fname . method and not owner and ownerKey and memberTok then
 c . applyFacts ( { [ ownerKey .. "." .. memberTok . text ] = ft } )
 end
 if body . disposeContract and not owner then
-registerDefaultDisposer ( ft , fname . base and fname . base . text or "<dispose>" , body . disposeTok or stat )
+registerDefaultDisposer (
+ft ,
+fname . base and fname . base . text or "<dispose>" ,
+body . disposeTok or stat ,
+body . cleanupRegistrationNode
+)
 end
 if owner and owner . declKind == "struct" then
 
@@ -15949,8 +17418,12 @@ for _ , p in ipairs ( ft . params ) do
 params [ # params + 1 ] = p
 end
 local modes = { body . disposeMethod and "takes" or "plain" }
+local names = { "self" }
 for _ , mode in ipairs ( ft . paramModes or { } ) do
 modes [ # modes + 1 ] = mode
+end
+for _ , name in ipairs ( ft . paramNames or { } ) do
+names [ # names + 1 ] = name
 end
 owner . byname [
 member
@@ -15972,17 +17445,31 @@ T . pack ( params , ft . paramPack . tail , modes ) ,
 ft . retPack ,
 ft . packParams ,
 ft . yieldPack ,
-ft . resumePack
+ft . resumePack ,
+ft . noYield ,
+names
 )
 owner . writeByname [ member ] = owner . byname [ member ]
+elseif owner . declKind == "record" or owner . declKind == "interface" then
+owner . staticByname [ member ] = ft
+owner . staticWriteByname [ member ] = ft
 else
 owner . byname [ member ] = ft
 owner . writeByname [ member ] = ft
 end
 if body . disposeMethod then
-owner . defaultDisposers [ # owner . defaultDisposers + 1 ] = fname . method and ( "@method:" .. member ) or member
+if fname . method then
+c . own . addDefaultDisposer ( owner , T . methodCleanup ( member ) )
+else
+registerDefaultDisposer (
+ft ,
+( owner . runtimePath or ownerKey ) .. "." .. member ,
+body . disposeTok or stat ,
+body . cleanupRegistrationNode
+)
 end
-if owner . fieldOrder then
+end
+if owner . fieldOrder and ( fname . method or owner . declKind == "struct" ) then
 owner . fieldOrder [ # owner . fieldOrder + 1 ] = member
 end
 end
@@ -16024,6 +17511,12 @@ local index = { }
 
 
 
+local COMPILER_MODULES = { [ "string.buffer" ] = "string.buffer" }
+
+
+
+
+
 
 
 
@@ -16046,6 +17539,23 @@ local holderName = ""
 if target . kind == "name" then
 local holderTok = target . token
 holderName = holderTok and holderTok . text or ""
+end
+if kind == "dotIndex" and not node . writeContext then
+local sourcePath = holderName ~= "" and holderName .. "." .. memberName or ""
+local moduleName = COMPILER_MODULES [ sourcePath ]
+local holder = moduleName and c . lookupEntry ( holderName ) or nil
+local builtin = moduleName and c . env and c . env . globals and c . env . globals [ holderName ] or nil
+if holder and builtin and holder . definition == builtin . definition and c . env and c . env . resolveModule then
+local moduleType = c . env . resolveModule ( c . env , moduleName )
+if moduleType then
+c . infer ( target )
+node . compilerModule = moduleName
+node . immutablePath = true
+node . resolvedType = moduleType
+c . markToken ( member , nil , moduleType , "property" )
+return moduleType
+end
+end
 end
 if kind == "dotIndex" and memberName == "C" and holderName == "ffi" then
 return c . cNamespaceType ( )
@@ -16093,10 +17603,12 @@ if not exporting or not c . env or not c . env . exportedNominal then
 return nil
 end
 local t , def = c . env . exportedNominal ( c . env , exporting , memberName )
-if t and t . tag == "nominal" and ( t . declKind == "record" or t . declKind == "struct" ) then
+if t and t . tag == "nominal" and (
+t . declKind == "record" or t . declKind == "struct" or t . declKind == "interface"
+) then
 
 
-local held = t . declKind == "record" and T . metatable ( t ) or t
+local held = t . declKind == "struct" and t or T . metatable ( t )
 c . markToken ( member , def , held , def and def . kind or "variable" )
 return held
 end
@@ -16215,7 +17727,28 @@ contracted and "use the suggested contract spelling" or "use the suggested field
 )
 return T . any
 end
-if not writing and base . tag == "nominal" and base . overloadedMethods and base . overloadedMethods [ memberName ] then
+local staticOwner = base . tag == "metatable" and rawType ( base . of ) or nil
+if not writing
+and staticOwner
+and staticOwner . tag == "nominal"
+and staticOwner . overloadedStatics
+and staticOwner . overloadedStatics [
+memberName
+] then
+node . staticOverloadOwner = staticOwner
+node . staticOverloadName = memberName
+if not node . callCallee then
+c . diag (
+"NUPP2126" ,
+member ,
+( "overloaded static function %q has no single field value" ) : format ( memberName ) ,
+nil ,
+{ help = "call it through the declaration table so the arguments select one body" }
+)
+end
+elseif not writing and base . tag == "nominal" and base . overloadedMethods and base . overloadedMethods [
+memberName
+] then
 c . diag (
 "NUPP2126" ,
 member ,
@@ -17548,6 +19081,246 @@ end
 return narrow
 
 end
+package.preload["nupp.compiler.check.nosuspend"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local cst = require ( "nupp.compiler.cst" )
+local state = require ( "nupp.compiler.check.state" )
+
+local nosuspend = { }
+
+
+
+
+local MAX_CHAIN = 8
+
+
+
+
+
+
+
+
+
+
+
+
+function nosuspend . install ( c )
+local ops = { }
+
+
+local candidates = { }
+
+
+
+
+function ops . call ( call )
+if c . noSuspendDepth <= 0 or not call then
+return
+end
+candidates [ # candidates + 1 ] = { call = call , calleeType = call . calleeType , code = "NUPP2701" }
+end
+
+
+local callbackRegions = { }
+
+
+
+
+
+
+
+
+
+function ops . callback ( body , where )
+if not body then
+return
+end
+callbackRegions [ # callbackRegions + 1 ] = { body = body , where = where }
+end
+
+
+
+
+
+
+
+
+local function firstSuspendingCall ( queries , body )
+local found = nil
+local function walk ( node )
+if not node or found or cst . isToken ( node ) then
+return
+end
+local kind = node . kind
+if kind == "call" or kind == "safeCall" or kind == "methodCall" then
+local reached = queries . callee and queries . callee ( node ) or nil
+if reached and reached . summary and reached . summary . yields then
+found = { info = reached , at = node }
+return
+end
+end
+for _ , child in ipairs ( node ) do
+walk ( child )
+end
+end
+
+walk ( body )
+
+return found
+end
+
+local function chain ( queries , info )
+local related , seen , current = { } , { } , info
+while current and # related < MAX_CHAIN do
+if seen [ current ] or not current . body then
+break
+end
+seen [ current ] = true
+local step = firstSuspendingCall ( queries , current . body )
+if not step then
+break
+end
+local callee = step . at . obj
+local token = callee and ( callee . token or callee . name ) or nil
+if token then
+related [
+# related + 1
+] = {
+line = token . line ,
+col = token . col ,
+offset = token . offset ,
+length = # token . text ,
+msg = ( "%s may suspend" ) : format ( token . text ) ,
+}
+end
+current = step . info
+end
+
+return related
+end
+
+
+
+local function callsWithin ( body , into )
+if not body or cst . isToken ( body ) then
+return
+end
+local kind = body . kind
+if kind == "funcExpr" or kind == "shortfn" or kind == "localFuncStmt" or kind == "funcStmt" then
+return
+end
+if kind == "call" or kind == "safeCall" or kind == "methodCall" then
+into [ # into + 1 ] = body
+end
+for _ , child in ipairs ( body . stats or { } ) do
+callsWithin ( child , into )
+end
+for _ , child in ipairs ( body ) do
+callsWithin ( child , into )
+end
+end
+
+
+
+
+function ops . sweep ( queries )
+for _ , region in ipairs ( callbackRegions ) do
+local found = { }
+callsWithin ( region . body , found )
+for _ , call in ipairs ( found ) do
+candidates [
+# candidates + 1
+] = { call = call , calleeType = call . calleeType , code = "NUPP2702" , where = region . where , }
+end
+end
+for _ , candidate in ipairs ( candidates ) do
+local call = candidate . call
+local callee = call . obj
+local token = callee and ( callee . token or callee . name ) or nil
+local info = queries and queries . callee and queries . callee ( call ) or nil
+local mayYield , why = nil , nil
+if info and info . summary and not info . external then
+
+
+if info . summary . top then
+mayYield , why = true , "reaches code with unknown effects"
+else
+mayYield = info . summary . yields == true
+why = "may suspend"
+end
+else
+local target = candidate . calleeType
+if target and target . tag == "func" then
+mayYield = not target . noYield
+why = "may suspend"
+else
+
+
+mayYield , why = true , "cannot be resolved, so it may suspend"
+end
+end
+if mayYield then
+local named = token and ( "`" .. token . text .. "`" ) or "this call"
+local message
+if candidate . code == "NUPP2702" then
+
+
+
+message = (
+"%s %s, and %s cannot yield across the C call that reaches it"
+) : format ( named , why , candidate . where )
+else
+message = ( "%s %s, and this region forbids suspending" ) : format ( named , why )
+end
+c . diag (
+candidate . code ,
+callee or call ,
+message ,
+nil ,
+{
+help = "call something that cannot suspend, declare the callee's type "
+.. "`nosuspend function(...)`, or move this out of the region" ,
+related = info and chain ( queries , info ) or nil ,
+}
+)
+end
+end
+end
+
+return ops
+end
+
+return nosuspend
+
+end
 package.preload["nupp.compiler.check.operators"] = function(...)
 local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
@@ -17981,6 +19754,9 @@ local rawType = T . unwrapOwnership
 
 
 
+
+
+
 function ownership . install ( c )
 local own = { }
 
@@ -18028,59 +19804,57 @@ local inner = rawType ( t )
 return own . ownershipKind ( t ) == "owned" and inner . tag == "union" and inner . hasNil
 end
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function own . requireReachableCleanups ( valueT , cleanups , at )
-for _ , cleanup in ipairs ( cleanups or { } ) do
-local travels = cleanup : match ( "^@method:" ) or cleanup : match ( "^@field|" ) or cleanup : match ( "^@dropfield|" )
-if not travels and not c . lookupVar ( cleanup ) then
-c . diag (
-"NUPP2620" ,
-at ,
-(
-"@owned cleanup %q cannot be reached from this module, so "
-.. "this value cannot be discharged here"
-) : format ( cleanup ) ,
-nil ,
-{
-help = "give the type a @dispose method, so its cleanup "
-.. "travels with the value rather than being named" ,
-notes = {
-"the cleanup is private to the module that "
-.. "declared the owner, and a discharge emits a call "
-.. "to it by name"
-}
-}
-)
+local function addRegistration ( node , cleanup , after )
+if not node or cleanup . kind ~= "function" then
+return
 end
+local registrations = node . cleanupRegistrations or { }
+node . cleanupRegistrations = registrations
+for _ , current in ipairs ( registrations ) do
+if current . cleanup . id == cleanup . id and current . after == after then
+return
+end
+end
+registrations [ # registrations + 1 ] = { cleanup = cleanup , after = after }
+end
+
+local function resolvedFunctionCleanup ( name , at , registrationNode , after , knownType )
+local entry = c . lookupEntry ( name )
+local definition = entry and entry . definition or nil
+local token = definition and definition . token or cst . firstToken ( at )
+local origin = c . result . moduleName or c . filename or "<module>"
+local key = ( "%s#%s@%d" ) : format ( origin , name , token and token . offset or 0 )
+local cleanup = T . functionCleanup ( key , name , knownType or entry and entry . t or nil )
+addRegistration ( registrationNode , cleanup , after == true )
+
+return cleanup
+end
+
+function own . resolveCleanups ( cleanups , at , registrationNode )
+local resolved = { }
+registrationNode = registrationNode or at and at . cleanupRegistrationNode or nil
+for j , cleanup in ipairs ( cleanups or { } ) do
+if type ( cleanup ) == "table" and cleanup . kind then
+if cleanup . kind == "function" and not cleanup . functionType then
+resolved [ j ] = resolvedFunctionCleanup ( cleanup . name , at , registrationNode , false )
+else
+resolved [ j ] = cleanup
+addRegistration ( registrationNode , cleanup , false )
+end
+else
+resolved [ j ] = resolvedFunctionCleanup ( cleanup , at , registrationNode , false )
 end
 end
 
-function own . validateCleanups ( valueT , cleanups , at , code , allowUnknown )
+return resolved
+end
+
+function own . validateCleanups ( valueT , cleanups , at , code )
 code = code or "NUPP2602"
 local signature = { rawType ( valueT ) . id }
 for _ , cleanup in ipairs ( cleanups or { } ) do
-local cleanupT = c . lookupVar ( cleanup )
-signature [ # signature + 1 ] = cleanup .. ":" .. ( cleanupT and cleanupT . id or "?" )
+local cleanupT = cleanup . kind == "function" and ( cleanup . functionType or c . lookupVar ( cleanup . name ) ) or nil
+signature [ # signature + 1 ] = cleanup . id .. ":" .. ( cleanupT and cleanupT . id or "?" )
 end
 local contractKey = table . concat ( signature , "|" )
 if c . validatedCleanupContracts [ contractKey ] then
@@ -18088,21 +19862,17 @@ return
 end
 c . validatedCleanupContracts [ contractKey ] = true
 for j , cleanup in ipairs ( cleanups or { } ) do
-if cleanup : match ( "^@method:" ) or cleanup : match ( "^@field|" ) or cleanup : match ( "^@dropfield|" ) then
+if cleanup . kind ~= "function" then
 goto continue
 end
-local cleanupT = c . lookupVar ( cleanup )
+local cleanupT = cleanup . functionType or c . lookupVar ( cleanup . name )
 local cleanupFunc = cleanupT and cleanupT . tag == "func" and cleanupT or nil
 local firstParam = cleanupFunc and cleanupFunc . params [ 1 ] or nil
-if not cleanupT and not allowUnknown then
-
-
-
-
+if not cleanupT then
 c . diag (
 code ,
 at ,
-( "@owned cleanup %q is not declared" ) : format ( cleanup ) ,
+( "@owned cleanup %q is not declared" ) : format ( cleanup . name ) ,
 nil ,
 {
 notes = {
@@ -18113,15 +19883,19 @@ notes = {
 }
 )
 elseif cleanupT and cleanupT ~= T . any and ( not firstParam or not isA ( rawType ( valueT ) , firstParam ) ) then
-c . diag ( code , at , ( "@owned cleanup %q must accept %s" ) : format ( cleanup , T . tostring ( rawType ( valueT ) ) ) )
+c . diag (
+code ,
+at ,
+( "@owned cleanup %q must accept %s" ) : format ( cleanup . name , T . tostring ( rawType ( valueT ) ) )
+)
 elseif cleanupFunc and j < # ( cleanups or { } ) and cleanupFunc . paramModes [ 1 ] == "takes" then
-c . diag ( "NUPP2615" , at , ( "@owned cleanup %q takes before the final step" ) : format ( cleanup ) )
+c . diag ( "NUPP2615" , at , ( "@owned cleanup %q takes before the final step" ) : format ( cleanup . name ) )
 end
 :: continue ::
 end
 end
 
-function own . resolvedOwnedCleanups ( valueT , cleanups , opaque , at )
+function own . resolvedOwnedCleanups ( valueT , cleanups , opaque , at , registrationNode )
 local resource = rawType ( valueT )
 if resource . tag == "union" then
 for _ , member in ipairs ( resource . members ) do
@@ -18135,8 +19909,10 @@ end
 if resource . tag == "nominal" then
 resource . affineResource = true
 end
-if # ( cleanups or { } ) > 0 or opaque then
-return cleanups or { }
+if # ( cleanups or { } ) > 0 then
+return own . resolveCleanups ( cleanups , at , registrationNode )
+elseif opaque then
+return { }
 end
 local base = resource
 local defaults = base . tag == "nominal" and base . defaultDisposers or nil
@@ -18160,23 +19936,33 @@ end
 return { defaults [ 1 ] }
 end
 
-function own . registerDefaultDisposer ( ft , path , at )
-if not ft or ft . tag ~= "func" or not ft . params [ 1 ] or ft . paramModes [ 1 ] ~= "takes" then
-c . diag ( "NUPP2602" , at , "@dispose requires a function whose first parameter takes " .. "the resource" )
+function own . addDefaultDisposer ( resourceT , cleanup )
+if not resourceT then
 return
 end
-local base = rawType ( ft . params [ 1 ] )
+local base = rawType ( resourceT )
 if base . tag ~= "nominal" then
 return
 end
 local defaults = base . defaultDisposers or { }
 base . defaultDisposers = defaults
 for _ , current in ipairs ( defaults ) do
-if current == path then
+if current . id == cleanup . id then
 return
 end
 end
-defaults [ # defaults + 1 ] = path
+defaults [ # defaults + 1 ] = cleanup
+end
+
+function own . registerDefaultDisposer ( ft , path , at , registrationNode )
+if not ft or ft . tag ~= "func" or not ft . params [ 1 ] or ft . paramModes [ 1 ] ~= "takes" then
+c . diag ( "NUPP2602" , at , "@dispose requires a function whose first parameter takes " .. "the resource" )
+return
+end
+own . addDefaultDisposer (
+ft . params [ 1 ] ,
+resolvedFunctionCleanup ( path , at , registrationNode , true , ft )
+)
 end
 
 function own . ownershipEntry ( expr )
@@ -18650,16 +20436,24 @@ else
 target . ownedOuts = target . ownedOuts or { }
 target . ownedOuts [
 # target . ownedOuts + 1
-] = { name = outName , cleanups = cleanups , success = success , at = stat . name , }
+] = {
+name = outName ,
+cleanups = cleanups ,
+success = success ,
+at = stat . name ,
+cleanupRegistrationNode = stat ,
+}
 end
 elseif valid and target and targetKind == "cdefFunc" then
 target . ownCleanups = cleanups
 target . ownOpaque = opaque
 target . ownTok = stat . name
+target . cleanupRegistrationNode = stat
 elseif valid and targetBody then
 targetBody . ownCleanups = cleanups
 targetBody . ownOpaque = opaque
 targetBody . ownTok = annotationName
+targetBody . cleanupRegistrationNode = stat
 end
 if stat . stat then
 c . checkStat ( stat . stat )
@@ -18711,12 +20505,15 @@ if valid and targetKind == "funcStmt" and targetBody then
 targetBody . disposeContract = true
 targetBody . disposeMethod = ownerKey ~= nil
 targetBody . disposeTok = annotationName
+targetBody . cleanupRegistrationNode = stat
 elseif valid and targetKind == "localFuncStmt" and targetBody then
 targetBody . disposeContract = true
 targetBody . disposeTok = annotationName
+targetBody . cleanupRegistrationNode = stat
 elseif valid and target and targetKind == "cdefFunc" then
 target . disposeContract = true
 target . disposeTok = stat . name
+target . cleanupRegistrationNode = stat
 end
 if stat . stat then
 c . checkStat ( stat . stat )
@@ -18902,7 +20699,7 @@ end
 end
 end
 c . validateTypeBounds ( t . typeParams , t . typeBounds , map , node )
-return generics . subst ( t . body , map )
+return generics . materialize ( t . body , map )
 end
 if not ( t and t . tag == "nominal" and t . typeParams and node . typeArgs ) then
 return t
@@ -19002,17 +20799,12 @@ end
 
 
 
+
+
 if # names == 1 then
 local holder = c . lookupEntry ( names [ 1 ] )
 if holder and holder . requiredModule then
 moduleName = holder . requiredModule
-elseif not holder and names [ 1 ] == "buffer" then
-
-
-
-
-
-moduleName = "string.buffer"
 end
 end
 local t , def , resolvedModule = nil , nil , nil
@@ -19321,7 +21113,7 @@ return T . indexer ( indexer . readKey , indexer . readValue , indexer . writeKe
 end
 return T . shape ( fields , indexer )
 elseif kind == "tfunc" then
-local params , rets , paramModes = { } , { } , { }
+local params , rets , paramModes , paramNames = { } , { } , { } , { }
 local vararg = false
 local varargType = nil
 local typeParams , typeBounds , packParams
@@ -19346,6 +21138,7 @@ else
 params [ # params + 1 ] = p . type and c . resolveType ( p . type ) or T . any
 local mode = p . modeTok
 paramModes [ # params ] = mode and mode . text or "plain"
+paramNames [ # params ] = p . name and p . name . text or ""
 end
 end
 end
@@ -19363,26 +21156,10 @@ local resumePack = node . resumePack and c . resolvePack ( node . resumePack ) o
 if node . generics then
 c . popScope ( )
 end
-return T . func (
-params ,
-rets ,
-vararg ,
-paramModes ,
-nil ,
-typeParams ,
-typeBounds ,
-nil ,
-nil ,
-nil ,
-nil ,
-varargType ,
-nil ,
-paramPack ,
-retPack ,
-packParams ,
-yieldPack ,
-resumePack
-)
+return T . func ( params , rets , vararg , paramModes , nil , typeParams , typeBounds , nil , nil , nil , nil , varargType , nil , paramPack , retPack , packParams , yieldPack , resumePack ,
+
+
+node . noSuspend , paramNames )
 elseif kind == "tparen" then
 return c . resolveType ( node . inner )
 end
@@ -19566,7 +21343,32 @@ local state = { }
 
 
 
+
+
 state.Checker = {} state.Checker.__index = state.Checker
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -20467,7 +22269,7 @@ return cli
 
 end
 package.preload["nupp.compiler.cli.ast"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local names={"encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;target.empty_array=json.empty_array;target.array_mt=json.array_mt;target.empty_array_mt=json.empty_array_mt;for _,name in ipairs(names)do target[name]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","empty_array","array_mt","empty_array_mt","encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
 
 
 
@@ -21853,7 +23655,7 @@ local spec = require ( "nupp.compiler.cli.spec" )
 local command = spec . command {
 name = "fmt" ,
 summary = "Format Nupp source" ,
-usage = { "nupp fmt [-w|--write] [--check] [--no-method-parens] " .. "[--format text|json] [file...]" } ,
+usage = { "nupp fmt [-w|--write] [--check] [--no-method-parens] " .. "[--width N] [--format text|json] [file...]" } ,
 intro = [[With files named, each is formatted to stdout, or rewritten with --write.
 
 With none, the project is the subject: every .nupp and .d.nupp under the
@@ -21873,6 +23675,7 @@ options = require (
 name = "--no-method-parens" ,
 help = "Leave obj:m{...} and obj:m\"...\" written without " .. "parentheses, instead of adding them"
 } ,
+{ name = "--width" , value = "N" , help = "Code column past which a line breaks, at least 20 " .. "(default 120)" } ,
 require ( "nupp.compiler.cli.options" ) . format ( )
 ) ,
 schema = {
@@ -21896,7 +23699,10 @@ description = "Files that could not be formatted at all, which "
 .. "is a different answer from being unformatted." ,
 items = {
 type = "object" ,
-properties = { file = { type = "string" } , diagnostics = require ( "nupp.compiler.cli.report" ) . DIAGNOSTICS } ,
+properties = {
+file = { type = "string" } ,
+diagnostics = require ( "nupp.compiler.cli.report" ) . DIAGNOSTICS
+} ,
 required = { "file" , "diagnostics" } ,
 } ,
 } ,
@@ -21910,7 +23716,11 @@ file that could not be formatted from one that merely is not.
 A method call left in its sugar form, obj:m{...} or obj:m"...", is given its
 parentheses back, obj:m({...}) and obj:m("..."). --no-method-parens leaves it
 as written, and so does a manifest with fmt = { methodParens = false }; the
-flag wins if both are given.]] ,
+flag wins if both are given.
+
+--width sets the code column past which a line breaks; the default is 120,
+unchanged from before this was a flag. Docblock text keeps wrapping at 88
+columns regardless.]] ,
 }
 
 local function run ( parsed )
@@ -21920,6 +23730,14 @@ if write and asking then
 return command : usageError (
 "--write and --check ask for opposite things: one fixes the " .. "formatting, the other reports it"
 )
+end
+local width = 120
+if values . width then
+local given = tonumber ( values . width )
+if not given or given < 20 or given ~= math . floor ( given ) then
+return command : usageError ( "--width takes a whole number of columns, at least 20, not " .. values . width )
+end
+width = math . floor ( given )
 end
 local fs = require ( "nupp.compiler.fs" )
 local fmt = require ( "nupp.compiler.fmt" )
@@ -21932,6 +23750,13 @@ local env = envMod . new ( "." )
 
 
 local methodParens = not values . noMethodParens and envMod . fmtMethodParensDefault ( env )
+
+
+
+local currentPath = ""
+local formatter = fmt . new ( { annotations = env . annotations , resolveAnnotation = function ( name )
+return env . resolveProjectAnnotation ( env , currentPath , name )
+end , methodParens = methodParens , width = width , } )
 local paths = parsed . positional
 local wholeProject = # paths == 0
 
@@ -21979,8 +23804,11 @@ local hashMod = require ( "nupp.compiler.build.hash" )
 local optionsKey = nil
 local function verdictKey ( path , source )
 if not optionsKey then
-optionsKey = hashMod . digest ( tostring ( methodParens ) .. "\0" .. envMod . annotationKey ( env ) )
+optionsKey = hashMod . digest (
+tostring ( methodParens ) .. "\0" .. tostring ( width ) .. "\0" .. envMod . annotationKey ( env )
+)
 end
+
 return hashMod . digest ( optionsKey .. "\0" .. path .. "\0" .. source )
 end
 
@@ -22018,11 +23846,8 @@ elseif settled and settled . get ( verdictKey ( path , source ) ) == "same" then
 elseif not textNeeded and settled and settled . get ( verdictKey ( path , source ) ) == "differs" then
 unformatted [ # unformatted + 1 ] = path
 else
-local formatted , errors = fmt . format ( source , path , { annotations = env . annotations , resolveAnnotation = function (
-name
-)
-return env . resolveProjectAnnotation ( env , path , name )
-end , methodParens = methodParens , } )
+currentPath = path
+local formatted , errors = formatter : format ( source , path )
 
 
 
@@ -22315,7 +24140,7 @@ return setmetatable( { spec = command , run = run } , spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.lsp"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local names={"encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;target.empty_array=json.empty_array;target.array_mt=json.array_mt;target.empty_array_mt=json.empty_array_mt;for _,name in ipairs(names)do target[name]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","empty_array","array_mt","empty_array_mt","encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
 
 
 
@@ -23622,7 +25447,7 @@ return setmetatable( { spec = command , run = run } , spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.report"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local names={"encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;target.empty_array=json.empty_array;target.array_mt=json.array_mt;target.empty_array_mt=json.empty_array_mt;for _,name in ipairs(names)do target[name]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","empty_array","array_mt","empty_array_mt","encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
 
 
 
@@ -25339,7 +27164,26 @@ end
 return string . gsub ( subject , pattern , replacement , n )
 end , gmatch = string . gmatch , }
 
-env . table = { concat = table . concat , insert = table . insert , remove = table . remove , }
+
+
+
+env . table = {
+concat = table . concat ,
+insert = table . insert ,
+remove = table . remove ,
+clone = function ( t )
+local out = { }
+for k , v in next , t do
+out [ k ] = v
+end
+local mt = getmetatable ( t )
+if type ( mt ) == "table" then
+setmetatable ( out , mt )
+end
+
+return out
+end ,
+}
 
 env . bit = {
 band = bit . band ,
@@ -26076,7 +27920,7 @@ return comptime
 
 end
 package.preload["nupp.compiler.coverage"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local names={"encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;target.empty_array=json.empty_array;target.array_mt=json.array_mt;target.empty_array_mt=json.empty_array_mt;for _,name in ipairs(names)do target[name]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","empty_array","array_mt","empty_array_mt","encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
 
 
 
@@ -27000,6 +28844,28 @@ local cst = { }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 cst.Chunk = {} cst.Chunk.__index = cst.Chunk
 
 
@@ -27035,6 +28901,35 @@ cst.Block = {} cst.Block.__index = cst.Block
 
 
 cst.EmptyStmt = {} cst.EmptyStmt.__index = cst.EmptyStmt
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+cst.HandleStmt = {} cst.HandleStmt.__index = cst.HandleStmt
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -27161,6 +29056,30 @@ cst.WhileStmt = {} cst.WhileStmt.__index = cst.WhileStmt
 
 
 cst.DoStmt = {} cst.DoStmt.__index = cst.DoStmt
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+cst.NoSuspendStmt = {} cst.NoSuspendStmt.__index = cst.NoSuspendStmt
+
+
+
+
+
+
+
+
 
 
 
@@ -27558,6 +29477,18 @@ cst.RecordDecl = {} cst.RecordDecl.__index = cst.RecordDecl
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+cst.ExpansionDecl = {} cst.ExpansionDecl.__index = cst.ExpansionDecl
 
 
 
@@ -28101,6 +30032,25 @@ cst.Args = {} cst.Args.__index = cst.Args
 
 
 
+cst.NamedArg = {} cst.NamedArg.__index = cst.NamedArg
+
+
+
+
+
+
+
+
+
+cst.ExpandArg = {} cst.ExpandArg.__index = cst.ExpandArg
+
+
+
+
+
+
+
+
 cst.TableExpr = {} cst.TableExpr.__index = cst.TableExpr
 
 
@@ -28435,6 +30385,15 @@ cst.Tarray = {} cst.Tarray.__index = cst.Tarray
 
 
 cst.Tfunc = {} cst.Tfunc.__index = cst.Tfunc
+
+
+
+
+
+
+
+
+
 
 
 
@@ -29047,11 +31006,12 @@ local moduleFile , routeFile = urlsMod . moduleFile , urlsMod . routeFile
 local relativePrefix , cleanRoute = urlsMod . relativePrefix , urlsMod . cleanRoute
 local symbolLinkIndex , symbolLinks = urlsMod . symbolLinkIndex , urlsMod . symbolLinks
 local rewriteConfiguredPageLinks = urlsMod . rewriteConfiguredPageLinks
-local moduleSummary , renderHtmlItem = apiMod . moduleSummary , apiMod . renderHtmlItem
+local moduleSummary , renderHtmlItem , itemGroups = apiMod . moduleSummary , apiMod . renderHtmlItem , apiMod . itemGroups
 local nestedModules = apiMod . nestedModules
 local renderPage , homeHero , homeFeatures = pageMod . render , pageMod . homeHero , pageMod . homeFeatures
 
 local doc = { }
+
 
 
 
@@ -29139,9 +31099,10 @@ function doc . markdown (
 modules ,
 title ,
 all ,
-overview
+overview ,
+constructorPattern
 )
-return markdownMod . render ( modules , title , all , overview )
+return markdownMod . render ( modules , title , all , overview , constructorPattern )
 end
 
 local function sourceFiles ( root , config , settings , requested )
@@ -29163,6 +31124,13 @@ table . sort ( paths )
 return paths
 end
 
+local function byKindThenName ( left , right )
+if left . kind == right . kind then
+return left . name < right . name
+end
+return left . kind < right . kind
+end
+
 local function loadModules ( root , config , settings , requested )
 local modules , errors = { } , { }
 for _ , path in ipairs ( sourceFiles ( root , config , settings , requested ) ) do
@@ -29171,7 +31139,7 @@ if not source then
 errors [ # errors + 1 ] = { filename = path , line = 1 , col = 1 , msg = tostring ( readErr ) }
 else
 local name = moduleName ( path , root , config . include or { } )
-local module , parseErrors = doc . extract (
+local module , parseErrors , extraModules = doc . extract (
 source ,
 path ,
 name ,
@@ -29179,12 +31147,44 @@ name ,
 )
 if module then
 modules [ # modules + 1 ] = module
+for _ , extra in ipairs ( extraModules or { } ) do
+modules [ # modules + 1 ] = extra
+end
 else
 for _ , err in ipairs ( parseErrors ) do
 errors [ # errors + 1 ] = err
 end
 end
 end
+end
+
+
+
+
+
+
+local byName = { }
+for _ , module in ipairs ( modules ) do
+byName [ module . name ] = byName [ module . name ] or module
+end
+for _ , module in ipairs ( modules ) do
+local kept = { }
+for _ , item in ipairs ( module . items ) do
+local target = item . module and byName [ item . module ] or nil
+if target and target ~= module then
+item . path = item . module .. "." .. item . name
+for _ , member in ipairs ( item . members ) do
+member . path = item . path .. "." .. member . name
+end
+target . items [ # target . items + 1 ] = item
+else
+kept [ # kept + 1 ] = item
+end
+end
+module . items = kept
+end
+for _ , module in ipairs ( modules ) do
+table . sort ( module . items , byKindThenName )
 end
 if not settings . includePrivate then
 local internalTrees = { }
@@ -29449,9 +31449,7 @@ ordered [
 # ordered + 1
 ] = {
 path = route ,
-title = overview and overview . title or (
-module . namespace and "Namespace: " or "Module: "
-) .. module . name ,
+title = overview and overview . title or ( module . namespace and "Namespace: " or "Module: " ) .. module . name ,
 module = module ,
 overview = overview and overview . markdown or nil ,
 source = overview and overview . source or nil ,
@@ -29462,13 +31460,14 @@ pages = ordered
 local allMarkdown , linkIndex , searchEntries = { } , symbolLinkIndex ( modules ) , { }
 for _ , candidate in ipairs ( pages ) do
 local file = routeFile ( candidate . path )
-local markdown , body , items , current = candidate . markdown or "" , { } , { } , nil
+local markdown , body , current = candidate . markdown or "" , { } , nil
+local items = { }
 if candidate . module then
 local module = candidate . module
 local children = childModules ( modules , module . name )
-current , items = module . name , { }
+current = module . name
 for _ , heading in ipairs ( markdownOutline ( candidate . overview ) ) do
-items [ # items + 1 ] = heading
+items [ # items + 1 ] = { path = heading . path , name = heading . name }
 end
 if # children > 0 then
 items [ # items + 1 ] = { path = "modules" , name = "Modules" }
@@ -29476,11 +31475,18 @@ end
 if # module . items > 0 then
 items [ # items + 1 ] = { path = "module-contents" , name = "Module contents" }
 end
-for _ , item in ipairs ( module . items ) do
-items [ # items + 1 ] = item
+local groups = itemGroups ( module . items , settings . constructorPattern )
+for _ , group in ipairs ( groups ) do
+if # group . items > 0 then
+local entries = { }
+for _ , item in ipairs ( group . items ) do
+entries [ # entries + 1 ] = { path = item . path , name = item . name }
+end
+items [ # items + 1 ] = { path = group . path , name = group . title , items = entries }
+end
 end
 local overview = candidate . overview or ""
-markdown = doc . markdown ( { module } , nil , modules , overview )
+markdown = doc . markdown ( { module } , nil , modules , overview , settings . constructorPattern )
 local links = symbolLinks ( linkIndex , module , relativePrefix ( file ) )
 body [
 # body + 1
@@ -29490,9 +31496,7 @@ module . namespace and "Namespace: " or "Module: "
 
 
 if overview ~= "" then
-body [
-# body + 1
-] = markdownHtml ( rewriteConfiguredPageLinks ( overview , candidate , pages , file ) , links , 0 )
+body [ # body + 1 ] = markdownHtml ( rewriteConfiguredPageLinks ( overview , candidate , pages , file ) , links , 0 )
 elseif module . namespace then
 body [
 # body + 1
@@ -29515,13 +31519,29 @@ body [ # body + 1 ] = '<div class="nuppdoc-empty">No public declarations.</div>'
 end
 else
 body [ # body + 1 ] = moduleSummary ( module , settings . constructorPattern )
-for _ , item in ipairs ( module . items ) do
+for _ , group in ipairs ( groups ) do
+if # group . items > 0 then
+body [
+# body + 1
+] = '<section class="nuppdoc-api-group"><h2 id="' .. htmlEscape (
+group . path
+) .. '">' .. htmlEscape (
+group . title
+) .. '<a class="nuppdoc-header-anchor" href="#' .. htmlEscape (
+group . path
+) .. '" aria-label="Link to ' .. htmlEscape ( group . title ) .. '">#</a></h2>'
+for _ , item in ipairs ( group . items ) do
 renderHtmlItem ( body , item , links )
+end
+body [ # body + 1 ] = "</section>"
+end
 end
 end
 else
 local links = symbolLinks ( linkIndex , nil , relativePrefix ( file ) )
-items = markdownOutline ( markdown )
+for _ , heading in ipairs ( markdownOutline ( markdown ) ) do
+items [ # items + 1 ] = { path = heading . path , name = heading . name }
+end
 body [ # body + 1 ] = homeHero ( candidate , links )
 local renderedMarkdown = rewriteConfiguredPageLinks ( markdown , candidate , pages , file )
 local featureStart , featureEnd
@@ -29679,6 +31699,7 @@ end
 
 
 
+
 function doc . build (
 root ,
 config ,
@@ -29707,7 +31728,7 @@ output = join ( root , output )
 filesMod . collect ( opts . written )
 local code , message = 0 , nil
 if format == "markdown" then
-local ok , err = writeFile ( output , doc . markdown ( modules , title ) )
+local ok , err = writeFile ( output , doc . markdown ( modules , title , nil , nil , settings . constructorPattern ) )
 if not ok then
 code , message = 1 , tostring ( err )
 end
@@ -29719,7 +31740,10 @@ end
 elseif format == "both" then
 local ok , err = renderSite ( root , output , modules , title , settings )
 if ok then
-ok , err = writeFile ( join ( output , "api.md" ) , doc . markdown ( modules , title ) )
+ok , err = writeFile (
+join ( output , "api.md" ) ,
+doc . markdown ( modules , title , nil , nil , settings . constructorPattern )
+)
 end
 if not ok then
 code , message = 1 , tostring ( err )
@@ -29805,6 +31829,13 @@ local api = { }
 
 
 
+
+
+
+
+
+
+
 local DEFAULT_CONSTRUCTOR_PATTERN = "^new"
 
 local function kindBadge ( kind )
@@ -29820,6 +31851,63 @@ return false
 end
 
 return ( item . name : match ( "([^.]+)$" ) or item . name ) : match ( pattern ) ~= nil
+end
+
+local function byName ( left , right )
+local leftName , rightName = left . name : lower ( ) , right . name : lower ( )
+if leftName == rightName then
+return left . path < right . path
+end
+
+return leftName < rightName
+end
+
+
+
+
+
+
+local function itemGroups ( items , constructorPattern )
+local pattern = constructorPattern or DEFAULT_CONSTRUCTOR_PATTERN
+local groups = {
+{ title = "Constructors" , path = "constructors" , kinds = false , items = { } } ,
+{ title = "Types" , path = "types" , kinds = true , items = { } } ,
+{ title = "Functions" , path = "functions" , kinds = true , items = { } } ,
+{ title = "Values" , path = "values" , kinds = true , items = { } } ,
+}
+for _ , item in ipairs ( items ) do
+local group = groups [ 2 ]
+if isConstructor ( item , pattern ) then
+group = groups [ 1 ]
+elseif item . kind == "function" or item . kind == "method" then
+group = groups [ 3 ]
+elseif item . kind == "variable" then
+group = groups [ 4 ]
+end
+group . items [ # group . items + 1 ] = item
+end
+for _ , group in ipairs ( groups ) do
+table . sort ( group . items , byName )
+end
+
+return groups
+end
+
+
+
+
+
+
+
+
+local function unqualifiedName ( moduleName , name )
+local tail = moduleName : match ( "([^.]+)$" ) or moduleName
+local prefix = tail .. "."
+if name : sub ( 1 , # prefix ) == prefix then
+return name : sub ( # prefix + 1 )
+end
+
+return name
 end
 
 
@@ -29841,48 +31929,30 @@ for _ , child in ipairs ( children ) do
 rows [
 # rows + 1
 ] = {
-'<a href="' .. htmlEscape ( prefix .. moduleFile ( child . name ) ) .. '"><code>' .. htmlEscape (
-child . name
-) .. '</code></a>' ,
+'<a href="' .. htmlEscape (
+prefix .. moduleFile ( child . name )
+) .. '"><code>' .. htmlEscape ( child . name ) .. '</code></a>' ,
 child . namespace and namespaceSummary ( modules , child . name ) or inlineHtml ( summaryText ( child . text ) ) ,
 }
 end
 
-return '<section class="nuppdoc-module-modules"><h2 id="modules">Modules</h2>'
-.. tableHtml (
+return '<section class="nuppdoc-module-modules"><h2 id="modules">Modules</h2>' .. tableHtml (
 { "Module" , "Description" } ,
 rows
 ) .. "</section>"
 end
 
 local function moduleSummary ( module , constructorPattern )
-local pattern = constructorPattern or DEFAULT_CONSTRUCTOR_PATTERN
-
-
-local groups = {
-{ title = "Constructors" , kinds = false , items = { } } ,
-{ title = "Types" , kinds = true , items = { } } ,
-{ title = "Functions" , kinds = true , items = { } } ,
-{ title = "Values" , kinds = true , items = { } } ,
-}
-for _ , item in ipairs ( module . items ) do
-local group = groups [ 2 ]
-if isConstructor ( item , pattern ) then
-group = groups [ 1 ]
-elseif item . kind == "function" or item . kind == "method" then
-group = groups [ 3 ]
-elseif item . kind == "variable" then
-group = groups [ 4 ]
-end
-group . items [ # group . items + 1 ] = item
-end
+local groups = itemGroups ( module . items , constructorPattern )
 local out = { '<section class="nuppdoc-module-summary"><h2 id="module-contents">Module contents</h2>' }
 for _ , group in ipairs ( groups ) do
 if # group . items > 0 then
 local rows = { }
 for _ , item in ipairs ( group . items ) do
 local row = {
-'<a href="#' .. htmlEscape ( item . path ) .. '"><code>' .. htmlEscape ( item . name ) .. '</code></a>'
+'<a href="#' .. htmlEscape (
+item . path
+) .. '"><code>' .. htmlEscape ( unqualifiedName ( module . name , item . name ) ) .. '</code></a>'
 }
 
 
@@ -29892,10 +31962,11 @@ end
 row [ # row + 1 ] = inlineHtml ( summaryText ( item . doc . text ) )
 rows [ # rows + 1 ] = row
 end
-local headers = group . kinds and { group . title : sub ( 1 , - 2 ) , "Kind" , "Description" } or {
+local headers = group . kinds and {
 group . title : sub ( 1 , - 2 ) ,
+"Kind" ,
 "Description"
-}
+} or { group . title : sub ( 1 , - 2 ) , "Description" }
 out [ # out + 1 ] = '<h3>' .. group . title .. '</h3>' .. tableHtml ( headers , rows )
 end
 end
@@ -29922,12 +31993,30 @@ end
 return "<" .. heading .. ">Raises</" .. heading .. "><ul>" .. table . concat ( entries ) .. "</ul>"
 end
 
+
+
+
+local function structureMemberLinks ( item , links )
+if not links or # item . members == 0 then
+return nil
+end
+local members = { }
+for _ , member in ipairs ( item . members ) do
+local url = links [ item . name .. "." .. member . name ] or links [ member . path ]
+if url then
+members [ member . name ] = url
+end
+end
+
+return next ( members ) and members or nil
+end
+
 local function renderHtmlItem ( out , item , links )
 out [
 # out + 1
 ] = '<section class="nuppdoc-api-item" id="' .. htmlEscape (
 item . path
-) .. '"><h2><code>' .. htmlEscape (
+) .. '"><h3><code>' .. htmlEscape (
 item . name
 ) .. '</code><span class="nuppdoc-kind-badge nuppdoc-kind-' .. htmlEscape (
 item . kind
@@ -29935,20 +32024,21 @@ item . kind
 item . kind
 ) .. '</span><a class="nuppdoc-header-anchor" href="#' .. htmlEscape (
 item . path
-) .. '" aria-label="Link to ' .. htmlEscape ( item . name ) .. '">#</a></h2>'
+) .. '" aria-label="Link to ' .. htmlEscape ( item . name ) .. '">#</a></h3>'
 out [ # out + 1 ] = markdownHtml ( item . doc . text , links )
 out [
 # out + 1
 ] = '<div class="nuppdoc-code-block" data-lang="nupp"><pre>' .. '<code class="language-nupp">' .. highlightNupp (
 item . signature ,
-links
+links ,
+structureMemberLinks ( item , links )
 ) .. "</code></pre></div>"
 if # item . typeargs > 0 then
 local rows = { }
 for _ , typearg in ipairs ( item . typeargs ) do
 rows [ # rows + 1 ] = { "<code>" .. htmlEscape ( typearg . name ) .. "</code>" , markdownHtml ( typearg . text , links ) }
 end
-out [ # out + 1 ] = "<h3>Type parameters</h3>" .. tableHtml ( { "Name" , "Description" } , rows )
+out [ # out + 1 ] = "<h4>Type parameters</h4>" .. tableHtml ( { "Name" , "Description" } , rows )
 end
 if # item . params > 0 then
 local rows = { }
@@ -29961,25 +32051,25 @@ inlineNupp ( param . type , links ) ,
 markdownHtml ( param . text , links )
 }
 end
-out [ # out + 1 ] = "<h3>Arguments</h3>" .. tableHtml ( { "Name" , "Type" , "Description" } , rows )
+out [ # out + 1 ] = "<h4>Arguments</h4>" .. tableHtml ( { "Name" , "Type" , "Description" } , rows )
 end
 if # item . returns > 0 then
 local rows = { }
 for _ , value in ipairs ( item . returns ) do
 rows [ # rows + 1 ] = { inlineNupp ( value . type , links ) , markdownHtml ( value . text , links ) }
 end
-out [ # out + 1 ] = "<h3>Returns</h3>" .. tableHtml ( { "Type" , "Description" } , rows )
+out [ # out + 1 ] = "<h4>Returns</h4>" .. tableHtml ( { "Type" , "Description" } , rows )
 end
-out [ # out + 1 ] = raisesHtml ( item . raises , "h3" , links )
+out [ # out + 1 ] = raisesHtml ( item . raises , "h4" , links )
 local fields , methods = splitMembers ( item . members )
 if # methods > 0 then
-out [ # out + 1 ] = "<h3>Methods</h3>"
+out [ # out + 1 ] = "<h4>Methods</h4>"
 for _ , method in ipairs ( methods ) do
 out [
 # out + 1
 ] = '<div class="nuppdoc-api-member" id="' .. htmlEscape (
 method . path
-) .. '"><h4><code>' .. htmlEscape ( method . name ) .. "</code></h4>"
+) .. '"><h5><code>' .. htmlEscape ( method . name ) .. "</code></h5>"
 out [ # out + 1 ] = markdownHtml ( method . text , links )
 out [
 # out + 1
@@ -30000,16 +32090,16 @@ inlineNupp ( param . type , links ) ,
 markdownHtml ( param . text , links )
 }
 end
-out [ # out + 1 ] = "<h5>Arguments</h5>" .. tableHtml ( { "Name" , "Type" , "Description" } , rows )
+out [ # out + 1 ] = "<h6>Arguments</h6>" .. tableHtml ( { "Name" , "Type" , "Description" } , rows )
 end
 if # method . returns > 0 then
 local rows = { }
 for _ , value in ipairs ( method . returns ) do
 rows [ # rows + 1 ] = { inlineNupp ( value . type , links ) , markdownHtml ( value . text , links ) }
 end
-out [ # out + 1 ] = "<h5>Returns</h5>" .. tableHtml ( { "Type" , "Description" } , rows )
+out [ # out + 1 ] = "<h6>Returns</h6>" .. tableHtml ( { "Type" , "Description" } , rows )
 end
-out [ # out + 1 ] = raisesHtml ( method . raises , "h5" , links )
+out [ # out + 1 ] = raisesHtml ( method . raises , "h6" , links )
 out [ # out + 1 ] = "</div>"
 end
 end
@@ -30024,12 +32114,13 @@ inlineNupp ( field . type , links ) ,
 markdownHtml ( field . text , links )
 }
 end
-out [ # out + 1 ] = "<h3>Fields</h3>" .. tableHtml ( { "Name" , "Type" , "Description" } , rows )
+out [ # out + 1 ] = "<h4>Fields</h4>" .. tableHtml ( { "Name" , "Type" , "Description" } , rows )
 end
 out [ # out + 1 ] = "</section>"
 end
 
 api . moduleSummary = moduleSummary
+api . itemGroups = itemGroups
 api . nestedModules = nestedModules
 api . renderHtmlItem = renderHtmlItem
 
@@ -30059,7 +32150,7 @@ local THEME = [[
  * than with scroll-padding on the scrollport is what makes a link land in the same
  * place in browsers that skip scroll-padding on a load-time fragment; the two would
  * otherwise add up to twice the gap where both are honored. */
-.nuppdoc-api-item,.nuppdoc-api-member,.nuppdoc-content :is(h1,h2,h3,h4,h5,h6)[id]{scroll-margin-top:calc(var(--nuppdoc-header-height) + 2rem)}body{margin:0;color:var(--nuppdoc-text);background:var(--nuppdoc-background);font-family:var(--nuppdoc-font);line-height:1.6}a{color:var(--nuppdoc-accent);text-decoration-color:currentColor}a:hover{color:var(--nuppdoc-accent-hover)}button,input{font:inherit}.nuppdoc-header{position:sticky;z-index:30;top:0;height:var(--nuppdoc-header-height);border-bottom:1px solid var(--nuppdoc-border);background:color-mix(in srgb,var(--nuppdoc-background) 92%,transparent);backdrop-filter:blur(12px)}.nuppdoc-nav{display:flex;width:100%;max-width:var(--nuppdoc-layout-max-width);height:100%;align-items:center;gap:1rem;margin:auto;padding:0 1rem}.nuppdoc-brand{display:flex;align-items:center;gap:.55rem;color:var(--nuppdoc-text);font-weight:700;text-decoration:none}.nuppdoc-mark{display:grid;width:29px;height:29px;place-items:center;color:#fff;border-radius:7px;background:var(--nuppdoc-accent);font-family:var(--nuppdoc-font-mono);font-size:.7rem}.nuppdoc-top-nav{display:flex;flex:1;gap:.2rem}.nuppdoc-top-nav a{padding:.45rem .65rem;color:var(--nuppdoc-text-muted);border-radius:7px;font-size:.76rem;text-decoration:none}.nuppdoc-top-nav a:hover{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}.nuppdoc-top-nav a[aria-current="page"]{color:var(--nuppdoc-accent)}.nuppdoc-actions{display:flex;align-items:center;gap:.25rem}.nuppdoc-search{width:min(190px,18vw);height:32px;padding:.25rem .6rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:6px;background:var(--nuppdoc-background-alt);font-size:.75rem}.nuppdoc-theme{display:grid;width:34px;height:34px;place-items:center;padding:0;color:var(--nuppdoc-text-muted);border:0;border-radius:7px;background:transparent;cursor:pointer}.nuppdoc-theme:hover{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}
+.nuppdoc-api-item,.nuppdoc-api-member,.nuppdoc-content :is(h1,h2,h3,h4,h5,h6)[id]{scroll-margin-top:calc(var(--nuppdoc-header-height) + 1.4rem)}body{margin:0;color:var(--nuppdoc-text);background:var(--nuppdoc-background);font-family:var(--nuppdoc-font);line-height:1.6}a{color:var(--nuppdoc-accent);text-decoration-color:currentColor}a:hover{color:var(--nuppdoc-accent-hover)}button,input{font:inherit}.nuppdoc-header{position:sticky;z-index:30;top:0;height:var(--nuppdoc-header-height);border-bottom:1px solid var(--nuppdoc-border);background:color-mix(in srgb,var(--nuppdoc-background) 92%,transparent);backdrop-filter:blur(12px)}.nuppdoc-nav{display:flex;width:100%;max-width:var(--nuppdoc-layout-max-width);height:100%;align-items:center;gap:1rem;margin:auto;padding:0 1rem}.nuppdoc-brand{display:flex;align-items:center;gap:.55rem;color:var(--nuppdoc-text);font-weight:700;text-decoration:none}.nuppdoc-mark{display:grid;width:29px;height:29px;place-items:center;color:#fff;border-radius:7px;background:var(--nuppdoc-accent);font-family:var(--nuppdoc-font-mono);font-size:.7rem}.nuppdoc-top-nav{display:flex;flex:1;gap:.2rem}.nuppdoc-top-nav a{padding:.45rem .65rem;color:var(--nuppdoc-text-muted);border-radius:7px;font-size:.76rem;text-decoration:none}.nuppdoc-top-nav a:hover{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}.nuppdoc-top-nav a[aria-current="page"]{color:var(--nuppdoc-accent)}.nuppdoc-actions{display:flex;align-items:center;gap:.25rem}.nuppdoc-search{width:min(190px,18vw);height:32px;padding:.25rem .6rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:6px;background:var(--nuppdoc-background-alt);font-size:.75rem}.nuppdoc-theme{display:grid;width:34px;height:34px;place-items:center;padding:0;color:var(--nuppdoc-text-muted);border:0;border-radius:7px;background:transparent;cursor:pointer}.nuppdoc-theme:hover{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}
 .nuppdoc-shell{display:grid;width:100%;max-width:var(--nuppdoc-layout-max-width);min-height:calc(100vh - var(--nuppdoc-header-height));grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr) var(--nuppdoc-outline-width);margin:auto}.nuppdoc-sidebar,.nuppdoc-outline{position:sticky;top:var(--nuppdoc-header-height);overflow:auto;max-height:calc(100vh - var(--nuppdoc-header-height));padding:1.25rem 1rem 2rem}.nuppdoc-sidebar{border-right:1px solid var(--nuppdoc-border);background:var(--nuppdoc-background-alt);box-shadow:-100vw 0 0 100vw var(--nuppdoc-background-alt)}.nuppdoc-sidebar h2,.nuppdoc-outline h2{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.06em}.nuppdoc-sidebar ul,.nuppdoc-outline ol{margin:0;padding:0;list-style:none}.nuppdoc-sidebar a,.nuppdoc-outline a{display:block;overflow:hidden;padding:.24rem .55rem;color:var(--nuppdoc-text-muted);border-radius:6px;font-size:.7rem;font-weight:500;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}.nuppdoc-sidebar a:hover{color:var(--nuppdoc-text);background:color-mix(in srgb,var(--nuppdoc-accent-soft) 55%,transparent)}.nuppdoc-sidebar a[aria-current="page"],.nuppdoc-outline a:hover{color:var(--nuppdoc-accent);font-weight:650}.nuppdoc-outline{padding-left:1.25rem}.nuppdoc-outline ol{padding-left:1rem;border-left:1px solid var(--nuppdoc-border)}.nuppdoc-outline a{padding:.16rem 0;font-size:.66rem}
 .nuppdoc-content{width:min(100% - 10rem,var(--nuppdoc-content-width));margin:0 auto;padding:1.25rem 0 6rem;font-size:.88rem}.nuppdoc-content h1,.nuppdoc-content h2,.nuppdoc-content h3{font-weight:700;line-height:1.25;letter-spacing:-.02em}.nuppdoc-content h1{margin-top:0;font-size:1.8rem}.nuppdoc-content h2{margin-top:2.5rem;padding-top:2.5rem;border-top:1px solid var(--nuppdoc-border);font-size:1.575rem}.nuppdoc-content h3{margin-top:2.25rem;font-size:1.35rem}.nuppdoc-content h4{margin-top:1.5rem;font-size:1rem}.nuppdoc-breadcrumbs{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.75rem}.nuppdoc-breadcrumbs a{color:var(--nuppdoc-text-muted)}.nuppdoc-kind-badge{display:inline-flex;margin-left:.45rem;padding:.12rem .42rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:999px;background:var(--nuppdoc-background-alt);font-size:.62rem;font-weight:650;letter-spacing:.035em;text-transform:uppercase;vertical-align:middle}.nuppdoc-kind-function,.nuppdoc-kind-method{color:var(--nuppdoc-accent);border-color:color-mix(in srgb,var(--nuppdoc-accent) 35%,var(--nuppdoc-border));background:var(--nuppdoc-accent-soft)}.nuppdoc-header-anchor{margin-left:.4rem;opacity:0;text-decoration:none}.nuppdoc-content h2:hover .nuppdoc-header-anchor,.nuppdoc-content h3:hover .nuppdoc-header-anchor{opacity:1}.nuppdoc-code-block{position:relative}.nuppdoc-code-block[data-lang]::before{position:absolute;z-index:1;top:8px;right:10px;color:var(--nuppdoc-text-muted);content:attr(data-lang);font-family:var(--nuppdoc-font-mono);font-size:.66rem}.nuppdoc-content pre{overflow:auto;padding:.8rem .9rem;border:1px solid var(--nuppdoc-border);border-radius:8px;background:var(--nuppdoc-code-background);line-height:1.55}.nuppdoc-content pre code{padding:0;background:transparent;font-family:var(--nuppdoc-font-mono);font-size:14px}.nuppdoc-content :not(pre)>code{padding:.1em .35em;border-radius:4px;background:var(--nuppdoc-code-background);font-family:var(--nuppdoc-font-mono);font-size:.91em}.nuppdoc-content table{width:100%;margin:1rem 0;border-collapse:collapse;font-size:.76rem}.nuppdoc-content th,.nuppdoc-content td{padding:.55rem .65rem;border-bottom:1px solid var(--nuppdoc-border);text-align:left;vertical-align:top}.nuppdoc-content th{color:var(--nuppdoc-text-muted);font-size:.68rem;text-transform:uppercase}.nuppdoc-empty{padding:2rem;color:var(--nuppdoc-text-muted);border:1px dashed var(--nuppdoc-border);border-radius:8px;text-align:center}.nuppdoc-module-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin-top:1.5rem}.nuppdoc-module-card{display:block;padding:1rem;color:var(--nuppdoc-text);border:1px solid var(--nuppdoc-border);border-radius:10px;background:var(--nuppdoc-background-alt);text-decoration:none}.nuppdoc-module-card:hover{color:var(--nuppdoc-text);border-color:var(--nuppdoc-accent);transform:translateY(-1px)}.nuppdoc-module-card code{display:block;margin-bottom:.35rem;color:var(--nuppdoc-accent);font-size:.85rem}.nuppdoc-module-card span{color:var(--nuppdoc-text-muted);font-size:.72rem}.nuppdoc-footer{padding:1.25rem;color:var(--nuppdoc-text-muted);border-top:1px solid var(--nuppdoc-border);font-size:.68rem;text-align:center}
 .nuppdoc-token-comment{color:var(--nuppdoc-syntax-comment);font-style:italic}.nuppdoc-token-boolean{color:var(--nuppdoc-syntax-boolean)}.nuppdoc-token-keyword{color:var(--nuppdoc-syntax-keyword)}.nuppdoc-token-meta{color:var(--nuppdoc-syntax-meta)}.nuppdoc-token-number{color:var(--nuppdoc-syntax-number)}.nuppdoc-token-function{color:var(--nuppdoc-syntax-function)}.nuppdoc-token-operator{color:var(--nuppdoc-syntax-operator)}.nuppdoc-token-property{color:var(--nuppdoc-syntax-property)}.nuppdoc-token-punctuation{color:var(--nuppdoc-syntax-punctuation)}.nuppdoc-token-string{color:var(--nuppdoc-syntax-string)}.nuppdoc-token-type{color:var(--nuppdoc-syntax-type)}.nuppdoc-token-variable{color:var(--nuppdoc-syntax-variable)}.nuppdoc-code-link,.nuppdoc-code-link:visited,.nuppdoc-code-link:hover{border-bottom:1px dotted currentColor;text-decoration:none}.nuppdoc-code-link:hover{border-bottom-style:solid}.nuppdoc-code-link-type{color:var(--nuppdoc-syntax-type)}.nuppdoc-code-link-function{color:var(--nuppdoc-syntax-function)}.nuppdoc-code-link-property{color:var(--nuppdoc-syntax-property)}.nuppdoc-code-link-variable{color:var(--nuppdoc-syntax-variable)}
@@ -30094,6 +32185,7 @@ local THEME = [[
 .nuppdoc-sidebar{background:var(--nuppdoc-sidebar-background)}.nuppdoc-sidebar>ul{margin:0;padding:0;list-style:none}.nuppdoc-sidebar li{margin:0;padding:0}.nuppdoc-sidebar-section{margin-top:1.1rem!important;padding-top:1.1rem!important;border-top:1px solid var(--nuppdoc-border)}.nuppdoc-sidebar-section:first-child{margin-top:0!important;padding-top:0!important;border-top:0}.nuppdoc-sidebar-section details{margin:0;padding:0;border:0;background:transparent}.nuppdoc-sidebar-section summary{position:relative;margin:0;padding:.24rem 1.2rem .24rem .55rem;color:var(--nuppdoc-text);font-size:.7rem;font-weight:700;line-height:1.3;cursor:pointer;list-style:none}.nuppdoc-sidebar-section summary::after{position:absolute;top:50%;right:.5rem;width:.36rem;height:.36rem;border-right:1.5px solid var(--nuppdoc-text-faint);border-bottom:1.5px solid var(--nuppdoc-text-faint);content:"";transform:translateY(-50%) rotate(45deg)}.nuppdoc-sidebar-section details:not([open]) summary::after{transform:translateY(-50%) rotate(-45deg)}.nuppdoc-sidebar-section summary::-webkit-details-marker{display:none}.nuppdoc-sidebar-section summary::marker{content:""}.nuppdoc-sidebar-section ul{padding:4px 0 0 .5rem}
 .nuppdoc-module-tree{margin:0;padding:4px 0 0 .5rem;list-style:none}.nuppdoc-module-branch>details>summary{color:var(--nuppdoc-text-muted);font-weight:500}.nuppdoc-module-branch>details>summary.nuppdoc-module-branch-link{padding-top:0;padding-bottom:0;padding-left:0}.nuppdoc-module-branch>details>summary>a{padding-right:.2rem}.nuppdoc-module-branch .nuppdoc-module-tree{padding:2px 0 0 .7rem}
 .nuppdoc-outline-title{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.66rem;font-weight:600}.nuppdoc-outline a[aria-current]{color:var(--nuppdoc-accent)}
+.nuppdoc-outline-section details{margin:0;padding:0;border:0;background:transparent}.nuppdoc-outline-section summary{position:relative;margin:0;padding:0 1rem 0 0;cursor:pointer;list-style:none}.nuppdoc-outline-section summary::-webkit-details-marker{display:none}.nuppdoc-outline-section summary::marker{content:""}.nuppdoc-outline-section summary::after{position:absolute;top:50%;right:.15rem;width:.32rem;height:.32rem;border-right:1.5px solid var(--nuppdoc-text-muted);border-bottom:1.5px solid var(--nuppdoc-text-muted);content:"";transform:translateY(-65%) rotate(45deg);transition:transform 120ms ease}.nuppdoc-outline-section details:not([open])>summary::after{transform:translateY(-50%) rotate(-45deg)}.nuppdoc-outline-section details>ol{margin:0;padding:0 0 0 .65rem;border:0;list-style:none}
 .nuppdoc-breadcrumbs{margin:0 0 .75rem}.nuppdoc-breadcrumbs ol{display:flex;flex-wrap:wrap;align-items:center;gap:0;margin:0;padding:0;list-style:none}.nuppdoc-breadcrumbs li{display:inline-flex;align-items:center;margin:0;padding:0;color:var(--nuppdoc-text-faint);font-size:.82rem;line-height:1.2}.nuppdoc-breadcrumbs li+li::before{margin:0 .45rem;color:var(--nuppdoc-border);content:"/"}.nuppdoc-breadcrumbs a{color:var(--nuppdoc-text-faint);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.16em}.nuppdoc-breadcrumbs .nuppdoc-breadcrumb-home{font-size:.9rem;text-decoration:none}.nuppdoc-breadcrumbs [aria-current="page"]{color:var(--nuppdoc-text-muted)}
 .nuppdoc-module-summary h3{margin-top:1.65rem;font-size:1rem}.nuppdoc-module-summary table,.nuppdoc-module-modules table{table-layout:fixed}.nuppdoc-module-summary th:first-child{width:28%}.nuppdoc-module-summary th:nth-child(2):not(:last-child){width:19%}.nuppdoc-module-modules th:first-child{width:32%}.nuppdoc-module-summary .nuppdoc-kind-badge{margin-left:0}.nuppdoc-kind-record,.nuppdoc-kind-interface,.nuppdoc-kind-struct,.nuppdoc-kind-type{color:#8250df;border-color:color-mix(in srgb,#8250df 35%,var(--nuppdoc-border));background:color-mix(in srgb,#8250df 12%,var(--nuppdoc-background))}.nuppdoc-kind-variable{color:#9a6700;border-color:color-mix(in srgb,#9a6700 35%,var(--nuppdoc-border));background:color-mix(in srgb,#9a6700 12%,var(--nuppdoc-background))}
 .nuppdoc-home-shell{display:block;max-width:none}.nuppdoc-home-content{width:min(calc(100% - 2 * var(--nuppdoc-home-gutter)),var(--nuppdoc-home-width));padding-top:4.5rem}.nuppdoc-home-hero{margin:0 0 4rem}.nuppdoc-hero-main{display:grid;align-items:start;gap:3rem;grid-template-columns:minmax(0,1fr)}.nuppdoc-hero-main.has-image{grid-template-columns:minmax(0,1fr) minmax(280px,.8fr)}.nuppdoc-hero-copy{position:relative;z-index:1}.nuppdoc-hero-copy h1{max-width:720px;margin:0;color:var(--nuppdoc-accent);font-size:5.5rem;letter-spacing:-.04em;line-height:.95}.nuppdoc-hero-text{max-width:650px;margin:1.08rem 0 0;color:var(--nuppdoc-text-muted);font-size:1.6rem;line-height:1.35}.nuppdoc-hero-actions{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:2rem}.nuppdoc-hero-action{display:inline-flex;align-items:center;justify-content:center;padding:.52rem .95rem;border:1px solid transparent;border-radius:16px;font-size:.9rem;font-weight:650;line-height:1;text-decoration:none}.nuppdoc-hero-action.brand{color:var(--nuppdoc-accent-contrast);background:var(--nuppdoc-accent)}.nuppdoc-hero-action.alt{color:var(--nuppdoc-text);border-color:var(--nuppdoc-border);background:var(--nuppdoc-background-alt)}.nuppdoc-hero-image{position:relative;display:grid;align-self:center;place-items:center}.nuppdoc-hero-starburst{position:absolute;width:var(--nuppdoc-hero-glow-size);aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 38%,transparent) 0,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 20%,transparent) 34%,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 8%,transparent) 58%,transparent 76%);filter:blur(var(--nuppdoc-hero-glow-blur));opacity:var(--nuppdoc-hero-glow-opacity)}.nuppdoc-hero-image img{position:relative;z-index:1;width:min(100%,390px);max-height:330px;border-radius:20px;box-shadow:0 24px 70px rgb(0 0 0 / 22%);object-fit:contain}.nuppdoc-features{position:relative;z-index:2;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;margin-top:2rem}.nuppdoc-feature{margin:0;padding:1.4rem;border:1px solid var(--nuppdoc-border);border-radius:12px;background:var(--nuppdoc-background-alt)}.nuppdoc-feature-icon,.nuppdoc-feature-image{display:inline-grid;width:40px;height:40px;place-items:center;margin-bottom:1rem;border-radius:8px;background:var(--nuppdoc-accent-soft);font-size:1.25rem;object-fit:contain}.nuppdoc-feature h2{margin:0 0 .55rem;padding:0;border:0;font-size:1rem;letter-spacing:0}.nuppdoc-feature-details{margin:0;color:var(--nuppdoc-text-muted);font-size:.86rem;line-height:1.55}.nuppdoc-footer{display:flex;flex-wrap:wrap;justify-content:center;gap:.45rem}.nuppdoc-footer a{color:var(--nuppdoc-text-muted)}
@@ -30381,6 +32473,7 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 local cst = require ( "nupp.compiler.cst" )
 local parser = require ( "nupp.compiler.parser" )
 local docblock = require ( "nupp.compiler.docblock" )
+local formatter = require ( "nupp.compiler.fmt" )
 local stringsMod = require ( "nupp.compiler.doc.strings" )
 local filesMod = require ( "nupp.compiler.doc.files" )
 
@@ -30388,6 +32481,7 @@ local trim = stringsMod . trim
 local normalize , join = filesMod . normalize , filesMod . join
 
 local extract = { }
+
 
 
 
@@ -30478,6 +32572,60 @@ end
 local function syntax ( node )
 return trim ( cst . textOf ( node ) )
 end
+
+
+
+
+
+local function structureSignature ( node , includePrivate )
+local parts = { }
+local function walk ( child )
+if cst . isToken ( child ) then
+local triviaParts = { }
+local removedDocumentation = false
+for _ , trivia in ipairs ( child . trivia ) do
+if trivia . kind == "comment" and trivia . text : match ( "^%-%-%-" ) then
+removedDocumentation = true
+else
+triviaParts [ # triviaParts + 1 ] = trivia . text
+end
+end
+local triviaText = table . concat ( triviaParts )
+if removedDocumentation then
+if triviaText : match ( "^%s*$" ) then
+triviaText = "\n"
+else
+repeat
+local collapsed , count = triviaText : gsub ( "\n[ \t]*\n[ \t]*" , "\n" )
+triviaText = collapsed
+until count == 0
+end
+end
+parts [ # parts + 1 ] = triviaText
+parts [ # parts + 1 ] = child . text
+else
+if child ~= node and child . kind == "recordDecl" and not includePrivate then
+local info = docblock . parse ( docblock . linesOf ( child ) )
+if info . tags . internal then
+return
+end
+end
+for _ , nested in ipairs ( child ) do
+walk ( nested )
+end
+end
+end
+
+walk ( node )
+local source = trim ( table . concat ( parts ) )
+local formatted , errors = formatter . format ( source , "documentation-signature.nupp" )
+if # errors > 0 then
+return source
+end
+
+return trim ( formatted )
+end
+
 
 
 
@@ -30616,8 +32764,154 @@ tail = tail : gsub ( "^[\"']" , "" )
 return tail : sub ( 1 , 1 ) == "_"
 end
 
+
+
+
+
+
+
+local function fieldItem ( field , childModuleName , includePrivate )
+local name = field . name . text
+local info = parseDoc ( docLines ( field ) )
+if not ( includePrivate or ( not privateName ( name ) and not info . tags . internal ) ) then
+return nil
+end
+local item = {
+name = name ,
+kind = "variable" ,
+signature = "local " .. name .. ": " .. syntax ( field . type ) ,
+doc = info ,
+path = childModuleName .. "." .. name ,
+line = firstToken ( field ) and firstToken ( field ) . line or 1 ,
+members = { } ,
+params = { } ,
+returns = { } ,
+raises = info . raises ,
+typeargs = { } ,
+}
+local fn = typeFunction ( field . type )
+if fn then
+item . kind = "function"
+local details = typeFunctionDetails ( fn , info )
+item . params , item . returns = details . params , details . returns
+for _ , generic in ipairs ( fn . generics and fn . generics . names or { } ) do
+item . typeargs [ # item . typeargs + 1 ] = { name = generic . text , text = info . typeargs [ generic . text ] or "" , }
+end
+end
+
+return item
+end
+
+
+
+
+
+
+local function recordNamed ( blocks , targetName )
+local function find ( stat , prefix )
+if stat . kind ~= "recordDecl" then
+return nil
+end
+local name = prefix and prefix .. "." .. stat . name . text or declaredName ( stat )
+if name == targetName then
+return stat
+end
+if targetName : sub ( 1 , # name + 1 ) == name .. "." then
+for _ , entry in ipairs ( stat . entries or { } ) do
+local found = find ( entry , name )
+if found then
+return found
+end
+end
+end
+
+return nil
+end
+
+for _ , block in ipairs ( blocks or { } ) do
+for _ , stat in ipairs ( block . stats or { } ) do
+local found = find ( stat , nil )
+if found then
+return found
+end
+end
+end
+
+return nil
+end
+
+
+
+
+
+
+
+local function byKindThenName ( left , right )
+if left . kind == right . kind then
+return left . name < right . name
+end
+return left . kind < right . kind
+end
+
+local function namespaceChildren ( shape , prefix , path , blocks , includePrivate )
+local modules = { }
+local expanding = { }
+local function entriesOf ( field )
+if field . type and field . type . kind == "tshape" then
+return field . type . fields
+elseif field . type and field . type . kind == "tname" then
+local record = recordNamed ( blocks , syntax ( field . type ) )
+return record and record . entries
+end
+
+return nil
+end
+
+local function addModule ( field , parentName )
+local entries = entriesOf ( field )
+if not entries or expanding [ entries ] then
+return
+end
+expanding [ entries ] = true
+local childName = parentName .. "." .. field . name . text
+local items = { }
+for _ , entry in ipairs ( entries ) do
+if entry . kind == "fieldDecl" or entry . kind == "tshapeField" then
+local info = parseDoc ( docLines ( entry ) )
+if info . tags . namespace and entriesOf ( entry ) then
+addModule ( entry , childName )
+else
+local item = fieldItem ( entry , childName , includePrivate )
+if item then
+items [ # items + 1 ] = item
+end
+end
+end
+end
+table . sort ( items , byKindThenName )
+modules [ # modules + 1 ] = { name = childName , path = path , text = parseDoc ( docLines ( field ) ) . text , items = items , }
+expanding [ entries ] = nil
+end
+
+for _ , field in ipairs ( shape . fields or { } ) do
+if field . kind == "tshapeField" then
+addModule ( field , prefix )
+end
+end
+
+return modules
+end
+
+
+
+
+
 local function declarationItem ( stat , moduleName , includeAll , declarationFile , includePrivate )
-local lines = docLines ( stat )
+local documented = stat
+while stat . kind == "pragmaStmt" and stat . stat do
+stat = stat . stat
+end
+local lines = docLines ( documented )
 local info = parseDoc ( lines )
 local public = includeAll or declarationFile or info . tags . export or info . tags . public
 local kind , name , signature
@@ -30638,19 +32932,7 @@ stat . visibility == "global" and "global " or stat . visibility == "local" and 
 elseif stat . kind == "recordDecl" then
 name , kind = stat . name . text , stat . declKind
 public = public or stat . visibility == "module" or stat . visibility == "global"
-signature = (
-stat . visibility == "global" and "global " or stat . visibility == "local" and "local " or ""
-) .. stat . declKind .. " " .. declaredName ( stat ) .. genericText ( stat )
-if stat . supertypes and # stat . supertypes > 0 then
-local inherited = { }
-for j , supertype in ipairs ( stat . supertypes ) do
-inherited [ j ] = syntax ( supertype )
-end
-signature = signature .. " is " .. table . concat ( inherited , ", " )
-end
-if stat . whereClause then
-signature = signature .. " " .. syntax ( stat . whereClause )
-end
+signature = structureSignature ( stat , includePrivate )
 elseif stat . kind == "cdefStruct" then
 name , kind , public = stat . name . text , "struct" , true
 signature = "cdef struct " .. name
@@ -30672,6 +32954,9 @@ end
 if info . tags [ "local" ] then
 public = includeAll
 end
+if info . tags . internal and not includePrivate then
+public = false
+end
 if kind == "method" and privateName ( name ) and not includePrivate then
 public = false
 end
@@ -30679,8 +32964,13 @@ if not public then
 return nil
 end
 local itemPath = moduleName .. "." .. name
+local itemModule = nil
+if stat . kind == "typeAlias" or stat . kind == "recordDecl" then
+local qualified = declaredName ( stat )
+itemModule = qualified : match ( "^(.*)%.[^.]+$" )
+end
 local moduleTail = moduleName : match ( "([^.]+)$" ) or moduleName
-if name : sub ( 1 , # moduleTail + 1 ) == moduleTail .. "." then
+if not itemModule and name : sub ( 1 , # moduleTail + 1 ) == moduleTail .. "." then
 itemPath = moduleName .. name : sub ( # moduleTail + 1 )
 end
 local item = {
@@ -30689,6 +32979,7 @@ kind = kind ,
 signature = signature ,
 doc = info ,
 path = itemPath ,
+module = itemModule ,
 line = firstToken ( stat ) and firstToken ( stat ) . line or 1 ,
 members = { } ,
 params = { } ,
@@ -30711,10 +33002,11 @@ local details = typeFunctionDetails ( declaredFunction , info )
 item . params , item . returns = details . params , details . returns
 elseif stat . kind == "recordDecl" or stat . kind == "cdefStruct" then
 for _ , entry in ipairs ( stat . entries or { } ) do
-if (
-entry . kind == "fieldDecl" or entry . kind == "metamethodDecl"
-) and ( includePrivate or not privateName ( entry . name . text ) ) then
-local fieldInfo = parseDoc ( docLines ( entry ) )
+local entryInfo = parseDoc ( docLines ( entry ) )
+local entryName = entry . name and entry . name . text or ""
+local entryVisible = includePrivate or ( not privateName ( entryName ) and not entryInfo . tags . internal )
+if ( entry . kind == "fieldDecl" or entry . kind == "metamethodDecl" ) and entryVisible then
+local fieldInfo = entryInfo
 local member = {
 name = entry . name . text ,
 type = syntax ( entry . type ) ,
@@ -30734,8 +33026,8 @@ if entry . kind == "metamethodDecl" then
 member . isMetamethod = true
 end
 item . members [ # item . members + 1 ] = member
-elseif entry . kind == "inlineMethod" and ( includePrivate or not privateName ( entry . name . text ) ) then
-local methodInfo = parseDoc ( docLines ( entry ) )
+elseif entry . kind == "inlineMethod" and entryVisible then
+local methodInfo = entryInfo
 local details = functionDetails ( entry , methodInfo )
 item . members [
 # item . members + 1
@@ -30749,13 +33041,13 @@ returns = details . returns ,
 raises = methodInfo . raises ,
 isFunction = true ,
 }
-elseif entry . name and ( includePrivate or not privateName ( entry . name . text ) ) then
+elseif entry . name and entryVisible then
 item . members [
 # item . members + 1
 ] = {
 name = entry . name . text ,
 type = entry . kind ,
-text = parseDoc ( docLines ( entry ) ) . text ,
+text = entryInfo . text ,
 path = item . path .. "." .. entry . name . text ,
 params = { } ,
 returns = { } ,
@@ -30830,26 +33122,47 @@ documentationInternal = parsed . root . documentationInternal ,
 }
 result . text = headerDoc ( parsed . root ) or ""
 local declarationFile = path ~= nil and path : match ( "%.d%.nupp$" ) ~= nil
+local extraModules = { }
 for _ , block in ipairs ( parsed . root . blocks or { } ) do
 for _ , stat in ipairs ( block . stats or { } ) do
-local item = declarationItem ( stat , name , opts . includeAll , declarationFile , opts . includePrivate )
-if item then
-result . items [ # result . items + 1 ] = item
-end
 local info = parseDoc ( docLines ( stat ) )
 if info . tags . module then
 result . text = type ( info . tags . module ) == "string" and info . tags . module or info . text
 end
-end
-end
-table . sort ( result . items , function ( left , right )
-if left . kind == right . kind then
-return left . name < right . name
-end
-return left . kind < right . kind
-end )
 
-return result , { }
+
+
+
+
+
+local shape = stat . kind == "localStmt" and # (
+stat . names or { }
+) == 1 and stat . types [ 1 ] and stat . types [ 1 ] . kind == "tshape" and stat . types [ 1 ] or nil
+local shapePublic = opts . includeAll or declarationFile or info . tags . export or info . tags . public
+if info . tags [ "local" ] then
+shapePublic = opts . includeAll
+end
+if info . tags . internal and not opts . includePrivate then
+shapePublic = false
+end
+if shape and info . tags . namespace and shapePublic then
+local prefix = info . tags . namespace == true and name or info . tags . namespace
+for _ , module in ipairs (
+namespaceChildren ( shape , prefix , path , parsed . root . blocks , opts . includePrivate )
+) do
+extraModules [ # extraModules + 1 ] = module
+end
+else
+local item = declarationItem ( stat , name , opts . includeAll , declarationFile , opts . includePrivate )
+if item then
+result . items [ # result . items + 1 ] = item
+end
+end
+end
+end
+table . sort ( result . items , byKindThenName )
+
+return result , { } , extraModules
 end
 
 
@@ -30864,6 +33177,7 @@ end
 
 return fields , methods
 end
+
 
 
 
@@ -30900,6 +33214,7 @@ end
 
 return children
 end
+
 
 
 
@@ -31313,11 +33628,41 @@ end
 return { lines = lines , append = append }
 end
 
-local function highlightNuppLines ( source , links )
+
+
+
+local function containerMemberUrls ( parsed , memberLinks )
+local urls = { }
+if not memberLinks then
+return urls
+end
+for _ , block in ipairs ( parsed . root . blocks or { } ) do
+for _ , outer in ipairs ( block . stats or { } ) do
+local declaration = outer
+while declaration . kind == "pragmaStmt" and declaration . stat do
+declaration = declaration . stat
+end
+if declaration . kind == "recordDecl" then
+for _ , entry in ipairs ( declaration . entries or { } ) do
+local name = entry . name
+local url = name and memberLinks [ name . text ]
+if url then
+urls [ name ] = url
+end
+end
+end
+end
+end
+
+return urls
+end
+
+local function highlightNuppLines ( source , links , memberLinks )
 local out = lineWriter ( source )
 local parsed = parser . parse ( source , "documentation-code-block.nupp" )
 local tokens = parsed . tokens
 local syntaxKinds = semantic . syntaxKinds ( parsed )
+local memberUrls = containerMemberUrls ( parsed , memberLinks )
 for index , token in ipairs ( tokens ) do
 for _ , trivia in ipairs ( token . trivia ) do
 if trivia . kind == "comment" or trivia . kind == "hashbang" then
@@ -31328,8 +33673,8 @@ end
 end
 if token . kind ~= "eof" then
 local style = tokenStyle ( tokens , index , syntaxKinds )
-local url = nil
-if links and token . kind == "name" and not declarationName ( tokens , index ) then
+local url = memberUrls [ token ]
+if not url and links and token . kind == "name" and not declarationName ( tokens , index ) then
 url = links [ qualifiedName ( tokens , index ) ] or links [ token . text ]
 end
 out . append ( token . text , tokenClasses ( style , token . text ) , url and { url = url , style = style } or nil )
@@ -31342,8 +33687,12 @@ end
 return out . lines
 end
 
-local function highlightNupp ( source , links )
-return table . concat ( highlightNuppLines ( source , links ) , "\n" )
+local function highlightNupp (
+source ,
+links ,
+memberLinks
+)
+return table . concat ( highlightNuppLines ( source , links , memberLinks ) , "\n" )
 end
 
 local SCINTILLUA_ALIASES = {
@@ -32074,12 +34423,14 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 local stringsMod = require ( "nupp.compiler.doc.strings" )
 local extractMod = require ( "nupp.compiler.doc.extract" )
 local urlsMod = require ( "nupp.compiler.doc.urls" )
+local apiMod = require ( "nupp.compiler.doc.api" )
 
 local markdownEscape , markdownCell = stringsMod . markdownEscape , stringsMod . markdownCell
 local summaryText = stringsMod . summaryText
 local childModules = extractMod . children
 local symbolLinkIndex = urlsMod . symbolLinkIndex
 local rewriteSymbolLinks = urlsMod . rewriteSymbolLinks
+local itemGroups = apiMod . itemGroups
 
 local markdown = { }
 
@@ -32089,6 +34440,7 @@ local markdown = { }
 
 local anchors = nil
 local known = nil
+
 
 
 
@@ -32108,20 +34460,6 @@ end
 
 local function cell ( text )
 return markdownCell ( prose ( text ) )
-end
-
-local function sectionTitle ( kind )
-local names = {
-[ "function" ] = "Functions" ,
-method = "Methods" ,
-variable = "Variables" ,
-type = "Types" ,
-record = "Records" ,
-interface = "Interfaces" ,
-struct = "Structs" ,
-}
-
-return names [ kind ] or ( kind : sub ( 1 , 1 ) : upper ( ) .. kind : sub ( 2 ) .. "s" )
 end
 
 
@@ -32262,7 +34600,8 @@ function markdown . render (
 modules ,
 title ,
 all ,
-overview
+overview ,
+constructorPattern
 )
 local all = all or modules
 anchors = symbolLinkIndex ( modules , function ( module , path )
@@ -32310,25 +34649,23 @@ for _ , child in ipairs ( children ) do
 local label = "`" .. markdownEscape ( child . name ) .. "`"
 local anchor = anchors and anchors [ child . name ]
 local held = # childModules ( all , child . name )
-local description = child . namespace
-and held .. " module" .. ( held == 1 and "" or "s" )
-or markdownCell ( summaryText ( child . text ) )
+local description = child . namespace and held .. " module" .. (
+held == 1 and "" or "s"
+) or markdownCell ( summaryText ( child . text ) )
 out [
 # out + 1
-] = "| " .. (
-anchor and "[" .. label .. "](" .. anchor .. ")" or label
-) .. " | " .. description .. " |"
+] = "| " .. ( anchor and "[" .. label .. "](" .. anchor .. ")" or label ) .. " | " .. description .. " |"
 end
 out [ # out + 1 ] = ""
 end
-local currentKind = nil
-for _ , item in ipairs ( module . items ) do
-if item . kind ~= currentKind then
-currentKind = item . kind
-out [ # out + 1 ] = "## " .. sectionTitle ( item . kind )
+for _ , group in ipairs ( itemGroups ( module . items , constructorPattern ) ) do
+if # group . items > 0 then
+out [ # out + 1 ] = "## " .. group . title
 out [ # out + 1 ] = ""
-end
+for _ , item in ipairs ( group . items ) do
 renderMarkdownItem ( out , item )
+end
+end
 end
 if moduleIndex < # modules then
 out [ # out + 1 ] = "---"
@@ -32364,6 +34701,13 @@ local markdownHtml = htmlMod . markdownHtml
 local ICONS = assetsMod . ICONS
 
 local page = { }
+
+
+
+
+
+
+
 
 
 
@@ -32558,18 +34902,37 @@ out [ # out + 1 ] = "</ul></details></li></ul></aside>"
 return table . concat ( out )
 end
 
+local function outlineEntries ( items )
+local out = { }
+for _ , item in ipairs ( items or { } ) do
+local children = item . items or { }
+local link = '<a href="#' .. htmlEscape (
+item . path
+) .. '" title="' .. htmlEscape ( item . name ) .. '">' .. htmlEscape ( item . name ) .. "</a>"
+if # children > 0 then
+out [ # out + 1 ] = '<li class="nuppdoc-outline-section"><details open><summary>' .. link .. "</summary><ol>"
+for _ , child in ipairs ( children ) do
+out [
+# out + 1
+] = '<li><a href="#' .. htmlEscape (
+child . path
+) .. '" title="' .. htmlEscape ( child . name ) .. '">' .. htmlEscape ( child . name ) .. "</a></li>"
+end
+out [ # out + 1 ] = "</ol></details></li>"
+else
+out [ # out + 1 ] = "<li>" .. link .. "</li>"
+end
+end
+
+return table . concat ( out )
+end
+
 local function outline ( items )
 local out = {
 '<aside class="nuppdoc-outline" aria-label="On this page">'
 .. '<div class="nuppdoc-outline-title">On this page</div><ol>'
 }
-for _ , item in ipairs ( items or { } ) do
-out [
-# out + 1
-] = '<li><a href="#' .. htmlEscape (
-item . path
-) .. '" title="' .. htmlEscape ( item . name ) .. '">' .. htmlEscape ( item . name ) .. "</a></li>"
-end
+out [ # out + 1 ] = outlineEntries ( items or { } )
 out [ # out + 1 ] = "</ol></aside>"
 
 return table . concat ( out )
@@ -33063,8 +35426,9 @@ addSymbolLink ( links , ambiguous , item . name , url )
 local tail = item . name : match ( "([^.]+)$" )
 addSymbolLink ( links , ambiguous , tail , url )
 for _ , member in ipairs ( item . members ) do
-addSymbolLink ( links , ambiguous , member . path , url )
-addSymbolLink ( links , ambiguous , item . name .. "." .. member . name , url )
+local memberUrl = target ( module . name , member . path )
+addSymbolLink ( links , ambiguous , member . path , memberUrl )
+addSymbolLink ( links , ambiguous , item . name .. "." .. member . name , memberUrl )
 end
 end
 end
@@ -33146,7 +35510,9 @@ local url = prefix .. moduleFile ( module . name ) .. "#" .. item . path
 links [ item . name ] = url
 links [ item . name : match ( "([^.]+)$" ) or item . name ] = url
 for _ , member in ipairs ( item . members ) do
-links [ item . name .. "." .. member . name ] = url
+local memberUrl = prefix .. moduleFile ( module . name ) .. "#" .. member . path
+links [ member . path ] = memberUrl
+links [ item . name .. "." .. member . name ] = memberUrl
 end
 end
 end
@@ -34703,6 +37069,7 @@ local BUNDLED = { [
 
 
 local BUNDLED_SOURCE = {
+[ "nupp.bytes" ] = "/nupp/bytes.nupp" ,
 [ "nupp.resources" ] = "/nupp/resources.nupp" ,
 [ "nupp.zone" ] = "/nupp/zone.nupp" ,
 [ "nupp.profile" ] = "/nupp/profile.nupp" ,
@@ -34719,6 +37086,7 @@ local result = parser . parse ( bundledSrc , name )
 if # result . errors > 0 then
 return false
 end
+
 
 
 
@@ -35364,6 +37732,14 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 
+
+
+
+
+
+
+
+
 local parser = require ( "nupp.compiler.parser" )
 local lexer = require ( "nupp.compiler.lexer" )
 local cst = require ( "nupp.compiler.cst" )
@@ -35712,8 +38088,11 @@ end
 if prev . _shortfnOpen or tok . _shortfnClose then
 return ""
 end
-if prev . kind == "..." and tok . namedVararg then
+if prev . kind == "..." and ( tok . namedVararg or prev . valueExpansion ) then
 return ""
+end
+if prev . expansionKeyword and tok . kind == "(" then
+return " "
 end
 
 
@@ -36239,7 +38618,7 @@ end
 return changed and out or nil
 end
 
-local function breakLines ( lines )
+local function breakLines ( lines , width )
 for _ = 1 , MAX_PASSES do
 computeIndents ( lines )
 local changed = false
@@ -36251,7 +38630,7 @@ else
 local next_ = { }
 for _ , line in ipairs ( lines ) do
 local pieces = nil
-if lineWidth ( line ) > WIDTH and not line . noBreak then
+if lineWidth ( line ) > width and not line . noBreak then
 pieces = splitLine ( line )
 end
 if pieces then
@@ -36261,7 +38640,7 @@ piece . blankBefore = j == 1 and line . blankBefore or false
 next_ [ # next_ + 1 ] = piece
 end
 else
-line . noBreak = lineWidth ( line ) > WIDTH
+line . noBreak = lineWidth ( line ) > width
 next_ [ # next_ + 1 ] = line
 end
 end
@@ -36357,7 +38736,16 @@ local function fingerprintTokens ( tokens , omitMarked )
 local parts = { }
 for _ , tok in ipairs ( tokens ) do
 if tok . kind ~= "eof" and not ( omitMarked and tok . formatOmit ) then
+if tok . kind == ">>" then
+
+
+
+
+parts [ # parts + 1 ] = ">\1>"
+parts [ # parts + 1 ] = ">\1>"
+else
 parts [ # parts + 1 ] = tok . kind .. "\1" .. tok . text
+end
 end
 end
 
@@ -36534,7 +38922,31 @@ end
 
 
 
-function fmt . format ( source , filename , opts )
+
+
+
+
+fmt.Formatter = {} fmt.Formatter.__index = fmt.Formatter
+
+
+
+
+
+
+
+
+function fmt . new ( opts )
+return setmetatable( {
+width = ( opts and opts . width ) or WIDTH ,
+methodParens = opts and opts . methodParens ,
+annotations = opts and opts . annotations ,
+resolveAnnotation = opts and opts . resolveAnnotation ,
+} , fmt.Formatter)
+end
+
+
+
+function fmt . Formatter : format ( source , filename )
 local result = parser . parse ( source , filename )
 if # result . errors > 0 then
 return source , result . errors
@@ -36542,12 +38954,12 @@ end
 if result . root . formatDisabled then
 return source , { }
 end
-canonicalizeSingleValueAnnotations ( result , opts )
-parenthesizeMethodCalls ( result , opts )
+canonicalizeSingleValueAnnotations ( result , self )
+parenthesizeMethodCalls ( result , self )
 annotate ( result . root )
 local items = collectItems ( result . tokens )
 markDocumented ( items )
-local lines = breakLines ( buildLines ( items ) )
+local lines = breakLines ( buildLines ( items ) , self . width )
 local text = render ( lines )
 
 
@@ -36570,6 +38982,13 @@ length = 1 ,
 end
 
 return text , { }
+end
+
+
+
+
+function fmt . format ( source , filename , opts )
+return fmt . new ( opts ) : format ( source , filename )
 end
 
 return fmt
@@ -37297,6 +39716,7 @@ continueStmt = true ,
 gotoStmt = true ,
 withStmt = true ,
 unsafeStmt = true ,
+noSuspendStmt = true ,
 }
 
 
@@ -37651,11 +40071,19 @@ local needsArrayCache = false
 local needsLibs = false
 local needsNewTab = false
 local needsClearTab = false
-local needsBuffer = false
-local bufferName
+local needsCloneTab = false
+local compilerModules = { }
+local compilerModuleOrder = { }
 local needsLayout = false
 local layoutName
-local newTabName , clearTabName
+local needsSuspension = false
+local suspensionName
+local needsCleanupRegistry = false
+local cleanupRegistryName
+local cleanupResolvers = { }
+local cleanupResolverOrder = { }
+local cleanupRegisterValueName
+local newTabName , clearTabName , cloneTabName
 local needsWith = false
 local withPackName , withIdName , withFailureName
 
@@ -37690,6 +40118,18 @@ end
 
 
 
+local function compilerModuleName ( moduleName )
+local name = compilerModules [ moduleName ]
+if not name then
+local preferred = moduleName == "string.buffer" and "__nuppBuffer" or "__nuppModule"
+name = reservedName ( preferred )
+compilerModules [ moduleName ] = name
+compilerModuleOrder [ # compilerModuleOrder + 1 ] = moduleName
+end
+
+return name
+end
+
 local function metatypeHelper ( )
 needsMetatypeOnce = true
 metatypeOnceName = metatypeOnceName or reservedName ( "__nuppMetatype" )
@@ -37697,21 +40137,86 @@ return metatypeOnceName
 end
 
 local function concatBufferName ( )
-needsBuffer = true
-bufferName = bufferName or reservedName ( "__nuppBuffer" )
-return bufferName
+return compilerModuleName ( "string.buffer" )
+end
+
+
+
+
+local function suspensionModule ( )
+needsSuspension = true
+suspensionName = suspensionName or reservedName ( "__nuppSuspension" )
+
+return suspensionName
 end
 
 local function tableIntrinsicName ( name )
 if name == "new" then
 needsNewTab = true
 newTabName = newTabName or reservedName ( "__nuppNew" )
+
 return newTabName
+elseif name == "clone" then
+needsCloneTab = true
+cloneTabName = cloneTabName or reservedName ( "__nuppClone" )
+
+return cloneTabName
 end
 needsClearTab = true
 clearTabName = clearTabName or reservedName ( "__nuppClear" )
 
 return clearTabName
+end
+
+local function cleanupRegistry ( )
+needsCleanupRegistry = true
+cleanupRegistryName = cleanupRegistryName or reservedName ( "__nuppCleanups" )
+
+return cleanupRegistryName
+end
+
+local function cleanupFunctionName ( cleanup )
+local found = cleanupResolvers [ cleanup . id ]
+if found then
+return found
+end
+local name = reservedName ( "__nuppCleanup" .. tostring ( # cleanupResolverOrder + 1 ) )
+cleanupResolvers [ cleanup . id ] = name
+cleanupResolverOrder [ # cleanupResolverOrder + 1 ] = { cleanup = cleanup , name = name }
+cleanupRegistry ( )
+
+return name
+end
+
+local function cleanupRegisterValue ( )
+cleanupRegistry ( )
+cleanupRegisterValueName = cleanupRegisterValueName or reservedName ( "__nuppRegisterOwner" )
+
+return cleanupRegisterValueName
+end
+
+local function cleanupCall ( cleanup , value )
+if cleanup . kind == "function" then
+return cleanupFunctionName ( cleanup ) .. "(" .. value .. ")"
+elseif cleanup . kind == "method" then
+return value .. ":" .. cleanup . name .. "()"
+elseif cleanup . kind == "field" then
+return cleanupCall ( cleanup . cleanup , value .. "." .. cleanup . field )
+end
+
+return nil
+end
+
+local function protectedCleanupCall ( cleanup , value , pcallName )
+if cleanup . kind == "function" then
+return pcallName .. "(" .. cleanupFunctionName ( cleanup ) .. "," .. value .. ")"
+elseif cleanup . kind == "method" then
+return pcallName .. "(function() " .. value .. ":" .. cleanup . name .. "() end)"
+elseif cleanup . kind == "field" then
+return protectedCleanupCall ( cleanup . cleanup , value .. "." .. cleanup . field , pcallName )
+end
+
+return nil
 end
 
 local function diag ( tok , code , msg , help )
@@ -37785,6 +40290,323 @@ end
 end
 
 return nil
+end
+
+
+
+
+
+
+
+
+local expansion = {
+plans = { } ,
+statementActive = { } ,
+}
+
+local function dottedExpansionParts ( node )
+if not node or cst . isToken ( node ) then
+return nil , nil
+end
+if node . kind == "name" then
+return node . token and node . token . text or nil , { }
+end
+if node . kind ~= "dotIndex" or not node . name then
+return nil , nil
+end
+local root , parts = dottedExpansionParts ( node . obj )
+if not root or not parts then
+return nil , nil
+end
+parts [ # parts + 1 ] = node . name . text
+
+return root , parts
+end
+
+local function expansionCall ( call )
+if call . kind == "methodCall" then
+return call . obj ~= nil and call . name ~= nil
+end
+
+if call . kind ~= "call" and call . kind ~= "safeCall" then
+return false
+end
+if call . kind == "safeCall" then
+return not call . tableIntrinsic
+and not call . ffiOutContracts
+and not call . ownershipIntrinsic
+and not call . ffiIntrinsic
+and not call . carrayElem
+and not call . cheaderCdef
+and not call . constructorCall
+and not call . recordConstruct
+and not call . layoutOf
+and not call . passPinnedPointer
+end
+
+return not call . ownershipIntrinsic
+and not call . ffiIntrinsic
+and not call . carrayElem
+and not call . cheaderCdef
+and not call . recordConstruct
+and not call . layoutOf
+and not call . passPinnedPointer
+end
+
+function expansion . callPlan ( call )
+if not expansionCall ( call ) or not call . obj or not call . args or not call . args . loweredArgs then
+return nil
+end
+local hasDotted = false
+for _ , argument in ipairs ( call . args . loweredArgs ) do
+if argument . generatedKind == "field" and argument . source and argument . source . kind == "dotIndex" then
+hasDotted = true
+break
+end
+end
+if not hasDotted then
+return nil
+end
+
+local plan = {
+call = call ,
+setupSteps = { } ,
+afterReceiverSteps = { } ,
+steps = { } ,
+pathAliases = { } ,
+argAliases = { } ,
+argFields = { } ,
+}
+plan . delegate = call . staticCallee or call . tableIntrinsic or call . ffiOutContracts or call . constructorCall
+if call . kind == "methodCall" then
+plan . receiverAlias = nextTemp ( )
+plan . setupSteps [
+# plan . setupSteps + 1
+] = { kind = "expr" , name = plan . receiverAlias , expr = call . obj , at = call . obj }
+plan . methodName = call . overloadMember or call . name . text
+plan . safeReceiver = call . safeObj ~= nil
+if call . safeMethod then
+plan . methodAlias = nextTemp ( )
+plan . afterReceiverSteps [
+# plan . afterReceiverSteps + 1
+] = {
+kind = "field" ,
+name = plan . methodAlias ,
+base = plan . receiverAlias ,
+field = plan . methodName ,
+at = call ,
+}
+plan . safeMethod = true
+end
+plan . isSafe = plan . safeReceiver or plan . safeMethod
+elseif call . kind == "safeCall" then
+plan . calleeAlias = nextTemp ( )
+plan . setupSteps [
+# plan . setupSteps + 1
+] = { kind = "expr" , name = plan . calleeAlias , expr = call . obj , at = call . obj }
+plan . safeCallee = true
+plan . isSafe = true
+elseif call . obj . kind ~= "name" then
+
+
+
+plan . calleeAlias = nextTemp ( )
+plan . setupSteps [
+# plan . setupSteps + 1
+] = { kind = "expr" , name = plan . calleeAlias , expr = call . obj , at = call . obj }
+end
+
+local function bindPath ( source )
+local root , parts = dottedExpansionParts ( source )
+if not root or not parts then
+return nil
+end
+local base = root
+local key = root
+for _ , field in ipairs ( parts ) do
+key = key .. "\0" .. field
+local alias = plan . pathAliases [ key ]
+if not alias then
+alias = nextTemp ( )
+plan . pathAliases [ key ] = alias
+plan . steps [
+# plan . steps + 1
+] = { kind = "field" , name = alias , base = base , field = field , at = source }
+end
+base = alias
+end
+
+return base
+end
+
+local lastDotted = 0
+for index , argument in ipairs ( call . args . loweredArgs ) do
+if argument . generatedKind == "field" and argument . source and argument . source . kind == "dotIndex" then
+lastDotted = index
+end
+end
+
+for index , argument in ipairs ( call . args . loweredArgs ) do
+if argument . generatedKind == "field" then
+local base
+if argument . source and argument . source . kind == "name" then
+base = argument . source . token and argument . source . token . text or nil
+else
+base = bindPath ( argument . source )
+end
+if base then
+plan . argFields [ argument ] = { base = base , field = argument . name }
+end
+elseif argument . generatedKind == "expr" and not argument . pack and index < lastDotted then
+
+
+local alias = nextTemp ( )
+plan . argAliases [ argument ] = alias
+plan . steps [ # plan . steps + 1 ] = { kind = "expr" , name = alias , expr = argument . expr , at = argument . expr }
+end
+end
+
+return plan
+end
+
+function expansion . emitSteps ( steps )
+for _ , step in ipairs ( steps ) do
+e ( "const " .. step . name .. "=" , sourceLine ( step . at ) )
+if step . kind == "field" then
+e ( step . base .. "." .. step . field )
+else
+emit ( step . expr )
+end
+e ( ";" )
+end
+end
+
+function expansion . directCall ( statement )
+local kind = statement . kind
+local direct
+if kind == "callStmt" then
+direct = statement . expr
+elseif (
+kind == "returnStmt" or kind == "localStmt" or kind == "assignStmt"
+) and statement . exprs and # statement . exprs == 1 then
+direct = statement . exprs [ 1 ]
+end
+
+
+
+if direct and direct . kind == "newExpr" then
+return direct . call
+end
+
+return direct
+end
+
+function expansion . emitArgument ( argument , owner )
+local alias = expansion . argumentAliases and expansion . argumentAliases [ argument ]
+local field = expansion . argumentFields and expansion . argumentFields [ argument ]
+if alias then
+e ( alias , sourceLine ( argument . expr or argument . source or owner ) )
+elseif field then
+e ( field . base .. "." .. field . field , sourceLine ( argument . source or owner ) )
+elseif argument . generatedKind == "field" then
+emit ( argument . source )
+e ( "." .. argument . name , sourceLine ( argument . source ) )
+elseif argument . generatedKind == "nil" then
+e ( "nil" , sourceLine ( owner ) )
+else
+emit ( argument . expr )
+end
+end
+
+function expansion . emitArgs ( args )
+for j , argument in ipairs ( args . loweredArgs or { } ) do
+if j > 1 then
+e ( "," )
+end
+expansion . emitArgument ( argument , args )
+end
+end
+
+function expansion . activate ( plan )
+local prior = {
+aliases = expansion . argumentAliases ,
+fields = expansion . argumentFields ,
+}
+expansion . argumentAliases = plan . argAliases
+expansion . argumentFields = plan . argFields
+expansion . plans [ plan . call ] = plan
+
+return prior
+end
+
+function expansion . restore ( plan , prior )
+expansion . plans [ plan . call ] = nil
+expansion . argumentAliases = prior . aliases
+expansion . argumentFields = prior . fields
+end
+
+function expansion . emitCall ( call , plan )
+if plan . methodAlias then
+e ( plan . methodAlias .. "(" .. plan . receiverAlias , sourceLine ( call ) )
+if call . args and # ( call . args . loweredArgs or { } ) > 0 then
+e ( "," )
+expansion . emitArgs ( call . args )
+end
+e ( ")" )
+elseif plan . receiverAlias then
+e ( plan . receiverAlias .. ":" .. plan . methodName , sourceLine ( call ) )
+emit ( call . args )
+else
+if plan . calleeAlias then
+e ( plan . calleeAlias , sourceLine ( call ) )
+else
+emit ( call . obj )
+end
+emit ( call . args )
+end
+end
+
+function expansion . emitStatement ( statement , call , plan )
+expansion . emitSteps ( plan . setupSteps )
+local guards = 0
+if plan . safeReceiver then
+e ( "if " .. plan . receiverAlias .. "~=nil then" )
+guards = guards + 1
+end
+expansion . emitSteps ( plan . afterReceiverSteps )
+if plan . safeCallee then
+e ( "if " .. plan . calleeAlias .. "~=nil then" )
+guards = guards + 1
+end
+if plan . safeMethod then
+e ( "if " .. plan . methodAlias .. "~=nil then" )
+guards = guards + 1
+end
+expansion . emitSteps ( plan . steps )
+local prior = expansion . activate ( plan )
+emit ( statement )
+expansion . restore ( plan , prior )
+for _ = 1 , guards do
+e ( "end" )
+end
+end
+
+function expansion . emitReturn ( statement , plan )
+expansion . emitSteps ( plan . setupSteps )
+if plan . safeReceiver then
+e ( "if " .. plan . receiverAlias .. "==nil then return nil end;" )
+end
+expansion . emitSteps ( plan . afterReceiverSteps )
+if plan . safeCallee then
+e ( "if " .. plan . calleeAlias .. "==nil then return nil end;" )
+end
+if plan . safeMethod then
+e ( "if " .. plan . methodAlias .. "==nil then return nil end;" )
+end
+expansion . emitSteps ( plan . steps )
+local prior = expansion . activate ( plan )
+emit ( statement )
+expansion . restore ( plan , prior )
 end
 
 local function coverageRuntime ( )
@@ -37956,6 +40778,37 @@ if kind == "recordDecl" and x . isAnnotationDefinition then
 
 return
 end
+if kind == "expansionDecl" then
+
+return
+end
+if not expansion . statementActive [ x ] then
+local direct = expansion . directCall ( x )
+local plan = direct and expansion . callPlan ( direct ) or nil
+if plan and ( not plan . isSafe or kind == "callStmt" or kind == "returnStmt" ) then
+expansion . statementActive [ x ] = true
+if plan . isSafe and kind == "returnStmt" then
+expansion . emitReturn ( x , plan )
+else
+expansion . emitStatement ( x , direct , plan )
+end
+expansion . statementActive [ x ] = nil
+return
+end
+end
+if kind == "call" or kind == "safeCall" or kind == "methodCall" then
+local activePlan = expansion . plans [ x ]
+if activePlan and not activePlan . delegate then
+expansion . emitCall ( x , activePlan )
+return
+end
+end
+if kind == "args" and x . loweredArgs then
+e ( "(" , sourceLine ( x ) )
+expansion . emitArgs ( x )
+e ( ")" )
+return
+end
 if x . passPinnedPointer then
 x . passPinnedPointer = nil
 e ( "(" , sourceLine ( x ) )
@@ -37975,6 +40828,11 @@ return
 end
 if x . folded then
 e ( x . folded , sourceLine ( x ) )
+return
+end
+if kind == "dotIndex" and x . overloadMember then
+emit ( x . obj )
+e ( "." .. x . overloadMember , sourceLine ( x ) )
 return
 end
 if x . callableBindings then
@@ -38091,6 +40949,7 @@ entry . recordRuntimeName = runtimeName .. "." .. entry . name . text
 emit ( entry )
 elseif entry . kind == "inlineMethod" then
 entry . inlineRuntimeOwner = runtimeName
+entry . inlineDotted = entry . inlineStatic
 emit ( entry )
 elseif entry . kind == "constructorDecl" then
 entry . inlineRuntimeOwner = runtimeName
@@ -38118,7 +40977,9 @@ if super . interfaceName then
 inherits = true
 end
 end
-if # defaults == 0 and not inherits then
+local nominal = x . resolvedType
+local hasStatics = nominal and nominal . staticByname and next ( nominal . staticByname ) ~= nil
+if # defaults == 0 and not inherits and not hasStatics then
 return
 end
 local line = sourceLine ( x )
@@ -38583,7 +41444,8 @@ e ( "const " .. status .. "=" )
 end
 emit ( x . obj )
 e ( "(" )
-local args = x . args and x . args . exprs or { }
+local loweredArgs = x . args and x . args . loweredArgs or nil
+local args = loweredArgs or ( x . args and x . args . exprs or { } )
 local outputAt = { }
 for j , output in ipairs ( x . ffiOutContracts ) do
 outputAt [ output . cIndex ] = holders [ j ]
@@ -38596,7 +41458,11 @@ end
 if outputAt [ cIndex ] then
 e ( outputAt [ cIndex ] )
 else
+if loweredArgs then
+expansion . emitArgument ( args [ argumentIndex ] , x . args )
+else
 emit ( args [ argumentIndex ] )
+end
 argumentIndex = argumentIndex + 1
 end
 end
@@ -38658,7 +41524,23 @@ else
 e ( "nil" )
 end
 elseif x . ownershipIntrinsic == "fromRaw" then
+if # ( x . ownerCleanups or { } ) > 0 then
+e ( cleanupRegisterValue ( ) .. "(" , line )
 if args [ 1 ] then
+emit ( args [ 1 ] )
+else
+e ( "nil" )
+end
+for j , cleanup in ipairs ( x . ownerCleanups or { } ) do
+e ( ( ",%q," ) : format ( cleanup . key ) )
+if args [ j + 1 ] then
+emit ( args [ j + 1 ] )
+else
+e ( "nil" )
+end
+end
+e ( ")" )
+elseif args [ 1 ] then
 emit ( args [ 1 ] )
 else
 e ( "nil" )
@@ -38666,20 +41548,9 @@ end
 else
 e ( "(function(__p) if __p == nil then return end " , line )
 for _ , cleanup in ipairs ( x . ownerCleanups or { } ) do
-local method = cleanup : match ( "^@method:(.+)$" )
-local field , fieldCleanup = cleanup : match ( "^@field|([^|]+)|(.+)$" )
-if cleanup : match ( "^@dropfield|" ) then
-elseif field then
-local fieldMethod = fieldCleanup : match ( "^@method:(.+)$" )
-if fieldMethod then
-e ( "__p." .. field .. ":" .. fieldMethod .. "(); " )
-else
-e ( fieldCleanup .. "(__p." .. field .. "); " )
-end
-elseif method then
-e ( "__p:" .. method .. "(); " )
-else
-e ( cleanup .. "(__p); " )
+local call = cleanupCall ( cleanup , "__p" )
+if call then
+e ( call .. "; " )
 end
 end
 e ( "end)(" )
@@ -38877,8 +41748,6 @@ if x . inlineDotted then
 
 
 
-
-table . insert ( names , 1 , "self" )
 e (
 (
 "function %s.%s(%s)"
@@ -38963,6 +41832,33 @@ end
 end
 e ( "end" , endTok and endTok . line or nil )
 return
+
+elseif kind == "handleStmt" then
+
+
+
+
+
+
+
+local installed = nextTemp ( )
+local ok = nextTemp ( )
+local err = nextTemp ( )
+e (
+( "do const %s = %s.install(" ) : format ( installed , suspensionModule ( ) ) ,
+x . handleTok and x . handleTok . line or nil
+)
+if x . handler then
+emit ( x . handler )
+end
+e ( ( ( "); const %s, %s = pcall(function()" ) : format ( ok , err ) ) , x . doTok and x . doTok . line or nil )
+if x . body then
+emit ( x . body )
+end
+e (
+( "end); %s:release(); if not %s then error(%s, 0) end end" ) : format ( installed , ok , err ) ,
+x . endTok and x . endTok . line or nil
+)
 
 elseif kind == "withStmt" then
 needsWith = true
@@ -39071,34 +41967,10 @@ for j = # ( x . bindings or { } ) , 1 , - 1 do
 local binding = x . bindings [ j ]
 e ( ( "if %s>=%d then " ) : format ( count , j ) )
 for _ , cleanup in ipairs ( binding . ownerCleanups or { } ) do
-if not cleanup : match ( "^@dropfield|" ) then
+local call = protectedCleanupCall ( cleanup , owners [ j ] , withGlobals . pcall )
+if call then
 local cok , cerr = nextTemp ( ) , nextTemp ( )
-local method = cleanup : match ( "^@method:(.+)$" )
-local field , fieldCleanup = cleanup : match ( "^@field|([^|]+)|(.+)$" )
-if method then
-e (
-(
-"const %s,%s=%s(function() %s:%s() end);"
-) : format ( cok , cerr , withGlobals . pcall , owners [ j ] , method )
-)
-elseif field then
-local fieldMethod = fieldCleanup : match ( "^@method:(.+)$" )
-if fieldMethod then
-e (
-(
-"const %s,%s=%s(function() %s.%s:%s() end);"
-) : format ( cok , cerr , withGlobals . pcall , owners [ j ] , field , fieldMethod )
-)
-else
-e (
-(
-"const %s,%s=%s(%s,%s.%s);"
-) : format ( cok , cerr , withGlobals . pcall , fieldCleanup , owners [ j ] , field )
-)
-end
-else
-e ( ( "const %s,%s=%s(%s,%s);" ) : format ( cok , cerr , withGlobals . pcall , cleanup , owners [ j ] ) )
-end
+e ( ( "const %s,%s=%s;" ) : format ( cok , cerr , call ) )
 e (
 (
 " if not %s then %s=%s+1; %s[%s]=%s end;"
@@ -39273,9 +42145,30 @@ end
 emitFunctionDepth = emitFunctionDepth - 1
 
 elseif kind == "pragmaStmt" then
+for _ , registration in ipairs ( x . cleanupRegistrations or { } ) do
+if not registration . after then
+local cleanup = registration . cleanup
+e ( ( "%s[%q]=%s;" ) : format ( cleanupRegistry ( ) , cleanup . key , cleanup . name ) , sourceLine ( x ) )
+end
+end
 if x . stat then
 emit ( x . stat )
 end
+for _ , registration in ipairs ( x . cleanupRegistrations or { } ) do
+if registration . after then
+local cleanup = registration . cleanup
+e ( ( ";%s[%q]=%s" ) : format ( cleanupRegistry ( ) , cleanup . key , cleanup . name ) , sourceLine ( x ) )
+end
+end
+
+elseif kind == "noSuspendStmt" then
+
+
+e ( "do" , x . keywordTok and x . keywordTok . line or nil )
+if x . body then
+emit ( x . body )
+end
+e ( "end" , x . endTok and x . endTok . line or nil )
 
 elseif kind == "unsafeStmt" then
 e ( "do" , x . unsafeTok and x . unsafeTok . line or nil )
@@ -39318,11 +42211,10 @@ end
 e ( ")" )
 return
 
-elseif kind == "name" and x . bufferIntrinsic then
+elseif kind == "dotIndex" and x . compilerModule then
 
 
-
-e ( concatBufferName ( ) , sourceLine ( x ) )
+e ( compilerModuleName ( x . compilerModule ) , sourceLine ( x ) )
 
 elseif kind == "localStmt" and x . concatBuffer then
 
@@ -39358,6 +42250,41 @@ end
 raw ( "\n" )
 
 local code = table . concat ( out )
+if needsCleanupRegistry then
+local linked = {
+( "local %s=_G.__nuppCleanupRegistry;" ) : format ( cleanupRegistryName ) ,
+(
+"if %s==nil then %s={};_G.__nuppCleanupRegistry=%s end;"
+) : format ( cleanupRegistryName , cleanupRegistryName , cleanupRegistryName ) ,
+}
+for _ , resolver in ipairs ( cleanupResolverOrder ) do
+local cleanup = resolver . cleanup
+linked [
+# linked + 1
+] = (
+"local %s;%s=function(value) local cleanup=%s[%q];"
+) : format (
+resolver . name ,
+resolver . name ,
+cleanupRegistryName ,
+cleanup . key
+) .. (
+"if cleanup==nil then return _G.error(%q) end;"
+) : format (
+"Nupp cleanup provider is not loaded: " .. cleanup . key
+) .. ( "%s=cleanup;return cleanup(value) end;" ) : format ( resolver . name )
+end
+if cleanupRegisterValueName then
+linked [
+# linked + 1
+] = (
+"local function %s(value,...) for i=1,_G.select('#',...),2 do "
+) : format (
+cleanupRegisterValueName
+) .. ( "%s[_G.select(i,...)]=_G.select(i+1,...) end return value end;" ) : format ( cleanupRegistryName )
+end
+code = table . concat ( linked ) .. code
+end
 
 
 local nativeBootstrap = native . bootstrap ( result . effects )
@@ -39437,6 +42364,23 @@ code = "const __nuppLibCache = {}; const function __nuppLib(n) "
 .. "l = __nuppFfi.load(n) __nuppLibCache[n] = l end return l end; "
 .. code
 end
+if needsCloneTab then
+
+
+
+
+
+code = (
+"const function %s(t) const out = {} "
+) : format (
+cloneTabName
+)
+.. "for k, v in next, t do out[k] = v end "
+.. "const mt = getmetatable(t) "
+.. "if type(mt) == \"table\" then setmetatable(out, mt) end "
+.. "return out end; "
+.. code
+end
 if needsClearTab then
 code = ( "const %s = require(\"table.clear\"); " ) : format ( clearTabName ) .. code
 end
@@ -39495,8 +42439,11 @@ code = (
 ) : format ( layoutName ) .. code
 needsFfi = true
 end
-if needsBuffer then
-code = ( "const %s = require(\"string.buffer\"); " ) : format ( bufferName ) .. code
+if needsSuspension then
+code = ( "const %s = require(\"nupp.suspension\"); " ) : format ( suspensionName ) .. code
+end
+for _ , moduleName in ipairs ( compilerModuleOrder ) do
+code = ( "const %s = require(%q); " ) : format ( compilerModules [ moduleName ] , moduleName ) .. code
 end
 if needsFfi then
 
@@ -39561,22 +42508,35 @@ local generics = { }
 
 
 
-function generics . substPack ( pack , map )
+
+
+
+
+
+local PRESERVE = "preserve"
+local MATERIALIZE = "materialize"
+
+local substWith
+
+
+local substPackWith
+
+substPackWith = function ( pack , map , unmapped )
 if pack . alternatives then
 local alternatives = { }
 for j , arm in ipairs ( pack . alternatives ) do
-alternatives [ j ] = generics . substPack ( arm , map )
+alternatives [ j ] = substPackWith ( arm , map , unmapped )
 end
 return T . packUnion ( alternatives )
 end
 local head , modes = { } , { }
 for j , value in ipairs ( pack . head ) do
-head [ j ] = generics . subst ( value , map )
+head [ j ] = substWith ( value , map , unmapped )
 modes [ j ] = pack . modes [ j ] or "plain"
 end
 local tail = pack . tail
 if tail and tail . kind == "homogeneous" then
-tail = { kind = "homogeneous" , type = generics . subst ( tail . type , map ) , mode = tail . mode }
+tail = { kind = "homogeneous" , type = substWith ( tail . type , map , unmapped ) , mode = tail . mode }
 elseif tail and tail . kind == "generic" then
 local replacement = map [ tail . var ]
 if replacement and replacement . tag == "pack" then
@@ -39585,6 +42545,10 @@ head [ # head + 1 ] = value
 modes [ # modes + 1 ] = replacement . modes [ j ] or "plain"
 end
 tail = replacement . tail
+elseif unmapped == PRESERVE then
+
+
+tail = tail
 else
 tail = { kind = "unknown" , type = T . any }
 end
@@ -39593,32 +42557,31 @@ end
 return T . pack ( head , tail , modes )
 end
 
-
-
-
-
-
-
-function generics . subst ( t , map )
+substWith = function ( t , map , unmapped )
 if not T . hasTypevar ( t ) then
 return t
 end
 local tag = t . tag
 if tag == "typevar" then
-return map [ t ] or T . any
+local bound = map [ t ]
+if bound then
+return bound
+end
+
+return unmapped == PRESERVE and t or T . any
 elseif tag == "array" then
-return T . array ( generics . subst ( t . elem , map ) )
+return T . array ( substWith ( t . elem , map , unmapped ) )
 elseif tag == "map" then
 return T . indexer (
-t . readable and generics . subst ( t . key , map ) or nil ,
-t . readable and generics . subst ( t . value , map ) or nil ,
-t . writeKey and generics . subst ( t . writeKey , map ) or nil ,
-t . writeValue and generics . subst ( t . writeValue , map ) or nil
+t . readable and substWith ( t . key , map , unmapped ) or nil ,
+t . readable and substWith ( t . value , map , unmapped ) or nil ,
+t . writeKey and substWith ( t . writeKey , map , unmapped ) or nil ,
+t . writeValue and substWith ( t . writeValue , map , unmapped ) or nil
 )
 elseif tag == "tuple" then
 local elems = { }
 for j , e in ipairs ( t . elems ) do
-elems [ j ] = generics . subst ( e , map )
+elems [ j ] = substWith ( e , map , unmapped )
 end
 return T . tuple ( elems )
 elseif tag == "shape" then
@@ -39628,82 +42591,69 @@ fields [
 j
 ] = {
 name = f . name ,
-read = f . read and generics . subst ( f . read , map ) or nil ,
-write = f . write and generics . subst ( f . write , map ) or nil
+read = f . read and substWith ( f . read , map , unmapped ) or nil ,
+write = f . write and substWith ( f . write , map , unmapped ) or nil
 }
 end
 return T . shape (
 fields ,
 {
-readKey = t . indexReadKey and generics . subst ( t . indexReadKey , map ) or nil ,
-readValue = t . indexReadValue and generics . subst ( t . indexReadValue , map ) or nil ,
-writeKey = t . indexWriteKey and generics . subst ( t . indexWriteKey , map ) or nil ,
-writeValue = t . indexWriteValue and generics . subst ( t . indexWriteValue , map ) or nil ,
+readKey = t . indexReadKey and substWith ( t . indexReadKey , map , unmapped ) or nil ,
+readValue = t . indexReadValue and substWith ( t . indexReadValue , map , unmapped ) or nil ,
+writeKey = t . indexWriteKey and substWith ( t . indexWriteKey , map , unmapped ) or nil ,
+writeValue = t . indexWriteValue and substWith ( t . indexWriteValue , map , unmapped ) or nil ,
 } ,
 t . fresh
 )
 elseif tag == "union" then
 local members = { }
 for j , m in ipairs ( t . members ) do
-members [ j ] = generics . subst ( m , map )
+members [ j ] = substWith ( m , map , unmapped )
 end
 return T . union ( members )
 elseif tag == "intersection" then
 local members = { }
 for j , m in ipairs ( t . members ) do
-members [ j ] = generics . subst ( m , map )
+members [ j ] = substWith ( m , map , unmapped )
 end
 return T . intersection ( members )
 elseif tag == "ptr" then
-return T . ptr ( generics . subst ( t . elem , map ) )
+return T . ptr ( substWith ( t . elem , map , unmapped ) )
 elseif tag == "owned" then
-return T . owned ( generics . subst ( t . inner , map ) , t . cleanups )
+return T . owned ( substWith ( t . inner , map , unmapped ) , t . cleanups )
 elseif tag == "borrowed" then
-return T . borrowed ( generics . subst ( t . inner , map ) )
+return T . borrowed ( substWith ( t . inner , map , unmapped ) )
 elseif tag == "pinned" then
-return T . pinned ( generics . subst ( t . inner , map ) )
+return T . pinned ( substWith ( t . inner , map , unmapped ) )
 elseif tag == "metatable" then
-return T . metatable ( generics . subst ( t . of , map ) )
+return T . metatable ( substWith ( t . of , map , unmapped ) )
 elseif tag == "protocolThread" then
 return T . protocolThread (
-generics . substPack ( t . startPack , map ) ,
-generics . substPack ( t . resumePack , map ) ,
-generics . substPack ( t . yieldPack , map ) ,
-generics . substPack ( t . returnPack , map )
+substPackWith ( t . startPack , map , unmapped ) ,
+substPackWith ( t . resumePack , map , unmapped ) ,
+substPackWith ( t . yieldPack , map , unmapped ) ,
+substPackWith ( t . returnPack , map , unmapped )
 )
 elseif tag == "genericAlias" then
-return generics . subst ( t . body , map )
+return substWith ( t . body , map , unmapped )
 elseif tag == "func" then
-local paramPack = generics . substPack ( t . paramPack , map )
-local retPack = generics . substPack ( t . retPack , map )
+local paramPack = substPackWith ( t . paramPack , map , unmapped )
+local retPack = substPackWith ( t . retPack , map , unmapped )
 local params , rets = paramPack . head , retPack . head
 local bounds = nil
 if t . typeBounds then
 bounds = { }
 for j , b in ipairs ( t . typeBounds ) do
-bounds [ j ] = generics . subst ( b , map )
+bounds [ j ] = substWith ( b , map , unmapped )
 end
 end
-return T . func (
-params ,
-rets ,
-t . vararg ,
-t . paramModes ,
-t . predicate ,
-t . typeParams ,
-bounds ,
-t . borrowsParam ,
-t . borrowsSelf ,
-t . borrowsParams ,
-t . ffiOut ,
-t . varargType and generics . subst ( t . varargType , map ) or nil ,
-t . noreturn ,
-paramPack ,
-retPack ,
-t . packParams ,
-t . yieldPack and generics . substPack ( t . yieldPack , map ) or nil ,
-t . resumePack and generics . substPack ( t . resumePack , map ) or nil
-)
+return T . func ( params , rets , t . vararg , t . paramModes , t . predicate , t . typeParams , bounds , t . borrowsParam , t . borrowsSelf , t . borrowsParams , t . ffiOut , t . varargType and substWith (
+t . varargType , map , unmapped ) or nil , t . noreturn , paramPack , retPack , t . packParams , t . yieldPack and substPackWith (
+t . yieldPack , map , unmapped ) or nil , t . resumePack and substPackWith ( t . resumePack , map , unmapped ) or nil ,
+
+
+
+t . noYield , t . paramNames )
 end
 
 return t
@@ -39712,8 +42662,41 @@ end
 
 
 
+
+
+
+
+
+function generics . rebind ( t , map )
+return substWith ( t , map , PRESERVE )
+end
+
+
+
+
+
+
+
+
+function generics . materialize ( t , map )
+return substWith ( t , map , MATERIALIZE )
+end
+
+
+function generics . rebindPack ( pack , map )
+return substPackWith ( pack , map , PRESERVE )
+end
+
+
+function generics . materializePack ( pack , map )
+return substPackWith ( pack , map , MATERIALIZE )
+end
+
+
+
+
 function generics . instantiateFunction ( t , map )
-local concrete = generics . subst ( t , map )
+local concrete = substWith ( t , map , MATERIALIZE )
 if concrete . tag ~= "func" then
 return t
 end
@@ -39736,7 +42719,9 @@ concrete . paramPack ,
 concrete . retPack ,
 nil ,
 concrete . yieldPack ,
-concrete . resumePack
+concrete . resumePack ,
+concrete . noYield ,
+concrete . paramNames
 )
 end
 
@@ -39807,28 +42792,42 @@ for j , tv in ipairs ( n . typeParams or { } ) do
 inst . typeArgs [ j ] = map [ tv ] or T . any
 end
 inst . fieldOrder = n . fieldOrder
-inst . arrayOf = n . arrayOf and generics . subst ( n . arrayOf , map ) or nil
+inst . expansions = n . expansions
+inst . arrayOf = n . arrayOf and substWith ( n . arrayOf , map , PRESERVE ) or nil
 inst . fieldDefs = n . fieldDefs
 inst . writeFieldDefs = n . writeFieldDefs
+inst . staticFieldDefs = n . staticFieldDefs
+inst . staticWriteFieldDefs = n . staticWriteFieldDefs
 inst . selfType = n . selfType
 inst . supertypes = { }
 for j , parent in ipairs ( n . supertypes or { } ) do
-inst . supertypes [ j ] = generics . subst ( parent , map )
+inst . supertypes [ j ] = substWith ( parent , map , PRESERVE )
 end
 
 
 instantiations [ key ] = inst
 for name , ft in pairs ( n . byname ) do
-inst . byname [ name ] = generics . subst ( ft , map )
+inst . byname [ name ] = substWith ( ft , map , PRESERVE )
 end
 for name , ft in pairs ( n . writeByname or { } ) do
-inst . writeByname [ name ] = generics . subst ( ft , map )
+inst . writeByname [ name ] = substWith ( ft , map , PRESERVE )
+end
+for name , ft in pairs ( n . staticByname or { } ) do
+inst . staticByname [ name ] = substWith ( ft , map , PRESERVE )
+end
+for name , ft in pairs ( n . staticWriteByname or { } ) do
+inst . staticWriteByname [ name ] = substWith ( ft , map , PRESERVE )
 end
 inst . overloadedMethods = { }
+inst . overloadedStatics = { }
 inst . methodEntries = { }
 inst . methodDispatchEntries = { }
+inst . staticEntries = { }
 for name in pairs ( n . overloadedMethods or { } ) do
 inst . overloadedMethods [ name ] = true
+end
+for name in pairs ( n . overloadedStatics or { } ) do
+inst . overloadedStatics [ name ] = true
 end
 for name , entries in pairs ( n . methodEntries or { } ) do
 local specialized = { }
@@ -39836,7 +42835,7 @@ for j , entry in ipairs ( entries ) do
 specialized [
 j
 ] = {
-signature = generics . subst ( entry . signature , map ) ,
+signature = substWith ( entry . signature , map , PRESERVE ) ,
 declaration = entry . declaration ,
 member = entry . member ,
 parameterKey = entry . parameterKey ,
@@ -39851,7 +42850,7 @@ for j , entry in ipairs ( entries ) do
 specialized [
 j
 ] = {
-signature = generics . subst ( entry . signature , map ) ,
+signature = substWith ( entry . signature , map , PRESERVE ) ,
 declaration = entry . declaration ,
 member = entry . member ,
 parameterKey = entry . parameterKey ,
@@ -39860,17 +42859,32 @@ definition = entry . definition ,
 end
 inst . methodDispatchEntries [ name ] = specialized
 end
-inst . indexReadKey = n . indexReadKey and generics . subst ( n . indexReadKey , map ) or nil
-inst . indexReadValue = n . indexReadValue and generics . subst ( n . indexReadValue , map ) or nil
-inst . indexWriteKey = n . indexWriteKey and generics . subst ( n . indexWriteKey , map ) or nil
-inst . indexWriteValue = n . indexWriteValue and generics . subst ( n . indexWriteValue , map ) or nil
+for name , entries in pairs ( n . staticEntries or { } ) do
+local specialized = { }
+for j , entry in ipairs ( entries ) do
+specialized [
+j
+] = {
+signature = substWith ( entry . signature , map , PRESERVE ) ,
+declaration = entry . declaration ,
+member = entry . member ,
+parameterKey = entry . parameterKey ,
+definition = entry . definition ,
+}
+end
+inst . staticEntries [ name ] = specialized
+end
+inst . indexReadKey = n . indexReadKey and substWith ( n . indexReadKey , map , PRESERVE ) or nil
+inst . indexReadValue = n . indexReadValue and substWith ( n . indexReadValue , map , PRESERVE ) or nil
+inst . indexWriteKey = n . indexWriteKey and substWith ( n . indexWriteKey , map , PRESERVE ) or nil
+inst . indexWriteValue = n . indexWriteValue and substWith ( n . indexWriteValue , map , PRESERVE ) or nil
 for name , ft in pairs ( n . metamethods or { } ) do
-inst . metamethods [ name ] = generics . subst ( ft , map )
+inst . metamethods [ name ] = substWith ( ft , map , PRESERVE )
 end
 inst . constructors = { }
 inst . constructorEntries = { }
 for j , signature in ipairs ( n . constructors or { } ) do
-local specialized = generics . subst ( signature , map )
+local specialized = substWith ( signature , map , PRESERVE )
 inst . constructors [ j ] = specialized
 local entry = n . constructorEntries and n . constructorEntries [ j ] or nil
 inst . constructorEntries [
@@ -40017,7 +43031,11 @@ end
 return T . intersection ( members )
 end
 if owner and owner . tag == "nominal" and owner . selfType then
-return generics . subst ( ft , { [ owner . selfType ] = receiver or owner } )
+
+
+
+
+return generics . rebind ( ft , { [ owner . selfType ] = receiver or owner } )
 end
 
 return ft
@@ -40039,33 +43057,18 @@ end
 if ft . tag == "func" and # ft . params >= 1 then
 local params = { }
 local modes = { }
+local names = { }
 for j = 2 , # ft . params do
 params [ # params + 1 ] = ft . params [ j ]
 end
 for j = 2 , # ft . params do
 modes [ # modes + 1 ] = ft . paramModes and ft . paramModes [ j ] or "plain"
+names [ # names + 1 ] = ft . paramNames and ft . paramNames [ j ] or ""
 end
 local paramPack = T . pack ( params , ft . paramPack . tail , modes )
-return T . func (
-params ,
-ft . rets ,
-ft . vararg ,
-modes ,
-nil ,
-ft . typeParams ,
-ft . typeBounds ,
-ft . borrowsParam ,
-ft . borrowsSelf ,
-ft . borrowsParams ,
-ft . ffiOut ,
-ft . varargType ,
-ft . noreturn ,
-paramPack ,
-ft . retPack ,
-ft . packParams ,
-ft . yieldPack ,
-ft . resumePack
-)
+return T . func ( params , ft . rets , ft . vararg , modes , nil , ft . typeParams , ft . typeBounds , ft . borrowsParam , ft . borrowsSelf , ft . borrowsParams , ft . ffiOut , ft . varargType , ft . noreturn , paramPack , ft . retPack , ft . packParams , ft . yieldPack , ft . resumePack ,
+
+ft . noYield , names )
 end
 
 return ft
@@ -40090,11 +43093,15 @@ return ft
 end
 local params = { selfType }
 local modes = { selfMode or "plain" }
+local names = { "self" }
 for _ , p in ipairs ( ft . params ) do
 params [ # params + 1 ] = p
 end
 for _ , mode in ipairs ( ft . paramModes or { } ) do
 modes [ # modes + 1 ] = mode
+end
+for _ , name in ipairs ( ft . paramNames or { } ) do
+names [ # names + 1 ] = name
 end
 local paramPack = T . pack ( params , ft . paramPack . tail , modes )
 
@@ -40116,7 +43123,9 @@ paramPack ,
 ft . retPack ,
 ft . packParams ,
 ft . yieldPack ,
-ft . resumePack
+ft . resumePack ,
+ft . noYield ,
+names
 )
 end
 
@@ -40981,7 +43990,11 @@ end )
 q : define ( "moduleExports" , function ( self , name )
 local path = modulePath ( self , name )
 if not path then
-return nil
+
+
+
+local bundled = env . bundled and env . bundled [ name ]
+return bundled and bundled . exports or nil
 end
 local r = self : get ( "checkModule" , path )
 
@@ -41112,6 +44125,12 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 local lexer = { }
+
+
+
+
+
+
 
 
 
@@ -45686,7 +48705,7 @@ return tree
 
 end
 package.preload["nupp.compiler.lsp.wire"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local names={"encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;target.empty_array=json.empty_array;target.array_mt=json.array_mt;target.empty_array_mt=json.empty_array_mt;for _,name in ipairs(names)do target[name]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","empty_array","array_mt","empty_array_mt","encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
 
 
 
@@ -45729,6 +48748,7 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 local hash = require ( "nupp.compiler.build.hash" )
+
 
 
 
@@ -45800,7 +48820,11 @@ local params = { }
 for j , param in ipairs ( t . params or { } ) do
 params [
 j
-] = tostring ( t . paramModes and t . paramModes [ j ] or "plain" ) .. ":" .. fingerprint ( param , binders , active )
+] = tostring (
+t . paramNames and t . paramNames [ j ] or ""
+) .. "=" .. tostring (
+t . paramModes and t . paramModes [ j ] or "plain"
+) .. ":" .. fingerprint ( param , binders , active )
 end
 out = "fn(" .. table . concat ( params , "," ) .. ")"
 else
@@ -45811,7 +48835,7 @@ active [ t ] = nil
 return out
 end
 
-local function packFingerprint ( ft )
+local function packFingerprint ( ft , includeLabels )
 local binders = { }
 local generic = { }
 for j , tv in ipairs ( ft . typeParams or { } ) do
@@ -45828,7 +48852,11 @@ local parts = { }
 for j , param in ipairs ( ft . paramPack . head or { } ) do
 parts [
 j
-] = tostring ( ft . paramPack . modes and ft . paramPack . modes [ j ] or "plain" ) .. ":" .. fingerprint ( param , binders , { } )
+] = tostring (
+includeLabels and ft . paramNames and ft . paramNames [ j ] or ""
+) .. "=" .. tostring (
+ft . paramPack . modes and ft . paramPack . modes [ j ] or "plain"
+) .. ":" .. fingerprint ( param , binders , { } )
 end
 local tail = ft . paramPack . tail
 if tail then
@@ -45847,12 +48875,18 @@ end
 
 
 function methodslots . member ( name , ft )
-return "__nupp_m_" .. hash . digest ( name .. ":" .. packFingerprint ( ft ) )
+return "__nupp_m_" .. hash . digest ( name .. ":" .. packFingerprint ( ft , true ) )
 end
 
 
 function methodslots . parameters ( ft )
-return packFingerprint ( ft )
+return packFingerprint ( ft , true )
+end
+
+
+
+function methodslots . unlabeledParameters ( ft )
+return packFingerprint ( ft , false )
 end
 
 return methodslots
@@ -46090,22 +49124,22 @@ globals = {
 "nupp.data.decodeJSON" ,
 "nupp.data.newJSON" ,
 "nupp.data.null" ,
-"nupp.data.empty_array" ,
-"nupp.data.array_mt" ,
-"nupp.data.empty_array_mt" ,
-"nupp.data.encode_empty_table_as_object" ,
-"nupp.data.decode_array_with_array_mt" ,
-"nupp.data.decode_allow_comment" ,
-"nupp.data.encode_sparse_array" ,
-"nupp.data.encode_max_depth" ,
-"nupp.data.decode_max_depth" ,
-"nupp.data.encode_number_precision" ,
-"nupp.data.encode_keep_buffer" ,
-"nupp.data.encode_invalid_numbers" ,
-"nupp.data.decode_invalid_numbers" ,
-"nupp.data.encode_escape_forward_slash" ,
-"nupp.data.encode_skip_unsupported_value_types" ,
-"nupp.data.encode_indent" ,
+"nupp.data.emptyArray" ,
+"nupp.data.arrayMt" ,
+"nupp.data.emptyArrayMt" ,
+"nupp.data.encodeEmptyTableAsObject" ,
+"nupp.data.decodeArrayWithArrayMt" ,
+"nupp.data.decodeAllowComment" ,
+"nupp.data.encodeSparseArray" ,
+"nupp.data.encodeMaxDepth" ,
+"nupp.data.decodeMaxDepth" ,
+"nupp.data.encodeNumberPrecision" ,
+"nupp.data.encodeKeepBuffer" ,
+"nupp.data.encodeInvalidNumbers" ,
+"nupp.data.decodeInvalidNumbers" ,
+"nupp.data.encodeEscapeForwardSlash" ,
+"nupp.data.encodeSkipUnsupportedValueTypes" ,
+"nupp.data.encodeIndent" ,
 } ,
 modules = { "cjson" , "cjson.safe" } ,
 host = "cjson" ,
@@ -47443,6 +50477,14 @@ or call . tableIntrinsic
 then
 return nil
 end
+
+
+
+for _ , argument in ipairs ( call . args and call . args . loweredArgs or { } ) do
+if argument . generatedKind == "field" and argument . source and argument . source . kind == "dotIndex" then
+return nil
+end
+end
 local callee = call . obj
 local t = callee and callee . resolvedType
 if not callee or callee . kind ~= "dotIndex" or not callee . immutablePath or not t or t . tag ~= "func" then
@@ -47850,6 +50892,32 @@ end
 
 
 
+
+
+local genericCloseHalfAt = nil
+
+
+local function expectGenericClose ( what )
+if genericCloseHalfAt == i then
+genericCloseHalfAt = nil
+local at = cur ( )
+
+return { kind = ">" , text = "" , trivia = { } , offset = at . offset , line = at . line , col = at . col }
+end
+if cur ( ) . kind == ">>" then
+local tok = advance ( )
+genericCloseHalfAt = i
+
+return tok
+end
+
+return expect ( ">" , what )
+end
+
+
+
+
+
 local function resetNoMethod ( fn , ... )
 local saved = noMethod
 noMethod = 0
@@ -48026,7 +51094,7 @@ break
 end
 add ( g , advance ( ) )
 until false
-add ( g , expect ( ">" , "to close generic parameter list" ) ) . generic = true
+add ( g , expectGenericClose ( "to close generic parameter list" ) ) . generic = true
 n . generics = add ( n , g )
 
 return g
@@ -48051,6 +51119,21 @@ local kind = cur ( ) . kind
 
 
 
+
+
+
+if kind == "name" and cur ( ) . text == "nosuspend" and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "function" then
+local keyword = advance ( )
+keyword . contextualOp = true
+local inner = parseTypePrimary ( )
+if inner . kind == "tfunc" then
+inner . noSuspend = true
+end
+
+
+table . insert ( inner , 1 , keyword )
+return inner
+end
 if kind == "name" and cur ( ) . text == "const" and startsType ( tokens [ i + 1 ] ) then
 local n = setmetatable( { kind = "tconst" } , cst.Tconst)
 add ( n , advance ( ) )
@@ -48081,7 +51164,7 @@ while cur ( ) . kind == "," do
 add ( n , advance ( ) )
 n . typeArgs [ # n . typeArgs + 1 ] = add ( n , packArgs and parseTypePack ( false ) or parseType ( ) )
 end
-add ( n , expect ( ">" , "to close type arguments" ) ) . generic = true
+add ( n , expectGenericClose ( "to close type arguments" ) ) . generic = true
 end
 return n
 elseif kind == "(" then
@@ -48460,10 +51543,32 @@ local kind = cur ( ) . kind
 if kind == "(" then
 local n = setmetatable( { kind = "args" } , cst.Args)
 add ( n , advance ( ) )
-if cur ( ) . kind ~= ")" then
-n . exprs = resetNoMethod ( parseExplist , n )
-else
 n . exprs = { }
+if cur ( ) . kind ~= ")" then
+repeat
+local argument
+if cur ( ) . kind == "name" and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "=" then
+local named = setmetatable( { kind = "namedArg" } , cst.NamedArg)
+named . name = add ( named , advance ( ) )
+add ( named , advance ( ) )
+named . value = add ( named , resetNoMethod ( parseExp ) )
+argument = named
+elseif cur ( ) . kind == "..." and tokens [
+i + 1
+] and tokens [ i + 1 ] . kind ~= "," and tokens [ i + 1 ] . kind ~= ")" then
+local expanded = setmetatable( { kind = "expandArg" } , cst.ExpandArg)
+add ( expanded , advance ( ) ) . valueExpansion = true
+expanded . value = add ( expanded , resetNoMethod ( parseExp ) )
+argument = expanded
+else
+argument = resetNoMethod ( parseExp )
+end
+n . exprs [ # n . exprs + 1 ] = add ( n , argument )
+if cur ( ) . kind ~= "," then
+break
+end
+add ( n , advance ( ) )
+until false
 end
 add ( n , expect ( ")" , "to close arguments" ) )
 return n
@@ -48553,7 +51658,7 @@ member . text
 ] and baseTok . text == "ffi" then
 add ( n , advance ( ) ) . generic = true
 n . ffiTypeArg = add ( n , parseType ( ) )
-add ( n , expect ( ">" , "to close a type argument" ) ) . generic = true
+add ( n , expectGenericClose ( "to close a type argument" ) ) . generic = true
 end
 elseif kind == "[" then
 local n = setmetatable( { kind = "bracketIndex" } , cst.BracketIndex)
@@ -49156,6 +52261,24 @@ e = setmetatable( { kind = "matchesDecl" } , cst.MatchesDecl)
 add ( e , advance ( ) )
 e . expr = add ( e , parseExp ( ) )
 add ( e , expect ( "end" , "to close 'matches'" ) )
+elseif cur ( ) . kind == "name" and cur ( ) . text == "expands" and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "(" then
+
+
+e = setmetatable( { kind = "expansionDecl" , names = { } } , cst.ExpansionDecl)
+add ( e , advance ( ) ) . expansionKeyword = true
+add ( e , advance ( ) )
+if cur ( ) . kind == ")" then
+errAt ( cur ( ) , "an expansion needs at least one field" )
+else
+repeat
+e . names [ # e . names + 1 ] = add ( e , expectName ( "in expansion declaration" ) )
+if cur ( ) . kind ~= "," then
+break
+end
+add ( e , advance ( ) )
+until false
+end
+add ( e , expect ( ")" , "to close expansion declaration" ) )
 elseif cur ( ) . kind == "name" and cur ( ) . text == "metamethod" and tokens [
 i + 1
 ] and tokens [ i + 1 ] . kind == "name" then
@@ -49495,6 +52618,34 @@ n . body = add ( n , parseBlock ( ) )
 loopDepth = loopDepth - 1
 add ( n , expect ( "until" , "to close 'repeat'" ) )
 n . cond = add ( n , parseExp ( ) )
+return n
+
+elseif kind == "name" and cur ( ) . text == "handle" and tokens [
+i + 1
+] and tokens [ i + 1 ] . kind == "name" and tokens [ i + 1 ] . text == "suspension" then
+
+
+
+local n = setmetatable( { kind = "handleStmt" } , cst.HandleStmt)
+n . handleTok = add ( n , advance ( ) )
+add ( n , advance ( ) ) . contextualOp = true
+if cur ( ) . kind == "name" and cur ( ) . text == "with" then
+add ( n , advance ( ) ) . contextualOp = true
+else
+errAt ( cur ( ) , "'with' expected in 'handle suspension'" , "NUPP1002" )
+end
+n . handler = add ( n , parseExp ( ) )
+n . doTok = add ( n , expect ( "do" , "to open 'handle suspension'" ) )
+n . body = add ( n , parseBlock ( ) )
+n . endTok = add ( n , expect ( "end" , "to close 'handle suspension'" ) )
+return n
+
+elseif kind == "name" and cur ( ) . text == "nosuspend" and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "do" then
+local n = setmetatable( { kind = "noSuspendStmt" } , cst.NoSuspendStmt)
+n . keywordTok = add ( n , advance ( ) )
+n . doTok = add ( n , advance ( ) )
+n . body = add ( n , parseBlock ( ) )
+n . endTok = add ( n , expect ( "end" , "to close 'nosuspend do'" ) )
 return n
 
 elseif kind == "name" and cur ( ) . text == "unsafe" and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "do" then
@@ -50831,6 +53982,68 @@ return m
 } , reference.Section) , setmetatable(
 
 {
+title = "Named arguments and value expansion" ,
+codes = { "NUPP2006" , "NUPP2118" , "NUPP2125" , "NUPP2126" } ,
+body = [=[
+Inside a parenthesized call, `name = value` fills that parameter directly.
+Named arguments follow every positional argument and appear in parameter order.
+They erase to ordinary positional Lua arguments; an omitted optional slot before
+a later named argument is emitted as `nil`.
+
+A record, interface, or struct may declare ordered readable-field projections
+with `expands (field, ...)`. `...value` explicitly contributes one of those
+projections to a call's positional prefix. A plain `value` remains one argument.
+The named suffix reserves its parameter slots, and the checker selects the one
+expansion arity that makes the complete call fit. No match is **NUPP2125** and
+more than one is **NUPP2126**.
+
+Interfaces pass expansions to declarations that take their contract. A bounded
+type parameter sees its interface bound's projections, so generic adapters use
+the same syntax. An expansion operand is a name or dotted field path, such as
+`...entity.position`. Bind calls, computed indexes, and other producing
+expressions to a local before expanding them. A statement-level call evaluates
+each dotted operand path and common prefix once, while projected leaves remain
+direct positional arguments. A nested expression instead repeats prefixes when
+needed; expansion never introduces a closure or upvalue. A trailing call can
+still fill the remaining positional slots with its multiple results. This
+applies to functions, callable records, methods, constructors, and specialized
+calls with a statically known positional pack. Safe statements and returns guard
+the optional callee, receiver, and method before binding paths; nested safe calls
+retain the native safe operator and its lazy argument evaluation.
+]=] ,
+example = [=[
+local interface XY
+    readonly x: number
+    readonly y: number
+    expands (x, y)
+end
+
+local record Vec3 is XY
+    x: number
+    y: number
+    z: number
+
+    expands (x, y, z)
+end
+
+local record Entity
+    position: Vec3
+end
+
+local function draw(x: number, y: number, color: string?): nil
+    print(x, y, color)
+end
+
+local position = new Vec3 {x = 1, y = 2, z = 3}
+local entity = new Entity {position = position}
+draw(...entity.position, color = "blue")
+draw(x = position.x, y = position.y)
+
+return position
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
 title = "Generics and bounds" ,
 codes = { "NUPP2101" } ,
 body = [=[
@@ -50861,9 +54074,10 @@ title = "Type packs and variadic generics" ,
 codes = { "NUPP2010" , "NUPP2121" , "NUPP2605" } ,
 body = [=[
 `A...` declares a heterogeneous generic value sequence. A pack may have a fixed
-head and a generic or homogeneous tail. Only a final unparenthesized call or
-`...` expands in an argument, assignment, or return list; parentheses project
-one value.
+head and a generic or homogeneous tail. Under Lua's ordinary value adjustment,
+only a final unparenthesized call or bare `...` expands in an argument,
+assignment, or return list; parentheses project one value. The explicit
+`...value` field projection described above is resolved before that adjustment.
 
 Whole-pack unions preserve relationships between results. This is why testing
 the boolean returned by `pcall` narrows its sibling values to the callback's
@@ -50974,8 +54188,8 @@ local decimal: integer = parse("10")
 local hexadecimal: string = parse("10", 16)
 
 local record Decoder
-    function decode(text: string): string return "text:" .. text end
-    function decode(value: integer): string return "integer:" .. tostring(value) end
+    function decode(self, text: string): string return "text:" .. text end
+    function decode(self, value: integer): string return "integer:" .. tostring(value) end
 end
 
 local decoder = new Decoder {}
@@ -50990,8 +54204,9 @@ return decimal, hexadecimal, text, number
 title = "Records" ,
 codes = { "NUPP2004" , "NUPP2118" , "NUPP2202" , "NUPP2206" , "NUPP2207" , "NUPP2208" } ,
 body = [=[
-A record is a table with declared fields. It may carry inline methods, whose
-`self` is implicit, and it is built with `new`.
+A record is a table with declared fields. An inline function is an instance
+method when its first parameter is named `self`; without that parameter it is a
+static function on the record's own table. Records are built with `new`.
 
 `new` is how both records and structs are constructed, and the only way: it
 lowers to the metatable stamp and the ctype call directly, installing nothing,
@@ -51106,7 +54321,7 @@ local m = {}
 interface m.Greeter
     name: string
 
-    function greet(): string
+    function greet(self): string
         return "hello, " .. self.name
     end
 end
@@ -51119,7 +54334,7 @@ record m.Shouter is m.Greeter
     name: string
 
     @override
-    function greet(): string
+    function greet(self): string
         return "HELLO"
     end
 end
@@ -51484,8 +54699,9 @@ documentation. On `init.nupp`, it also hides every descendant module; private
 documentation builds include the complete tree.
 
 An adjacent `---` run documents the declaration under it. `@param`, `@return`,
-`@field`, `@typearg`, `@local` and `@export` are understood, and `nupp doc`
-renders them.
+`@field`, `@typearg`, `@local`, `@internal` and `@export` are understood. An
+`@internal` declaration stays out of public output but remains in private documentation
+builds. `nupp doc` renders them.
 
 `@raises` says what makes a function raise, one line per condition. It is the one
 docblock tag the checker reads as well as renders: a documented function that
@@ -51625,6 +54841,72 @@ function m.toggle(flag: boolean): boolean
     @allow("customary-operator")
     local inverted = !flag
     return inverted
+end
+
+return m
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
+title = "Suspension regions" ,
+codes = { "NUPP2701" } ,
+body = [=[
+`nosuspend do ... end` refuses, while compiling, any call inside it that may
+suspend the current coroutine. It is lexical and static: it erases to an
+ordinary `do` block and has no run-time component at all.
+
+Whether a function may suspend is already inferred — `coroutine.yield` sets it
+and it propagates through the call graph — and it travels across a module
+boundary on the function's type, so an export, an alias, and a local are all
+answered the same way. A callee nothing resolved is refused, because a region
+exists to be careful about exactly that.
+
+**NUPP2701** names the call and the path from it to the suspension, since a
+refusal is not actionable when the yield is four functions away.
+
+For anything whose body this compiler never sees — a declared host binding, a C
+function, a parameter, a callback — the guarantee is written in the type:
+
+    nosuspend function(x: number): integer
+
+That is a positive guarantee, so an unmarked function type stays conservatively
+may-yield and silence is never mistaken for a promise. It is an ordinary part of
+the type, so it takes part in identity, subtyping, aliasing and substitution: a
+`nosuspend function` fits an ordinary slot, an ordinary function does not fit a
+`nosuspend` one, and an alias of either keeps what it had. The pure standard
+library is declared this way rather than special-cased, which is why
+`math.floor` is admitted and `print` is not.
+
+`nosuspend` guarantees that control cannot be suspended. It does not guarantee
+that a callback is effect-free, or that calling one is legal across a C
+boundary: `table.sort` and `string.gsub` cannot suspend their caller and are
+declared `nosuspend` for that reason, while a comparator or a replacement that
+yields fails at the C-call boundary instead. That is a different diagnostic
+about a different fact.
+
+`nosuspend` opens a region when `do` follows it and qualifies a type when
+`function` does; elsewhere it is an ordinary name.
+]=] ,
+example = [=[
+local m = {}
+
+local function total(values: {integer}): number
+    local sum = 0
+    for index = 1, #values do
+        sum = sum + values[index]
+    end
+
+    return sum
+end
+
+function m.commit(values: {integer}, report: nosuspend function(n: number): nil): number
+    local answer = 0
+    nosuspend do
+        answer = total(values)
+        report(answer)
+    end
+
+    return answer
 end
 
 return m
@@ -52195,35 +55477,27 @@ for j = 2 , # want . params do
 wp [ # wp + 1 ] = want . params [ j ]
 end
 local hm , wm = { } , { }
+local hn , wn = { } , { }
 for j = 2 , # have . params do
 hm [ # hm + 1 ] = have . paramModes and have . paramModes [ j ] or "plain"
 end
 for j = 2 , # want . params do
 wm [ # wm + 1 ] = want . paramModes and want . paramModes [ j ] or "plain"
 end
-return (
-isA (
-T . func (
+for j = 2 , # have . params do
+hn [ # hn + 1 ] = have . paramNames and have . paramNames [ j ] or ""
+end
+for j = 2 , # want . params do
+wn [ # wn + 1 ] = want . paramNames and want . paramNames [ j ] or ""
+end
+return ( isA ( T . func ( hp , have . rets , have . vararg , hm , nil , nil , nil , nil , nil , nil , nil , have . varargType , nil , T . pack (
 hp ,
-have . rets ,
-have . vararg ,
-hm ,
-nil ,
-nil ,
-nil ,
-nil ,
-nil ,
-nil ,
-nil ,
-have . varargType ,
-nil ,
-T . pack ( hp , have . paramPack . tail , hm ) ,
-have . retPack ,
-have . packParams ,
-have . yieldPack ,
-have . resumePack
-) ,
-T . func (
+have . paramPack . tail ,
+hm
+) , have . retPack , have . packParams , have . yieldPack , have . resumePack ,
+
+
+have . noYield , hn ) , T . func (
 wp ,
 want . rets ,
 want . vararg ,
@@ -52241,10 +55515,10 @@ T . pack ( wp , want . paramPack . tail , wm ) ,
 want . retPack ,
 want . packParams ,
 want . yieldPack ,
-want . resumePack
-)
-)
-)
+want . resumePack ,
+want . noYield ,
+wn
+) ) )
 end
 
 return ( isA ( have , want ) )
@@ -52429,8 +55703,8 @@ local right = b or { }
 if # left ~= # right then
 return false
 end
-for j , name in ipairs ( left ) do
-if name ~= right [ j ] then
+for j , cleanup in ipairs ( left ) do
+if cleanup . id ~= right [ j ] . id then
 return false
 end
 end
@@ -52897,12 +56171,18 @@ generic . unifyPack ( a . paramPack , b . paramPack , map )
 for j , tv in ipairs ( a . typeParams or { } ) do
 local bound = a . typeBounds and a . typeBounds [ j ]
 local actual = map [ tv ]
-if bound and actual and not isA ( actual , generic . subst ( bound , map ) ) then
+if bound and actual and not isA ( actual , generic . materialize ( bound , map ) ) then
 return false , ( "type argument %s does not satisfy %s" ) : format ( T . tostring ( actual ) , T . tostring ( bound ) )
 end
 end
 local concrete = generic . instantiateFunction ( a , map )
 return isA ( concrete , b )
+end
+
+
+
+if b . noYield and not a . noYield then
+return false , ( "%s is not a %s (it may suspend)" ) : format ( T . tostring ( a ) , T . tostring ( b ) )
 end
 
 
@@ -53481,8 +56761,8 @@ local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{}
 
 local JSON = compact (
 [=[
-local function __nuppLoadJSON()local source=require("cjson");local names={"encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;target.empty_array=json.empty_array;target.array_mt=json.array_mt;target.empty_array_mt=json.empty_array_mt;for _,name in ipairs(names)do target[name]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end
-for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","empty_array","array_mt","empty_array_mt","encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
+local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end
+for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
 ]=]
 )
 
@@ -53523,6 +56803,7 @@ function u.length(value)local s=bytes(value);local n,at=0,1;while at<=#s do loca
 local MATH = compact (
 [=[
 local m=__nuppMath;local pi,tau=math.pi,2*math.pi
+function m.lerp(from,to,t)if t==0 then return from elseif t==1 then return to end;return from+(to-from)*t end
 function m.wrapAngle(radians)return(radians+pi)%tau-pi end
 function m.deltaAngle(from,to)return m.wrapAngle(to-from)end
 local v={};m.vec2=v
@@ -53808,6 +57089,19 @@ types.CArray = {} types.CArray.__index = types.CArray
 
 
 
+
+
+types.Cleanup = {} types.Cleanup.__index = types.Cleanup
+
+
+
+
+
+
+
+
+
+
 types.Owned = {} types.Owned.__index = types.Owned
 
 
@@ -53952,6 +57246,27 @@ types.Func = {} types.Func.__index = types.Func
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 types.Literal = {} types.Literal.__index = types.Literal
 
 
@@ -53986,6 +57301,21 @@ types.Metatable = {} types.Metatable.__index = types.Metatable
 
 
 types.Nominal = {} types.Nominal.__index = types.Nominal
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -54351,14 +57681,49 @@ end
 function types . union ( members )
 local seen = { }
 local flat = { }
+local functionByContract = { }
 local function push ( t )
 if t . tag == "union" then
 for _ , m in ipairs ( t . members ) do
 push ( m )
 end
+elseif t . tag == "func" and functionByContract [ t . unlabeledId ] then
+local at = functionByContract [ t . unlabeledId ]
+local prior = flat [ at ]
+if prior ~= t then
+
+
+local merged = types . func (
+prior . params ,
+prior . rets ,
+prior . vararg ,
+prior . paramModes ,
+prior . predicate ,
+prior . typeParams ,
+prior . typeBounds ,
+prior . borrowsParam ,
+prior . borrowsSelf ,
+prior . borrowsParams ,
+prior . ffiOut ,
+prior . varargType ,
+prior . noreturn ,
+prior . paramPack ,
+prior . retPack ,
+prior . packParams ,
+prior . yieldPack ,
+prior . resumePack ,
+prior . noYield
+)
+seen [ prior ] = nil
+seen [ merged ] = true
+flat [ at ] = merged
+end
 elseif not seen [ t ] then
 seen [ t ] = true
 flat [ # flat + 1 ] = t
+if t . tag == "func" then
+functionByContract [ t . unlabeledId ] = # flat
+end
 end
 end
 
@@ -54473,16 +57838,48 @@ end )
 end
 
 
+function types . functionCleanup ( key , name , functionType )
+return setmetatable( {
+id = "function:" .. key ,
+kind = "function" ,
+key = key ,
+name = name ,
+functionType = functionType ,
+} , types.Cleanup)
+end
+
+
+function types . methodCleanup ( name )
+return setmetatable( { id = "method:" .. name , kind = "method" , name = name } , types.Cleanup)
+end
+
+
+function types . fieldCleanup ( field , cleanup )
+return setmetatable( {
+id = "field:" .. field .. ":" .. cleanup . id ,
+kind = "field" ,
+field = field ,
+cleanup = cleanup ,
+} , types.Cleanup)
+end
+
+
+function types . dropFieldCleanup ( field )
+return setmetatable( { id = "dropfield:" .. field , kind = "dropfield" , field = field } , types.Cleanup)
+end
+
 
 
 
 function types . owned ( t , cleanups )
 local list = { }
-for j , name in ipairs ( cleanups or { } ) do
-list [ j ] = name
+local ids = { }
+for j , cleanup in ipairs ( cleanups or { } ) do
+list [ j ] = cleanup
+ids [ j ] = cleanup . id
 end
 
-return intern ( "owned(" .. table . concat ( list , "," ) .. ":" .. t . id .. ")" , function ( )
+return intern ( "owned(" .. table . concat ( ids , "," ) .. ":" .. t . id .. ")" , function ( )
 return setmetatable( { tag = "owned" , inner = t , cleanups = list } , types.Owned)
 end )
 end
@@ -54713,7 +58110,9 @@ paramPack ,
 retPack ,
 packParams ,
 yieldPack ,
-resumePack
+resumePack ,
+noYield ,
+paramNames
 )
 
 
@@ -54724,9 +58123,11 @@ end
 local pids = { }
 local rids = { }
 local modes = { }
+local names = { }
 for j , p in ipairs ( params ) do
 pids [ j ] = p . id
 modes [ j ] = paramModes and paramModes [ j ] or "plain"
+names [ j ] = paramNames and paramNames [ j ] or ""
 end
 for j , r in ipairs ( rets ) do
 rids [ j ] = r . id
@@ -54776,10 +58177,14 @@ if borrowsParams and # borrowsParams > 0 then
 key = key .. "|borrows(" .. table . concat ( borrowsParams , "," ) .. ")"
 end
 for _ , output in ipairs ( ffiOut or { } ) do
+local cleanupIds = { }
+for j , cleanup in ipairs ( output . cleanups or { } ) do
+cleanupIds [ j ] = cleanup . id
+end
 key = key .. "|out:" .. (
 output . kind or "owned"
 ) .. ":" .. output . name .. ":" .. table . concat (
-output . cleanups or { } ,
+cleanupIds ,
 ","
 ) .. ":" .. ( output . success or "always" ) .. ":" .. tostring ( output . sourceParam or "" )
 end
@@ -54788,6 +58193,13 @@ key = key .. "|borrowsself"
 end
 if noreturn then
 key = key .. "|noreturn"
+end
+if noYield then
+key = key .. "|noyield"
+end
+local unlabeledId = key
+if paramNames then
+key = key .. "|names(" .. table . concat ( names , "," ) .. ")"
 end
 
 return intern ( key , function ( )
@@ -54798,6 +58210,8 @@ rets = rets ,
 vararg = vararg or false ,
 varargType = vararg and varargType or nil ,
 paramModes = modes ,
+paramNames = names ,
+unlabeledId = unlabeledId ,
 predicate = predicate ,
 typeParams = typeParams ,
 typeBounds = typeBounds ,
@@ -54806,6 +58220,7 @@ borrowsSelf = borrowsSelf ,
 borrowsParams = borrowsParams ,
 ffiOut = ffiOut ,
 noreturn = noreturn or nil ,
+noYield = noYield or nil ,
 paramPack = paramPack ,
 retPack = retPack ,
 packParams = packParams ,
@@ -54813,6 +58228,51 @@ yieldPack = yieldPack ,
 resumePack = resumePack
 } , types.Func)
 end )
+end
+
+
+
+
+
+
+
+
+
+
+
+
+function types . withYields ( ft , mayYield )
+if ft . tag ~= "func" then
+return ft
+end
+local fn = ft
+local want = not mayYield or nil
+if ( fn . noYield or nil ) == want then
+return ft
+end
+
+return types . func (
+fn . params ,
+fn . rets ,
+fn . vararg ,
+fn . paramModes ,
+fn . predicate ,
+fn . typeParams ,
+fn . typeBounds ,
+fn . borrowsParam ,
+fn . borrowsSelf ,
+fn . borrowsParams ,
+fn . ffiOut ,
+fn . varargType ,
+fn . noreturn ,
+fn . paramPack ,
+fn . retPack ,
+fn . packParams ,
+fn . yieldPack ,
+fn . resumePack ,
+want ,
+fn . paramNames
+)
 end
 
 
@@ -54888,7 +58348,7 @@ local nominalCounter = 0
 function types . nominal ( name , declKind )
 nominalCounter = nominalCounter + 1
 local t = setmetatable( { tag = "nominal" , declKind = declKind , name = name , byname = { } ,
-writeByname = { } , metamethods = { } , nestedTypes = { } , defaultDisposers = { } , } , types.Nominal)
+writeByname = { } , staticByname = { } , staticWriteByname = { } , metamethods = { } , nestedTypes = { } , defaultDisposers = { } , } , types.Nominal)
 t . id = "nominal#" .. nominalCounter .. "(" .. name .. ")"
 
 return t
@@ -55015,7 +58475,12 @@ elseif tag == "func" then
 local ps = { }
 for j , p in ipairs ( t . params ) do
 local mode = t . paramModes and t . paramModes [ j ]
-ps [ j ] = ( mode and mode ~= "plain" and mode .. " " or "" ) .. types . tostring ( p )
+local label = t . paramNames and t . paramNames [ j ]
+ps [
+j
+] = (
+mode and mode ~= "plain" and mode .. " " or ""
+) .. ( label and label ~= "" and label .. ": " or "" ) .. types . tostring ( p )
 end
 local paramTail = t . paramPack . tail
 if paramTail then
@@ -55986,7 +59451,7 @@ return profile
 
 end
 package.preload["nupp.resources"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;
 
 
 
@@ -56007,6 +59472,15 @@ end
 end
 
 
+
+
+
+
+
+
+
+
+__nuppCleanups["nupp.resources#close_file@441"]=close_file;
 function resources . openFile ( path , mode )
 local file , reason = io . open ( path , mode )
 if not file then
@@ -56017,6 +59491,15 @@ return file
 end
 
 
+
+
+
+
+
+
+
+
+__nuppCleanups["nupp.resources#close_file@441"]=close_file;
 function resources . openProcess ( command , mode )
 local file , reason = io . popen ( command , mode )
 if not file then
@@ -56027,6 +59510,13 @@ return file
 end
 
 
+
+
+
+
+
+
+__nuppCleanups["nupp.resources#close_file@441"]=close_file;
 function resources . temporaryFile ( )
 local file = io . tmpfile ( )
 if not file then
@@ -56037,6 +59527,669 @@ return file
 end
 
 return resources
+
+end
+package.preload["nupp.suspension"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local suspension = { }
+
+
+
+
+local MAX_DRAIN_PASSES = 64
+
+
+
+
+
+suspension.Source = {} suspension.Source.__index = suspension.Source
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+suspension.Context = {} suspension.Context.__index = suspension.Context
+
+
+
+
+
+
+
+
+
+
+
+
+suspension.Waiting = {} suspension.Waiting.__index = suspension.Waiting
+
+
+
+
+
+
+
+
+
+
+
+
+suspension.Handler = {} suspension.Handler.__index = suspension.Handler
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local installed = setmetatable ( { } , { __mode = "k" } )
+local mainInstalled = nil
+
+local running = coroutine . running
+
+
+
+
+local function effectiveInstallation ( )
+local co = running ( )
+local current = co == nil and mainInstalled or installed [ co ]
+
+
+
+
+
+
+
+
+
+while current ~= nil and current . restored do
+current = current . previous
+end
+
+return current
+end
+
+local function effective ( )
+local current = effectiveInstallation ( )
+
+return current and current . handler or nil
+end
+
+
+
+local sources = { }
+
+local function sortSources ( )
+table . sort ( sources , function ( a , b )
+if a . priority == b . priority then
+return a . name < b . name
+end
+
+return a . priority < b . priority
+end )
+end
+
+local SourceMT = { }
+SourceMT . __index = SourceMT
+
+function SourceMT . release ( self )
+if self . released then
+return
+end
+self . released = true
+for index = 1 , # sources do
+if sources [ index ] == self then
+table . remove ( sources , index )
+break
+end
+end
+end
+
+local function addSource ( name , priority , poll )
+local source = setmetatable ( { name = name , priority = priority , poll = poll , released = false } , SourceMT )
+sources [ # sources + 1 ] = source
+sortSources ( )
+
+return source
+end
+
+
+
+
+
+
+
+
+
+
+function suspension . source ( name , priority , poll )
+return addSource ( name , priority , poll )
+end
+
+
+
+
+
+function suspension . poll ( )
+local settled = 0
+
+local pass = { }
+for index = 1 , # sources do
+pass [ index ] = sources [ index ]
+end
+for index = 1 , # pass do
+local source = pass [ index ]
+if not source . released then
+settled = settled + ( source . poll ( ) or 0 )
+end
+end
+
+return settled
+end
+
+
+
+
+
+
+
+local function blockingPark ( waiting )
+while not waiting : ready ( ) do
+if # sources == 0 then
+error ( ( "nupp: %s cannot complete: no readiness source is registered" ) : format ( waiting . operation ) , 0 )
+end
+suspension . poll ( )
+end
+end
+
+local WaitingMT = { }
+WaitingMT . __index = WaitingMT
+
+function WaitingMT . ready ( self )
+return self . isReady ( )
+end
+
+function WaitingMT . onResume ( self , waker )
+self . setWaker ( waker )
+end
+
+local ContextMT = { }
+ContextMT . __index = ContextMT
+
+function ContextMT . source ( self , name , priority , poll )
+local source = addSource ( name , priority , poll )
+
+
+local owned = self . owned
+if owned == nil then
+owned = { }
+self . owned = owned
+end
+owned [ # owned + 1 ] = source
+
+return source
+end
+
+function ContextMT . canPark ( self )
+local handler = self . handler
+if handler == nil then
+return true
+end
+if handler . canPark == nil then
+return true
+end
+
+return handler . canPark ( handler ) ~= false
+end
+
+
+
+local function releaseOwned ( context )
+local owned = context and context . owned
+if owned == nil then
+return
+end
+context . owned = nil
+for index = 1 , # owned do
+pcall ( owned [ index ] . release , owned [ index ] )
+end
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function suspension . suspend
+
+( operation , subscribe )
+local current = effectiveInstallation ( )
+local handler = current and current . handler or nil
+
+
+
+local state = { resumed = false , value = nil , cancelled = false , reason = nil , waker = nil }
+
+local function resume ( answer )
+if state . resumed or state . cancelled then
+error ( ( "nupp: %s was resumed twice" ) : format ( operation ) , 0 )
+end
+state . resumed , state . value = true , answer
+local wake = state . waker
+if wake then
+state . waker = nil
+wake ( )
+end
+end
+
+local context = setmetatable ( { handler = handler , owned = nil } , ContextMT )
+
+
+local subscribed , cancel = pcall ( subscribe , resume , context )
+if not subscribed then
+releaseOwned ( context )
+error ( cancel , 0 )
+end
+if state . resumed then
+
+
+releaseOwned ( context )
+
+return state . value
+end
+
+if not cancel then
+releaseOwned ( context )
+error (
+( "nupp: %s did not resume and answered no cancellation, so it could never be abandoned" ) : format ( operation ) ,
+0
+)
+end
+if not ContextMT . canPark ( context ) then
+pcall ( cancel )
+releaseOwned ( context )
+error ( ( "nupp: %s cannot suspend here" ) : format ( operation ) , 0 )
+end
+
+
+
+
+local ticket = nil
+if current ~= nil then
+ticket = { operation = operation , unsubscribeAttempted = false }
+function ticket . abandon ( reason )
+
+
+
+
+local unsubscribeError = nil
+if not ticket . unsubscribeAttempted then
+ticket . unsubscribeAttempted = true
+
+
+
+
+local ok , err = pcall ( cancel )
+if not ok then
+unsubscribeError = err
+end
+end
+state . cancelled , state . reason = true , reason
+local wakeError = nil
+local wake = state . waker
+if wake then
+
+
+
+local ok , err = pcall ( wake )
+if ok then
+state . waker = nil
+else
+wakeError = err
+end
+end
+
+if unsubscribeError ~= nil then
+error ( unsubscribeError , 0 )
+end
+if wakeError ~= nil then
+error ( wakeError , 0 )
+end
+end
+
+current . parks [ ticket ] = true
+end
+
+local waiting = setmetatable ( { operation = operation , isReady = function ( )
+return state . resumed or state . cancelled
+end , setWaker = function ( wake )
+state . waker = wake
+end , } , WaitingMT )
+
+
+
+
+
+local ok , err
+if handler then
+ok , err = pcall ( handler . park , handler , waiting , cancel )
+else
+ok , err = pcall ( blockingPark , waiting )
+end
+
+
+
+if ticket and current then
+current . parks [ ticket ] = nil
+end
+releaseOwned ( context )
+if state . cancelled then
+error ( ( "nupp: %s was cancelled: %s" ) : format ( operation , state . reason or "the extent ended" ) , 0 )
+end
+if not ok then
+
+
+pcall ( cancel )
+local text = tostring ( err )
+if text : find ( "C%-call boundary" ) or text : find ( "attempt to yield across" ) then
+error ( ( "nupp: %s cannot suspend: non-yieldable C code is on the stack" ) : format ( operation ) , 0 )
+end
+error ( err , 0 )
+end
+if not state . resumed then
+pcall ( cancel )
+error ( ( "nupp: %s: the handler returned without resuming it" ) : format ( operation ) , 0 )
+end
+
+return state . value
+end
+
+
+suspension.Installed = {} suspension.Installed.__index = suspension.Installed
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function suspension.Installed:release()
+if self . released then
+return
+end
+
+
+
+
+
+if not self . restored then
+self . restored = true
+if self . co == nil then
+mainInstalled = self . previous
+else
+installed [ self . co ] = self . previous
+end
+end
+
+
+
+
+
+local firstError = nil
+local function attempt ( fn , argument )
+local ok , err = pcall ( fn , argument )
+if not ok and firstError == nil then
+firstError = err
+end
+end
+
+
+
+
+
+
+
+for ticket in pairs ( self . parks or { } ) do
+attempt ( ticket . abandon , "the handled extent ended" )
+end
+
+
+
+if self . handler . shutdown then
+attempt ( self . handler . shutdown , self . handler )
+end
+
+local remaining = next ( self . parks or { } )
+local passes = 0
+while remaining ~= nil and passes < MAX_DRAIN_PASSES do
+passes = passes + 1
+attempt ( suspension . poll , nil )
+remaining = next ( self . parks or { } )
+end
+
+
+
+
+if firstError ~= nil then
+
+
+error ( firstError , 0 )
+end
+
+
+
+
+
+if remaining ~= nil then
+local names = { }
+for ticket in pairs ( self . parks or { } ) do
+names [ # names + 1 ] = ticket . operation
+end
+table . sort ( names )
+error (
+(
+"nupp: the handled extent ended with %d park(s) unfinished: %s"
+) : format ( # names , table . concat ( names , ", " ) ) ,
+0
+)
+end
+self . released = true
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function suspension . install ( handler )
+local co = running ( )
+local previous
+if co == nil then
+previous = mainInstalled
+else
+previous = installed [ co ]
+end
+
+
+local installation = setmetatable( {
+co = co ,
+previous = previous ,
+handler = handler ,
+restored = false ,
+released = false ,
+parks = { } ,
+} , suspension.Installed)
+if co == nil then
+mainInstalled = installation
+else
+installed [ co ] = installation
+end
+
+return installation
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function suspension . create ( body )
+local co = coroutine . create ( body )
+
+
+
+local inherited = effectiveInstallation ( )
+if inherited ~= nil then
+installed [ co ] = inherited
+end
+
+return co
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function suspension . handled ( )
+return effective ( ) ~= nil
+end
+
+
+
+
+
+function suspension . canSuspend ( )
+local handler = effective ( )
+if handler == nil or handler . canPark == nil then
+return true
+end
+
+return handler . canPark ( handler ) ~= false
+end
+
+return suspension
 
 end
 package.preload["nupp.zone"] = function(...)
@@ -56706,20 +60859,20 @@ declaration file.
 --- tabs and followed by a newline.
 ---
 --- @param ... the values to write
-local print: function(...: any)
+local print: nosuspend function(...: any)
 
 --- Returns the type name of a value: "nil", "boolean", "number", "string", "table",
 --- "function", "thread" or "userdata", plus "cdata" for FFI values.
 ---
 --- @param v the value to classify
 --- @return the type name
-local type: function(v: any): string
+local type: nosuspend function(v: any): string
 
 --- Converts a value to a string, honoring a `__tostring` metamethod.
 ---
 --- @param v the value to convert
 --- @return the string form of `v`
-local tostring: function(v: any): string
+local tostring: nosuspend function(v: any): string
 
 --- Converts a value to a number, or nil when it has no numeric meaning. With `base`,
 --- `v` is read as an unsigned integer numeral in that base.
@@ -56727,7 +60880,7 @@ local tostring: function(v: any): string
 --- @param v the value to convert
 --- @param base the numeral base, 2 through 36; decimal when omitted
 --- @return the number, or nil when `v` does not denote one
-local tonumber: function(v: any, base: number?): number?
+local tonumber: nosuspend function(v: any, base: number?): number?
 
 --- Returns an iterator over every key/value pair of `t`, in unspecified order. New keys
 --- must not be added to `t` during the traversal.
@@ -56736,7 +60889,7 @@ local tonumber: function(v: any, base: number?): number?
 --- @typearg V the value type
 --- @param t the table to traverse
 --- @return an iterator yielding each key and its value, and nil when done
-local pairs: function<K, V>(t: {[K]: V}): function(): (K, V)
+local pairs: nosuspend function<K, V>(t: {[K]: V}): function(): (K, V)
 
 --- Returns an iterator over the array part of `t`, from index 1 up to the first missing
 --- element.
@@ -56744,7 +60897,7 @@ local pairs: function<K, V>(t: {[K]: V}): function(): (K, V)
 --- @typearg V the element type
 --- @param t the array to traverse
 --- @return an iterator yielding each index and the element stored there
-const ipairs: function<V>(t: {V}): function(): (integer, V)
+const ipairs: nosuspend function<V>(t: {V}): function(): (integer, V)
 
 --- Returns the pair that follows key `k` in `t`. Passing nil, or omitting `k`, returns
 --- the first pair; the traversal order is unspecified.
@@ -56753,7 +60906,7 @@ const ipairs: function<V>(t: {V}): function(): (integer, V)
 --- @param k the key to step past, or nil to start the traversal
 --- @return the next key, or nil once the traversal is done
 --- @return the value stored at that key
-local next: function(t: table, k: any?): (any, any)
+local next: nosuspend function(t: table, k: any?): (any, any)
 
 --- Selects from a vararg list. With a number, returns every argument from the nth
 --- onwards, counting from the end when `n` is negative; with "#", returns how many
@@ -56769,7 +60922,7 @@ local select: function<A...>(n: '#', A...): integer & function<A...>(n: number, 
 --- @param t the table to read
 --- @param k the key to read
 --- @return the stored value, or nil when the key is absent
-local rawget: function(t: table, k: any): any
+local rawget: nosuspend function(t: table, k: any): any
 
 --- Assigns `t[k] = v` without consulting a `__newindex` metamethod.
 ---
@@ -56777,20 +60930,20 @@ local rawget: function(t: table, k: any): any
 --- @param k the key to write
 --- @param v the value to store
 --- @return `t`
-local rawset: function(t: table, k: any, v: any): table
+local rawset: nosuspend function(t: table, k: any, v: any): table
 
 --- Compares two values for primitive equality, without an `__eq` metamethod.
 ---
 --- @param a the left value
 --- @param b the right value
 --- @return whether the values are primitively equal
-local rawequal: function(a: any, b: any): boolean
+local rawequal: nosuspend function(a: any, b: any): boolean
 
 --- Returns the length of a table or string without consulting a `__len` metamethod.
 ---
 --- @param v the table or string to measure
 --- @return the length
-local rawlen: function(v: any): integer
+local rawlen: nosuspend function(v: any): integer
 
 --- Sets `t`'s metatable, or removes it when `mt` is nil. Raises when the current
 --- metatable has a `__metatable` field.
@@ -56822,7 +60975,7 @@ local assert: function<T>(v: T?, msg: any?): T
 ---
 --- @param msg the error value to raise
 --- @param level whose position to blame, or 0 for none
-local error: function(msg: any, level: number?): never
+local error: nosuspend function(msg: any, level: number?): never
 
 --- Calls `f` with the given arguments, trapping any error it raises.
 ---
@@ -56863,70 +61016,293 @@ local require: function(name: string): any
 
 --- Compiler-provided facilities. The namespace is always present; native members are
 --- linked automatically when source reaches them.
+---
+--- @namespace nupp
 local nupp: {
+    --- JSON, UTF-8, UUIDs, hashes and checksums.
     data: {
+        --- Encodes a Lua value as JSON text.
+        --- @param value the value to encode
+        --- @return the encoded JSON document
         encodeJSON: function(value: any): string,
+
+        --- Decodes one JSON document into Lua values.
+        --- @param text the JSON document to decode
+        --- @return the decoded value
         decodeJSON: function(text: string): any,
+
+        --- Creates an independent JSON codec with its own settings.
+        --- @return the new codec
         newJSON: function(): nupp.JSON,
+
+        --- Sentinel that decodes from and encodes as JSON null.
         null: any,
-        empty_array: any,
-        array_mt: metatable<{any}>,
-        empty_array_mt: metatable<{any}>,
-        encode_empty_table_as_object: function(setting: boolean | string?): boolean,
-        decode_array_with_array_mt: function(setting: boolean | string?): boolean,
-        decode_allow_comment: function(setting: boolean | string?): boolean,
-        encode_sparse_array: function(convert: boolean?, ratio: integer?, safe: integer?): (boolean, integer, integer),
-        encode_max_depth: function(depth: integer?): integer,
-        decode_max_depth: function(depth: integer?): integer,
-        encode_number_precision: function(precision: integer?): integer,
-        encode_keep_buffer: function(keep: boolean | string?): boolean,
-        encode_invalid_numbers: function(setting: boolean | string?): boolean | string,
-        decode_invalid_numbers: function(setting: boolean | string?): boolean,
-        encode_escape_forward_slash: function(setting: boolean | string?): boolean,
-        encode_skip_unsupported_value_types: function(setting: boolean | string?): boolean,
-        encode_indent: function(indent: string?): string,
+
+        --- Sentinel that always encodes as an empty JSON array.
+        emptyArray: any,
+
+        --- Metatable marking a table to encode as a JSON array.
+        arrayMt: metatable<{any}>,
+
+        --- Metatable marking a table to encode as an empty JSON array.
+        emptyArrayMt: metatable<{any}>,
+
+        --- Sets whether an empty table encodes as an object, or reads the current
+        --- setting when omitted.
+        --- @param setting true or "on" for `{}`, false or "off" for `[]`
+        --- @return whether empty tables encode as objects
+        encodeEmptyTableAsObject: function(setting: boolean | string?): boolean,
+
+        --- Sets whether decoded arrays carry `arrayMt`, or reads the current setting
+        --- when omitted.
+        --- @param setting the new setting
+        --- @return whether decoded arrays carry `arrayMt`
+        decodeArrayWithArrayMt: function(setting: boolean | string?): boolean,
+
+        --- Sets whether the decoder accepts comments, or reads the current setting
+        --- when omitted.
+        --- @param setting the new setting
+        --- @return whether comments are accepted
+        decodeAllowComment: function(setting: boolean | string?): boolean,
+
+        --- Configures how excessively sparse arrays are encoded, or reads the current
+        --- settings when every argument is omitted.
+        --- @param convert whether sparse arrays become JSON objects instead of raising
+        --- @param ratio the maximum ratio between the highest index and item count
+        --- @param safe the array size below which sparsity is always accepted
+        --- @return whether sparse arrays are converted
+        --- @return the current ratio limit
+        --- @return the current safe size
+        encodeSparseArray: function(convert: boolean?, ratio: integer?, safe: integer?): (boolean, integer, integer),
+
+        --- Sets the maximum nested-container depth accepted by the encoder, or reads
+        --- the current limit when omitted.
+        --- @param depth the new maximum depth
+        --- @return the current maximum depth
+        encodeMaxDepth: function(depth: integer?): integer,
+
+        --- Sets the maximum nested-container depth accepted by the decoder, or reads
+        --- the current limit when omitted.
+        --- @param depth the new maximum depth
+        --- @return the current maximum depth
+        decodeMaxDepth: function(depth: integer?): integer,
+
+        --- Sets the significant-digit precision used to encode numbers, or reads the
+        --- current precision when omitted.
+        --- @param precision the new number of significant digits
+        --- @return the current precision
+        encodeNumberPrecision: function(precision: integer?): integer,
+
+        --- Sets whether the encoder reuses its internal buffer, or reads the current
+        --- setting when omitted.
+        --- @param keep the new setting
+        --- @return whether the internal buffer is retained
+        encodeKeepBuffer: function(keep: boolean | string?): boolean,
+
+        --- Configures encoding of NaN and infinities, or reads the current setting
+        --- when omitted.
+        --- @param setting false to reject them, true to emit them, or "null" to emit
+        ---     null
+        --- @return the active invalid-number setting
+        encodeInvalidNumbers: function(setting: boolean | string?): boolean | string,
+
+        --- Sets whether the decoder accepts NaN and infinities, or reads the current
+        --- setting when omitted.
+        --- @param setting the new setting
+        --- @return whether invalid numbers are accepted
+        decodeInvalidNumbers: function(setting: boolean | string?): boolean,
+
+        --- Sets whether `/` is escaped in JSON strings, or reads the current setting
+        --- when omitted.
+        --- @param setting the new setting
+        --- @return whether forward slashes are escaped
+        encodeEscapeForwardSlash: function(setting: boolean | string?): boolean,
+
+        --- Sets whether unsupported values are skipped instead of raising, or reads the
+        --- current setting when omitted.
+        --- @param setting the new setting
+        --- @return whether unsupported values are skipped
+        encodeSkipUnsupportedValueTypes: function(setting: boolean | string?): boolean,
+
+        --- Sets the indentation used for encoded containers, or reads the current
+        --- indentation when omitted.
+        --- @param indent the indentation string
+        --- @return the current indentation string
+        encodeIndent: function(indent: string?): string,
+
+        --- UTF-8 codepoint operations over strings and byte views.
+        --- @namespace
         utf8: nupp.UTF8Library,
+
+        --- Generates a random version 4 UUID.
+        --- @return the canonical lowercase UUID text
         uuid4: function(): string,
+
+        --- Generates a time-ordered version 7 UUID.
+        --- @return the canonical lowercase UUID text
         uuid7: function(): string,
+
+        --- Computes the 64-bit FNV-1a digest of bytes.
+        --- @param value the bytes to hash
+        --- @return the lowercase hexadecimal digest
         fnv1a64: function(value: string | nupp.ByteView): string,
+
+        --- Computes the SHA-256 digest of bytes.
+        --- @param value the bytes to hash
+        --- @return the lowercase hexadecimal digest
         sha256: function(value: string | nupp.ByteView): string,
+
+        --- Computes or continues an Adler-32 checksum.
+        --- @param value the bytes to checksum
+        --- @param previous a previous Adler-32 value, or 1 to start
+        --- @return the unsigned 32-bit checksum
         adler32: function(value: string | nupp.ByteView, previous: integer?): integer,
+
+        --- Computes or continues a CRC-32 checksum.
+        --- @param value the bytes to checksum
+        --- @param previous a previous CRC-32 value, or 0 to start
+        --- @return the unsigned 32-bit checksum
         crc32: function(value: string | nupp.ByteView, previous: integer?): integer
     },
+
+    --- Buffers, byte views, readers and writers.
     io: {
+        --- Creates an owned growable byte buffer.
+        --- @param initial initial bytes, an initial capacity, or nothing for an empty
+        ---     buffer
+        --- @return the new buffer
         newBuffer: function(initial: integer | string?): nupp.Buffer,
+
+        --- Creates a forward-only reader over a string.
+        --- @param text the bytes to read
+        --- @return the new reader
         newStringReader: function(text: string): nupp.Reader,
-        Path: nupp.PathLibrary,
-        URI: nupp.URILibrary
+
+        --- Constructors and platform operations for immutable filesystem paths.
+        --- @namespace
+        Path: nupp.Path.Library,
+
+        --- Parsing and inspection operations for immutable absolute URIs.
+        --- @namespace
+        URI: nupp.URI.Library
     },
+
+    --- Scalar helpers and two-dimensional vectors.
     math: nupp.MathLibrary,
-    regex: nupp.RegexLibrary
+
+    --- Compiled Rust regular expressions.
+    regex: nupp.Regex.Library
 }
 
 --- One independently configured JSON encoder and decoder.
 interface nupp.JSON
+    --- Encodes a Lua value as JSON text.
+    --- @param value the value to encode
+    --- @return the encoded JSON document
     encodeJSON: function(value: any): string
+
+    --- Decodes one JSON document into Lua values.
+    --- @param text the JSON document to decode
+    --- @return the decoded value
     decodeJSON: function(text: string): any
+
+    --- Sentinel that decodes from and encodes as JSON null.
     null: any
-    empty_array: any
-    array_mt: metatable<{any}>
-    empty_array_mt: metatable<{any}>
-    encode_empty_table_as_object: function(setting: boolean | string?): boolean
-    decode_array_with_array_mt: function(setting: boolean | string?): boolean
-    decode_allow_comment: function(setting: boolean | string?): boolean
-    encode_sparse_array: function(convert: boolean?, ratio: integer?, safe: integer?): (boolean, integer, integer)
-    encode_max_depth: function(depth: integer?): integer
-    decode_max_depth: function(depth: integer?): integer
-    encode_number_precision: function(precision: integer?): integer
-    encode_keep_buffer: function(keep: boolean | string?): boolean
-    encode_invalid_numbers: function(setting: boolean | string?): boolean | string
-    decode_invalid_numbers: function(setting: boolean | string?): boolean
-    encode_escape_forward_slash: function(setting: boolean | string?): boolean
-    encode_skip_unsupported_value_types: function(setting: boolean | string?): boolean
-    encode_indent: function(indent: string?): string
+
+    --- Sentinel that always encodes as an empty JSON array.
+    emptyArray: any
+
+    --- Metatable marking a table to encode as a JSON array.
+    arrayMt: metatable<{any}>
+
+    --- Metatable marking a table to encode as an empty JSON array.
+    emptyArrayMt: metatable<{any}>
+
+    --- Sets whether an empty table encodes as an object, or reads the current
+    --- setting when omitted.
+    --- @param setting true or "on" for `{}`, false or "off" for `[]`
+    --- @return whether empty tables encode as objects
+    encodeEmptyTableAsObject: function(setting: boolean | string?): boolean
+
+    --- Sets whether decoded arrays carry `arrayMt`, or reads the current setting
+    --- when omitted.
+    --- @param setting the new setting
+    --- @return whether decoded arrays carry `arrayMt`
+    decodeArrayWithArrayMt: function(setting: boolean | string?): boolean
+
+    --- Sets whether the decoder accepts comments, or reads the current setting
+    --- when omitted.
+    --- @param setting the new setting
+    --- @return whether comments are accepted
+    decodeAllowComment: function(setting: boolean | string?): boolean
+
+    --- Configures how excessively sparse arrays are encoded, or reads the current
+    --- settings when every argument is omitted.
+    --- @param convert whether sparse arrays become JSON objects instead of raising
+    --- @param ratio the maximum ratio between the highest index and item count
+    --- @param safe the array size below which sparsity is always accepted
+    --- @return whether sparse arrays are converted
+    --- @return the current ratio limit
+    --- @return the current safe size
+    encodeSparseArray: function(convert: boolean?, ratio: integer?, safe: integer?): (boolean, integer, integer)
+
+    --- Sets the maximum nested-container depth accepted by the encoder, or reads
+    --- the current limit when omitted.
+    --- @param depth the new maximum depth
+    --- @return the current maximum depth
+    encodeMaxDepth: function(depth: integer?): integer
+
+    --- Sets the maximum nested-container depth accepted by the decoder, or reads
+    --- the current limit when omitted.
+    --- @param depth the new maximum depth
+    --- @return the current maximum depth
+    decodeMaxDepth: function(depth: integer?): integer
+
+    --- Sets the significant-digit precision used to encode numbers, or reads the
+    --- current precision when omitted.
+    --- @param precision the new number of significant digits
+    --- @return the current precision
+    encodeNumberPrecision: function(precision: integer?): integer
+
+    --- Sets whether the encoder reuses its internal buffer, or reads the current
+    --- setting when omitted.
+    --- @param keep the new setting
+    --- @return whether the internal buffer is retained
+    encodeKeepBuffer: function(keep: boolean | string?): boolean
+
+    --- Configures encoding of NaN and infinities, or reads the current setting
+    --- when omitted.
+    --- @param setting false to reject them, true to emit them, or "null" to emit null
+    --- @return the active invalid-number setting
+    encodeInvalidNumbers: function(setting: boolean | string?): boolean | string
+
+    --- Sets whether the decoder accepts NaN and infinities, or reads the current
+    --- setting when omitted.
+    --- @param setting the new setting
+    --- @return whether invalid numbers are accepted
+    decodeInvalidNumbers: function(setting: boolean | string?): boolean
+
+    --- Sets whether `/` is escaped in JSON strings, or reads the current setting
+    --- when omitted.
+    --- @param setting the new setting
+    --- @return whether forward slashes are escaped
+    encodeEscapeForwardSlash: function(setting: boolean | string?): boolean
+
+    --- Sets whether unsupported values are skipped instead of raising, or reads the
+    --- current setting when omitted.
+    --- @param setting the new setting
+    --- @return whether unsupported values are skipped
+    encodeSkipUnsupportedValueTypes: function(setting: boolean | string?): boolean
+
+    --- Sets the indentation used for encoded containers, or reads the current
+    --- indentation when omitted.
+    --- @param indent the indentation string
+    --- @return the current indentation string
+    encodeIndent: function(indent: string?): string
 end
 
 --- UTF-8 codepoint operations over strings and immutable byte views.
+--- @internal
 record nupp.UTF8Library
     length: function(value: string | nupp.ByteView): integer
     decodeAt: function(value: string | nupp.ByteView, byteOffset: integer): (integer?, integer)
@@ -56939,188 +61315,686 @@ end
 
 --- An immutable snapshot of bytes.
 interface nupp.ByteView
+    --- Opens a reader over this snapshot.
+    --- @param self this byte view
+    --- @return the new reader
     newReader: function(self: nupp.ByteView): nupp.Reader
+
+    --- Reports the number of bytes in this snapshot.
+    --- @param self this byte view
+    --- @return the byte length
     length: function(self: nupp.ByteView): integer
+
+    --- Copies all bytes into a string.
+    --- @param self this byte view
+    --- @return the copied bytes
     getString: function(self: nupp.ByteView): string
+
+    --- Retains an immutable subrange of this snapshot.
+    --- @param self this byte view
+    --- @param offset the zero-based start, or zero when omitted
+    --- @param count the number of bytes, or the rest of the view when omitted
+    --- @return the retained subrange
     view: function(self: nupp.ByteView, offset: integer?, count: integer?): nupp.ByteView
+
+    --- Reports whether this snapshot has been released.
+    --- @param self this byte view
+    --- @return whether the view is released
     isReleased: function(self: nupp.ByteView): boolean
+
+    --- Releases this snapshot. Repeated calls are safe.
+    --- @param self this byte view
+    --- @return whether the release succeeded
+    --- @return a failure reason, when unsuccessful
     close: function(self: nupp.ByteView): (boolean, string?)
 end
 
 --- A forward-only byte source. An empty read or zero-byte readInto is EOF.
 interface nupp.Reader
+    --- Reads the next bytes, returning an empty string at EOF.
+    --- @param self this reader
+    --- @param count the maximum number of bytes; non-positive values still read one
+    --- @return the bytes, or nil on failure
+    --- @return a failure reason, when unsuccessful
     read: function(self: nupp.Reader, count: integer): (string?, string?)
+
+    --- Reads bytes into a buffer, returning zero at EOF.
+    --- @param self this reader
+    --- @param destination the buffer to append to or overwrite
+    --- @param offset the zero-based destination offset, or zero when omitted
+    --- @param count the maximum bytes to read, or 64 KiB when omitted
+    --- @return the number of bytes read, or nil on failure
+    --- @return a failure reason, when unsuccessful
     readInto: function(
         self: nupp.Reader,
         destination: nupp.Buffer,
         offset: integer?,
         count: integer?
     ): (integer?, string?)
+
+    --- Copies all remaining bytes into a writer.
+    --- @param self this reader
+    --- @param destination the writer to receive the bytes
+    --- @return the number of bytes copied, or nil on failure
+    --- @return a failure reason, when unsuccessful
     transferTo: function(self: nupp.Reader, destination: nupp.Writer): (integer?, string?)
+
+    --- Closes this reader. Repeated calls are safe.
+    --- @param self this reader
+    --- @return whether the close succeeded
+    --- @return a failure reason, when unsuccessful
     close: function(self: nupp.Reader): (boolean, string?)
 end
 
 --- A forward-only byte destination.
 interface nupp.Writer
+    --- Writes a string of bytes.
+    --- @param self this writer
+    --- @param bytes the bytes to write
+    --- @return whether the write succeeded
+    --- @return a failure reason, when unsuccessful
     write: function(self: nupp.Writer, bytes: string): (boolean, string?)
+
+    --- Copies bytes from a mutable buffer.
+    --- @param self this writer
+    --- @param source the source buffer
+    --- @param offset the zero-based start, or zero when omitted
+    --- @param count the number of bytes, or the rest of the buffer when omitted
+    --- @return the number of bytes written, or nil on failure
+    --- @return a failure reason, when unsuccessful
     writeFrom: function(self: nupp.Writer, source: nupp.Buffer, offset: integer?, count: integer?): (integer?, string?)
+
+    --- Copies bytes from an immutable view.
+    --- @param self this writer
+    --- @param source the source byte view
+    --- @param offset the zero-based start, or zero when omitted
+    --- @param count the number of bytes, or the rest of the view when omitted
+    --- @return the number of bytes written, or nil on failure
+    --- @return a failure reason, when unsuccessful
     writeView: function(
         self: nupp.Writer,
         source: nupp.ByteView,
         offset: integer?,
         count: integer?
     ): (integer?, string?)
+
+    --- Flushes any buffered output.
+    --- @param self this writer
+    --- @return whether the flush succeeded
+    --- @return a failure reason, when unsuccessful
     flush: function(self: nupp.Writer): (boolean, string?)
+
+    --- Closes this writer. Repeated calls are safe.
+    --- @param self this writer
+    --- @return whether the close succeeded
+    --- @return a failure reason, when unsuccessful
     close: function(self: nupp.Writer): (boolean, string?)
 end
 
 --- An owned growable byte sequence. All offsets are zero-based.
 interface nupp.Buffer
+    --- Opens a reader over a snapshot of the current bytes.
+    --- @param self this buffer
+    --- @return the new reader
     newReader: function(self: nupp.Buffer): nupp.Reader
+
+    --- Clears the buffer and opens a writer that targets it.
+    --- @param self this buffer
+    --- @return the new writer
     newWriter: function(self: nupp.Buffer): nupp.Writer
+
+    --- Reports the logical byte length.
+    --- @param self this buffer
+    --- @return the byte length
     length: function(self: nupp.Buffer): integer
+
+    --- Reports the reserved byte capacity.
+    --- @param self this buffer
+    --- @return the byte capacity
     capacity: function(self: nupp.Buffer): integer
+
+    --- Removes every byte without discarding reserved capacity.
+    --- @param self this buffer
     clear: function(self: nupp.Buffer)
+
+    --- Reserves at least a byte capacity without changing the length.
+    --- @param self this buffer
+    --- @param minimum the minimum capacity
     ensureCapacity: function(self: nupp.Buffer, minimum: integer)
+
+    --- Changes the byte length, truncating or zero-filling as needed.
+    --- @param self this buffer
+    --- @param length the new byte length
     resize: function(self: nupp.Buffer, length: integer)
+
+    --- Copies a byte range into a string.
+    --- @param self this buffer
+    --- @param offset the zero-based start, or zero when omitted
+    --- @param count the number of bytes, or the rest of the buffer when omitted
+    --- @return the copied bytes
     getString: function(self: nupp.Buffer, offset: integer?, count: integer?): string
+
+    --- Overwrites bytes at an offset, growing and zero-filling any gap.
+    --- @param self this buffer
+    --- @param bytes the bytes to write
+    --- @param offset the zero-based start, or zero when omitted
     setString: function(self: nupp.Buffer, bytes: string, offset: integer?)
+
+    --- Retains an immutable snapshot of a byte range.
+    --- @param self this buffer
+    --- @param offset the zero-based start, or zero when omitted
+    --- @param count the number of bytes, or the rest of the buffer when omitted
+    --- @return the retained byte view
     view: function(self: nupp.Buffer, offset: integer?, count: integer?): nupp.ByteView
+
+    --- Reports whether this buffer has been released.
+    --- @param self this buffer
+    --- @return whether the buffer is released
     isReleased: function(self: nupp.Buffer): boolean
+
+    --- Releases this buffer. Repeated calls are safe.
+    --- @param self this buffer
+    --- @return whether the release succeeded
+    --- @return a failure reason, when unsuccessful
     close: function(self: nupp.Buffer): (boolean, string?)
 end
 
 --- An immutable platform-native UTF-8 filesystem path.
 record nupp.Path
-    toString: function(self: nupp.Path): string
-    join: function(self: nupp.Path, ...: string | nupp.Path): nupp.Path
-    normalize: function(self: nupp.Path): nupp.Path
-    absolute: function(self: nupp.Path): (nupp.Path?, string?)
-    resolve: function(self: nupp.Path, ...: string | nupp.Path): (nupp.Path?, string?)
-    canonicalize: function(self: nupp.Path): (nupp.Path?, string?)
-    relativeTo: function(self: nupp.Path, base: string | nupp.Path): (nupp.Path?, string?)
-    parent: function(self: nupp.Path): nupp.Path?
-    fileName: function(self: nupp.Path): string?
-    stem: function(self: nupp.Path): string?
-    extension: function(self: nupp.Path): string?
-    withFileName: function(self: nupp.Path, name: string): nupp.Path
-    withExtension: function(self: nupp.Path, extension: string): nupp.Path
-    isAbsolute: function(self: nupp.Path): boolean
-    isRelative: function(self: nupp.Path): boolean
-end
+    --- Constructors and platform operations for immutable filesystem paths.
+    --- @internal
+    record Library
+        --- Creates a path by joining one or more components.
+        --- @param first the first path component
+        --- @param ... the remaining path components
+        --- @return the new path
+        new: function(first: string, ...: string): Path
 
-record nupp.PathLibrary
-    new: function(first: string, ...: string): nupp.Path
-    currentDirectory: function(): (nupp.Path?, string?)
-    separator: function(): string
+        --- Reads the process's current working directory.
+        --- @return the current directory, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        currentDirectory: function(): (Path?, string?)
+
+        --- Returns the current platform's primary path separator.
+        --- @return the path separator
+        separator: function(): string
+    end
+
+    --- Returns the native UTF-8 path text.
+    --- @param self this path
+    --- @return the path text
+    toString: function(self: nupp.Path): string
+
+    --- Appends path components using the current platform's rules.
+    --- @param self this path
+    --- @param ... the components to append
+    --- @return the joined path
+    join: function(self: nupp.Path, ...: string | nupp.Path): nupp.Path
+
+    --- Removes lexical `.` and `..` components without accessing the filesystem.
+    --- @param self this path
+    --- @return the normalized path
+    normalize: function(self: nupp.Path): nupp.Path
+
+    --- Resolves a relative path against the current working directory.
+    --- @param self this path
+    --- @return the absolute path, or nil on failure
+    --- @return a failure reason, when unsuccessful
+    absolute: function(self: nupp.Path): (nupp.Path?, string?)
+
+    --- Makes this path absolute, appends components, and normalizes the result.
+    --- @param self this path
+    --- @param ... the components to append
+    --- @return the resolved path, or nil on failure
+    --- @return a failure reason, when unsuccessful
+    resolve: function(self: nupp.Path, ...: string | nupp.Path): (nupp.Path?, string?)
+
+    --- Resolves filesystem links and returns the real path.
+    --- @param self this path
+    --- @return the canonical path, or nil on failure
+    --- @return a failure reason, when unsuccessful
+    canonicalize: function(self: nupp.Path): (nupp.Path?, string?)
+
+    --- Computes this path relative to a compatible base path.
+    --- @param self this path
+    --- @param base the path to make this value relative to
+    --- @return the relative path, or nil on failure
+    --- @return a failure reason, when unsuccessful
+    relativeTo: function(self: nupp.Path, base: string | nupp.Path): (nupp.Path?, string?)
+
+    --- Returns the parent path, when one exists.
+    --- @param self this path
+    --- @return the parent path
+    parent: function(self: nupp.Path): nupp.Path?
+
+    --- Returns the final path component, when one exists.
+    --- @param self this path
+    --- @return the file name
+    fileName: function(self: nupp.Path): string?
+
+    --- Returns the file name without its final extension, when one exists.
+    --- @param self this path
+    --- @return the file stem
+    stem: function(self: nupp.Path): string?
+
+    --- Returns the final file-name extension without its separator.
+    --- @param self this path
+    --- @return the extension
+    extension: function(self: nupp.Path): string?
+
+    --- Replaces the final path component.
+    --- @param self this path
+    --- @param name the replacement file name, without path separators
+    --- @return the modified path
+    withFileName: function(self: nupp.Path, name: string): nupp.Path
+
+    --- Replaces the final file-name extension.
+    --- @param self this path
+    --- @param extension the replacement extension, without path separators
+    --- @return the modified path
+    withExtension: function(self: nupp.Path, extension: string): nupp.Path
+
+    --- Reports whether this path is absolute.
+    --- @param self this path
+    --- @return whether the path is absolute
+    isAbsolute: function(self: nupp.Path): boolean
+
+    --- Reports whether this path is relative.
+    --- @param self this path
+    --- @return whether the path is relative
+    isRelative: function(self: nupp.Path): boolean
 end
 
 --- An immutable normalized absolute URI.
 record nupp.URI
+    --- Components accepted when constructing an absolute URI.
+    record Components
+        --- The required URI scheme.
+        scheme: string
+
+        --- Optional user information, including a password when needed.
+        userInfo: string?
+
+        --- The optional host name or address.
+        host: string?
+
+        --- The optional port from 0 through 65535.
+        port: integer?
+
+        --- The path, or an empty path when omitted.
+        path: string?
+
+        --- The optional query without its leading `?`.
+        query: string?
+
+        --- The optional fragment without its leading `#`.
+        fragment: string?
+    end
+
+    --- Parsing and inspection operations for immutable absolute URIs.
+    --- @internal
+    record Library
+        --- Parses and normalizes an absolute URI.
+        --- @param value URI text or its individual components
+        --- @return the parsed URI, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        new: function(value: string | Components): (URI?, string?)
+
+        --- Checks whether text is a valid absolute URI without retaining an object.
+        --- @param text the URI text to validate
+        --- @return whether the text is valid
+        --- @return a failure reason, when invalid
+        validate: function(text: string): (boolean, string?)
+
+        --- Reports whether a value is a URI object.
+        --- @param value the value to inspect
+        --- @return whether the value is a URI
+        isURI: function(value: any): boolean
+    end
+
+    --- Returns the complete normalized URI text.
+    --- @param self this URI
+    --- @return the URI text
     toString: function(self: nupp.URI): string
+
+    --- Returns the normalized URI scheme.
+    --- @param self this URI
+    --- @return the scheme
     scheme: function(self: nupp.URI): string
+
+    --- Returns the complete authority component, when present.
+    --- @param self this URI
+    --- @return the authority
     authority: function(self: nupp.URI): string?
+
+    --- Returns the username component, or an empty string when absent.
+    --- @param self this URI
+    --- @return the username
     username: function(self: nupp.URI): string
+
+    --- Returns the password component, when present.
+    --- @param self this URI
+    --- @return the password
     password: function(self: nupp.URI): string?
+
+    --- Returns the normalized host, when present.
+    --- @param self this URI
+    --- @return the host
     host: function(self: nupp.URI): string?
+
+    --- Returns the port, when explicitly present.
+    --- @param self this URI
+    --- @return the port
     port: function(self: nupp.URI): integer?
+
+    --- Returns the URI path component.
+    --- @param self this URI
+    --- @return the path
     path: function(self: nupp.URI): string
+
+    --- Returns the query without its leading `?`, when present.
+    --- @param self this URI
+    --- @return the query
     query: function(self: nupp.URI): string?
+
+    --- Returns the fragment without its leading `#`, when present.
+    --- @param self this URI
+    --- @return the fragment
     fragment: function(self: nupp.URI): string?
+
+    --- Returns the complete user-information component, when present.
+    --- @param self this URI
+    --- @return the user information
     userInfo: function(self: nupp.URI): string?
+
+    --- Returns a copy with a replacement scheme.
+    --- @param self this URI
+    --- @param scheme the replacement scheme
+    --- @return the modified URI
     withScheme: function(self: nupp.URI, scheme: string): nupp.URI
+
+    --- Returns a copy with replacement or removed user information.
+    --- @param self this URI
+    --- @param userInfo the replacement, or nil to remove it
+    --- @return the modified URI
     withUserInfo: function(self: nupp.URI, userInfo: string?): nupp.URI
+
+    --- Returns a copy with a replacement or removed host.
+    --- @param self this URI
+    --- @param host the replacement, or nil to remove it
+    --- @return the modified URI
     withHost: function(self: nupp.URI, host: string?): nupp.URI
+
+    --- Returns a copy with a replacement or removed port.
+    --- @param self this URI
+    --- @param port the replacement from 0 through 65535, or nil to remove it
+    --- @return the modified URI
     withPort: function(self: nupp.URI, port: integer?): nupp.URI
+
+    --- Returns a copy with a replacement path.
+    --- @param self this URI
+    --- @param path the replacement path
+    --- @return the modified URI
     withPath: function(self: nupp.URI, path: string): nupp.URI
+
+    --- Returns a copy with a replacement or removed query.
+    --- @param self this URI
+    --- @param query the replacement without `?`, or nil to remove it
+    --- @return the modified URI
     withQuery: function(self: nupp.URI, query: string?): nupp.URI
+
+    --- Returns a copy with a replacement or removed fragment.
+    --- @param self this URI
+    --- @param fragment the replacement without `#`, or nil to remove it
+    --- @return the modified URI
     withFragment: function(self: nupp.URI, fragment: string?): nupp.URI
+
+    --- Appends path text without interpreting it as a URI reference.
+    --- @param self this URI
+    --- @param path the path text to append
+    --- @return the modified URI
     concatPath: function(self: nupp.URI, path: string): nupp.URI
+
+    --- Replaces the scheme and authority while retaining resource components.
+    --- @param self this URI
+    --- @param endpoint the URI supplying the scheme and authority
+    --- @return the endpoint-rerouted URI
     withEndpoint: function(self: nupp.URI, endpoint: nupp.URI): nupp.URI
+
+    --- Resolves a URI reference according to RFC reference-resolution rules.
+    --- @param self this URI
+    --- @param reference the URI reference to resolve
+    --- @return the resolved URI, or nil on failure
+    --- @return a failure reason, when unsuccessful
     resolve: function(self: nupp.URI, reference: string): (nupp.URI?, string?)
 end
 
-record nupp.URIComponents
-    scheme: string
-    userInfo: string?
-    host: string?
-    port: integer?
-    path: string?
-    query: string?
-    fragment: string?
-end
-
-record nupp.URILibrary
-    new: function(value: string | nupp.URIComponents): (nupp.URI?, string?)
-    validate: function(text: string): (boolean, string?)
-    isURI: function(value: any): boolean
-end
-
---- Scalar helpers and two-dimensional vector operations on number pairs.
+--- Two-dimensional vector operations on number pairs.
+--- @internal
 record nupp.Vec2Library
+    --- Adds two vectors.
+    --- @param ax the first vector's x component
+    --- @param ay the first vector's y component
+    --- @param bx the second vector's x component
+    --- @param by the second vector's y component
+    --- @return the sum's x component
+    --- @return the sum's y component
     add: function(ax: number, ay: number, bx: number, by: number): (number, number)
+
+    --- Subtracts the second vector from the first.
+    --- @param ax the first vector's x component
+    --- @param ay the first vector's y component
+    --- @param bx the second vector's x component
+    --- @param by the second vector's y component
+    --- @return the difference's x component
+    --- @return the difference's y component
     subtract: function(ax: number, ay: number, bx: number, by: number): (number, number)
+
+    --- Multiplies a vector by a scalar.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @param factor the scale factor
+    --- @return the scaled x component
+    --- @return the scaled y component
     scale: function(x: number, y: number, factor: number): (number, number)
+
+    --- Computes the dot product of two vectors.
+    --- @param ax the first vector's x component
+    --- @param ay the first vector's y component
+    --- @param bx the second vector's x component
+    --- @param by the second vector's y component
+    --- @return the dot product
     dot: function(ax: number, ay: number, bx: number, by: number): number
+
+    --- Computes the signed scalar cross product of two vectors.
+    --- @param ax the first vector's x component
+    --- @param ay the first vector's y component
+    --- @param bx the second vector's x component
+    --- @param by the second vector's y component
+    --- @return the scalar cross product
     cross: function(ax: number, ay: number, bx: number, by: number): number
+
+    --- Computes a vector's squared magnitude without a square root.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @return the squared magnitude
     lengthSquared: function(x: number, y: number): number
+
+    --- Computes a vector's magnitude.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @return the magnitude
     length: function(x: number, y: number): number
+
+    --- Computes the squared distance between two points without a square root.
+    --- @param ax the first point's x coordinate
+    --- @param ay the first point's y coordinate
+    --- @param bx the second point's x coordinate
+    --- @param by the second point's y coordinate
+    --- @return the squared distance
     distanceSquared: function(ax: number, ay: number, bx: number, by: number): number
+
+    --- Computes the distance between two points.
+    --- @param ax the first point's x coordinate
+    --- @param ay the first point's y coordinate
+    --- @param bx the second point's x coordinate
+    --- @param by the second point's y coordinate
+    --- @return the distance
     distance: function(ax: number, ay: number, bx: number, by: number): number
+
+    --- Returns a unit vector in the same direction, or `(0, 0)` for zero.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @return the normalized x component
+    --- @return the normalized y component
     normalize: function(x: number, y: number): (number, number)
+
+    --- Linearly interpolates or extrapolates between two vectors.
+    --- @param ax the starting x component
+    --- @param ay the starting y component
+    --- @param bx the ending x component
+    --- @param by the ending y component
+    --- @param t the unclamped interpolation factor
+    --- @return the interpolated x component
+    --- @return the interpolated y component
     lerp: function(ax: number, ay: number, bx: number, by: number, t: number): (number, number)
+
+    --- Moves toward a target by at most a distance, without overshooting.
+    --- @param ax the starting x component
+    --- @param ay the starting y component
+    --- @param bx the target x component
+    --- @param by the target y component
+    --- @param distance the maximum step; nonpositive values leave the start unchanged
+    --- @return the resulting x component
+    --- @return the resulting y component
     moveTowards: function(ax: number, ay: number, bx: number, by: number, distance: number): (number, number)
+
+    --- Rotates a vector around the origin.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @param radians the signed rotation in radians
+    --- @return the rotated x component
+    --- @return the rotated y component
     rotate: function(x: number, y: number, radians: number): (number, number)
+
+    --- Computes a vector's signed direction from the positive x-axis.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @return the angle in radians, or zero for the zero vector
     angle: function(x: number, y: number): number
+
+    --- Computes the smallest unsigned angle between two vectors.
+    --- @param ax the first vector's x component
+    --- @param ay the first vector's y component
+    --- @param bx the second vector's x component
+    --- @param by the second vector's y component
+    --- @return the angle from zero through pi, or zero for a zero vector
     angleBetween: function(ax: number, ay: number, bx: number, by: number): number
+
+    --- Computes the smallest signed angle from the first vector to the second.
+    --- @param ax the first vector's x component
+    --- @param ay the first vector's y component
+    --- @param bx the second vector's x component
+    --- @param by the second vector's y component
+    --- @return the angle in `[-pi, pi)`, or zero for a zero vector
     signedAngleBetween: function(ax: number, ay: number, bx: number, by: number): number
+
+    --- Projects a vector onto another vector.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @param ontoX the projection axis's x component
+    --- @param ontoY the projection axis's y component
+    --- @return the projected x component, or zero for a zero axis
+    --- @return the projected y component, or zero for a zero axis
     project: function(x: number, y: number, ontoX: number, ontoY: number): (number, number)
+
+    --- Reflects a vector across a normal.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @param normalX the normal's x component
+    --- @param normalY the normal's y component
+    --- @return the reflected x component, or the input x for a zero normal
+    --- @return the reflected y component, or the input y for a zero normal
     reflect: function(x: number, y: number, normalX: number, normalY: number): (number, number)
 end
 
+--- Scalar angle helpers and two-dimensional vector operations.
+--- @internal
 record nupp.MathLibrary
+    --- Two-dimensional vector operations over `(x, y)` number pairs.
+    --- @namespace
     vec2: nupp.Vec2Library
+
+    --- Linearly interpolates between two numbers without clamping the factor.
+    --- @param from the value returned when `t` is zero
+    --- @param to the value returned when `t` is one
+    --- @param t the interpolation factor
+    --- @return `from + (to - from) * t`
+    lerp: function(from: number, to: number, t: number): number
+
+    --- Wraps an angle to the equivalent value in `[-pi, pi)`.
+    --- @param radians the angle in radians
+    --- @return the wrapped angle
     wrapAngle: function(radians: number): number
+
+    --- Computes the shortest signed rotation from one angle to another.
+    --- @param from the starting angle in radians
+    --- @param to the target angle in radians
+    --- @return the signed rotation in `[-pi, pi)`
     deltaAngle: function(from: number, to: number): number
-end
-
---- One byte-range match from a compiler-provided regular expression.
-record nupp.RegexMatch
-    --- Bytes copied from the matched range.
-    value: string
-
-    --- The first matched byte using a 1-based index.
-    first: integer
-
-    --- The inclusive last matched byte, or `first - 1` for an empty match.
-    last: integer
-
-    --- The capture-group index, with zero for the whole match.
-    index: integer
-
-    --- The capture name, or nil for an unnamed group.
-    name: string?
-end
-
---- The whole match, numbered captures, and named aliases from one search.
-record nupp.RegexCaptures
-    --- Group zero, which covers the whole match.
-    whole: nupp.RegexMatch
-
-    --- Explicit groups by 1-based index. An unmatched group leaves a hole.
-    groups: {nupp.RegexMatch}
-
-    --- The number of explicit groups, including groups that did not match.
-    groupCount: integer
-
-    -- Capture names are pattern-defined, so dot access cannot be enumerated statically.
-    -- It remains gradual while numbered groups stay precise.
-    named: any
 end
 
 --- A compiled Rust regular expression. Positions are 1-based inclusive byte indexes,
 --- matching Lua's string functions.
 record nupp.Regex
+    --- One byte-range match from a compiler-provided regular expression.
+    record Match
+        --- Bytes copied from the matched range.
+        value: string
+
+        --- The first matched byte using a 1-based index.
+        first: integer
+
+        --- The inclusive last matched byte, or `first - 1` for an empty match.
+        last: integer
+
+        --- The capture-group index, with zero for the whole match.
+        index: integer
+
+        --- The capture name, or nil for an unnamed group.
+        name: string?
+    end
+
+    --- The whole match, numbered captures, and named aliases from one search.
+    record Captures
+        --- Group zero, which covers the whole match.
+        whole: Match
+
+        --- Explicit groups by 1-based index. An unmatched group leaves a hole.
+        groups: {Match}
+
+        --- The number of explicit groups, including groups that did not match.
+        groupCount: integer
+
+        -- Capture names are pattern-defined, so dot access cannot be enumerated
+        -- statically.
+        -- It remains gradual while numbered groups stay precise.
+        named: any
+    end
+
+    --- The compiler-provided regular-expression library.
+    --- @internal
+    record Library
+        --- Compiles a UTF-8 pattern using Rust regex syntax.
+        ---
+        --- Compilation raises on malformed syntax or invalid UTF-8. Keep and reuse the
+        --- result; the Lua collector releases its native allocation.
+        ---
+        --- @param pattern Rust regex syntax
+        --- @return a reusable compiled expression
+        compile: function(pattern: string): Regex
+    end
+
     --- The source pattern unchanged.
     pattern: string
 
@@ -57135,14 +62009,14 @@ record nupp.Regex
     --- @param subject arbitrary bytes
     --- @param init the first byte considered under `string.find`'s rules
     --- @return the matched bytes and their range, or nil
-    find: function(self: nupp.Regex, subject: string, init: integer?): nupp.RegexMatch?
+    find: function(self: nupp.Regex, subject: string, init: integer?): Match?
 
     --- Finds the first match and every capture group it populated.
     ---
     --- @param subject arbitrary bytes
     --- @param init the first byte considered under the same rules as `find`
     --- @return the whole match, numbered groups, and named aliases, or nil
-    captures: function(self: nupp.Regex, subject: string, init: integer?): nupp.RegexCaptures?
+    captures: function(self: nupp.Regex, subject: string, init: integer?): Captures?
 
     --- Replaces the first match, expanding `$0`, `$1`, `$name`, `${name}`, and `$$`
     --- capture references in the replacement.
@@ -57150,18 +62024,6 @@ record nupp.Regex
 
     --- Replaces every non-overlapping match using `replace`'s capture syntax.
     replaceAll: function(self: nupp.Regex, subject: string, replacement: string): string
-end
-
---- The compiler-provided regular-expression library.
-record nupp.RegexLibrary
-    --- Compiles a UTF-8 pattern using Rust regex syntax.
-    ---
-    --- Compilation raises on malformed syntax or invalid UTF-8. Keep and reuse the
-    --- result; the Lua collector releases its native allocation.
-    ---
-    --- @param pattern Rust regex syntax
-    --- @return a reusable compiled expression
-    compile: function(pattern: string): nupp.Regex
 end
 
 --- Controls the garbage collector. `opt` is "collect" for a full cycle, the default, or
@@ -57256,13 +62118,13 @@ local string: {
     --- @param i the first index, 1 by default; negative counts from the end
     --- @param j the last index, `i` by default
     --- @return one code per selected character
-    byte: function(s: string, i: number?, j: number?): integer,
+    byte: nosuspend function(s: string, i: number?, j: number?): integer,
 
     --- Builds a string from the given character codes.
     ---
     --- @param ... the character codes, each 0 through 255
     --- @return the assembled string
-    char: function(...: number): string,
+    char: nosuspend function(...: number): string,
 
     --- Returns a binary representation of a Lua function that has no upvalues, in a
     --- form `loadstring` accepts.
@@ -57270,7 +62132,7 @@ local string: {
     --- @param f the function to dump
     --- @param strip whether to discard debug information
     --- @return the bytecode string
-    dump: function(f: any, strip: boolean?): string,
+    dump: nosuspend function(f: any, strip: boolean?): string,
 
     --- Finds the first match of pattern `pat` in `s`, at or after `init`. Any captures
     --- the pattern has follow the two returned indices.
@@ -57281,7 +62143,7 @@ local string: {
     --- @param plain whether to match `pat` literally, ignoring pattern syntax
     --- @return the index where the match starts, or nil when there is none
     --- @return the index where the match ends
-    find: function(s: string, pat: string, init: number?, plain: boolean?): (integer?, integer?),
+    find: nosuspend function(s: string, pat: string, init: number?, plain: boolean?): (integer?, integer?),
 
     --- Formats the arguments into `fmt`, which takes the C `printf` directives plus
     --- `%q` for a string quoted so Lua can read it back.
@@ -57289,7 +62151,7 @@ local string: {
     --- @param fmt the format string
     --- @param ... the values that the directives consume
     --- @return the formatted string
-    format: function(fmt: string, ...: any): string,
+    format: nosuspend function(fmt: string, ...: any): string,
 
     --- Returns an iterator over each successive match of `pat` in `s`, or over that
     --- match's captures when the pattern has any. Anchors have no special meaning here.
@@ -57297,7 +62159,7 @@ local string: {
     --- @param s the string to scan
     --- @param pat the pattern to repeat across `s`
     --- @return an iterator yielding one match at a time
-    gmatch: function(s: string, pat: string): function(): string,
+    gmatch: nosuspend function(s: string, pat: string): function(): string,
 
     --- Replaces matches of `pat` in `s`. `repl` may be a string, in which `%1` through
     --- `%9` stand for captures and `%0` for the whole match, a table looked up by the
@@ -57309,19 +62171,19 @@ local string: {
     --- @param n how many matches to replace at most, all of them by default
     --- @return the string with the replacements applied
     --- @return how many matches were replaced
-    gsub: function(s: string, pat: string, repl: any, n: number?): (string, integer),
+    gsub: nosuspend function(s: string, pat: string, repl: any, n: number?): (string, integer),
 
     --- Returns the length of `s` in bytes.
     ---
     --- @param s the string to measure
     --- @return the byte count
-    len: function(s: string): integer,
+    len: nosuspend function(s: string): integer,
 
     --- Returns `s` with every ASCII letter folded to lower case.
     ---
     --- @param s the string to fold
     --- @return the lowercased string
-    lower: function(s: string): string,
+    lower: nosuspend function(s: string): string,
 
     --- Returns the captures of the first match of `pat` in `s`, or the whole match when
     --- the pattern has no captures.
@@ -57330,7 +62192,7 @@ local string: {
     --- @param pat the pattern to look for
     --- @param init where to start, 1 by default; negative counts from the end
     --- @return the captures or the whole match, or nil when nothing matches
-    match: function(s: string, pat: string, init: number?): string?,
+    match: nosuspend function(s: string, pat: string, init: number?): string?,
 
     --- Returns `n` copies of `s`, with `sep` between consecutive copies.
     ---
@@ -57338,13 +62200,13 @@ local string: {
     --- @param n how many copies to produce
     --- @param sep what to place between copies, nothing by default
     --- @return the repeated string
-    rep: function(s: string, n: number, sep: string?): string,
+    rep: nosuspend function(s: string, n: number, sep: string?): string,
 
     --- Returns the bytes of `s` in reverse order.
     ---
     --- @param s the string to reverse
     --- @return the reversed string
-    reverse: function(s: string): string,
+    reverse: nosuspend function(s: string): string,
 
     --- Returns the substring of `s` running from `i` through `j`.
     ---
@@ -57352,13 +62214,13 @@ local string: {
     --- @param i the first index; negative counts from the end
     --- @param j the last index, -1 by default
     --- @return the selected substring
-    sub: function(s: string, i: number, j: number?): string,
+    sub: nosuspend function(s: string, i: number, j: number?): string,
 
     --- Returns `s` with every ASCII letter folded to upper case.
     ---
     --- @param s the string to fold
     --- @return the uppercased string
-    upper: function(s: string): string
+    upper: nosuspend function(s: string): string
 }
 
 --- Table manipulation. These functions work on the array part of a table: the integer
@@ -57372,7 +62234,7 @@ const table: {
     --- @param i the first index, 1 by default
     --- @param j the last index, `#t` by default
     --- @return the joined string
-    concat: function(t: table, sep: string?, i: number?, j: number?): string,
+    concat: nosuspend function(t: table, sep: string?, i: number?, j: number?): string,
 
     --- Inserts `v` at position `pos`, shifting later elements up. Called with two
     --- arguments, appends that value to the end instead.
@@ -57380,14 +62242,14 @@ const table: {
     --- @param t the array to insert into
     --- @param pos the position to insert at, or the value to append
     --- @param v the value to insert, when a position was given
-    insert: function(t: table, pos: any, v: any?),
+    insert: nosuspend function(t: table, pos: any, v: any?),
 
     --- Removes the element at `pos`, shifting later elements down.
     ---
     --- @param t the array to remove from
     --- @param pos the position to remove, `#t` by default
     --- @return the element that was removed
-    remove: function(t: table, pos: number?): any,
+    remove: nosuspend function(t: table, pos: number?): any,
 
     --- Sorts `t` in place, between indices 1 and `#t`. The sort is not stable, and
     --- `cmp` must be a strict order or it may raise.
@@ -57403,7 +62265,7 @@ const table: {
     ---
     --- @param t the table to scan
     --- @return the largest positive numeric key
-    maxn: function(t: table): number,
+    maxn: nosuspend function(t: table): number,
 
     -- LuaJIT extensions
 
@@ -57419,7 +62281,19 @@ const table: {
     --- it can be refilled without reallocating.
     ---
     --- @param t the table to empty
-    readonly clear: function(t: table)
+    readonly clear: function(t: table),
+
+    -- Nupp extensions
+
+    --- Copies `t` one level deep: every key it holds directly, and its metatable, are
+    --- carried over, while a value that is itself a table stays shared between the two.
+    --- Neither `__index` nor `__pairs` is consulted, so what comes back is what `next`
+    --- would have walked.
+    ---
+    --- @typearg T the table type
+    --- @param t the table to copy
+    --- @return a new table holding the same keys, values and metatable
+    readonly clone: nosuspend function<T is table>(t: T): T
 }
 
 --- Mathematical functions and constants, operating on the doubles that plain Lua
@@ -57429,95 +62303,95 @@ local math: {
     ---
     --- @param x the number to take the magnitude of
     --- @return the absolute value
-    abs: function(x: number): number,
+    abs: nosuspend function(x: number): number,
 
     --- Returns the smallest integer that is not less than `x`.
     ---
     --- @param x the number to round up
     --- @return the rounded value
-    ceil: function(x: number): integer,
+    ceil: nosuspend function(x: number): integer,
 
     --- Returns the largest integer that is not greater than `x`.
     ---
     --- @param x the number to round down
     --- @return the rounded value
-    floor: function(x: number): integer,
+    floor: nosuspend function(x: number): integer,
 
     --- Returns the square root of `x`.
     ---
     --- @param x the number to take the root of
     --- @return the square root
-    sqrt: function(x: number): number,
+    sqrt: nosuspend function(x: number): number,
 
     --- Returns e raised to the power `x`.
     ---
     --- @param x the exponent
     --- @return the result
-    exp: function(x: number): number,
+    exp: nosuspend function(x: number): number,
 
     --- Returns the natural logarithm of `x`, or its logarithm in `base`.
     ---
     --- @param x the number to take the logarithm of
     --- @param base the base to use, e by default
     --- @return the logarithm
-    log: function(x: number, base: number?): number,
+    log: nosuspend function(x: number, base: number?): number,
 
     --- Returns `x` raised to the power `y`, the same as `x ^ y`.
     ---
     --- @param x the base
     --- @param y the exponent
     --- @return the result
-    pow: function(x: number, y: number): number,
+    pow: nosuspend function(x: number, y: number): number,
 
     --- Returns the remainder of `x / y`, keeping the sign of `x`.
     ---
     --- @param x the dividend
     --- @param y the divisor
     --- @return the remainder
-    fmod: function(x: number, y: number): number,
+    fmod: nosuspend function(x: number, y: number): number,
 
     --- Splits `x` into its integral and fractional parts, both keeping the sign of `x`.
     ---
     --- @param x the number to split
     --- @return the integral part
     --- @return the fractional part
-    modf: function(x: number): (number, number),
+    modf: nosuspend function(x: number): (number, number),
 
     --- Returns the sine of `x`, which is in radians.
     ---
     --- @param x the angle in radians
     --- @return the sine
-    sin: function(x: number): number,
+    sin: nosuspend function(x: number): number,
 
     --- Returns the cosine of `x`, which is in radians.
     ---
     --- @param x the angle in radians
     --- @return the cosine
-    cos: function(x: number): number,
+    cos: nosuspend function(x: number): number,
 
     --- Returns the tangent of `x`, which is in radians.
     ---
     --- @param x the angle in radians
     --- @return the tangent
-    tan: function(x: number): number,
+    tan: nosuspend function(x: number): number,
 
     --- Returns the arc sine of `x`, in radians.
     ---
     --- @param x the sine to invert, -1 through 1
     --- @return the angle in radians
-    asin: function(x: number): number,
+    asin: nosuspend function(x: number): number,
 
     --- Returns the arc cosine of `x`, in radians.
     ---
     --- @param x the cosine to invert, -1 through 1
     --- @return the angle in radians
-    acos: function(x: number): number,
+    acos: nosuspend function(x: number): number,
 
     --- Returns the arc tangent of `x`, in radians.
     ---
     --- @param x the tangent to invert
     --- @return the angle in radians
-    atan: function(x: number): number,
+    atan: nosuspend function(x: number): number,
 
     --- Returns the arc tangent of `y / x`, using the sign of both arguments to place
     --- the result in the right quadrant.
@@ -57525,37 +62399,37 @@ local math: {
     --- @param y the numerator
     --- @param x the denominator
     --- @return the angle in radians
-    atan2: function(y: number, x: number): number,
+    atan2: nosuspend function(y: number, x: number): number,
 
     --- Returns the hyperbolic sine of `x`.
     ---
     --- @param x the argument
     --- @return the hyperbolic sine
-    sinh: function(x: number): number,
+    sinh: nosuspend function(x: number): number,
 
     --- Returns the hyperbolic cosine of `x`.
     ---
     --- @param x the argument
     --- @return the hyperbolic cosine
-    cosh: function(x: number): number,
+    cosh: nosuspend function(x: number): number,
 
     --- Returns the hyperbolic tangent of `x`.
     ---
     --- @param x the argument
     --- @return the hyperbolic tangent
-    tanh: function(x: number): number,
+    tanh: nosuspend function(x: number): number,
 
     --- Converts the angle `r` from radians to degrees.
     ---
     --- @param r the angle in radians
     --- @return the angle in degrees
-    deg: function(r: number): number,
+    deg: nosuspend function(r: number): number,
 
     --- Converts the angle `d` from degrees to radians.
     ---
     --- @param d the angle in degrees
     --- @return the angle in radians
-    rad: function(d: number): number,
+    rad: nosuspend function(d: number): number,
 
     --- Returns the smallest of its arguments. Comparing integers gives an integer back,
     --- so a bound taken this way stays usable as an index.
@@ -57577,12 +62451,12 @@ local math: {
     --- @param m the upper bound, or the lower bound when `n` is given too
     --- @param n the upper bound
     --- @return the generated number
-    random: function(): number & function(m: number): number & function(m: number, n: number): number,
+    random: nosuspend function(): number & function(m: number): number & function(m: number, n: number): number,
 
     --- Seeds the pseudo-random generator, which starts from a fixed state.
     ---
     --- @param seed the seed to start from
-    randomseed: function(seed: number),
+    randomseed: nosuspend function(seed: number),
 
     --- Splits `x` into a fraction in [0.5,1) and an exponent, such that `x` equals the
     --- fraction times 2 raised to the exponent.
@@ -57590,14 +62464,14 @@ local math: {
     --- @param x the number to split
     --- @return the fraction
     --- @return the exponent
-    frexp: function(x: number): (number, number),
+    frexp: nosuspend function(x: number): (number, number),
 
     --- Returns `m` times 2 raised to the power `e`.
     ---
     --- @param m the mantissa
     --- @param e the exponent
     --- @return the result
-    ldexp: function(m: number, e: number): number,
+    ldexp: nosuspend function(m: number, e: number): number,
 
     --- The ratio of a circle's circumference to its diameter.
     pi: number,
@@ -57885,6 +62759,16 @@ local coroutine: {
     isyieldable: function(): boolean
 }
 
+-- The base functions below say `nosuspend`: calling one cannot suspend the caller.
+--
+-- Two of them are a stated trust rather than a proof, in the same category as a
+-- metamethod contract (`docs/metamethods.md`). `tostring` reaches `__tostring` and
+-- `pairs` reaches `__pairs`, and on this baseline an ordinary metamethod may yield, so
+-- a pathological one could. The trade is deliberate: without it a `table.sort`
+-- comparator cannot call `tostring`, which is most comparators, and a check nobody can
+-- leave on protects nothing. A metamethod that does yield still fails loudly, because
+-- the C frame underneath raises.
+
 --- LuaJIT's BitOp library, which is also the semantics behind the `&`, `|`, `~`, `<<`,
 --- `>>` and `~>>` operators: arguments are normalized to 32-bit integers and results
 --- come back signed.
@@ -57893,7 +62777,7 @@ local bit: {
     ---
     --- @param x the number to normalize
     --- @return the normalized value
-    tobit: function(x: number): integer,
+    tobit: nosuspend function(x: number): integer,
 
     --- Returns `x` in hexadecimal, using `n` digits.
     ---
@@ -57901,72 +62785,72 @@ local bit: {
     --- @param n how many digits to print, 8 by default; a negative count
     ---     prints uppercase digits
     --- @return the hexadecimal text
-    tohex: function(x: number, n: number?): string,
+    tohex: nosuspend function(x: number, n: number?): string,
 
     --- Returns the bitwise complement of `x`.
     ---
     --- @param x the number to complement
     --- @return the complement
-    bnot: function(x: number): integer,
+    bnot: nosuspend function(x: number): integer,
 
     --- Returns the bitwise and of every argument.
     ---
     --- @param ... the numbers to combine
     --- @return the combined value
-    band: function(...: number): integer,
+    band: nosuspend function(...: number): integer,
 
     --- Returns the bitwise or of every argument.
     ---
     --- @param ... the numbers to combine
     --- @return the combined value
-    bor: function(...: number): integer,
+    bor: nosuspend function(...: number): integer,
 
     --- Returns the bitwise exclusive or of every argument.
     ---
     --- @param ... the numbers to combine
     --- @return the combined value
-    bxor: function(...: number): integer,
+    bxor: nosuspend function(...: number): integer,
 
     --- Shifts `x` left by `n` bits, filling with zeros.
     ---
     --- @param x the number to shift
     --- @param n how many bits to shift by, taken modulo 32
     --- @return the shifted value
-    lshift: function(x: number, n: number): integer,
+    lshift: nosuspend function(x: number, n: number): integer,
 
     --- Shifts `x` right by `n` bits without sign extension.
     ---
     --- @param x the number to shift
     --- @param n how many bits to shift by, taken modulo 32
     --- @return the shifted value
-    rshift: function(x: number, n: number): integer,
+    rshift: nosuspend function(x: number, n: number): integer,
 
     --- Shifts `x` right by `n` bits, copying the sign bit down.
     ---
     --- @param x the number to shift
     --- @param n how many bits to shift by, taken modulo 32
     --- @return the shifted value
-    arshift: function(x: number, n: number): integer,
+    arshift: nosuspend function(x: number, n: number): integer,
 
     --- Rotates `x` left by `n` bits.
     ---
     --- @param x the number to rotate
     --- @param n how many bits to rotate by, taken modulo 32
     --- @return the rotated value
-    rol: function(x: number, n: number): integer,
+    rol: nosuspend function(x: number, n: number): integer,
 
     --- Rotates `x` right by `n` bits.
     ---
     --- @param x the number to rotate
     --- @param n how many bits to rotate by, taken modulo 32
     --- @return the rotated value
-    ror: function(x: number, n: number): integer,
+    ror: nosuspend function(x: number, n: number): integer,
 
     --- Swaps the byte order of `x`, converting between endiannesses.
     ---
     --- @param x the number to byte-swap
     --- @return the swapped value
-    bswap: function(x: number): integer
+    bswap: nosuspend function(x: number): integer
 }
 
 --- Control and introspection for the JIT compiler itself.
@@ -58156,7 +63040,7 @@ they are not members of the record below; use `buf:tostring()`.
 --- hand back the buffer itself, so calls chain.
 ---
 --- Exported, so code that passes buffers around can name the type: `function
---- render(out: buffer.Buffer): buffer.Buffer`.
+--- render(out: string.buffer.Buffer): string.buffer.Buffer`.
 record Buffer
     metamethod __len: function(self): integer
     metamethod __concat: function(self, other: any): string
@@ -58306,6 +63190,317 @@ local encode: function(v: any): string
 local decode: function(s: string): any
 
 return {new = new, encode = encode, decode = decode}
+]=],
+["/nupp/bytes.nupp"] = [=[
+--[[
+Typed binary reads and writes over a string.buffer.Buffer.
+
+A Buffer already moves raw bytes with put/get and reserve/commit/ref; Reader and
+Writer add the missing piece, a sized integer or float landing on those bytes
+without hand-rolling the ffi.cast each time.
+
+Both read and write host-endian, the same as every other cast in this codebase
+(nupp.compiler.build.hash): LuaJIT itself only ships little-endian, so that is
+the honest default. A format that has to be byte-order-fixed casts and swaps
+explicitly; this module carries no LE/BE variants until something needs one.
+
+A short read raises, matching Buffer:get. Buffer:skip is the one method that
+clamps instead of raising, and Reader does not inherit that.
+]]
+
+local bytes = {}
+
+local function needBytes(avail: uint64, need: integer): nil
+    if avail < (need as uint64) then
+        error(("bytes.Reader: need %d bytes, have %d"):format(need, avail))
+    end
+end
+
+--- A cursor for typed reads over a buffer's unconsumed data. Consumes as it reads, the
+--- same direction as Buffer:get.
+record bytes.Reader
+    buf: string.buffer.Buffer
+end
+
+--- Wraps `data` for typed reads.
+---
+--- A string is copied into a fresh buffer. Passing an existing buffer instead lets a
+--- caller mix `buf:get(...)` and `reader:readInt32()` over the same bytes.
+---
+--- @export
+--- @param data the bytes to read, or the buffer to read from
+--- @return the reader
+function bytes.newReader(data: string | string.buffer.Buffer): bytes.Reader
+    local buf: string.buffer.Buffer
+    if type(data) == "string" then
+        buf = string.buffer.new():set(data as string)
+    else
+        buf = data as string.buffer.Buffer
+    end
+
+    return new bytes.Reader {buf = buf}
+end
+
+--- How many unread bytes remain.
+function bytes.Reader:remaining(): integer
+    return #self.buf as integer
+end
+
+--- Discards `n` unread bytes. Raises if fewer remain.
+function bytes.Reader:skip(n: integer): bytes.Reader
+    local _, avail = self.buf:ref()
+    needBytes(avail, n)
+    self.buf:skip(n)
+
+    return self
+end
+
+--- Reads `n` raw bytes. Raises if fewer remain.
+function bytes.Reader:readBytes(n: integer): string
+    local _, avail = self.buf:ref()
+    needBytes(avail, n)
+
+    return self.buf:get(n)
+end
+
+--- Reads one unsigned byte.
+function bytes.Reader:readUint8(): uint8
+    local ptr, avail = self.buf:ref()
+    needBytes(avail, 1)
+    local view = ffi.cast<uint8[?]>(ptr)
+    local v = view[0]
+    self.buf:skip(1)
+
+    return v
+end
+
+--- Reads one signed byte.
+function bytes.Reader:readInt8(): int8
+    local ptr, avail = self.buf:ref()
+    needBytes(avail, 1)
+    local view = ffi.cast<int8[?]>(ptr)
+    local v = view[0]
+    self.buf:skip(1)
+
+    return v
+end
+
+--- Reads a host-endian unsigned 16-bit integer.
+function bytes.Reader:readUint16(): uint16
+    local ptr, avail = self.buf:ref()
+    needBytes(avail, 2)
+    local view = ffi.cast<uint16[?]>(ptr)
+    local v = view[0]
+    self.buf:skip(2)
+
+    return v
+end
+
+--- Reads a host-endian signed 16-bit integer.
+function bytes.Reader:readInt16(): int16
+    local ptr, avail = self.buf:ref()
+    needBytes(avail, 2)
+    local view = ffi.cast<int16[?]>(ptr)
+    local v = view[0]
+    self.buf:skip(2)
+
+    return v
+end
+
+--- Reads a host-endian unsigned 32-bit integer.
+function bytes.Reader:readUint32(): uint32
+    local ptr, avail = self.buf:ref()
+    needBytes(avail, 4)
+    local view = ffi.cast<uint32[?]>(ptr)
+    local v = view[0]
+    self.buf:skip(4)
+
+    return v
+end
+
+--- Reads a host-endian signed 32-bit integer.
+function bytes.Reader:readInt32(): int32
+    local ptr, avail = self.buf:ref()
+    needBytes(avail, 4)
+    local view = ffi.cast<int32[?]>(ptr)
+    local v = view[0]
+    self.buf:skip(4)
+
+    return v
+end
+
+--- Reads a host-endian unsigned 64-bit integer.
+function bytes.Reader:readUint64(): uint64
+    local ptr, avail = self.buf:ref()
+    needBytes(avail, 8)
+    local view = ffi.cast<uint64[?]>(ptr)
+    local v = view[0]
+    self.buf:skip(8)
+
+    return v
+end
+
+--- Reads a host-endian signed 64-bit integer.
+function bytes.Reader:readInt64(): int64
+    local ptr, avail = self.buf:ref()
+    needBytes(avail, 8)
+    local view = ffi.cast<int64[?]>(ptr)
+    local v = view[0]
+    self.buf:skip(8)
+
+    return v
+end
+
+--- Reads a host-endian 32-bit float.
+function bytes.Reader:readFloat32(): float
+    local ptr, avail = self.buf:ref()
+    needBytes(avail, 4)
+    local view = ffi.cast<float[?]>(ptr)
+    local v = view[0]
+    self.buf:skip(4)
+
+    return v
+end
+
+--- Reads a host-endian 64-bit float.
+function bytes.Reader:readFloat64(): number
+    local ptr, avail = self.buf:ref()
+    needBytes(avail, 8)
+    local view = ffi.cast<number[?]>(ptr)
+    local v = view[0]
+    self.buf:skip(8)
+
+    return v
+end
+
+--- A cursor for typed writes, appending to a buffer.
+record bytes.Writer
+    buf: string.buffer.Buffer
+end
+
+--- Wraps `buf` for typed writes, or starts a fresh buffer when omitted.
+---
+--- @export
+--- @param buf the buffer to append to
+--- @return the writer
+function bytes.newWriter(buf: string.buffer.Buffer?): bytes.Writer
+    return new bytes.Writer {buf = buf or string.buffer.new()}
+end
+
+--- Appends `s` unchanged.
+function bytes.Writer:writeBytes(s: string): bytes.Writer
+    self.buf:put(s)
+
+    return self
+end
+
+--- Writes one unsigned byte.
+function bytes.Writer:writeUint8(v: uint8): bytes.Writer
+    local ptr = self.buf:reserve(1)
+    local view = ffi.cast<uint8[?]>(ptr)
+    view[0] = v
+    self.buf:commit(1)
+
+    return self
+end
+
+--- Writes one signed byte.
+function bytes.Writer:writeInt8(v: int8): bytes.Writer
+    local ptr = self.buf:reserve(1)
+    local view = ffi.cast<int8[?]>(ptr)
+    view[0] = v
+    self.buf:commit(1)
+
+    return self
+end
+
+--- Writes a host-endian unsigned 16-bit integer.
+function bytes.Writer:writeUint16(v: uint16): bytes.Writer
+    local ptr = self.buf:reserve(2)
+    local view = ffi.cast<uint16[?]>(ptr)
+    view[0] = v
+    self.buf:commit(2)
+
+    return self
+end
+
+--- Writes a host-endian signed 16-bit integer.
+function bytes.Writer:writeInt16(v: int16): bytes.Writer
+    local ptr = self.buf:reserve(2)
+    local view = ffi.cast<int16[?]>(ptr)
+    view[0] = v
+    self.buf:commit(2)
+
+    return self
+end
+
+--- Writes a host-endian unsigned 32-bit integer.
+function bytes.Writer:writeUint32(v: uint32): bytes.Writer
+    local ptr = self.buf:reserve(4)
+    local view = ffi.cast<uint32[?]>(ptr)
+    view[0] = v
+    self.buf:commit(4)
+
+    return self
+end
+
+--- Writes a host-endian signed 32-bit integer.
+function bytes.Writer:writeInt32(v: int32): bytes.Writer
+    local ptr = self.buf:reserve(4)
+    local view = ffi.cast<int32[?]>(ptr)
+    view[0] = v
+    self.buf:commit(4)
+
+    return self
+end
+
+--- Writes a host-endian unsigned 64-bit integer.
+function bytes.Writer:writeUint64(v: uint64): bytes.Writer
+    local ptr = self.buf:reserve(8)
+    local view = ffi.cast<uint64[?]>(ptr)
+    view[0] = v
+    self.buf:commit(8)
+
+    return self
+end
+
+--- Writes a host-endian signed 64-bit integer.
+function bytes.Writer:writeInt64(v: int64): bytes.Writer
+    local ptr = self.buf:reserve(8)
+    local view = ffi.cast<int64[?]>(ptr)
+    view[0] = v
+    self.buf:commit(8)
+
+    return self
+end
+
+--- Writes a host-endian 32-bit float.
+function bytes.Writer:writeFloat32(v: float): bytes.Writer
+    local ptr = self.buf:reserve(4)
+    local view = ffi.cast<float[?]>(ptr)
+    view[0] = v
+    self.buf:commit(4)
+
+    return self
+end
+
+--- Writes a host-endian 64-bit float.
+function bytes.Writer:writeFloat64(v: number): bytes.Writer
+    local ptr = self.buf:reserve(8)
+    local view = ffi.cast<number[?]>(ptr)
+    view[0] = v
+    self.buf:commit(8)
+
+    return self
+end
+
+--- The buffer being written to, for `:tostring()`, passing to a C call, or handing off
+--- to `bytes.newReader`.
+function bytes.Writer:buffer(): string.buffer.Buffer
+    return self.buf
+end
+
+return bytes
 ]=],
 ["/nupp/profile.nupp"] = [=[
 --[[
@@ -59177,6 +64372,15 @@ local function close_file(file: LuaFile)
     end
 end
 
+--- Opens a file and transfers responsibility for closing it to the caller.
+---
+--- The returned handle can be bound by `with`, which closes it on every exit path.
+---
+--- @export
+--- @param path the path of the file to open
+--- @param mode the Lua file mode; omitted uses the Lua default
+--- @return the open file handle, owned by the caller
+--- @raises when the file cannot be opened
 @owned(close_file)
 function resources.openFile(path: string, mode: string?): LuaFile
     local file, reason = io.open(path, mode)
@@ -59187,6 +64391,15 @@ function resources.openFile(path: string, mode: string?): LuaFile
     return file
 end
 
+--- Starts a process and transfers responsibility for closing its pipe to the caller.
+---
+--- The returned handle can be bound by `with`, which closes it on every exit path.
+---
+--- @export
+--- @param command the shell command to run
+--- @param mode the Lua pipe mode; omitted uses the Lua default
+--- @return the process pipe, owned by the caller
+--- @raises when the process pipe cannot be opened
 @owned(close_file)
 function resources.openProcess(command: string, mode: string?): LuaFile
     local file, reason = io.popen(command, mode)
@@ -59197,6 +64410,13 @@ function resources.openProcess(command: string, mode: string?): LuaFile
     return file
 end
 
+--- Creates a temporary file owned by the caller.
+---
+--- The returned handle can be bound by `with`, which closes it on every exit path.
+---
+--- @export
+--- @return the open temporary file handle, owned by the caller
+--- @raises when the temporary file cannot be created
 @owned(close_file)
 function resources.temporaryFile(): LuaFile
     local file = io.tmpfile()

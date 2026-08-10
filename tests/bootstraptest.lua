@@ -57,4 +57,27 @@ function M.launcherFallsBackToTrackedBootstrap()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- Help output proves only that the tracked Lua loads. The bootstrap also has to
+-- understand every language and resolver change used by the current compiler, or a
+-- fresh checkout cannot produce its first build.
+function M.trackedBootstrapBuildsCurrentCompiler()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+   assert(os.execute(("cp '%s/nupp.lua' '%s/nupp.lua'"):format(ROOT, dir)) == 0)
+   assert(os.execute(("cp -R '%s/src' '%s/src'"):format(ROOT, dir)) == 0)
+   assert(os.execute(("cp -R '%s/bootstrap' '%s/bootstrap'"):format(ROOT, dir)) == 0)
+
+   local p = assert(io.popen(("cd '%s' && luajit bootstrap/nupp.lua build 2>&1")
+      :format(dir)))
+   local out = p:read("*a")
+   local ok = p:close()
+   assert(ok, "tracked bootstrap cannot build the current compiler: " .. out)
+
+   local stamp = io.open(dir .. "/build/.nupp-complete", "rb")
+   assert(stamp, "tracked bootstrap reported success without completing the build")
+   stamp:close()
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 return M
