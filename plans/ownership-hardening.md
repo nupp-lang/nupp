@@ -212,6 +212,10 @@ The priorities are different:
   ownership theorem does and make its refusals reviewable.
 
 Do proof-closure work first even when an expressiveness feature looks smaller.
+The ordering is phase-granular: when one numbered section contains both a
+proof-closure kernel and a later expressiveness tail, land the kernel early and
+return to finish the section after its dependencies exist. The Ordering section
+names those splits explicitly.
 
 ## S0: Freeze the proof with laundering tests
 
@@ -531,7 +535,7 @@ Exit criteria:
 - partial initialization, overwrite, move, and cleanup are path-complete; and
 - anonymous or dynamically keyed storage cannot launder the same capability.
 
-## S6: Dynamic owner collections and cleanup reification
+## S6: Dynamic owner collections and discharge reification
 
 Static affine fields cannot represent a runtime number of heterogeneous
 owners. Today rejection is safe, but real resource scopes, registries, and
@@ -554,28 +558,49 @@ set. Disposing the set runs every registration in reverse order, attempts all
 cleanup steps, and uses the same primary/suppressed failure contract as
 `with`.
 
-This is the narrow place where producer-specific cleanup becomes runtime data.
-Do not add a global side table, change pointer identity, attach `ffi.gc`, or
-make every owner allocate. Static owners remain erased and zero-cost.
+An opaque transfer-only owner has no cleanup to reify. It enters the same set
+only with an explicit terminal consumer:
+
+```nupp
+with obligations = nupp.ResourceSet("requests") do
+    local request = obligations:adopt(beginRequest(), submitRequest)
+    prepare(request)
+end
+```
+
+The checker requires the second argument to have a matching `takes` parameter.
+The registration stores that resolved function as its discharge witness and
+invokes it on set cleanup. Because the witness is per registration, one set may
+hold heterogeneous cleanup owners and opaque owners with different terminal
+consumers without guessing from their payload types.
+
+This is the narrow place where a producer-specific discharge operation becomes
+runtime data. Do not add a global side table, change pointer identity, attach
+`ffi.gc`, or make every owner allocate. Static owners remain erased and
+zero-cost.
 
 The set must support transferring an owner back out only through an operation
 that removes exactly one registration and returns its original capability.
 Duplicate adoption, use of the moved input, use of a returned borrow after set
-cleanup, and abandonment of the set are rejected. `adopt` initially refuses an
-opaque transfer-only owner because the set has no operation with which to
-discharge it.
+cleanup, and abandonment of the set are rejected. An opaque owner without an
+explicit terminal consumer remains rejected. If no terminal operation is
+appropriate on every exit, a scope-owned set is the wrong abstraction: keep
+the owner in explicit flow or move it into a nominal transfer queue whose own
+terminal `takes` contract is checked.
 
 Generic code may forward an unknown capability after S2. It still may not call
-`dispose` on one unless it receives a reified cleanup witness or moves it into
-this owning container. This keeps ordinary generic calls erased.
+`dispose` on one unless it receives a reified discharge witness or moves it
+into this owning container. This keeps ordinary generic calls erased.
 
 Exit criteria:
 
 - a dynamic number of homogeneous or heterogeneous owners has one checked
   aggregate obligation;
+- cleanup owners and opaque owners with explicit terminal consumers can share
+  the aggregate without unsafe storage;
 - adoption and removal preserve exact cleanup and provenance;
 - no ordinary owner pays a runtime metadata cost; and
-- the implementation contains the only audited dynamic cleanup erasure.
+- the implementation contains the only audited dynamic discharge erasure.
 
 ## S7: Scoped callback capture
 
@@ -843,23 +868,34 @@ Implement in this order:
 
 1. **S0 proof matrix.** Freeze what cannot regress.
 2. **S1 capability representation.** One carrier before adding more facts.
-3. **S2 scalar preservation.** Close the largest generic laundering and
-   ergonomics gap.
-4. **S3 expression provenance.** Remove the known rootless-borrow hole.
-5. **S9 and S10 boundaries.** Harden FFI, gradual typing, modules, and caches
+3. **S3 provenance proof kernel.** Remove the known rootless-borrow hole for
+   existing scalar expressions, generic packs, aliases, and projections. Its
+   scalar-generic row deliberately waits for S2.
+4. **S9 and S10 boundary proof.** Harden FFI, gradual typing, modules, and caches
    before expanding storage.
-6. **S4 spans.** Add bounds on top of reliable provenance.
-7. **S5 aggregate state.** Add declared stored borrows and partial moves.
-8. **S6 dynamic owner collections.** Reify cleanup at one audited abstraction.
-9. **S7 scoped callbacks.** Permit captures only after provenance is complete.
-10. **S8 suspension.** Make transported effects and structured cancellation
-    carry the finished capability model.
-11. **S11 protocol audit.** Prove whether any separate typestate work remains.
-12. **S12 tooling throughout**, completed as the final gate.
+5. **S8 suspension proof kernel.** Distinguish checked suspension from raw or
+   unknown yielding transitively, make cleanup non-suspending, and enforce the
+   handler ownership contract. This needs S1 and transported suspend-kind
+   summaries, not S6.
+6. **S2 scalar preservation.** Add capability-polymorphic scalar transport and
+   complete S3's scalar-generic provenance row.
+7. **S4 spans.** Add bounds on top of reliable provenance.
+8. **S5 aggregate state.** Add declared stored borrows and partial moves.
+9. **S6 dynamic owner collections.** Reify cleanup and explicit terminal
+   consumers at one audited abstraction.
+10. **S7 scoped callbacks.** Permit captures only after provenance is complete.
+11. **S8 structured-concurrency tail.** Add resource-set regressions and
+    structured children after their obligation and callback carriers exist.
+12. **S11 protocol audit.** Prove whether any separate typestate work remains.
+13. **S12 tooling throughout**, completed as the final gate.
 
-S9 work that only marks C-derived callable types may land earlier because S7
-also needs that fact. S8 runtime work may proceed independently, but ownership
-permission across suspension must wait for S1 and the transitive effect gate.
+The early S3 slice does not need scalar preservation to fix the rootless cases
+accepted today; S2 later supplies and tests the missing scalar-generic carrier.
+Likewise, S8's abandonment proof does not depend on `ResourceSet`: ordinary
+owners, borrows, pins, and `with` obligations are enough to close it. S6 adds
+its new aggregate obligation to that established matrix, and structured-child
+expressiveness finishes afterward. C-derived callable marking lands with the
+S9 boundary proof because S7 also consumes the same fact.
 
 ## Verification strategy
 
@@ -927,6 +963,8 @@ Ownership hardening is complete when all of the following are true:
   affine fields;
 - dynamic owners are confined to the checked owning-container abstraction;
 - scoped callbacks cannot escape and retained callbacks are pinned;
+- retention cannot be duplicated or abandoned, and every retained pin reaches
+  its matching release before its anchor can end;
 - raw and transitive suspension cannot abandon obligations, while handled
   cancellation unwinds them;
 - C, untyped Lua, `any`, modules, and caches cannot silently weaken ownership;
