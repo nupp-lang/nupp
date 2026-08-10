@@ -34,7 +34,16 @@ function M.beforeAll()
    -- A generated program finds the library beside itself. This chunk is loaded
    -- from a string, so it has no beside; name the staged library outright, which
    -- is the same substitution the NUPP_NATIVE_LIBRARY override performs.
-   local library = ("%q"):format(root .. "/out/lib/nupp_native")
+   local library
+   for output in pairs(staged) do
+      if output:match("/lib/nupp_native$")
+         or output:match("/lib/nupp_native%.dll$") then
+         library = output
+         break
+      end
+   end
+   assert(library, "the files provider stages its shared library")
+   library = ("%q"):format(library)
    local source = native.bootstrap({
       ["native.files"] = true, ["stdlib.io"] = true,
    }):gsub('os%.getenv%("NUPP_NATIVE_LIBRARY"%)', function() return library end)

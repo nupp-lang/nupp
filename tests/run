@@ -7,8 +7,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # reads. Under Git Bash those differ, and MSYS rewrites neither an environment
 # value nor a path inside a Lua string. See bin/nupp, which does the same.
 LUA_ROOT="$ROOT"
+NATIVE_SUFFIX=""
 if ( cd "$ROOT" && pwd -W ) >/dev/null 2>&1; then
     LUA_ROOT="$(cd "$ROOT" && pwd -W)"
+    NATIVE_SUFFIX=".dll"
 fi
 ROCKS="$LUA_ROOT/.rocks"
 LUA_PATH="$ROCKS/share/lua/5.1/?.lua;$ROCKS/share/lua/5.1/?/init.lua;${LUA_PATH:-;}"
@@ -22,15 +24,15 @@ export LUA_PATH LUA_CPATH
 # also an entry point in its own right rather than only the child `nupp test`
 # starts. Naming the library here is what makes the two agree; building it stays
 # `bin/nupp`'s job, so a tree that was never built fails saying so.
-export NUPP_NATIVE_LIBRARY="$LUA_ROOT/build/lib/nupp_native"
+export NUPP_NATIVE_LIBRARY="$LUA_ROOT/build/lib/nupp_native$NATIVE_SUFFIX"
 
 # And where the compiler's own sources are, which a test that stages a native
 # facility of its own needs in order to find the crate to build. Without it
 # `nativeStage.build` answers that it needs a source checkout, and every test
 # that depends on a provider skips: green, and testing nothing.
 export NUPP_COMPILER_ROOT="$LUA_ROOT"
-if [ ! -f "$ROOT/build/lib/nupp_native" ]; then
-    echo "tests/run: $ROOT/build/lib/nupp_native is missing; run ./bin/nupp build" >&2
+if [ ! -f "$ROOT/build/lib/nupp_native$NATIVE_SUFFIX" ]; then
+    echo "tests/run: $ROOT/build/lib/nupp_native$NATIVE_SUFFIX is missing; run ./bin/nupp build" >&2
     exit 1
 fi
 

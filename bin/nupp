@@ -22,8 +22,10 @@ BOOTSTRAP="$ROOT/bootstrap/nupp.lua"
 # string, which is every use below. `pwd -W` is how MSYS spells "natively", and
 # fails everywhere else, which is the test.
 LUA_ROOT="$ROOT"
+NATIVE_SUFFIX=""
 if ( cd "$ROOT" && pwd -W ) >/dev/null 2>&1; then
     LUA_ROOT="$(cd "$ROOT" && pwd -W)"
+    NATIVE_SUFFIX=".dll"
 fi
 LUAPATH="package.path=\"$LUA_ROOT/build/?.lua;\" .. package.path"
 
@@ -46,9 +48,9 @@ export NUPP_COMPILER_ROOT="$LUA_ROOT"
 # program finds its library beside itself; the compiler's own output tree puts
 # `build/lib` one level further out than the generated loader looks, so name it
 # outright. Every interpreter this launcher starts inherits it.
-export NUPP_NATIVE_LIBRARY="$LUA_ROOT/build/lib/nupp_native"
+export NUPP_NATIVE_LIBRARY="$LUA_ROOT/build/lib/nupp_native$NATIVE_SUFFIX"
 # The same file, spelled for this shell rather than for the interpreter.
-NATIVE_LIBRARY="$ROOT/build/lib/nupp_native"
+NATIVE_LIBRARY="$ROOT/build/lib/nupp_native$NATIVE_SUFFIX"
 
 # Which makes Cargo a prerequisite for building Nupp at all, rather than only for
 # a target that asked for a native facility. Stage 0 reaches the provider while

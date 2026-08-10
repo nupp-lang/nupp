@@ -402,8 +402,10 @@ function M.sharedNativeFacilitiesBuildOneFeatureGatedProvider()
       "provider disables unselected Cargo features")
    assert(command:find("path,sha256", 1, true),
       "provider enables the selected feature union")
-   assert(copies[1][2]:find("out/lib/nupp_native", 1, true),
-      "provider has one stable public sidecar name")
+   local sidecar = jit.os == "Windows" and "out/lib/nupp_native.dll"
+      or "out/lib/nupp_native"
+   assert(copies[1][2]:find(sidecar, 1, true),
+      "provider has the sidecar name its platform loader opens")
 end
 
 -- A docs target with no outDir does not land in the manifest's default

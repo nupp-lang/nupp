@@ -5458,7 +5458,10 @@ local built = join ( targetDir , join ( "release" , filename ) )
 
 
 
-local output = join ( root , join ( outDir , join ( "lib" , provider . library ) ) )
+
+
+local outputName = jit . os == "Windows" and filename or provider . library
+local output = join ( root , join ( outDir , join ( "lib" , outputName ) ) )
 local copied , err = fs . copyFile ( built , output )
 if not copied then
 return nil , (

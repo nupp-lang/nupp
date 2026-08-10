@@ -158,10 +158,13 @@ function stage.build(root: string, outDir: string, effects: {[string]: any}?): {
         end
         local filename = libraryFile(provider.library)
         local built = join(targetDir, join("release", filename))
-        -- ffi.load treats a path containing a slash as an exact filename; staging
-        -- the loader name without a platform suffix lets the same generated
-        -- bootstrap work on every supported host.
-        local output = join(root, join(outDir, join("lib", provider.library)))
+        -- A generated loader asks for `lib/nupp_native`. Unix opens that exact
+        -- path, so its sidecar has no suffix. Windows's loader appends `.dll`,
+        -- so the staged file has to retain it; an extensionless copy only looked
+        -- loadable in the old probe because a suffixed copy had already been
+        -- written beside it.
+        local outputName = jit.os == "Windows" and filename or provider.library
+        local output = join(root, join(outDir, join("lib", outputName)))
         local copied, err = fs.copyFile(built, output)
         if not copied then
             return nil, (
