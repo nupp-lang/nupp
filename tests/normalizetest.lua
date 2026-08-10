@@ -18,7 +18,10 @@ end
 -- `nestedTypes` so a private alias can never be mistaken for one.
 local function answering(name, answers, aliases)
    local n = T.nominal(name, "interface")
-   n.associatedAnswers = answers
+   n.associatedAnswers = {}
+   for member, answer in pairs(answers or {}) do
+      n.associatedAnswers[member] = {type = answer}
+   end
    for alias, held in pairs(aliases or {}) do
       n.nestedTypes[alias] = held
    end
@@ -98,7 +101,7 @@ end
 
 function M.aDirectCycleIsReportedAndNotFollowed()
    local loop = T.nominal("Loop", "interface")
-   loop.associatedAnswers = {Item = T.projection(loop, "Item")}
+   loop.associatedAnswers = {Item = {type = T.projection(loop, "Item")}}
    local result = generics.normalize(T.projection(loop, "Item"))
    assert(result.cycle, "a direct cycle went unreported")
    assertEq(table.concat(result.cycle, " -> "), "Loop.Item -> Loop.Item")
@@ -109,8 +112,8 @@ end
 function M.aTwoNodeCycleIsReported()
    local a = T.nominal("A", "interface")
    local b = T.nominal("B", "interface")
-   a.associatedAnswers = {Item = T.projection(b, "Item")}
-   b.associatedAnswers = {Item = T.projection(a, "Item")}
+   a.associatedAnswers = {Item = {type = T.projection(b, "Item")}}
+   b.associatedAnswers = {Item = {type = T.projection(a, "Item")}}
    local result = generics.normalize(T.projection(a, "Item"))
    assert(result.cycle, "a two-node cycle went unreported")
    assertEq(table.concat(result.cycle, " -> "), "A.Item -> B.Item -> A.Item")
@@ -172,9 +175,9 @@ function M.aCycleIsSlicedByIdentityNotByName()
    local inner = T.nominal("Same", "interface")
    local tail = T.nominal("Tail", "interface")
    assert(outer ~= inner, "two declarations, one displayed name")
-   outer.associatedAnswers = {Item = T.projection(inner, "Item")}
-   inner.associatedAnswers = {Item = T.projection(tail, "Item")}
-   tail.associatedAnswers = {Item = T.projection(inner, "Item")}
+   outer.associatedAnswers = {Item = {type = T.projection(inner, "Item")}}
+   inner.associatedAnswers = {Item = {type = T.projection(tail, "Item")}}
+   tail.associatedAnswers = {Item = {type = T.projection(inner, "Item")}}
    local result = generics.normalize(T.projection(outer, "Item"))
    assert(result.cycle, "the cycle went unreported")
    -- The loop is inner -> tail -> inner. It does not start at `outer`, even though

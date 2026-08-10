@@ -384,6 +384,28 @@ record types.Projection
     name: string
 end
 
+--- One answer to an associated type: what it stands for, and enough about where it was
+--- written to rebind it later.
+---
+--- An answer is not just a type, because `= self` means whatever answered rather than
+--- whatever declared. An interface's default is copied to every implementor, and each
+--- of them has to read it as itself, so the binder travels with the answer and is
+--- rebound where the projection is reduced.
+record types.AssociatedAnswer
+    --- What the declaration answered with.
+    type: types.Type
+
+    --- The `self` binder the answer was written under, when it mentions one.
+    selfBinder: types.Type?
+
+    --- Whether it arrived as an inherited default rather than being written here.
+    isDefault: boolean?
+
+    --- Where it was written, for go-to-definition and for saying where a conflicting
+    --- answer came from.
+    definition: any
+end
+
 --- A declared type: record, interface or struct. One identity per declaration, never
 --- shared with another declaration of the same shape.
 record types.Nominal
@@ -421,7 +443,14 @@ record types.Nominal
 
     --- What this declaration answers each associated type with. Populated by
     --- declaration checking once that lands; until then only tests write it.
-    associatedAnswers: {[string]: types.Type}?
+    associatedAnswers: {[string]: types.AssociatedAnswer}?
+
+    --- Associated types stated as requirements here, in declaration order.
+    associatedOrder: {string}?
+
+    --- What may answer each requirement. A name in `associatedOrder` with no entry
+    --- here was stated without a bound and accepts anything.
+    associatedBounds: {[string]: types.Type}?
 
     --- Declared contract parents from `is`, in source order.
     supertypes: {types.Type}?
