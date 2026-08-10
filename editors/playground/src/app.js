@@ -31,6 +31,7 @@ const outputHost = el("output-editor");
 const outputEl = el("output");
 const outputToggle = el("output-toggle");
 const outputResizer = el("output-resizer");
+const diagnosticsResizer = el("diagnostics-resizer");
 const outputBody = el("output-body");
 const outputMain = el("output-main");
 const outputSummary = el("output-summary");
@@ -88,10 +89,10 @@ worker.onmessage = (event) => {
   }
   if (msg.type === "boot-error") {
     setStatus("failed to start: " + msg.message, true);
-    // The drawer as well as the status line: the embed has no status line, and
-    // a compiler that never started is otherwise a page that silently does
-    // nothing. Busy is cleared with it, so the drawer can be opened to read
-    // this and Open still works — a dead compiler is not a dead page.
+    // The output panel as well as the status line: the embed has no status
+    // line, and a compiler that never started is otherwise a page that
+    // silently does nothing. Busy is cleared with it, so this can be read and
+    // Open still works — a dead compiler is not a dead page.
     setBusy(false);
     setOutput("-- the compiler failed to start\n\n" + msg.message);
     if (outputMain) outputMain.classList.remove("is-code");
@@ -119,7 +120,7 @@ function request(kind, extra) {
 // --- Status line ------------------------------------------------------------
 
 // index.html only. The embed used to carry a glyph pill floating over the
-// editor's corner; the output drawer's own summary says the same thing with
+// editor's corner; the output panel's own summary says the same thing with
 // room for the count, in a bar that is already there.
 function setStatus(text, isError) {
   if (!statusEl) return;
@@ -254,19 +255,21 @@ function setOutput(text) {
   });
 }
 
-// --- Output drawer (embed.html only) -------------------------------------------
+// --- Output panel ------------------------------------------------------------
 
-// The drawer answers one question — what did the compiler say — so the main
+// The panel answers one question — what did the compiler say — so its main
 // pane holds whichever answer there is: the diagnostics as the CLI prints them
-// when something is wrong, the generated Lua when nothing is. The list beside
-// it stays either way, because a clean compile can still carry warnings.
+// when something is wrong, the generated Lua when nothing is. The list stays
+// either way, because a clean compile can still carry warnings. Which side of
+// the main pane that list is on is the stylesheet's business: beside it in the
+// embed's drawer, under it in the full playground's column.
 function setOutputExpanded(expanded) {
   if (!outputEl || !outputToggle || !outputBody) return;
   outputEl.classList.toggle("is-open", expanded);
   outputBody.hidden = !expanded;
   outputToggle.setAttribute("aria-expanded", String(expanded));
   if (outputResizer) outputResizer.hidden = !expanded;
-  applyDrawerHeight();
+  applyPaneSizes();
 }
 
 function isOutputExpanded() {
@@ -277,93 +280,146 @@ if (outputToggle) {
   outputToggle.addEventListener("click", () => setOutputExpanded(!isOutputExpanded()));
 }
 
-// --- Drawer height ----------------------------------------------------------
+// --- Resizable panes ---------------------------------------------------------
 
 // How much of the window the answer deserves is the reader's call, not the
 // stylesheet's: a two-line diagnostic and a thousand lines of generated Lua
-// both land here. The stylesheet's 40% is only where the drag starts from.
+// both land here. The stylesheet's share is only where the drag starts from.
 //
-// The height is held here rather than on the element because a collapsed
-// drawer must go back to being one bar — an inline height would keep it tall
-// with nothing in it — so the element's style is cleared on collapse and put
-// back on expand.
-let drawerHeight = null;
+// One implementation covers every separator on both pages — the embed's drawer
+// under the editor, the full playground's panel beside it, and the split
+// between the output and the diagnostics inside that panel. They differ only
+// in which pane they size and which way the layout runs, and the direction is
+// read off the box rather than written down here, so a separator keeps working
+// when the narrow-window media query turns that row back into a column.
 
-// Enough of the drawer to see its bar and a couple of lines, and enough of the
-// editor above it to still be editing rather than peering. Measured against
-// the column the two of them share, so a short window narrows the range
-// instead of letting either side be dragged out of existence.
-const DRAWER_MIN = 88;
-const EDITOR_MIN = 120;
+// Enough of a sized pane to see its own bar and a couple of lines, and enough
+// left of the pane it takes from to still be working in rather than peering
+// at. Keyed by the axis, because a column of text needs a different amount of
+// room than a stack of them. Measured against the box the two panes share, so
+// a small window narrows the range instead of letting either be dragged out of
+// existence.
+const PANE_MIN = {
+  x: { pane: 200, rest: 280 },
+  y: { pane: 88, rest: 120 },
+};
 
-function clampDrawerHeight(px) {
-  const column = outputEl && outputEl.parentElement;
-  if (!column) return px;
-  const available = column.getBoundingClientRect().height - EDITOR_MIN;
-  return Math.max(DRAWER_MIN, Math.min(px, Math.max(DRAWER_MIN, available)));
+// Up and left grow the pane a separator sizes, down and right shrink it — the
+// same direction the pointer moves to do each — and only the pair along the
+// axis that separator runs on answers at all.
+const KEY_AXIS = { ArrowUp: "y", ArrowDown: "y", ArrowLeft: "x", ArrowRight: "x" };
+const KEY_SIGN = { ArrowUp: 1, ArrowLeft: 1, ArrowDown: -1, ArrowRight: -1 };
+
+// "x" when the pane sits beside its neighbour, "y" when it sits below it.
+function paneAxis(pane) {
+  const flow = getComputedStyle(pane.parentElement).flexDirection;
+  return flow === "row" || flow === "row-reverse" ? "x" : "y";
 }
 
-function applyDrawerHeight() {
-  if (!outputEl) return;
-  // A collapsed drawer, or one never dragged, is whatever the stylesheet says.
-  if (drawerHeight === null || !isOutputExpanded()) {
-    outputEl.style.removeProperty("flex");
-    return;
+function paneSize(node, axis) {
+  const rect = node.getBoundingClientRect();
+  return axis === "x" ? rect.width : rect.height;
+}
+
+// Re-applied together, since a window resize can leave any of them larger than
+// what is left to give.
+const paneSizers = [];
+function applyPaneSizes() {
+  for (const apply of paneSizers) apply();
+}
+addEventListener("resize", applyPaneSizes);
+
+// A separator sizes the pane that follows it — the drawer below the editor,
+// the panel right of it, the diagnostics under the output — so the pointer is
+// always holding that pane's leading edge, and dragging toward the pane makes
+// it smaller. `sizable` is what says the pane is currently showing anything:
+// the drawer's is its own expanded state.
+function installResizer(resizer, pane, sizable = () => true) {
+  if (!resizer || !pane) return;
+
+  // The size is held here rather than on the element because a collapsed
+  // drawer must go back to being one bar — an inline size would keep it open
+  // with nothing in it — so the element's style is cleared on collapse and put
+  // back on expand.
+  let size = null;
+
+  function clamp(px, axis) {
+    const min = PANE_MIN[axis];
+    const available = paneSize(pane.parentElement, axis) - min.rest;
+    return Math.max(min.pane, Math.min(px, Math.max(min.pane, available)));
   }
-  drawerHeight = clampDrawerHeight(drawerHeight);
-  outputEl.style.flex = `0 0 ${drawerHeight}px`;
-}
 
-function setDrawerHeight(px) {
-  drawerHeight = clampDrawerHeight(px);
-  applyDrawerHeight();
-}
+  function apply() {
+    const axis = paneAxis(pane);
+    // A media query can turn the layout under a pane that is already sized, so
+    // what the separator tells a screen reader is settled here rather than in
+    // the markup.
+    resizer.setAttribute("aria-orientation", axis === "x" ? "vertical" : "horizontal");
+    // A pane never dragged, or one whose panel is collapsed, is whatever the
+    // stylesheet says.
+    if (size === null || !sizable()) {
+      pane.style.removeProperty("flex");
+      return;
+    }
+    size = clamp(size, axis);
+    // A flex basis runs along whichever axis its container does, so the one
+    // declaration sets a width here and a height there.
+    pane.style.flex = `0 0 ${size}px`;
+  }
 
-// The window shrinking can leave a dragged height taller than what is left to
-// give, so the clamp runs again rather than only at drag time.
-addEventListener("resize", applyDrawerHeight);
-
-if (outputResizer && outputEl) {
-  outputResizer.hidden = !isOutputExpanded();
+  function setSize(px) {
+    size = clamp(px, paneAxis(pane));
+    apply();
+  }
 
   // Pointer events rather than mouse: one path covers a trackpad and a touch
   // screen, and capture means a fast drag that outruns the 6px strip keeps
   // going instead of stopping the moment the cursor leaves it.
-  outputResizer.addEventListener("pointerdown", (event) => {
+  resizer.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
     event.preventDefault();
-    const startY = event.clientY;
-    const startHeight = outputEl.getBoundingClientRect().height;
-    outputResizer.setPointerCapture(event.pointerId);
-    outputResizer.classList.add("is-dragging");
-    // Dragging up grows the drawer, so the delta is subtracted: the drawer's
-    // top edge is what the pointer is holding.
-    const onMove = (move) => setDrawerHeight(startHeight - (move.clientY - startY));
+    const axis = paneAxis(pane);
+    const start = axis === "x" ? event.clientX : event.clientY;
+    const startSize = paneSize(pane, axis);
+    resizer.setPointerCapture(event.pointerId);
+    resizer.classList.add("is-dragging");
+    const onMove = (move) =>
+      setSize(startSize - ((axis === "x" ? move.clientX : move.clientY) - start));
     const onUp = () => {
-      outputResizer.removeEventListener("pointermove", onMove);
-      outputResizer.classList.remove("is-dragging");
+      resizer.removeEventListener("pointermove", onMove);
+      resizer.classList.remove("is-dragging");
     };
-    outputResizer.addEventListener("pointermove", onMove);
-    outputResizer.addEventListener("pointerup", onUp, { once: true });
-    outputResizer.addEventListener("pointercancel", onUp, { once: true });
+    resizer.addEventListener("pointermove", onMove);
+    resizer.addEventListener("pointerup", onUp, { once: true });
+    resizer.addEventListener("pointercancel", onUp, { once: true });
   });
 
   // A separator that only answers to a drag is one a keyboard cannot reach.
-  outputResizer.addEventListener("keydown", (event) => {
-    const step = event.shiftKey ? 48 : 16;
-    if (event.key === "ArrowUp") setDrawerHeight(outputEl.getBoundingClientRect().height + step);
-    else if (event.key === "ArrowDown") setDrawerHeight(outputEl.getBoundingClientRect().height - step);
-    else return;
+  resizer.addEventListener("keydown", (event) => {
+    const axis = paneAxis(pane);
+    if (KEY_AXIS[event.key] !== axis) return;
+    const step = (event.shiftKey ? 48 : 16) * KEY_SIGN[event.key];
+    setSize(paneSize(pane, axis) + step);
     event.preventDefault();
   });
 
   // Back to the stylesheet's share — the way out of a drag that went somewhere
   // unhelpful, without having to drag it back by eye.
-  outputResizer.addEventListener("dblclick", () => {
-    drawerHeight = null;
-    applyDrawerHeight();
+  resizer.addEventListener("dblclick", () => {
+    size = null;
+    apply();
   });
+
+  paneSizers.push(apply);
+  apply();
 }
+
+if (outputResizer && outputEl) outputResizer.hidden = !isOutputExpanded();
+installResizer(outputResizer, outputEl, isOutputExpanded);
+// index.html only: the panel's own split, between the answer and the list of
+// what is wrong with it. It lives inside the body the collapse hides, so it
+// needs no expanded check of its own.
+installResizer(diagnosticsResizer, diagListEl);
 
 // `file:line:col: severity: CODE: message`, which is what nupp check writes to
 // a terminal — the same string a reader would paste into a search or an issue.
@@ -497,7 +553,7 @@ async function checkNow() {
   const { errors, text } = summarize(result.diagnostics);
   setStatus(text || "checked, clean", errors > 0);
   setOutputSummary(result.diagnostics);
-  // Editing invalidates whatever the last Compile produced, so the drawer goes
+  // Editing invalidates whatever the last Compile produced, so the panel goes
   // back to saying what the checker says rather than showing Lua from a buffer
   // that has since changed.
   setOutput(result.diagnostics.length ? result.diagnostics.map(diagnosticText).join("\n") : "");

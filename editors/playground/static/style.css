@@ -169,11 +169,14 @@ body {
 
 .is-busy .button { opacity: .55; pointer-events: none; }
 
-/* Editor above, output drawer below — the same shape the embed has, so one
-   description of the layout covers both pages. */
+/* index.html only: the editor on the left, the output panel down the right
+   side. The panel is made of the same pieces as the embed's drawer further
+   down this file; what this page changes is the direction each one runs,
+   which is why its rules hang off `.shell` — an element only this page has —
+   rather than off a modifier class the embed would have to know not to set. */
 .shell {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   flex: 1;
   min-height: 0;
 }
@@ -381,19 +384,19 @@ body {
   background: var(--pg-background-alt);
   flex: none;
 }
-/* 40% until someone drags it; see app.js, which then sets an inline height. */
+/* 40% until someone drags it; see app.js, which then sets an inline size. */
 .output.is-open { flex: 0 1 40%; }
 
-/* The grab strip, just above the drawer. It carries no line of its own: the
-   drawer's existing 1px top border stays the divider, so collapsing the drawer
-   — which takes this strip away — does not take the divider with it. Six
+/* The grab strip, just before the pane it sizes. It carries no line of its
+   own: that pane's existing 1px border stays the divider, so collapsing the
+   pane — which takes this strip away — does not take the divider with it. Six
    pixels, because a one-pixel target is a target you miss. */
 .output-resizer {
   height: 6px;
   background: transparent;
   cursor: ns-resize;
   flex: none;
-  /* Or a touch drag scrolls the page instead of moving the drawer. */
+  /* Or a touch drag scrolls the page instead of moving the pane. */
   touch-action: none;
 }
 .output-resizer[hidden] { display: none; }
@@ -414,6 +417,9 @@ body {
   font: inherit;
   font-size: .74rem;
   text-align: left;
+  /* Collapsed, index.html's panel is only as wide as this bar, so the bar
+     must not answer that by wrapping itself narrower still. */
+  white-space: nowrap;
   cursor: pointer;
   flex: none;
 }
@@ -464,6 +470,66 @@ body {
 @media (max-width: 620px) {
   .output-body { grid-template-columns: minmax(0, 1fr); }
   .output-side { border-left: 0; border-top: 1px solid var(--pg-border); }
+}
+
+/* index.html's arrangement of all of the above: the drawer stood up as a
+   column beside the editor rather than under it, and its two panes stacked
+   rather than side by side. Only the axes change — the collapse, the grab
+   strips and their behaviour are the drawer's, unmodified. */
+
+/* The editor is whatever the output panel leaves. Saying so is not optional
+   in a row: a flex item left to itself is as wide as its content wants to be,
+   and an editor's content is however long its longest line is — which would
+   let a wide program take the panel's share away from it. */
+.shell > .panel-source { flex: 1; }
+
+.shell > .output {
+  min-width: 0;
+  border-top: 0;
+  border-left: 1px solid var(--pg-border);
+}
+.shell > .output.is-open { flex: 0 1 38%; }
+/* Collapsed, it is a strip naming what the compiler said: the width it was
+   dragged to belongs to a panel that is showing something. app.js clears the
+   dragged size to let this through, and puts it back on expand. */
+.shell > .output:not(.is-open) { flex: none; }
+.shell > .output-resizer {
+  width: 6px;
+  height: auto;
+  cursor: ew-resize;
+}
+
+.shell .output-body {
+  display: flex;
+  flex-direction: column;
+}
+/* Restated because the rule above and the base `[hidden]` one are the same
+   weight, and this file's order would otherwise hand it to the wrong one. */
+.shell .output-body[hidden] { display: none; }
+.shell .output-body > .editor-host { flex: 1; }
+.shell .output-side {
+  min-height: 0;
+  border-left: 0;
+  border-top: 1px solid var(--pg-border);
+  flex: 0 1 40%;
+}
+
+/* Two columns need a window wide enough for both to be worth having; under
+   that, the panel goes back to being the drawer it is made of. Its own two
+   panes stay stacked, which is what fits when there is little width to give
+   either. */
+@media (max-width: 720px) {
+  .shell { flex-direction: column; }
+  .shell > .output {
+    border-left: 0;
+    border-top: 1px solid var(--pg-border);
+  }
+  .shell > .output.is-open { flex: 0 1 45%; }
+  .shell > .output-resizer {
+    width: auto;
+    height: 6px;
+    cursor: ns-resize;
+  }
 }
 
 /* The editor's own colors (background, gutters, selection, syntax) are set

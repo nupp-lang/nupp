@@ -46,15 +46,18 @@
     <div id="source-editor" class="editor-host"></div>
   </section>
 
-  <!-- Drag to give the drawer more or less of the window; double-click to put
-       it back. app.js hides this while the drawer is collapsed, when there is
-       nothing to size. -->
+  <!-- Drag to give the output panel more or less of the window; double-click
+       to put it back. app.js hides this while the panel is collapsed, when
+       there is nothing to size, and keeps aria-orientation honest: the
+       stylesheet turns this column back into a drawer on a narrow window, and
+       the separator runs the other way when it does. -->
   <div id="output-resizer" class="output-resizer" role="separator"
-       aria-orientation="horizontal" aria-label="Resize the output" tabindex="0"></div>
+       aria-orientation="vertical" aria-label="Resize the output panel" tabindex="0"></div>
 
-  <!-- The same drawer the embed has, open on arrival: there is room for it
-       here, and a playground with its answer already showing is one fewer
-       click before the first thing worth seeing. -->
+  <!-- The embed's drawer, stood up as a column down this page's right side:
+       there is room for it here, and a playground with its answer already
+       showing is one fewer click before the first thing worth seeing. The
+       compiler's answer is on top, the diagnostics under it. -->
   <section class="output is-open" id="output" aria-label="Output">
     <button id="output-toggle" class="output-head" type="button" aria-expanded="true" aria-controls="output-body">
       <span class="output-caret" aria-hidden="true">▸</span>
@@ -63,6 +66,9 @@
     </button>
     <div id="output-body" class="output-body">
       <div id="output-editor" class="editor-host"></div>
+      <!-- The same strip again, splitting the panel between the two. -->
+      <div id="diagnostics-resizer" class="output-resizer" role="separator"
+           aria-orientation="horizontal" aria-label="Resize the diagnostics" tabindex="0"></div>
       <ul id="diagnostics" class="diagnostics output-side"></ul>
     </div>
   </section>

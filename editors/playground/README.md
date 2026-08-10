@@ -96,27 +96,41 @@ where the sandbox's abilities do.
 
 ## Two pages
 
-Both are the same three parts stacked: a bar naming the buffer with the
-actions on its trailing edge, the editor, and an output drawer along the
-bottom. What differs is how much room each has.
+Both are the same three parts: a bar naming the buffer with the actions on its
+trailing edge, the editor, and the compiler's answer in a panel of its own.
+What differs is how much room each has, and so where that panel goes.
 
 **`index.html`** is the full playground: a header with the example menu, the
-check status, Options, Share and Compile, and the drawer open on arrival,
-since there is room for it and its answer is the first thing worth seeing.
+check status, Options, Share and Compile, and the answer down the right-hand
+side, open on arrival — there is room for it, and it is the first thing worth
+seeing. The output is the top of that panel and the diagnostics list is under
+it. Both edges move: drag between the editor and the panel to give the answer
+more or less of the window, and between the two halves of the panel to split
+it differently. Double-click either to put it back. Under about 720px there is
+no room for two columns, so the panel becomes the embed's drawer along the
+bottom and the same edge drags up and down instead.
 
 **`embed.html`** is the same thing sized for an `<iframe src=".../embed.html">`
-— the head bar carries only icons, and the drawer starts collapsed to one line.
-It is what the docs site's ` ```playground ` fence embeds (see
-`src/nupp/compiler/doc/html.nupp`). Its extra action is **Open**, which hands the buffer
-to the full playground rather than opening a blank one; the full playground has
-no such button, being already there.
+— the head bar carries only icons, the panel is a drawer along the bottom that
+starts collapsed to one line, and the diagnostics sit beside the output in it
+rather than under. It is what the docs site's ` ```playground ` fence embeds
+(see `src/nupp/compiler/doc/html.nupp`). Its extra action is **Open**, which
+hands the buffer to the full playground rather than opening a blank one; the
+full playground has no such button, being already there.
 
-The drawer answers one question — what did the compiler say. Its main pane
+The panel answers one question — what did the compiler say. Its main pane
 holds the diagnostics as the CLI prints them when something is wrong, and the
-generated Lua when nothing is; the list beside it stays either way, because a
-clean compile can still carry warnings. index.html highlights that pane as Lua,
+generated Lua when nothing is; the list stays either way, because a clean
+compile can still carry warnings. index.html highlights that pane as Lua,
 which is why a diagnostic run is written as Lua comments: one report format
 reads correctly in both.
+
+The two arrangements are one set of parts, not two: `static/style.css`
+describes the drawer once and then says which way each piece runs on the page
+that has a `.shell`, and `src/app.js` has one resizable-pane implementation
+that reads its axis off the layout rather than being told — which is also what
+lets a separator keep working when that media query turns a row into a column
+under it.
 
 **Options** sets what the compiler is asked for: strict or gradual checking,
 and whether the `-O1` passes run before Lua is generated. Strict is on by
