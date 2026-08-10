@@ -202,13 +202,18 @@ local function specialized(source)
    return assert(loadstring(source, "@comptime-materialization-specialized"))()
 end
 
+local function lpegMatcher(builder)
+   local pattern = builder()
+   return function(subject) return pattern:match(subject) end
+end
+
 local workloads = {
    {
       name = "identifier",
       subject = "materialized_identifier_0123456789",
       reference = function() return referenceMatcher(identifierProgram()) end,
       specialized = function() return specialized(SPECIALIZED_IDENTIFIER) end,
-      lpeg = lpegIdentifier,
+      lpeg = function() return lpegMatcher(lpegIdentifier) end,
       source = SPECIALIZED_IDENTIFIER,
       program = identifierProgram,
    },
@@ -217,7 +222,7 @@ local workloads = {
       subject = "position,velocity,rotation,scale,health,mana,team,target",
       reference = function() return referenceMatcher(captureProgram()) end,
       specialized = function() return specialized(SPECIALIZED_CAPTURES) end,
-      lpeg = lpegCaptures,
+      lpeg = function() return lpegMatcher(lpegCaptures) end,
       source = SPECIALIZED_CAPTURES,
       program = captureProgram,
    },
@@ -226,7 +231,7 @@ local workloads = {
       subject = string.rep("(", 16) .. string.rep(")", 16),
       reference = function() return referenceMatcher(recursiveProgram()) end,
       specialized = function() return specialized(SPECIALIZED_RECURSIVE) end,
-      lpeg = lpegRecursive,
+      lpeg = function() return lpegMatcher(lpegRecursive) end,
       source = SPECIALIZED_RECURSIVE,
       program = recursiveProgram,
    },
@@ -360,7 +365,7 @@ local ratios = {}
 for _, workload in ipairs(workloads) do
    local expected = workload.reference()(workload.subject)
    local actual = workload.specialized()(workload.subject)
-   local oracle = workload.lpeg():match(workload.subject)
+   local oracle = workload.lpeg()(workload.subject)
    assert(type(expected) == type(actual) and type(actual) == type(oracle),
       workload.name .. " engines disagree on result kind")
    if type(expected) == "table" then
@@ -462,4 +467,3 @@ if #failures > 0 then
    os.exit(1)
 end
 io.write(" KEEP M6: the handwritten specializer clears every frozen M0 gate\n\n")
-
