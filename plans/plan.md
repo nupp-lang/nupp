@@ -206,8 +206,10 @@ coalescing/compound assignment, and strict mode. Active Tier 3 work includes:
 
 - the `@jit` trace checker and variadic-FFI lint;
 - deterministic
-  [comptime](comptime.md) data evaluation with target-aware layout and
-  read-only reflection (no macros or declaration splicing);
+  [comptime](comptime.md) value evaluation with target-aware layout and
+  read-only reflection, plus closed, type-directed
+  [materialization](materialization.md) of compiler-owned runtime values (no
+  macros or declaration splicing);
 - tooling completion, codegen polish, struct unions/bitfields, malloc-backed
   arrays, dialect import/translation, and import-c hardening;
 - the full tecs subsystem translation and runtime-equivalence acceptance test.

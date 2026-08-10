@@ -3,9 +3,11 @@
 ## Decision
 
 `comptime` is deterministic compile-time evaluation of ordinary nupp code. It
-produces data values that the compiler quotes as ordinary source literals. It
-does not expose the CST or AST, paste source text, generate declarations, or
-inline runtime code.
+produces values that the compiler normally quotes as ordinary source literals.
+It does not expose the CST or AST, paste source text, or generate declarations.
+A compiler-owned opaque result may instead be serialized as a runtime value by
+the closed, type-directed [materialization](materialization.md) layer. Comptime
+still produces a value and never chooses or observes what source represents it.
 
 The type system remains independent:
 
@@ -75,7 +77,8 @@ both, on §Layout intrinsics, and the model they need.
 4. Preserve deterministic builds, the line-count invariant, incremental
    cutoff, and responsive editor tooling.
 5. Give comptime code the same type checking and diagnostics as runtime code.
-6. Erase every comptime construct from generated Lua except its quoted result.
+6. Erase every comptime construct from generated Lua except its quoted or
+   compiler-materialized result.
 
 ## Non-goals
 
@@ -106,6 +109,13 @@ not a refusal:
 - declaration or module generation
 - derives
 - automatic optimization or specialization of runtime functions
+
+Materialization does not change this list. It emits an expression that
+constructs one explicitly typed runtime value; it cannot add a declaration or
+module, and it does not implicitly specialize an existing runtime function.
+Its provider set is closed and compiler-owned. See
+[materialization.md](materialization.md) for the boundary and its PEG and
+type-directed-codec proving cases.
 
 Comptime does not generate declarations. Compiler-owned derives, or a future
 restricted declaration-generation facility, may be specified independently and
@@ -335,6 +345,21 @@ grew their own copies of the same reasoning.
 Quoting a table creates a normal fresh runtime table when the generated module
 loads. It does not embed a mutable compiler-owned object.
 
+### Materializable results
+
+A compiler-owned opaque value has no literal spelling and does not weaken the
+rules above. When the `comptime` expression has a directly declared expected
+runtime type, that type may select a provider from the compiler's closed
+materializer table. The provider finalizes the live opaque value into a
+canonical, acyclic blueprint in the evaluator worker and serializes it as one
+runtime expression during generation.
+
+This is not a general escape from quotability. User types cannot register a
+provider; a block cannot return source, syntax, declarations or a runtime
+binding; and removing the explicit runtime type produces a diagnostic rather
+than inferred code generation. The complete phase, cache, provenance and
+admission rules are specified in [materialization.md](materialization.md).
+
 A captured constant table is likewise a canonical snapshot of its initializer,
 not a reference to runtime table state. `const M.config = {...}` gives the block
 the value the initializer described; a later write to a non-const field of that
@@ -540,8 +565,8 @@ fileText(path)
          -> resolve and typecheck comptime block
          -> build canonical evaluation request
          -> evalComptime(request fingerprint)
-         -> quote result as a synthetic expression
-         -> typecheck quoted expression normally
+         -> quotable result: attach and typecheck a synthetic literal
+         -> opaque result: validate its explicit materialization relation
     -> moduleInterface(name)
     -> generate checked CST
 ```
@@ -568,15 +593,23 @@ Type and module resolution performed while building reflection descriptors
 uses the existing environment hooks. Those lookups record normal query
 dependencies on project interfaces.
 
-After evaluation, the checker constructs or parses a canonical synthetic
-literal expression, attributes it to the `comptime` token, and checks that
-expression in the surrounding runtime context. The synthetic node carries an
-origin link for diagnostics and LSP hover.
+After evaluation, an ordinary quotable result follows the existing path: the
+checker constructs or parses a canonical synthetic literal expression,
+attributes it to the `comptime` token, and checks that expression in the
+surrounding runtime context. The synthetic node carries an origin link for
+diagnostics and LSP hover.
+
+A compiler-owned opaque result follows the separate
+[materialization](materialization.md) path. The checker requires a directly
+declared expected runtime type, selects a provider by resolved identity, and
+validates the finalized blueprint's result and action-slot relation. It does
+not construct a synthetic function or declaration during checking.
 
 ### Generator and line numbers
 
-The generator emits only the canonical quoted expression at the source line of
-the `comptime` token. It emits none of the block body. Its existing forward-only
+The generator emits only the canonical quoted expression, or the structured
+runtime expression returned by a closed materializer, at the source line of the
+`comptime` token. It emits none of the block body. Its existing forward-only
 line synchronization inserts blank lines until the next source token, so the
 generated file preserves the line-count invariant.
 
@@ -613,9 +646,11 @@ Resolving a type from another module records a dependency on that module's
 exported type interface before evaluation. A body-only edit in that module does
 not rerun the block. A reflected field or layout change does.
 
-The query compares canonical quoted results for early cutoff. If a dependency
-changes and reevaluation produces the same literal, downstream module
-interfaces and generated artifacts retain their previous changed revision.
+The query compares canonical finalized results for early cutoff: the literal
+spelling for a quotable value, or the provider-versioned blueprint fingerprint
+for an opaque one. If a dependency changes and reevaluation produces the same
+result, downstream module interfaces and generated artifacts retain their
+previous changed revision.
 
 The first implementation caches results in the live query graph. Persistent
 cache serialization belongs to the manifest-driven build cache and is not a
@@ -662,8 +697,8 @@ not change the meaning of existing `<T>` generics.
 ## Tooling behavior
 
 - Formatting preserves the original comptime block.
-- Hover shows the block's result type and a shortened canonical value when it
-  is cheap to display.
+- Hover shows the block's result type and a shortened canonical value or
+  materializer-owned blueprint summary when it is cheap to display.
 - Go-to-definition and references inside a block use normal checker metadata.
 - Semantic tokens classify `comptime` and comptime-only intrinsics/functions.
 - Diagnostics are published through the existing incremental LSP path.
@@ -672,8 +707,9 @@ not change the meaning of existing `<T>` generics.
 - Rename operates on source declarations and references, never on synthetic
   expansion tokens.
 
-The LSP never evaluates a block on the UI/protocol loop. Evaluation goes
-through the same budgeted query and worker path as batch checking.
+The LSP must never evaluate a block on the UI/protocol loop. C4 moves the
+landed direct evaluator behind the same budgeted worker path for editor and
+batch checking.
 
 ## Implementation milestones
 
@@ -697,12 +733,9 @@ one — see §Layout intrinsics, and the model they need.
 - Add an in-memory `evalComptime` query and compute counters.
 - **Minimum worker isolation, if comptime is reachable from the LSP at all**:
   evaluation out of process, an instruction budget, a wall-clock timeout, and
-  crash recovery. Not the hardened version — that is C4 — but enough that a
-  block which loops forever or dies cannot take the language server with it. A
-  feature whose first release can hang an editor is a feature that gets turned
-  off before it gets fixed, and §Tooling behavior already promises the LSP never
-  evaluates on the protocol loop. This is what makes that promise true rather
-  than aspirational.
+  crash recovery. This did not land with the otherwise complete C1 evaluator
+  and is now the first part of C4 rather than an invariant the implementation
+  falsely claims today.
 
 Exit test: scalar and table blocks execute, forbidden APIs fail, unchanged
 results cut off invalidation, generated code runs on plain LuaJIT, the
@@ -764,10 +797,12 @@ values, and failures retain definition and call-site locations.
 
 ### C4: isolation and build integration
 
-C1 ships the floor: out of process, an instruction budget, a timeout, crash
-recovery. This is the rest of it, and it is hardening rather than the first line
-of defence.
+The landed C1 evaluator runs directly. C4 first supplies the floor C1 specified
+but did not ship — out-of-process evaluation, a timeout and crash recovery —
+then hardens and integrates it. Closed materialization does not expose a public
+opaque provider before that floor exists.
 
+- Move evaluation behind an isolated worker for CLI and LSP.
 - Generalize the worker protocol across CLI and LSP.
 - Enforce the remaining limits: memory, recursion, and result size.
 - Add cancellation, and recovery from the failure modes the floor does not cover.

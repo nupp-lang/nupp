@@ -6,7 +6,7 @@ work makes sense in.
 
 ## Type system
 
-- [ ] **Comptime** ([design](comptime.md)): deterministic data evaluation,
+- [ ] **Comptime** ([design](comptime.md)): deterministic value evaluation,
       deliberately not a macro or declaration-generation system. C1 has landed;
       the rest is below. Reach for it for a program that needs a generated
       table, not for one that wants a constant: those keep turning out to have
@@ -24,11 +24,20 @@ work makes sense in.
         output, bounded recursion, and comptime call stacks. File-private at
         first, but cross-module helpers are an expected extension; helpers
         taking a `TypeInfo` need nothing from the generic system.
-  - [ ] C4: worker hardening beyond C1's floor — remaining resource limits,
-        cancellation, LSP hardening, and eventual manifest build-cache
-        persistence. Wants [suspension](suspension.md) and a real process
-        library under it: a worker the language server waits on must not block
-        its loop.
+  - [ ] C4: move the landed direct evaluator behind an isolated worker, then
+        add the remaining resource limits, cancellation, LSP hardening, and
+        eventual manifest build-cache persistence. Wants
+        [suspension](suspension.md) and a real process library under it: a
+        worker the language server waits on must not block its loop.
+  - [ ] **Closed materialization**
+        ([design](materialization.md)): an explicitly typed comptime block may
+        return a compiler-owned opaque value that a sealed provider serializes
+        as one runtime expression. Benchmark PEG before the framework, ship a
+        pure-Lua parsing-machine backend first, and admit specialization only if
+        it clears the recorded bar. A type-directed field codec is the second
+        provider and the proof that the common layer is not PEG-shaped. No
+        user-defined materializers, code AST, source splicing or generated
+        declarations.
 - [ ] **Suspension** ([design](suspension.md)): waiting as a checked, handled
       effect. One call site parks under a scheduler and blocks without one, so
       a library that waits works inside a game frame and inside a CLI without
