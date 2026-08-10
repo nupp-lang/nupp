@@ -212,17 +212,31 @@ jobs:
           LUA_ROOT="$PWD"
           if ( pwd -W ) >/dev/null 2>&1; then LUA_ROOT="$(pwd -W)"; fi
           ROCKS="$LUA_ROOT/.rocks"
+          export LUA_PATH="$ROCKS/share/lua/5.1/?.lua;$ROCKS/share/lua/5.1/?/init.lua;;"
+          export LUA_CPATH="$ROCKS/lib/lua/5.1/?.so;$ROCKS/lib/lua/5.1/?.dll;;"
+          export NUPP_NATIVE_LIBRARY="$LUA_ROOT/build/lib/nupp_native"
+          export NUPP_COMPILER_ROOT="$LUA_ROOT"
+
+          # Does the staged provider load, and under which spelling? A path with
+          # a separator reaches the platform loader unchanged, so an
+          # extensionless name is not on its own a reason to fail; a dependency
+          # that will not resolve reports the same error.
+          luajit scripts/diagnose-provider.lua > diag/provider.txt 2>&1 \
+            || echo "probe exited $?" >> diag/provider.txt
+          echo "--- provider ---"
+          cat diag/provider.txt
+
+          # The CLI passes "." rather than an absolute path, so both spellings
+          # are run: identity and project root are two differences, not one.
           for mode in stage0 bootstrap; do
-            rm -rf build/cache
-            LUA_PATH="$ROCKS/share/lua/5.1/?.lua;$ROCKS/share/lua/5.1/?/init.lua;;" \
-            LUA_CPATH="$ROCKS/lib/lua/5.1/?.so;$ROCKS/lib/lua/5.1/?.dll;;" \
-            NUPP_NATIVE_LIBRARY="$LUA_ROOT/build/lib/nupp_native" \
-            NUPP_COMPILER_ROOT="$LUA_ROOT" \
-              luajit scripts/diagnose-discovery.lua "$mode" \
-                > "diag/check-$mode.txt" 2>&1 \
-              || echo "probe exited $?" >> "diag/check-$mode.txt"
-            echo "--- $mode ---"
-            grep -v '^listFiles' "diag/check-$mode.txt" | head -12
+            for spelling in dot absolute; do
+              rm -rf build/cache
+              luajit scripts/diagnose-discovery.lua "$mode" "$spelling" \
+                  > "diag/check-$mode-$spelling.txt" 2>&1 \
+                || echo "probe exited $?" >> "diag/check-$mode-$spelling.txt"
+              echo "--- $mode $spelling ---"
+              grep -v '^listFiles' "diag/check-$mode-$spelling.txt" | head -10
+            done
           done
           ls -R build/nupp/compiler > diag/emitted.txt 2>&1 || true
 

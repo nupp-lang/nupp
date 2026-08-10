@@ -10,9 +10,10 @@
 -- an earlier reading look decisive when it was not.
 --
 -- Run twice, once per identity, in a fresh process each time.
-local mode = ...
-if mode ~= "stage0" and mode ~= "bootstrap" then
-    io.write("usage: diagnose-discovery.lua stage0|bootstrap\n")
+local mode, rootArg = ...
+if (mode ~= "stage0" and mode ~= "bootstrap")
+    or (rootArg ~= "dot" and rootArg ~= "absolute") then
+    io.write("usage: diagnose-discovery.lua stage0|bootstrap dot|absolute\n")
     os.exit(2)
 end
 
@@ -24,7 +25,7 @@ local function say(...)
     lines[#lines + 1] = table.concat({...}, "\t")
 end
 
-say("mode", mode)
+say("mode", mode, rootArg)
 say("root", root)
 say("jit.os", (jit and jit.os) or "?")
 
@@ -76,7 +77,11 @@ io.stderr = {
 }
 
 local project = require("nupp.compiler.build.project")
-local ok, code = pcall(project.check, root, {})
+-- The CLI passes ".", not an absolute path. Which of the two the checker gets
+-- is a difference in its own right, so it is varied rather than assumed.
+local checkRoot = rootArg == "dot" and "." or root
+say("check-root", checkRoot)
+local ok, code = pcall(project.check, checkRoot, {})
 io.stderr = realStderr
 
 local text = table.concat(captured)
