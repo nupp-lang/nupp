@@ -30,36 +30,104 @@ nested type alias — `m.Lines.Item` is `string`, reachable the way
 `models.user.User` already is. Left unbound in an interface, it is an associated
 type: a type the *implementor* chooses and the *user* reads back.
 
-## Why not a type parameter
+The proposal below stages the work so the two riskiest parts — binder identity
+and projection normalization — land before any surface syntax, and it takes a
+position on what a projection through `any` means, because getting that wrong
+makes the feature decorative rather than wrong.
 
-`interface Reader<T>` already expresses "a reader of T", so the question is
-what associated types buy over it. Three things.
+## Why the existing machinery does not cover it
 
-**A parameter is an input; an associated type is an output.** Nothing stops one
-record from declaring `is Reader<string>` and `is Reader<integer>` both, so
-`Reader<T>` cannot determine T from the implementor. `collect(source)` then has
-nothing to infer T from. `type Item` makes Item a function of the implementor,
-which is exactly the fact inference needs.
+The motivating case is Tecs' scalar components. `archetype:get` is declared
 
-**Parameters propagate; associated types do not.** Every function that touches a
-reader has to carry the parameter, whether or not it mentions the element type,
-and each layer adds one. Nupp's compiler shows the shape of the alternative
-already: `query.Q:define` types its callback `function(q: any, key: any): any`
-because threading two parameters through the database, the definitions table and
-every read was worse than giving up.
+    get: function<T is components.Component>(self, component: T): {T}
 
-**They compose without arity.** An `Iterable` whose loop variables are a type
-*pack* cannot be spelled as a parameter at all without fixing the arity at the
-declaration.
+so `get(Health)` reports `{ScalarComponent<number>}` while the column holds raw
+Lua numbers; the engine's own documentation does arithmetic on a value its
+signature calls a component interface. Two workarounds were tried against the
+compiler as it stands. Both fail.
 
-Rust reached the same split for the same reason: `Iterator::Item` is associated,
-`From<T>` is parameterized. The rule is whether the caller gets to choose.
+**Overloading on the scalar case is ambiguous.** A bare binder matches
+everything and there is no negation to exclude scalars from the general arm:
 
-## Syntax
+    local type Get = function<T is m.Component>(component: T): {T}
+        & function<T>(component: m.ScalarComponent<T>): {T}
 
-**Declaring.** Inside a declaration body, a bare `type Name`. Members already
-live on the declaration, so — like a field — it takes no `local`, `global` or
-qualified path, and writing one is **NUPP2119**.
+    NUPP2126: several overloads accept this call:
+      function(component: ScalarComponent<T>): {any};
+      function(component: ScalarComponent<number>): {ScalarComponent<number>}
+
+**F-bounding silently degrades.** Writing the value type as a parameter of the
+bound and hoping it binds from the argument produces no diagnostic and no
+information:
+
+    local type Get = function<V, C is m.Component<V> >(component: C): {V}
+
+    -- `lsp inspect` on the result: {any}
+
+`V` never binds, because bounds are checked at instantiation rather than solved.
+That is worse than the error — it compiles, and the type is a lie.
+
+So a projection is the only way to reach the value type from the argument type.
+The feature is load-bearing rather than ergonomic, which is what justifies the
+cost accounted for below.
+
+## Current baseline
+
+- **Types are content-addressed.** `types.nupp` hash-conses structural types
+  bottom-up into a canonical string key. `intern` at `types.nupp:501` is the
+  single entry point and `id` doubles as identity.
+- **Binders already have an identity.** `types.typevar(name, identity)` at
+  `types.nupp:1358` interns under `tv(identity or name)`, which keeps shadowed
+  `T` binders distinct. The identity is constructed at `check/init.nupp:828` as
+  `filename .. ":" .. offset .. ":" .. role` — **source-position derived**.
+- **The module fingerprint disagrees with it.** `typeFingerprint` in
+  `build/modules.nupp` renders a typevar as `"typevar(" .. t.name .. ")"`
+  (`build/modules.nupp:166`) — **name derived**. The interned identity and the
+  fingerprint are two different notions of binder sameness today.
+- **Substitution is a single walk.** `generics.subst` (`generics.nupp:64`)
+  rebuilds a type replacing binders per a `Bindings` map, and a binder the map
+  says nothing about becomes `any`. `generics.substPack` does the same for packs.
+- **Unification is structural and one-pass.** `generics.unify`
+  (`generics.nupp:379`) accumulates bindings, unioning repeats.
+  `generics.instantiate` (`generics.nupp:248`) memoizes nominal applications.
+- **`self` is already a projection-like mechanism.** `generics.specializeSelf`
+  (`generics.nupp:488`) rebinds `self` in a member's type to the actual receiver.
+- **Overload probing specializes candidates without committing.** Selection is by
+  parameter pack only; exactly one candidate must survive (NUPP2125 / NUPP2126).
+- **The lexer does not split `>>`.** `m.Component<V>>` produces eight cascading
+  parse errors from NUPP1002 onward.
+
+## Goals
+
+1. Type members on records, structs and interfaces, bound or unbound, with
+   defaults and bounds.
+2. Dotted projection wherever a value type is legal, resolving to the binding
+   when the head is concrete and staying opaque when it is not.
+3. Associated packs, so an interface can describe an operation whose arity
+   varies by implementor.
+4. Complete erasure, with the incremental engine's guarantees preserved
+   exactly — no missed rebuild, and no new class of spurious one.
+5. A stated, checkable answer for what a projection through `any` means.
+
+## Non-goals
+
+- **Equality constraints.** `T.Item = string` as a constraint rather than a
+  binding. `is` is the relation bounds already use, and Nupp's covariant
+  nominals do not preserve the extra precision anyway.
+- **Higher-kinded members.** `type Container<_>`. Every use we have is
+  first-order; the inference cost is not.
+- **Runtime reflection.** No `typememberof`. `layoutof` remains the one intrinsic
+  that reaches through erasure, because a struct's layout is a fact about memory.
+- **Solving bounds.** F-bounded inference stays unsupported; this proposal adds
+  projection, not constraint solving.
+
+## Design
+
+### Surface
+
+**Declaring.** A bare `type Name` in a declaration body. Members already live on
+the declaration, so — like a field — it takes no `local`, `global` or qualified
+path, and writing one is **NUPP2119**.
 
     interface m.Codec
         type Encoded              -- unbound: the implementor says
@@ -67,26 +135,25 @@ qualified path, and writing one is **NUPP2119**.
         type Error = string       -- a default the implementor may keep
     end
 
-**Binding.** `type Name = T` in the body of a declaration that takes the
-contract. A default is inherited exactly as a default method body is: resolved
-where it is written, replaced only by writing the member, and `@override` is
-*not* required — a type member has no body to replace, so overriding one is
-ordinary binding.
+**Binding.** `type Name = T` in the body of a declaration taking the contract.
+A default is inherited as a default method body is: resolved where written,
+replaced by writing the member. `@override` is *not* required — a type member
+has no body to replace.
 
-**Projecting.** `T.Item`, on a type parameter, on a concrete declaration, or on
-`self`:
+`type Value = self` is legal and is the migration lever: an interface can give
+every existing implementor the answer "itself" without any of them being edited.
+
+**Projecting.** `T.Item` on a binder, on a concrete declaration, or on `self`:
 
     m.Lines.Item                     -- string
     T.Item                           -- opaque inside a generic body
-    function pos(self): self.Point   -- the receiver's binding, not the declarer's
+    function pos(self): self.Point   -- the receiver's binding
 
-Inside the declaring body the simple name works, the way a recursive `User?`
-already does — and it means `self.Item`, not the interface's. That is the same
-rebinding `self` already gets, so an implementor's inherited default method sees
-its own binding.
+Inside the declaring body the simple name works, as a recursive `User?` already
+does, and it means `self.Item` — the same rebinding `self` already gets, so an
+inherited default method sees the implementor's binding.
 
-**Constraining a projection.** Projections join the binder list, comma
-separated. No new keyword:
+**Constraining.** Projections join the binder list, comma separated:
 
     function joinLines<T is m.Reader, T.Item is string>(source: T): string
 
@@ -94,161 +161,216 @@ separated. No new keyword:
         source: R, sink: W
     ): integer
 
-The second form is why this belongs in the binder list rather than on a
-per-parameter bound: the constraint relates two parameters and belongs to
-neither.
+The second form is why the constraint belongs in the binder list rather than on
+a parameter: it relates two binders and belongs to neither.
 
-**Packs.** A binder ending in `...` declares an associated *pack*, which is what
-lets an interface describe Lua's generic-for without fixing the loop arity:
+**Packs.** A member ending in `...` is an associated pack:
 
-    interface m.Iterable
-        type Values...
-
-        function iterate(self): function(): Values...
+    interface m.Event
+        type Args...
     end
 
-    record m.Entries is m.Iterable
-        type Values... = (string, integer)
-    end
+    function World:emit<E is m.Event>(address: integer, event: E, ...: E.Args...): nil
 
-## Semantics
+### Resolution is a second pass
 
-**Resolution is second-pass.** A projection never binds a type parameter.
-Ordinary unification binds the heads from the argument types; projections are
-then substituted and checked. A projection whose head stays unbound substitutes
-to `any`, which is what an unbound parameter already does — a partly-inferred
-call stays gradual rather than wrong.
+Unification never binds through a projection. `generics.unify` binds heads from
+argument types as it does today; a new normalization pass then reduces every
+projection whose head became concrete. Concretely:
 
-**An unresolved projection is opaque, with its bound's members.** Inside
+1. `unify` runs unchanged and produces `Bindings`.
+2. `subst` substitutes binders, producing types that may contain
+   `proj(head, name)` nodes whose head is now a nominal.
+3. `normalize` reduces each such node to the declaration's binding, repeating
+   until no reducible node remains.
+4. Projection bounds from the binder list are checked against the normalized
+   results, reusing **NUPP2116**.
+
+Step 3 is the algorithmic change: substitution stops being a walk and becomes a
+reduction. It can be blocked — the head is still a binder, which is the opaque
+case — and it can cycle, when two declarations project through each other. The
+reducer carries the visited set that `typeFingerprint` already carries for
+recursive types (`active`) and reports **NUPP2130** on a cycle rather than
+looping.
+
+An unresolved projection is **opaque with its bound's members**: inside
 `<T is m.Codec>`, `T.Decoded` reads exactly the members of `m.Named`, the same
-way `T` itself reads the members of its bound with `self` specialized back.
-Symmetric, and no new rule to learn.
+way `T` reads the members of its bound with `self` specialized back. No new rule.
 
-**Identity interns.** Types are content-address interned, so a projection is a
-deferred type interned by (head identity, member name) and two spellings of
-`T.Item` are one type. Concrete projections normalize to the bound type at
-intern time, so `m.Lines.Item` and `string` are the same interned type and
-nothing downstream sees a projection at all.
+### Projection through `any`
 
-**Bounds are checked at instantiation**, alongside the existing bound check, and
-violating a projection bound is **NUPP2116** with the projection named.
+This is the decision that determines whether the feature does anything at a
+Lua boundary, and it has to be made deliberately.
 
-**Variance is invariant.** Generic nominals are deliberately covariant in their
-arguments, for compatibility with array covariance. A type member is not an
-argument, and there is no compatibility story asking for the unsoundness, so
-`is` on a projection is subtyping and binding is equality.
+Today: an `any` argument does not bind a parameter, an unbound parameter
+substitutes to `any`, and an `any` argument skips the bound check. Inherited
+unchanged, that means `get(valueFromUntypedLua)` yields `{any}` silently — the
+feature evaporates exactly where a game engine spends most of its boundary.
 
-**Erasure is total.** `type Item = string` emits nothing; an interface that adds
-only type members still has no runtime presence. Nothing about a type member is
-observable at run time, which has one consequence worth stating outright: a
-`matches` refinement cannot test one, so an interface with an unbound type
-member and a refinement is refused. The refinement would claim to identify
-values it cannot distinguish.
+Three options were considered. Reducing a projection on `any` to `unknown`
+is sound and forces a cast, but it breaks the gradual promise that `any` is
+compatible in both directions silently, and would fail existing `.g.nupp` code.
+Erroring at the call site is worse for the same reason.
 
-## What we would use them for
+**Adopted: reduce to `any`, and add a lint.** `gradual-projection`, category
+`suspicious`, default `warning`, fires where a projection resolved through an
+unbound or `any` head. This matches how Nupp already separates the two kinds of
+complaint — a type error says the program does not mean what it says, a lint
+says it probably does not mean what you intended — and it composes with the
+existing floor, since a strict file already refuses `any` in an exported
+signature under **NUPP2106**. Gradual code keeps compiling; strict code is told.
 
-Ordered by how much they would change code that exists today.
+### Identity and fingerprinting
 
-**The query database.** `query.Q:define` takes
-`fn: function(q: any, key: any): any` and `Q:get` returns `any`, so every
-consumer in the incremental layer casts. A query becomes a declaration carrying
-its own key and value:
+This is the highest-risk part of the proposal, because the incremental engine's
+early cutoff rests on interface equality (`query.nupp:12`), and the failure mode
+of getting it wrong is a *missed* rebuild — silent, and reproducing as stale
+output rather than as a diagnostic.
 
-    interface compiler.Query
-        type Key
-        type Value
+A projection interns as `proj(<head id>,<name>)`, which inherits whatever
+identity the head has. That is correct for the intern table, because
+`types.typevar` already gives shadowed binders distinct ids. It is **not**
+correct for `typeFingerprint`, which renders every typevar as its bare name.
+Two different declarations' `T.Item` would fingerprint identically, and a module
+whose only change was swapping one for the other would compare unchanged.
 
-        function compute(self, q: query.Q, key: Key): Value
-    end
+The fix is not specific to this feature — the intern path and the fingerprint
+path disagree about binders today, and this proposal is what makes the
+disagreement observable. So it lands first, on its own:
 
-    record compiler.ParsedFile is compiler.Query
-        type Key = string
-        type Value = cst.Chunk
-    end
+- Give binders a **canonical position within their signature** rather than a
+  source offset: the binder list's index, plus its nesting depth. Two signatures
+  that differ only in where they sit in the file then intern identically, which
+  removes a class of spurious intern churn that exists today.
+- Render binders in `typeFingerprint` by that same canonical index, not by name,
+  so renaming `T` to `E` stops changing a module's fingerprint and two distinct
+  binders stop colliding.
+- Render a projection in `typeFingerprint` as `proj(<canonical head>,<name>)`.
 
-`Q:get(ParsedFile, path)` then returns a `cst.Chunk`, and the early-cutoff `eq`
-is typed `function(a: Value, b: Value): boolean` rather than taking two `any`.
-The runtime stays a name-keyed table; only the surface gains types.
+That is a self-contained change with its own tests and its own benefit, and it
+is the prerequisite for everything after it.
 
-**Iteration.** `Iterable` with `type Values...` types `for` over a user
-declaration once, for every arity, instead of a metamethod contract per shape.
-This is the case Nupp is best positioned for, because type packs already exist
-and carry list adjustment and correlation.
+## Staging
 
-**Readers, writers and byte containers.** `nupp.io` has readers that produce
-strings and readers that fill buffers. `type Chunk` distinguishes them, and
-`transferTo` stops being a special case: `pump<R, W, W.Chunk is R.Chunk>`
-connects any two whose chunks agree, and refuses the pairs that do not.
+Each stage is independently landable and independently valuable.
 
-**Codecs.** `type Encoded` / `type Decoded` covers JSON (`string`, `any`), a
-struct codec (`nupp.ByteView`, `T`), and the manifest and cache readers in
-`build/`, which currently agree by convention.
+**Stage 0 — binder identity.** Canonical binder indices in `types.typevar`'s
+identity and in `typeFingerprint`; make the two agree. No surface change.
+Verified by `nupp fixpoint` and by an incremental test that renames a binder and
+asserts no dependent module rebuilds.
 
-**Lexers and passes.** A `Lexer` with `type Token`, an analysis pass with
-`type Input` and `type Output`. The compiler has several of each and they are
-related by comment rather than by type.
+**Stage 0b — lex `>>`.** Split the token when it closes a generic parameter
+list. Small, independent, and currently an eight-error cascade.
 
-**Fallible operations.** `type Error = string` with a default is the shape that
-makes a fallible interface tolerable: the common implementor says nothing, and
-the one that returns a structured diagnostic says so once instead of forcing a
-parameter on everyone.
+**Stage 1 — bound type members.** `type Name = T` on records, structs and
+interfaces, projected only where the head is already concrete. This is a nested
+type alias and needs no inference change: resolution happens at declaration
+time and the projection never survives interning. Ships the nesting half of the
+feature and exercises the declaration and LSP paths with no risk to unification.
 
-**Reified element types.** A container interface with `type Element` that is a
-struct lets `sizeof` and `layoutof` be written once over the interface — with
-the restriction below.
+**Stage 2 — unbound members and projection.** Declaration without a binding,
+defaults, bounds, `NUPP2127` for an unbound member on an implementor, the
+`normalize` reduction pass, projection bounds in the binder list, and the
+`gradual-projection` lint. This is the stage that pays for Tecs' `archetype:get`.
+
+**Stage 3 — associated packs.** `type Args...`, reusing `substPack` and
+`unifyPack`. Held back deliberately: packs are the newest subsystem, and pairing
+a new reduction pass with them in one change makes a regression hard to bisect.
 
 ## Interactions
 
+**Overloads.** Candidate probing runs before normalization can complete, since a
+candidate's binders are only bound by the probe itself. Probing therefore
+normalizes per candidate, inside the existing no-commit specialization, and a
+candidate whose projection stays opaque is **not** a match rather than a
+wildcard match. Without that rule an opaque projection matches everything and
+every overload set containing one collapses to NUPP2126 — which is exactly the
+ambiguity the experiment above hit.
+
+**Expansions.** `expands (x, y)` projections and type-member projections are now
+two different things spelled with a dot, distinguished by position: `...a.b` is
+a value path in an argument list, `A.B` is a type path in type position. They do
+not overlap grammatically, but the diagnostics must not borrow each other's
+wording.
+
 **Structs and reification.** `ffi.new<T.Element>()`, `layoutof(T.Element)` and
 `sizeof` need a ctype, and generics erase rather than monomorphize. A projection
-is legal in a reified position only where its head is already concrete;
-otherwise it is **NUPP2128**, which says which binder is open. Deferring this to
-a runtime lookup would put a hash lookup where the whole point of a struct is
-that there is not one.
+is legal in a reified position only where its head is concrete; otherwise
+**NUPP2128**, naming the open binder. Deferring to a runtime lookup would put a
+hash lookup where the point of a struct is that there is not one.
 
-**Overloads.** A resolved projection is an ordinary type and probes like one. An
-unresolved projection matches candidates it should not, so probing with one is
-refused rather than guessed — the existing NUPP2125 / NUPP2126 pair, with the
-projection named as the reason.
+**Refinements.** An interface with an unbound type member cannot carry `matches`
+(**NUPP2129**). Type members are erased, so a refinement would claim to identify
+values it cannot distinguish.
 
 **Ownership.** A projection is a type, so `takes`, `borrows` and `exclusive` on
-a `self.Item` parameter mean what they always did. `@owned` sits on functions,
-not types, and is untouched.
+a `self.Item` parameter mean what they always did. `@owned` sits on functions.
 
-**Declaration files.** `.d.nupp` gains the ability to describe a foreign
-protocol whose element type varies by implementor — which is most of them —
-without inventing a parameter the foreign code does not have.
+**Tooling.** `lsp inspect` reports the projection *and* what it resolved to at
+that site; `lsp definition` lands on the binding, not the declaration. Rendering
+keeps the projection spelling in the message and puts the resolution in `help`,
+because `T.Item is not string` is only actionable beside
+`T.Item = integer, bound at models.nupp:12`.
 
-**Tooling.** `lsp inspect` on a projection should report both the projection and
-what it resolved to at that site; `lsp definition` should land on the binding,
-not the declaration. Rendering keeps the projection spelling in diagnostics and
-shows the resolution in the `help`, because `T.Item is not string` is only
-actionable next to `T.Item = integer, bound at models.nupp:12`.
+## Migration
+
+`type Value = self` as a default is what keeps this from being a breaking
+change: an interface gains a type member and every existing implementor already
+answers it. Only implementors that need a *different* answer are edited.
+
+The exposure is declaration files. A `.d.nupp` describing a foreign surface that
+predates the member takes **NUPP2127** until updated, and the prelude is the
+first such file. Stage 2 must land prelude updates in the same change.
 
 ## Diagnostics
 
 - **NUPP2127** — a declaration takes a contract and leaves a type member
   unbound. Lists the members and where each was declared.
-- **NUPP2128** — a projection appears where a concrete type is required
-  (a reified position, an FFI intrinsic, a struct field). Names the open binder.
+- **NUPP2128** — a projection appears where a concrete type is required (a
+  reified position, an FFI intrinsic, a struct field). Names the open binder.
 - **NUPP2129** — an interface carries both an unbound type member and a
-  `matches` refinement. A refinement cannot test what does not exist at run
-  time.
+  `matches` refinement.
+- **NUPP2130** — a type member's binding projects through itself. Names the
+  cycle.
 
 Reused: **NUPP2116** for a violated projection bound, **NUPP2119** for a type
-member given a visibility keyword, **NUPP2004** for a projection of a member the
-declaration does not have.
+member given a visibility keyword, **NUPP2004** for projecting a member the
+declaration does not have, **NUPP2125** / **NUPP2126** for overload selection.
 
-## Deliberately out of scope
+New lint: `gradual-projection`, category `suspicious`, default `warning`.
 
-**Equality constraints.** `T.Item = string` as a *constraint* (rather than a
-binding) is not offered; `is` is the relation bounds already use, and adding a
-second one buys precision Nupp's covariant nominals do not preserve anyway.
+## Testing
 
-**Higher-kinded members.** `type Container<_>` — a type member that is itself
-generic in a parameter the interface does not name. Every use we have is
-first-order, and the inference cost is not first-order.
+- **Stage 0 is the one with a correctness obligation.** An incremental test that
+  renames a binder and asserts dependent modules do not rebuild, and one that
+  changes a binder's meaning and asserts they *do*. `nupp fixpoint` must hold
+  across every stage.
+- Projection resolution: concrete head, opaque head, head bound through a
+  union, head bound to `any`, and the cycle case.
+- The two experiments in this document become regression tests, asserting the
+  NUPP2126 ambiguity and the `{any}` degradation are gone.
+- Overload probing with an opaque projection in one candidate.
+- Erasure: generated Lua for a module using type members is byte-identical to
+  the same module with them hand-substituted.
 
-**Runtime reflection.** There is no `typememberof(T, "Item")`. Type members are
-erased, and `layoutof` remains the one intrinsic that reaches through erasure,
-because a struct's layout is a fact about memory rather than about the checker.
+## Risks, and what would stop this
+
+**The fingerprint hazard is real and pre-existing.** If Stage 0 does not produce
+an incremental test that fails before it and passes after, the premise is wrong
+and the rest should not be built on it.
+
+**Normalization cost.** Reduction runs on every substitution. If it shows up in
+`nupp fixpoint` timings on the compiler's own source, memoize per
+`(type id, bindings id)` before adding surface area — `generics.instantiate`
+already memoizes nominal applications and is the precedent.
+
+**Overload interaction is the likeliest source of regressions.** Intersections
+and expansions both landed recently. If Stage 2 destabilizes overload selection,
+the fallback is to refuse projections inside overload sets entirely and revisit
+once the surrounding subsystems have settled.
+
+**The `any` decision may prove wrong in practice.** If `gradual-projection`
+fires constantly on real Tecs code, the honest reading is that the boundary is
+too dynamic for the feature to help there, and the value is confined to
+engine-internal code. That is still worth having, but it is a smaller claim than
+this document makes, and it should be measured on Tecs before Stage 3.
