@@ -18,6 +18,15 @@ local function close_file(file: LuaFile)
     end
 end
 
+--- Opens a file and transfers responsibility for closing it to the caller.
+---
+--- The returned handle can be bound by `with`, which closes it on every exit path.
+---
+--- @export
+--- @param path the path of the file to open
+--- @param mode the Lua file mode; omitted uses the Lua default
+--- @return the open file handle, owned by the caller
+--- @raises when the file cannot be opened
 @owned(close_file)
 function resources.open_file(path: string, mode: string?): LuaFile
     local file, reason = io.open(path, mode)
@@ -28,6 +37,15 @@ function resources.open_file(path: string, mode: string?): LuaFile
     return file
 end
 
+--- Starts a process and transfers responsibility for closing its pipe to the caller.
+---
+--- The returned handle can be bound by `with`, which closes it on every exit path.
+---
+--- @export
+--- @param command the shell command to run
+--- @param mode the Lua pipe mode; omitted uses the Lua default
+--- @return the process pipe, owned by the caller
+--- @raises when the process pipe cannot be opened
 @owned(close_file)
 function resources.open_process(command: string, mode: string?): LuaFile
     local file, reason = io.popen(command, mode)
@@ -38,6 +56,13 @@ function resources.open_process(command: string, mode: string?): LuaFile
     return file
 end
 
+--- Creates a temporary file owned by the caller.
+---
+--- The returned handle can be bound by `with`, which closes it on every exit path.
+---
+--- @export
+--- @return the open temporary file handle, owned by the caller
+--- @raises when the temporary file cannot be created
 @owned(close_file)
 function resources.temporary_file(): LuaFile
     local file = io.tmpfile()

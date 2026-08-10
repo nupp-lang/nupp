@@ -177,6 +177,25 @@ function M.documentsInheritedContractsMetamethodsAndInlineMethods()
    assert(task.members[2].params[1].name == "prefix")
 end
 
+function M.documentsDeclarationsWrappedInAnnotations()
+   local source = table.concat({
+      "--- Opens an owned handle.",
+      "--- @param path Where to open it.",
+      "--- @return The owned handle.",
+      "@owned(close)",
+      "function resources.open(path: string): LuaFile",
+      "   return assert(io.open(path))",
+      "end",
+   }, "\n")
+   local module = assert(doc.extract(source, "src/resources.nupp", "resources"))
+   assert(#module.items == 1, "the annotated function was not documented")
+   local open = module.items[1]
+   assert(open.name == "resources.open", open.name)
+   assert(open.doc.text == "Opens an owned handle.", open.doc.text)
+   assert(open.params[1].text == "Where to open it.", open.params[1].text)
+   assert(open.returns[1].text == "The owned handle.", open.returns[1].text)
+end
+
 function M.namespaceTagSynthesizesModulesFromAShapesFields()
    local source = table.concat({
       "--- @namespace lib",
@@ -359,6 +378,39 @@ function M.standardMathApiHasCompleteDocumentation()
    for name in pairs(expected) do
       assert(found[name], "the prelude did not document nupp." .. name)
    end
+end
+
+function M.standardResourcesApiHasCompleteDocumentation()
+   local source = readFile(HERE .. "/../src/nupp/resources.nupp")
+   local module, errors = doc.extract(source, "src/nupp/resources.nupp",
+      "nupp.resources")
+   assert(module, errors and errors[1] and errors[1].msg)
+   assert(#errors == 0)
+   assert(module.text ~= "", "nupp.resources has no module documentation")
+
+   local expected = {
+      ["resources.open_file"] = true,
+      ["resources.open_process"] = true,
+      ["resources.temporary_file"] = true,
+   }
+   assert(#module.items == 3, "nupp.resources must document exactly three functions")
+   for _, item in ipairs(module.items) do
+      local prefix = item.path
+      assert(expected[item.name], prefix .. " is not part of the public API")
+      expected[item.name] = nil
+      assert(item.kind == "function", prefix .. " is not documented as a function")
+      assert(item.doc.text ~= "", prefix .. " has no documentation")
+      for _, param in ipairs(item.params) do
+         assert(param.text ~= "", prefix .. " parameter " .. param.name
+            .. " has no documentation")
+      end
+      for index, result in ipairs(item.returns) do
+         assert(result.text ~= "", prefix .. " return " .. index
+            .. " has no documentation")
+      end
+      assert(#item.raises > 0, prefix .. " has no documented failure condition")
+   end
+   assert(next(expected) == nil, "nupp.resources is missing a public function")
 end
 
 function M.hidesPrivateMembersUnlessExplicitlyIncluded()

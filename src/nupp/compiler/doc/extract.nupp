@@ -346,8 +346,16 @@ local function namespaceChildren(shape, prefix, path, blocks, includePrivate)
     return modules
 end
 
+-- Statement annotations wrap the declaration they modify in `pragmaStmt` nodes. The
+-- wrapper owns the leading trivia, so documentation comes from the outside while the
+-- name, signature and visibility come from the declaration at the centre. Following
+-- every wrapper also handles stacked annotations.
 local function declarationItem(stat, moduleName, includeAll, declarationFile, includePrivate)
-    local lines = docLines(stat)
+    local documented = stat
+    while stat.kind == "pragmaStmt" and stat.stat do
+        stat = stat.stat
+    end
+    local lines = docLines(documented)
     local info = parseDoc(lines)
     local public = includeAll or declarationFile or info.tags.export or info.tags.public
     local kind, name, signature
