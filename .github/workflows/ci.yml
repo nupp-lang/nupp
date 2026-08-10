@@ -67,9 +67,23 @@ jobs:
           call msvcbuild.bat || exit /b 1
           echo %RUNNER_TEMP%\luajit\src>>%GITHUB_PATH%
 
+      # Building in place leaves LuaJIT's own Lua modules where they were built.
+      # `make install` would place them; nothing here runs it, and the first
+      # thing to notice is the suite failing to load `jit.zone`. The project rock
+      # tree is already on the interpreter's path, so staging them there is
+      # enough and needs no install prefix.
+      - name: Stage LuaJIT's support modules
+        shell: bash
+        run: |
+          mkdir -p .rocks/share/lua/5.1
+          cp -R "$RUNNER_TEMP/luajit/src/jit" .rocks/share/lua/5.1/jit
+          test -f .rocks/share/lua/5.1/jit/zone.lua
+
       - name: Check the interpreter meets the floor
         shell: bash
-        run: luajit -v
+        run: |
+          luajit -v
+          luajit -e 'require("jit.zone") print("jit.zone loads")'
 
       - name: Build lua-cjson (unix)
         if: runner.os != 'Windows'
