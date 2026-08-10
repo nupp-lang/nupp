@@ -35,7 +35,7 @@ end
 
 -- What comes back is typed as the literal it becomes, so it is held to the
 -- same rules a literal you typed out would be.
-const TABLE_SIZE: integer = comptime do
+const TABLE_SIZE = comptime do
     return 256
 end
 
