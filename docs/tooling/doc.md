@@ -90,14 +90,16 @@ A tag's description continues onto any following indented line. Any other
 ambient global declared once, whose fields are the surface a reader actually
 reaches. On a `local name: {...}` declaration it replaces that one item with a
 module per field, named `prefix.field` (the enclosing module's own name, when
-`prefix` is omitted). A field written inline (`data: {...}`) documents its own
-fields directly; a field spelled as a name (`math: nupp.MathLibrary`) is
-followed to a record of that name declared in the same file. Documentation
-never resolves a type the way the checker does, so a field answering to
-neither is left out rather than guessed at. This is how the standard
-library's own `nupp` global — `nupp.data`, `nupp.io`, `nupp.math`, and
-`nupp.regex` — gets pages nested under `nupp` without a file to require any
-of them by, since native members have none.
+`prefix` is omitted). A field inside one of those modules may carry
+`@namespace` too; it becomes a nested module instead of a value on its parent.
+A field written inline (`data: {...}`) documents its own fields directly; a
+field spelled as a name (`math: nupp.MathLibrary`) is followed to a record of
+that name declared in the same file. Documentation never resolves a type the
+way the checker does, so a field answering to neither is left out rather than
+guessed at. This is how the standard library's own `nupp` global —
+`nupp.data`, `nupp.io`, `nupp.math`, and `nupp.regex` — gets pages nested under
+`nupp` without a file to require any of them by, since native members have
+none.
 
 `@raises` says what makes a function raise, one line per condition. Lua has no
 signature to find that out from, so it is written down. The

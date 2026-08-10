@@ -930,6 +930,7 @@ record nupp.URI
 end
 
 --- Two-dimensional vector operations on number pairs.
+--- @local
 record nupp.Vec2Library
     --- Adds two vectors.
     --- @param ax the first vector's x component
@@ -1078,8 +1079,10 @@ record nupp.Vec2Library
 end
 
 --- Scalar angle helpers and two-dimensional vector operations.
+--- @local
 record nupp.MathLibrary
     --- Two-dimensional vector operations over `(x, y)` number pairs.
+    --- @namespace
     vec2: nupp.Vec2Library
 
     --- Linearly interpolates between two numbers without clamping the factor.

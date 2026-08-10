@@ -219,15 +219,24 @@ function M.namespaceTagSynthesizesModulesFromAShapesFields()
       "",
       "--- Scalar helpers.",
       "record lib.MathLibrary",
+      "   --- Vector helpers.",
+      "   --- @namespace",
+      "   vec2: lib.Vec2Library",
       "   --- Adds two numbers.",
       "   add: function(a: number, b: number): number",
+      "end",
+      "",
+      "--- Vector helpers.",
+      "record lib.Vec2Library",
+      "   --- Computes a length.",
+      "   length: function(x: number, y: number): number",
       "end",
    }, "\n")
    local module, errors, extra = doc.extract(source, "src/lib.d.nupp", "lib", {includeAll = true})
    assert(module, errors and errors[1] and errors[1].msg)
-   assert(#module.items == 1, "the record stays an ordinary item")
+   assert(#module.items == 2, "the records stay ordinary items")
    assert(module.items[1].name == "MathLibrary", module.items[1].name)
-   assert(extra and #extra == 2, extra and #extra)
+   assert(extra and #extra == 3, extra and #extra)
    local byName = {}
    for _, mod in ipairs(extra) do
       byName[mod.name] = mod
@@ -239,6 +248,9 @@ function M.namespaceTagSynthesizesModulesFromAShapesFields()
    assert(byName["lib.math"], "a field spelled by name follows it to the same file's record")
    assert(byName["lib.math"].items[1].name == "add")
    assert(byName["lib.math"].items[1].params[1].name == "a")
+   assert(byName["lib.math.vec2"], "a tagged field becomes a nested module")
+   assert(byName["lib.math.vec2"].text == "Vector helpers.")
+   assert(byName["lib.math.vec2"].items[1].name == "length")
 end
 
 function M.standardDataApiHasCompleteDocumentation()
@@ -359,46 +371,36 @@ function M.standardMathApiHasCompleteDocumentation()
       "src/nupp/compiler/decls/prelude.d.nupp", "nupp.compiler.decls.prelude")
    assert(module, errors and errors[1] and errors[1].msg)
 
-   local mathModule
+   local mathModule, vec2Module
    for _, candidate in ipairs(extra or {}) do
       if candidate.name == "nupp.math" then mathModule = candidate end
+      if candidate.name == "nupp.math.vec2" then vec2Module = candidate end
    end
    assert(mathModule, "the prelude did not synthesize nupp.math")
-   for _, item in ipairs(mathModule.items) do
-      assert(item.doc.text ~= "", "nupp.math." .. item.name .. " has no documentation")
-      for _, param in ipairs(item.params) do
-         assert(param.text ~= "", "nupp.math." .. item.name .. " parameter "
-            .. param.name .. " has no documentation")
-      end
-      for index, result in ipairs(item.returns) do
-         assert(result.text ~= "", "nupp.math." .. item.name .. " return "
-            .. index .. " has no documentation")
-      end
-   end
-
-   local expected = {MathLibrary = true, Vec2Library = true}
-   local found = {}
-   for _, item in ipairs(module.items) do
-      if expected[item.name] then
-         found[item.name] = true
-         local prefix = "nupp." .. item.name
-         assert(item.doc.text ~= "", prefix .. " has no documentation")
-         for _, member in ipairs(item.members) do
-            assert(member.text ~= "", prefix .. "." .. member.name
-               .. " has no documentation")
-            for _, param in ipairs(member.params) do
-               assert(param.text ~= "", prefix .. "." .. member.name .. " parameter "
-                  .. param.name .. " has no documentation")
-            end
-            for index, result in ipairs(member.returns) do
-               assert(result.text ~= "", prefix .. "." .. member.name .. " return "
-                  .. index .. " has no documentation")
-            end
+   assert(vec2Module, "the prelude did not synthesize nupp.math.vec2")
+   assert(#vec2Module.items > 0, "nupp.math.vec2 has no operations")
+   local function assertDocumented(documentedModule)
+      for _, item in ipairs(documentedModule.items) do
+         assert(item.doc.text ~= "", documentedModule.name .. "." .. item.name
+            .. " has no documentation")
+         for _, param in ipairs(item.params) do
+            assert(param.text ~= "", documentedModule.name .. "." .. item.name
+               .. " parameter " .. param.name .. " has no documentation")
+         end
+         for index, result in ipairs(item.returns) do
+            assert(result.text ~= "", documentedModule.name .. "." .. item.name
+               .. " return " .. index .. " has no documentation")
          end
       end
    end
-   for name in pairs(expected) do
-      assert(found[name], "the prelude did not document nupp." .. name)
+   assertDocumented(mathModule)
+   assertDocumented(vec2Module)
+   for _, item in ipairs(mathModule.items) do
+      assert(item.name ~= "vec2", "vec2 must be a nested module, not a value")
+   end
+   for _, item in ipairs(module.items) do
+      assert(item.name ~= "MathLibrary" and item.name ~= "Vec2Library",
+         "math implementation library types must stay out of public docs")
    end
 end
 

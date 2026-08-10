@@ -346,10 +346,11 @@ local function recordNamed(blocks, targetName)
 end
 
 -- The modules `@namespace` implies: one per field of the tagged shape, named `prefix.
--- field`, holding that field's own fields as top-level items. An inline shape reads its
--- fields directly; a field spelled as a name is followed to the record of that name in
--- the same file, when there is one. A field answering to neither is left out rather than
--- guessed at.
+-- field`, holding that field's own fields as top-level items. A field inside one of
+-- those modules may carry `@namespace` itself, which moves it from the parent's values
+-- into a child module by the same rule. An inline shape reads its fields directly; a
+-- field spelled as a name is followed to the record of that name in the same file, when
+-- there is one. A field answering to neither is left out rather than guessed at.
 local function byKindThenName(left, right)
     if left.kind == right.kind then
         return left.name < right.name
@@ -359,34 +360,49 @@ end
 
 local function namespaceChildren(shape, prefix, path, blocks, includePrivate)
     local modules = {}
-    for _, field in ipairs(shape.fields or {}) do
-        if field.kind == "tshapeField" then
-            local childName = prefix .. "." .. field.name.text
-            local entries = nil
-            if field.type and field.type.kind == "tshape" then
-                entries = field.type.fields
-            elseif field.type and field.type.kind == "tname" then
-                local record = recordNamed(blocks, syntax(field.type))
-                entries = record and record.entries
-            end
-            if entries then
-                local items = {}
-                for _, entry in ipairs(entries) do
-                    if entry.kind == "fieldDecl" or entry.kind == "tshapeField" then
-                        local item = fieldItem(entry, childName, includePrivate)
-                        if item then
-                            items[#items + 1] = item
-                        end
+    local function entriesOf(field)
+        if field.type and field.type.kind == "tshape" then
+            return field.type.fields
+        elseif field.type and field.type.kind == "tname" then
+            local record = recordNamed(blocks, syntax(field.type))
+            return record and record.entries
+        end
+
+        return nil
+    end
+
+    local function addModule(field, parentName)
+        local entries = entriesOf(field)
+        if not entries then
+            return
+        end
+        local childName = parentName .. "." .. field.name.text
+        local items = {}
+        for _, entry in ipairs(entries) do
+            if entry.kind == "fieldDecl" or entry.kind == "tshapeField" then
+                local info = parseDoc(docLines(entry))
+                if info.tags.namespace and entriesOf(entry) then
+                    addModule(entry, childName)
+                else
+                    local item = fieldItem(entry, childName, includePrivate)
+                    if item then
+                        items[#items + 1] = item
                     end
                 end
-                table.sort(items, byKindThenName)
-                modules[#modules + 1] = {
-                    name = childName,
-                    path = path,
-                    text = parseDoc(docLines(field)).text,
-                    items = items,
-                }
             end
+        end
+        table.sort(items, byKindThenName)
+        modules[#modules + 1] = {
+            name = childName,
+            path = path,
+            text = parseDoc(docLines(field)).text,
+            items = items,
+        }
+    end
+
+    for _, field in ipairs(shape.fields or {}) do
+        if field.kind == "tshapeField" then
+            addModule(field, prefix)
         end
     end
 
