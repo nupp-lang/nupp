@@ -113,9 +113,18 @@ jobs:
           call "%GITHUB_WORKSPACE%\.github\workflows\msvc.cmd" || exit /b 1
           cd /d "%RUNNER_TEMP%\lua-cjson"
           mkdir "%GITHUB_WORKSPACE%\.rocks\lib\lua\5.1" 2>nul
-          cl /nologo /O2 /LD /I "%RUNNER_TEMP%\luajit\src" lua_cjson.c strbuf.c fpconv.c ^
-            /link "%RUNNER_TEMP%\luajit\src\lua51.lib" ^
-            /out:"%GITHUB_WORKSPACE%\.rocks\lib\lua\5.1\cjson.dll"
+          cl /nologo /O2 /LD /Fe:cjson.dll /I "%RUNNER_TEMP%\luajit\src" ^
+            lua_cjson.c strbuf.c fpconv.c ^
+            /link "%RUNNER_TEMP%\luajit\src\lua51.lib" || exit /b 1
+          if not exist cjson.dll (
+            echo lua-cjson built no cjson.dll 1>&2
+            exit /b 1
+          )
+          copy /Y cjson.dll "%GITHUB_WORKSPACE%\.rocks\lib\lua\5.1\cjson.dll" >nul || exit /b 1
+          if not exist "%GITHUB_WORKSPACE%\.rocks\lib\lua\5.1\cjson.dll" (
+            echo cjson.dll was not staged in the project rock tree 1>&2
+            exit /b 1
+          )
 
       # `bin/nupp` puts .rocks on the interpreter's path itself, so the tree
       # above is all the placement this needs.
