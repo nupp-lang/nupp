@@ -182,6 +182,64 @@ local cache: {[Type]: {[Type]: boolean | string}} = setmetatable({}, {__mode = "
 
 local isA: function(a: Type, b: Type): (boolean, string?)
 
+--- Whether `a` answers every associated type `b` is owed.
+---
+--- Members can be satisfied structurally, and a declared `is` edge is trusted to fill
+--- them at run time. An answer is different: it is a type, nothing registers one
+--- later, and a structural value has nowhere to put it. So an interface carrying
+--- requirements is nominal at this part, and both the declared edge and the structural
+--- path have to ask.
+---
+--- Required lazily, as the generic path below is: `associated` reaches this module
+--- through `generics`.
+local function associatedAnswersFit(a: Type, b: Type): boolean, string?
+    local associated = require("nupp.compiler.associated")
+    local owed = associated.requirementNames(b)
+    if #owed == 0 then
+        return true, nil
+    end
+    if a.tag ~= "nominal" then
+        return false, (
+            "%s is not a %s (it declares associated types, which a structural value cannot answer)"
+        ):format(T.tostring(a), T.tostring(b))
+    end
+    if (a as T.Nominal).declKind == "interface" then
+        -- An interface answers nothing itself. It stands for one by taking its
+        -- contract, and its implementors are the ones held to the answers.
+        if associated.declares(a, b) then
+            return true, nil
+        end
+
+        return false, (
+            "%s is not a %s (it does not declare that contract, and an interface answers nothing itself)"
+        ):format(T.tostring(a), T.tostring(b))
+    end
+    for _, name in ipairs(owed) do
+        local found = associated.lookup(a, name)
+        if not found.gradual then
+            if not found.resolved then
+                return false, ("%s is not a %s (%s is %s)"):format(
+                    T.tostring(a),
+                    T.tostring(b),
+                    name,
+                    found.reason or "unanswered"
+                )
+            end
+            if found.bound and not isA(found.resolved, found.bound) then
+                return false, ("%s is not a %s (%s = %s does not fit %s)"):format(
+                    T.tostring(a),
+                    T.tostring(b),
+                    name,
+                    T.tostring(found.resolved),
+                    T.tostring(found.bound)
+                )
+            end
+        end
+    end
+
+    return true, nil
+end
+
 --- The plain form of a negative answer, when no detail helps.
 local function fail(a: Type, b: Type): boolean, string?
     return false, ("%s is not a %s"):format(T.tostring(a), T.tostring(b))
@@ -556,7 +614,9 @@ local function check(a: Type, b: Type): boolean, string?
     elseif atag == "nominal" then
         for _, parent in ipairs(a.supertypes or {}) do
             if parent == b or isA(parent, b) then
-                return true
+                -- Trusted for the members; the answers are still proved, because
+                -- nothing registers a type later.
+                return associatedAnswersFit(a, b)
             end
         end
     end
@@ -664,6 +724,10 @@ local function check(a: Type, b: Type): boolean, string?
     -- member function's receiver is not compared, since each implementation names
     -- itself there.
     if btag == "nominal" and b.declKind == "interface" and b.byname then
+        local answersFit, answersWhy = associatedAnswersFit(a, b)
+        if not answersFit then
+            return false, answersWhy
+        end
         if (atag == "nominal" or atag == "shape") and a.byname then
             local ok, why = propertiesFit(a, b)
             if not ok then
@@ -1005,5 +1069,23 @@ isA = function(a: Type, b: Type): boolean, string?
 end
 
 relations.isA = isA
+
+--- `associated.lookup` with the fitness question answered.
+---
+--- The core is relation-free so that this module can consume it; a checker wanting the
+--- convenient `unfit` verdict asks here, where the subtyping relation is already in
+--- hand.
+---
+--- @param head what the projection is reached through
+--- @param name the associated member
+function relations.associatedLookup(head: T.Type, name: string): T.AssociatedLookup
+    local associated = require("nupp.compiler.associated")
+    local found = associated.lookup(head, name)
+    if found.reason == nil and found.resolved and found.bound and not isA(found.resolved, found.bound) then
+        found.reason = "unfit"
+    end
+
+    return found
+end
 
 return relations

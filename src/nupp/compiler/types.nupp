@@ -426,6 +426,53 @@ record types.AssociatedAnswer
     definition: any
 end
 
+--- One requirement a head reaches, with the contract that stated it.
+record types.AssociatedReached
+    requirement: types.AssociatedRequirement
+
+    --- The declaration the requirement was found on.
+    from: types.Type
+end
+
+--- Why a projection is not usable. Absent when it is.
+---
+--- `unprojectable` -- the head carries no contracts to project through: an unbounded
+--- binder, a shape, a primitive. `unknown` -- it carries some, and none states this
+--- name. `incomplete` -- a union alternative does not state it. `missing` -- the
+--- requirement is there and nothing answers it. `conflict` -- several contracts
+--- default it differently, so the answer has to be written. `unfit` -- the answer
+--- does not satisfy every bound, which only a caller holding the subtyping relation
+--- can decide, so nothing here ever sets it.
+type types.AssociatedReason = 'unprojectable' | 'unknown' | 'incomplete' | 'missing' | 'conflict' | 'unfit'
+
+--- What a projection through a head, for one name, resolves to.
+record types.AssociatedLookup
+    --- Every distinct requirement of that name, deduplicated by identity.
+    requirements: {types.AssociatedReached}
+
+    --- What one answer has to satisfy: every non-empty bound intersected, or united
+    --- across the alternatives of a union head. Absent when nothing constrained it.
+    bound: types.Type?
+
+    --- What answers it, once explicit answers and defaults have been settled.
+    answer: types.AssociatedAnswer?
+
+    --- The distinct defaults in play, when no explicit answer settled it. More than
+    --- one is a conflict rather than a choice.
+    defaults: {types.AssociatedAnswer}
+
+    --- The answer's type with its own `self` rebound to this head, which is the type
+    --- a projection reduces to. Absent when nothing answers.
+    resolved: types.Type?
+
+    --- Set when the head was gradual. A projection only reaches that state by having
+    --- been valid and then materialized, so it is not a reason -- it is the feature
+    --- declining to say anything.
+    gradual: boolean?
+
+    reason: types.AssociatedReason?
+end
+
 --- A declared type: record, interface or struct. One identity per declaration, never
 --- shared with another declaration of the same shape.
 record types.Nominal

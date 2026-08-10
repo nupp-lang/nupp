@@ -104,15 +104,21 @@ function M.independentContractsWithOneNameCoalesce()
    boundHas(found, "intersection", NAMED, COUNTED)
 end
 
+-- Fitness is the caller's question: the core lookup is relation-free so that
+-- `relations` can consume it, and `relations.associatedLookup` is where the verdict
+-- comes back with `unfit` filled in.
 function M.anAnswerIsCheckedAgainstEveryBound()
+   local relations = require("nupp.compiler.relations")
    local a = decl("A2", {requires = {{"Item", NAMED}}})
    local b = decl("B2", {requires = {{"Item", COUNTED}}})
    local both = T.intersection({NAMED, COUNTED})
    local good = impl("Good", {is = {a, b}, answers = {Item = {type = both}}})
-   assertEq(associated.lookup(good, "Item").reason, nil, "an answer fitting both")
+   assertEq(relations.associatedLookup(good, "Item").reason, nil, "an answer fitting both")
    local half = impl("Half", {is = {a, b}, answers = {Item = {type = NAMED}}})
-   assertEq(associated.lookup(half, "Item").reason, "unfit",
+   assertEq(relations.associatedLookup(half, "Item").reason, "unfit",
       "an answer satisfying one contract and not the other")
+   assertEq(associated.lookup(half, "Item").reason, nil,
+      "the core decided fitness, which would be the cycle")
 end
 
 function M.aSingleDefaultIsInherited()
@@ -269,10 +275,11 @@ function M.boundsFollowGenericInstantiation()
    good.supertypes = {ofNamed}
    good.associatedAnswers = {Item = {type = NAMED}}
    assertEq(associated.lookup(good, "Item").reason, nil)
+   local relations = require("nupp.compiler.relations")
    local bad = T.nominal("Bad2", "record")
    bad.supertypes = {ofNamed}
    bad.associatedAnswers = {Item = {type = T.string}}
-   assertEq(associated.lookup(bad, "Item").reason, "unfit")
+   assertEq(relations.associatedLookup(bad, "Item").reason, "unfit")
 end
 
 -- The normalizer reduces projections and the query answers about them, and they
