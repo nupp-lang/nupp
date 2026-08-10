@@ -134,6 +134,16 @@ jobs:
           ./bin/nupp --help
           test ! -f build/lib/nupp_native
 
+      # Diagnostic only, and Windows only, because that is where they differ.
+      # `check` reaches the project through `project.check`; `build` reaches it
+      # through `project.build`. On a cold tree both compile the compiler first,
+      # so this asks whether the 624 belong to the wrapper or to what follows it.
+      - name: Check before build
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: bash
+        run: ./bin/nupp check
+
       # Separated from `check` so a build that does not finish is attributable
       # to itself rather than read backwards from whatever the checker then said
       # about a half-emitted tree.
