@@ -1,0 +1,61 @@
+-- Materialization facts retained by build records and exposed in bounded JSON form.
+
+local cst = require("nupp.compiler.cst")
+
+local record observe
+    collect: function(any, string?): {any}
+    public: function({any}?): {any}
+end
+
+local function copyPublic(entry)
+    return {
+        source = entry.source,
+        line = entry.line,
+        column = entry.column,
+        provider = entry.provider,
+        schema = entry.schema,
+        fingerprint = entry.fingerprint,
+        backend = entry.backend,
+        blueprintSize = entry.blueprintSize,
+        generatedSize = entry.generatedSize,
+        runtimeFeatures = entry.runtimeFeatures,
+        abis = entry.abis,
+    }
+end
+
+--- Collects materialized expressions in source order. The full records deliberately
+--- retain canonical blueprints and rendered backend outputs for the manifest cache.
+function observe.collect(root: any, filename: string?): {any}
+    local found = {}
+    local function walk(node)
+        if not node or cst.isToken(node) then
+            return
+        end
+        if node.materializationObservation then
+            local token = cst.firstToken(node)
+            local entry = node.materializationObservation
+            entry.source = filename
+            entry.line = token and token.line or 1
+            entry.column = token and token.col or 1
+            found[#found + 1] = entry
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+    walk(root)
+
+    return found
+end
+
+--- Removes the cache payloads before records cross the command-line JSON boundary.
+function observe.public(entries: {any}?): {any}
+    local out = {}
+    for index, entry in ipairs(entries or {}) do
+        out[index] = copyPublic(entry)
+    end
+
+    return out
+end
+
+return observe

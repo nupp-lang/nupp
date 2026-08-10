@@ -11,7 +11,7 @@ work makes sense in.
       the rest is below. Reach for it for a program that needs a generated
       table, not for one that wants a constant: those keep turning out to have
       cheaper answers, `OPT-3` having since taken `//` and the bit operators.
-  - [ ] Materialization M0: run the standalone handwritten specialized PEG and
+  - [x] Materialization M0: run the standalone handwritten specialized PEG and
         pure-Lua reference-machine benchmark now. It has no comptime milestone
         prerequisite. Record workloads and numeric margins before measuring;
         delete the specialized-backend milestone if it misses that margin.
@@ -24,11 +24,16 @@ work makes sense in.
         `layoutof` answers the same question at run time through the FFI,
         because sizes belong to the running platform and not the compiling one.
         A separate project rather than the step after C1.
-  - [ ] C3: `@comptime` functions with ordinary type checking, erased runtime
+  - [x] C3: `@comptime` functions with ordinary type checking, erased runtime
         output, bounded recursion, and comptime call stacks. File-private at
         first, but cross-module helpers are an expected extension; helpers
         taking a `TypeInfo` need nothing from the generic system.
-  - [ ] C4: move the landed direct evaluator behind an isolated worker, then
+  - [ ] C4: the evaluator now runs behind an isolated worker with step, call,
+        wall-clock, result, protocol and best-effort process-memory limits;
+        crashes are recovered and canonical materialization products persist in
+        manifest build records. True request cancellation and a non-blocking LSP
+        process host remain, and are blocked on the suspension/process work.
+        Originally: move the landed direct evaluator behind an isolated worker, then
         add the remaining resource limits, cancellation, LSP hardening, and
         eventual manifest build-cache persistence. Wants
         [suspension](suspension.md) and a real process library under it: a
@@ -45,6 +50,9 @@ work makes sense in.
         Order the work as C4's worker floor, then M1–M3; M4 additionally needs
         C3, then M5 and the M0-approved M6. C2a and M3 unlock the field-codec
         provider M7. C2a does not block PEG.
+        M1–M7 and the persistent/observability/resource-limit portions of M8
+        have landed. The remaining closure is the full C2a descriptor vocabulary,
+        cancellation/non-blocking LSP work above, and the external tecs corpus run.
 - [ ] **Type-level computation**
       ([design](type-level-computation.md)): a checker-native, type-to-type
       reducer for dependent API surfaces. It is separate from comptime: share

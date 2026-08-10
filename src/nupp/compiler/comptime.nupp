@@ -35,6 +35,8 @@ local isToken = cst.isToken
 local MAX_EXACT_INTEGER = 9007199254740991
 local MAX_STEPS = 100000
 local MAX_CALL_DEPTH = 128
+local MAX_RESULT_BYTES = 512 * 1024
+local MAX_RESULT_ITEMS = 10000
 
 -- A raised evaluation failure. Errors travel as a table so a `pcall` boundary can tell
 -- one of ours from a genuine evaluator bug, which should not be reported as the user's
@@ -127,6 +129,10 @@ end
 --- rather
 --- than a difference to discover.
 local function quote(value, node, seen, state)
+    state.quoteItems = (state.quoteItems or 0) + 1
+    if state.quoteItems > MAX_RESULT_ITEMS then
+        fail("NUPP2416", node, "comptime result exceeds the 10000-item result limit")
+    end
     local kind = type(value)
     if value == nil then
         return "nil"
@@ -185,6 +191,14 @@ end
 --- Quotes a finished value, or raises saying why it cannot be written down.
 local function quoteValue(value, node, state)
     return quote(value, node, {}, state)
+end
+
+local function boundedString(value, what)
+    if type(value) == "string" and #value > MAX_RESULT_BYTES then
+        error(("%s exceeds the %d-byte comptime value limit"):format(what, MAX_RESULT_BYTES), 0)
+    end
+
+    return value
 end
 
 -- The library surface, named function by function.
@@ -270,7 +284,40 @@ local function buildEnvironment(state)
         pi = math.pi,
     }
 
-    env.string = {byte = string.byte, char = string.char, find = string.find, format = string.format, len = string.len, lower = string.lower, match = string.match, rep = string.rep, reverse = string.reverse, sub = string.sub, upper = string.upper,
+    env.string = {
+        byte = function(subject, first, last)
+            first = first or 1
+            last = last or first
+            if last - first + 1 > MAX_RESULT_ITEMS then
+                error("string.byte exceeds the 10000-value comptime result limit", 0)
+            end
+            return string.byte(subject, first, last)
+        end,
+        char = function(...) return boundedString(string.char(...), "string.char result") end,
+        find = string.find,
+        format = function(format, ...)
+            if type(format) == "string" then
+                for width in format:gmatch("%%[^%%]-([0-9]+)") do
+                    if tonumber(width) and tonumber(width) > MAX_RESULT_BYTES then
+                        error("string.format width exceeds the comptime value limit", 0)
+                    end
+                end
+            end
+            return boundedString(string.format(format, ...), "string.format result")
+        end,
+        len = string.len,
+        lower = function(value) return boundedString(string.lower(value), "string.lower result") end,
+        match = string.match,
+        rep = function(value, count)
+            if type(value) == "string" and type(count) == "number"
+                and count > 0 and #value * count > MAX_RESULT_BYTES then
+                error("string.rep result exceeds the comptime value limit", 0)
+            end
+            return boundedString(string.rep(value, count), "string.rep result")
+        end,
+        reverse = function(value) return boundedString(string.reverse(value), "string.reverse result") end,
+        sub = function(...) return boundedString(string.sub(...), "string.sub result") end,
+        upper = function(value) return boundedString(string.upper(value), "string.upper result") end,
         --- Only the string replacement. A function or table replacement would call back
         --- into the evaluator from inside a C function, which the walker has no frame
         --- for and no budget over.
@@ -278,15 +325,39 @@ local function buildEnvironment(state)
         if type(replacement) ~= "string" and type(replacement) ~= "number" then
             error("gsub needs a string replacement at comptime", 0)
         end
+        local replacementText = tostring(replacement)
+        if type(subject) == "string" and #subject * math.max(1, #replacementText) > MAX_RESULT_BYTES then
+            error("string.gsub result may exceed the comptime value limit", 0)
+        end
 
-        return string.gsub(subject, pattern, replacement, n)
+        local value, count = string.gsub(subject, pattern, replacement, n)
+        return boundedString(value, "string.gsub result"), count
     end, gmatch = string.gmatch,}
 
     -- `clone` is written out rather than borrowed, because the compiler runs on a
     -- LuaJIT that has no such function: what generated code gets is a helper gen
     -- emits, and this is the same one level of copying, evaluated here instead.
     env.table = {
-        concat = table.concat,
+        concat = function(values, separator, first, last)
+            separator = separator or ""
+            first = first or 1
+            last = last or #values
+            local bytes = math.max(0, last - first) * #separator
+            for index = first, last do
+                local value = values[index]
+                if type(value) ~= "string" and type(value) ~= "number" then
+                    return table.concat(values, separator, first, last)
+                end
+                bytes = bytes + #tostring(value)
+                if bytes > MAX_RESULT_BYTES then
+                    error("table.concat result exceeds the comptime value limit", 0)
+                end
+            end
+            return boundedString(
+                table.concat(values, separator, first, last),
+                "table.concat result"
+            )
+        end,
         insert = table.insert,
         remove = table.remove,
         clone = function(t)
@@ -484,6 +555,7 @@ local function callValues(state, node, callee, args)
     local values = {n = produced.n - 1}
     for index = 2, produced.n do
         values[index - 1] = produced[index]
+        boundedString(values[index - 1], "comptime call result")
     end
 
     return values
@@ -679,6 +751,9 @@ evalExpr = function(state, node)
                 -- cannot disagree about a quotient no double holds exactly.
                 answer = math.floor(left / right)
             elseif op == ".." then
+                if #tostring(left) + #tostring(right) > MAX_RESULT_BYTES then
+                    fail("NUPP2416", node, "concatenated comptime value exceeds 524288 bytes")
+                end
                 answer = left .. right
             elseif op == "==" then
                 answer = left == right
@@ -749,6 +824,13 @@ evalExpr = function(state, node)
                 pieces[#pieces + 1] = state.env.tostring(evalExpr(state, child))
             end
         end
+        local bytes = 0
+        for _, piece in ipairs(pieces) do
+            bytes = bytes + #piece
+        end
+        if bytes > MAX_RESULT_BYTES then
+            fail("NUPP2416", node, "interpolated comptime value exceeds 524288 bytes")
+        end
         answer = table.concat(pieces)
     elseif kind == "dotIndex" or kind == "safeIndex" then
         local object = evalExpr(state, node.obj)
@@ -800,6 +882,10 @@ evalExpr = function(state, node)
         unsupported(node, "a nested comptime block")
     else
         unsupported(node, ("a %s expression"):format(tostring(kind)))
+    end
+
+    if type(answer) == "string" and #answer > MAX_RESULT_BYTES then
+        fail("NUPP2416", node, "comptime value exceeds the 524288-byte result limit")
     end
 
     return answer
@@ -978,6 +1064,9 @@ execStatement = function(state, stat)
         elseif base == "//" then
             answer = math.floor(current / operand)
         elseif base == ".." then
+            if #tostring(current) + #tostring(operand) > MAX_RESULT_BYTES then
+                fail("NUPP2416", stat, "concatenated comptime value exceeds 524288 bytes")
+            end
             answer = current .. operand
         elseif base == "??" then
             answer = current == nil and operand or current
@@ -1249,6 +1338,7 @@ function comptime.evaluateDirect(
         return nil, nil, nil, envelope
     end
     local quoted
+    state.quoteItems = 0
     ok, quoted = pcall(quoteValue, state.result, node, state)
     if not ok then
         if type(quoted) == "table" and quoted[FAILURE] then
@@ -1256,6 +1346,14 @@ function comptime.evaluateDirect(
         end
 
         return nil, nil, {code = "NUPP2413", node = node, message = tostring(quoted)} as comptime.Failure
+    end
+    if #quoted > MAX_RESULT_BYTES then
+        return nil, nil, {
+            code = "NUPP2416",
+            node = node,
+            message = "quoted comptime result exceeds the 524288-byte result limit",
+            help = "materialize a smaller value or construct it at run time",
+        } as comptime.Failure
     end
 
     return quoted as string, typeOf(state.result), nil

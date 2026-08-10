@@ -17,7 +17,11 @@ local process = {}
 type process.Options = {
     cwd: string?,
     env: {[string]: string}?,
-    timeoutMs: integer?
+    timeoutMs: integer?,
+
+    --- POSIX child address-space ceiling. Used for compiler workers whose inputs may
+    --- ask for large allocations; absent for ordinary subprocesses.
+    memoryMb: integer?
 }
 
 local windows = package.config:sub(1, 1) == "\\"
@@ -153,7 +157,12 @@ function process.captureIsolated(argv: {string}, opts: process.Options?): intege
     local outputPath, pidPath = os.tmpname(), os.tmpname()
     os.remove(pidPath)
     local command = process.command(argv, opts)
-        .. " >" .. quote(outputPath) .. " 2>&1 & echo $! >" .. quote(pidPath)
+    if opts.memoryMb then
+        local kilobytes = math.max(1, math.floor(opts.memoryMb * 1024))
+        command = "(ulimit -v " .. tostring(kilobytes)
+            .. " 2>/dev/null || true; " .. command .. ")"
+    end
+    command = command .. " >" .. quote(outputPath) .. " 2>&1 & echo $! >" .. quote(pidPath)
     local launched = exitCode(os.execute(command))
     if launched ~= 0 then
         os.remove(outputPath)

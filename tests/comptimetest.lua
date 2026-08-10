@@ -310,6 +310,42 @@ function M.recoversWhenTheWorkerCrashes()
       "the parent converts a worker crash into one failure")
 end
 
+function M.boundsAComptimeStringSizeBomb()
+   local codes, diags = errorsOf(
+      [[return comptime do return string.rep("x", 600000) end]]
+   )
+   assert(codes[1] == "NUPP2412" or codes[1] == "NUPP2416",
+      "the string allocation is bounded")
+   local message = diags[1] and diags[1].msg or ""
+   assertTrue(message:find("limit", 1, true) ~= nil,
+      "the diagnostic names the size limit: " .. message)
+end
+
+function M.boundsAComptimeResultGraph()
+   local codes = errorsOf([[
+return comptime do
+    local values = {}
+    for index = 1, 12000 do values[index] = index end
+    return values
+end
+]])
+   assertEq(codes[1], "NUPP2416", "the final value graph has an item limit")
+end
+
+function M.boundsComptimeHelperRecursion()
+   local codes, diags = errorsOf([[
+@comptime local function descend(value: number): number
+    if value == 0 then return 0 end
+    return descend(value - 1)
+end
+return comptime do return descend(200) end
+]])
+   assertEq(codes[1], "NUPP2412", "helper recursion has a frame limit")
+   local message = diags[1] and diags[1].msg or ""
+   assertTrue(message:find("128 frames", 1, true) ~= nil,
+      "the diagnostic names the recursion bound: " .. message)
+end
+
 function M.materializesACyclicOpaqueGraphAtAnExplicitBoundary()
    local src = [[
 const graph: nupp.__MaterializedTest = comptime do

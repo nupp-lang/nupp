@@ -17,6 +17,7 @@ local diagnosticMod = require("nupp.compiler.diagnostics")
 local fs = require("nupp.compiler.fs")
 local cache = require("nupp.compiler.build.cache")
 local deps = require("nupp.compiler.build.deps")
+local materializeObserve = require("nupp.compiler.materialize.observe")
 
 local normalize, join = fs.normalize, fs.join
 local readFile, writeFile = fs.readFile, fs.writeFile
@@ -51,6 +52,8 @@ type modules.Stats = {
 --- caller treat both the same way.
 type modules.Result = {
     outputs: {[string]: boolean},
+
+    materializations: {any},
 
     --- Every native feature the built modules asked for, merged.
     effects: {[string]: any}?
@@ -267,6 +270,7 @@ local function copyModuleRecord(record)
         external = record.external,
         diags = record.diags,
         coverage = record.coverage,
+        materializations = record.materializations,
     }
 end
 
@@ -446,6 +450,7 @@ local function buildModules(
             end
         end
         said[name] = mine
+        local materializations = materializeObserve.collect(result.result and result.result.root, path)
         records[
             name
         ] = {sourceHash = sourceHash, interfaceHash = hash.digest(
@@ -456,7 +461,8 @@ local function buildModules(
             -- Only what checking found. Generation runs once per artifact and a reused
             -- module does not run it again, so its remarks belong to the run that
             -- produced them and not to the record.
-            diags = jsonArray(result.diags or {}), coverage = coverage,}
+            diags = jsonArray(result.diags or {}), coverage = coverage,
+            materializations = jsonArray(materializations),}
         codeFor[name] = code
         reused[name] = nil
         for _, depName in ipairs(depNames) do
@@ -487,6 +493,7 @@ local function buildModules(
                     and type(
                     previous.dependencies
                 ) == "table" and type(previous.effects) == "table" and type(previous.diags) == "table"
+                    and type(previous.materializations) == "table"
                 if usable and previous and not checkOnly and not external then
                     usable = previous.artifactHash and hashFile(output) == previous.artifactHash
                 end
@@ -594,8 +601,14 @@ local function buildModules(
     if fatal then
         return nil, checkFailed and "project has errors" or "code generation failed"
     end
+    local materializations = {}
+    for _, name in ipairs(order) do
+        for _, observation in ipairs(records[name].materializations or {}) do
+            materializations[#materializations + 1] = observation
+        end
+    end
     if checkOnly then
-        return {outputs = {}}
+        return {outputs = {}, materializations = materializations}
     end
 
     -- Every module compiled, with no closure to prune it back to. A stale dependency
@@ -654,7 +667,7 @@ local function buildModules(
         end
     end
 
-    return {outputs = outputs, effects = effects}
+    return {outputs = outputs, effects = effects, materializations = materializations}
 end
 
 modules.typeFingerprint = typeFingerprint

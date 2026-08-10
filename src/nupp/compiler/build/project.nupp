@@ -20,6 +20,7 @@ local modules = require("nupp.compiler.build.modules")
 local packaging = require("nupp.compiler.build.package")
 local storeMod = require("nupp.compiler.build.store")
 local native = require("nupp.compiler.build.native")
+local materializeObserve = require("nupp.compiler.materialize.observe")
 
 local project = {}
 
@@ -337,6 +338,7 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
     if opts.produced then
         opts.produced.target = targetKey
         opts.produced.outputs = mine
+        opts.produced.materializations = materializeObserve.public(result.materializations)
     end
     local ok, stateErr = saveState(statePath, newState)
     if not ok then

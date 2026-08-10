@@ -1111,6 +1111,12 @@ process address, so it would differ between two builds of one file; the
 `tostring` provided answers for scalars and refuses the rest. `pairs` iterates in
 sorted order for the same reason.
 
+Evaluation is isolated from the compiler process and bounded by 100000 evaluator
+steps, 128 helper-call frames, a two-second wall-clock deadline, 524288 result
+bytes, 10000 quoted items, and a 2097152-byte worker protocol. The worker asks
+the host shell for a 256 MiB address-space ceiling where that facility exists.
+A crash, timeout, oversized result, or malformed response fails only that block.
+
 Reusable helpers are file-private local functions annotated `@comptime`. They
 are typechecked like ordinary functions, may call one another and recurse under
 the same step and call-depth budgets as their caller, and are erased from the
@@ -1123,6 +1129,13 @@ Comptime is not a macro system: it produces data, never declarations or source
 text. Declaring a function inside a block remains **NUPP2411**; reusable helpers
 are declared outside the block so their normal types and source identities stay
 part of the file.
+
+`nupp build --json` reports each materialization's source position, provider,
+schema, fingerprint, selected backend, blueprint and generated sizes, runtime
+features, and independently versioned provider-registry, emitter, helper, and
+runtime-expression ABIs. Manifest builds retain the canonical blueprint and
+rendered backend expression as inert data in their content-addressed build
+record; those potentially large internals are omitted from command JSON.
 
 ```nupp
 local m = {}

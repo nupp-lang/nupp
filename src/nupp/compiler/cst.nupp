@@ -109,6 +109,9 @@ interface cst.Hints
     --- The finalized provider envelope retained for hover and build observations.
     materializationEnvelope: any
 
+    --- Versioned provider/backend facts and the cacheable canonical products.
+    materializationObservation: any
+
     --- The immutable semantic descriptor attached to a checked `reflect(T)` call.
     reflectedType: any
 

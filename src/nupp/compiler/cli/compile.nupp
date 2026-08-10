@@ -37,6 +37,9 @@ record compile.Settings
     --- itself as it is found. Same favour `nupp.compiler.build.project` already does.
     diagnostics: {any}?
 
+    --- Public materialization observations collected while checking this command.
+    materializations: {any}?
+
     --- Coverage is a separate generated artifact. It is intentionally absent from
     --- ordinary settings so normal compilation does not even build a site manifest.
     coverage: boolean
@@ -110,6 +113,14 @@ function compile.module(path: string, env: table, settings: compile.Settings): s
     end
     local check = require("nupp.compiler.check")
     local diags = check.check(result, path, env, {strict = settings.strict})
+    if settings.materializations then
+        local observations = require("nupp.compiler.materialize.observe").public(
+            require("nupp.compiler.materialize.observe").collect(result.root, path)
+        )
+        for _, observation in ipairs(observations) do
+            settings.materializations[#settings.materializations + 1] = observation
+        end
+    end
     if say(diags) then
         return nil, "type errors"
     end

@@ -24,6 +24,8 @@ end
 cjson.encode_empty_table_as_object(false)
 cjson.encode_invalid_numbers(false)
 
+local MAX_PROTOCOL_BYTES = 2 * 1024 * 1024
+
 local function read(path)
     local file, err = io.open(path, "rb")
     if not file then
@@ -90,6 +92,10 @@ function worker.main(argv: {string}): integer
     local requestText, readErr = read(requestPath)
     if not requestText then
         io.write(cjson.encode({ok = false, code = "NUPP2412", message = tostring(readErr)}), "\n")
+        return 0
+    end
+    if #requestText > MAX_PROTOCOL_BYTES then
+        io.write(cjson.encode({ok = false, code = "NUPP2416", message = "comptime worker request exceeds 2097152 bytes"}), "\n")
         return 0
     end
     local decoded, request = pcall(cjson.decode, requestText)
@@ -185,17 +191,26 @@ function worker.evaluate(
             }
         end
     end
-    local wrote, writeErr = write(requestPath, cjson.encode({
+    local requestText = cjson.encode({
         source = source,
         reflections = reflections or {},
         helpers = serializedHelpers,
-    }))
+    })
+    if #requestText > MAX_PROTOCOL_BYTES then
+        os.remove(requestPath)
+        return nil, {
+            code = "NUPP2416",
+            message = "comptime worker request exceeds 2097152 bytes",
+            help = "make the reflected schema or helper set smaller",
+        }
+    end
+    local wrote, writeErr = write(requestPath, requestText)
     if not wrote then
         return nil, {code = "NUPP2412", message = "cannot create comptime worker request: " .. tostring(writeErr)}
     end
     local code, output = process.captureIsolated(
         {root .. "/bin/nupp", "__comptime-worker", requestPath},
-        {env = {NUPP_COMPTIME_WORKER_CHILD = "1"}, timeoutMs = 2000}
+        {env = {NUPP_COMPTIME_WORKER_CHILD = "1"}, timeoutMs = 2000, memoryMb = 256}
     )
     os.remove(requestPath)
     if code == 124 then
@@ -203,6 +218,12 @@ function worker.evaluate(
             code = "NUPP2412",
             message = "comptime evaluation exceeded the 2000 ms worker timeout",
             help = "make the computation smaller or move the unbounded work to run time",
+        }
+    end
+    if #output > MAX_PROTOCOL_BYTES then
+        return nil, {
+            code = "NUPP2416",
+            message = "comptime worker response exceeds 2097152 bytes",
         }
     end
     local decoded, response = pcall(cjson.decode, output)

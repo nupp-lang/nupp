@@ -22,8 +22,11 @@ type ir.Failure = {
 }
 
 local record ir
+    ABI: integer
     render: function(any): (string?, ir.Failure?)
 end
+
+ir.ABI = 1
 
 local function quote(value)
     local kind = type(value)

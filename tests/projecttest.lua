@@ -6,6 +6,7 @@ local store = require("nupp.compiler.build.store")
 local nativeStage = require("nupp.compiler.build.native")
 local fs = require("nupp.compiler.fs")
 local compilerEnv = require("nupp.compiler.env")
+local json = require("cjson").new()
 
 local function assertEq(got, want, label)
    if got ~= want then
@@ -153,6 +154,59 @@ function M.isolatedProcessCapturesACompletedResponse()
    )
    assertEq(code, 0, "the completed child succeeds")
    assertEq(output, "worker-ready", "the private output is returned")
+end
+
+function M.isolatedProcessAppliesAMemoryCeilingWhenSupported()
+   if jit.os == "Windows" then return end
+   local code, output = process.captureIsolated(
+      {"sh", "-c", "printf memory-bounded"},
+      {timeoutMs = 1000, memoryMb = 256}
+   )
+   assertEq(code, 0, "the bounded child succeeds")
+   assertEq(output, "memory-bounded", "the bounded child returns its response")
+end
+
+function M.persistsVersionedMaterializationProductsAndObservations()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {include = {"src"}, build = {outDir = "out", entries = {"main"}}}
+]],
+      ["src/main.nupp"] = [[
+const Matcher: nupp.Peg.Matcher<integer> = comptime do
+    return nupp.peg.compile(nupp.peg.literal("ok"))
+end
+return Matcher("ok")
+]],
+   })
+   local cold, coldStats = {}, {}
+   assertEq(project.build(dir, {produced = cold, stats = coldStats}), 0)
+   assertEq(#cold.materializations, 1, "the cold build reports its materialization")
+   local observation = cold.materializations[1]
+   assertEq(observation.provider, "peg", "provider observation")
+   assertEq(observation.schema, 2, "provider schema")
+   assertEq(observation.backend, "machine", "selected backend")
+   assert(observation.blueprintSize > 0 and observation.generatedSize > 0,
+      "bounded sizes are reported")
+   assertEq(observation.abis.runtimeExpression, 1, "runtime-expression ABI")
+   assertEq(observation.blueprint, nil, "the public record omits the canonical payload")
+   assertEq(observation.generated, nil, "the public record omits generated source")
+
+   local state = json.decode(read(dir .. "/out/.nupp-state.json"))
+   local cached = state.modules.main.materializations[1]
+   assert(cached.blueprint and cached.blueprint.fingerprint == observation.fingerprint,
+      "the manifest cache retains the canonical blueprint")
+   assert(type(cached.generated) == "string" and #cached.generated > 0,
+      "the manifest cache retains the backend output")
+   local coldBytes = read(dir .. "/out/main.lua")
+
+   local warm, warmStats = {}, {}
+   assertEq(project.build(dir, {produced = warm, stats = warmStats}), 0)
+   assertEq(warmStats.checkedModules, 0, "the cached build rechecks nothing")
+   assertEq(warm.materializations[1].fingerprint, observation.fingerprint,
+      "the cached build reports the same canonical product")
+   assertEq(read(dir .. "/out/main.lua"), coldBytes,
+      "cold and cached backend output is byte-identical")
+   remove(dir)
 end
 
 function M.manifestValidationRejectsInvalidReferencesAndCycles()

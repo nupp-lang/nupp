@@ -21,7 +21,7 @@ local record peg
     method: function(any, any, string, any, any): (any, peg.Failure?)
     operator: function(any, string, any, any, any): (any, peg.Failure?)
     finalize: function(any, any): (any, peg.Failure?)
-    lower: function(any, any, any): (any, peg.Failure?)
+    lower: function(any, any, any): (any, peg.Failure?, any)
 end
 
 local MAX_NODES = 4096
@@ -966,7 +966,7 @@ local function dataIR(value)
     return {tag = "table", array = array, fields = fields}
 end
 
-function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?
+function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?, any
     if not expected then
         return nil, failure(
             "NUPP2414",
@@ -1003,7 +1003,12 @@ function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?
             tag = "call",
             callee = {tag = "helper", name = "nupp.peg.specialized"},
             args = {dataIR(specialization)},
-        }, nil
+        }, nil, {
+            backend = "specialized",
+            emitterAbi = 1,
+            helperAbi = 1,
+            runtimeFeatures = {"stdlib.peg"},
+        }
     end
     local machine = {
         tag = "call",
@@ -1017,7 +1022,12 @@ function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?
         }},
     }
     if #validated.slots == 0 then
-        return machine, nil
+        return machine, nil, {
+            backend = "machine",
+            emitterAbi = 1,
+            helperAbi = 1,
+            runtimeFeatures = {"stdlib.peg"},
+        }
     end
     machine.args[2] = {tag = "local", id = 1}
 
@@ -1025,7 +1035,12 @@ function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?
         tag = "function",
         params = {1},
         body = {{tag = "return", value = machine}},
-    }, nil
+    }, nil, {
+        backend = "machine",
+        emitterAbi = 1,
+        helperAbi = 1,
+        runtimeFeatures = {"stdlib.peg"},
+    }
 end
 
 return peg

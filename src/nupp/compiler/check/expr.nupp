@@ -24,11 +24,14 @@ local comptime = require("nupp.compiler.comptime") as {
     evaluate: function(any, any, any, any): (string?, any, any, any)
 }
 local materializeProviders = require("nupp.compiler.materialize.providers") as {
-    lower: function(any, any, any): (any, any)
+    ABI: integer,
+    lower: function(any, any, any): (any, any, any)
 }
 local materializeIR = require("nupp.compiler.materialize.ir") as {
+    ABI: integer,
     render: function(any): (string?, any)
 }
+local stable = require("nupp.compiler.build.cache").stable
 
 local expr = {}
 
@@ -208,7 +211,7 @@ function expr.install(c: state.Checker): nil
             return T.any
         end
         if envelope then
-            local lowered, lowerFailure = materializeProviders.lower(
+            local lowered, lowerFailure, lowering = materializeProviders.lower(
                 envelope,
                 node.materializationExpected,
                 c.env
@@ -223,13 +226,32 @@ function expr.install(c: state.Checker): nil
                 )
                 return T.any
             end
-            local _, renderFailure = materializeIR.render(lowered)
+            local rendered, renderFailure = materializeIR.render(lowered)
             if renderFailure then
                 c.diag("NUPP2416", node, renderFailure.message)
                 return T.any
             end
             node.materializedIR = lowered
             node.materializationEnvelope = envelope
+            lowering = lowering or {}
+            node.materializationObservation = {
+                provider = envelope.provider,
+                schema = envelope.schema,
+                fingerprint = envelope.fingerprint,
+                backend = lowering.backend or "direct",
+                blueprintSize = #stable(envelope.payload),
+                generatedSize = #(rendered or ""),
+                runtimeFeatures = lowering.runtimeFeatures or {},
+                abis = {
+                    provider = envelope.schema,
+                    registry = materializeProviders.ABI,
+                    emitter = lowering.emitterAbi or 1,
+                    helper = lowering.helperAbi or 0,
+                    runtimeExpression = materializeIR.ABI,
+                },
+                blueprint = envelope,
+                generated = rendered,
+            }
 
             return node.materializationExpected or T.any
         end

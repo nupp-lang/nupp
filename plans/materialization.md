@@ -1,5 +1,19 @@
 # Comptime materialization
 
+## Implementation status
+
+M0 through M7 are implemented. The specialized PEG backend cleared the frozen
+1.50x gate at a 3.04x geometric mean, and the second provider is a reflected,
+typed keyed field codec. M8 now persists canonical blueprints and rendered
+backend expressions, versions provider/helper/emitter/runtime-expression ABIs,
+reports bounded observations from JSON builds, and enforces evaluator, call,
+wall-clock, result, protocol, IR and provider limits.
+
+The remaining work is deliberately outside the closed materialization core:
+complete C2a's reflection schema beyond the landed record-field slice, replace
+the synchronous LSP wait with cancellable process suspension, and run the
+field-codec provider against the external tecs acceptance corpus.
+
 ## Decision
 
 Nupp will let a `comptime do ... end` block return a compiler-owned opaque

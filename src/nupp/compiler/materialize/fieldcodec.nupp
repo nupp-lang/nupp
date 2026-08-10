@@ -11,7 +11,7 @@ type fieldcodec.Failure = {
 local record fieldcodec
     installEvaluator: function(any, any, any, any)
     finalize: function(any, any): (any, fieldcodec.Failure?)
-    lower: function(any, any, any): (any, fieldcodec.Failure?)
+    lower: function(any, any, any): (any, fieldcodec.Failure?, any)
 end
 
 local function failure(code, message, help)
@@ -87,7 +87,7 @@ local function dataArray(values)
     return {tag = "table", array = out}
 end
 
-function fieldcodec.lower(envelope: any, expected: any, env: any): any, fieldcodec.Failure?
+function fieldcodec.lower(envelope: any, expected: any, env: any): any, fieldcodec.Failure?, any
     if envelope.schema ~= 1 or envelope.family ~= "KeyedCodecBlueprint"
         or type(envelope.payload) ~= "table" or type(envelope.payload.fields) ~= "table"
         or type(envelope.payload.typeFingerprint) ~= "string"
@@ -129,7 +129,12 @@ function fieldcodec.lower(envelope: any, expected: any, env: any): any, fieldcod
         tag = "call",
         callee = {tag = "helper", name = "nupp.fieldcodec.keyed"},
         args = {dataArray(fields), {tag = "literal", value = fingerprint}},
-    }, nil
+    }, nil, {
+        backend = "keyed",
+        emitterAbi = 1,
+        helperAbi = 1,
+        runtimeFeatures = {"stdlib.fieldcodec"},
+    }
 end
 
 return fieldcodec

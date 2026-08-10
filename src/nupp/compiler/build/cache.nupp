@@ -55,7 +55,11 @@ type cache.ModuleRecord = {
 
     --- What checking the module had to say, kept so that reusing the record says it
     --- again rather than reporting a clean file.
-    diags: {any}?
+    diags: {any}?,
+
+    --- Canonical provider blueprints and rendered backend outputs, with public build
+    --- observations alongside them. Plain data only; never evaluator handles.
+    materializations: {any}?
 }
 
 --- What one dependency's last build produced, as its provider described it.

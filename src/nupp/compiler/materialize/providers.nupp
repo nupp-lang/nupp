@@ -14,12 +14,12 @@ local peg = require("nupp.compiler.materialize.peg") as {
     method: function(any, any, string, any, any): (any, any),
     operator: function(any, string, any, any, any): (any, any),
     finalize: function(any, any): (any, any),
-    lower: function(any, any, any): (any, any)
+    lower: function(any, any, any): (any, any, any)
 }
 local fieldcodec = require("nupp.compiler.materialize.fieldcodec") as {
     installEvaluator: function(any, any, any, any),
     finalize: function(any, any): (any, any),
-    lower: function(any, any, any): (any, any)
+    lower: function(any, any, any): (any, any, any)
 }
 
 type providers.Failure = {
@@ -29,14 +29,17 @@ type providers.Failure = {
 }
 
 local record providers
+    ABI: integer
     installEvaluator: function(any, any)
     reflect: function(any, any, any): any
     isOpaque: function(any, any): boolean
     method: function(any, any, string, any, any): (any, providers.Failure?)
     operator: function(any, string, any, any, any): (any, providers.Failure?)
     finalize: function(any, any): (any, providers.Failure?)
-    lower: function(any, any, any): (any, providers.Failure?)
+    lower: function(any, any, any): (any, providers.Failure?, any)
 end
+
+providers.ABI = 1
 
 local function provenance(node, operation)
     local token = cst.firstToken(node)
@@ -262,7 +265,7 @@ end
 
 --- Validates the worker envelope, checks the provider's explicit expected-type
 --- relation, and returns structured runtime-expression IR.
-function providers.lower(envelope: any, expected: any, env: any): any, providers.Failure?
+function providers.lower(envelope: any, expected: any, env: any): any, providers.Failure?, any
     if type(envelope) ~= "table" or envelope.kind ~= "materialized"
         or type(envelope.provider) ~= "string" or type(envelope.schema) ~= "number"
         or type(envelope.fingerprint) ~= "string" then
@@ -312,7 +315,12 @@ function providers.lower(envelope: any, expected: any, env: any): any, providers
                     },
                 },
             }},
-        }, nil
+        }, nil, {
+            backend = "direct",
+            emitterAbi = 1,
+            helperAbi = 0,
+            runtimeFeatures = {},
+        }
     elseif expected ~= target then
         return nil, {
             code = "NUPP2415",
@@ -334,7 +342,12 @@ function providers.lower(envelope: any, expected: any, env: any): any, providers
             {name = "value", value = {tag = "literal", value = sum}},
             {name = "nodes", value = {tag = "literal", value = #envelope.payload.values}},
         },
-    }, nil
+    }, nil, {
+        backend = "direct",
+        emitterAbi = 1,
+        helperAbi = 0,
+        runtimeFeatures = {},
+    }
 end
 
 return providers
