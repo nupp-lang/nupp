@@ -290,6 +290,63 @@ function M.noMethodParensAgreesWithAManifestThatAlreadySaysSo()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+local WIDE_SIGNATURE = "function addAndDouble(firstNumber: integer, secondNumber: integer): integer\n"
+   .. "    return (firstNumber + secondNumber) * 2\n"
+   .. "end\n"
+
+-- --width changes the column a line breaks past, and what counts as formatted moves
+-- with it: a line that fits at the default 120 and is left alone there breaks once
+-- asked to fit 60, and the broken form is then what --check wants back.
+function M.widthBreaksALineOverTheGivenWidth()
+   local dir = tempProject({
+      ["nupp.lua"] = 'return { include = { "src" } }\n',
+      ["src/wide.nupp"] = WIDE_SIGNATURE,
+   })
+   local atDefault, defaultOk = run(dir, "fmt --check")
+   assert(defaultOk and atDefault == "",
+      "the signature already fits 120 columns: " .. atDefault)
+
+   local narrow, narrowOk = run(dir, "fmt --width 60 --check")
+   assert(not narrowOk and narrow:find("wide.nupp", 1, true),
+      "the same signature does not fit 60: " .. narrow)
+
+   local out, ok = run(dir, "fmt --width 60 -w")
+   assert(ok, "formatting at width 60 succeeds: " .. out)
+   assert(readFile(dir .. "/src/wide.nupp") ~= WIDE_SIGNATURE,
+      "the parameter list broke onto its own lines")
+
+   local stillNarrow, stillNarrowOk = run(dir, "fmt --width 60 --check")
+   assert(stillNarrowOk and stillNarrow == "",
+      "and formatting it again at width 60 changes nothing: " .. stillNarrow)
+
+   local nowDefault, nowDefaultOk = run(dir, "fmt --check")
+   assert(not nowDefaultOk and nowDefault:find("wide.nupp", 1, true),
+      "but the width-60 form is not the width-120 form: " .. nowDefault)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.widthRejectsATooSmallValue()
+   local dir = tempProject({
+      ["nupp.lua"] = 'return { include = { "src" } }\n',
+      ["src/x.nupp"] = FORMATTED,
+   })
+   local out, ok = run(dir, "fmt --width 5 --check")
+   assert(not ok, "a width under 20 is refused")
+   assert(out:find("at least 20", 1, true), "and says why: " .. out)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.widthRejectsANonNumericValue()
+   local dir = tempProject({
+      ["nupp.lua"] = 'return { include = { "src" } }\n',
+      ["src/x.nupp"] = FORMATTED,
+   })
+   local out, ok = run(dir, "fmt --width columns --check")
+   assert(not ok, "a non-numeric width is refused")
+   assert(out:find("whole number", 1, true), "and says why: " .. out)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- A file that does not parse is reported and nothing is written, whether it was
 -- named or reached through the project.
 function M.refusesToFormatWhatItCannotParse()

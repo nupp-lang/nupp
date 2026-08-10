@@ -1,10 +1,11 @@
 --[[
 The canonical formatter.
 
-Fixed, with one knob:
+Fixed, with two knobs:
 
 - four-space indentation;
-- 120 columns for code, 88 for docblock text;
+- 120 columns for code by default, `opts.width` overrides it; 88 for
+  docblock text, unaffected by `opts.width`;
 - ordinary line breaks are soft, so short expressions and groups join;
 - an over-long line is broken, one element per group;
 - an `if` is broken across lines, however short its arms;
@@ -13,6 +14,13 @@ Fixed, with one knob:
 - a method call written as sugar, `obj:m{...}` or `obj:m"..."`, gets its `(`
   and `)` back, so every method call reads the same. `opts.methodParens =
   false` turns that off and leaves the sugar as written.
+
+`fmt.new(opts)` resolves the options once into a `fmt.Formatter` and returns
+it for reuse: a caller formatting many files, like `nupp fmt` walking a
+project, builds one and calls `:format` per file instead of re-resolving the
+same options every time. `fmt.format(source, filename, opts)` stays as the
+one-shot convenience for a caller that only ever formats a single thing; it
+is `fmt.new(opts):format(source, filename)`.
 
 A group is an argument list, a parameter list, or a table constructor, and
 breaking one puts each element on its own line. Shape types always put each
@@ -43,7 +51,7 @@ local displayWidth = require("nupp.compiler.fmt.displaywidth")
 local fmt = {}
 
 local INDENT = "    "
-local WIDTH = 120
+local WIDTH: integer = 120
 local DOC_WIDTH = 88
 local MAX_PASSES = 24
 
@@ -913,7 +921,7 @@ local function splitForcedLines(lines)
     return changed and out or nil
 end
 
-local function breakLines(lines)
+local function breakLines(lines, width)
     for _ = 1, MAX_PASSES do
         computeIndents(lines)
         local changed = false
@@ -925,7 +933,7 @@ local function breakLines(lines)
             local next_ = {}
             for _, line in ipairs(lines) do
                 local pieces = nil
-                if lineWidth(line) > WIDTH and not line.noBreak then
+                if lineWidth(line) > width and not line.noBreak then
                     pieces = splitLine(line)
                 end
                 if pieces then
@@ -935,7 +943,7 @@ local function breakLines(lines)
                         next_[#next_ + 1] = piece
                     end
                 else
-                    line.noBreak = lineWidth(line) > WIDTH
+                    line.noBreak = lineWidth(line) > width
                     next_[#next_ + 1] = line
                 end
             end
@@ -1203,12 +1211,36 @@ end
 type fmt.Options = {
     readonly annotations: any?,
     readonly resolveAnnotation: (function(name: string): any)?,
-    readonly methodParens: boolean?
+    readonly methodParens: boolean?,
+
+    --- The code column past which a line breaks. Defaults to 120; docblock text keeps
+    --- wrapping at 88 regardless.
+    readonly width: integer?
 }
+
+--- Options resolved once, so a caller formatting many files does that resolution once
+--- rather than per file. `fmt.new` builds one; `:format` runs it over a file.
+record fmt.Formatter
+    width: integer
+    methodParens: boolean?
+    annotations: any?
+    resolveAnnotation: (function(name: string): any)?
+end
+
+--- Resolves `opts` into a reusable formatter. Unset fields keep the fixed defaults: 120
+--- columns and parenthesized method calls.
+function fmt.new(opts: fmt.Options?): fmt.Formatter
+    return new fmt.Formatter {
+        width = (opts and opts.width) or WIDTH,
+        methodParens = opts and opts.methodParens,
+        annotations = opts and opts.annotations,
+        resolveAnnotation = opts and opts.resolveAnnotation,
+    }
+end
 
 --- Formats one file. Returns the source unchanged, with what stopped it, when the file
 --- does not parse or the result would not be the same program.
-function fmt.format(source: string, filename: string?, opts: fmt.Options?): string, {any}
+function fmt.Formatter:format(source: string, filename: string?): string, {any}
     local result = parser.parse(source, filename)
     if #result.errors > 0 then
         return source, result.errors
@@ -1216,12 +1248,12 @@ function fmt.format(source: string, filename: string?, opts: fmt.Options?): stri
     if result.root.formatDisabled then
         return source, {}
     end
-    canonicalizeSingleValueAnnotations(result, opts)
-    parenthesizeMethodCalls(result, opts)
+    canonicalizeSingleValueAnnotations(result, self)
+    parenthesizeMethodCalls(result, self)
     annotate(result.root)
     local items = collectItems(result.tokens)
     markDocumented(items)
-    local lines = breakLines(buildLines(items))
+    local lines = breakLines(buildLines(items), self.width)
     local text = render(lines)
 
     -- Safety: formatting may only move whitespace, reflow comments, add or remove a
@@ -1244,6 +1276,13 @@ function fmt.format(source: string, filename: string?, opts: fmt.Options?): stri
     end
 
     return text, {}
+end
+
+--- One-shot convenience for a caller that only ever formats a single thing.
+--- Equivalent to `fmt.new(opts):format(source, filename)`; a caller that formats more
+--- than one file with the same options should call `fmt.new` itself and reuse it.
+function fmt.format(source: string, filename: string?, opts: fmt.Options?): string, {any}
+    return fmt.new(opts):format(source, filename)
 end
 
 return fmt

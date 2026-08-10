@@ -93,6 +93,39 @@ function M.parameterListsBreak()
          "end"))
 end
 
+-- `fmt.new` resolves options once into a reusable formatter; its `width` overrides the
+-- default 120 columns.
+function M.customWidthBreaksALineThatFitsTheDefault()
+   local src = "local function f(firstParameter: number, secondParameter: string): number\n"
+      .. "    return 1\n"
+      .. "end\n"
+   -- fits the default 120-column width untouched
+   check(src, src)
+
+   local narrow = fmt.new({width = 40})
+   local got, errors = narrow:format(src, "test")
+   assert(#errors == 0, "unexpected format errors: " .. (errors[1] and errors[1].msg or ""))
+   assertEq(got, lines(
+      "local function f(",
+      "    firstParameter: number,",
+      "    secondParameter: string",
+      "): number",
+      "    return 1",
+      "end"), "width 40 breaks what width 120 would not")
+end
+
+-- The same instance answers for every call, each with the width it was built with.
+function M.reusableInstanceAppliesTheSameWidthToEveryCall()
+   local narrow = fmt.new({width = 40})
+   local a = narrow:format(
+      "local function f(firstParameter: number, secondParameter: string): number\n" .. "return 1\nend\n", "a")
+   local b = narrow:format(
+      "local function g(firstParameter: number, secondParameter: string): number\n" .. "return 2\nend\n", "b")
+   assert(a:find("\n    firstParameter", 1, true), "first call broke at width 40: " .. a)
+   assert(b:find("\n    firstParameter", 1, true),
+      "second call broke at width 40 too, from the same instance: " .. b)
+end
+
 function M.tableConstructorsBreak()
    check("local t = { alphaValue = 1, betaValue = 2, gammaValue = 3, "
       .. "deltaValue = 4, epsilonValue = 5, zetaValue = 6, etaValue = 77 }\n",

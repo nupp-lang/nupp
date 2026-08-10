@@ -8,8 +8,8 @@ nupp fmt src/x.nupp   # format one file to stdout
 ```
 
 The style is fixed. There is no configuration file and no editor setting.
-`nupp fmt` otherwise takes options about what to do with the result, plus one
-knob over the style itself, described below.
+`nupp fmt` otherwise takes options about what to do with the result, plus two
+knobs over the style itself, described below.
 
 ## Three modes
 
@@ -39,7 +39,7 @@ not:
  Setting              Value
  ───────────────────  ──────────
  Indent               4 spaces
- Code width           120 columns
+ Code width           120 columns (--width)
  Docblock text width  88 columns
 ```
 
@@ -91,6 +91,10 @@ return {
 
 `--no-method-parens` wins if both are given; there is no flag to force parens
 back on over a manifest that turned them off.
+
+`--width N` changes the code column past which a line breaks, at least 20.
+The default, 120, is unchanged from before this was a flag; docblock text
+keeps wrapping at 88 columns regardless of `--width`.
 
 ## What it will not do
 
