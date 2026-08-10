@@ -560,7 +560,7 @@ local function renderSite(root, outDir, modules, title, settings)
                             group.path
                         ) .. '" aria-label="Link to ' .. htmlEscape(group.title) .. '">#</a></h2>'
                         for _, item in ipairs(group.items) do
-                            renderHtmlItem(body, item, links)
+                            renderHtmlItem(body, item, links, settings.constructorPattern)
                         end
                         body[#body + 1] = "</section>"
                     end

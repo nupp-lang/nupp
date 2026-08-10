@@ -47,6 +47,17 @@ local function isConstructor(item, pattern)
     return (item.name:match("([^.]+)$") or item.name):match(pattern) ~= nil
 end
 
+-- The parser quite rightly extracts a constructor as a function: that is its Nupp
+-- type. The documentation kind is semantic, though, and should agree with the group
+-- the reader found it under rather than exposing that implementation detail.
+local function displayKind(item: extractMod.Item, constructorPattern: string?): string
+    if isConstructor(item, constructorPattern or DEFAULT_CONSTRUCTOR_PATTERN) then
+        return "constructor"
+    end
+
+    return item.kind
+end
+
 local function byName(left: extractMod.Item, right: extractMod.Item): boolean
     local leftName, rightName = left.name:lower(), right.name:lower()
     if leftName == rightName then
@@ -205,7 +216,13 @@ local function structureMemberLinks(item, links)
     return next(members) and members or nil
 end
 
-local function renderHtmlItem(out: {string}, item: extractMod.Item, links: nupp.compiler.doc.urls.Links?): nil
+local function renderHtmlItem(
+    out: {string},
+    item: extractMod.Item,
+    links: nupp.compiler.doc.urls.Links?,
+    constructorPattern: string?
+): nil
+    local kind = displayKind(item, constructorPattern)
     out[
         #out + 1
     ] = '<section class="nuppdoc-api-item" id="' .. htmlEscape(
@@ -213,9 +230,9 @@ local function renderHtmlItem(out: {string}, item: extractMod.Item, links: nupp.
     ) .. '"><h3><code>' .. htmlEscape(
         item.name
     ) .. '</code><span class="nuppdoc-kind-badge nuppdoc-kind-' .. htmlEscape(
-        item.kind
+        kind
     ) .. '">' .. htmlEscape(
-        item.kind
+        kind
     ) .. '</span><a class="nuppdoc-header-anchor" href="#' .. htmlEscape(
         item.path
     ) .. '" aria-label="Link to ' .. htmlEscape(item.name) .. '">#</a></h3>'
@@ -317,5 +334,6 @@ api.moduleSummary = moduleSummary
 api.itemGroups = itemGroups
 api.nestedModules = nestedModules
 api.renderHtmlItem = renderHtmlItem
+api.displayKind = displayKind
 
 return api

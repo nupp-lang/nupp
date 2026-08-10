@@ -391,7 +391,17 @@ function M.standardLibraryBackingRecordsStayInternal()
       if member then
          local found = false
          for _, item in ipairs(child.items) do
-            if item.name == member then found = true end
+            if item.name == member then
+               found = true
+               if child.name == "nupp.io.Path" then
+                  assert(item.doc.text:find("#### Examples", 1, true),
+                     "nupp.io.Path.new has no examples")
+                  assert(item.doc.text:find('Path.new("src", "main.nupp")', 1, true),
+                     "nupp.io.Path.new has no component-joining example")
+                  assert(item.doc.text:find(":normalize()", 1, true),
+                     "nupp.io.Path.new has no normalization example")
+               end
+            end
          end
          assert(found, child.name .. " did not inherit " .. member)
          expected[child.name] = nil
@@ -786,6 +796,9 @@ function M.constructorPatternDecidesTheConstructorsGroup()
       defaultConstructorsAt, true))
    assert(default:find('id="engine.newEngine"><h3>', defaultConstructorsAt, true)
       < defaultFunctionsAt, default)
+   assert(default:find('id="engine.newEngine"><h3><code>newEngine</code>'
+      .. '<span class="nuppdoc-kind-badge nuppdoc-kind-constructor">constructor</span>',
+      defaultConstructorsAt, true), default)
    assert(default:find('id="engine.makeEngine"><h3>', defaultFunctionsAt, true),
       default)
    local defaultMarkdownConstructorsAt = assert(defaultMarkdown:find(
@@ -794,6 +807,8 @@ function M.constructorPatternDecidesTheConstructorsGroup()
       "\n## Functions\n", defaultMarkdownConstructorsAt, true))
    assert(defaultMarkdown:find("`newEngine`", defaultMarkdownConstructorsAt, true)
       < defaultMarkdownFunctionsAt, defaultMarkdown)
+   assert(defaultMarkdown:find("### `newEngine` _constructor_",
+      defaultMarkdownConstructorsAt, true), defaultMarkdown)
    assert(defaultMarkdown:find("`makeEngine`", defaultMarkdownFunctionsAt, true),
       defaultMarkdown)
 
@@ -801,6 +816,12 @@ function M.constructorPatternDecidesTheConstructorsGroup()
    assert(constructors(renamed):find("<th>Constructor</th><th>Description</th>",
       1, true), renamed)
    assert(constructors(renamed):find("makeEngine", 1, true), renamed)
+   assert(renamed:find('id="engine.makeEngine"><h3><code>makeEngine</code>'
+      .. '<span class="nuppdoc-kind-badge nuppdoc-kind-constructor">constructor</span>',
+      1, true), renamed)
+   assert(renamed:find('id="engine.newEngine"><h3><code>newEngine</code>'
+      .. '<span class="nuppdoc-kind-badge nuppdoc-kind-function">function</span>',
+      1, true), renamed)
    assert(functions(renamed):find("newEngine", 1, true), renamed)
    local renamedConstructorsAt = assert(renamedMarkdown:find(
       "\n## Constructors\n", 1, true))

@@ -16,6 +16,7 @@ local childModules = extractMod.children
 local symbolLinkIndex = urlsMod.symbolLinkIndex
 local rewriteSymbolLinks = urlsMod.rewriteSymbolLinks
 local itemGroups = apiMod.itemGroups
+local displayKind = apiMod.displayKind
 
 local markdown = {}
 
@@ -106,9 +107,9 @@ local function markdownRaises(out, raises, heading)
     out[#out + 1] = ""
 end
 
-local function renderMarkdownItem(out, item)
+local function renderMarkdownItem(out, item, constructorPattern)
     out[#out + 1] = '<a id="' .. item.path .. '"></a>'
-    out[#out + 1] = "### `" .. item.name .. "` _" .. item.kind .. "_"
+    out[#out + 1] = "### `" .. item.name .. "` _" .. displayKind(item, constructorPattern) .. "_"
     out[#out + 1] = ""
     -- What it is, then how it is spelled: the prose says whether this is the
     -- declaration you are looking for, and the signature answers how to call it once
@@ -248,7 +249,7 @@ function markdown.render(
                 out[#out + 1] = "## " .. group.title
                 out[#out + 1] = ""
                 for _, item in ipairs(group.items) do
-                    renderMarkdownItem(out, item)
+                    renderMarkdownItem(out, item, constructorPattern)
                 end
             end
         end

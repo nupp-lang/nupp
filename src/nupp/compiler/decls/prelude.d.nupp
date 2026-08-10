@@ -671,6 +671,23 @@ record nupp.Path
     --- @internal
     record Library
         --- Creates a path by joining one or more components.
+        ---
+        --- #### Examples
+        ---
+        --- Build a path from components:
+        ---
+        --- ```nupp
+        --- local Path = nupp.io.Path
+        --- local source = Path.new("src", "main.nupp")
+        --- assert(source:toString() == "src" .. Path.separator() .. "main.nupp")
+        --- ```
+        ---
+        --- Normalize the path after joining its components:
+        ---
+        --- ```nupp
+        --- local source = nupp.io.Path.new("src", "app", "..", "main.nupp"):normalize()
+        --- assert(source:fileName() == "main.nupp")
+        --- ```
         --- @param first the first path component
         --- @param ... the remaining path components
         --- @return the new path
