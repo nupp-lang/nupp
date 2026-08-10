@@ -68,6 +68,7 @@ function u.length(value)local s=bytes(value);local n,at=0,1;while at<=#s do loca
 local MATH = compact(
     [=[
 local m=__nuppMath;local pi,tau=math.pi,2*math.pi
+function m.lerp(from,to,t)if t==0 then return from elseif t==1 then return to end;return from+(to-from)*t end
 function m.wrapAngle(radians)return(radians+pi)%tau-pi end
 function m.deltaAngle(from,to)return m.wrapAngle(to-from)end
 local v={};m.vec2=v

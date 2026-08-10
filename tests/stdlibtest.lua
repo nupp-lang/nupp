@@ -171,6 +171,7 @@ function M.nativeFeaturesAreResolvedEffects()
       ["nupp.data.encodeKeepBuffer(false)"] = "native.cjson",
       ["nupp.data.utf8.length('hello')"] = "native.lua_utf8",
       ["nupp.io.newBuffer('hello')"] = "stdlib.io",
+      ["nupp.math.lerp(10, 20, 0.25)"] = "stdlib.math",
       ["nupp.math.vec2.length(3, 4)"] = "stdlib.math",
       ["nupp.data.fnv1a64('hello')"] = "stdlib.fnv1a64",
       ["nupp.data.crc32('hello')"] = "stdlib.checksums",
@@ -247,6 +248,10 @@ function M.compilerProvidedPureLibraries()
       assert(reader:read(0) == "")
       local x, y = nupp.math.vec2.normalize(3, 4)
       assert(math.abs(x - 0.6) < 0.000001 and math.abs(y - 0.8) < 0.000001)
+      assert(nupp.math.lerp(10, 20, 0) == 10)
+      assert(nupp.math.lerp(10, 20, 0.25) == 12.5)
+      assert(nupp.math.lerp(10, 20, 1) == 20)
+      assert(nupp.math.lerp(10, 20, 1.5) == 25)
       assert(nupp.data.fnv1a64("hello") == "a430d84680aabd0b")
       assert(nupp.data.adler32("Wikipedia") == 300286872)
       assert(nupp.data.crc32("123456789") == 3421780262)

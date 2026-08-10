@@ -3,10 +3,13 @@
 `nupp.math` adds the scalar and two-dimensional operations missing from Lua's built-in
 `math` table. It is pure generated Lua and adds no native dependency.
 
+`lerp(from, to, t)` linearly interpolates without clamping `t`, so factors outside
+`[0, 1]` extrapolate. It returns `from` exactly at zero and `to` exactly at one.
 `wrapAngle(radians)` returns the equivalent angle in `[-π, π)`. `deltaAngle(from, to)`
 returns the shortest signed rotation from one angle to another.
 
 ```nupp
+assert(nupp.math.lerp(10, 20, 0.25) == 12.5)
 local turn = nupp.math.deltaAngle(math.rad(350), math.rad(10))
 assert(math.abs(math.deg(turn) - 20) < 0.000001)
 ```

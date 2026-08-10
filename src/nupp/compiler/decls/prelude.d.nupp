@@ -1082,6 +1082,13 @@ record nupp.MathLibrary
     --- Two-dimensional vector operations over `(x, y)` number pairs.
     vec2: nupp.Vec2Library
 
+    --- Linearly interpolates between two numbers without clamping the factor.
+    --- @param from the value returned when `t` is zero
+    --- @param to the value returned when `t` is one
+    --- @param t the interpolation factor
+    --- @return `from + (to - from) * t`
+    lerp: function(from: number, to: number, t: number): number
+
     --- Wraps an angle to the equivalent value in `[-pi, pi)`.
     --- @param radians the angle in radians
     --- @return the wrapped angle
