@@ -141,4 +141,46 @@ function M.normalizingIsIdempotent()
    end
 end
 
+-- The wrapper tags. Each is a member of the type union, so a projection can sit
+-- inside one, and each needs its own branch in the walker to be rebuilt: a tag with
+-- no branch is returned whole and its contents never reduce.
+function M.reductionReachesInsideTheWrapperTags()
+   local lines = answering("Lines", {Item = T.string})
+   local item = T.projection(lines, "Item")
+   assertEq(shown(T.carray(item, 4)), "string[4]")
+   assertEq(shown(T.carray(item, nil)), "string[?]")
+   assertEq(shown(T.constOf(item)), "const string")
+   assertEq(shown(T.ctype(item)), "ctype<string>")
+   assertEq(shown(T.ptr(item)), "string*")
+   -- and nested, so a wrapper around a wrapper is rebuilt too
+   assertEq(shown(T.constOf(T.carray(item, 2))), "const string[2]")
+end
+
+function M.theWrapperTagsStayOpaqueWhenTheHeadIs()
+   local binder = T.typevar("T", "normalize-test:wrappers")
+   local item = T.projection(binder, "Item")
+   assertEq(shown(T.carray(item, 4)), "T.Item[4]")
+   assertEq(shown(T.constOf(item)), "const T.Item")
+   assertEq(shown(T.ctype(item)), "ctype<T.Item>")
+end
+
+-- The cycle is sliced by the identity a projection was keyed under, not by what it
+-- displays. Two declarations may share a displayed name; keying the slice on the
+-- label would report a loop that runs through the wrong one.
+function M.aCycleIsSlicedByIdentityNotByName()
+   local outer = T.nominal("Same", "interface")
+   local inner = T.nominal("Same", "interface")
+   local tail = T.nominal("Tail", "interface")
+   assert(outer ~= inner, "two declarations, one displayed name")
+   outer.associatedAnswers = {Item = T.projection(inner, "Item")}
+   inner.associatedAnswers = {Item = T.projection(tail, "Item")}
+   tail.associatedAnswers = {Item = T.projection(inner, "Item")}
+   local result = generics.normalize(T.projection(outer, "Item"))
+   assert(result.cycle, "the cycle went unreported")
+   -- The loop is inner -> tail -> inner. It does not start at `outer`, even though
+   -- `outer` displays the same label as `inner`.
+   assertEq(table.concat(result.cycle, " -> "), "Same.Item -> Tail.Item -> Same.Item")
+   assertEq(#result.cycle, 3, "the slice picked up the wrong entry point")
+end
+
 return M

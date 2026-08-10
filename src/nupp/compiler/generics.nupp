@@ -43,8 +43,11 @@ local type Normalizing = {
     --- followed forever.
     active: {[string]: boolean},
 
-    --- Their labels, innermost last, so the cycle can be reported as the loop it is.
-    path: {string},
+    --- The chain being reduced, innermost last, so the cycle can be reported as the
+    --- loop it is. Each entry carries the identity it was keyed by as well as the
+    --- label it shows: slicing the loop by identity is what keeps two declarations
+    --- that display the same name from reporting each other's cycle.
+    path: {{key: string, label: string}},
 
     --- Projections whose head reduced to `any`, in the order met. The result is `any`
     --- there, and this is what later tells a lint the `any` came from a projection
@@ -176,6 +179,12 @@ substWith = function(t: Type, map: Bindings, unmapped: string, norm: Normalizing
         return T.intersection(members)
     elseif tag == "ptr" then
         return T.ptr(substWith(t.elem, map, unmapped, norm))
+    elseif tag == "carray" then
+        return T.carray(substWith(t.elem, map, unmapped, norm), t.count)
+    elseif tag == "const" then
+        return T.constOf(substWith(t.inner, map, unmapped, norm))
+    elseif tag == "ctype" then
+        return T.ctype(substWith(t.of, map, unmapped, norm))
     elseif tag == "owned" then
         return T.owned(substWith(t.inner, map, unmapped, norm), t.cleanups)
     elseif tag == "borrowed" then
@@ -251,13 +260,13 @@ reduceProjection = function(head: Type, name: string, map: Bindings, unmapped: s
             local loop: {string} = {}
             local from = nil
             for j, seen in ipairs(norm.path) do
-                if seen == label then
+                if seen.key == key then
                     from = j
                     break
                 end
             end
             for j = from or #norm.path, #norm.path do
-                loop[#loop + 1] = norm.path[j]
+                loop[#loop + 1] = norm.path[j].label
             end
             loop[#loop + 1] = label
             norm.cycle = loop
@@ -266,7 +275,7 @@ reduceProjection = function(head: Type, name: string, map: Bindings, unmapped: s
         return T.projection(head, name)
     end
     norm.active[key] = true
-    norm.path[#norm.path + 1] = label
+    norm.path[#norm.path + 1] = {key = key, label = label}
     -- Recursing with the state is what makes this a fixed point: an answer that is
     -- itself a projection reduces here rather than being handed back half done.
     local reduced = substWith(answer, map, unmapped, norm)
