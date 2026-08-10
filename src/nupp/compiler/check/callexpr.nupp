@@ -290,6 +290,43 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         end
         node.calleeType = rawType(calleeT)
         c.nosuspend.call(node)
+        -- Callbacks C invokes. The boundary belongs to the invocation rather than to
+        -- the kind of body, so what is registered is this argument in this position:
+        -- the same function passed anywhere else may suspend perfectly well.
+        --
+        -- Recognized by definition and never by spelling, so a local named `table` or a
+        -- string library somebody replaced is not mistaken for the prelude's.
+        local function bodyOfArgument(index)
+            local argument = argExprs[index]
+            if not argument or cst.isToken(argument) then
+                return nil
+            end
+            if argument.kind == "funcExpr" or argument.kind == "shortfn" then
+                return argument.body or argument
+            end
+
+            return nil
+        end
+
+        -- Definition identity is the whole guard: a local named `table` resolves to a
+        -- different definition and is left alone. An immutable-path requirement would
+        -- be stricter than the question -- the prelude's fields are writable, and
+        -- replacing `table.sort` does not make the replacement able to yield through C.
+        if node.kind == "call" and callee and callee.kind == "dotIndex" then
+            local base = callee.obj
+            local baseTok = base and base.kind == "name" and base.token or nil
+            local globals = c.env and c.env.globals or {}
+            local isPrelude = function(name)
+                local entry = globals[name]
+
+                return baseTok ~= nil and entry ~= nil and baseTok.definition == entry.definition
+            end
+            if memberName == "sort" and isPrelude("table") then
+                c.nosuspend.callback(bodyOfArgument(2), "`table.sort`")
+            elseif memberName == "gsub" and isPrelude("string") then
+                c.nosuspend.callback(bodyOfArgument(3), "`string.gsub`")
+            end
+        end
         local wrappedEntry = calleeName ~= "" and c.lookupEntry(calleeName) or nil
         if wrappedEntry and wrappedEntry.wrappedProtocol then
             local protocol = wrappedEntry.wrappedProtocol

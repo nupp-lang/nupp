@@ -307,10 +307,24 @@ function suspension.suspend<
     end, setWaker = function(wake)
         waker = wake
     end,}, WaitingMT)
+    -- A park suspends, and suspending fails when non-yieldable C code is on the stack:
+    -- an FFI callback, a comparator, a pattern replacement. Most of those positions are
+    -- refused while compiling (NUPP2702), and the ones reached through an unknown C API
+    -- are not, so the failure is caught here and told what it was doing. LuaJIT's own
+    -- message names neither the operation nor the boundary.
+    local ok, err
     if handler then
-        handler.park(handler, waiting as suspension.Waiting, cancel as function(): nil)
+        ok, err = pcall(handler.park, handler, waiting as suspension.Waiting, cancel as function(): nil)
     else
-        blockingPark(waiting)
+        ok, err = pcall(blockingPark, waiting)
+    end
+    if not ok then
+        local text = tostring(err)
+        if text:find("C%-call boundary") or text:find("attempt to yield across") then
+            cancel()
+            error(("nupp: %s cannot suspend: non-yieldable C code is on the stack"):format(operation), 0)
+        end
+        error(err, 0)
     end
     if not resumed then
         error(("nupp: %s: the handler returned without resuming it"):format(operation), 0)

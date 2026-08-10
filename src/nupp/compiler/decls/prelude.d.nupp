@@ -25,20 +25,20 @@ declaration file.
 --- tabs and followed by a newline.
 ---
 --- @param ... the values to write
-local print: function(...: any)
+local print: nosuspend function(...: any)
 
 --- Returns the type name of a value: "nil", "boolean", "number", "string", "table",
 --- "function", "thread" or "userdata", plus "cdata" for FFI values.
 ---
 --- @param v the value to classify
 --- @return the type name
-local type: function(v: any): string
+local type: nosuspend function(v: any): string
 
 --- Converts a value to a string, honoring a `__tostring` metamethod.
 ---
 --- @param v the value to convert
 --- @return the string form of `v`
-local tostring: function(v: any): string
+local tostring: nosuspend function(v: any): string
 
 --- Converts a value to a number, or nil when it has no numeric meaning. With `base`,
 --- `v` is read as an unsigned integer numeral in that base.
@@ -46,7 +46,7 @@ local tostring: function(v: any): string
 --- @param v the value to convert
 --- @param base the numeral base, 2 through 36; decimal when omitted
 --- @return the number, or nil when `v` does not denote one
-local tonumber: function(v: any, base: number?): number?
+local tonumber: nosuspend function(v: any, base: number?): number?
 
 --- Returns an iterator over every key/value pair of `t`, in unspecified order. New keys
 --- must not be added to `t` during the traversal.
@@ -55,7 +55,7 @@ local tonumber: function(v: any, base: number?): number?
 --- @typearg V the value type
 --- @param t the table to traverse
 --- @return an iterator yielding each key and its value, and nil when done
-local pairs: function<K, V>(t: {[K]: V}): function(): (K, V)
+local pairs: nosuspend function<K, V>(t: {[K]: V}): function(): (K, V)
 
 --- Returns an iterator over the array part of `t`, from index 1 up to the first missing
 --- element.
@@ -63,7 +63,7 @@ local pairs: function<K, V>(t: {[K]: V}): function(): (K, V)
 --- @typearg V the element type
 --- @param t the array to traverse
 --- @return an iterator yielding each index and the element stored there
-const ipairs: function<V>(t: {V}): function(): (integer, V)
+const ipairs: nosuspend function<V>(t: {V}): function(): (integer, V)
 
 --- Returns the pair that follows key `k` in `t`. Passing nil, or omitting `k`, returns
 --- the first pair; the traversal order is unspecified.
@@ -72,7 +72,7 @@ const ipairs: function<V>(t: {V}): function(): (integer, V)
 --- @param k the key to step past, or nil to start the traversal
 --- @return the next key, or nil once the traversal is done
 --- @return the value stored at that key
-local next: function(t: table, k: any?): (any, any)
+local next: nosuspend function(t: table, k: any?): (any, any)
 
 --- Selects from a vararg list. With a number, returns every argument from the nth
 --- onwards, counting from the end when `n` is negative; with "#", returns how many
@@ -88,7 +88,7 @@ local select: function<A...>(n: '#', A...): integer & function<A...>(n: number, 
 --- @param t the table to read
 --- @param k the key to read
 --- @return the stored value, or nil when the key is absent
-local rawget: function(t: table, k: any): any
+local rawget: nosuspend function(t: table, k: any): any
 
 --- Assigns `t[k] = v` without consulting a `__newindex` metamethod.
 ---
@@ -96,20 +96,20 @@ local rawget: function(t: table, k: any): any
 --- @param k the key to write
 --- @param v the value to store
 --- @return `t`
-local rawset: function(t: table, k: any, v: any): table
+local rawset: nosuspend function(t: table, k: any, v: any): table
 
 --- Compares two values for primitive equality, without an `__eq` metamethod.
 ---
 --- @param a the left value
 --- @param b the right value
 --- @return whether the values are primitively equal
-local rawequal: function(a: any, b: any): boolean
+local rawequal: nosuspend function(a: any, b: any): boolean
 
 --- Returns the length of a table or string without consulting a `__len` metamethod.
 ---
 --- @param v the table or string to measure
 --- @return the length
-local rawlen: function(v: any): integer
+local rawlen: nosuspend function(v: any): integer
 
 --- Sets `t`'s metatable, or removes it when `mt` is nil. Raises when the current
 --- metatable has a `__metatable` field.
@@ -141,7 +141,7 @@ local assert: function<T>(v: T?, msg: any?): T
 ---
 --- @param msg the error value to raise
 --- @param level whose position to blame, or 0 for none
-local error: function(msg: any, level: number?): never
+local error: nosuspend function(msg: any, level: number?): never
 
 --- Calls `f` with the given arguments, trapping any error it raises.
 ---
@@ -1906,6 +1906,16 @@ local coroutine: {
     --- @return whether a `yield` would succeed here
     isyieldable: function(): boolean
 }
+
+-- The base functions below say `nosuspend`: calling one cannot suspend the caller.
+--
+-- Two of them are a stated trust rather than a proof, in the same category as a
+-- metamethod contract (`docs/metamethods.md`). `tostring` reaches `__tostring` and
+-- `pairs` reaches `__pairs`, and on this baseline an ordinary metamethod may yield, so
+-- a pathological one could. The trade is deliberate: without it a `table.sort`
+-- comparator cannot call `tostring`, which is most comparators, and a check nobody can
+-- leave on protects nothing. A metamethod that does yield still fails loudly, because
+-- the C frame underneath raises.
 
 --- LuaJIT's BitOp library, which is also the semantics behind the `&`, `|`, `~`, `<<`,
 --- `>>` and `~>>` operators: arguments are normalized to 32-bit integers and results

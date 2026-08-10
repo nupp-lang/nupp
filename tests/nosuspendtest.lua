@@ -136,12 +136,13 @@ function M.acceptsAnAnnotatedPreludeCall()
       "    local s = string.rep('-', n)",
       "    local t = table.concat({'a'}, ',')",
       "    local b = bit.band(1, 2)",
-      "    print(n, s, t, b)",
+      "    local now = os.time()",
+      "    print(n, s, t, b, now)",
       "end",
    }, "\n"))
    assertEq(#refusals, 1, "only the unannotated one is refused")
-   assertTrue(refusals[1].msg:find("print", 1, true) ~= nil,
-      "and it is `print`, which says nothing about its effects: " .. refusals[1].msg)
+   assertTrue(refusals[1].msg:find("time", 1, true) ~= nil,
+      "and it is `os.time`, which says nothing about its effects: " .. refusals[1].msg)
 end
 
 function M.aBodylessAnnotatedDeclarationIsAccepted()
@@ -302,6 +303,105 @@ function M.handleIsContextualInBothWords()
    for _, diag in ipairs(diags) do
       assertTrue(diag.severity == "warning" or diag.severity == "note",
          "both stay ordinary names: " .. diag.code)
+   end
+end
+
+function M.refusesASuspendingSortComparator()
+   -- The boundary belongs to the invocation: `table.sort` has a C frame on the stack
+   -- while the comparator runs, so the comparator cannot yield.
+   local _, diags = diagnose(table.concat({
+      "local function noisy(): nil",
+      "    coroutine.yield()",
+      "end",
+      "local t = {3, 1, 2}",
+      "table.sort(t, function(a: integer, b: integer): boolean",
+      "    noisy()",
+      "    return a < b",
+      "end)",
+      "return t",
+   }, "\n"))
+   local found = nil
+   for _, diag in ipairs(diags) do
+      if diag.code == "NUPP2702" then found = diag end
+   end
+   assertTrue(found ~= nil, "the comparator is refused")
+   assertTrue(found.msg:find("table.sort", 1, true) ~= nil,
+      "and it names what reaches it: " .. found.msg)
+end
+
+function M.refusesASuspendingGsubReplacement()
+   local _, diags = diagnose(table.concat({
+      "local function noisy(): string",
+      "    coroutine.yield()",
+      "    return 'x'",
+      "end",
+      "local out = string.gsub('aaa', 'a', function(): string",
+      "    return noisy()",
+      "end)",
+      "return out",
+   }, "\n"))
+   local found = nil
+   for _, diag in ipairs(diags) do
+      if diag.code == "NUPP2702" then found = diag end
+   end
+   assertTrue(found ~= nil, "the replacement is refused")
+   assertTrue(found.msg:find("string.gsub", 1, true) ~= nil,
+      "and names the call: " .. found.msg)
+end
+
+function M.allowsAQuietComparator()
+   local _, diags = diagnose(table.concat({
+      "local t = {3, 1, 2}",
+      "table.sort(t, function(a: integer, b: integer): boolean",
+      "    return tostring(a) < tostring(b)",
+      "end)",
+      "return t",
+   }, "\n"))
+   for _, diag in ipairs(diags) do
+      assertTrue(diag.code ~= "NUPP2702",
+         "a comparator that cannot suspend is left alone: " .. diag.msg)
+   end
+end
+
+function M.doesNotMistakeALocalNamedTableForThePrelude()
+   -- Definition identity, never spelling.
+   local _, diags = diagnose(table.concat({
+      "local function noisy(): nil",
+      "    coroutine.yield()",
+      "end",
+      "local tbl = {sort = function(_t: {integer}, fn: function(): nil): nil",
+      "    fn()",
+      "end}",
+      "tbl.sort({1}, function(): nil",
+      "    noisy()",
+      "end)",
+      "return tbl",
+   }, "\n"))
+   for _, diag in ipairs(diags) do
+      assertTrue(diag.code ~= "NUPP2702",
+         "somebody else's sort is not the prelude's: " .. diag.msg)
+   end
+end
+
+function M.aMetamethodIsNotARegionByItself()
+   -- The boundary is the invocation, not the kind of body. An ordinary metamethod may
+   -- yield on this baseline, so declaring one is not a reason to refuse anything.
+   local _, diags = diagnose(table.concat({
+      "local function noisy(): nil",
+      "    coroutine.yield()",
+      "end",
+      "local record Thing",
+      "    n: integer",
+      "end",
+      "function Thing.__tostring(_self: Thing): string",
+      "    noisy()",
+      "    return 'thing'",
+      "end",
+      "return Thing",
+   }, "\n"))
+   for _, diag in ipairs(diags) do
+      assertTrue(diag.code ~= "NUPP2702",
+         "a metamethod is not implicitly a region: " .. diag.msg)
    end
 end
 

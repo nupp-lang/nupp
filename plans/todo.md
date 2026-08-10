@@ -103,10 +103,25 @@ work makes sense in.
         It is also the better reading: what answers is the handler in force
         where the work was started, which a reader can point at, rather than
         one belonging to whoever happened to resume it.
-  - [ ] S3: the C-call boundary — implicit `nosuspend` at known non-yieldable
+  - [x] S3: the C-call boundary — implicit `nosuspend` at known non-yieldable
         FFI and standard-library callback invocations, with safe metamethod and
         generic-loop suspension left alone and a named run-time failure for
         what static analysis cannot reach.
+
+        Landed. `table.sort`'s comparator and `string.gsub`'s function
+        replacement are implicit regions, recognized by definition identity so
+        a local named `table` is left alone, and a suspending call inside one
+        is NUPP2702 naming which call reaches it. Metamethods and generic loops
+        are *not* regions by category, since an ordinary metamethod may yield
+        on this baseline. What static analysis cannot reach fails at run time
+        with the operation and the boundary named rather than LuaJIT's message.
+
+        The prelude's base functions are now `nosuspend function` too. Two of
+        them -- `tostring` through `__tostring`, `pairs` through `__pairs` --
+        are a stated trust rather than a proof, in the same category as a
+        metamethod contract: without it a comparator cannot call `tostring`,
+        which is most comparators, and the compiler's own `build/cache.nupp`
+        was the first thing the check refused.
   - [ ] S4: permit handled suspension while a resource obligation is live,
         keeping NUPP2603 for raw coroutine yields. A handler owns every accepted
         park and its shutdown cancels and unwinds all parks before succeeding.

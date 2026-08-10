@@ -40,6 +40,7 @@ local MAX_CHAIN = 8
 --- What `install` answers with.
 type nosuspend.Ops = {
     readonly call: function(any),
+    readonly callback: function(any, string),
     readonly sweep: function(any)
 }
 
@@ -60,7 +61,25 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
         if c.noSuspendDepth <= 0 or not call then
             return
         end
-        candidates[#candidates + 1] = {call = call, calleeType = call.calleeType}
+        candidates[#candidates + 1] = {call = call, calleeType = call.calleeType, code = "NUPP2701"}
+    end
+
+    -- Callback bodies invoked from C, registered as implicit regions.
+    local callbackRegions: {any} = {}
+
+    --- Registers a function body that C will call, and which therefore cannot suspend.
+    ---
+    --- The boundary belongs to the *invocation*, not to the kind of body: what makes
+    --- this one unable to yield is that `table.sort` or `string.gsub` is on the stack
+    --- when it runs, not anything about the function itself.
+    ---
+    --- @param body the callback's body
+    --- @param where what will be calling it, named in the diagnostic
+    function ops.callback(body: any, where: string)
+        if not body then
+            return
+        end
+        callbackRegions[#callbackRegions + 1] = {body = body, where = where}
     end
 
     -- The chain from a call to the suspension it reaches, as related locations.
@@ -124,10 +143,40 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
         return related
     end
 
+    -- Every call written inside a body, so a callback's region can be judged without
+    -- the walk having had to know it was one.
+    local function callsWithin(body: any, into: {any})
+        if not body or cst.isToken(body) then
+            return
+        end
+        local kind = body.kind
+        if kind == "funcExpr" or kind == "shortfn" or kind == "localFuncStmt" or kind == "funcStmt" then
+            return
+        end
+        if kind == "call" or kind == "safeCall" or kind == "methodCall" then
+            into[#into + 1] = body
+        end
+        for _, child in ipairs(body.stats or {}) do
+            callsWithin(child, into)
+        end
+        for _, child in ipairs(body) do
+            callsWithin(child, into)
+        end
+    end
+
     --- Judges every registered call once effect inference has settled.
     ---
     --- @param queries the analysis query surface, or nil when nothing was analyzed
     function ops.sweep(queries: any)
+        for _, region in ipairs(callbackRegions) do
+            local found: {any} = {}
+            callsWithin(region.body, found)
+            for _, call in ipairs(found) do
+                candidates[
+                    #candidates + 1
+                ] = {call = call, calleeType = call.calleeType, code = "NUPP2702", where = region.where,}
+            end
+        end
         for _, candidate in ipairs(candidates) do
             local call = candidate.call
             local callee = call.obj
@@ -156,14 +205,25 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
             end
             if mayYield then
                 local named = token and ("`" .. token.text .. "`") or "this call"
+                local message
+                if candidate.code == "NUPP2702" then
+                    -- The boundary belongs to the invocation. Saying which call reaches
+                    -- this body is the whole of the explanation: the same function is
+                    -- free to suspend anywhere else.
+                    message = (
+                        "%s %s, and %s cannot yield across the C call that reaches it"
+                    ):format(named, why, candidate.where)
+                else
+                    message = ("%s %s, and this region forbids suspending"):format(named, why)
+                end
                 c.diag(
-                    "NUPP2701",
+                    candidate.code,
                     callee or call,
-                    ("%s %s, and this region forbids suspending"):format(named, why),
+                    message,
                     nil,
                     {
-                        help = "call something that cannot suspend, declare the callee "
-                        .. "`@effects(yields = false)`, or move this out of the region",
+                        help = "call something that cannot suspend, declare the callee's type "
+                        .. "`nosuspend function(...)`, or move this out of the region",
                         related = info and chain(queries, info) or nil,
                     }
                 )
