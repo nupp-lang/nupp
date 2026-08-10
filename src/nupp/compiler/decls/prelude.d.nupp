@@ -929,31 +929,168 @@ record nupp.URILibrary
     isURI: function(value: any): boolean
 end
 
---- Scalar helpers and two-dimensional vector operations on number pairs.
+--- Two-dimensional vector operations on number pairs.
 record nupp.Vec2Library
+    --- Adds two vectors.
+    --- @param ax the first vector's x component
+    --- @param ay the first vector's y component
+    --- @param bx the second vector's x component
+    --- @param by the second vector's y component
+    --- @return the sum's x component
+    --- @return the sum's y component
     add: function(ax: number, ay: number, bx: number, by: number): (number, number)
+
+    --- Subtracts the second vector from the first.
+    --- @param ax the first vector's x component
+    --- @param ay the first vector's y component
+    --- @param bx the second vector's x component
+    --- @param by the second vector's y component
+    --- @return the difference's x component
+    --- @return the difference's y component
     subtract: function(ax: number, ay: number, bx: number, by: number): (number, number)
+
+    --- Multiplies a vector by a scalar.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @param factor the scale factor
+    --- @return the scaled x component
+    --- @return the scaled y component
     scale: function(x: number, y: number, factor: number): (number, number)
+
+    --- Computes the dot product of two vectors.
+    --- @param ax the first vector's x component
+    --- @param ay the first vector's y component
+    --- @param bx the second vector's x component
+    --- @param by the second vector's y component
+    --- @return the dot product
     dot: function(ax: number, ay: number, bx: number, by: number): number
+
+    --- Computes the signed scalar cross product of two vectors.
+    --- @param ax the first vector's x component
+    --- @param ay the first vector's y component
+    --- @param bx the second vector's x component
+    --- @param by the second vector's y component
+    --- @return the scalar cross product
     cross: function(ax: number, ay: number, bx: number, by: number): number
+
+    --- Computes a vector's squared magnitude without a square root.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @return the squared magnitude
     lengthSquared: function(x: number, y: number): number
+
+    --- Computes a vector's magnitude.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @return the magnitude
     length: function(x: number, y: number): number
+
+    --- Computes the squared distance between two points without a square root.
+    --- @param ax the first point's x coordinate
+    --- @param ay the first point's y coordinate
+    --- @param bx the second point's x coordinate
+    --- @param by the second point's y coordinate
+    --- @return the squared distance
     distanceSquared: function(ax: number, ay: number, bx: number, by: number): number
+
+    --- Computes the distance between two points.
+    --- @param ax the first point's x coordinate
+    --- @param ay the first point's y coordinate
+    --- @param bx the second point's x coordinate
+    --- @param by the second point's y coordinate
+    --- @return the distance
     distance: function(ax: number, ay: number, bx: number, by: number): number
+
+    --- Returns a unit vector in the same direction, or `(0, 0)` for zero.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @return the normalized x component
+    --- @return the normalized y component
     normalize: function(x: number, y: number): (number, number)
+
+    --- Linearly interpolates or extrapolates between two vectors.
+    --- @param ax the starting x component
+    --- @param ay the starting y component
+    --- @param bx the ending x component
+    --- @param by the ending y component
+    --- @param t the unclamped interpolation factor
+    --- @return the interpolated x component
+    --- @return the interpolated y component
     lerp: function(ax: number, ay: number, bx: number, by: number, t: number): (number, number)
+
+    --- Moves toward a target by at most a distance, without overshooting.
+    --- @param ax the starting x component
+    --- @param ay the starting y component
+    --- @param bx the target x component
+    --- @param by the target y component
+    --- @param distance the maximum step; nonpositive values leave the start unchanged
+    --- @return the resulting x component
+    --- @return the resulting y component
     moveTowards: function(ax: number, ay: number, bx: number, by: number, distance: number): (number, number)
+
+    --- Rotates a vector around the origin.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @param radians the signed rotation in radians
+    --- @return the rotated x component
+    --- @return the rotated y component
     rotate: function(x: number, y: number, radians: number): (number, number)
+
+    --- Computes a vector's signed direction from the positive x-axis.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @return the angle in radians, or zero for the zero vector
     angle: function(x: number, y: number): number
+
+    --- Computes the smallest unsigned angle between two vectors.
+    --- @param ax the first vector's x component
+    --- @param ay the first vector's y component
+    --- @param bx the second vector's x component
+    --- @param by the second vector's y component
+    --- @return the angle from zero through pi, or zero for a zero vector
     angleBetween: function(ax: number, ay: number, bx: number, by: number): number
+
+    --- Computes the smallest signed angle from the first vector to the second.
+    --- @param ax the first vector's x component
+    --- @param ay the first vector's y component
+    --- @param bx the second vector's x component
+    --- @param by the second vector's y component
+    --- @return the angle in `[-pi, pi)`, or zero for a zero vector
     signedAngleBetween: function(ax: number, ay: number, bx: number, by: number): number
+
+    --- Projects a vector onto another vector.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @param ontoX the projection axis's x component
+    --- @param ontoY the projection axis's y component
+    --- @return the projected x component, or zero for a zero axis
+    --- @return the projected y component, or zero for a zero axis
     project: function(x: number, y: number, ontoX: number, ontoY: number): (number, number)
+
+    --- Reflects a vector across a normal.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @param normalX the normal's x component
+    --- @param normalY the normal's y component
+    --- @return the reflected x component, or the input x for a zero normal
+    --- @return the reflected y component, or the input y for a zero normal
     reflect: function(x: number, y: number, normalX: number, normalY: number): (number, number)
 end
 
+--- Scalar angle helpers and two-dimensional vector operations.
 record nupp.MathLibrary
+    --- Two-dimensional vector operations over `(x, y)` number pairs.
     vec2: nupp.Vec2Library
+
+    --- Wraps an angle to the equivalent value in `[-pi, pi)`.
+    --- @param radians the angle in radians
+    --- @return the wrapped angle
     wrapAngle: function(radians: number): number
+
+    --- Computes the shortest signed rotation from one angle to another.
+    --- @param from the starting angle in radians
+    --- @param to the target angle in radians
+    --- @return the signed rotation in `[-pi, pi)`
     deltaAngle: function(from: number, to: number): number
 end
 

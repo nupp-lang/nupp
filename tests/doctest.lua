@@ -312,6 +312,55 @@ function M.standardIOApiHasCompleteDocumentation()
    end
 end
 
+function M.standardMathApiHasCompleteDocumentation()
+   local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
+   local module, errors, extra = doc.extract(source,
+      "src/nupp/compiler/decls/prelude.d.nupp", "nupp.compiler.decls.prelude")
+   assert(module, errors and errors[1] and errors[1].msg)
+
+   local mathModule
+   for _, candidate in ipairs(extra or {}) do
+      if candidate.name == "nupp.math" then mathModule = candidate end
+   end
+   assert(mathModule, "the prelude did not synthesize nupp.math")
+   for _, item in ipairs(mathModule.items) do
+      assert(item.doc.text ~= "", "nupp.math." .. item.name .. " has no documentation")
+      for _, param in ipairs(item.params) do
+         assert(param.text ~= "", "nupp.math." .. item.name .. " parameter "
+            .. param.name .. " has no documentation")
+      end
+      for index, result in ipairs(item.returns) do
+         assert(result.text ~= "", "nupp.math." .. item.name .. " return "
+            .. index .. " has no documentation")
+      end
+   end
+
+   local expected = {MathLibrary = true, Vec2Library = true}
+   local found = {}
+   for _, item in ipairs(module.items) do
+      if expected[item.name] then
+         found[item.name] = true
+         local prefix = "nupp." .. item.name
+         assert(item.doc.text ~= "", prefix .. " has no documentation")
+         for _, member in ipairs(item.members) do
+            assert(member.text ~= "", prefix .. "." .. member.name
+               .. " has no documentation")
+            for _, param in ipairs(member.params) do
+               assert(param.text ~= "", prefix .. "." .. member.name .. " parameter "
+                  .. param.name .. " has no documentation")
+            end
+            for index, result in ipairs(member.returns) do
+               assert(result.text ~= "", prefix .. "." .. member.name .. " return "
+                  .. index .. " has no documentation")
+            end
+         end
+      end
+   end
+   for name in pairs(expected) do
+      assert(found[name], "the prelude did not document nupp." .. name)
+   end
+end
+
 function M.hidesPrivateMembersUnlessExplicitlyIncluded()
    local source = table.concat({
       "record Public",
