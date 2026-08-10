@@ -267,6 +267,39 @@ function M.transfersSettleThroughTheLaneAndReleaseTheirSlots()
    test.equal(files.pendingTransfers(), 0)
 end
 
+-- The point of the whole design: the call below is the same call in both cases.
+-- With no handler it waits by sleeping; with one installed it hands the wait to
+-- the handler, which drives the registered pump and resumes it.
+function M.aTransferParksUnderAHandlerAndBlocksWithoutOne()
+   local files = ready()
+   local suspension = require("nupp.suspension")
+   assert(files.createDirectory(inRoot("parking")))
+   assert(files.write(inRoot("parking/payload.bin"), ("park"):rep(40000)))
+
+   local parked, pumped = nil, 0
+   local handler = {
+      park = function(_self, waiting)
+         parked = waiting.operation
+         while not waiting:ready() do
+            pumped = pumped + suspension.poll()
+         end
+      end,
+   }
+   local installation = suspension.install(handler)
+   local answers = {pcall(files.read, inRoot("parking/payload.bin"))}
+   installation:release()
+   assert(answers[1], answers[2])
+   test.equal(#answers[2], 160000, "the parked read answered its bytes")
+   test.equal(parked, "file transfer",
+      "the handler was told what it was waiting for")
+   assert(pumped > 0, "the handler drove the pump the library registered")
+   test.equal(files.pendingTransfers(), 0)
+
+   -- Without a handler the same call still answers, having waited by itself.
+   test.equal(#assert(files.read(inRoot("parking/payload.bin"))), 160000)
+   test.equal(files.pendingTransfers(), 0)
+end
+
 function M.anAtomicWriteLeavesTheDestinationAloneWhenItFails()
    local files = ready()
    assert(files.createDirectory(inRoot("atomic")))

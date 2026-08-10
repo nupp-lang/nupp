@@ -264,6 +264,8 @@ local MODES={r=0,w=1,a=2,["r+"]=3,["w+"]=4,["a+"]=5}
 local ORIGINS={set=0,current=1,["end"]=2}
 local READ_SIZE=65536
 local PENDING,READY,WAIT_SLICE=0,1,25
+local SOURCE,PRIORITY="nupp-files",20
+local waits={};local suspending
 local File={};File.__index=File;local Reader={};Reader.__index=Reader;local Writer={};Writer.__index=Writer
 local function named(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.toString then return value:toString()end;error("nupp: io.files "..what.." must be a path or a string",level)end
 local function done(answered)if answered then return true end;return false,native.error()end
@@ -272,7 +274,13 @@ local function described(path,follow,level)local text=named(path,"path",level+1)
 local function optional(options,field,level)local value=options and options[field];if value==nil then return""end;if type(value)~="string"then error("nupp: io.files temporary "..field.." must be a string",level)end;return value end
 local function temporary(options,directory,level)local root=options and options.directory and named(options.directory,"temporary directory",level+1)or"";local prefix=optional(options,"prefix",level+1);local suffix=optional(options,"suffix",level+1);return answer(C.nuppFilesCreateTemporary(root,#root,prefix,#prefix,suffix,#suffix,directory))end
 local function payload(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.getString then return value:getString()end;error("nupp: io.files "..what.." must be bytes or a byte view",level)end
-local function settled(handle)if handle==nil then return nil,native.error()end;while C.nuppFsStatus(handle)==PENDING do C.nuppFsWait(WAIT_SLICE)end;if C.nuppFsStatus(handle)~=READY then local reason=ffi.string(C.nuppFsError(handle));C.nuppFsDestroy(handle);return nil,reason end;return handle end
+local function harvest()local moved=0;local index=#waits;while index>0 do local entry=waits[index];if C.nuppFsStatus(entry.handle)~=PENDING then waits[index]=waits[#waits];waits[#waits]=nil;moved=moved+1;entry.resume(true)end;index=index-1 end;return moved end
+local function polled()C.nuppFsPoll();return harvest()end
+local function slept()C.nuppFsWait(WAIT_SLICE);return harvest()end
+local function forget(entry)for index=1,#waits do if waits[index]==entry then waits[index]=waits[#waits];waits[#waits]=nil;return end end end
+local function runtime()if suspending==nil then suspending=require("nupp.suspension")end;return suspending end
+local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();local pump=suspension.handled()and polled or slept;suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,pump);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end
+local function settled(handle)if handle==nil then return nil,native.error()end;await(handle);if C.nuppFsStatus(handle)~=READY then local reason=ffi.string(C.nuppFsError(handle));C.nuppFsDestroy(handle);return nil,reason end;return handle end
 local function transferred(handle)local done,reason=settled(handle);if not done then return false,reason end;C.nuppFsDestroy(done);return true end
 local function fetched(handle)local done,reason=settled(handle);if not done then return nil,reason end;local out=ffi.string(C.nuppFsData(done),tonumber(C.nuppFsLength(done)));C.nuppFsDestroy(done);return out end
 local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: io.files "..what.." must be an integer",level)end;return value end

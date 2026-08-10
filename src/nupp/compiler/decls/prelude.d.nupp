@@ -896,18 +896,18 @@ record nupp.Files
         --- Opens a forward-only reader at the file's current position.
         --- @param self this file
         --- @return the new reader
-        newReader: function(self: nupp.Files.File): nupp.Reader
+        newReader: nosuspend function(self: nupp.Files.File): nupp.Reader
 
         --- Opens a forward-only writer at the file's current position.
         --- @param self this file
         --- @return the new writer
-        newWriter: function(self: nupp.Files.File): nupp.Writer
+        newWriter: nosuspend function(self: nupp.Files.File): nupp.Writer
 
         --- Answers the file's byte length without moving the cursor.
         --- @param self this file
         --- @return the byte length, or nil on failure
         --- @return a failure reason, when unsuccessful
-        size: function(self: nupp.Files.File): (integer?, string?)
+        size: nosuspend function(self: nupp.Files.File): (integer?, string?)
 
         --- Moves the cursor and answers where it landed.
         --- @param self this file
@@ -916,7 +916,7 @@ record nupp.Files
         ---     start
         --- @return the new position, or nil on failure
         --- @return a failure reason, when unsuccessful
-        seek: function(
+        seek: nosuspend function(
             self: nupp.Files.File, offset: integer?, origin: nupp.Files.Origin?
         ): (integer?, string?)
 
@@ -924,18 +924,18 @@ record nupp.Files
         --- @param self this file
         --- @return the position, or nil on failure
         --- @return a failure reason, when unsuccessful
-        position: function(self: nupp.Files.File): (integer?, string?)
+        position: nosuspend function(self: nupp.Files.File): (integer?, string?)
 
         --- Pushes buffered writes at the operating system.
         --- @param self this file
         --- @return whether the flush succeeded
         --- @return a failure reason, when unsuccessful
-        flush: function(self: nupp.Files.File): (boolean, string?)
+        flush: nosuspend function(self: nupp.Files.File): (boolean, string?)
 
         --- Whether this file has been closed.
         --- @param self this file
         --- @return whether it is closed
-        isReleased: function(self: nupp.Files.File): boolean
+        isReleased: nosuspend function(self: nupp.Files.File): boolean
 
         --- Closes the file. Repeated calls are safe.
         --- @param self this file
@@ -953,21 +953,21 @@ record nupp.Files
         --- Answers the created path.
         --- @param self this temporary path
         --- @return the path text
-        toString: function(self: nupp.Files.TemporaryPath): string
+        toString: nosuspend function(self: nupp.Files.TemporaryPath): string
 
         --- Moves this path to a permanent destination, replacing what is there.
         --- @param self this temporary path
         --- @param destination where to move it
         --- @return whether the move happened
         --- @return a failure reason, when unsuccessful
-        persist: function(
+        persist: nosuspend function(
             self: nupp.Files.TemporaryPath, destination: string | nupp.Path
         ): (boolean, string?)
 
         --- Whether this path has been removed or persisted.
         --- @param self this temporary path
         --- @return whether it is settled
-        isReleased: function(self: nupp.Files.TemporaryPath): boolean
+        isReleased: nosuspend function(self: nupp.Files.TemporaryPath): boolean
 
         --- Removes the path. Repeated calls, and a call after `persist`, are
         --- safe and do nothing.
@@ -1016,33 +1016,33 @@ record nupp.Files
         --- @param path the path to describe
         --- @return the attributes, or nil when the path cannot be read
         --- @return a failure reason, when unsuccessful
-        info: function(path: string | nupp.Path): (nupp.Files.Info?, string?)
+        info: nosuspend function(path: string | nupp.Path): (nupp.Files.Info?, string?)
 
         --- Whether a path resolves to anything at all.
         --- @param path the path to test
         --- @return whether it resolves
-        exists: function(path: string | nupp.Path): boolean
+        exists: nosuspend function(path: string | nupp.Path): boolean
 
         --- Whether a path resolves to a regular file.
         --- @param path the path to test
         --- @return whether it is a file
-        isFile: function(path: string | nupp.Path): boolean
+        isFile: nosuspend function(path: string | nupp.Path): boolean
 
         --- Whether a path resolves to a directory.
         --- @param path the path to test
         --- @return whether it is a directory
-        isDirectory: function(path: string | nupp.Path): boolean
+        isDirectory: nosuspend function(path: string | nupp.Path): boolean
 
         --- Whether a path is itself a symbolic link, without following it.
         --- @param path the path to test
         --- @return whether it is a symbolic link
-        isSymlink: function(path: string | nupp.Path): boolean
+        isSymlink: nosuspend function(path: string | nupp.Path): boolean
 
         --- Reads a symbolic link's target without resolving it.
         --- @param path the link to read
         --- @return the target text, or nil on failure
         --- @return a failure reason, when unsuccessful
-        readLink: function(path: string | nupp.Path): (string?, string?)
+        readLink: nosuspend function(path: string | nupp.Path): (string?, string?)
 
         --- Creates a symbolic link.
         ---
@@ -1053,7 +1053,7 @@ record nupp.Files
         --- @param kind the link kind, defaulting to a file link
         --- @return whether the link was created
         --- @return a failure reason, when unsuccessful
-        createSymlink: function(
+        createSymlink: nosuspend function(
             target: string | nupp.Path,
             link: string | nupp.Path,
             kind: ("file" | "directory")?
@@ -1064,7 +1064,7 @@ record nupp.Files
         --- @param readOnly whether to refuse writes
         --- @return whether the attribute was set
         --- @return a failure reason, when unsuccessful
-        setReadOnly: function(
+        setReadOnly: nosuspend function(
             path: string | nupp.Path, readOnly: boolean
         ): (boolean, string?)
 
@@ -1073,14 +1073,14 @@ record nupp.Files
         --- @param path the directory to create
         --- @return whether the directory exists afterwards
         --- @return a failure reason, when unsuccessful
-        createDirectory: function(path: string | nupp.Path): (boolean, string?)
+        createDirectory: nosuspend function(path: string | nupp.Path): (boolean, string?)
 
         --- Removes a file, a symbolic link, or a directory.
         --- @param path the path to remove
         --- @param recursive whether to remove a directory's contents with it
         --- @return whether the path was removed
         --- @return a failure reason, when unsuccessful
-        remove: function(
+        remove: nosuspend function(
             path: string | nupp.Path, recursive: boolean?
         ): (boolean, string?)
 
@@ -1089,7 +1089,7 @@ record nupp.Files
         --- @param to the new path
         --- @return whether the rename happened
         --- @return a failure reason, when unsuccessful
-        rename: function(
+        rename: nosuspend function(
             from: string | nupp.Path, to: string | nupp.Path
         ): (boolean, string?)
 
@@ -1108,7 +1108,7 @@ record nupp.Files
         --- @param path the directory to list
         --- @return the children in the platform's order, or nil on failure
         --- @return a failure reason, when unsuccessful
-        list: function(path: string | nupp.Path): ({nupp.Files.Entry}?, string?)
+        list: nosuspend function(path: string | nupp.Path): ({nupp.Files.Entry}?, string?)
 
         --- Reads a whole file.
         ---
@@ -1204,7 +1204,7 @@ record nupp.Files
         --- @return the created path, or nil on failure
         --- @return a failure reason, when unsuccessful
         @owned
-        createTemporaryFile: function(
+        createTemporaryFile: nosuspend function(
             options: nupp.Files.TemporaryOptions?
         ): (nupp.Files.TemporaryPath?, string?)
 
@@ -1214,14 +1214,14 @@ record nupp.Files
         --- @return the created path, or nil on failure
         --- @return a failure reason, when unsuccessful
         @owned
-        createTemporaryDirectory: function(
+        createTemporaryDirectory: nosuspend function(
             options: nupp.Files.TemporaryOptions?
         ): (nupp.Files.TemporaryPath?, string?)
 
         --- Reads the process's current working directory.
         --- @return the current directory, or nil on failure
         --- @return a failure reason, when unsuccessful
-        currentDirectory: function(): (string?, string?)
+        currentDirectory: nosuspend function(): (string?, string?)
 
         --- How many whole-file transfers this program is still holding.
         ---
@@ -1230,13 +1230,13 @@ record nupp.Files
         --- which is what a program that submitted more than it consumed needs
         --- to see.
         --- @return the number of live transfers
-        pendingTransfers: function(): integer
+        pendingTransfers: nosuspend function(): integer
 
         --- Answers a well-known user folder.
         --- @param which the folder to locate
         --- @return the folder, or nil when the platform has no such folder
         --- @return a failure reason, when unsuccessful
-        userFolder: function(which: nupp.Files.UserFolder): (string?, string?)
+        userFolder: nosuspend function(which: nupp.Files.UserFolder): (string?, string?)
     end
 end
 

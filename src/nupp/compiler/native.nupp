@@ -20,6 +20,8 @@ type native.Feature = {
     library: string?,
     binary: boolean?,
     override: boolean?,
+    requires: {string}?,
+    runtimeModule: string?,
 
     [string]: any
 }
@@ -140,6 +142,17 @@ local FEATURES: {
     cargoFeature = "files",
     library = "nupp_native",
     binary = true,
+    -- A file operation that waits performs `suspend`, so the runtime that
+    -- answers it has to be in the target beside the program.
+    requires = {"runtime.suspension"},
+}, [
+    "runtime.suspension"
+] = {
+    -- Not a native library: a compiler-provided Nupp module a target needs its
+    -- own copy of. Deliberately not `binary`, so no manifest can force it on or
+    -- off -- nothing selects this, it is implied by what waits.
+    name = "suspension",
+    runtimeModule = "nupp.suspension",
 }, [
     "native.sha256"
 ] = {
@@ -213,8 +226,38 @@ function native.featureNames(): {string}
     return names
 end
 
+--- Adds what the selected features need to work, transitively.
+---
+--- A facility that waits needs the suspension runtime beside it, and the program
+--- that reached the facility said nothing about that. Closing over `requires`
+--- here rather than at the call site keeps one effect recorded per thing a
+--- program actually names, which is what makes a recorded effect explainable.
+function native.expand(effects: {[string]: any}?): {[string]: boolean}
+    local closed = {}
+    local pending = {}
+    for effect in pairs(effects or {}) do
+        closed[effect] = true
+        pending[#pending + 1] = effect
+    end
+    while #pending > 0 do
+        local effect = table.remove(pending)
+        local feature = FEATURES[effect]
+        for _, needed in ipairs(feature and feature.requires or {}) do
+            if not closed[needed] then
+                closed[needed] = true
+                pending[#pending + 1] = needed
+            end
+        end
+    end
+
+    return closed
+end
+
 --- Applies a target's tri-state overrides to an automatically detected set. An absent
 --- name remains automatic, true forces it in, and false forces it out.
+---
+--- Overrides settle before requirements do, so forcing a facility out takes what
+--- it needed with it and forcing one in brings what it needs.
 function native.resolve(effects: {[string]: any}?, overrides: {[string]: boolean}?): {[string]: boolean}
     local resolved = {}
     for effect in pairs(effects or {}) do
@@ -227,7 +270,7 @@ function native.resolve(effects: {[string]: any}?, overrides: {[string]: boolean
         end
     end
 
-    return resolved
+    return native.expand(resolved)
 end
 
 --- Finds native effects in an external Lua module by checking it under Nupp's ordinary

@@ -425,17 +425,43 @@ Exit test met: 24 concurrent transfers settle and return their slots; the
 request cap refuses rather than queueing; a cancelled transfer reaches
 `STATUS_CANCELED` and is refunded on destroy; no worker touches a `lua_State`.
 
-### F3: suspension
+### F3: suspension — done
 
 - The readiness source, the `suspend` call sites, and the immediate-completion
   early return.
-- The blocking handler path sleeping in `nuppFsWait`.
+- The blocking path sleeping in `nuppFsWait`.
+- The immediate operations declared `nosuspend`, so a region that forbids
+  waiting still permits asking what a path is.
 
-Exit test: one program reads a file unchanged under no handler and under a test
-handler; a read inside `nosuspend` reports NUPP2701 naming the chain; a read
-holding a live obligation runs cleanup on cancellation; a settled request does
-not allocate a subscription; the language server's file reads stop blocking its
-loop.
+**A target has to carry the suspension runtime, and nothing shipped it.** The
+generated installer calls `require("nupp.suspension")`, and that module resolved
+only inside this repository — an outside project got `unknown` for it. That was
+already true of `handle suspension`, so a library performing `suspend` could not
+ship at all; F3 is only where it stopped being avoidable.
+
+The fix is one edge in the feature table. `native.files` declares
+`requires = {"runtime.suspension"}`, `native.resolve` closes over `requires`
+transitively, and the native stage copies a feature's `runtimeModule` out of the
+compiler's own build into the target. `handle suspension` records the same
+effect from the checker, so user code gets the module by the same route. That
+feature is deliberately not `binary`, so no manifest can force it on or off:
+nothing selects it, it is implied by what waits.
+
+The pump is chosen per wait rather than once. Under a handler it is
+`nuppFsPoll`, which must not block a frame; with no handler it is `nuppFsWait`,
+because the built-in blocking path drives sources in a loop and would otherwise
+spin. `suspension.handled()` distinguishes them, which answers the deadline-hint
+open question in [suspension.md](suspension.md#open-questions) with "not yet".
+
+Exit test met: one program reads a file unchanged under no handler and under a
+test handler that drives the pump and is told `file transfer`; a read inside
+`nosuspend` reports NUPP2701 while `isDirectory`, `list` and `rename` in the
+same region do not; a settled transfer never reaches a handler; an outside
+project that uses `nupp.io.files` builds, stages `nupp/suspension.lua`, and
+runs.
+
+Not covered: the language-server claim in the original exit test, which is F4's
+rather than this milestone's.
 
 ### F4: adoption
 

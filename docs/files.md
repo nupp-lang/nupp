@@ -188,18 +188,45 @@ directory otherwise. A desktop that records its folders somewhere else is not
 consulted, and a folder that does not exist answers a reason rather than a path
 that is not there.
 
+## Waiting
+
+A whole-file `read`, `write`, `append`, `writeAtomic` or `copy` settles on a
+worker thread rather than on yours, and the call waits for it by suspending.
+What that means depends on where the call runs, and on nothing the call says:
+
+```
+ Where it runs                 What waiting means
+ ────────────────────────────  ──────────────────────────────────────
+ an ordinary program           it sleeps, driving the readiness pump
+ under an installed handler    it parks, and the handler resumes it
+ inside a `nosuspend` region   NUPP2701, at compile time
+```
+
+One call site covers all three. A library that reads a file works inside a game
+frame and inside a command-line program without knowing which it is in, and a
+transfer that settled before it was observed never reaches any of this.
+
+The immediate operations are declared `nosuspend`, so a region that forbids
+waiting still permits asking what a path is, listing a directory, or renaming
+one:
+
+```nupp
+nosuspend do
+    if files.isDirectory(candidate) then
+        print(#assert(files.list(candidate)))
+    end
+    print(files.read(candidate))   -- NUPP2701: `read` may suspend
+end
+```
+
 ## What this costs
 
 Reaching `nupp.io.files` selects a Rust provider, built with only this feature
 and loaded on first use. A program that never reaches it links nothing and
 initializes nothing, which is the rule for every
-[standard facility](stdlib.md#availability-detection-and-lazy-loading).
-
-A whole-file `read`, `write`, `append`, `writeAtomic` or `copy` settles on a
-worker thread rather than on yours. The call still answers the result and today
-still waits for it — sleeping rather than spinning — but the transfer is off the
-calling thread, which is what will let the same call park a task instead of
-blocking a program.
+[standard facility](stdlib.md#availability-detection-and-lazy-loading). A target
+that uses it also carries the suspension runtime, because that is what answers
+the wait above.
 
 The lane those workers run is bounded three ways: how many transfers may be
 live, how many bytes they may hold between them, and how large one may be. Past

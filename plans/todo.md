@@ -267,8 +267,27 @@ work makes sense in.
         `nupp task native-test` runs the provider's own unit tests, which the
         Lua suite cannot reach: the lane's budget, its refusals, and what a
         cancelled transfer refunds are only visible from inside.
-  - [ ] F3: the readiness source and the `suspend` call sites, with the
+  - [x] F3: the readiness source and the `suspend` call sites, with the
         immediate-completion early return the cost model requires.
+
+        Done. A whole-file transfer waits by suspending: it sleeps in an
+        ordinary program, parks under an installed handler, and is NUPP2701
+        inside a `nosuspend` region -- one call site for all three. The
+        immediate operations are declared `nosuspend`, so a region that forbids
+        waiting still permits asking what a path is.
+
+        This turned up the S2 packaging gap and fixed it. A target has to carry
+        `nupp.suspension`, and nothing shipped it: the module resolved only
+        inside this repository, so a library that performed `suspend` could not
+        ship at all. `native.files` now declares `requires` on a
+        `runtime.suspension` feature, `native.resolve` closes over `requires`,
+        and the native stage copies a feature's `runtimeModule` out of the
+        compiler's build into the target. `handle suspension` records the same
+        effect, so user code is served by the same route.
+
+        The pump is chosen per wait: `nuppFsPoll` under a handler, which must
+        not block a frame, and `nuppFsWait` without one, since the built-in
+        blocking path drives sources in a loop and would otherwise spin.
   - [ ] F4: adoption — `fs.nupp` loses its fallbacks, tecs swaps its imports.
 
 ## FFI and the C boundary

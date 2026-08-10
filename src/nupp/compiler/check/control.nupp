@@ -570,6 +570,12 @@ function control.install(c: state.Checker): state.StatHandlers
         end
 
         escapes(stat.body, false)
+        -- Installing a handler is what puts `require("nupp.suspension")` in the
+        -- generated module, so the target has to carry that runtime. Recorded
+        -- here because this statement is the only thing that asks for it.
+        if c.recordEffect then
+            c.recordEffect("runtime.suspension")
+        end
         c.handledDepth = c.handledDepth + 1
         c.pushScope()
         c.checkBlock(stat.body as cst.Node, true)
