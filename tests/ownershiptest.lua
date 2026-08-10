@@ -887,25 +887,6 @@ function M.rawCoroutinesCannotSuspendTemporalObligations()
    }, "\n"))
 end
 
-function M.aRawYieldThroughAnAliasIsNotYetCaught()
-   -- A known gap, tested so it is visible rather than assumed absent. The check
-   -- resolves the base through the scope, which correctly excludes a local named
-   -- `coroutine` that is somebody else's table -- but a local *bound to* the real one
-   -- resolves to its own entry, and nothing here tracks that it came from the global.
-   --
-   -- Closing it wants the alias analysis `plans/optimizations.md` calls half-built. The
-   -- test asserts today's behaviour so the day it changes, this fails and says so.
-   assertClean(RESOURCE .. table.concat({
-      "",
-      "local co = coroutine",
-      "local function pause()",
-      "   local value = resource_new()",
-      "   co.yield()",
-      "   resource_free(value)",
-      "end",
-   }, "\n"))
-end
-
 function M.aLocalNamedCoroutineIsNotTheRealOne()
    -- The other direction: somebody else's table with a `yield` field is not a
    -- suspension, and refusing it would refuse the wrong thing.
@@ -931,7 +912,9 @@ function M.aHandledSuspensionMayCrossALiveObligation()
       "local function pause(): nil",
       "   local value = resource_new()",
       "   handle suspension with h do",
-      "      print(s.handled())",
+      "      s.suspend('waiting', function(resume: function(integer)): nil",
+      "         resume(1)",
+      "      end)",
       "   end",
       "   resource_free(value)",
       "end",

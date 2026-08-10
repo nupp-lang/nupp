@@ -122,28 +122,36 @@ work makes sense in.
         metamethod contract: without it a comparator cannot call `tostring`,
         which is most comparators, and the compiler's own `build/cache.nupp`
         was the first thing the check refused.
-  - [x] S4: permit handled suspension while a resource obligation is live,
+  - [~] S4: permit handled suspension while a resource obligation is live,
         keeping NUPP2603 for raw coroutine yields. A handler owns every accepted
         park and its shutdown cancels and unwinds all parks before succeeding.
 
-        Landed, and narrower than the plan feared. NUPP2603 already fired only
-        on a raw `coroutine.yield`, so a handled suspension was permitted --
-        but by omission rather than by design. It is now deliberate, resolved
-        through the scope so a local named `coroutine` is no longer wrongly
-        refused, and the diagnostic points at `handle suspension` as the way
-        to do it responsibly.
+        Mostly landed, and **not complete**. A handled suspension may cross a
+        live obligation, deliberately rather than by omission, and the
+        diagnostic points at `handle suspension` as the way to do it
+        responsibly.
 
-        A handler owns every park it accepts: the runtime registers each
-        against the handler, deregisters it only once resumed, and
-        `Installed:release` cancels whatever is left so a library parked on a
-        resumption nobody will send unwinds and runs its cleanup. A handler
-        that returns without resuming has its subscription cancelled on the
-        spot rather than at the end of the extent.
+        Cancellation now actually unwinds. Abandoning a park unsubscribes the
+        library *and* wakes the parked continuation with a cancellation, so the
+        suspended stack resumes, `suspend` raises, and every `with` between
+        there and the park runs its cleanup -- unsubscribing alone left the
+        coroutine suspended inside `park` forever with its obligations
+        undischarged. Parks are held per *installation*, so a nested extent
+        sharing a handler cannot abandon the enclosing one's waits;
+        cancellation runs before `shutdown` and outside its failure, so a
+        handler whose shutdown raises does not strand every park it accepted;
+        and pumps a subscription registered through its context are released on
+        every path out.
 
-        Known gap, tested so it is visible: a raw yield reached through an
-        alias -- `local co = coroutine; co.yield()` -- is not caught, because
-        nothing tracks that the local came from the global. Closing it wants
-        the alias analysis `plans/optimizations.md` calls half-built.
+        **Blocking**: a raw yield reached through an alias -- `local co =
+        coroutine; co.yield()` -- is not refused. That is common enough to be a
+        hole anyone falls into by accident, so S4 is not done while it is open.
+        Closing it wants the binding to record that a local came from the
+        coroutine global; an attempt at that did not resolve, because a prelude
+        global does not come back from `c.lookupEntry` and the entry the check
+        later resolves is not the one the binding wrote to. Worth an hour with
+        the scope code rather than another guess.
+
   - [ ] S5: `nupp.io.Process`. tecs's API surface — `communicate`, the
         Reader/Writer vocabulary, `Exit:succeeded` — over a new POSIX/Win32
         platform layer, since theirs is 48 SDL calls and Nupp cannot link SDL

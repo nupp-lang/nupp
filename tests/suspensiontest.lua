@@ -430,28 +430,77 @@ function M.aCoroutineMayInstallItsOwn()
    assertEq(afterSeen, true, "and the inherited one comes back after")
 end
 
-function M.releasingCancelsAParkTheHandlerLeftOutstanding()
-   -- The abandonment the resource rules exist to prevent. A handler that parks a wait
-   -- and then lets its extent end has left a library waiting for a resumption nobody
-   -- will send; the release cancels it so the library unwinds and its cleanup runs.
-   local cancelled = false
-   local escaped = nil
+function M.releasingUnwindsAGenuinelyParkedCoroutine()
+   -- The case that matters, and the one the previous test missed: a handler that parks
+   -- by *suspending the coroutine* rather than returning. Release has to unsubscribe,
+   -- wake the continuation with a cancellation, and let the stack unwind -- so the
+   -- cleanup between the park and the top actually runs.
+   local unsubscribed, cleanedUp, raised = false, false, nil
+   local parked = nil
    local handler = {
       park = function(_self, waiting)
-         -- Deliberately returns without resuming: a scheduler that gave up.
-         escaped = waiting.operation
+         -- Register the waker, then suspend this coroutine. Control leaves `suspend`
+         -- entirely and only comes back when somebody wakes it.
+         waiting:onResume(function()
+            coroutine.resume(parked)
+         end)
+         coroutine.yield()
       end,
    }
    local installation = suspension.install(handler)
-   local ok = pcall(suspension.suspend, "waiting", function()
-      return function()
-         cancelled = true
-      end
+   -- Created through the inheriting form, so the extent installed above is the one
+   -- that accepts its park.
+   parked = suspension.create(function()
+      local ok, err = pcall(suspension.suspend, "waiting", function()
+         return function()
+            unsubscribed = true
+         end
+      end)
+      -- Standing in for what a `with` would discharge on the way out.
+      cleanedUp = true
+      raised = not ok and tostring(err) or nil
    end)
+   coroutine.resume(parked)
+   assertEq(cleanedUp, false, "it is genuinely parked, not finished")
+
    installation:release()
-   assertEq(ok, false, "the suspension failed rather than returning a value nobody sent")
-   assertEq(escaped, "waiting", "the handler saw it")
-   assertEq(cancelled, true, "and the release cancelled what it left behind")
+
+   assertEq(unsubscribed, true, "release unsubscribed the library")
+   assertEq(cleanedUp, true,
+      "and woke the park, so the stack unwound and the cleanup ran")
+   assertTrue(raised ~= nil and raised:find("cancelled", 1, true) ~= nil,
+      "the suspension raised a cancellation: " .. tostring(raised))
+end
+
+function M.aNestedExtentDoesNotCancelTheEnclosingOnesParks()
+   -- Parks are held per installation. One handler installed twice -- a scheduler reused
+   -- across frames, or a nested region -- must not let the inner extent abandon the
+   -- outer's waits on its way out.
+   local cancels = 0
+   local parked = nil
+   local handler = {
+      park = function(_self, waiting)
+         waiting:onResume(function()
+            coroutine.resume(parked)
+         end)
+         coroutine.yield()
+      end,
+   }
+   local outer = suspension.install(handler)
+   parked = suspension.create(function()
+      pcall(suspension.suspend, "outer wait", function()
+         return function()
+            cancels = cancels + 1
+         end
+      end)
+   end)
+   coroutine.resume(parked)
+   -- The same handler again, and then gone.
+   local inner = suspension.install(handler)
+   inner:release()
+   assertEq(cancels, 0, "the inner extent left the outer's park alone")
+   outer:release()
+   assertEq(cancels, 1, "and the extent that accepted it cancelled it")
 end
 
 function M.aFinishedParkIsNotCancelledLater()

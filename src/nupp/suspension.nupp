@@ -102,26 +102,12 @@ record suspension.Handler
     shutdown: function(suspension.Handler): nil
 end
 
--- Parks a handler has accepted and not yet seen finish, per handler. Weak-keyed on the
--- handler so a discarded one takes its bookkeeping with it.
+-- The installation in force, per coroutine, and the parks each one has accepted.
 --
--- The point is `Installed:release`: an extent that ends while a park is outstanding has
--- to cancel it, because the library waiting on it will otherwise wait for a resumption
--- nobody is going to send. Recording the parks is what lets the release do that rather
--- than hope the handler did.
-local parks = setmetatable({}, {__mode = "k"})
-
-local function parksOf(handler: any): any
-    local held = parks[handler]
-    if held == nil then
-        held = {}
-        parks[handler] = held
-    end
-
-    return held
-end
-
--- The handler in force, per coroutine.
+-- Keyed by *installation* rather than by handler. One handler may be installed twice --
+-- nested extents, or a scheduler reused across frames -- and keying on it would let the
+-- inner extent cancel the outer's parks on its way out, and discard the bookkeeping the
+-- outer still needed.
 --
 -- Weak-keyed so a finished coroutine's entry goes with it. The main thread has no
 -- coroutine object in LuaJIT, so it gets its own slot rather than a sentinel key.
@@ -130,13 +116,22 @@ local mainInstalled = nil
 
 local running = coroutine.running
 
-local function effective()
+-- The installation in force here, or nil. What is stored per coroutine is the
+-- installation rather than the handler, because a park belongs to the extent that
+-- accepted it and two extents may share one handler.
+local function effectiveInstallation()
     local co = running()
     if co == nil then
         return mainInstalled
     end
 
     return installed[co]
+end
+
+local function effective()
+    local current = effectiveInstallation()
+
+    return current and current.handler or nil
 end
 
 -- Sources, held by identity rather than by name: two libraries may both call theirs
@@ -266,6 +261,19 @@ function ContextMT.canPark(self: any): boolean
     return handler.canPark(handler) ~= false
 end
 
+-- Releases the pumps a subscription registered through its context. They belonged to
+-- this wait; a wait that is over, cancelled or refused has no business being polled.
+local function releaseOwned(context: any): nil
+    local owned = context and context.owned
+    if owned == nil then
+        return
+    end
+    context.owned = nil
+    for index = 1, #owned do
+        pcall(owned[index].release, owned[index])
+    end
+end
+
 --- Performs a suspension.
 ---
 --- `subscribe` is handed a one-shot `resume` and the context of whoever is handling
@@ -283,95 +291,111 @@ end
 function suspension.suspend<
     T
     >(operation: string, subscribe: function(function(T), suspension.Context): (function()?)): T
-    local handler = effective()
-    -- The ready path's cost: one closure over three cells, and the context the
-    -- subscription is entitled to see. No waiting view, no owned list, no park.
-    local resumed, value, waker = false, nil, nil
+    local current = effectiveInstallation()
+    local handler = current and current.handler or nil
+    -- The ready path's cost: one table for the state a cancellation also has to reach,
+    -- one closure, and the context the subscription is entitled to see. No waiting
+    -- view, no owned list, no park.
+    local state = {resumed = false, value = nil, cancelled = false, reason = nil, waker = nil}
 
     local function resume(answer: T): nil
-        if resumed then
+        if state.resumed or state.cancelled then
             error(("nupp: %s was resumed twice"):format(operation), 0)
         end
-        resumed, value = true, answer
-        local wake = waker
+        state.resumed, state.value = true, answer
+        local wake = state.waker
         if wake then
-            waker = nil
+            state.waker = nil
             wake()
         end
     end
 
     local context = setmetatable({handler = handler, owned = nil}, ContextMT)
     local cancel = subscribe(resume, context as suspension.Context)
-    if resumed then
-        -- The subscription answered during the call. Nothing was parked, no handler was
-        -- woken, and there is nothing left to cancel.
-        return value as T
+    if state.resumed then
+        -- The subscription answered during the call. Nothing was parked and no handler
+        -- was woken; any pump it registered has served its purpose.
+        releaseOwned(context)
+
+        return state.value as T
     end
 
     if not cancel then
+        releaseOwned(context)
         error(
             ("nupp: %s did not resume and answered no cancellation, so it could never be abandoned"):format(operation),
             0
         )
     end
     if not ContextMT.canPark(context) then
-        cancel()
+        pcall(cancel)
+        releaseOwned(context)
         error(("nupp: %s cannot suspend here"):format(operation), 0)
     end
 
-    -- Only now is there anything to show a handler. The view reads the upvalues rather
-    -- than a copy of them, so resumption still has exactly one path.
-    -- Registered against the handler that accepted it, so an extent ending with a park
-    -- still outstanding is a fact the runtime holds rather than one nobody recorded.
-    local outstanding = handler and parksOf(handler) or nil
+    -- Registered against the *installation* that accepted it, so an extent ending with
+    -- this park outstanding can find it -- and so a nested extent sharing the handler
+    -- cannot.
     local ticket = nil
+    if current ~= nil then
+        ticket = {operation = operation}
+        function ticket.abandon(reason: string): nil
+            -- Unsubscribe first: the library stops trying to resume something that is
+            -- being torn down. Then wake the park with a cancellation, which is what
+            -- actually unwinds it -- a subscription that is merely unsubscribed leaves
+            -- the coroutine suspended inside `park` forever, and its cleanup unrun.
+            pcall(cancel)
+            state.cancelled, state.reason = true, reason
+            local wake = state.waker
+            if wake then
+                state.waker = nil
+                -- Resuming here runs the parked stack to its unwinding. When the waker
+                -- is synchronous -- a scheduler resuming the coroutine -- unwinding has
+                -- finished by the time this returns.
+                pcall(wake)
+            end
+        end
+
+        current.parks[ticket] = true
+    end
 
     local waiting = setmetatable({operation = operation, isReady = function()
-        return resumed
+        return state.resumed or state.cancelled
     end, setWaker = function(wake)
-        waker = wake
+        state.waker = wake
     end,}, WaitingMT)
+
     -- A park suspends, and suspending fails when non-yieldable C code is on the stack:
     -- an FFI callback, a comparator, a pattern replacement. Most of those positions are
-    -- refused while compiling (NUPP2702), and the ones reached through an unknown C API
-    -- are not, so the failure is caught here and told what it was doing. LuaJIT's own
-    -- message names neither the operation nor the boundary.
+    -- refused while compiling (NUPP2702); the ones reached through an unknown C API are
+    -- not, so the failure is caught here and told what it was doing.
     local ok, err
-    if outstanding then
-        ticket = {cancel = cancel, operation = operation}
-        outstanding[ticket] = true
-    end
     if handler then
         ok, err = pcall(handler.park, handler, waiting as suspension.Waiting, cancel as function(): nil)
     else
         ok, err = pcall(blockingPark, waiting)
     end
-    -- Deregistered only once it actually finished. A handler that returned without
-    -- resuming has left the subscription live, and forgetting the park here would mean
-    -- nothing cancels it.
-    if outstanding and ticket and resumed then
-        outstanding[ticket] = nil
+    if ticket and current then
+        current.parks[ticket] = nil
+    end
+    releaseOwned(context)
+    if state.cancelled then
+        error(("nupp: %s was cancelled: %s"):format(operation, state.reason or "the extent ended"), 0)
     end
     if not ok then
         local text = tostring(err)
         if text:find("C%-call boundary") or text:find("attempt to yield across") then
-            cancel()
+            pcall(cancel)
             error(("nupp: %s cannot suspend: non-yieldable C code is on the stack"):format(operation), 0)
         end
         error(err, 0)
     end
-    if not resumed then
-        -- The subscription is still live and nobody is going to answer it. Cancelled
-        -- here rather than left for the extent to end, because the failure is already
-        -- known and the library should unwind now.
-        if outstanding and ticket then
-            outstanding[ticket] = nil
-        end
+    if not state.resumed then
         pcall(cancel)
         error(("nupp: %s: the handler returned without resuming it"):format(operation), 0)
     end
 
-    return value as T
+    return state.value as T
 end
 
 --- An installed handler, and the obligation to put back what it displaced.
@@ -381,8 +405,13 @@ record suspension.Installed
     handler: suspension.Handler
     released: boolean
 
-    --- Restores the previous handler and shuts this one down. Idempotent, because a
-    --- scope that ended twice is a scope that ended.
+    --- Parks this extent accepted and has not seen finish. Held per installation, not
+    --- per handler: one handler may be installed twice, and keying on it would let a
+    --- nested extent cancel the enclosing one's parks on its way out.
+    parks: any
+
+    --- Restores the previous handler, unwinds what it left parked, and shuts it down.
+    --- Idempotent, because a scope that ended twice is a scope that ended.
     @dispose
 
     function release(self: suspension.Installed): nil
@@ -395,21 +424,23 @@ record suspension.Installed
         else
             installed[self.co] = self.previous
         end
-        -- Told the extent ended, so a handler holding pumps abandons them at a point it
-        -- can see rather than at collection.
-        if self.handler.shutdown then
-            self.handler.shutdown(self.handler)
+        -- Cancellation happens before shutdown, and outside its failure. A handler
+        -- whose shutdown raises would otherwise leave every park it accepted parked
+        -- forever, which is the one outcome this whole section exists to prevent.
+        --
+        -- Abandoning a park unsubscribes it *and* wakes it with a cancellation, so the
+        -- suspended stack resumes, `suspend` raises, and every `with` between there and
+        -- the park runs its cleanup. Unsubscribing alone would leave the coroutine
+        -- suspended inside `park` with its obligations undischarged.
+        local held = self.parks
+        self.parks = {}
+        for ticket in pairs(held or {}) do
+            pcall(ticket.abandon, "the handled extent ended")
         end
-        -- Anything the handler accepted and did not finish is cancelled here. A library
-        -- parked on a resumption nobody is going to send would otherwise wait for it
-        -- forever, and its cleanup would never run -- which is the abandonment the
-        -- resource rules exist to prevent.
-        local held = parks[self.handler]
-        if held then
-            parks[self.handler] = nil
-            for ticket in pairs(held) do
-                pcall(ticket.cancel)
-            end
+        if self.handler.shutdown then
+            -- Protected too: a shutdown that raises is the handler's problem, not a
+            -- reason for the scope to fail to close.
+            pcall(self.handler.shutdown, self.handler)
         end
     end
 end
@@ -436,12 +467,26 @@ function suspension.install(handler: suspension.Handler): suspension.Installed
     local co = running()
     local previous
     if co == nil then
-        previous, mainInstalled = mainInstalled, handler
+        previous = mainInstalled
     else
-        previous, installed[co] = installed[co], handler
+        previous = installed[co]
+    end
+    -- What is stored is the installation, not the handler: a park belongs to the extent
+    -- that accepted it, and one handler may be installed by two of them.
+    local installation = new suspension.Installed {
+        co = co,
+        previous = previous,
+        handler = handler,
+        released = false,
+        parks = {},
+    }
+    if co == nil then
+        mainInstalled = installation
+    else
+        installed[co] = installation
     end
 
-    return new suspension.Installed {co = co, previous = previous, handler = handler, released = false,}
+    return installation
 end
 
 --- Creates a coroutine that inherits the handler installed where it was created.
@@ -460,7 +505,10 @@ end
 --- @return the coroutine
 function suspension.create<A..., R...>(body: function(A...): R...): thread
     local co = coroutine.create(body)
-    local inherited = effective()
+    -- The installation, not just its handler: a park the new coroutine accepts belongs
+    -- to the extent that was in force where it was created, and has to be cancelled
+    -- when that extent ends.
+    local inherited = effectiveInstallation()
     if inherited ~= nil then
         installed[co] = inherited
     end
