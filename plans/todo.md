@@ -131,26 +131,27 @@ work makes sense in.
         metamethod contract: without it a comparator cannot call `tostring`,
         which is most comparators, and the compiler's own `build/cache.nupp`
         was the first thing the check refused.
-  - [~] S4: permit handled suspension while a resource obligation is live,
+  - [x] S4: permit handled suspension while a resource obligation is live,
         keeping NUPP2603 for raw coroutine yields. A handler owns every accepted
         park and its shutdown cancels and unwinds all parks before succeeding.
 
-        Nearly done. A handled suspension may cross a live obligation,
+        Done. A handled suspension may cross a live obligation,
         deliberately rather than by omission, and the diagnostic points at
         `handle suspension` as the way to do it responsibly. A raw yield
         through the global is NUPP2603.
 
-        **Open**: `local co = coroutine; co.yield()` is not caught. Alias
-        support was written and then reverted, because the same mechanism that
-        recognized the alias also fired on `local coroutine = fake; local co =
-        coroutine`, which refuses a yield that could never have suspended. The
-        false positive is the safer direction but is not acceptable in a check
-        people are meant to leave on. What is not yet understood is why a
-        binding's entry resolves the way it does: `c.lookupEntry` at the
-        binding site did not distinguish the shadow from the global, and the
-        marking branch did not even run for the shadowed file. That wants
-        reading the scope and entry code properly rather than another
-        experiment.
+        A raw yield is refused through the global, through `local co =
+        coroutine`, through chains of those, and through `local coroutine =
+        coroutine` -- while a local bound to somebody else's table is left
+        alone. Provenance decides it, on the scope entry rather than on the
+        definition, because a definition is shared by every mention of a name
+        and a flow fact about one binding does not belong on it. The
+        self-rebinding case reads the initializer's own token, which still
+        points at what it read rather than at the binding being made.
+
+        An earlier attempt shipped a false positive and was reverted -- except
+        the producer was not, which is what made the behaviour unexplainable
+        for two rounds. Reverting half a change is worse than reverting none.
 
         Cancellation unwinds rather than merely unsubscribing: abandoning a
         park wakes the parked continuation with a cancellation, so the stack

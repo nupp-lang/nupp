@@ -359,31 +359,43 @@ function suspension.suspend<
     -- cannot.
     local ticket = nil
     if current ~= nil then
-        ticket = {operation = operation}
+        ticket = {operation = operation, unsubscribeAttempted = false}
         function ticket.abandon(reason: string): nil
-            -- Unsubscribe first, so the library stops trying to resume something being
-            -- torn down -- but under protection, with the failure held rather than
-            -- raised. A cancellation that threw here used to abandon the abandonment:
-            -- the park was never marked cancelled and never woken, so the coroutine
-            -- stayed suspended forever with its cleanup unrun, which is the outcome
-            -- this path exists to prevent rather than to cause.
-            local unsubscribed, unsubscribeError = pcall(cancel)
+            -- Retryable, because a release that could not finish is called again. Each
+            -- half of abandoning tracks its own progress: unsubscribing happens at most
+            -- once whatever it did, and a wake that failed is put back so the next
+            -- attempt can deliver it.
+            local unsubscribeError = nil
+            if not ticket.unsubscribeAttempted then
+                ticket.unsubscribeAttempted = true
+                -- Under protection, with the failure held rather than raised. A
+                -- cancellation that threw used to abandon the abandonment: the park was
+                -- never marked cancelled and never woken, so the coroutine stayed
+                -- suspended forever with its cleanup unrun.
+                local ok, err = pcall(cancel)
+                if not ok then
+                    unsubscribeError = err
+                end
+            end
             state.cancelled, state.reason = true, reason
+            local wakeError = nil
             local wake = state.waker
-            local woke, wakeError = true, nil
             if wake then
-                state.waker = nil
-                -- A synchronous waker unwinds before this returns. A scheduler that
-                -- only enqueues does not, which is why the ticket stays registered
-                -- until `suspend` itself takes it off: acknowledgement is the park
-                -- finishing, never the wake being delivered.
-                woke, wakeError = pcall(wake)
+                -- Cleared only once it has been delivered. Clearing first and then
+                -- failing would lose the only way to wake this park, and a retry would
+                -- have nothing left to call.
+                local ok, err = pcall(wake)
+                if ok then
+                    state.waker = nil
+                else
+                    wakeError = err
+                end
             end
             -- Both attempted, then the first failure reported.
-            if not unsubscribed then
+            if unsubscribeError ~= nil then
                 error(unsubscribeError, 0)
             end
-            if not woke then
+            if wakeError ~= nil then
                 error(wakeError, 0)
             end
         end

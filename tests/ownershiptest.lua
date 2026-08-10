@@ -887,6 +887,65 @@ function M.rawCoroutinesCannotSuspendTemporalObligations()
    }, "\n"))
 end
 
+function M.aRawYieldThroughAnAliasIsRefused()
+   -- `local co = coroutine` is common enough that leaving it unrecognized would be a
+   -- hole anyone falls into by accident.
+   assertEq(codes(RESOURCE .. table.concat({
+      "",
+      "local co = coroutine",
+      "local function pause()",
+      "   local value = resource_new()",
+      "   co.yield()",
+      "   resource_free(value)",
+      "end",
+   }, "\n")), "NUPP2603")
+end
+
+function M.aRawYieldThroughAChainOfAliasesIsRefused()
+   assertEq(codes(RESOURCE .. table.concat({
+      "",
+      "local co = coroutine",
+      "local also = co",
+      "local function pause()",
+      "   local value = resource_new()",
+      "   also.yield()",
+      "   resource_free(value)",
+      "end",
+   }, "\n")), "NUPP2603")
+end
+
+function M.rebindingTheNameToItselfIsStillTheLibrary()
+   -- `local coroutine = coroutine` reads the outer binding and rebinds the name, so
+   -- resolving that name afterwards can answer with the binding being made. The
+   -- initializer's own token still points at what it read, which is what tells them
+   -- apart.
+   assertEq(codes(RESOURCE .. table.concat({
+      "",
+      "local coroutine = coroutine",
+      "local function pause()",
+      "   local value = resource_new()",
+      "   coroutine.yield()",
+      "   resource_free(value)",
+      "end",
+   }, "\n")), "NUPP2603")
+end
+
+function M.anAliasOfAShadowedCoroutineIsNotTheRealOne()
+   -- The false-positive direction, and the one that made an earlier attempt
+   -- unshippable: a local bound to somebody else's table is not a suspension however
+   -- it is spelled downstream.
+   assertClean(RESOURCE .. table.concat({
+      "",
+      "local coroutine = {yield = function(): nil end}",
+      "local co = coroutine",
+      "local function pause()",
+      "   local value = resource_new()",
+      "   co.yield()",
+      "   resource_free(value)",
+      "end",
+   }, "\n"))
+end
+
 function M.aLocalNamedCoroutineIsNotTheRealOne()
    -- The other direction: somebody else's table with a `yield` field is not a
    -- suspension, and refusing it would refuse the wrong thing.

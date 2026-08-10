@@ -156,22 +156,37 @@ function bindings.install(c: state.Checker): state.StatHandlers
             end
             -- `local co = coroutine` is common enough that leaving it unrecognized
             -- would leave the raw-yield check with a hole anyone falls into by
-            -- accident. The fact is recorded on the *definition* rather than the scope
-            -- entry, because a definition is the one object a later use resolves back
-            -- to; propagated one hop at a time, so a chain of aliases carries it.
-            if initNode and initNode.kind == "name" and initNode.token and nameTok.definition then
-                local from = initNode.token
-                -- Deliberately an over-approximation in one direction: a binding *from*
-                -- something spelled `coroutine`, or from a local already marked. A
-                -- shadowing local of that name aliased onward would be marked too,
-                -- which refuses a yield that could not have suspended -- a false alarm
-                -- somebody can see and work around, where the false negative it
-                -- replaces is a resource leak nobody sees.
-                if from.text == "coroutine" or (
-                    from.definition ~= nil and from.definition.coroutineLibrary == true
-                ) then
-                    nameTok.definition.coroutineLibrary = true
+            -- accident, so the binding records where it came from.
+            --
+            -- The fact lives on the scope entry, not on the definition: a definition is
+            -- a stable object shared by every mention of a name, and a flow fact about
+            -- one particular binding does not belong on it.
+            --
+            -- Provenance decides it, never spelling. `c.lookupEntry` here resolves the
+            -- initializer in the scope *enclosing* this declaration, so
+            -- `local coroutine = fake; local co = coroutine` sees the shadow and marks
+            -- nothing, while `local co = coroutine` sees the prelude's own entry.
+            if boundEntry and initNode and initNode.kind == "name" and initNode.token then
+                local globals = c.env and c.env.globals or {}
+                local coroutineGlobal = globals.coroutine
+                local source = c.lookupEntry(initNode.token.text)
+                local isLibrary = coroutineGlobal ~= nil and source == coroutineGlobal
+                if not isLibrary and source ~= nil then
+                    isLibrary = source.coroutineLibrary == true
                 end
+                -- `local coroutine = coroutine` rebinds the name it reads, so resolving
+                -- that name now can answer with the binding being made. The initializer
+                -- was resolved before this declaration existed, so its token's
+                -- definition still points at what it actually read -- which is what
+                -- tells the outer global from the new local.
+                if not isLibrary
+                    and coroutineGlobal ~= nil
+                    and initNode.token.definition ~= nil
+                    and initNode.token.definition == coroutineGlobal.definition
+                then
+                    isLibrary = true
+                end
+                boundEntry.coroutineLibrary = isLibrary
             end
             if boundEntry and initNode and initNode.wrappedProtocol then
                 boundEntry.wrappedProtocol = initNode.wrappedProtocol

@@ -632,4 +632,49 @@ function M.aSubscriptionThatRaisesReleasesItsPumps()
    assertEq(polls, 0, "and its pump went with it")
 end
 
+function M.aFailedReleaseCanBeRetriedAndCancelsOnlyOnce()
+   -- A release that could not finish is called again. Unsubscribing must not happen
+   -- twice, and a wake that failed the first time has to still be available.
+   local cancels, wakes = 0, 0
+   local failWake = true
+   -- Declared before the handler, so the waker closes over this one rather than a
+   -- global of the same name.
+   local parked
+   local handler = {
+      park = function(_self, waiting)
+         waiting:onResume(function()
+            wakes = wakes + 1
+            if failWake then
+               error("wake blew up", 0)
+            end
+            coroutine.resume(parked)
+         end)
+         -- Genuinely parked: control leaves `suspend` and the ticket stays outstanding
+         -- until something wakes it.
+         coroutine.yield()
+      end,
+   }
+   local installation = suspension.install(handler)
+   local firstRelease, secondRelease
+   parked = suspension.create(function()
+      pcall(suspension.suspend, "retryable", function()
+         return function()
+            cancels = cancels + 1
+         end
+      end)
+   end)
+   coroutine.resume(parked)
+
+   firstRelease = select(2, pcall(installation.release, installation))
+   assertTrue(firstRelease ~= nil, "the first release failed on the wake")
+   assertEq(cancels, 1, "unsubscribed once")
+   assertEq(wakes, 1, "and attempted the wake once")
+
+   failWake = false
+   secondRelease = select(2, pcall(installation.release, installation))
+   assertEq(cancels, 1, "the retry did not unsubscribe a second time")
+   assertEq(wakes, 2, "but did deliver the wake it had kept")
+   assertEq(secondRelease, nil, "and closed the scope: " .. tostring(secondRelease))
+end
+
 return M

@@ -303,7 +303,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             -- bound to it. A local named `coroutine` that is somebody else's table
             -- resolves to a different entry and is left alone.
             local isCoroutine = false
-            if baseTok and coroutineGlobal then
+            if resolved ~= nil and resolved.coroutineLibrary == true then
+                -- A local bound to the library, however many hops back.
+                isCoroutine = true
+            elseif baseTok and coroutineGlobal then
                 if resolved ~= nil then
                     isCoroutine = resolved == coroutineGlobal or (
                         resolved.definition ~= nil and resolved.definition == coroutineGlobal.definition
