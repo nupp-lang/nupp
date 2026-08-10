@@ -887,33 +887,6 @@ function M.rawCoroutinesCannotSuspendTemporalObligations()
    }, "\n"))
 end
 
-function M.aRawYieldThroughAnAliasIsRefused()
-   -- `local co = coroutine` is common enough that leaving it unrecognized would be a
-   -- hole anyone falls into by accident.
-   assertEq(codes(RESOURCE .. table.concat({
-      "",
-      "local co = coroutine",
-      "local function pause()",
-      "   local value = resource_new()",
-      "   co.yield()",
-      "   resource_free(value)",
-      "end",
-   }, "\n")), "NUPP2603")
-end
-
-function M.aRawYieldThroughAChainOfAliasesIsRefused()
-   assertEq(codes(RESOURCE .. table.concat({
-      "",
-      "local co = coroutine",
-      "local also = co",
-      "local function pause()",
-      "   local value = resource_new()",
-      "   also.yield()",
-      "   resource_free(value)",
-      "end",
-   }, "\n")), "NUPP2603")
-end
-
 function M.aLocalNamedCoroutineIsNotTheRealOne()
    -- The other direction: somebody else's table with a `yield` field is not a
    -- suspension, and refusing it would refuse the wrong thing.

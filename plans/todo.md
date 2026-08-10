@@ -131,18 +131,26 @@ work makes sense in.
         metamethod contract: without it a comparator cannot call `tostring`,
         which is most comparators, and the compiler's own `build/cache.nupp`
         was the first thing the check refused.
-  - [x] S4: permit handled suspension while a resource obligation is live,
+  - [~] S4: permit handled suspension while a resource obligation is live,
         keeping NUPP2603 for raw coroutine yields. A handler owns every accepted
         park and its shutdown cancels and unwinds all parks before succeeding.
 
-        Landed. A handled suspension may cross a live obligation,
+        Nearly done. A handled suspension may cross a live obligation,
         deliberately rather than by omission, and the diagnostic points at
-        `handle suspension` as the way to do it responsibly. A raw yield is
-        still NUPP2603 -- through the global, through `local co = coroutine`,
-        and through a chain of those, because the binding records the fact on
-        the definition a later use resolves back to. The check had to move
-        after the callee is inferred: before that, the name token carries no
-        definition, which is what four earlier attempts kept missing.
+        `handle suspension` as the way to do it responsibly. A raw yield
+        through the global is NUPP2603.
+
+        **Open**: `local co = coroutine; co.yield()` is not caught. Alias
+        support was written and then reverted, because the same mechanism that
+        recognized the alias also fired on `local coroutine = fake; local co =
+        coroutine`, which refuses a yield that could never have suspended. The
+        false positive is the safer direction but is not acceptable in a check
+        people are meant to leave on. What is not yet understood is why a
+        binding's entry resolves the way it does: `c.lookupEntry` at the
+        binding site did not distinguish the shadow from the global, and the
+        marking branch did not even run for the shadowed file. That wants
+        reading the scope and entry code properly rather than another
+        experiment.
 
         Cancellation unwinds rather than merely unsubscribing: abandoning a
         park wakes the parked continuation with a cancellation, so the stack
@@ -156,6 +164,13 @@ work makes sense in.
         coroutine that starts after its extent ended does not add parks nobody
         will abandon; every failed park path unsubscribes; and a subscription
         that raises after registering a pump releases it.
+
+        Cancellation is itself protected: a `cancel` that raises no longer
+        skips marking and waking the park, which used to leave the coroutine
+        suspended forever -- the outcome the path exists to prevent. A release
+        that cannot drain keeps its tickets and stays retryable rather than
+        dropping continuations nobody then owns, and reports the first failure
+        rather than hiding it behind the unfinished-park report.
 
   - [ ] S5: `nupp.io.Process`. tecs's API surface — `communicate`, the
         Reader/Writer vocabulary, `Exit:succeeded` — over a new POSIX/Win32

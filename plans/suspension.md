@@ -377,30 +377,35 @@ that makes a third of the wrapper's allocation optional.
 What S2 must therefore avoid on the synchronous path is a **gate or retained
 park state**. "Allocate nothing" was never available and should not be the bar.
 
-The runtime built to that bar (`src/nupp/suspension.nupp`) measures, against the
-same harness and the same shape of caller — the rows are in
-`bench/suspension-baseline.lua` so the gate is reproducible rather than recorded:
+The runtime built to that bar (`src/nupp/suspension.nupp`) is measured by the
+same harness, which carries its own rows so the gate is reproducible rather than
+recorded. After S4's correctness work, on one machine:
 
 ```
  path                     ns/op  bytes/op
  ──────────────────────   ─────  ────────
- tecs handled-ready       349.3     568.1
- nupp-ready               201.6     416.0
- …with the subscription   177.2     376.0
+ tecs handled-ready       534.9     568.1
+ nupp-ready               414.1     560.0
+ …with the subscription   321.3     520.0
    hoisted out of the loop
 ```
 
-1.7x the speed and about three quarters the allocation, which clears parity
-rather than approaching it. The mechanism is the early return: `resume` writes
-upvalues, and a subscription that has already answered when `subscribe` returns
-never builds the waiting view, never wakes a handler, and has nothing to cancel.
+About 1.25x the speed and level on allocation. An earlier revision measured
+2.3x and half the allocation, and that number was partly bought with defects:
+no context for the subscription to see, state on upvalues that a cancellation
+could not reach, no ticket, no protected subscribe. Correctness took most of the
+margin back, and the honest claim is now **parity with a small margin** rather
+than clearing the bar comfortably.
 
-What the ready path still pays is the context — a library is entitled to see who
-is handling suspensions *while* it subscribes, because registering a readiness
-pump is part of subscribing rather than something to do afterwards, and that
-costs a table on every wait including the ones that never park. Pooling it per
-coroutine would remove that, at the price of a context a subscription could
-capture and outlive. Headroom, with a hazard attached, rather than a floor.
+Both rows moved together, so the comparison holds even though this machine ran
+slower than when the baselines were taken — which is the reason the harness
+measures tecs and Nupp in the same process on the same pass.
+
+What the ready path pays for is the context and the shared state table: a library
+is entitled to see who is handling suspensions *while* it subscribes, and a
+cancellation has to be able to reach the park's state. Pooling the context per
+coroutine would recover part of it, at the price of a context a subscription
+could capture and outlive. Headroom with a hazard attached, not a floor.
 
 For tecs the cooperative slow path replaces `waitMode`/`checkWait` with the
 context read and then reaches the same gate, scheduler, and readiness pump it

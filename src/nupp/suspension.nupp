@@ -129,10 +129,14 @@ local function effectiveInstallation()
     local current = co == nil and mainInstalled or installed[co]
     -- A coroutine created under an extent may not start until after that extent has
     -- ended. Using its handler then would add parks to bookkeeping nobody will ever
-    -- release, so a released installation is stepped over in favour of whatever it
+    -- release, so a closed installation is stepped over in favour of whatever it
     -- restored -- which is what the coroutine would have inherited had it been made a
     -- moment later.
-    while current ~= nil and current.released do
+    --
+    -- The test is `restored`, not `released`: an extent whose drain failed is still
+    -- retryable and its parks still outstanding, but its scope has ended and it is not
+    -- in force for anything starting now.
+    while current ~= nil and current.restored do
         current = current.previous
     end
 
@@ -357,20 +361,30 @@ function suspension.suspend<
     if current ~= nil then
         ticket = {operation = operation}
         function ticket.abandon(reason: string): nil
-            -- Unsubscribe first: the library stops trying to resume something that is
-            -- being torn down. Then wake the park with a cancellation, which is what
-            -- actually unwinds it -- a subscription that is merely unsubscribed leaves
-            -- the coroutine suspended inside `park` forever, and its cleanup unrun.
-            cancel()
+            -- Unsubscribe first, so the library stops trying to resume something being
+            -- torn down -- but under protection, with the failure held rather than
+            -- raised. A cancellation that threw here used to abandon the abandonment:
+            -- the park was never marked cancelled and never woken, so the coroutine
+            -- stayed suspended forever with its cleanup unrun, which is the outcome
+            -- this path exists to prevent rather than to cause.
+            local unsubscribed, unsubscribeError = pcall(cancel)
             state.cancelled, state.reason = true, reason
             local wake = state.waker
+            local woke, wakeError = true, nil
             if wake then
                 state.waker = nil
                 -- A synchronous waker unwinds before this returns. A scheduler that
                 -- only enqueues does not, which is why the ticket stays registered
                 -- until `suspend` itself takes it off: acknowledgement is the park
                 -- finishing, never the wake being delivered.
-                wake()
+                woke, wakeError = pcall(wake)
+            end
+            -- Both attempted, then the first failure reported.
+            if not unsubscribed then
+                error(unsubscribeError, 0)
+            end
+            if not woke then
+                error(wakeError, 0)
             end
         end
 
@@ -426,6 +440,12 @@ record suspension.Installed
     co: any
     previous: any
     handler: suspension.Handler
+
+    --- Whether the slot this displaced has been put back. Separate from `released`,
+    --- which additionally means every park it accepted has finished: a release that
+    --- could not drain its parks has restored the slot and is still retryable.
+    restored: boolean
+
     released: boolean
 
     --- Parks this extent accepted and has not seen finish. Held per installation, not
@@ -441,17 +461,24 @@ record suspension.Installed
         if self.released then
             return
         end
-        self.released = true
-        if self.co == nil then
-            mainInstalled = self.previous
-        else
-            installed[self.co] = self.previous
+        -- Restoring the slot happens once and is not undone by a failed drain: the
+        -- handler is no longer in force whatever else went wrong. Only `released` --
+        -- "this extent is finished with" -- waits for the parks to be, so a release
+        -- that could not finish can be called again rather than leaving its
+        -- continuations owned by nobody.
+        if not self.restored then
+            self.restored = true
+            if self.co == nil then
+                mainInstalled = self.previous
+            else
+                installed[self.co] = self.previous
+            end
         end
-        -- Every step below is attempted and the first failure is reported at the end.
-        -- Stopping at the first one would leave the rest of the parks abandoned in the
-        -- literal sense, which is what this exists to prevent; swallowing them all
-        -- would
-        -- close the scope on a lie.
+
+        -- Every step is attempted and the first failure reported at the end. Stopping
+        -- at the first would leave the remaining parks abandoned in the literal sense,
+        -- which is what this exists to prevent; swallowing them all would close the
+        -- scope on a lie.
         local firstError = nil
         local function attempt(fn: any, argument: any): nil
             local ok, err = pcall(fn, argument)
@@ -484,17 +511,25 @@ record suspension.Installed
             remaining = next(self.parks or {})
         end
 
+        -- The first failure wins, whatever it was: an unfinished-park report raised
+        -- ahead of it would hide the cancellation or shutdown error that is very likely
+        -- why the park is unfinished.
+        if firstError ~= nil then
+            -- The tickets stay: they are still outstanding, and `released` stays false
+            -- so this can be tried again once whatever failed is dealt with.
+            error(firstError, 0)
+        end
         -- A ticket comes off when its `suspend` returns, so anything still here is a
-        -- park that was told to abandon and has not finished doing so. Returning
-        -- successfully would report a scope closed while a coroutine is still suspended
-        -- inside it with its obligations undischarged.
+        -- park told to abandon that has not finished. Returning successfully would
+        -- report a scope closed while a coroutine is still suspended inside it with its
+        -- obligations undischarged -- and clearing the tickets would leave those
+        -- continuations owned by nobody, with no way to try again.
         if remaining ~= nil then
             local names = {}
             for ticket in pairs(self.parks or {}) do
                 names[#names + 1] = ticket.operation
             end
             table.sort(names)
-            self.parks = {}
             error(
                 (
                     "nupp: the handled extent ended with %d park(s) unfinished: %s"
@@ -502,10 +537,7 @@ record suspension.Installed
                 0
             )
         end
-        self.parks = {}
-        if firstError ~= nil then
-            error(firstError, 0)
-        end
+        self.released = true
     end
 end
 
@@ -541,6 +573,7 @@ function suspension.install(handler: suspension.Handler): suspension.Installed
         co = co,
         previous = previous,
         handler = handler,
+        restored = false,
         released = false,
         parks = {},
     }
