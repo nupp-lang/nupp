@@ -83,7 +83,11 @@ jobs:
         shell: bash
         run: |
           luajit -v
-          luajit -e 'require("jit.zone") print("jit.zone loads")'
+          # With the rock tree on the path, the way the launchers put it there.
+          # A bare interpreter looks in its install prefix, which an in-place
+          # build never had.
+          LUA_PATH=".rocks/share/lua/5.1/?.lua;.rocks/share/lua/5.1/?/init.lua;;" \
+            luajit -e 'require("jit.zone") print("jit.zone loads")'
 
       - name: Build lua-cjson (unix)
         if: runner.os != 'Windows'
