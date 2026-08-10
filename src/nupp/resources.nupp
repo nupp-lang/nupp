@@ -28,7 +28,7 @@ end
 --- @return the open file handle, owned by the caller
 --- @raises when the file cannot be opened
 @owned(close_file)
-function resources.open_file(path: string, mode: string?): LuaFile
+function resources.openFile(path: string, mode: string?): LuaFile
     local file, reason = io.open(path, mode)
     if not file then
         error(reason or "file open failed")
@@ -47,7 +47,7 @@ end
 --- @return the process pipe, owned by the caller
 --- @raises when the process pipe cannot be opened
 @owned(close_file)
-function resources.open_process(command: string, mode: string?): LuaFile
+function resources.openProcess(command: string, mode: string?): LuaFile
     local file, reason = io.popen(command, mode)
     if not file then
         error(reason or "process open failed")
@@ -64,7 +64,7 @@ end
 --- @return the open temporary file handle, owned by the caller
 --- @raises when the temporary file cannot be created
 @owned(close_file)
-function resources.temporary_file(): LuaFile
+function resources.temporaryFile(): LuaFile
     local file = io.tmpfile()
     if not file then
         error("temporary file creation failed")

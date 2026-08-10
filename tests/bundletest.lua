@@ -294,7 +294,7 @@ function M.theStandardLibraryIsTypedOutsideThisTree()
       ["typed.nupp"] = [[
 local resources = require("nupp.resources")
 
-local wrong: integer = resources.open_file("x", "r")
+local wrong: integer = resources.openFile("x", "r")
 
 return wrong
 ]],
@@ -314,14 +314,14 @@ function M.theStandardLibraryCarriesItsOwnershipOutsideThisTree()
       ["acquire.nupp"] = [[
 local resources = require("nupp.resources")
 
-with file = resources.open_file("input.txt", "r") do
+with file = resources.openFile("input.txt", "r") do
     print(file:read("*a"))
 end
 ]],
       ["leak.nupp"] = [[
 local resources = require("nupp.resources")
 
-local handle = resources.open_file("input.txt", "r")
+local handle = resources.openFile("input.txt", "r")
 
 return 1
 ]],

@@ -56007,7 +56007,7 @@ end
 end
 
 
-function resources . open_file ( path , mode )
+function resources . openFile ( path , mode )
 local file , reason = io . open ( path , mode )
 if not file then
 error ( reason or "file open failed" )
@@ -56017,7 +56017,7 @@ return file
 end
 
 
-function resources . open_process ( command , mode )
+function resources . openProcess ( command , mode )
 local file , reason = io . popen ( command , mode )
 if not file then
 error ( reason or "process open failed" )
@@ -56027,7 +56027,7 @@ return file
 end
 
 
-function resources . temporary_file ( )
+function resources . temporaryFile ( )
 local file = io . tmpfile ( )
 if not file then
 error ( "temporary file creation failed" )
@@ -59178,7 +59178,7 @@ local function close_file(file: LuaFile)
 end
 
 @owned(close_file)
-function resources.open_file(path: string, mode: string?): LuaFile
+function resources.openFile(path: string, mode: string?): LuaFile
     local file, reason = io.open(path, mode)
     if not file then
         error(reason or "file open failed")
@@ -59188,7 +59188,7 @@ function resources.open_file(path: string, mode: string?): LuaFile
 end
 
 @owned(close_file)
-function resources.open_process(command: string, mode: string?): LuaFile
+function resources.openProcess(command: string, mode: string?): LuaFile
     local file, reason = io.popen(command, mode)
     if not file then
         error(reason or "process open failed")
@@ -59198,7 +59198,7 @@ function resources.open_process(command: string, mode: string?): LuaFile
 end
 
 @owned(close_file)
-function resources.temporary_file(): LuaFile
+function resources.temporaryFile(): LuaFile
     local file = io.tmpfile()
     if not file then
         error("temporary file creation failed")

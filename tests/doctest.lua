@@ -413,9 +413,9 @@ function M.standardResourcesApiHasCompleteDocumentation()
    assert(module.text ~= "", "nupp.resources has no module documentation")
 
    local expected = {
-      ["resources.open_file"] = true,
-      ["resources.open_process"] = true,
-      ["resources.temporary_file"] = true,
+      ["resources.openFile"] = true,
+      ["resources.openProcess"] = true,
+      ["resources.temporaryFile"] = true,
    }
    assert(#module.items == 3, "nupp.resources must document exactly three functions")
    for _, item in ipairs(module.items) do

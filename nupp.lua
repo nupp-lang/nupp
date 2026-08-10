@@ -211,7 +211,7 @@ local native = cheader("native/library.h")]],
                         details = "Ownership, borrowing, pinning, and deterministic cleanup make "
                            .. "the important rules at a C boundary explicit—and make leaks and "
                            .. "use-after-move errors reportable.",
-                        code = [[with file = resources.open_file("report.txt", "r") do
+                        code = [[with file = resources.openFile("report.txt", "r") do
     local contents = file:read("*a")
     send(borrows contents)
 end -- the file is closed on every structured exit]],

@@ -83,7 +83,7 @@ one C is holding, and one already freed. The convention lives in a comment.
 Nupp puts the obligation in the type:
 
 ```nupp
-local file = resources.open_file("in.txt", "r")
+local file = resources.openFile("in.txt", "r")
 -- error: NUPP2603: owned value "file" leaves scope without being
 -- consumed, disposed, returned, or converted with intoRaw
 ```
@@ -92,7 +92,7 @@ Discharge it by disposing, transferring it to a `takes` parameter, returning it
 from an `@owned` function — or by scoping it:
 
 ```nupp
-with file = resources.open_file("in.txt", "r") do
+with file = resources.openFile("in.txt", "r") do
     print(file:read("*a"))
 end
 ```
