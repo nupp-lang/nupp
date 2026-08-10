@@ -45,6 +45,15 @@ work makes sense in.
         Order the work as C4's worker floor, then M1–M3; M4 additionally needs
         C3, then M5 and the M0-approved M6. C2a and M3 unlock the field-codec
         provider M7. C2a does not block PEG.
+- [ ] **Type-level computation**
+      ([design](type-level-computation.md)): a checker-native, type-to-type
+      reducer for dependent API surfaces. It is separate from comptime: share
+      the semantic member vocabulary and fingerprints with C2a, then land
+      finite `keyof`/indexed/mapped operators, explicit const generic
+      parameters, nonrecursive `match`/`infer`, and template literal types.
+      Recursive aliases remain conditional on real workloads, synchronous LSP
+      budgets, and a recorded keep decision; a type-level PEG interpreter is
+      explicitly not an acceptance case.
 - [ ] **Suspension** ([design](suspension.md)): waiting as a checked, handled
       effect. One call site parks under a scheduler and blocks without one, so
       a library that waits works inside a game frame and inside a CLI without

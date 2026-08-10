@@ -700,6 +700,11 @@ name and type resolution. It cannot depend on an unresolved type parameter or
 on a runtime generic argument. This keeps module interfaces independent of the
 set of call-site instantiations.
 
+[Type-level computation](type-level-computation.md) is the separate proposal
+for reducing an open type to another type during that resolution. It shares
+semantic member facts and fingerprints with reflection, but no evaluator,
+worker, environment, recursion budget, or result protocol with comptime.
+
 Compile-time value parameters such as fixed array lengths may be designed
 later as an explicit extension to the generic system, for example
 `Matrix<T, const N: integer>`. They are not implicit comptime parameters and do
