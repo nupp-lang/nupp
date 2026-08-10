@@ -825,16 +825,145 @@ local function actionReturnTypes(slots, actions)
     return returns
 end
 
+local function selectSpecialization(validated)
+    if #validated.slots ~= 0 then
+        return nil
+    end
+    local nodes = validated.nodes
+    local function dereference(index)
+        local seen = {}
+        while nodes[index] and nodes[index][1] == "reference" and not seen[index] do
+            seen[index], index = true, nodes[index][2]
+        end
+
+        return index
+    end
+    local function sequence(index, out)
+        index = dereference(index)
+        local node = nodes[index]
+        if node and node[1] == "sequence" then
+            for child = 2, #node do
+                sequence(node[child], out)
+            end
+        else
+            out[#out + 1] = index
+        end
+
+        return out
+    end
+    local function byteSet(index, set)
+        index = dereference(index)
+        local node = nodes[index]
+        if not node then
+            return nil
+        elseif node[1] == "set" then
+            for offset = 1, #node[2] do
+                set[node[2]:sub(offset, offset)] = true
+            end
+        elseif node[1] == "literal" and #node[2] == 1 then
+            set[node[2]] = true
+        elseif node[1] == "choice" then
+            for child = 2, #node do
+                if not byteSet(node[child], set) then
+                    return nil
+                end
+            end
+        else
+            return nil
+        end
+
+        return set
+    end
+    local function setText(index)
+        local set = byteSet(index, {})
+        if not set then
+            return nil
+        end
+        local bytes = {}
+        for byte in pairs(set) do
+            bytes[#bytes + 1] = byte
+        end
+        table.sort(bytes)
+
+        return table.concat(bytes)
+    end
+    local root = sequence(validated.root, {})
+    if #root == 3 and nodes[root[3]][1] == "eof" and validated.result == "integer" then
+        local repeatNode = nodes[dereference(root[2])]
+        local head = setText(root[1])
+        local tail = repeatNode and repeatNode[1] == "zeroOrMore" and setText(repeatNode[2]) or nil
+        if head and tail then
+            return {kind = "span", head = head, tail = tail}
+        end
+    end
+    if #root == 2 and nodes[root[2]][1] == "eof" and validated.result == "array:string" then
+        local collect = nodes[dereference(root[1])]
+        local body = collect and collect[1] == "collect" and sequence(collect[2], {}) or {}
+        if #body == 2 then
+            local capture = nodes[dereference(body[1])]
+            local repetition = nodes[dereference(body[2])]
+            local repeated = repetition and repetition[1] == "zeroOrMore"
+                and sequence(repetition[2], {}) or {}
+            local word = capture and capture[1] == "capture" and nodes[dereference(capture[2])]
+            local separator = repeated[1] and nodes[dereference(repeated[1])]
+            if #repeated == 2 and repeated[2] == body[1]
+                and word and word[1] == "oneOrMore"
+                and separator and separator[1] == "literal" and separator[2] ~= "" then
+                local bytes = setText(word[2])
+                if bytes then
+                    return {kind = "list", bytes = bytes, separator = separator[2]}
+                end
+            end
+        end
+    end
+    if #root == 2 and nodes[root[2]][1] == "eof" and validated.result == "integer" then
+        local rule = dereference(root[1])
+        local choice = nodes[rule]
+        if choice and choice[1] == "choice" and #choice == 3 then
+            local leaf, recursive
+            for child = 2, 3 do
+                local candidate = nodes[dereference(choice[child])]
+                if candidate[1] == "literal" and candidate[2] ~= "" then
+                    leaf = candidate[2]
+                else
+                    local parts = sequence(choice[child], {})
+                    if #parts == 3 then
+                        local first, middle, last = nodes[parts[1]], dereference(parts[2]), nodes[parts[3]]
+                        if first[1] == "literal" and first[2] ~= "" and middle == rule
+                            and last[1] == "literal" and last[2] ~= "" then
+                            recursive = {open = first[2], close = last[2]}
+                        end
+                    end
+                end
+            end
+            if leaf and recursive and leaf:sub(1, 1) ~= recursive.open:sub(1, 1) then
+                return {kind = "nested", leaf = leaf, open = recursive.open, close = recursive.close}
+            end
+        end
+    end
+
+    return nil
+end
+
 local function dataIR(value)
     if type(value) ~= "table" then
         return {tag = "literal", value = value}
     end
-    local array = {}
+    local array, fields, names = {}, {}, {}
     for index = 1, #value do
         array[index] = dataIR(value[index])
     end
+    for name in pairs(value) do
+        if type(name) == "string" then
+            names[#names + 1] = name
+        end
+    end
+    table.sort(names)
+    for _, name in ipairs(names) do
+        fields[#fields + 1] = {name = name, value = dataIR(value[name])}
+    end
 
-    return {tag = "table", array = array}
+    return {tag = "table", array = array, fields = fields}
 end
 
 function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?
@@ -867,6 +996,14 @@ function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?
             "NUPP2415",
             "PEG blueprint result " .. validated.result .. " does not match the declared matcher type"
         )
+    end
+    local specialization = selectSpecialization(validated)
+    if specialization then
+        return {
+            tag = "call",
+            callee = {tag = "helper", name = "nupp.peg.specialized"},
+            args = {dataIR(specialization)},
+        }, nil
     end
     local machine = {
         tag = "call",

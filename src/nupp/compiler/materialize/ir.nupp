@@ -13,6 +13,7 @@ local MAX_SOURCE_BYTES = 512 * 1024
 
 local HELPERS = {
     ["nupp.peg.machine"] = "_G.nupp.peg.machine",
+    ["nupp.peg.specialized"] = "_G.nupp.peg.specialized",
 }
 
 type ir.Failure = {

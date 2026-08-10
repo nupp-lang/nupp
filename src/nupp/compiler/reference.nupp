@@ -1276,6 +1276,12 @@ must resolve, repetitions may not contain a nullable expression, ordered-choice
 capture shapes must agree, and left recursion is rejected. Those invalid
 graphs are **NUPP2417** while the common materialization boundary and size
 diagnostics remain **NUPP2414** through **NUPP2416**.
+
+The pure-Lua parsing machine is the semantic fallback. The compiler selects
+measured straight-line matchers for anchored byte spans, delimited substring
+lists, and simple nested delimiters; unsupported graphs retain the machine.
+Backend selection changes only regenerated runtime code, never the canonical
+comptime blueprint or the matcher's public type and behavior.
 ]=],
         example = [=[
 local m = {}

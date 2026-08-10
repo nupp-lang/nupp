@@ -64,7 +64,7 @@ return Identifier:match("_name9"), Identifier:match("9name"), Identifier("ok")
    assertEq(missed, nil, "a failed match returns nil")
    assertEq(called, 3, "the matcher call contract reaches the same machine")
    local code = compile(source)
-   assert(code:find("nupp.peg.machine", 1, true), code)
+   assert(code:find("nupp.peg.specialized", 1, true), code)
    assert(not code:find("require(\"lpeg\")", 1, true), code)
 end
 
@@ -259,6 +259,41 @@ return Identifier
    for _, subject in ipairs({"name", "_name9", "A0", "", "9x", "a-b"}) do
       assertEq(matcher(subject), lpeg.match(reference, subject),
          "LPeg differential subject " .. subject)
+   end
+end
+
+function M.agreesBetweenSpecializedAndReferenceBackends()
+   local source = [[
+const FastIdentifier: nupp.Peg.Matcher<integer> = comptime do
+    const head = nupp.peg.range("az", "AZ") + nupp.peg.literal("_")
+    const tail = head + nupp.peg.range("09")
+    return nupp.peg.compile(head * tail^0 * nupp.peg.eof())
+end
+const RefIdentifier: nupp.Peg.Matcher<integer> = comptime do
+    const head = nupp.peg.range("az", "AZ") + nupp.peg.literal("_")
+    const tail = head + nupp.peg.range("09")
+    return nupp.peg.compile(#nupp.peg.literal("") * head * tail^0 * nupp.peg.eof())
+end
+const FastList: nupp.Peg.Matcher<{string}> = comptime do
+    const word = nupp.peg.capture(nupp.peg.range("az")^1)
+    return nupp.peg.compile(nupp.peg.collect(word * (nupp.peg.literal(",") * word)^0) * nupp.peg.eof())
+end
+const RefList: nupp.Peg.Matcher<{string}> = comptime do
+    const word = nupp.peg.capture(nupp.peg.range("az")^1)
+    return nupp.peg.compile(#nupp.peg.literal("") * nupp.peg.collect(word * (nupp.peg.literal(",") * word)^0) * nupp.peg.eof())
+end
+return FastIdentifier, RefIdentifier, FastList, RefList
+]]
+   local code = compile(source)
+   assert(code:find("nupp.peg.specialized", 1, true), code)
+   assert(code:find("nupp.peg.machine", 1, true), code)
+   local fastIdentifier, refIdentifier, fastList, refList = run(source)
+   local inputs = {"", "a", "_ok9", "9bad", "alpha,beta", "one,two,three", "one,", ",two"}
+   for _, input in ipairs(inputs) do
+      assertEq(fastIdentifier(input), refIdentifier(input), "identifier backend parity for " .. input)
+      local fast, ref = fastList(input), refList(input)
+      assertEq(fast and table.concat(fast, ":"), ref and table.concat(ref, ":"),
+         "list backend parity for " .. input)
    end
 end
 

@@ -139,6 +139,16 @@ function Matcher:match(subject,init)if type(subject)~="string"then error("nupp: 
 Matcher.__call=Matcher.match
 return setmetatable({_program=program},Matcher)end
 __nuppPeg.machine=__nuppPegMachine;
+local function __nuppPegSpecialized(plan)
+local Matcher={};Matcher.__index=Matcher
+local function run(subject,position)
+if plan.kind=="span"then local byte=subject:sub(position,position);if byte==""or not plan.head:find(byte,1,true)then return nil end;position=position+1;while position<=#subject and plan.tail:find(subject:sub(position,position),1,true)do position=position+1 end;return position==#subject+1 and position or nil
+elseif plan.kind=="list"then local answer={};while true do local first=position;while position<=#subject and plan.bytes:find(subject:sub(position,position),1,true)do position=position+1 end;if position==first then return nil end;answer[#answer+1]=subject:sub(first,position-1);if position>#subject then return answer end;if subject:sub(position,position+#plan.separator-1)~=plan.separator then return nil end;position=position+#plan.separator end
+elseif plan.kind=="nested"then local depth=0;while subject:sub(position,position+#plan.open-1)==plan.open do depth=depth+1;position=position+#plan.open end;if subject:sub(position,position+#plan.leaf-1)~=plan.leaf then return nil end;position=position+#plan.leaf;while depth>0 do if subject:sub(position,position+#plan.close-1)~=plan.close then return nil end;position=position+#plan.close;depth=depth-1 end;return position==#subject+1 and position or nil
+else error("nupp: unknown specialized PEG plan",2)end end
+function Matcher:match(subject,init)if type(subject)~="string"then error("nupp: PEG subject must be a string",2)end;if init==nil then init=1 elseif type(init)~="number"or init~=math.floor(init)then error("nupp: PEG init must be an integer",2)elseif init<0 then init=#subject+init+1 end;if init<1 then init=1 end;if init>#subject+1 then return nil end;return run(subject,init)end
+Matcher.__call=Matcher.match;return setmetatable({},Matcher)end
+__nuppPeg.specialized=__nuppPegSpecialized;
 ]=]
 )
 
