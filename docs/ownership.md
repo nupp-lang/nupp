@@ -82,35 +82,6 @@ occasional use-after-free.
   discharge.
 - `unsafe do ... end`: permit operations whose lifetime proof is deliberately
   abandoned.
-||||||| parent of 253320b3 (Parenthesise borrowed-result sources)
-| Surface | Meaning |
-| --- | --- |
-| `@owned(cleanup...)` | The first result is a new affine owner with this ordered cleanup list. |
-| `@owned` | Use the result type's one inherited `@drop` operation. |
-| `@owned(opaque = true)` | The result is transfer-only; it has no local cleanup operation. |
-| `@drop` | Marks the default operation that consumes a resource. |
-| `takes p: T` | The callee accepts and consumes the ownership obligation. |
-| `borrows p: T` | Shared, call-duration access; mutation is allowed but escape is not. |
-| `exclusive p: T` | Exclusive call-duration access; no other live borrow may overlap it. |
-| `retains p: T` | Imported C code keeps a pinned pointer after return. |
-| `releases p: T` | Imported C code stops keeping that pinned pointer before return. |
-| `T borrows p` | The result remains tied to parameter `p`. |
-| `T borrows(a, b)` | The result remains tied to every named source. |
-| `T preserves p` | The result transports the exact capability arriving through `p`. |
-| `scoped callback: function(...)` | The callback may capture borrows because the callee proves it cannot escape. |
-| `field: View borrows source` | A nominal field is tied to its declared sibling root. |
-| `owned<T>` | A value carrying one affine discharge obligation. |
-| `borrowed<T>` | A non-escaping value tied to another live binding. |
-| `pinned<T>` | An affine pointer plus a strong Lua anchor for C retention. |
-| `nupp.drop(x)` | Consume `x` and invoke its recorded cleanup list. |
-| `nupp.borrow(x)` | Create an explicit lexical borrow of `x`. |
-| `nupp.intoRaw(x)` | In `unsafe`, abandon tracking and return the underlying value. |
-| `nupp.fromRaw(x, cleanup...)` | In `unsafe`, assert fresh ownership of a raw value. |
-| `nupp.borrowFrom(raw, source)` | In `unsafe`, assert raw provenance from a named source. |
-| `nupp.pin(pointer, anchor)` | Bind a managed pointer to the Lua object keeping it valid. |
-| `local x = acquire()` | Keep a movable owner and destroy it at its lexical boundary unless transferred. |
-| `sets.new(): ResourceSet` | A checked dynamic collection that reifies per-owner discharge. |
-| `unsafe do ... end` | Permit operations whose lifetime proof is deliberately abandoned. |
 
 All ownership syntax is erased or lowered to direct Lua/FFI operations. It
 does not change the C ABI and does not install `ffi.gc` finalizers.

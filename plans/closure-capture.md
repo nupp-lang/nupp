@@ -203,11 +203,10 @@ end
 suspension.race({uploadAndWait, ...})
 ```
 
-Once stage 3 lands this compiles unchanged: `scratch:clear()` is a borrow use,
+Once stage 5 lands this compiles unchanged: `scratch:clear()` is a borrow use,
 the buffer is discharged by the enclosing scope, and `close` through a borrow is
 refused by the rule that already refuses it. Until then the capture is written
-down, which is one line at the call site and the reason stage 2 does not wait
-for stage 3:
+down, which lets stage 4 migrate the API without waiting for borrow-by-default:
 
 ```nupp
 suspension.race({
@@ -224,8 +223,9 @@ suspension.race({
 blesses borrows — an abandoned scoped body that owned something would leak. An
 affine body can be made safe there, but by two mechanisms rather than one: a
 body that never entered is dropped, and a body already suspended must be
-cancelled and unwound so its frame runs its own cleanup. `drive` does neither
-today.
+cancelled and unwound so its frame runs its own cleanup. `drive` already does
+the latter for a parked loser, but it does not distinguish a coroutine that has
+never entered: resuming that loser can run its body instead of dropping it.
 
 ## What the model has to say
 
@@ -277,8 +277,10 @@ their consumer is not finished**, so this belongs with the clause rather than af
 
 Dropping a suspended coroutine is not enough, because collecting one does not unwind
 its frame; resuming an uncalled loser merely to cancel it runs user code for no reason.
-`drive` has to know which state each callable is in and choose. It tracks `abandoned`
-and starts bodies lazily today, and drops nothing in either case.
+`drive` has to know which state each callable is in and choose. Today it tracks
+`abandoned` and correctly unwinds a body parked in its handler, but a created coroutine
+that has not entered begins running when resumed as a loser. It never drops that
+callable.
 
 ### What a callback parameter promises
 
@@ -375,8 +377,8 @@ spelling everything else is written in.
    aggregate no-escape contract, after which capture borrows by default and the
    clauses added in stage 4 become optional wherever a closure only reads.
 
-Stage 4 is the user-visible one. Stages 2 and 3 are what make it cost a line at
-a call site rather than a rewrite.
+Stage 4 is the user-visible standard-library API migration. Stages 2 and 3 are
+what make it cost a line at a call site rather than a rewrite.
 
 ## Prerequisites that landed
 
