@@ -30,7 +30,7 @@
             aria-label="Copy a link to this program">
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.6 9.4a2.6 2.6 0 0 0 3.9.3l2-2a2.6 2.6 0 0 0-3.7-3.7l-1.1 1.1"/><path d="M9.4 6.6a2.6 2.6 0 0 0-3.9-.3l-2 2a2.6 2.6 0 0 0 3.7 3.7l1.1-1.1"/></svg>
     </button>
-    <button id="compile-button" class="button">Compile</button>
+    <button id="compile-button" class="button">Run</button>
   </div>
   <!-- Inside the header, which is the positioned ancestor it hangs from. -->
   <div id="options-panel" class="options-panel" hidden></div>
@@ -51,19 +51,17 @@
        stylesheet turns this column back into a drawer on a narrow window, and
        the separator runs the other way when it does. -->
   <div id="output-resizer" class="output-resizer" role="separator"
-       aria-orientation="vertical" aria-label="Resize the output panel" tabindex="0"></div>
+       aria-orientation="vertical" aria-label="Resize the output panel" tabindex="0" hidden></div>
 
-  <!-- The embed's drawer, stood up as a column down this page's right side:
-       there is room for it here, and a playground with its answer already
-       showing is one fewer click before the first thing worth seeing. The
-       compiler's answer is on top, the diagnostics under it. -->
-  <section class="output is-open" id="output" aria-label="Output">
-    <button id="output-toggle" class="output-head" type="button" aria-expanded="true" aria-controls="output-body">
+  <!-- The embed's drawer, stood up as a column down this page's right side.
+       Run reveals it; the compiler's answer is on top and diagnostics below. -->
+  <section class="output" id="output" aria-label="Output" hidden>
+    <button id="output-toggle" class="output-head" type="button" aria-expanded="false" aria-controls="output-body">
       <span class="output-caret" aria-hidden="true">▸</span>
       <span class="output-title">Output</span>
       <span id="output-summary" class="output-summary"></span>
     </button>
-    <div id="output-body" class="output-body">
+    <div id="output-body" class="output-body" hidden>
       <div id="output-editor" class="editor-host"></div>
       <!-- The same strip again, splitting the panel between the two. -->
       <div id="diagnostics-resizer" class="output-resizer" role="separator"

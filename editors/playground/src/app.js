@@ -308,6 +308,7 @@ function setOutputExpanded(expanded) {
   outputBody.hidden = !expanded;
   outputToggle.setAttribute("aria-expanded", String(expanded));
   if (outputResizer) outputResizer.hidden = !expanded;
+  if (expanded && outputView) outputView.requestMeasure();
   applyPaneSizes();
 }
 
@@ -592,7 +593,7 @@ async function checkNow() {
   const { errors, text } = summarize(result.diagnostics);
   setStatus(text || "checked, clean", errors > 0);
   setOutputSummary(result.diagnostics);
-  // Editing invalidates whatever the last Compile produced, so the panel goes
+  // Editing invalidates whatever the last Run produced, so the panel goes
   // back to saying what the checker says rather than showing Lua from a buffer
   // that has since changed.
   setOutput(result.diagnostics.length ? result.diagnostics.map(diagnosticText).join("\n") : "");
@@ -600,12 +601,25 @@ async function checkNow() {
   if (checkTimeEl) checkTimeEl.textContent = `${elapsed} ms`;
 }
 
+let compilePending = false;
 async function compileNow() {
+  if (compilePending) return;
+  compilePending = true;
+  if (compileButton) compileButton.disabled = true;
+  if (outputEl) outputEl.hidden = false;
+  setOutputExpanded(true);
+  setOutput("");
+  setOutputSummary([], "compiling…");
   setBusy(true);
   const source = sourceView.state.doc.toString();
-  const result = await request("compile", { source });
-  setBusy(false);
-  setOutputExpanded(true);
+  let result;
+  try {
+    result = await request("compile", { source });
+  } finally {
+    setBusy(false);
+    compilePending = false;
+    if (compileButton) compileButton.disabled = false;
+  }
   if (!result.ok) {
     setOutput(`-- ${result.error}`);
     if (outputMain) outputMain.classList.remove("is-code");

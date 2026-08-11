@@ -27,10 +27,11 @@ const chrome = EditorView.theme({
   ".cm-panels": { color: "var(--pg-text)", backgroundColor: "var(--pg-background-alt)" },
   ".cm-gutters": {
     color: "var(--pg-muted)",
-    backgroundColor: "var(--pg-background-alt)",
-    borderRight: "1px solid var(--pg-border)",
+    backgroundColor: "var(--pg-background)",
+    borderRight: "0",
   },
-  ".cm-activeLineGutter, .cm-activeLine": { backgroundColor: "var(--pg-background-alt)" },
+  ".cm-activeLineGutter": { backgroundColor: "var(--pg-background)" },
+  ".cm-activeLine": { backgroundColor: "var(--pg-background-alt)" },
   ".cm-lineNumbers .cm-gutterElement": { color: "var(--pg-muted)" },
   ".cm-matchingBracket, .cm-nonmatchingBracket": {
     backgroundColor: "var(--pg-accent-soft)",

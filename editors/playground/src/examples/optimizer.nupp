@@ -1,4 +1,4 @@
--- The Lua Nupp writes is not always the Lua you wrote. Hit Compile and read
+-- The Lua Nupp writes is not always the Lua you wrote. Hit Run and read
 -- the output beside this; then turn Optimize off under Options and compile
 -- again, and the three rewrites below go back to what is written here.
 --
@@ -36,5 +36,5 @@ end
 
 print(#rows, secondsPerDay(), joined(rows))
 
--- try breaking it: turn Optimize off and compile again, or add a fourth row
+-- try breaking it: turn Optimize off and run again, or add a fourth row
 -- and watch the size the compiler picks follow it

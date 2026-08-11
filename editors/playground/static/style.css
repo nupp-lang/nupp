@@ -96,6 +96,7 @@ body {
   height: 52px;
   padding: 0 1rem;
   border-bottom: 1px solid var(--pg-border);
+  background: var(--pg-background);
   flex: none;
 }
 
@@ -292,7 +293,7 @@ body {
   height: 2.1rem;
   padding: 0 .35rem 0 .55rem;
   border-bottom: 1px solid var(--pg-border);
-  background: var(--pg-background-alt);
+  background: var(--pg-background);
   flex: none;
 }
 .head-bar .example-picker { font-size: .72rem; }
@@ -305,6 +306,7 @@ body {
   display: flex;
   align-items: center;
   gap: .1rem;
+  margin-left: auto;
 }
 
 /* One shape for every icon control on both pages. The glyphs are inline SVG
@@ -337,6 +339,11 @@ body {
 .icon-button svg path[d^="M4.5"] { fill: currentColor; stroke: none; }
 
 .is-busy .icon-button { opacity: .55; pointer-events: none; }
+/* The first Run gesture also starts an embed's deferred worker. Keep that
+   gesture alive when startWorker marks the page busy; compileNow disables the
+   button itself until the request finishes. */
+.is-embed.is-busy #compile-button:not(:disabled) { opacity: 1; pointer-events: auto; }
+.icon-button:disabled { opacity: .55; pointer-events: none; cursor: default; }
 
 /* Anchored under the button that opens it. Absolute rather than in flow so
    opening it does not move the editor down. */
@@ -368,9 +375,9 @@ body {
 .options-name { color: var(--pg-text); font-size: .78rem; font-weight: 600; }
 .options-hint { color: var(--pg-muted); font-size: .7rem; line-height: 1.35; }
 
-/* The output drawer. Collapsed it is one bar saying what the compiler said;
-   expanded it is that answer in full, with the diagnostics list beside it —
-   a clean compile can still carry warnings worth reading. */
+/* Run reveals the output drawer. Collapsed after that, it is one bar saying
+   what the compiler said; expanded it is that answer in full, with the
+   diagnostics list beside it — a clean compile can still carry warnings. */
 .output {
   display: flex;
   flex-direction: column;
@@ -379,6 +386,7 @@ body {
   background: var(--pg-background-alt);
   flex: none;
 }
+.output[hidden] { display: none; }
 /* 40% until someone drags it; see app.js, which then sets an inline size. */
 .output.is-open { flex: 0 1 40%; }
 

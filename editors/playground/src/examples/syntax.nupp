@@ -1,5 +1,5 @@
 -- Nupp implements every LuaJIT 3.0 syntax extension. Most of it is written straight
--- through to the output, because LuaJIT 2.1 backported it — hit Compile and read the
+-- through to the output, because LuaJIT 2.1 backported it — hit Run and read the
 -- generated Lua beside this.
 
 local function map<V, W>(xs: {V}, f: function(V): W): {W}

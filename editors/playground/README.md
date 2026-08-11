@@ -101,19 +101,19 @@ trailing edge, the editor, and the compiler's answer in a panel of its own.
 What differs is how much room each has, and so where that panel goes.
 
 **`index.html`** is the full playground: a header with the example menu, the
-check status, Options, Share and Compile, and the answer down the right-hand
-side, open on arrival — there is room for it, and it is the first thing worth
-seeing. The output is the top of that panel and the diagnostics list is under
-it. Both edges move: drag between the editor and the panel to give the answer
-more or less of the window, and between the two halves of the panel to split
-it differently. Double-click either to put it back. Under about 720px there is
-no room for two columns, so the panel becomes the embed's drawer along the
-bottom and the same edge drags up and down instead.
+check status, Options, Share and Run. The answer stays out of the way until Run
+is clicked, then opens down the right-hand side. The output is the top of that
+panel and the diagnostics list is under it. Both edges move: drag between the
+editor and the panel to give the answer more or less of the window, and between
+the two halves of the panel to split it differently. Double-click either to put
+it back. Under about 720px there is no room for two columns, so the panel
+becomes the embed's drawer along the bottom and the same edge drags up and down
+instead.
 
 **`embed.html`** is the same thing sized for an `<iframe src=".../embed.html">`
 — the head bar carries only icons, the panel is a drawer along the bottom that
-starts collapsed to one line, and the diagnostics sit beside the output in it
-rather than under. It is what the docs site's ` ```playground ` fence embeds
+stays hidden until Run is clicked, and the diagnostics sit beside the output
+in it rather than under. It is what the docs site's ` ```playground ` fence embeds
 (see `src/nupp/compiler/doc/html.nupp`). Its extra action is **Open**, which
 hands the buffer to the full playground rather than opening a blank one; the
 full playground has no such button, being already there.
