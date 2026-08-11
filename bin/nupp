@@ -31,7 +31,10 @@ export NUPP_COMPILER_ROOT="$ROOT"
 # program finds its library beside itself; the compiler's own output tree puts
 # `build/lib` one level further out than the generated loader looks, so name it
 # outright. Every interpreter this launcher starts inherits it.
-export NUPP_NATIVE_LIBRARY="$ROOT/build/lib/nupp_native"
+# Keep the launcher's broad development provider separate from the feature-matched
+# provider a build target stages. Otherwise rebuilding the compiler can replace the
+# library under a later `nupp run` with a narrower union.
+export NUPP_NATIVE_LIBRARY="$ROOT/build/lib/nupp_native_dev"
 
 # Which makes Cargo a prerequisite for building Nupp at all, rather than only for
 # a target that asked for a native facility. Stage 0 reaches the provider while
@@ -45,12 +48,12 @@ build_native() {
             "file provider to list its own sources" >&2
         return 1
     }
-    # `files` because stage 0 lists its own sources through it. `process` because a
-    # program run by this launcher may spawn one, and a facility the language ships
-    # that the launcher cannot load is a facility nobody can use: `nupp run` on
-    # anything requiring `nupp.io.process` failed at `dlsym` until this was here.
+    # `files` because stage 0 lists its own sources through it. The rest are optional
+    # stdlib facilities a program run by this launcher may select; unlike a packaged
+    # build, `nupp run` loads this one development provider rather than staging a
+    # target-specific union beside the program.
     cargo build --release --manifest-path "$NATIVE_MANIFEST" \
-        --target-dir "$NATIVE_TARGET" --no-default-features --features files,process \
+        --target-dir "$NATIVE_TARGET" --no-default-features --features files,process,http,uri \
         >/dev/null || return 1
     mkdir -p "$ROOT/build/lib"
     for name in libnupp_native.dylib libnupp_native.so nupp_native.dll; do

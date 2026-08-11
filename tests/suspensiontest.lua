@@ -126,6 +126,68 @@ function M.keepsPollingWhileSourcesAnswerZero()
    assertTrue(passes >= 4, "it kept polling: " .. passes)
 end
 
+function M.blockingDriverWaitsOnTheSourceUsedByThePark()
+   local pending, waited, unrelatedWaits = nil, nil, 0
+   local unrelated = suspension.source("unrelated", 1, function()
+      return 0
+   end, function()
+      unrelatedWaits = unrelatedWaits + 1
+      return 0
+   end)
+   local preferred = suspension.source("preferred", 20, function()
+      return 0
+   end, function(milliseconds)
+      waited = milliseconds
+      local resume = pending
+      pending = nil
+      resume("ready")
+      return 1
+   end)
+   local answer = suspension.suspend("waiting", function(resume, context)
+      pending = resume
+      context:uses(preferred)
+      return function() pending = nil end
+   end)
+   preferred:release()
+   unrelated:release()
+   assertEq(answer, "ready", "the associated source settled the park")
+   assertEq(waited, 1, "the blocking slice is bounded to one millisecond")
+   assertEq(unrelatedWaits, 0, "an unrelated lower-priority source did not delay it")
+end
+
+function M.hostPollNeverCallsTheBlockingHalfOfASource()
+   local polls, waits = 0, 0
+   local source = suspension.source("split", 10, function()
+      polls = polls + 1
+      return 0
+   end, function()
+      waits = waits + 1
+      return 0
+   end)
+   suspension.poll()
+   source:release()
+   assertEq(polls, 1, "the nonblocking operation ran")
+   assertEq(waits, 0, "host polling did not sleep")
+end
+
+function M.contextSourcesSupportSeparatePollAndWaitOperations()
+   local pending, waited = nil, false
+   local answer = suspension.suspend("owned source", function(resume, context)
+      pending = resume
+      context:source("owned", 5, function()
+         return 0
+      end, function(milliseconds)
+         assertEq(milliseconds, 1, "the context source received the slice")
+         waited = true
+         pending(7)
+         return 1
+      end)
+      return function() pending = nil end
+   end)
+   assertEq(answer, 7, "the context-owned wait resumed")
+   assertTrue(waited, "the blocking half ran")
+end
+
 function M.requiresACancellationForARealPark()
    -- A park nobody can abandon is a park a handler cannot give up on.
    local ok, err = pcall(suspension.suspend, "waiting", function()

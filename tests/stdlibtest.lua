@@ -156,6 +156,13 @@ function M.nativeFeaturesAreResolvedEffects()
    local workerEffects = native.expand(workers)
    assert(workerEffects["runtime.suspension"], "workers bring their waiting runtime")
 
+   local http = effectsOf("local http = require('nupp.io.http')")
+   assert(http["native.http"], "the public HTTP module selects its provider")
+   expanded = native.expand(http)
+   assert(expanded["runtime.suspension"], "HTTP brings its waiting runtime")
+   assert(expanded["native.uri"], "HTTP brings the URI provider")
+   assert(expanded["stdlib.io"], "HTTP brings buffers and stream contracts")
+
    local utf8 = effectsOf("local utf8 = require('lua-utf8')")
    assert(utf8["native.lua_utf8"],
       "require('lua-utf8') records its native effect")

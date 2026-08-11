@@ -1,0 +1,851 @@
+--[[
+An optional asynchronous HTTP client whose sockets and TLS run in the native
+Reqwest/Tokio provider. Calls suspend through `nupp.suspension`: a CLI blocks on the
+provider's condvar, while a scheduler or SDL host only drives the nonblocking source.
+
+Response bodies and generic request readers are progressive and bounded. A response
+status is an answer (including 4xx and 5xx); transport and body failures are returned
+as reasons.
+]]
+
+local suspension = require("nupp.suspension")
+local type NativeBackend = {newClient: function(any): (any?, string?)}
+local native = require("nupp.io.httpnative") as NativeBackend
+
+local http = {}
+
+type http.Version = "1.0" | "1.1" | "2"
+
+record http.Options
+    userAgent: string?
+    headers: {string: string}?
+    timeoutMs: integer?
+    connectTimeoutMs: integer?
+    stallTimeoutMs: integer?
+    maxRedirects: integer?
+    maxPendingRequests: integer?
+    maxConnections: integer?
+    maxConnectionsPerHost: integer?
+    maxBytes: integer?
+    compressed: boolean?
+    insecureHosts: {string}?
+    proxy: string?
+    noProxy: string?
+    proxyCredentials: string?
+end
+
+record http.ReaderBody
+    reader: nupp.Reader
+    length: integer?
+    contentType: string?
+end
+
+record http.FileBody
+    path: string | nupp.Path
+    contentType: string?
+end
+
+type http.RequestBody = string | nupp.ByteView | nupp.Buffer | http.ReaderBody | http.FileBody
+
+record http.Request
+    url: nupp.URI
+    method: string?
+    headers: {string: string}?
+    body: http.RequestBody?
+    timeoutMs: integer?
+    stallTimeoutMs: integer?
+    maxBytes: integer?
+end
+
+local READ_SIZE: integer = 64 * 1024
+local UPLOAD_SIZE: integer = 512 * 1024
+local UPLOAD_PAGE: integer = 64 * 1024
+local COALESCE_BELOW: integer = 8 * 1024
+local COPY_TURN: integer = 16 * 1024 * 1024
+local BODY_INLINE, BODY_UPLOAD, BODY_FILE = 1, 2, 3
+
+local function whole(value: any, what: string, minimum: integer, maximum: integer?): integer
+    if type(value) ~= "number" or value ~= math.floor(value) or value < minimum or maximum ~= nil and value > maximum then
+        error(
+            (
+                "nupp: HTTP %s must be an integer%s"
+            ):format(what, maximum ~= nil and (" from " .. minimum .. " through " .. maximum) or " of at least " .. minimum),
+            3
+        )
+    end
+
+    return value as integer
+end
+
+local function optionInteger(options: any, name: string, fallback: integer, minimum: integer): integer
+    local value = options and options[name]
+    if value == nil then
+        return fallback
+    end
+
+    return whole(value, name, minimum)
+end
+
+local function canonicalHost(text: string, level: integer): string
+    if text == "" or text:find("[/?#@*]") ~= nil then
+        error("nupp: HTTP insecureHosts entries must be exact host names or IP literals", level)
+    end
+    local spelling = text:sub(-1) == "." and text:sub(1, -2) or text
+    local uri = nupp.io.URI.new("https://" .. spelling .. "/")
+    if uri == nil or uri:username() ~= "" or uri:password() ~= nil or uri:port() ~= nil or uri:path() ~= "/" then
+        error("nupp: HTTP insecureHosts entries must not contain a scheme, port, path, or user information", level)
+    end
+    local host = uri:host()
+    if host == nil or host == "" then
+        error("nupp: HTTP insecureHosts entry is not a host", level)
+    end
+
+    return host:lower()
+end
+
+local function copiedOptions(options: http.Options?): any
+    local given: any = options or {}
+    local headers = {}
+    for name, value in pairs(given.headers or {}) do
+        if type(name) ~= "string" or type(value) ~= "string" then
+            error("nupp: HTTP default headers must have string names and values", 3)
+        end
+        headers[name] = value
+    end
+    if given.userAgent ~= nil then
+        if type(given.userAgent) ~= "string" then
+            error("nupp: HTTP userAgent must be a string", 3)
+        end
+        headers["user-agent"] = given.userAgent
+    end
+    local insecure = {}
+    for _, host in ipairs(given.insecureHosts or {}) do
+        if type(host) ~= "string" then
+            error("nupp: HTTP insecureHosts entries must be strings", 3)
+        end
+        insecure[canonicalHost(host, 3)] = true
+    end
+    for _, name in ipairs({"proxy", "noProxy", "proxyCredentials"}) do
+        if given[name] ~= nil and type(given[name]) ~= "string" then
+            error("nupp: HTTP " .. name .. " must be a string", 3)
+        end
+    end
+    if given.compressed ~= nil and type(given.compressed) ~= "boolean" then
+        error("nupp: HTTP compressed must be a boolean", 3)
+    end
+
+    return {
+        headers = headers,
+        timeoutMs = optionInteger(given, "timeoutMs", 30000, 1),
+        connectTimeoutMs = optionInteger(given, "connectTimeoutMs", 10000, 1),
+        stallTimeoutMs = optionInteger(given, "stallTimeoutMs", 0, 0),
+        maxRedirects = optionInteger(given, "maxRedirects", 5, 0),
+        maxPendingRequests = optionInteger(given, "maxPendingRequests", 256, 1),
+        maxConnections = optionInteger(given, "maxConnections", 16, 1),
+        maxConnectionsPerHost = optionInteger(given, "maxConnectionsPerHost", 16, 1),
+        maxBytes = optionInteger(given, "maxBytes", 0, 0),
+        compressed = given.compressed ~= false,
+        insecureHosts = insecure,
+        proxy = given.proxy,
+        noProxy = given.noProxy,
+        proxyCredentials = given.proxyCredentials,
+    }
+end
+
+local function appendWaiter(client: any, transfer: any, which: string, cancelNative: boolean): nil
+    suspension.suspend("HTTP " .. which, function(resume: function(boolean), context: suspension.Context): function()?
+        local active = true
+        client:_retainSource(context)
+        local forget: any
+        local function finish(): nil
+            if not active then
+                return
+            end
+            active = false
+            if forget ~= nil then
+                forget()
+            end
+            client:_releaseSource()
+            resume(true)
+        end
+        if which == "response headers" then
+            forget = transfer:onHead(finish)
+        elseif which == "response body" then
+            forget = transfer:onBody(finish)
+        else
+            forget = transfer:onUpload(finish)
+        end
+
+        return function(): nil
+            if active then
+                active = false
+                forget()
+                client:_releaseSource()
+                if cancelNative then
+                    transfer:cancel()
+                end
+            end
+        end
+    end)
+end
+
+local function waitAdmission(client: any): nil
+    suspension.suspend("HTTP request admission", function(resume: function(boolean), context: suspension.Context): function()?
+        local active = true
+        client:_retainSource(context)
+        local forget: any
+        local function finish(): nil
+            if not active then return end
+            active = false
+            if forget ~= nil then forget() end
+            client:_releaseSource()
+            resume(true)
+        end
+        forget = client._native:onAdmission(finish)
+        return function(): nil
+            if active then
+                active = false
+                forget()
+                client:_releaseSource()
+            end
+        end
+    end)
+end
+
+local function waitHead(client: any, transfer: any, cancelNative: boolean): any
+    while true do
+        local state, status, version, url, headers, reason = transfer:head()
+        if state == "ready" then
+            return {status = status, version = version, url = url, headers = headers}
+        elseif state == "failed" then
+            return {reason = reason}
+        end
+        appendWaiter(client, transfer, "response headers", cancelNative)
+    end
+end
+
+local function fairnessYield(): nil
+    suspension.suspend("HTTP response copy fairness", function(resume: function(boolean), context: suspension.Context): function()
+        local active = true
+        context:source("nupp-http-fairness", 20, function(): integer
+            if not active then
+                return 0
+            end
+            active = false
+            resume(true)
+            return 1
+        end)
+        return function(): nil
+            active = false
+        end
+    end)
+end
+
+record http.Body is nupp.Reader
+    _client: any
+    _transfer: any
+    _closed: boolean
+    _reading: boolean
+
+    function _next(self, count: integer, destination: nupp.Buffer?, offset: integer): (any?, string?)
+        if self._closed then
+            return nil, "the body is closed"
+        end
+        if self._reading then
+            error("nupp: an HTTP response body may only have one reader", 3)
+        end
+        self._reading = true
+        while true do
+            local state, value, reason = self._transfer:bodyRead(count, destination, offset)
+            if state == "data" then
+                self._reading = false
+                return value
+            elseif state == "eof" then
+                self._reading = false
+                return destination ~= nil and 0 or ""
+            elseif state == "failed" or state == "closed" then
+                self._reading = false
+                return nil, reason
+            end
+            local ok, problem = pcall(appendWaiter, self._client, self._transfer, "response body", true)
+            if not ok then
+                self._reading = false
+                error(problem, 0)
+            end
+        end
+    end
+
+    function read(self, count: integer): (string?, string?)
+        local wanted = whole(count, "body read count", -9007199254740991)
+        return self:_next(wanted < 1 and 1 or wanted, nil, 0)
+    end
+
+    function readInto(self, destination: nupp.Buffer, offset: integer?, count: integer?): (integer?, string?)
+        local at = whole(offset or 0, "body destination offset", 0)
+        local wanted = whole(count or READ_SIZE, "body read count", 0)
+        if wanted == 0 then
+            return 0
+        end
+        local value, reason = self:_next(wanted, destination, at)
+        if type(value) == "string" then
+            destination:setString(value, at)
+            return #value
+        end
+
+        return value, reason
+    end
+
+    function transferTo(self, destination: nupp.Writer): (integer?, string?)
+        local total: integer = 0
+        local turn: integer = 0
+        if self._transfer:directDestination(destination) then
+            while true do
+                if self._closed then
+                    return nil, "the body is closed"
+                end
+                if self._reading then
+                    error("nupp: an HTTP response body may only have one reader", 2)
+                end
+                self._reading = true
+                local state, count, reason = self._transfer:bodyWrite(destination, READ_SIZE)
+                if state == "pending" then
+                    local ok, problem = pcall(appendWaiter, self._client, self._transfer, "response body", true)
+                    self._reading = false
+                    if not ok then error(problem, 0) end
+                elseif state == "eof" then
+                    self._reading = false
+                    return total
+                elseif state == "failed" or state == "closed" then
+                    self._reading = false
+                    return nil, reason
+                else
+                    self._reading = false
+                    total = total + (count as integer)
+                    turn = turn + (count as integer)
+                    if turn >= COPY_TURN then
+                        fairnessYield()
+                        turn = 0
+                    end
+                end
+            end
+        end
+        while true do
+            local chunk, reason = self:read(READ_SIZE)
+            if chunk == nil then
+                return nil, reason
+            elseif chunk == "" then
+                return total
+            end
+            local wrote, failure = destination:write(chunk)
+            if not wrote then
+                return nil, failure
+            end
+            total = total + #chunk
+            turn = turn + #chunk
+            if turn >= COPY_TURN then
+                fairnessYield()
+                turn = 0
+            end
+        end
+    end
+
+    function close(self): (boolean, string?)
+        self:release()
+        return true
+    end
+
+    @drop
+    function release(self): nil
+        if self._closed then
+            return
+        end
+        self._closed = true
+        local transfer = self._transfer as {close: nosuspend function(any): nil}
+        transfer:close()
+    end
+end
+
+@drop
+local function destroyBody(takes body: http.Body): nil
+    if not body._closed then
+        body._closed = true
+        local transfer = body._transfer as {close: nosuspend function(any): nil}
+        transfer:close()
+    end
+end
+
+@owned(destroyBody)
+local function makeBody(client: any, transfer: any): http.Body
+    return new http.Body(_client = client, _transfer = transfer, _closed = false, _reading = false)
+end
+
+local function u32(bytes: string, at: integer): integer
+    local a, b, c, d = bytes:byte(at, at + 3)
+    if d == nil then
+        error("nupp: malformed packed HTTP response headers", 0)
+    end
+    return ((a or 0) + (b or 0) * 256 + (c or 0) * 65536 + (d or 0) * 16777216) as integer
+end
+
+local function packedHeader(bytes: string, wanted: string): string?
+    local count = u32(bytes, 1)
+    local tableEnd = 4 + count * 16
+    if tableEnd > #bytes then
+        return nil
+    end
+    for index = 0, count - 1 do
+        local at = 5 + index * 16
+        local nameAt, nameLength = u32(bytes, at), u32(bytes, at + 4)
+        local valueAt, valueLength = u32(bytes, at + 8), u32(bytes, at + 12)
+        if nameAt < tableEnd or valueAt < tableEnd or nameAt + nameLength > #bytes or valueAt + valueLength > #bytes then
+            return nil
+        end
+        if bytes:sub(nameAt + 1, nameAt + nameLength):lower() == wanted then
+            return bytes:sub(valueAt + 1, valueAt + valueLength)
+        end
+    end
+
+    return nil
+end
+
+local function origin(uri: nupp.URI): string
+    local scheme = uri:scheme()
+    local port = uri:port() or (scheme == "https" and 443 or 80)
+    return scheme .. "://" .. (uri:host() or ""):lower() .. ":" .. port
+end
+
+record http.Response
+    status: integer
+    version: http.Version
+    url: nupp.URI
+    body: owned<http.Body>
+    _packed: string
+    _values: {[string]: {string}}?
+    _headers: {string: string}?
+    _closed: boolean
+
+    function _decode(self): nil
+        if self._values ~= nil then
+            return
+        end
+        local values: {[string]: {string}} = {}
+        local count = u32(self._packed, 1)
+        local tableEnd = 4 + count * 16
+        if tableEnd > #self._packed then
+            error("nupp: malformed packed HTTP response headers", 0)
+        end
+        for index = 0, count - 1 do
+            local at = 5 + index * 16
+            local nameAt, nameLength = u32(self._packed, at), u32(self._packed, at + 4)
+            local valueAt, valueLength = u32(self._packed, at + 8), u32(self._packed, at + 12)
+            if nameAt < tableEnd or valueAt < tableEnd or nameAt + nameLength > #self._packed or valueAt + valueLength > #self._packed then
+                error("nupp: malformed packed HTTP response headers", 0)
+            end
+            local name = self._packed:sub(nameAt + 1, nameAt + nameLength):lower()
+            local value = self._packed:sub(valueAt + 1, valueAt + valueLength)
+            local list = values[name]
+            if list == nil then
+                list = {}
+                values[name] = list
+            end
+            list[#list + 1] = value
+        end
+        self._values = values
+    end
+
+    function ok(self): boolean
+        return self.status >= 200 and self.status < 300
+    end
+
+    function header(self, name: string): string?
+        if type(name) ~= "string" then
+            error("nupp: HTTP header name must be a string", 2)
+        end
+        self:_decode()
+        local values = (self._values as {[string]: {string}})[name:lower()]
+        if values == nil then
+            return nil
+        end
+        return name:lower() == "set-cookie" and values[1] or table.concat(values, ", ")
+    end
+
+    function getAll(self, name: string): {string}
+        if type(name) ~= "string" then
+            error("nupp: HTTP header name must be a string", 2)
+        end
+        self:_decode()
+        local found = (self._values as {[string]: {string}})[name:lower()] or {}
+        local out = {}
+        for index = 1, #found do
+            out[index] = found[index]
+        end
+        return out
+    end
+
+    function headers(self): {string: string}
+        if self._headers == nil then
+            self:_decode()
+            local out = {}
+            for name, values in pairs(self._values as {[string]: {string}}) do
+                out[name] = name == "set-cookie" and values[1] or table.concat(values, ", ")
+            end
+            self._headers = out
+        end
+        local copy = {}
+        for name, value in pairs(self._headers as {string: string}) do
+            copy[name] = value
+        end
+        return copy
+    end
+
+    @drop
+    function close(self): (boolean, string?)
+        if self._closed then
+            return true
+        end
+        self._closed = true
+        local body = self.body
+        destroyBody(body)
+        return true
+    end
+end
+
+@owned
+local function makeResponse(
+    status: integer,
+    version: http.Version,
+    url: nupp.URI,
+    takes body: http.Body,
+    packed: string
+): http.Response
+    return new http.Response(status = status, version = version, url = url, body = body,
+        _packed = packed, _values = nil, _headers = nil, _closed = false)
+end
+
+record http.Client
+    _native: any
+    _options: any
+    _source: suspension.Source?
+    _sourceUsers: integer
+    _closed: boolean
+
+    function _retainSource(self, context: suspension.Context): nil
+        if self._source == nil then
+            local backend = self._native
+            self._source = suspension.source("nupp-http", 20, function(): integer
+                return backend:poll(0)
+            end, function(waitMs: integer): integer
+                return backend:poll(waitMs)
+            end)
+        end
+        self._sourceUsers = self._sourceUsers + 1
+        context:uses(self._source as suspension.Source)
+    end
+
+    function _releaseSource(self): nil
+        self._sourceUsers = self._sourceUsers - 1
+        if self._sourceUsers == 0 and self._source ~= nil then
+            self._source:release()
+            self._source = nil
+        end
+    end
+end
+
+@owned
+function http.Client:send(request: http.Request): (http.Response?, string?)
+        if self._closed then
+            return nil, "the HTTP client is closed"
+        end
+        local given: any = request
+        if given == nil or given.url == nil or type(given.url.toString) ~= "function" then
+            error("nupp: HTTP request url must be a URI", 2)
+        end
+        local scheme = given.url:scheme()
+        if scheme ~= "http" and scheme ~= "https" then
+            error("nupp: HTTP request URL must use http or https", 2)
+        end
+        local method = given.method or "GET"
+        if type(method) ~= "string" or method == "" or method:find("[^!#$%%&'*+%.^_`|~%w%-]") ~= nil then
+            error("nupp: HTTP method is not a valid token", 2)
+        end
+        local byLower, merged = {}, {}
+        local function addHeaders(headers: any): nil
+            for name, value in pairs(headers or {}) do
+                if type(name) ~= "string" or type(value) ~= "string" or name == "" or name:find("[\r\n:]") ~= nil or value:find("[\r\n]") ~= nil then
+                    error("nupp: HTTP headers need valid string names and values", 3)
+                end
+                local lower = name:lower()
+                local previous = byLower[lower]
+                if previous ~= nil then
+                    merged[previous] = nil
+                end
+                merged[name] = value
+                byLower[lower] = name
+            end
+        end
+        if not given._redirected then
+            addHeaders(self._options.headers)
+        end
+        addHeaders(given.headers)
+        local requestBody = given.body
+        local body, bodyKind, bodyLength, reader = requestBody, 0, nil, nil
+        local contentType = nil
+        if body ~= nil then
+            local concrete: any = body
+            if concrete.reader ~= nil then
+                reader = concrete.reader
+                bodyKind = BODY_UPLOAD
+                bodyLength = concrete.length
+                contentType = concrete.contentType
+                if bodyLength ~= nil then whole(bodyLength, "reader body length", 0) end
+            elseif concrete.path ~= nil then
+                bodyKind = BODY_FILE
+                body = type(concrete.path) == "string" and concrete.path or concrete.path:toString()
+                bodyLength = -1
+                contentType = concrete.contentType
+            elseif type(body) == "string" then
+                bodyKind = BODY_INLINE
+                bodyLength = #body
+            elseif type(concrete.length) == "function" and type(concrete.getString) == "function" then
+                bodyKind = BODY_INLINE
+                bodyLength = concrete:length()
+            else
+                error("nupp: HTTP request body is not bytes, a Buffer, ReaderBody, or FileBody", 2)
+            end
+        end
+        if contentType ~= nil and byLower["content-type"] == nil then
+            merged["content-type"] = contentType
+            byLower["content-type"] = "content-type"
+        end
+        local packed = {}
+        for name, value in pairs(merged) do
+            packed[#packed + 1] = {name, value}
+        end
+        local host = (given.url:host() or ""):lower()
+        local requestTimeout = given.timeoutMs ~= nil and whole(given.timeoutMs, "timeoutMs", 1) or self._options.timeoutMs
+        local deadline = given._deadline or (self._native:now() + requestTimeout)
+        local remaining = math.floor(deadline - self._native:now()) as integer
+        if remaining < 1 then
+            return nil, "HTTP request timed out"
+        end
+        local descriptor = {
+            url = given.url:toString(), method = method, headers = packed,
+            body = body, bodyKind = bodyKind, bodyLength = bodyLength,
+            timeoutMs = remaining,
+            stallTimeoutMs = given.stallTimeoutMs ~= nil and whole(given.stallTimeoutMs, "stallTimeoutMs", 0) or self._options.stallTimeoutMs,
+            maxBytes = given.maxBytes ~= nil and whole(given.maxBytes, "maxBytes", 0) or self._options.maxBytes,
+            insecure = self._options.insecureHosts[host] == true,
+        }
+        if not suspension.canSuspend() then
+            error("nupp: HTTP request cannot suspend here", 2)
+        end
+        local transfer, reason
+        while transfer == nil do
+            remaining = math.floor(deadline - self._native:now()) as integer
+            if remaining < 1 then
+                return nil, "HTTP request timed out waiting for admission"
+            end
+            descriptor.timeoutMs = remaining
+            local full: boolean?
+            transfer, reason, full = self._native:send(descriptor)
+            if transfer == nil and not full then
+                return nil, reason
+            elseif transfer == nil then
+                waitAdmission(self)
+                if self._closed then
+                    return nil, "the HTTP client is closed"
+                end
+            end
+        end
+        local head, problem
+        if reader ~= nil then
+            local scratch = nupp.io.newBuffer(UPLOAD_SIZE)
+            local function uploadAndWait(): any
+                local transferred: integer = 0
+                while true do
+                    scratch:clear()
+                    local got, failure = reader:readInto(scratch, 0, UPLOAD_SIZE)
+                    if got == nil then
+                        transfer:cancel()
+                        error(failure or "HTTP request reader failed", 0)
+                    end
+                    local finished = got == 0
+                    if not finished and (got as integer) < COALESCE_BELOW then
+                        while scratch:length() < UPLOAD_PAGE do
+                            local more, moreFailure = reader:readInto(
+                                scratch,
+                                scratch:length(),
+                                UPLOAD_PAGE - scratch:length()
+                            )
+                            if more == nil then
+                                transfer:cancel()
+                                error(moreFailure or "HTTP request reader failed", 0)
+                            elseif more == 0 then
+                                finished = true
+                                break
+                            end
+                        end
+                    end
+                    local offered = scratch:length()
+                    if offered > 0 then
+                        while true do
+                            local accepted = transfer:offer(scratch, false, offered)
+                            if accepted == "accepted" then
+                                break
+                            elseif accepted == "closed" then
+                                return waitHead(self, transfer, false)
+                            end
+                            appendWaiter(self, transfer, "upload space", false)
+                        end
+                        transferred = transferred + offered
+                    end
+                    if finished then
+                        if bodyLength ~= nil and transferred ~= bodyLength then
+                            transfer:cancel()
+                            error(
+                                ("HTTP request reader ended after %d bytes; expected %d"):format(transferred, bodyLength),
+                                0
+                            )
+                        end
+                        if transfer:offer(nil, true) == "closed" then
+                            return waitHead(self, transfer, false)
+                        end
+                        return waitHead(self, transfer, false)
+                    end
+                end
+            end
+            local ok, value = pcall(function(): any
+                local answer = suspension.race({uploadAndWait, function(): any return waitHead(self, transfer, false) end})
+                return answer
+            end)
+            scratch:close()
+            if not ok then
+                transfer:cancel()
+                transfer:close()
+                error(value, 0)
+            end
+            head = value
+        else
+            head = waitHead(self, transfer, true)
+        end
+        if head == nil or head.reason ~= nil then
+            problem = head and head.reason or "HTTP transfer failed"
+            transfer:close()
+            return nil, problem
+        end
+        local status = head.status as integer
+        local location = packedHeader(head.headers, "location")
+        local manualRedirects = next(self._options.insecureHosts) ~= nil
+        if manualRedirects and location ~= nil and (status == 301 or status == 302 or status == 303 or status == 307 or status == 308) then
+            local followed = (given._redirects or 0) as integer
+            if followed >= self._options.maxRedirects then
+                if self._options.maxRedirects == 0 then
+                    location = nil
+                else
+                    transfer:close()
+                    return nil, "HTTP request exceeded maxRedirects"
+                end
+            end
+            if location ~= nil then
+                local target, targetReason = given.url:resolve(location)
+                if target == nil then
+                    transfer:close()
+                    return nil, targetReason or "HTTP redirect has an invalid location"
+                end
+                if target:scheme() ~= "http" and target:scheme() ~= "https" then
+                    transfer:close()
+                    return nil, "HTTP redirect must use http or https"
+                end
+                local nextMethod, nextBody = method, requestBody
+                local dropsBody = status == 303 and method ~= "HEAD" or (status == 301 or status == 302) and method == "POST"
+                if dropsBody then
+                    nextMethod = "GET"
+                    nextBody = nil
+                    for _, name in ipairs({"content-length", "content-type", "transfer-encoding"}) do
+                        local spelling = byLower[name]
+                        if spelling ~= nil then merged[spelling] = nil end
+                    end
+                elseif reader ~= nil then
+                    transfer:close()
+                    return nil, "HTTP redirect cannot replay a ReaderBody"
+                end
+                if origin(given.url) ~= origin(target) then
+                    for _, name in ipairs({"authorization", "proxy-authorization", "cookie", "host"}) do
+                        local spelling = byLower[name]
+                        if spelling ~= nil then merged[spelling] = nil end
+                    end
+                end
+                transfer:close()
+                local redirected: any = {
+                    url = target,
+                    method = nextMethod,
+                    headers = merged,
+                    body = nextBody,
+                    timeoutMs = given.timeoutMs,
+                    stallTimeoutMs = given.stallTimeoutMs,
+                    maxBytes = given.maxBytes,
+                    _redirected = true,
+                    _redirects = followed + 1,
+                    _deadline = deadline,
+                }
+                return self:send(redirected as http.Request)
+            end
+        end
+        local bodyReady, bodyReason = transfer:takeBody()
+        if not bodyReady then
+            transfer:close()
+            return nil, bodyReason
+        end
+        local effective = head.url == given.url:toString() and given.url or nupp.io.URI.new(head.url)
+        if effective == nil then
+            transfer:close()
+            return nil, "the HTTP provider returned an invalid effective URL"
+        end
+        local version: http.Version = head.version == 10 and "1.0" or head.version == 20 and "2" or "1.1"
+        local responseBody = makeBody(self, transfer)
+        return makeResponse(head.status, version, effective, responseBody, head.headers)
+end
+
+function http.Client:pending(): integer
+    return self._closed and 0 or self._native:pending()
+end
+
+@drop
+function http.Client:close(): (boolean, string?)
+    if self._closed then
+        return true
+    end
+    self._closed = true
+    if self._source ~= nil then
+        self._source:release()
+        self._source = nil
+        self._sourceUsers = 0
+    end
+    self._native:close()
+    return true
+end
+
+function http.reader(reader: nupp.Reader, length: integer?, contentType: string?): http.ReaderBody
+    if length ~= nil then whole(length, "reader body length", 0) end
+    if contentType ~= nil and type(contentType) ~= "string" then error("nupp: HTTP content type must be a string", 2) end
+    return new http.ReaderBody(reader = reader, length = length, contentType = contentType)
+end
+
+function http.file(path: string | nupp.Path, contentType: string?): http.FileBody
+    if type(path) ~= "string" and type((path as any).toString) ~= "function" then error("nupp: HTTP file body needs a path", 2) end
+    if contentType ~= nil and type(contentType) ~= "string" then error("nupp: HTTP content type must be a string", 2) end
+    return new http.FileBody(path = path, contentType = contentType)
+end
+
+@owned
+function http.newClient(options: http.Options?): (http.Client?, string?)
+    local copied = copiedOptions(options)
+    local backend, reason = native.newClient(copied)
+    if backend == nil then
+        return nil, reason
+    end
+
+    return new http.Client(_native = backend, _options = copied, _source = nil, _sourceUsers = 0, _closed = false)
+end
+
+return http

@@ -43,6 +43,11 @@ local suspension = {}
 --- is to give a scheduler its chance, not to spin.
 local MAX_DRAIN_PASSES = 64
 
+--- Maximum time the built-in driver lets one waitable source sleep before every
+--- source is polled again. Hosts never call source waits; this applies only when a
+--- program has not installed a suspension handler.
+local BLOCKING_WAIT_SLICE_MS = 1
+
 --- A readiness pump, and the handle that owns its lifetime.
 ---
 --- Returned rather than named, so two libraries registering "io" do not collide and
@@ -56,6 +61,10 @@ record suspension.Source
 
     --- Where in a pass it runs, lowest first.
     priority: integer
+
+    --- Optionally blocks for at most the supplied milliseconds. Only the built-in
+    --- driver calls this; a host drives `poll` and therefore never sleeps here.
+    wait: (function(integer): integer)?
 end
 
 --- What a library is handed while it subscribes: who is handling suspensions here, and
@@ -65,7 +74,17 @@ end
 --- subscribing rather than something to do afterwards.
 record suspension.Context
     --- Registers a pump this wait needs driven. Answers the handle that stops it.
-    source: function(suspension.Context, string, integer, function(): integer): suspension.Source
+    source: function(
+        suspension.Context,
+        string,
+        integer,
+        function(): integer,
+        (function(integer): integer)?
+    ): suspension.Source
+
+    --- Associates a shared source with this wait without taking ownership of it.
+    --- Shared clients use this so one source may serve several simultaneous parks.
+    uses: function(suspension.Context, suspension.Source): nil
 
     --- Whether a suspension may happen here at all. A host with regions of its own --
     --- tecs's barriers -- answers false inside them.
@@ -179,8 +198,13 @@ function SourceMT.release(self: any): nil
     end
 end
 
-local function addSource(name: string, priority: integer, poll: function(): integer): any
-    local source = setmetatable({name = name, priority = priority, poll = poll, released = false}, SourceMT)
+local function addSource(
+    name: string,
+    priority: integer,
+    poll: function(): integer,
+    wait: (function(integer): integer)?
+): any
+    local source = setmetatable({name = name, priority = priority, poll = poll, wait = wait, released = false}, SourceMT)
     sources[#sources + 1] = source
     sortSources()
 
@@ -196,8 +220,13 @@ end
 --- @param priority where in a pass it runs, lowest first
 --- @param poll answers how many things it settled
 --- @return the handle that stops it
-function suspension.source(name: string, priority: integer, poll: function(): integer): suspension.Source
-    return addSource(name, priority, poll) as suspension.Source
+function suspension.source(
+    name: string,
+    priority: integer,
+    poll: function(): integer,
+    wait: (function(integer): integer)?
+): suspension.Source
+    return addSource(name, priority, poll, wait) as suspension.Source
 end
 
 --- Drives every registered pump once. Answers how many things settled.
@@ -227,12 +256,55 @@ end
 -- no reason to stop. What is a reason is having nothing to drive at all: with no pump
 -- registered and no synchronous resumption, nothing in this process can complete the
 -- wait, and saying so beats hanging.
+local function waitCandidates(waiting: any): {any}
+    local associated = waiting.context and waiting.context.associated
+    local preferred = {}
+    if associated ~= nil then
+        for index = 1, #sources do
+            local source = sources[index]
+            if associated[source] and not source.released and source.wait ~= nil then
+                preferred[#preferred + 1] = source.wait
+            end
+        end
+    end
+    if #preferred > 0 then
+        return preferred
+    end
+
+    local fallback = {}
+    for index = 1, #sources do
+        local source = sources[index]
+        if not source.released and source.wait ~= nil then
+            fallback[#fallback + 1] = source.wait
+        end
+    end
+
+    return fallback
+end
+
 local function blockingPark(waiting: any): nil
     while not waiting:ready() do
         if #sources == 0 then
             error(("nupp: %s cannot complete: no readiness source is registered"):format(waiting.operation), 0)
         end
-        suspension.poll()
+        if suspension.poll() == 0 and not waiting:ready() then
+            local candidates = waitCandidates(waiting)
+            if #candidates > 0 then
+                local cursor = waiting.waitCursor or 1
+                if cursor > #candidates then
+                    cursor = 1
+                end
+                local wait = candidates[cursor]
+                waiting.waitCursor = cursor % #candidates + 1
+                wait(BLOCKING_WAIT_SLICE_MS)
+                -- A wait is only a sleep primitive. Polling every source afterwards is
+                -- what observes readiness, including an unrelated source that became
+                -- ready during the bounded slice.
+                if not waiting:ready() then
+                    suspension.poll()
+                end
+            end
+        end
     end
 end
 
@@ -250,8 +322,14 @@ end
 local ContextMT = {}
 ContextMT.__index = ContextMT
 
-function ContextMT.source(self: any, name: string, priority: integer, poll: function(): integer): any
-    local source = addSource(name, priority, poll)
+function ContextMT.source(
+    self: any,
+    name: string,
+    priority: integer,
+    poll: function(): integer,
+    wait: (function(integer): integer)?
+): any
+    local source = addSource(name, priority, poll, wait)
     -- Built on first use. Most waits register no pump at all, and a list allocated for
     -- every one of them would be paid on the path this design exists to keep cheap.
     local owned = self.owned
@@ -260,8 +338,18 @@ function ContextMT.source(self: any, name: string, priority: integer, poll: func
         self.owned = owned
     end
     owned[#owned + 1] = source
+    self.associated = self.associated or {}
+    self.associated[source] = true
 
     return source
+end
+
+function ContextMT.uses(self: any, source: any): nil
+    if source == nil or source.released then
+        error("nupp: cannot use a released readiness source", 2)
+    end
+    self.associated = self.associated or {}
+    self.associated[source] = true
 end
 
 function ContextMT.canPark(self: any): boolean
@@ -325,7 +413,7 @@ function suspension.suspend<
         end
     end
 
-    local context = setmetatable({handler = handler, owned = nil}, ContextMT)
+    local context = setmetatable({handler = handler, owned = nil, associated = nil}, ContextMT)
     -- Protected, because a subscription that registers a pump and *then* raises would
     -- otherwise leave that pump polling for a wait nobody is doing.
     local subscribed, cancel = pcall(subscribe, resume, context as suspension.Context)
@@ -403,7 +491,7 @@ function suspension.suspend<
         current.parks[ticket] = true
     end
 
-    local waiting = setmetatable({operation = operation, isReady = function()
+    local waiting = setmetatable({operation = operation, context = context, waitCursor = 1, isReady = function()
         return state.resumed or state.cancelled
     end, setWaker = function(wake)
         state.waker = wake

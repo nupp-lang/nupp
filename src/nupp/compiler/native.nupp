@@ -171,6 +171,7 @@ local FEATURES: {
     -- name is a global a program will use, and the backend ABI is not something to
     -- promise by accident.
     module = "nupp.io.process",
+    runtimeModule = "nupp.io.process",
     cargo = "runtime/native/Cargo.toml",
     cargoFeature = "process",
     library = "nupp_native",
@@ -185,6 +186,17 @@ local FEATURES: {
     binary = true,
     runtimeModule = "nupp.workers",
     requires = {"runtime.suspension"},
+}, [
+    "native.http"
+] = {
+    name = "http",
+    module = "nupp.io.http",
+    runtimeModule = "nupp.io.http",
+    cargo = "runtime/native/Cargo.toml",
+    cargoFeature = "http",
+    library = "nupp_native",
+    binary = true,
+    requires = {"runtime.suspension", "native.uri", "stdlib.io"},
 }, [
     "native.sha256"
 ] = {

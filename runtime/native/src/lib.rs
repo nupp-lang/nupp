@@ -1,5 +1,8 @@
 //! Feature-gated native implementation for `nupp.data` and `nupp.io`.
 
+#[cfg(feature = "http")]
+mod http;
+
 use std::cell::RefCell;
 use std::ffi::{c_char, CString};
 use std::ptr;
@@ -22,7 +25,8 @@ thread_local! {
     feature = "path",
     feature = "uri",
     feature = "files",
-    feature = "process"
+    feature = "process",
+    feature = "http"
 ))]
 fn set_error(error: impl ToString) {
     let message = error.to_string().replace('\0', "\\0");

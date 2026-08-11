@@ -126,9 +126,9 @@ The module is explicit because requiring it is what selects a large native featu
 local http = require("nupp.io.http")
 
 do
-    local client = assert(http.newClient(new http.Options {userAgent = "example/1.0"}))
+    local client = assert(http.newClient(new http.Options(userAgent = "example/1.0")))
     local endpoint = assert(nupp.io.URI.new("https://example.com/manifest.json"))
-    local response = assert(client:send(new http.Request {url = endpoint}))
+    local response = assert(client:send(new http.Request(url = endpoint)))
 
     print(response.status, response:ok())
     local destination = nupp.io.newBuffer()

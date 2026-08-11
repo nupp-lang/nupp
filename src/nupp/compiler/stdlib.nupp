@@ -719,7 +719,7 @@ local FOLDERS={home=0,documents=1,downloads=2,desktop=3,pictures=4,music=5,video
 local MODES={r=0,w=1,a=2,["r+"]=3,["w+"]=4,["a+"]=5}
 local ORIGINS={set=0,current=1,["end"]=2}
 local READ_SIZE=65536
-local PENDING,READY,WAIT_SLICE=0,1,25
+local PENDING,READY=0,1
 local SOURCE,PRIORITY="nupp-files",20
 local waits={};local suspending
 local File={};File.__index=File;local Reader={};Reader.__index=Reader;local Writer={};Writer.__index=Writer
@@ -732,10 +732,10 @@ local function temporary(options,directory,level)local root=options and options.
 local function payload(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.getString then return value:getString()end;error("nupp: io.files "..what.." must be bytes or a byte view",level)end
 local function harvest()local moved=0;local index=#waits;while index>0 do local entry=waits[index];if C.nuppFsStatus(entry.handle)~=PENDING then waits[index]=waits[#waits];waits[#waits]=nil;moved=moved+1;entry.resume(true)end;index=index-1 end;return moved end
 local function polled()C.nuppFsPoll();return harvest()end
-local function slept()C.nuppFsWait(WAIT_SLICE);return harvest()end
+local function slept(waitMs)C.nuppFsWait(waitMs);return harvest()end
 local function forget(entry)for index=1,#waits do if waits[index]==entry then waits[index]=waits[#waits];waits[#waits]=nil;return end end end
 local function runtime()if suspending==nil then suspending=require("nupp.suspension")end;return suspending end
-local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();local pump=suspension.handled()and polled or slept;suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,pump);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end
+local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,polled,slept);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end
 local function settled(handle)if handle==nil then return nil,native.error()end;await(handle);if C.nuppFsStatus(handle)~=READY then local reason=ffi.string(C.nuppFsError(handle));C.nuppFsDestroy(handle);return nil,reason end;return handle end
 local function transferred(handle)local done,reason=settled(handle);if not done then return false,reason end;C.nuppFsDestroy(done);return true end
 local function fetched(handle)local done,reason=settled(handle);if not done then return nil,reason end;local out=ffi.string(C.nuppFsData(done),tonumber(C.nuppFsLength(done)));C.nuppFsDestroy(done);return out end
@@ -846,6 +846,77 @@ function backend:now()return C.nuppProcessMonotonicMs()end
 function backend:waitReady(interest,timeoutMs)local readable,readCount=makeArray(interest.read);local writable,writeCount=makeArray(interest.write);local timeout=whole(timeoutMs);if timeout<0 then timeout=0 elseif timeout>INT32_MAX then timeout=INT32_MAX end;local answered=C.nuppProcessWaitReady(readable,readCount,writable,writeCount,timeout);if answered<0 then error(reason("nupp: process readiness wait failed"),0)end;return tonumber(answered)end
 return backend end}
 end
+]=]
+)
+
+-- The public client is checked Nupp. This preload is only its private FFI binding:
+-- copied descriptors, opaque ownership and the reusable ready-record array.
+local HTTP = compact(
+    [=[
+package.preload["nupp.io.httpnative"]=function()
+local native=__nuppNative();local ffi,C=native.ffi,native.C
+ffi.cdef[[
+typedef struct NuppHttpClient NuppHttpClient;
+typedef struct NuppHttpTransfer NuppHttpTransfer;
+typedef struct{const uint8_t*data;size_t length;}NuppHttpSlice;
+typedef struct{NuppHttpSlice name;NuppHttpSlice value;}NuppHttpHeader;
+typedef struct{uint64_t connect_timeout_ms;uint32_t max_redirects;uint32_t max_pending_requests;uint32_t max_connections;uint32_t max_connections_per_host;int compressed;int has_insecure_hosts;int proxy_mode;NuppHttpSlice proxy;int no_proxy_set;NuppHttpSlice no_proxy;NuppHttpSlice proxy_credentials;}NuppHttpClientOptions;
+typedef struct{NuppHttpSlice url;NuppHttpSlice method;const NuppHttpHeader*headers;size_t header_count;NuppHttpSlice body;uint32_t body_kind;int64_t body_length;uint64_t timeout_ms;uint64_t stall_timeout_ms;uint64_t max_bytes;int insecure;}NuppHttpRequest;
+typedef struct{uint16_t status;uint8_t version;const uint8_t*url;size_t url_length;const uint8_t*headers;size_t headers_length;}NuppHttpResponseHead;
+typedef struct{const NuppHttpTransfer*transfer;uint32_t tokens;}NuppHttpReady;
+NuppHttpClient*nuppHttpClientCreate(const NuppHttpClientOptions*);
+void nuppHttpClientDestroy(NuppHttpClient*);
+const NuppHttpTransfer*nuppHttpClientSend(NuppHttpClient*,const NuppHttpRequest*);
+void nuppHttpTransferCancel(const NuppHttpTransfer*);
+void nuppHttpTransferDestroy(const NuppHttpTransfer*);
+int nuppHttpTransferOffer(const NuppHttpTransfer*,const uint8_t*,size_t,bool);
+uint32_t nuppHttpTransferPollHeaders(const NuppHttpTransfer*,NuppHttpResponseHead*);
+const char*nuppHttpTransferError(const NuppHttpTransfer*);
+const NuppHttpTransfer*nuppHttpTransferTakeBody(const NuppHttpTransfer*);
+bool nuppHttpBodyArm(const NuppHttpTransfer*);
+bool nuppHttpBodyPeek(const NuppHttpTransfer*,const uint8_t**,size_t*,uint32_t*);
+bool nuppHttpBodyConsume(const NuppHttpTransfer*,size_t);
+const char*nuppHttpBodyError(const NuppHttpTransfer*);
+void nuppHttpBodyDestroy(const NuppHttpTransfer*);
+size_t nuppHttpClientPoll(NuppHttpClient*,NuppHttpReady*,size_t,bool*);
+size_t nuppHttpClientWait(NuppHttpClient*,uint64_t,NuppHttpReady*,size_t,bool*);
+void nuppHttpReadyRelease(const NuppHttpTransfer*);
+size_t nuppHttpClientPending(const NuppHttpClient*);
+double nuppHttpMonotonicMs(void);
+]]
+local HEAD_PENDING,HEAD_READY,HEAD_FAILED=0,1,2
+local BODY_DATA,BODY_PENDING,BODY_EOF,BODY_FAILED,BODY_CLOSED=1,2,3,4,5
+local TOKEN_HEADERS,TOKEN_BODY,TOKEN_UPLOAD,TOKEN_FAILED=1,2,4,8
+local BODY_NONE,BODY_INLINE,BODY_UPLOAD,BODY_FILE=0,1,2,3
+local UPLOAD_CLOSED,UPLOAD_BACKPRESSURE,UPLOAD_ACCEPTED=-1,0,1
+local function slice(value,pointer,length)local out=ffi.new("NuppHttpSlice");if pointer~=nil then out.data=pointer;out.length=length;elseif value~=nil then out.data=value;out.length=#value end;return out end
+local function reason(pointer,fallback)if pointer==nil then return fallback end;local text=ffi.string(pointer);return text~=""and text or fallback end
+local Transfer={};Transfer.__index=Transfer
+local Client={};Client.__index=Client
+local function dispatch(self,field)local waiters=self[field];if waiters==nil then return 0 end;self[field]=nil;local count=#waiters;for index=count,1,-1 do waiters[index]()end;return count end
+local function dispatchOne(self,field)local waiters=self[field];if waiters==nil or#waiters==0 then return 0 end;local wake=table.remove(waiters,1);if#waiters==0 then self[field]=nil end;wake();return 1 end
+function Transfer:_ready(tokens)local moved=0;if bit.band(tokens,TOKEN_HEADERS+TOKEN_FAILED)~=0 then moved=moved+dispatch(self,"_headWaiters")end;if bit.band(tokens,TOKEN_BODY)~=0 then moved=moved+dispatch(self,"_bodyWaiters")end;if bit.band(tokens,TOKEN_UPLOAD)~=0 then moved=moved+dispatch(self,"_uploadWaiters")end;return moved end
+local function addWaiter(self,field,wake)local waiters=self[field];if waiters==nil then waiters={};self[field]=waiters end;waiters[#waiters+1]=wake;local active=true;return function()if not active then return end;active=false;for index=1,#waiters do if waiters[index]==wake then table.remove(waiters,index);break end end end end
+function Transfer:onHead(wake)return addWaiter(self,"_headWaiters",wake)end
+function Transfer:onBody(wake)local forget=addWaiter(self,"_bodyWaiters",wake);if self._body~=nil then C.nuppHttpBodyArm(self._body)end;return forget end
+function Transfer:onUpload(wake)return addWaiter(self,"_uploadWaiters",wake)end
+function Client:onAdmission(wake)if self._closed or tonumber(C.nuppHttpClientPending(self._handle))<self._maxPending then wake();return function()end end;return addWaiter(self,"_admissionWaiters",wake)end
+function Transfer:head()local out=ffi.new("NuppHttpResponseHead[1]");local state=C.nuppHttpTransferPollHeaders(self._handle,out);if state==HEAD_PENDING then return"pending"end;if state==HEAD_FAILED then return"failed",nil,nil,nil,nil,reason(C.nuppHttpTransferError(self._handle),"HTTP transfer failed")end;local head=out[0];return"ready",tonumber(head.status),tonumber(head.version),ffi.string(head.url,tonumber(head.url_length)),ffi.string(head.headers,tonumber(head.headers_length))end
+function Transfer:offer(value,finished,count)local data,length=nil,0;if value~=nil then local raw=type(value)=="table"and rawget(value,"_data")or nil;if raw~=nil then data=raw;length=count or rawget(value,"_length")else data=value;length=count or#value end end;local answer=C.nuppHttpTransferOffer(self._handle,data,length,finished==true);if answer==UPLOAD_ACCEPTED then return"accepted"end;if answer==UPLOAD_BACKPRESSURE then return"backpressure"end;return"closed"end
+function Transfer:takeBody()if self._body==nil then local handle=C.nuppHttpTransferTakeBody(self._handle);if handle==nil then return nil,"the HTTP response has no body"end;self._body=ffi.gc(handle,C.nuppHttpBodyDestroy)end;return true end
+function Transfer:bodyRead(count,destination,offset)local data=ffi.new("const uint8_t*[1]");local length=ffi.new("size_t[1]");local state=ffi.new("uint32_t[1]");if not C.nuppHttpBodyPeek(self._body,data,length,state)then return"failed",nil,native.error()end;local kind=tonumber(state[0]);if kind==BODY_PENDING then return"pending"end;if kind==BODY_EOF then return"eof"end;if kind==BODY_FAILED then return"failed",nil,reason(C.nuppHttpBodyError(self._body),"HTTP response body failed")end;if kind==BODY_CLOSED then return"closed",nil,"the body is closed"end;local available=tonumber(length[0]);local take=math.min(count,available);if destination~=nil then local raw=rawget(destination,"_data");local capacity=rawget(destination,"_capacity");if raw~=nil or capacity~=nil then destination:ensureCapacity(offset+take);raw=rawget(destination,"_data");local old=rawget(destination,"_length");if offset>old then ffi.fill(raw+old,offset-old,0)end;ffi.copy(raw+offset,data[0],take);if offset+take>old then rawset(destination,"_length",offset+take)end;if not C.nuppHttpBodyConsume(self._body,take)then return"failed",nil,native.error()end;return"data",take end end;local bytes=ffi.string(data[0],take);if not C.nuppHttpBodyConsume(self._body,take)then return"failed",nil,native.error()end;return"data",bytes end
+function Transfer:directDestination(destination)local buffer=rawget(destination,"_buffer");if buffer~=nil and rawget(destination,"_at")~=nil and rawget(buffer,"_capacity")~=nil then return true end;local file=rawget(destination,"_file");return file~=nil and rawget(file,"_handle")~=nil end
+function Transfer:bodyWrite(destination,count)if rawget(destination,"_closed")then return"failed",nil,"the writer is closed"end;local buffer=rawget(destination,"_buffer");if buffer~=nil and rawget(destination,"_at")~=nil and rawget(buffer,"_capacity")~=nil then local at=rawget(destination,"_at");local state,value,why=self:bodyRead(count,buffer,at);if state=="data"then rawset(destination,"_at",at+value)end;return state,value,why end;local file=rawget(destination,"_file");local handle=file and rawget(file,"_handle")or nil;if handle==nil then return"unsupported"end;local data=ffi.new("const uint8_t*[1]");local length=ffi.new("size_t[1]");local state=ffi.new("uint32_t[1]");if not C.nuppHttpBodyPeek(self._body,data,length,state)then return"failed",nil,native.error()end;local kind=tonumber(state[0]);if kind==BODY_PENDING then return"pending"end;if kind==BODY_EOF then return"eof"end;if kind==BODY_FAILED then return"failed",nil,reason(C.nuppHttpBodyError(self._body),"HTTP response body failed")end;if kind==BODY_CLOSED then return"closed",nil,"the body is closed"end;local take=math.min(count,tonumber(length[0]));local wrote=tonumber(C.nuppFileWrite(handle,data[0],take));if wrote<0 then return"failed",nil,native.error()end;if not C.nuppHttpBodyConsume(self._body,wrote)then return"failed",nil,native.error()end;return"data",wrote end
+function Transfer:cancel()if self._handle~=nil then C.nuppHttpTransferCancel(self._handle)end end
+function Transfer:close()if self._closed then return end;self._closed=true;self._client._byHandle[tostring(self._handle)]=nil;if self._body~=nil then local body=self._body;self._body=nil;ffi.gc(body,nil);C.nuppHttpBodyDestroy(body)else C.nuppHttpTransferCancel(self._handle)end;local handle=self._handle;self._handle=nil;ffi.gc(handle,nil);C.nuppHttpTransferDestroy(handle)end
+function Client:send(request)local headers=request.headers or{};local count=#headers;local packed=count>0 and ffi.new("NuppHttpHeader[?]",count)or nil;for index=1,count do local item=headers[index];packed[index-1].name=slice(item[1]);packed[index-1].value=slice(item[2])end;local bodyPointer,bodyLength=nil,0;local value=request.body;if request.bodyKind==BODY_INLINE then if type(value)=="string"then bodyPointer=value;bodyLength=#value else local raw=rawget(value,"_data");if raw~=nil then bodyPointer=raw;bodyLength=rawget(value,"_length")else local bytes=rawget(value,"_bytes")or value:getString();bodyPointer=bytes;bodyLength=#bytes end end elseif request.bodyKind==BODY_FILE then bodyPointer=value;bodyLength=#value end;local descriptor=ffi.new("NuppHttpRequest");descriptor.url=slice(request.url);descriptor.method=slice(request.method);descriptor.headers=packed;descriptor.header_count=count;descriptor.body=slice(nil,bodyPointer,bodyLength);descriptor.body_kind=request.bodyKind;descriptor.body_length=request.bodyLength or-1;descriptor.timeout_ms=request.timeoutMs;descriptor.stall_timeout_ms=request.stallTimeoutMs;descriptor.max_bytes=request.maxBytes;descriptor.insecure=request.insecure and 1 or 0;local handle=C.nuppHttpClientSend(self._handle,descriptor);if handle==nil then local why=native.error();return nil,why,why=="the HTTP client has reached maxPendingRequests"end;handle=ffi.gc(handle,C.nuppHttpTransferDestroy);local transfer=setmetatable({_client=self,_handle=handle,_body=nil,_closed=false},Transfer);self._byHandle[tostring(handle)]=transfer;return transfer end
+function Client:poll(waitMs)local count;if waitMs>0 then count=C.nuppHttpClientWait(self._handle,waitMs,self._ready,256,self._more)else count=C.nuppHttpClientPoll(self._handle,self._ready,256,self._more)end;local moved=0;for index=0,tonumber(count)-1 do local item=self._ready[index];local transfer=self._byHandle[tostring(item.transfer)];local ok,problem=true,nil;if transfer~=nil then ok,problem=pcall(function()moved=moved+transfer:_ready(tonumber(item.tokens))end)end;C.nuppHttpReadyRelease(item.transfer);if not ok then error(problem,0)end end;if self._admissionWaiters~=nil and tonumber(C.nuppHttpClientPending(self._handle))<self._maxPending then moved=moved+dispatchOne(self,"_admissionWaiters")end;return moved end
+function Client:pending()if self._closed then return 0 end;return tonumber(C.nuppHttpClientPending(self._handle))end
+function Client:now()return tonumber(C.nuppHttpMonotonicMs())end
+function Client:close()if self._closed then return end;self._closed=true;dispatch(self,"_admissionWaiters");local transfers={};for _,transfer in pairs(self._byHandle)do transfers[#transfers+1]=transfer end;for index=1,#transfers do transfers[index]:close()end;local handle=self._handle;self._handle=nil;ffi.gc(handle,nil);C.nuppHttpClientDestroy(handle)end
+local backend={}
+function backend.newClient(options)local proxyMode=options.proxy==nil and 0 or(options.proxy==""and 1 or 2);local proxy=options.proxy or"";local noProxy=options.noProxy or"";local credentials=options.proxyCredentials or"";local nativeOptions=ffi.new("NuppHttpClientOptions");nativeOptions.connect_timeout_ms=options.connectTimeoutMs;nativeOptions.max_redirects=options.maxRedirects;nativeOptions.max_pending_requests=options.maxPendingRequests;nativeOptions.max_connections=options.maxConnections;nativeOptions.max_connections_per_host=options.maxConnectionsPerHost;nativeOptions.compressed=options.compressed and 1 or 0;nativeOptions.has_insecure_hosts=next(options.insecureHosts)and 1 or 0;nativeOptions.proxy_mode=proxyMode;nativeOptions.proxy=slice(proxy);nativeOptions.no_proxy_set=options.noProxy~=nil and 1 or 0;nativeOptions.no_proxy=slice(noProxy);nativeOptions.proxy_credentials=slice(credentials);local handle=C.nuppHttpClientCreate(nativeOptions);if handle==nil then return nil,native.error()end;handle=ffi.gc(handle,C.nuppHttpClientDestroy);return setmetatable({_handle=handle,_closed=false,_byHandle={},_admissionWaiters=nil,_maxPending=options.maxPendingRequests,_ready=ffi.new("NuppHttpReady[256]"),_more=ffi.new("bool[1]")},Client)end
+return backend end
 ]=]
 )
 
@@ -1004,7 +1075,7 @@ function stdlib.bootstrap(effects: {[string]: any}?): string
     local hasNative = effects[
         "native.path"
     ] or effects["native.uri"] or effects["native.uuid"] or effects["native.sha256"]
-        or effects["native.files"] or effects["native.process"]
+        or effects["native.files"] or effects["native.process"] or effects["native.http"]
     if hasNative then
         out[#out + 1] = NATIVE
     end
@@ -1013,6 +1084,9 @@ function stdlib.bootstrap(effects: {[string]: any}?): string
     end
     if effects["native.process"] then
         out[#out + 1] = PROCESS
+    end
+    if effects["native.http"] then
+        out[#out + 1] = HTTP
     end
     if effects["native.path"] then
         out[#out + 1] = PATH
