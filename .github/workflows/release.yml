@@ -75,6 +75,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ "$RUNNER_OS" = Windows ]; then
+            export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER="${VCToolsInstallDir}bin\\Hostx64\\x64\\link.exe"
+          fi
+
           cargo build --release --manifest-path host/Cargo.toml \
             --target-dir build/bootstrap-host --features cjson
           cargo build --release --manifest-path runtime/native/Cargo.toml \
