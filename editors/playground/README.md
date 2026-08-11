@@ -111,9 +111,10 @@ becomes the embed's drawer along the bottom and the same edge drags up and down
 instead.
 
 **`embed.html`** is the same thing sized for an `<iframe src=".../embed.html">`
-— the head bar carries only icons, the panel is a drawer along the bottom that
-stays hidden until Run is clicked, and the diagnostics sit beside the output
-in it rather than under. It is what the docs site's ` ```playground ` fence embeds
+— Run and Open sit above the editor's border at the right, while Options stays
+in the full playground. The panel is a drawer along the bottom that stays
+hidden until Run is clicked, and the diagnostics sit beside the output in it
+rather than under. It is what the docs site's ` ```playground ` fence embeds
 (see `src/nupp/compiler/doc/html.nupp`). Its extra action is **Open**, which
 hands the buffer to the full playground rather than opening a blank one; the
 full playground has no such button, being already there.

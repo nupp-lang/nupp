@@ -32,7 +32,9 @@ const chrome = EditorView.theme({
   },
   ".cm-activeLineGutter": { backgroundColor: "var(--pg-background)" },
   ".cm-activeLine": { backgroundColor: "var(--pg-background-alt)" },
-  ".cm-lineNumbers .cm-gutterElement": { color: "var(--pg-muted)" },
+  ".cm-lineNumbers .cm-gutterElement": {
+    color: "color-mix(in srgb, var(--pg-muted) 55%, var(--pg-background))",
+  },
   ".cm-matchingBracket, .cm-nonmatchingBracket": {
     backgroundColor: "var(--pg-accent-soft)",
     outline: "1px solid var(--pg-accent)",

@@ -283,17 +283,22 @@ body {
   min-height: 0;
 }
 .is-embed .editor-host .cm-scroller { font-size: 13px; }
+.is-embed #source-editor {
+  overflow: hidden;
+  border: 1px solid var(--pg-border);
+  border-radius: 2px;
+}
 
 .head-bar {
   position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: .6rem;
-  height: 2.1rem;
-  padding: 0 .35rem 0 .55rem;
-  border-bottom: 1px solid var(--pg-border);
-  background: var(--pg-background);
+  height: 2rem;
+  padding: 0 0 .2rem;
+  border: 0;
+  background: transparent;
   flex: none;
 }
 .head-bar .example-picker { font-size: .72rem; }

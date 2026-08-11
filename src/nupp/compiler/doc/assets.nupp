@@ -41,14 +41,10 @@ local THEME = [[
  * iframe cannot measure a document it does not share an origin with, and the
  * editor inside scrolls on its own anyway.
  *
- * Its own border property rather than the prose one. This frame is the outer
- * edge of a stack of panes whose inner edges the playground draws for itself,
- * and at the hairline a body of text wants it was the one line in the picture
- * that disappeared -- most visibly down the left and right, where it stands
- * alone rather than beside a rule the playground drew. The default carries the
- * theme's own border toward its text so any palette gets a visible edge; a site
- * that wants the frame to match the panes exactly sets the property. */
-.nuppdoc-playground{display:block;width:100%;height:var(--nuppdoc-playground-height);margin:1.25rem 0;border:1px solid var(--nuppdoc-playground-border);border-radius:var(--nuppdoc-code-block-radius);background:var(--nuppdoc-code-background);color-scheme:normal}
+ * The frame itself stays transparent and borderless. The embed draws a 2px
+ * rounded border around the editor below its controls, which lets those controls
+ * sit above rather than inside the code block's edge. */
+.nuppdoc-playground{display:block;width:100%;height:var(--nuppdoc-playground-height);margin:1.25rem 0;border:0;border-radius:0;background:transparent;color-scheme:normal}
 .nuppdoc-code-group>.nuppdoc-playground,.nuppdoc-code-panel>.nuppdoc-playground{margin:0;border:0;border-radius:0}
 .nuppdoc-logo{width:auto;height:28px;border-radius:5px}
 .nuppdoc-icon-link{display:grid;width:34px;height:34px;place-items:center;padding:0;color:var(--nuppdoc-text-muted);border:0;border-radius:7px;background:transparent;cursor:pointer;text-decoration:none}.nuppdoc-icon-link:hover,.nuppdoc-icon-link[aria-pressed="true"]{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}.nuppdoc-icon-link svg{width:18px;height:18px}.nuppdoc-panel-toggle-right svg{transform:scaleX(-1)}

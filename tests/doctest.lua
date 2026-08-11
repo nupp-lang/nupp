@@ -1772,7 +1772,7 @@ function M.nuppFencesUseLazyPlaygrounds()
       "```nupp\nlocal answer: integer = 42\n```", {})
    assert(editable:find('class="nuppdoc-playground"', 1, true), editable)
    assert(editable:find('loading="lazy"', 1, true), editable)
-   assert(editable:find('style="height:4.95rem"', 1, true), editable)
+   assert(editable:find('style="height:4.85rem"', 1, true), editable)
    assert(editable:find(
       '#source=local%20answer%3A%20integer%20%3D%2042', 1, true), editable)
    assert(not editable:find('class="nuppdoc-code-block"', 1, true), editable)
