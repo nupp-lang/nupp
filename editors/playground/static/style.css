@@ -283,6 +283,7 @@ body {
   min-height: 0;
 }
 .is-embed .editor-host .cm-scroller { font-size: 13px; }
+.is-embed .editor-host .cm-content { padding: .5rem 0 .25rem; }
 .is-embed #source-editor {
   overflow: hidden;
   border: 1px solid var(--pg-border);
