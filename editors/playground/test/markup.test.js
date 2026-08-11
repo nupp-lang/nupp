@@ -68,3 +68,13 @@ test("documentation playgrounds check only after the reader engages", () => {
   assert.match(docApp, /const IGNORED_DOC_DIAGNOSTICS = new Set\(\["NUPP2507"\]\)/);
   assert.match(docApp, /const diagnostics = visibleDiagnostics\(result\.diagnostics\)/);
 });
+
+test("playground codegen drops effects removed by optimization", () => {
+  const worker = readFileSync(new URL("../src/worker.js", import.meta.url), "utf8");
+  assert.match(worker, /pcall\(optimize\.run, result,/);
+  assert.match(worker, /result\.effects = optimize\.liveEffects\(result\)/);
+  assert.ok(
+    worker.indexOf("optimize.liveEffects(result)") < worker.indexOf("gen.generate, result"),
+    "live effects must be recomputed before generation",
+  );
+});

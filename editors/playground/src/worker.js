@@ -159,10 +159,14 @@ async function boot() {
         -- panel's one switch is the whole of the distinction there is: -O2 is
         -- accepted by the CLI and reserved for a stronger tier, but selects the
         -- same passes today and would compile byte-identically.
-        local okOpt, optErr = pcall(require("nupp.compiler.optimize").run, result,
+        local optimize = require("nupp.compiler.optimize")
+        local okOpt, optErr = pcall(optimize.run, result,
             {level = settings.optimize == true and 1 or 0, filename = filename,
              disabled = {}, relaxed = {}})
         if not okOpt then error(optErr, 0) end
+        -- Match build/modules: feature selection follows the tree codegen will
+        -- actually emit, so a folded branch cannot keep its runtime installer.
+        result.effects = optimize.liveEffects(result)
         local gen = require("nupp.compiler.gen")
         local okGen, code, genDiags = pcall(gen.generate, result, filename)
         if not okGen then error(code, 0) end
