@@ -146,6 +146,11 @@ interface cst.Hints
 
     reflectedTypeKey: string?
 
+    --- Compiler-owned target layout attached to a checked layout intrinsic call.
+    targetLayout: any
+
+    targetLayoutKey: string?
+
     --- A file-private helper that exists only in the comptime evaluator.
     comptimeFunction: boolean?
 
@@ -1515,6 +1520,9 @@ record cst.Args is cst.Hints
 
     --- The parenthesized argument list.
     exprs: {cst.Node}?
+
+    --- The first argument when a compiler intrinsic parses it in a type position.
+    typeArg: cst.Node?
 
     --- The table of `f{...}`.
     table: cst.Node?

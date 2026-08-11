@@ -21,7 +21,7 @@ local index = require("nupp.compiler.check.index")
 local callexpr = require("nupp.compiler.check.callexpr")
 local state = require("nupp.compiler.check.state")
 local comptime = require("nupp.compiler.comptime") as {
-    evaluate: function(any, any, any, any, any?): (string?, any, any, any)
+    evaluate: function(any, any, any, any, any, any?): (string?, any, any, any)
 }
 local materializeProviders = require("nupp.compiler.materialize.providers") as {
     ABI: integer,
@@ -181,23 +181,27 @@ function expr.install(c: state.Checker): nil
         c.retStack[#c.retStack] = nil
         c.popScope()
 
-        local reflections = {}
-        local function collectReflections(value)
+        local reflections, layouts = {}, {}
+        local function collectComptimeFacts(value)
             if type(value) ~= "table" then
                 return
             end
             if value.reflectedTypeKey and value.reflectedType then
                 reflections[value.reflectedTypeKey] = value.reflectedType
             end
+            if value.targetLayoutKey and value.targetLayout then
+                layouts[value.targetLayoutKey] = value.targetLayout
+            end
             for _, child in ipairs(value) do
-                collectReflections(child)
+                collectComptimeFacts(child)
             end
         end
-        collectReflections(node.body)
+        collectComptimeFacts(node.body)
         local quoted, resultType, failure, envelope = comptime.evaluate(
             untypedNode,
             node.body,
             reflections,
+            layouts,
             c.comptimeFunctions,
             c.env and c.env.comptimeHost or nil
         )

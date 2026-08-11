@@ -142,7 +142,8 @@ local function taskDescription(config, name, isDefault)
         target.resources
     ), dependencies = copyStrings(
         target.dependencies
-    ), nativeFeatures = target.nativeFeatures, command = jsonArray({"nupp", "build", "--target", name}),}
+    ), nativeFeatures = target.nativeFeatures, layoutTarget = target.layoutTarget,
+        command = jsonArray({"nupp", "build", "--target", name}),}
 end
 
 local function configuredTasks(config: manifest.Config, buildOnly: boolean?): {tasks.Task}, string?

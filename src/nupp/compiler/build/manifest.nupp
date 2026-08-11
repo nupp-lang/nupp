@@ -46,6 +46,10 @@ type manifest.Target = {
     sources: {string}?,
     resources: {string | manifest.Resource}?,
     dependencies: {string}?,
+    --- Target triple used by compile-time C layout intrinsics. It is deliberately
+    --- separate from the machine running the compiler and from a dependency's native
+    --- build target.
+    layoutTarget: string?,
     format: string?,
     title: string?,
 
@@ -194,7 +198,7 @@ local DOCS_KEYS = {
     -- read by nupp.compiler.doc
     "sources", "format", "outDir", "title", "name", "description", "github", "logo", "favicon", "public", "customCss", "lexers", "includePrivate", "all", "pages", "constructorPattern",
     -- taken by any build target
-    "kind", "dependencies", "entries", "resources", "output", "stub", "nativeFeatures",}
+    "kind", "dependencies", "entries", "resources", "output", "stub", "nativeFeatures", "layoutTarget",}
 
 local PAGE_KEYS = {"path", "title", "source", "layout", "heroTitle", "heroText", "heroContent", "heroImage", "heroImageAlt", "heroActions",
     -- accepted spellings of the same six
@@ -286,6 +290,20 @@ local function validateTarget(target, label, dependencies)
     end
     if target.description ~= nil and type(target.description) ~= "string" then
         return nil, label .. ".description must be a string"
+    end
+    if target.layoutTarget ~= nil then
+        local valid, err = validateString(target.layoutTarget, label .. ".layoutTarget")
+        if not valid then
+            return nil, err
+        end
+        local layouts = require("nupp.compiler.target_layout")
+        if not layouts.has(target.layoutTarget) then
+            return nil, label
+                .. ".layoutTarget names unsupported target "
+                .. target.layoutTarget
+                .. "; supported targets: "
+                .. table.concat(layouts.keys(), ", ")
+        end
     end
     if target.nativeFeatures ~= nil then
         if type(target.nativeFeatures) ~= "table" then

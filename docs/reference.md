@@ -1263,7 +1263,7 @@ end
 return m
 ```
 
-Reports: `NUPP2410`, `NUPP2411`, `NUPP2412`, `NUPP2413`, `NUPP2414`, `NUPP2415`, `NUPP2416`. `nupp explain <code>` says more.
+Reports: `NUPP2410`, `NUPP2411`, `NUPP2412`, `NUPP2413`, `NUPP2414`, `NUPP2415`, `NUPP2416`, `NUPP2419`. `nupp explain <code>` says more.
 
 ### PEG matchers
 
@@ -1429,8 +1429,8 @@ with deterministic `ipairs` or `pairs`. Views preserve identity for equality
 but reject mutation and cannot escape as runtime tables. The fingerprint is
 computed from the canonical semantic graph rather than the checker's
 process-local type identities. Reflection reads declared meaning, not FFI
-layout; `sizeof`, alignment, and offsets remain separate target-dependent
-questions. Annotation names, arguments, values and referenced types participate
+layout; `sizeof`, `alignof`, and `offsetof` use the build's `layoutTarget`.
+Annotation names, arguments, values and referenced types participate
 in the fingerprint, so changing serialization metadata invalidates a cached
 comptime result even when the field types themselves are unchanged.
 

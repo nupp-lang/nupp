@@ -28,13 +28,27 @@ end
 -- Checks, then generates. Comptime runs during checking, so a diagnostic it produced is
 -- in the list this returns; nothing here optimizes, because comptime is semantics and
 -- must not need a level.
-local function compile(src)
+local function compile(src, selectedEnv)
    local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax errors in test source")
-   local diags = check.check(result, "test.g.nupp", env)
+   local diags = check.check(result, "test.g.nupp", selectedEnv or env)
    local code, genDiags = gen.generate(result, "test")
    for _, one in ipairs(genDiags) do diags[#diags + 1] = one end
    return code, diags
+end
+
+local function runIn(src, selectedEnv)
+   local code, diags = compile(src, selectedEnv)
+   for _, diag in ipairs(diags) do
+      if diag.severity ~= "warning" and diag.severity ~= "note" then
+         error(("unexpected %s: %s\n---\n%s"):format(diag.code, diag.msg, code), 2)
+      end
+   end
+   local chunk, err = loadstring(code, "@comptime_layout_test")
+   if not chunk then
+      error("generated code does not load: " .. tostring(err) .. "\n---\n" .. code, 2)
+   end
+   return chunk()
 end
 
 local function errorsOf(src)
@@ -70,6 +84,95 @@ local function firstLocalBinding(result)
 end
 
 local M = {}
+
+local LAYOUT_SOURCE = [[
+local struct Inner
+    small: int16
+    whole: int32
+end
+
+local struct Packet
+    tag: int8
+    value: number
+    next: Inner*
+    inner: Inner
+    samples: float[3]
+end
+
+local type PacketAlias = Packet
+
+local type Pair<T> = T[2]
+
+return comptime do
+    const INNER = "inner"
+    return {
+        sizeof(Packet),
+        alignof(Packet),
+        offsetof(Packet, "value"),
+        offsetof(Packet, INNER),
+        sizeof(int32),
+        sizeof(Inner*),
+        sizeof(PacketAlias),
+        sizeof(Pair<int16>)
+    }
+end
+]]
+
+local function layoutEnv(target)
+   return envMod.new(HERE .. "/..", {
+      cache = false,
+      config = {build = {entries = {"main"}, layoutTarget = target}}
+   })
+end
+
+function M.computesLayoutForTheDeclaredTargetRatherThanTheHost()
+   local lp64 = runIn(LAYOUT_SOURCE, layoutEnv("aarch64-unknown-linux-gnu"))
+   assertEq(table.concat(lp64, ","), "48,8,8,24,4,8,48,4", "LP64 layout")
+
+   local ilp32 = runIn(LAYOUT_SOURCE, layoutEnv("i686-unknown-linux-gnu"))
+   assertEq(table.concat(ilp32, ","), "36,4,4,16,4,4,36,4", "i686 SysV layout")
+end
+
+function M.layoutIntrinsicsRequireATargetAndAReifiableType()
+   local codes, diags = errorsOf([[
+local struct Value
+    n: int32
+end
+return comptime do return sizeof(Value) end
+]])
+   assertEq(codes[1], "NUPP2419", "missing target")
+   assert(diags[1].help and diags[1].help:find("layoutTarget", 1, true),
+      "the diagnostic names the manifest selection")
+
+   local _, invalid = compile([[
+local record Value
+    n: int32
+end
+return comptime do return sizeof(Value) end
+]], layoutEnv("x86_64-unknown-linux-gnu"))
+   assertEq(invalid[1].code, "NUPP2419", "records have no C layout")
+   assert(invalid[1].msg:find("no runtime layout", 1, true), invalid[1].msg)
+end
+
+function M.offsetofRequiresAKnownExistingField()
+   local _, unknown = compile([[
+local struct Value
+    n: int32
+end
+return comptime do return offsetof(Value, "missing") end
+]], layoutEnv("x86_64-unknown-linux-gnu"))
+   assertEq(unknown[1].code, "NUPP2419", "unknown field")
+   assert(unknown[1].msg:find('no field "missing"', 1, true), unknown[1].msg)
+
+   local _, dynamic = compile([[
+local struct Value
+    n: int32
+end
+local name: string = "n"
+return comptime do return offsetof(Value, name) end
+]], layoutEnv("x86_64-unknown-linux-gnu"))
+   assertEq(dynamic[1].code, "NUPP2410", "runtime locals remain unavailable")
+end
 
 function M.evaluatesAnArithmeticBlock()
    assertEq(run("return comptime do return (2 + 3) * 4 end"), 20, "block result")
@@ -316,6 +419,7 @@ function M.workerCancellationStopsIsolatedEvaluation()
    local _, failure = worker.evaluate(
       "comptime do while true do end end",
       HERE .. "/../bin/nupp",
+      {},
       {},
       {},
       {

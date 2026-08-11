@@ -6,10 +6,9 @@ work makes sense in.
 
 ## Type system
 
-- [ ] **Comptime** ([design](comptime.md)): deterministic value evaluation,
-      deliberately not a macro or declaration-generation system. C1, C2a, C3,
-      C4, and closed materialization's core have landed. Only the separately
-      scoped target-layout project C2b remains. Reach for comptime for a program
+- [x] **Comptime** ([design](comptime.md)): deterministic value evaluation,
+      deliberately not a macro or declaration-generation system. C1–C4 and
+      closed materialization's core have landed. Reach for comptime for a program
       that needs a generated table, not for one that wants a constant: those
       keep turning out to have cheaper answers, `OPT-3` having since taken `//`
       and the bit operators.
@@ -25,11 +24,12 @@ work makes sense in.
         handling, structural vocabulary, semantic fingerprints, checked
         declaration/field annotations, reflection hover/completion, and keyed
         cross-process invalidation have landed.
-  - [ ] C2b: target-aware `sizeof`/`alignof`/`offsetof`. Blocked on a
-        compile-time layout model, which nupp has deliberately not built:
-        `layoutof` answers the same question at run time through the FFI,
-        because sizes belong to the running platform and not the compiling one.
-        A separate project rather than the step after C1.
+  - [x] C2b: target-aware `sizeof`/`alignof`/`offsetof`. Build targets select an
+        explicit `layoutTarget`; the compiler owns versioned LP64, i686 SysV,
+        and i686 MSVC C layout profiles for nupp's fixed-width reifiable type
+        vocabulary. Type-position intrinsics accept aliases, qualified types,
+        pointers, arrays, and generic instantiations, with target keys separated
+        in persistent caches. Runtime `layoutof` remains the running FFI's answer.
   - [x] C3: `@comptime` functions with ordinary type checking, erased runtime
         output, bounded recursion, and comptime call stacks. File-private at
         first, but cross-module helpers are an expected extension; helpers

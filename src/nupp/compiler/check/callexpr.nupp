@@ -20,6 +20,7 @@ local ffiMod = require("nupp.compiler.check.ffi")
 local methodslots = require("nupp.compiler.methodslots")
 local native = require("nupp.compiler.native")
 local reflection = require("nupp.compiler.reflection")
+local targetLayout = require("nupp.compiler.target_layout")
 local state = require("nupp.compiler.check.state")
 local pegTyping = require("nupp.compiler.materialize.peg") as {
     inferSourceResult: function(string, T.Type?): (T.Pack?, any)
@@ -328,6 +329,42 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         return T.union(nonnil)
     end
 
+    -- Resolves an expression-shaped type path without inferring it as a runtime value.
+    -- `reflect` and the layout intrinsics share this spelling and dependency behavior.
+    local function concreteTypePath(argument: Node?, typePosition: boolean?): string?, Type?
+        if argument and typePosition then
+            local key = cst.textOf(argument):gsub("%s+", "")
+            return key, c.resolveType(argument)
+        end
+        local key = argument and c.pathKey(argument) or nil
+        local resolved = key and c.lookupType(key) or nil
+        if not resolved and key and not key:find(".", 1, true) then
+            local builtin = (T as any)[key]
+            if type(builtin) == "table" and builtin.tag then
+                resolved = builtin
+            end
+        end
+        if not resolved and key and c.env and c.env.resolveQualifiedType then
+            local moduleName, typeName = key:match("^(.*)%.([^.]+)$")
+            if moduleName and typeName then
+                local first = moduleName:match("^[^.]+")
+                local holder = first and c.lookupEntry(first) or nil
+                if holder and holder.requiredModule then
+                    local firstName = first as string
+                    moduleName = holder.requiredModule .. moduleName:sub(#firstName + 1)
+                end
+                resolved = c.env.resolveQualifiedType(
+                    c.env,
+                    c.filename,
+                    moduleName,
+                    typeName
+                )
+            end
+        end
+
+        return key, resolved
+    end
+
     handlers.call = function(node: cst.Call | cst.SafeCall): Type
         -- The intrinsic dispatch below asks the same three questions of every call —
         -- what is being called, what it is dotted off, and what was passed — so they
@@ -355,10 +392,100 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local argExprs: {Node} = {}
         local argStr: lexer.Token? = nil
         local argTable: Node? = nil
-        if argsNode and argsNode.kind == "args" then
-            argExprs = argsNode.exprs or {}
-            argStr = argsNode.str
-            argTable = argsNode.table
+        local callArgs = argsNode and argsNode.kind == "args" and argsNode as cst.Args or nil
+        if callArgs then
+            argExprs = callArgs.exprs or {}
+            argStr = callArgs.str
+            argTable = callArgs.table
+        end
+        local layoutIntrinsic = calleeName == "sizeof" or calleeName == "alignof"
+            or calleeName == "offsetof"
+        if layoutIntrinsic and not argStr and not argTable then
+            if (c.comptimeDepth or 0) == 0 then
+                c.diag("NUPP2419", node, calleeName .. " is available only inside a comptime block")
+                return T.any
+            end
+            local globals = c.env and c.env.globals
+            local stable = globals and c.lookupEntry(calleeName) == globals[calleeName]
+            local expected = calleeName == "offsetof" and 2 or 1
+            if not stable or #argExprs ~= expected then
+                c.diag(
+                    "NUPP2419",
+                    node,
+                    ("%s expects %d argument%s"):format(
+                        calleeName,
+                        expected,
+                        expected == 1 and "" or "s"
+                    )
+                )
+                return T.any
+            end
+            local typeArgument = callArgs and callArgs.typeArg or argExprs[1]
+            local key, subject = concreteTypePath(
+                typeArgument,
+                callArgs and callArgs.typeArg ~= nil
+            )
+            if not key or not subject then
+                c.diag(
+                    "NUPP2419",
+                    argExprs[1] or node,
+                    calleeName .. " expects one concrete type name",
+                    nil,
+                    {help = "pass a declared or qualified type, not a runtime value"}
+                )
+                return T.any
+            end
+            local target = c.env and c.env.layoutTarget or nil
+            if not target then
+                c.diag(
+                    "NUPP2419",
+                    node,
+                    calleeName .. " needs an explicit build layout target",
+                    nil,
+                    {help = "set layoutTarget on the selected build target in nupp.lua"}
+                )
+                return T.any
+            end
+            local measured, why = targetLayout.of(subject, target)
+            if not measured then
+                c.diag(
+                    "NUPP2419",
+                    argExprs[1] or node,
+                    ("%s has no layout for %s: %s"):format(
+                        key,
+                        target,
+                        tostring(why)
+                    )
+                )
+                return T.any
+            end
+            if calleeName == "offsetof" then
+                local fieldType = argExprs[2] and c.infer(argExprs[2]) or nil
+                local fieldName = literalString(argExprs[2])
+                if not fieldName and fieldType and fieldType.tag == "literal"
+                    and type(fieldType.constant) == "string" then
+                    fieldName = fieldType.constant
+                end
+                if not fieldName then
+                    c.diag(
+                        "NUPP2419",
+                        argExprs[2] or node,
+                        "offsetof field name must be a compile-time-known string"
+                    )
+                    return T.any
+                end
+                if measured.offsets[fieldName] == nil then
+                    c.diag(
+                        "NUPP2419",
+                        argExprs[2] or node,
+                        ("%s has no field %q"):format(key, fieldName)
+                    )
+                    return T.any
+                end
+            end
+            node.targetLayout, node.targetLayoutKey = measured, key
+
+            return T.integer
         end
         if calleeName == "reflect" and #argExprs == 1 and not argStr and not argTable then
             if (c.comptimeDepth or 0) == 0 then
@@ -367,20 +494,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
             local globals = c.env and c.env.globals
             local stable = globals and c.lookupEntry("reflect") == globals["reflect"]
-            local key = c.pathKey(argExprs[1])
-            local reflected = key and c.lookupType(key) or nil
-            if not reflected and key and c.env and c.env.resolveQualifiedType then
-                local moduleName, typeName = key:match("^(.*)%.([^.]+)$")
-                if moduleName and typeName then
-                    local first = moduleName:match("^[^.]+")
-                    local holder = first and c.lookupEntry(first) or nil
-                    if holder and holder.requiredModule then
-                        local firstName = first as string
-                        moduleName = holder.requiredModule .. moduleName:sub(#firstName + 1)
-                    end
-                    reflected = c.env.resolveQualifiedType(c.env, c.filename, moduleName, typeName)
-                end
-            end
+            local typeArgument = callArgs and callArgs.typeArg or argExprs[1]
+            local key, reflected = concreteTypePath(
+                typeArgument,
+                callArgs and callArgs.typeArg ~= nil
+            )
             if not stable or not reflected then
                 c.diag(
                     "NUPP2418",

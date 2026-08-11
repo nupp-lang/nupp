@@ -24,8 +24,8 @@ local T = require("nupp.compiler.types")
 local materializeProviders = require("nupp.compiler.materialize.providers")
 
 local record comptime
-    evaluateDirect: function(cst.Node, cst.Node?, any, any): (string?, T.Type?, any, any)
-    evaluate: function(cst.Node, cst.Node?, any, any, any?): (string?, T.Type?, any, any)
+    evaluateDirect: function(cst.Node, cst.Node?, any, any, any): (string?, T.Type?, any, any)
+    evaluate: function(cst.Node, cst.Node?, any, any, any, any?): (string?, T.Type?, any, any)
 end
 
 local isToken = cst.isToken
@@ -427,6 +427,7 @@ local function newState()
         opaque = {},
         intrinsics = {},
         reflections = {},
+        layouts = {},
         comptimeFunctions = {},
         callDepth = 0,
     }
@@ -930,6 +931,8 @@ evalMulti = function(state, node)
         local function typePath(value)
             if not value then
                 return nil
+            elseif value.kind and value.kind:sub(1, 1) == "t" then
+                return cst.textOf(value):gsub("%s+", "")
             elseif value.kind == "name" then
                 return value.token and value.token.text or nil
             elseif value.kind == "dotIndex" then
@@ -946,6 +949,46 @@ evalMulti = function(state, node)
             fail("NUPP2418", node, "reflect type information is unavailable in this comptime worker")
         end
         values = {n = 1, materializeProviders.reflect(state, descriptor, node)}
+    elseif kind == "call" and node.obj and node.obj.kind == "name"
+        and node.obj.token and (
+            node.obj.token.text == "sizeof"
+            or node.obj.token.text == "alignof"
+            or node.obj.token.text == "offsetof"
+        ) then
+        local name = node.obj.token.text
+        local args = node.args and node.args.exprs or {}
+        local function typePath(value)
+            if not value then
+                return nil
+            elseif value.kind and value.kind:sub(1, 1) == "t" then
+                return cst.textOf(value):gsub("%s+", "")
+            elseif value.kind == "name" then
+                return value.token and value.token.text or nil
+            elseif value.kind == "dotIndex" then
+                local base = typePath(value.obj)
+                local field = value.name and value.name.text or nil
+                return base and field and (base .. "." .. field) or nil
+            end
+
+            return nil
+        end
+        local key = typePath(args[1])
+        -- The checker owns validation. A missing entry means it already diagnosed the
+        -- call; use a harmless recovery value so the worker does not add a second,
+        -- less useful failure on top of it.
+        local layout = key and state.layouts[key] or nil
+        layout = layout or {size = 0, alignment = 1, offsets = {}}
+        local answer
+        if name == "sizeof" then
+            answer = layout.size
+        elseif name == "alignof" then
+            answer = layout.alignment
+        else
+            local field = evalExpr(state, args[2])
+            answer = type(field) == "string" and layout.offsets[field] or nil
+            answer = answer or 0
+        end
+        values = {n = 1, answer}
     elseif kind == "methodCall" then
         local object = evalExpr(state, node.obj)
         if object == nil and node.safeObj then
@@ -1327,10 +1370,12 @@ function comptime.evaluateDirect(
     node: cst.Node,
     block: cst.Node?,
     reflections: any,
+    layouts: any,
     helpers: any
 ): string?, T.Type?, comptime.Failure?, any
     local state = newState()
     state.reflections = reflections or {}
+    state.layouts = layouts or {}
     local env, libraries = buildEnvironment(state)
     state.env, state.libraries = env, libraries
     installComptimeFunctions(state, env, helpers)
@@ -1394,6 +1439,7 @@ function comptime.evaluate(
     node: cst.Node,
     block: cst.Node?,
     reflections: any,
+    layouts: any,
     helpers: any,
     host: any?
 ): string?, T.Type?, comptime.Failure?, any
@@ -1403,12 +1449,13 @@ function comptime.evaluate(
         or nil
     if executable and not os.getenv("NUPP_COMPTIME_WORKER_CHILD") then
         local worker = require("nupp.compiler.comptime_worker") as {
-            evaluate: function(string, string, any, any, any?): (string?, any, any)
+            evaluate: function(string, string, any, any, any, any?): (string?, any, any)
         }
         local quoted, failure, envelope = worker.evaluate(
             cst.textOf(node),
             executable,
             reflections,
+            layouts,
             helpers,
             host
         )
@@ -1443,7 +1490,7 @@ function comptime.evaluate(
         return quoted, typeOf(value), nil
     end
 
-    return comptime.evaluateDirect(node, block, reflections, helpers)
+    return comptime.evaluateDirect(node, block, reflections, layouts, helpers)
 end
 
 return comptime

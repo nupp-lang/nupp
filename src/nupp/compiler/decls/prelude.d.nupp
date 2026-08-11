@@ -889,6 +889,15 @@ end
 --- Reflects a concrete type for use inside a `comptime` block.
 local reflect: function(typeName: any): TypeInfo
 
+--- Size in bytes under the build target's declared C ABI.
+local sizeof: function(typeName: any): integer
+
+--- Alignment in bytes under the build target's declared C ABI.
+local alignof: function(typeName: any): integer
+
+--- Byte offset of one field under the build target's declared C ABI.
+local offsetof: function(typeName: any, fieldName: string): integer
+
 --- Types for materialized keyed field codecs.
 record nupp.FieldCodec
     record Blueprint

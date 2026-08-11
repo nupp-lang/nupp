@@ -1,0 +1,209 @@
+--[[
+Compiler-owned C layouts for declared build targets.
+
+The runtime `layoutof` helper asks LuaJIT's FFI about the machine running the
+generated program. This module deliberately does not: it implements the subset of C
+layout nupp's reified type vocabulary can express, keyed by an explicit target triple.
+That makes a folded size a property of the build target rather than the compiler host.
+]]
+
+local record targetLayout
+    ABI: integer
+    keys: function(): {string}
+    has: function(string?): boolean
+    of: function(any, string): (any?, string?)
+end
+
+targetLayout.ABI = 1
+
+local type Scalar = {
+    size: integer,
+    alignment: integer
+}
+
+local type Model = {
+    key: string,
+    pointer: Scalar,
+    int64: Scalar,
+    number: Scalar
+}
+
+local type Field = {
+    name: string,
+    offset: integer,
+    size: integer,
+    alignment: integer
+}
+
+local function scalar(size: integer, alignment: integer?): Scalar
+    return {size = size, alignment = alignment or size}
+end
+
+-- Every currently reifiable scalar is fixed-width. The only distinctions among the
+-- supported ABIs are therefore pointer width and the 32-bit aggregate alignment of
+-- double/int64. Adding C long or vector types would require another model field rather
+-- than silently borrowing one of these.
+local LP64 = {pointer = scalar(8), int64 = scalar(8), number = scalar(8)}
+local ILP32_SYSV = {pointer = scalar(4), int64 = scalar(8, 4), number = scalar(8, 4)}
+local ILP32_MSVC = {pointer = scalar(4), int64 = scalar(8), number = scalar(8)}
+
+local MODELS: {[string]: Model} = {}
+
+local function install(keys: {string}, profile: any)
+    for _, key in ipairs(keys) do
+        MODELS[key] = {key = key, pointer = profile.pointer, int64 = profile.int64, number = profile.number,}
+    end
+end
+
+install(
+    {
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin",
+        "x86_64-pc-windows-msvc",
+        "aarch64-pc-windows-msvc",
+    },
+    LP64
+)
+install({"i686-unknown-linux-gnu"}, ILP32_SYSV)
+install({"i686-pc-windows-msvc"}, ILP32_MSVC)
+
+local ORDERED_KEYS = {
+    "aarch64-apple-darwin",
+    "aarch64-pc-windows-msvc",
+    "aarch64-unknown-linux-gnu",
+    "i686-pc-windows-msvc",
+    "i686-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+}
+
+function targetLayout.keys(): {string}
+    local out = {}
+    for index, key in ipairs(ORDERED_KEYS) do
+        out[index] = key
+    end
+
+    return out
+end
+
+function targetLayout.has(key: string?): boolean
+    return key ~= nil and MODELS[key] ~= nil
+end
+
+local function roundUp(value: integer, alignment: integer): integer
+    return math.floor((value + alignment - 1) / alignment) * alignment
+end
+
+local FIXED: {
+    [string]: Scalar
+} = {
+    boolean = scalar(1),
+    float = scalar(4),
+    integer = scalar(4),
+    int8 = scalar(1),
+    int16 = scalar(2),
+    int32 = scalar(4),
+    uint8 = scalar(1),
+    uint16 = scalar(2),
+    uint32 = scalar(4),
+}
+
+--- Computes one complete runtime layout for `t` under `key`.
+---
+--- The accepted types are exactly the runtime shapes nupp can reify into a C struct:
+--- fixed-width scalars, pointers (including nullable pointers), fixed arrays and
+--- structs composed from those. A pointer never follows its pointee.
+function targetLayout.of(t: any, key: string): any?, string?
+    local model = MODELS[key]
+    if not model then
+        return nil, "unknown layout target " .. tostring(key)
+    end
+
+    local active: {[any]: boolean} = {}
+    local layoutType: function(any): (Scalar?, string?, {Field}?, {[string]: integer}?)
+
+    layoutType = function(subject: any): Scalar?, string?, {Field}?, {[string]: integer}?
+        if not subject then
+            return nil, "the type is unresolved"
+        end
+        local fixed = FIXED[subject.tag]
+        if fixed then
+            return fixed
+        elseif subject.tag == "number" then
+            return model.number
+        elseif subject.tag == "int64" or subject.tag == "uint64" then
+            return model.int64
+        elseif subject.tag == "cstring" or subject.tag == "voidptr" or subject.tag == "ptr" then
+            return model.pointer
+        elseif subject.tag == "union" and subject.hasNil and #subject.members == 2 then
+            local other = subject.members[1].tag == "nil" and subject.members[2] or subject.members[1]
+            if other and (other.tag == "ptr" or other.tag == "cstring" or other.tag == "voidptr") then
+                return model.pointer
+            end
+        elseif subject.tag == "carray" then
+            if not subject.count or subject.count < 0 then
+                return nil, "an unsized C array has no compile-time layout"
+            end
+            local element, why = layoutType(subject.elem)
+            if not element then
+                return nil, why
+            end
+            return scalar(element.size * (subject.count as integer), element.alignment)
+        elseif subject.tag == "nominal" and subject.declKind == "struct" then
+            if active[subject] then
+                return nil, "a by-value struct cycle has no finite layout"
+            end
+            active[subject] = true
+            local fields, offsets = {}, {}
+            local cursor: integer, aggregateAlignment: integer = 0, 1
+            for _, name in ipairs(subject.fieldOrder or {}) do
+                local fieldType = subject.byname and subject.byname[name] or nil
+                local one, why = layoutType(fieldType)
+                if not one then
+                    active[subject] = nil
+                    return nil, ("field %q %s"):format(name, why or "has no layout")
+                end
+                cursor = roundUp(cursor, one.alignment)
+                fields[#fields + 1] = {name = name, offset = cursor, size = one.size, alignment = one.alignment,}
+                offsets[name] = cursor
+                cursor = cursor + one.size
+                if one.alignment > aggregateAlignment then
+                    aggregateAlignment = one.alignment
+                end
+            end
+            active[subject] = nil
+            if #fields == 0 then
+                return nil, "an empty struct has no C layout"
+            end
+            return scalar(roundUp(cursor, aggregateAlignment), aggregateAlignment), nil, fields, offsets
+        end
+
+        return nil, ("%s has no runtime layout"):format(tostring(subject.tag))
+    end
+
+    local measured, why, fields, offsets = layoutType(t)
+    if not measured then
+        return nil, why
+    end
+    fields, offsets = fields or {}, offsets or {}
+    local parts = {key, "abi=" .. targetLayout.ABI}
+    for _, field in ipairs(fields) do
+        parts[#parts + 1] = ("%s@%d:%d/%d"):format(field.name, field.offset, field.size, field.alignment)
+    end
+    parts[#parts + 1] = ("size=%d/align=%d"):format(measured.size, measured.alignment)
+
+    return {
+        target = key,
+        abi = targetLayout.ABI,
+        size = measured.size,
+        alignment = measured.alignment,
+        fields = fields,
+        offsets = offsets,
+        fingerprint = table.concat(parts, "|"),
+    }
+end
+
+return targetLayout

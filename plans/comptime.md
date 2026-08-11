@@ -62,8 +62,8 @@ the table generation that motivated it. §What folding will not absorb in
 [optimizations.md](optimizations.md) lists five such extensions; three of them —
 pure library calls, interpolation, and reads of a `const` table — are cases a
 block would simply have. The other two are not comptime's to rescue: one is
-unreachable in any phase, and the layout intrinsics are blocked identically for
-both, on §Layout intrinsics, and the model they need.
+unreachable in any phase, and the layout intrinsics required the separate model
+now described in §Layout intrinsics.
 
 ## Goals
 
@@ -72,8 +72,8 @@ both, on §Layout intrinsics, and the model they need.
 2. Expose read-only semantic type reflection: what a declaration says, which the
    checker already knows in full and which no layout model is needed to answer.
 3. Expose target-aware `sizeof`, `alignof`, and `offsetof`. Separate from goal 2
-   and dependent on a layout model nupp does not have — see §Layout intrinsics,
-   and the model they need. Reached through this feature rather than part of it.
+   and implemented on the compiler-owned model in §Layout intrinsics. Reached
+   through this feature rather than part of it.
 4. Preserve deterministic builds, the line-count invariant, incremental
    cutoff, and responsive editor tooling.
 5. Give comptime code the same type checking and diagnostics as runtime code.
@@ -398,10 +398,10 @@ corresponding runtime value. `fieldName` must be a compile-time-known string.
 The comment column is the important thing on that list, and an earlier revision
 of this plan missed it. These are two features that happen to take the same kind
 of argument. `reflect` asks what a declaration *says*, which the checker already
-knows in full. The other three ask what a value *measures* on some machine,
-which nothing in nupp currently knows at compile time. Only the second group is
-blocked, and treating them as one milestone blocked the first group on a
-prerequisite it does not have.
+knows in full. The other three ask what a value *measures* on some machine. They
+now read the explicit build target through the compiler-owned layout model.
+Treating the two groups as one milestone originally blocked reflection on a
+prerequisite it did not have.
 
 ### Semantic reflection
 
@@ -461,9 +461,10 @@ layout for the selected target. They use compiler-owned layout information,
 not ambient host `ffi.sizeof`. A request for an erased or target-unsupported
 type is a checked error.
 
-That is one sentence of specification and the largest single piece of work in
-this document. **Nupp has no compile-time layout model.** It has deliberately
-declined to build one.
+That sentence required a separate project. Nupp now owns versioned LP64, i686
+SysV, and i686 MSVC profiles for the fixed-width reifiable types its structs can
+contain. A selected build target names one through `layoutTarget`; no intrinsic
+falls back to the compiler host.
 
 `layoutof(T)` already answers what a struct's layout is — fields in declaration
 order with offsets, sizes and padding — and answers it **at run time**, through
@@ -474,8 +475,8 @@ not an unfinished version of compiler-owned layout. It is the opposite choice,
 made because nupp compiles to portable Lua source: a size folded at compile time
 is the *build host's* ABI baked into a file that may run somewhere else.
 
-So `sizeof(T)` is not a small intrinsic waiting on the evaluator. Three things
-have to exist first:
+So `sizeof(T)` was not a small intrinsic waiting on the evaluator. Three things
+had to exist first, and have landed:
 
 1. a target layout model — C ABI rules per target, owned by the compiler rather
    than asked of whatever FFI happens to be running;
@@ -487,15 +488,14 @@ have to exist first:
    §Cross-module optimization breaks incremental cutoff in
    [optimizations.md](optimizations.md) says the same thing from the other side.
 
-This plan already assumes all three: §Incremental query design keys evaluation on
-"the target triple and ABI/layout version". Naming them here is the correction —
-they were assumed rather than scheduled.
+§Incremental query design keys evaluation on the target triple and ABI/layout
+version. Keyed declaration dependencies invalidate a layout reader when a
+qualified struct field changes, while a body-only edit cuts off at its module
+interface. The manifest configuration hash separates persistent target results.
 
-So these three intrinsics are a separate project that comptime consumes, and are
-sequenced as C2b below. The scalar intrinsics also do **not** separate from the
-evaluator as a folding extension, which an earlier reading of this plan suggested
-they might: they separate from the evaluator and land on the layout model
-instead.
+These three intrinsics remain a separate project that comptime consumes. They do
+not use ambient `ffi.sizeof` or a host folding extension: checked layout facts
+travel through the isolated evaluator request from the selected target model.
 
 ## Evaluation environment
 
@@ -679,9 +679,12 @@ Reserve the NUPP24xx range for comptime:
 - `NUPP2411`: operation or API is unavailable at comptime
 - `NUPP2412`: comptime evaluation failed
 - `NUPP2413`: result is not quotable
-- `NUPP2414`: type has no layout for the selected target
-- `NUPP2415`: comptime function used as a runtime value
-- `NUPP2416`: comptime dependency cycle
+- `NUPP2414`: opaque result crossed an unsupported materialization boundary
+- `NUPP2415`: materialization relation, schema, or fingerprint failed
+- `NUPP2416`: result, blueprint, protocol, or generated output exceeded a limit
+- `NUPP2417`: PEG materialization input is invalid
+- `NUPP2418`: reflection input or reflected materializer input is invalid
+- `NUPP2419`: target layout is absent or unavailable for the requested type or field
 
 The range starts at 2410 rather than 2401 because 2401 and 2402 were already
 taken, by `carray` and `layoutof` in `check/ffi.nupp`. Reserving "the NUPP24xx
@@ -735,7 +738,7 @@ batch checking.
 
 C1, C2a, C3 and C4 are one feature: an evaluator, the reflection it reads, the
 helpers that make it reusable, and the isolation that makes it safe in an editor.
-C2b is not part of that feature. It is a separate project reached through this
+C2b was implemented as the separate target-layout project reached through this
 one — see §Layout intrinsics, and the model they need.
 
 ### C1: expression evaluation
@@ -788,8 +791,9 @@ shaped around what a comptime block finds convenient.
 
 ### C2b: layout intrinsics
 
-Blocked on a compile-time layout model, which nupp has deliberately not built.
-The first two items are that project, and nothing after them starts first.
+Landed. Build targets select `layoutTarget`; the compiler owns versioned layout
+profiles for its fixed-width reifiable C vocabulary and keeps target keys apart
+in persistent build caches.
 
 - Define a target layout model: C ABI rules the compiler owns, rather than
   answers asked of whichever FFI is running.
@@ -798,11 +802,10 @@ The first two items are that project, and nothing after them starts first.
   exposed alongside `TypeInfo` rather than inside it.
 - Test target keys and layout cache separation.
 
-Decide before starting whether `layoutof` and `sizeof` should both exist. One
-answers at run time from the running platform and one at compile time from a
-declared target, and they will disagree whenever a build is cross-compiled —
-which is the point of the second, and a bug report waiting to be filed about the
-pair. Naming that difference is cheaper than explaining it later.
+`layoutof` and `sizeof` both exist with deliberately different names and phases.
+The first answers at run time from the running platform; the second answers at
+compile time from a declared target. They can disagree in a cross-compiled build,
+which is the purpose of selecting a target rather than measuring the host.
 
 ### C3: reusable comptime functions
 
@@ -874,8 +877,8 @@ approves everything:
   until `OPT-3` folded them. `string.format` over constants is comptime-shaped
   and would also be answered by declaring the pure standard library immutable,
   which is one prelude change against an evaluator, a worker and a budget.
-- **Not the layout intrinsics.** They are the layout model, which is its own
-  project and does not need this one.
+- **Not the layout intrinsics.** They are the separately implemented layout
+  model rather than evidence for extending the general evaluator surface.
 
 Two nearby pieces of work shrink the residue further and should be checked
 before the estimate is trusted. [layout.md](layout.md) answers field names,
@@ -912,8 +915,6 @@ in C1 and C3 should keep the way clear for them:
   which is the door left open by rejecting shared references rather than
   silently duplicating them
 - Whether trusted build configuration needs an explicit file-input capability
-- Whether `layoutof` and a compile-time `sizeof` should coexist, and what a
-  cross-compiled build promises when they disagree
 - Whether user-defined derives ever earn a restricted semantic provider API
 
 None of these questions requires an AST macro system or declaration splicing.

@@ -18,7 +18,7 @@ type worker.Failure = {
 
 local record worker
     main: function({string}): integer
-    evaluate: function(string, string, any, any, any?): (string?, worker.Failure?, any)
+    evaluate: function(string, string, any, any, any, any?): (string?, worker.Failure?, any)
 end
 
 cjson.encode_empty_table_as_object(false)
@@ -146,12 +146,13 @@ function worker.main(argv: {string}): integer
     end
 
     local comptime = require("nupp.compiler.comptime") as {
-        evaluateDirect: function(any, any, any, any): (string?, any, any, any)
+        evaluateDirect: function(any, any, any, any, any): (string?, any, any, any)
     }
     local quoted, _, failure, envelope = comptime.evaluateDirect(
         node,
         node.body,
         request.reflections,
+        request.layouts,
         helpers
     )
     if failure then
@@ -176,6 +177,7 @@ function worker.evaluate(
     source: string,
     executable: string,
     reflections: any,
+    layouts: any,
     helpers: any,
     host: any?
 ): string?, worker.Failure?, any
@@ -195,6 +197,7 @@ function worker.evaluate(
     local requestText = cjson.encode({
         source = source,
         reflections = reflections or {},
+        layouts = layouts or {},
         helpers = serializedHelpers,
     })
     if #requestText > MAX_PROTOCOL_BYTES then
