@@ -124,6 +124,90 @@ same interface.
 For filesystem names rather than file contents, see
 [`nupp.io.Path`](path-uri.md#paths).
 
+## Typed scalars
+
+A reader and a writer move bytes. `newScalarReader` and `newScalarWriter` add
+the missing piece, a sized integer or float landing on those bytes without an
+`ffi.cast` at every call site.
+
+```nupp
+local writer = nupp.io.newScalarWriter()
+writer:writeUint32(1447383632 as uint32):writeFloat64(1.5)
+
+local reader = nupp.io.newScalarReader(assert(writer:buffer()))
+assert(reader:readUint32() == (1447383632 as uint32))
+assert(reader:readFloat64() == 1.5)
+assert(reader:atEnd())
+```
+
+Both read and write host-endian, the only order LuaJIT ships, so that is the
+honest default. A format fixed to one byte order casts and swaps explicitly;
+there are no LE and BE variants here until something needs them.
+
+A short read raises rather than answering a reason: a scalar either landed whole
+or the source was not what the format said, and there is no partial value to
+hand back. That is the one place this module departs from the reader and writer
+contracts above, and it is the same choice `Buffer:get` makes.
+
+`newScalarReader` takes whatever holds the bytes. A string, a `ByteView` or a
+`Buffer` is read from a copy taken there and then, so `remaining()` knows the
+count. A `Reader` is consumed as it goes, which is what lets a file or an HTTP
+body be read a field at a time; it cannot say how much is left, so `remaining()`
+answers nil and `atEnd()` is the question to ask instead.
+
+`newScalarWriter` appends to a `Buffer`, keeping what that buffer already holds,
+or writes through a `Writer`. Given nothing it starts a buffer of its own, which
+`buffer()` hands back; a writer pointed at somebody else's `Writer` answers nil
+there, since the bytes are already gone. Every write answers the writer, so
+calls chain.
+
+- `remaining()`: `integer?`, nil when the source cannot say.
+- `atEnd()`: `boolean`.
+- `skip(count)`, `readBytes(count)`: move past or take raw bytes.
+- `readUint8`…`readUint64`, `readInt8`…`readInt64`, `readFloat32`,
+  `readFloat64`.
+- `writeBytes(bytes)`, and one `write*` matching each read.
+- `buffer()`: the destination `Buffer`, or nil.
+- `flush()`, `close()`: `boolean, reason?`.
+
+## Reading a LuaJIT string buffer
+
+A `string.buffer` is a byte queue: `put` appends to the back and `get` consumes
+from the front. `newScalarReader` accepts one directly, so bytes assembled there
+are read without copying everything in it first, and the queue's own `get` stays
+usable over the same bytes.
+
+```nupp
+local buffer = require("string.buffer")
+
+local queue = buffer.new()
+queue:put("header:")
+queue:put("!")
+
+local reader = nupp.io.newScalarReader(queue)
+assert(reader:readBytes(7) == "header:")
+assert(queue:tostring() == "!")
+assert(reader:readUint8() == (33 as uint8))
+```
+
+Reading drains the queue, and `remaining()` reports what it still holds.
+`newQueueReader` is the same bridge one layer down: it answers an ordinary
+`Reader` over the queue, for `transferTo`, `readInto`, and everything else that
+contract already covers.
+
+```nupp
+local buffer = require("string.buffer")
+
+local destination = nupp.io.newBuffer()
+local queue = buffer.new()
+queue:put("payload")
+assert(nupp.io.newQueueReader(queue):transferTo(destination:newWriter()) == 7)
+assert(destination:getString() == "payload")
+```
+
+Neither takes the queue over. Nothing here frees or closes it, and one read to
+empty is an empty queue rather than a released one.
+
 ## Child processes
 
 `nupp.io.process` starts a child without exposing descriptors, platform handles,

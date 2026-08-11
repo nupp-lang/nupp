@@ -72,7 +72,6 @@ return {
             resources = {
                "src/nupp/compiler/decls/*.d.nupp",
                "src/nupp/compiler/decls/jit/*.d.nupp",
-               {source = "src/nupp/bytes.nupp", output = "nupp/compiler/nupp/bytes.nupp"},
                {source = "src/nupp/resources.nupp", output = "nupp/compiler/nupp/resources.nupp"},
                {source = "src/nupp/zone.nupp", output = "nupp/compiler/nupp/zone.nupp"},
                {source = "src/nupp/profile.nupp", output = "nupp/compiler/nupp/profile.nupp"},
@@ -103,7 +102,6 @@ return {
             resources = {
                "src/nupp/compiler/decls/*.d.nupp",
                "src/nupp/compiler/decls/jit/*.d.nupp",
-               {source = "src/nupp/bytes.nupp", output = "nupp/compiler/nupp/bytes.nupp"},
                {source = "src/nupp/resources.nupp", output = "nupp/compiler/nupp/resources.nupp"},
                {source = "src/nupp/zone.nupp", output = "nupp/compiler/nupp/zone.nupp"},
                {source = "src/nupp/profile.nupp", output = "nupp/compiler/nupp/profile.nupp"},

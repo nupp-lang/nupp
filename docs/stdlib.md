@@ -11,7 +11,8 @@ local digest = nupp.data.sha256(buffer:view())
 Its namespaces are deliberately small:
 
 - [`nupp.data`](data.md) owns JSON, UTF-8, identifiers, hashes and checksums.
-- [`nupp.io`](io.md) owns byte buffers, readers and writers.
+- [`nupp.io`](io.md) owns byte buffers, readers, writers, and typed scalar
+  reads and writes over them.
 - [`nupp.io.files`](files.md) owns filesystem metadata and directories.
 - [`nupp.io.Path` and `nupp.io.URI`](path-uri.md) model paths and resource
   names.

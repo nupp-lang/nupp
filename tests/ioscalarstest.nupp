@@ -1,0 +1,102 @@
+local buffer = require("string.buffer")
+
+local M = {}
+
+function M.roundTripsEveryCScalar(): nil
+    local writer = nupp.io.newScalarWriter()
+    writer:writeUint8(255 as uint8)
+    writer:writeInt8(-128 as int8)
+    writer:writeUint16(65535 as uint16)
+    writer:writeInt16(-32768 as int16)
+    writer:writeUint32(4294967295 as uint32)
+    writer:writeInt32(-2147483648 as int32)
+    writer:writeUint64(1234567890123 as uint64)
+    writer:writeInt64(-1234567890123 as int64)
+    writer:writeFloat32(1.5 as float)
+    writer:writeFloat64(-1234.5)
+
+    local reader = nupp.io.newScalarReader(assert(writer:buffer()))
+    assert(reader:remaining() == 42)
+    assert(reader:readUint8() == (255 as uint8))
+    assert(reader:readInt8() == (-128 as int8))
+    assert(reader:readUint16() == (65535 as uint16))
+    assert(reader:readInt16() == (-32768 as int16))
+    assert(reader:readUint32() == (4294967295 as uint32))
+    assert(reader:readInt32() == (-2147483648 as int32))
+    assert(reader:readUint64() == (1234567890123 as uint64))
+    assert(reader:readInt64() == (-1234567890123 as int64))
+    assert(reader:readFloat32() == (1.5 as float))
+    assert(reader:readFloat64() == -1234.5)
+    assert(reader:remaining() == 0)
+    assert(reader:atEnd())
+end
+
+function M.movesRawBytesAndTracksTheCursor(): nil
+    local reader = nupp.io.newScalarReader("abcdef")
+    assert(reader:readBytes(2) == "ab")
+    assert(reader:skip(2) == reader)
+    assert(reader:remaining() == 2)
+    assert(reader:readBytes(2) == "ef")
+    assert(reader:atEnd())
+end
+
+function M.appendsToABufferItWasGiven(): nil
+    local destination = nupp.io.newBuffer("head")
+    local writer = nupp.io.newScalarWriter(destination)
+    assert(writer:buffer() == destination)
+    assert(writer:writeBytes(":"):writeUint8(33 as uint8) == writer)
+    assert(destination:getString() == "head:!")
+end
+
+function M.writesThroughSomebodyElsesWriter(): nil
+    local destination = nupp.io.newBuffer()
+    local writer = nupp.io.newScalarWriter(destination:newWriter())
+    assert(writer:buffer() == nil)
+    writer:writeUint16(513 as uint16)
+    assert(writer:flush())
+    assert(destination:getString() == "\1\2")
+end
+
+function M.readsThroughAnyReader(): nil
+    local reader = nupp.io.newScalarReader(nupp.io.newStringReader("\1\2\3\4rest"))
+    assert(reader:remaining() == nil)
+    assert(reader:readUint32() == (67305985 as uint32))
+    assert(reader:readBytes(4) == "rest")
+    assert(reader:atEnd())
+end
+
+function M.readsAStringBufferInPlace(): nil
+    local queue = buffer.new()
+    queue:put("head:")
+    queue:put("!")
+
+    local reader = nupp.io.newScalarReader(queue)
+    assert(reader:remaining() == 6)
+    assert(reader:readBytes(5) == "head:")
+    assert(queue:tostring() == "!")
+    assert(reader:readUint8() == (33 as uint8))
+    assert(reader:atEnd())
+end
+
+function M.bridgesAStringBufferIntoTheReaderContract(): nil
+    local queue = buffer.new()
+    queue:put("payload")
+
+    local destination = nupp.io.newBuffer()
+    local reader = nupp.io.newQueueReader(queue)
+    assert(reader:transferTo(destination:newWriter()) == 7)
+    assert(destination:getString() == "payload")
+    assert(reader:read(8) == "")
+end
+
+function M.shortReadsRaiseBeforeConsuming(): nil
+    local reader = nupp.io.newScalarReader("x")
+    local ok, reason = pcall(function(): nil
+        reader:readUint16()
+    end)
+    assert(not ok)
+    assert(tostring(reason):find("needs 2 bytes, has 1", 1, true) ~= nil)
+    assert(reader:remaining() == 1)
+end
+
+return M

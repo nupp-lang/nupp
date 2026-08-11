@@ -1197,6 +1197,203 @@ record nupp.io
         close: function(self: Buffer): (boolean, string?)
     end
 
+    --- A byte queue that consumes from its front, which is what LuaJIT's
+    --- `string.buffer.Buffer` is. Naming the shape rather than that record keeps the
+    --- prelude free of a require, and lets anything else with the same two operations
+    --- stand in.
+    interface ByteQueue
+        metamethod __len: function(self): integer
+
+        --- Consumes bytes from the front and returns them, or all of them when given
+        --- no count.
+        --- @param self this queue
+        --- @param ... how many bytes each returned string takes
+        --- @return the consumed bytes
+        get: function(self: ByteQueue, ...: integer?): string
+    end
+
+    --- A cursor for sized integer and float reads over a byte source.
+    ---
+    --- Reads are host-endian, the only order LuaJIT ships. A format fixed to one
+    --- byte order swaps explicitly.
+    ---
+    --- Every read consumes, and a short one raises rather than answering a reason:
+    --- a scalar either landed whole or the source was not what the format said, and
+    --- there is no partial value to hand back.
+    interface ScalarReader
+        --- Reports how many bytes are left, when the source can say. A reader over a
+        --- stream cannot, and answers nil.
+        --- @param self this reader
+        --- @return the unread byte count, or nil when unknown
+        remaining: function(self: ScalarReader): integer?
+
+        --- Reports whether the source is exhausted.
+        --- @param self this reader
+        --- @return whether no bytes remain
+        atEnd: function(self: ScalarReader): boolean
+
+        --- Discards unread bytes. Raises when fewer remain.
+        --- @param self this reader
+        --- @param count how many bytes to discard
+        --- @return this reader
+        skip: function(self: ScalarReader, count: integer): ScalarReader
+
+        --- Reads raw bytes. Raises when fewer remain.
+        --- @param self this reader
+        --- @param count how many bytes to read
+        --- @return the bytes
+        readBytes: function(self: ScalarReader, count: integer): string
+
+        --- Reads one unsigned byte.
+        --- @param self this reader
+        --- @return the value
+        readUint8: function(self: ScalarReader): uint8
+
+        --- Reads one signed byte.
+        --- @param self this reader
+        --- @return the value
+        readInt8: function(self: ScalarReader): int8
+
+        --- Reads an unsigned 16-bit integer.
+        --- @param self this reader
+        --- @return the value
+        readUint16: function(self: ScalarReader): uint16
+
+        --- Reads a signed 16-bit integer.
+        --- @param self this reader
+        --- @return the value
+        readInt16: function(self: ScalarReader): int16
+
+        --- Reads an unsigned 32-bit integer.
+        --- @param self this reader
+        --- @return the value
+        readUint32: function(self: ScalarReader): uint32
+
+        --- Reads a signed 32-bit integer.
+        --- @param self this reader
+        --- @return the value
+        readInt32: function(self: ScalarReader): int32
+
+        --- Reads an unsigned 64-bit integer.
+        --- @param self this reader
+        --- @return the value
+        readUint64: function(self: ScalarReader): uint64
+
+        --- Reads a signed 64-bit integer.
+        --- @param self this reader
+        --- @return the value
+        readInt64: function(self: ScalarReader): int64
+
+        --- Reads a 32-bit float.
+        --- @param self this reader
+        --- @return the value
+        readFloat32: function(self: ScalarReader): float
+
+        --- Reads a 64-bit float.
+        --- @param self this reader
+        --- @return the value
+        readFloat64: function(self: ScalarReader): number
+
+        --- Closes this reader, and the reader it was opened over. Repeated calls are
+        --- safe.
+        --- @param self this reader
+        --- @return whether the close succeeded
+        --- @return a failure reason, when unsuccessful
+        close: function(self: ScalarReader): (boolean, string?)
+    end
+
+    --- A cursor for sized integer and float writes, appending to a destination.
+    ---
+    --- Writes are host-endian, matching [`ScalarReader`](#nupp.io.ScalarReader), and
+    --- a destination that refuses one raises for the same reason a short read does.
+    --- Every write answers the writer, so calls chain.
+    interface ScalarWriter
+        --- Appends bytes unchanged.
+        --- @param self this writer
+        --- @param bytes the bytes to append
+        --- @return this writer
+        writeBytes: function(self: ScalarWriter, bytes: string): ScalarWriter
+
+        --- Writes one unsigned byte.
+        --- @param self this writer
+        --- @param value the value to write
+        --- @return this writer
+        writeUint8: function(self: ScalarWriter, value: uint8): ScalarWriter
+
+        --- Writes one signed byte.
+        --- @param self this writer
+        --- @param value the value to write
+        --- @return this writer
+        writeInt8: function(self: ScalarWriter, value: int8): ScalarWriter
+
+        --- Writes an unsigned 16-bit integer.
+        --- @param self this writer
+        --- @param value the value to write
+        --- @return this writer
+        writeUint16: function(self: ScalarWriter, value: uint16): ScalarWriter
+
+        --- Writes a signed 16-bit integer.
+        --- @param self this writer
+        --- @param value the value to write
+        --- @return this writer
+        writeInt16: function(self: ScalarWriter, value: int16): ScalarWriter
+
+        --- Writes an unsigned 32-bit integer.
+        --- @param self this writer
+        --- @param value the value to write
+        --- @return this writer
+        writeUint32: function(self: ScalarWriter, value: uint32): ScalarWriter
+
+        --- Writes a signed 32-bit integer.
+        --- @param self this writer
+        --- @param value the value to write
+        --- @return this writer
+        writeInt32: function(self: ScalarWriter, value: int32): ScalarWriter
+
+        --- Writes an unsigned 64-bit integer.
+        --- @param self this writer
+        --- @param value the value to write
+        --- @return this writer
+        writeUint64: function(self: ScalarWriter, value: uint64): ScalarWriter
+
+        --- Writes a signed 64-bit integer.
+        --- @param self this writer
+        --- @param value the value to write
+        --- @return this writer
+        writeInt64: function(self: ScalarWriter, value: int64): ScalarWriter
+
+        --- Writes a 32-bit float.
+        --- @param self this writer
+        --- @param value the value to write
+        --- @return this writer
+        writeFloat32: function(self: ScalarWriter, value: float): ScalarWriter
+
+        --- Writes a 64-bit float.
+        --- @param self this writer
+        --- @param value the value to write
+        --- @return this writer
+        writeFloat64: function(self: ScalarWriter, value: number): ScalarWriter
+
+        --- The buffer being appended to, when the destination is one. A writer given
+        --- somebody else's writer answers nil, since the bytes are already gone.
+        --- @param self this writer
+        --- @return the destination buffer, or nil
+        buffer: function(self: ScalarWriter): Buffer?
+
+        --- Flushes the destination.
+        --- @param self this writer
+        --- @return whether the flush succeeded
+        --- @return a failure reason, when unsuccessful
+        flush: function(self: ScalarWriter): (boolean, string?)
+
+        --- Closes this writer, and the writer it was opened over. Repeated calls are
+        --- safe.
+        --- @param self this writer
+        --- @return whether the close succeeded
+        --- @return a failure reason, when unsuccessful
+        close: function(self: ScalarWriter): (boolean, string?)
+    end
+
     --- Filesystem metadata and directory contents.
     ---
     --- Every operation here answers before a transfer could have started: it reads a
@@ -1875,6 +2072,34 @@ record nupp.io
     --- @param text the bytes to read
     --- @return the new reader
     newStringReader: function(text: string): Reader
+
+    --- Creates a forward-only reader that consumes a byte queue, which is how a
+    --- LuaJIT `string.buffer` joins this layer without a copy of everything in it.
+    --- Reading drains the queue, so the queue's own `get` may be interleaved.
+    --- @param source the queue to consume
+    --- @return the new reader
+    newQueueReader: function(source: ByteQueue): Reader
+
+    --- Creates a cursor for sized integer and float reads.
+    ---
+    --- A string, snapshot or buffer is read from a copy of its bytes taken here, and
+    --- reports its `remaining` count. A reader or a queue is consumed in place: the
+    --- reader answers no count, the queue answers what it still holds.
+    ---
+    --- @param source the bytes, snapshot, buffer, reader or queue to read
+    --- @return the new reader
+    newScalarReader: function(source: string | ByteView | Buffer | Reader | ByteQueue): ScalarReader
+
+    --- Creates a cursor for sized integer and float writes.
+    ---
+    --- A buffer is appended to, keeping what it already holds. A writer receives the
+    --- bytes as they are written. Omitting the destination starts a fresh buffer,
+    --- which `ScalarWriter:buffer` hands back.
+    ---
+    --- @param destination the buffer or writer to append to, or nothing for a fresh
+    ---     buffer
+    --- @return the new writer
+    newScalarWriter: function(destination: (Buffer | Writer)?): ScalarWriter
 
     --- Filesystem metadata, directory contents, and the operations that move
     --- names rather than bytes.
