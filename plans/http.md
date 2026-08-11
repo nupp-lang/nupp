@@ -126,9 +126,9 @@ The module is explicit because requiring it is what selects a large native featu
 local http = require("nupp.io.http")
 
 do
-    local client = assert(http.newClient({userAgent = "example/1.0"}))
+    local client = assert(http.newClient(new http.Options {userAgent = "example/1.0"}))
     local endpoint = assert(nupp.io.URI.new("https://example.com/manifest.json"))
-    local response = assert(client:send({url = endpoint}))
+    local response = assert(client:send(new http.Request {url = endpoint}))
 
     print(response.status, response:ok())
     local destination = nupp.io.newBuffer()
@@ -136,13 +136,16 @@ do
 end
 ```
 
-The records below describe the intended surface. The implementation is type-checked
-against these obligations rather than treating them as documentation wishes:
-`newClient` produces an owned client, `send` produces an owned response, the response
-owns its body, and dropping either cancels and releases what remains.
+The records below describe the intended surface. Its resource obligations are
+type-checked rather than documentation wishes: `newClient` produces an owned client,
+`send` produces an owned response, the response owns its body, and dropping either
+cancels and releases what remains. The generic-reader lifetime is ordinary Lua
+reference semantics and is called out separately below.
 
 ```nupp
 local record http
+    type Version = "1.0" | "1.1" | "2"
+
     record Options
         userAgent: string?
         headers: {string: string}?
@@ -191,6 +194,7 @@ local record http
 
     record Response
         status: integer
+        version: Version
         url: nupp.URI
         body: owned<Body>
 
@@ -228,17 +232,21 @@ end
 ```
 
 `ReaderBody` and `FileBody` make metadata explicit without widening every `Reader` with
-HTTP concerns. A reader is borrowed and consumed for the duration of `send`; HTTP does
-not close a caller-owned reader. The suspension cancellation that abandons the upload
-unwinds any wait inside that reader. A file body is opened and closed entirely on the
-Tokio side.
+HTTP concerns. The `reader` helper does not move or close its argument: `nupp.Reader`
+carries no cleanup obligation, and the stored field is an ordinary strong Lua
+reference rather than a checker-enforced `borrowed<T>`. `send` does not return until its
+own upload branch has stopped using that reference, but the caller remains responsible
+for the underlying reader's lifetime. The suspension cancellation that abandons the
+upload unwinds any wait inside that reader. A file body is opened and closed entirely
+on the Tokio side.
 
-The response header representation is lazy. `status` and `url` are available when
-`send` returns. `header`, `getAll` and `headers` decode the provider's packed block on
-first use and retain the Nupp tables afterwards. A caller interested only in status and
-body does not allocate a header table. Repeated `set-cookie` is never comma-joined;
-`headers()` keeps its first value while `getAll` returns every value. Other repeated
-fields join with `", "` in the map and remain individually available through `getAll`.
+The response header representation is lazy. `status`, negotiated `version` and `url`
+are available when `send` returns. `header`, `getAll` and `headers` decode the provider's
+packed block on first use and retain the Nupp tables afterwards. A caller interested
+only in status and body does not allocate a header table. Repeated `set-cookie` is never
+comma-joined; `headers()` keeps its first value while `getAll` returns every value.
+Other repeated fields join with `", "` in the map and remain individually available
+through `getAll`.
 
 If no redirect changed the effective URL, the response reuses the request's immutable
 `URI`. Only a changed URL is parsed into a new value.
@@ -247,7 +255,10 @@ Invalid options, methods, header names, header values, schemes and inconsistent 
 lengths raise at the call site before work starts. DNS, connection, TLS, timeout,
 compression and transfer failures answer `nil, reason` from `send`; an HTTP 404 is a
 successful response whose `ok()` is false. Body failures answer through the ordinary
-`Reader` result shapes.
+`Reader` result shapes. Reason strings and diagnostics never contain
+`proxyCredentials`, URL user information, `Authorization` or `Proxy-Authorization`
+values. The native provider accepts credentials in separately length-delimited fields
+and never formats the request descriptor on an error path.
 
 ## Fast paths
 
@@ -278,13 +289,32 @@ A request using an existing client and no generic reader takes this path:
 ```
 
 There is no task or `suspension.all` allocation for bodyless, string, byte-view, buffer
-or file requests. A request attempts `pollHeaders` immediately after submission and
-again while subscribing, so a completion already present takes suspension's ready path.
+or file requests. A request attempts `nuppHttpTransferPollHeaders` immediately after
+submission and again while subscribing, so a completion already present takes
+suspension's ready path.
 
 The provider builds the secure Reqwest client once in `newClient`. The insecure client
 is built only if `insecureHosts` is non-empty; an ordinary client does not pay for a
 second pool. Client options and default headers are copied once. Per-request headers are
 validated and packed once at submission.
+
+`insecureHosts` is an exact-host allowlist, never a suffix or wildcard match. Each entry
+must be one DNS name or IP literal with no scheme, user information, port, path or
+wildcard. Nupp parses it through the same URL host parser used for requests: DNS names
+are UTS-46/IDNA ASCII, lowercased and stripped of one terminal dot; IP literals compare
+by their parsed address. Because an entry cannot carry a port, it applies to every port
+of that exact canonical host. Duplicate canonical entries are harmless.
+
+Routing is decided again for every redirect hop. When `insecureHosts` is non-empty, the
+provider disables Reqwest's automatic redirect handling and runs the bounded redirect
+loop itself so each target selects the secure or insecure client independently. A hop
+from an insecure host to any nonmatching host therefore returns to certificate
+verification, and a secure-to-insecure hop opts out only for the matching destination.
+Cross-origin redirects strip `Authorization`, `Proxy-Authorization`, `Cookie` and an
+explicit `Host`; 301/302/303 versus 307/308 method and body rules match Reqwest's normal
+policy. A redirect that requires replaying a non-replayable `ReaderBody` fails instead
+of sending a partial or different body. The whole chain shares the original redirect
+count and request deadline.
 
 ### Inline byte uploads
 
@@ -325,13 +355,18 @@ They run through Nupp's suspension driver, not through a private HTTP scheduler.
 reader fails, branch 1 cancels the transfer before raising, which wakes branch 2. If the
 server answers early or the transfer fails, branch 2 closes the native upload receiver,
 which wakes branch 1. Both branches unwind before `send` returns or raises, so no helper
-coroutine outlives the call.
+coroutine created by that task outlives its `send` call.
 
-The generic path reads at most 512 KiB into one buffer retained by the transfer. Offering
-it to native storage has three answers: accepted, backpressure, or closed. Accepted
-bytes are copied once into Rust-owned `Bytes`; backpressure parks without reading or
-allocating another chunk; closed abandons the reader branch. An explicit length is
-checked against both a caller-supplied `Content-Length` and the total actually read.
+The generic path reads at most 512 KiB into one buffer retained by the transfer. Its
+native upload queue is limited by one MiB of byte credits, not by two channel slots, so
+a reader returning short chunks can still use the window. Offering bytes has three
+answers: accepted, backpressure, or closed. Accepted bytes are copied once into
+Rust-owned storage; backpressure parks without reading or allocating another chunk;
+closed abandons the reader branch. Offers below eight KiB copy directly into one
+64-KiB coalescing page rather than creating one queue node apiece. The page flushes when
+full, when Reqwest asks for data, or at EOF; opening it reserves its whole capacity from
+the upload byte credits. An explicit length is checked against both a caller-supplied
+`Content-Length` and the total actually read.
 
 ### Response headers
 
@@ -350,14 +385,22 @@ wire syntax Reqwest already parsed.
 
 ### Response bodies
 
-Each transfer owns a bounded body receiver independent of the client's header-ready
-queue and every other transfer. The initial window remains one MiB until benchmarks
-justify another value. Backpressure therefore bounds a forgotten response without
-blocking a second request's headers.
+Each transfer owns a byte-accounted body deque independent of the client's header-ready
+queue and every other transfer. The producer acquires byte credits before retaining
+decoded response data and the consumer returns them from `nuppHttpBodyConsume`; the
+initial credit limit is one MiB until benchmarks justify another value. Backpressure
+therefore bounds a forgotten response without blocking a second request's headers.
 
-Reqwest chunks have no fixed size. The producer splits a large `Bytes` value into
-at-most-64-KiB `Bytes` views before queueing it, without copying the allocation, so the
-one-MiB window is a byte bound rather than sixteen arbitrarily large network chunks.
+Reqwest chunks have no fixed size, so neither channel slots nor chunk count define this
+window. A chunk larger than 64 KiB is split into zero-copy `Bytes` views. Fragments below
+eight KiB copy into a 64-KiB coalescing page; it flushes when full, when a consumer is
+waiting, or at EOF or failure. A waiter-triggered flush clears that one-shot waiter, so
+later fragments coalesce normally until the consumer parks again. Larger fragments
+remain zero-copy. Byte credits include the in-progress coalescing page at its full
+64-KiB capacity, not merely its written length, and the eight-KiB direct threshold
+bounds queued metadata to at most 128 retained segments plus that page at the initial
+window. Thus a one-KiB trickle can fill one MiB rather than stalling after sixteen KiB,
+while ordinary network chunks keep the direct `Bytes` path.
 
 The native body handle retains one current `Bytes` value and an offset:
 
@@ -465,12 +508,33 @@ made runnable by the next nonblocking source poll. The built-in driver immediate
 pumps that ready source, without sleeping. This makes the byte budget real without
 putting an asynchronous operation in the public API.
 
+If unread buffered bytes remain when the body is re-armed, native queues a `BODY` record
+even when no new network byte arrived. Draining that record resumes the fairness park
+and the source's `poll` return includes that resumption as one unit of progress. Tecs
+therefore runs another scheduler round instead of mistaking a deliberate fairness yield
+for an idle source. Only a re-arm whose body is actually empty waits for later network
+activity and permits a zero-progress poll.
+
 ### ABI sketch
 
 Names and exact C integer widths are fixed with the implementation and checked on every
 platform. The ownership and work division are the important part:
 
 ```
+typedef enum {
+    NUPP_HTTP_HEAD_PENDING = 0,
+    NUPP_HTTP_HEAD_READY = 1,
+    NUPP_HTTP_HEAD_FAILED = 2
+} NuppHttpHeadState;
+
+typedef enum {
+    NUPP_HTTP_BODY_DATA = 1,
+    NUPP_HTTP_BODY_PENDING = 2,
+    NUPP_HTTP_BODY_EOF = 3,
+    NUPP_HTTP_BODY_FAILED = 4,
+    NUPP_HTTP_BODY_CLOSED = 5
+} NuppHttpBodyState;
+
 NuppHttpClient *nuppHttpClientCreate(const NuppHttpClientOptions *);
 void nuppHttpClientDestroy(NuppHttpClient *);
 
@@ -483,13 +547,17 @@ void nuppHttpTransferDestroy(NuppHttpTransfer *);
 int nuppHttpTransferOffer(
     NuppHttpTransfer *, const uint8_t *, size_t, bool finished
 );
-int nuppHttpTransferHeaders(
+NuppHttpHeadState nuppHttpTransferPollHeaders(
     NuppHttpTransfer *, NuppHttpResponseHead *
 );
+const char *nuppHttpTransferError(const NuppHttpTransfer *);
 
 NuppHttpBody *nuppHttpTransferTakeBody(NuppHttpTransfer *);
-int nuppHttpBodyPeek(NuppHttpBody *, const uint8_t **, size_t *);
+bool nuppHttpBodyPeek(
+    NuppHttpBody *, const uint8_t **, size_t *, NuppHttpBodyState *
+);
 bool nuppHttpBodyConsume(NuppHttpBody *, size_t);
+const char *nuppHttpBodyError(const NuppHttpBody *);
 void nuppHttpBodyDestroy(NuppHttpBody *);
 
 size_t nuppHttpClientPoll(
@@ -501,6 +569,24 @@ size_t nuppHttpClientWait(
 );
 void nuppHttpReadyRelease(const NuppHttpTransfer *);
 ```
+
+`nuppHttpTransferPollHeaders` returns `PENDING`, `READY` or `FAILED`; only `READY`
+initializes the response head, and `FAILED` exposes a transfer-owned reason through
+`nuppHttpTransferError`. `nuppHttpBodyPeek` reports boundary misuse through its boolean
+return and always initializes `NuppHttpBodyState` on success:
+
+```
+ DATA      pointer/count is a nonempty borrowed range
+ PENDING   pointer is null and count is zero; the reader suspends
+ EOF       pointer is null and count is zero; read returns "" or readInto returns zero
+ FAILED    pointer is null and count is zero; read returns nil and the body error
+ CLOSED    pointer is null and count is zero; read returns nil and "the body is closed"
+```
+
+The pointer stays valid only until the next consume or destroy. `consume` accepts at
+most the preceding `DATA` count and returns those byte credits to the body queue. Error
+text belongs to the handle and remains valid until its next state-changing call or
+destruction. This state is why a zero-count peek cannot stand in for EOF.
 
 `Poll` never sleeps. `Wait` uses the activity generation and condvar so a CLI consumes no
 CPU while the network is quiet. Neither function enters Lua. Nupp reads settled state
@@ -520,17 +606,35 @@ HTTP needs one general suspension extension. A readiness source carries two oper
 ```
 
 `Context:source` and the process-wide `suspension.source` accept the optional `wait`
-alongside `poll`. The built-in driver polls all sources, and when a pass makes no
-progress it round-robins across waitable sources with a bounded deadline before polling
-all of them again. `suspension.poll`, which is what Tecs calls, invokes only `poll`.
-There is no route from a handler-owned source pass to `wait`.
+after the existing name, priority and `poll`. `Context:uses(source)` associates an
+already-shared source with the current park without taking ownership; HTTP uses it for
+the client source whose reference count spans several subscription contexts.
+
+The built-in driver polls every source in ascending priority order first. If the pass
+makes no progress, it invokes exactly one waitable source for
+`min(BLOCKING_WAIT_SLICE_MS, operation time remaining)`, with
+`BLOCKING_WAIT_SLICE_MS = 1` initially, and then polls every source again. It never waits
+through the whole source list before repolling. A source associated with the current
+park through `source` or `uses` is chosen before an unrelated source, so the ordinary
+blocking HTTP request waits directly on its own activity generation and pays no foreign
+source timeout. Among several associated candidates, and among the global fallback
+candidates, ascending priority chooses the initial candidate and a cursor advances
+after every wait; priority therefore controls first service without starving a lower
+priority source. An unrelated completion is delayed by at most one one-millisecond
+slice, not by the number of registered sources.
+
+Every `wait` may return early on activity and reports the resumptions it caused. A
+change to the one-millisecond slice is part of the small-request performance matrix,
+not an unreviewed tuning constant. `suspension.poll`, which is what Tecs calls, invokes
+only `poll`; there is no route from a handler-owned source pass to `wait`.
 
 Keeping the two operations on one source also fixes the nested concurrency case. A
 generic upload branch sees the suspension driver's internal handler, but the driver may
 itself be using the built-in blocking path. Choosing a sleeping or nonblocking callback
 from `suspension.handled()` inside the branch would misclassify that case and spin. With
-both operations registered, the outer driver makes the choice. Files and processes can
-adopt the same shape after HTTP proves it.
+both operations registered, the outer driver makes the choice. Files and processes
+adopt the same shape in H0, before HTTP exposes a generic reader that may compose either
+one.
 
 Every unresolved send, upload-backpressure wait and response-body read performs
 `suspension.suspend`. Its subscription:
@@ -552,6 +656,11 @@ clients before releasing its handler, so no shared source escapes the handled ex
 An unread body with no waiter needs no Lua pump: Tokio fills its bounded queue and stops
 on backpressure.
 
+HTTP sources use priority 20, the standard-library I/O priority, and the diagnostic name
+`nupp-http`; source identity, not that repeated name, distinguishes clients. The
+subscription marks its client source with `Context:uses`, so priority sorting does not
+put an unrelated source in front of the direct blocking wait.
+
 Cancellation has one direction:
 
 ```
@@ -572,7 +681,11 @@ releases the client's ownership of its Reqwest pools. It is non-suspending: help
 branches scheduled in other tasks unwind when their host next drains runnable work,
 while their retained transfer state keeps the cancellation reason valid. The enclosing
 task scope or suspension installation proves those branches have unwound before host
-shutdown continues. Repeated close is safe.
+shutdown continues. It is cancellation initiation, not a cross-task join: closing a
+client from task A does not entitle task B's caller to close or reuse a `ReaderBody`
+source until task B's `send` has settled or its scope has been drained. The branch keeps
+an ordinary strong reference in the meantime, but the underlying reader may have its
+own external lifetime. Repeated close is safe.
 
 ## Tecs and the SDL loop
 
@@ -633,6 +746,11 @@ streaming: a task may consume a full body window, let Tokio refill it, and becom
 again without waiting for the next rendered frame. Both the readiness batch and Tecs's
 existing maximum scheduler rounds bound the work. A zero-progress poll ends the extra
 drain immediately; the SDL thread never spins waiting for network activity.
+
+Here progress means that a source resumed or canceled at least one waiter, including a
+buffered-body fairness re-arm; it does not require fresh socket bytes. Zero means no
+continuation became runnable. That definition is shared by `suspension.poll` and Tecs's
+scheduler loop.
 
 The world-update latch remains unchanged. If a system parks in `Client:send` or
 `Body:readInto`, later systems do not overtake it, events arriving from SDL remain in the
@@ -727,10 +845,13 @@ not accidental constants:
  ───────────────────────────────  ─────────────────────────────
  admitted transfers               256 per client by default
  control/readiness ring           one slot/admitted transfer, one queued record each
- response chunks                  16 x 64 KiB = 1 MiB per body
- generic upload chunks            2 x 512 KiB = 1 MiB per upload
+ response body bytes              1 MiB per body
+ response segment metadata        at most 128 queued segments + one coalescing page
+ generic upload bytes             1 MiB per upload
+ generic upload offer             at most 512 KiB per Reader call
  response headers                 256 KiB per response
- nonblocking poll batch           256 records / 16 MiB visible progress
+ nonblocking poll batch           256 ready records
+ body-copy task turn              16 MiB per resumption
  Tecs same-iteration drain        existing scheduler round ceiling
 ```
 
@@ -754,10 +875,26 @@ because six was a reasonable HTTP/1.1 per-host socket count. The implementation 
 separate maximum in-flight requests from Reqwest's idle-per-host pool setting while
 preserving compatibility aliases for Tecs.
 
-Timeout is one deadline measured from submission through permit acquisition and body
-completion. Connect timeout covers establishment. Stall timeout covers a response body
-that makes no progress. Waiting behind a connection permit consumes the request
-deadline rather than receiving a new duration once admitted.
+For `timeoutMs`, `stallTimeoutMs` and `maxBytes`, a non-nil request value overrides the
+client value and nil inherits it. `timeoutMs` must be positive. Zero disables
+`stallTimeoutMs`; zero makes `maxBytes` unlimited. Request timeout is one deadline
+measured from the call, through admission and connection permits, every redirect and
+body completion. A response returned at headers may therefore report that deadline
+later through its body. Connect timeout covers each establishment attempt but never
+extends the request deadline. Waiting behind either permit consumes the same deadline.
+
+`maxBytes` counts decoded response-body bytes exposed to the caller, after gzip or
+deflate when `compressed` is true. The decoder checks the cumulative count before a
+chunk enters the body deque, so a compressed expansion cannot exceed the limit by one
+queue window. Encoded `Content-Length` is not trusted as a decoded-size bound; it is an
+early rejection only when no content decoding changes the length. With `compressed`
+false, Reqwest does no automatic content decoding and the limit counts the entity bytes
+it delivers after transfer framing. The one-MiB body window still bounds memory when
+`maxBytes` is unlimited.
+
+Stall timeout measures lack of decoded response progress. Bytes accepted into the body
+deque reset it; a full deque does not, so a caller that abandons a body without closing
+it eventually times out rather than retaining a connection forever.
 
 ## Performance contract
 
@@ -820,8 +957,9 @@ Downloads:
 
 Payloads are 64 KiB, 4 MiB and 256 MiB. The 256 MiB run proves boundedness and sustained
 behavior rather than fitting a whole transfer in caches. Each result reports MiB/s,
-p50/p05 throughput, p50/p95 completion latency, maximum resident growth and bytes held
-per active transfer.
+p50 throughput, p05 low-tail throughput, p50/p95 completion latency, maximum resident
+growth and bytes held per active transfer. The p05 is deliberate: low throughput is the
+bad tail, unlike high latency.
 
 Canonical buffer and file paths must reach at least 90% of the direct Rust provider's
 sustained throughput and meet or beat Tecs. Generic reader/writer paths must reach at
@@ -834,6 +972,8 @@ stalled body's cadence.
 - response readiness immediately before an SDL iteration resumes in that iteration;
 - a response body larger than one queue window drains through repeated nonblocking
   scheduler rounds rather than one window per frame;
+- a buffered-body fairness re-arm reports progress and causes the next scheduler round
+  without requiring new network bytes;
 - a zero-progress source poll returns control without another scheduler round;
 - frame work remains bounded by token, byte and scheduler-round limits;
 - cancellation during send, upload backpressure and body read unwinds in the same task;
@@ -852,15 +992,18 @@ Rust unit and loopback tests cover:
 
 - option, method, URL and header validation at the ABI;
 - connection and per-host permits;
-- proxy modes and TLS provider installation;
-- redirect and effective-URL behavior;
-- timeout, stall timeout and body limits;
-- upload backpressure and wake deduplication;
-- response queue independence;
+- proxy modes, credential redaction and TLS provider installation;
+- exact canonical insecure-host matching and secure/insecure routing at every redirect;
+- redirect and effective-URL behavior, including non-replayable bodies;
+- request-over-client limit overrides, decoded byte limits and compressed expansion;
+- timeout and stall timeout behavior across admission, redirects and body reads;
+- byte-accounted upload backpressure and short-offer coalescing;
+- response byte credits, one-KiB trickle coalescing and queue independence;
 - token fairness and poll budgets;
+- buffered fairness re-arm progress without new socket data;
 - handle destruction, cancellation and panic settlement;
 - packed repeated headers;
-- partial body peek/consume;
+- HTTP version reporting and every partial body peek/consume state;
 - runtime behavior on Windows, macOS and Linux.
 
 Nupp tests use an injected private backend, following the process state-machine tests,
@@ -891,8 +1034,11 @@ The design lands in measured slices, but every slice preserves the final boundar
 - Port the Tecs loopback benchmark into a host-independent Nupp benchmark.
 - Add the small-request and SDL-host matrices before the provider changes.
 - Capture direct Rust and Tecs baselines.
-- Add optional blocking `wait` to readiness sources; prove host `poll` never invokes it
-  and nested concurrent operations block rather than spin outside a host.
+- Add optional blocking `wait` and non-owning `Context:uses` to readiness sources. Fix
+  the initial blocking slice at one millisecond; prove preferred-source and priority
+  ordering, round-robin fairness, that host `poll` never invokes `wait`, and that nested
+  concurrent operations block rather than spin outside a host. Migrate file and process
+  sources to the two-operation shape in the same slice.
 - Give compiler-owned providers a checked private borrow/write/commit capability for
   canonical buffers; file and HTTP use the same mechanism.
 
@@ -901,6 +1047,8 @@ The design lands in measured slices, but every slice preserves the final boundar
 - Add the Cargo feature and Reqwest/Tokio provider.
 - Implement opaque client/transfer/body handles, ready-token deduplication and packed
   headers.
+- Implement byte-credit body queues, bounded segment metadata and small-chunk
+  coalescing before calling the response window complete.
 - Implement bodyless and inline string/byte-view/buffer requests, lazy response headers
   and streaming response reads.
 - Pass the small-request gates before adding another body source.
