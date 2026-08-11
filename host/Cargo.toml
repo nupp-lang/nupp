@@ -23,8 +23,11 @@ default = []
 cjson = []
 lua-utf8 = []
 workers = ["dep:libc"]
+native-files = ["dep:nupp-native", "nupp-native/files"]
+native-process = ["dep:nupp-native", "nupp-native/process"]
 
 [dependencies]
+nupp-native = { path = "../runtime/native", optional = true }
 sha2 = { version = "0.10", default-features = false }
 libc = { version = "0.2", optional = true }
 
