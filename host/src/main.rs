@@ -31,10 +31,10 @@ fn main() {
 }
 
 fn run(arguments: &[String]) -> c_int {
-    // Referencing the provider makes Cargo link its rlib. build.rs keeps and
-    // exports the selected C ABI so LuaJIT can resolve it through ffi.C.
+    // Give release LTO real references to the selected provider entry points.
+    // build.rs exports those retained symbols so LuaJIT resolves them via ffi.C.
     #[cfg(any(feature = "native-files", feature = "native-process"))]
-    let _linked_native_provider = nupp_native::nuppNativeError();
+    nupp_native::retain_c_abi_exports();
 
     let exe = match std::env::current_exe() {
         Ok(path) => path,
