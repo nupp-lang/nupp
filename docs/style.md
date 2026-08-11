@@ -23,15 +23,16 @@ Every page opens the same way.
 4. **Everything else**, in layers.
 
 ```markdown
-# Explicit resource scopes
+# Owned resources
 
 A file, a socket, a C allocation, or any other value produced by an `@owned`
 function carries a cleanup obligation that the checker will not let you drop.
-`with` is the construct that discharges it for you:
+An ordinary local discharges it at its scope boundary:
 
 ```nupp
-with file = files.open("input.txt") do
-    print(file:read("*a"))
+local function slurp(path: string): string
+    local file = files.open(path)
+    return file:read("*a")
 end
 ```
 ```
@@ -176,8 +177,8 @@ Link generously. A page is a node, not a document.
 - Deep-link to the heading that answers the question, not the page top:
   `[rock dependencies](build.md#rock-dependencies)`.
 - One page owns each concept; the rest link to it and state only what they
-  need. `with.md` states what `with` does with a value and links `ownership.md`
-  for the model.
+  need. `start/ownership.md` states the annotations a caller writes and links
+  `ownership.md` for the model.
 - Say what is on the other end, as in `See [ownership.md](ownership.md) for
   the complete contract reference`. Never a bare "see here" or a naked URL.
 - Diagnostic codes link to the reference anchor the compiler already emits, so
@@ -244,7 +245,7 @@ the guarantee.
  Write                                    Not
  ───────────────────────────────────────  ──────────────────────────────────
  The checker reports NUPP2112.            You may get an error.
- `with` releases the resource on error.   `with` will try to release it.
+ A scope boundary releases it.            It should get released.        
  A struct lowers to FFI cdata.            Structs are basically C structs.
  This is a compile error.                 Unfortunately this won't work.
 ```
@@ -339,7 +340,7 @@ local function openSession(id: uint64): Session
   period is fine when the items form one sentence, as in the ownership
   guarantees list.
 - Relative links between pages, with the `.md` extension, as
-  [with.md](with.md) does.
+  [ownership.md](ownership.md) does.
 
 ## Checklist
 

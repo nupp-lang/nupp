@@ -17,6 +17,32 @@ it can. For C declarations and other bodyless interfaces, annotations state
 facts that cannot be recovered from a header. `unsafe do` is the explicit
 escape hatch for an address or invariant that the checker cannot prove.
 
+```nupp
+local m = {}
+
+local function closeFile(file: LuaFile)
+    file:close()
+end
+
+@owned(closeFile)
+function m.open(path: string): LuaFile
+    local file = io.open(path, "r")
+    if not file then error("cannot open " .. path) end
+    return file
+end
+
+function m.readAll(path: string): string
+    local file = m.open(path)
+    return file:read("*a")
+end
+
+return m
+```
+
+`@owned` says the result carries a cleanup obligation, and `readAll` discharges
+it by letting the local reach its scope boundary. Dropping that obligation
+instead is a compile error rather than a leak.
+
 ## Guarantees
 
 Plain LuaJIT and FFI provide no static distinction among a fresh allocation, a
@@ -61,8 +87,8 @@ occasional use-after-free.
   `p`.
 - `scoped callback: function(...)`: the callback may capture borrows because the
   callee proves it cannot escape.
-- `field: View borrows (source)`: a nominal field is tied to its declared sibling
-  root.
+- `field: View borrows (source)`: a nominal field is tied to its declared
+  sibling root.
 - `owned<T>`: a value carrying one affine discharge obligation.
 - `borrowed<T>`: a non-escaping value tied to another live binding.
 - `pinned<T>`: an affine pointer plus a strong Lua anchor for C retention.
@@ -887,3 +913,21 @@ raw memory operation inside one. The report is an inventory of the trusted
 surface, not a claim that the foreign implementation was verified.
 Add `--regions` to include deterministic automatic-cleanup region identities,
 activation and cleanup order, and their protected lowering class.
+
+## Diagnostics
+
+- **NUPP2601**: a resource is used after it was moved, or discharged twice.
+- **NUPP2602**: a value is dropped whose static type records the obligation
+  without recording how to discharge it, such as an `owned<T>` field or a
+  `takes` parameter.
+- **NUPP2603**: a borrow outlives what it borrows from, by escaping into a
+  destination that may retain it or across a suspension point.
+- **NUPP2604**: a raw pointer is used where the checker cannot prove the
+  address is valid. `unsafe do` is where that proof stops.
+
+## Next
+
+- [Ownership](start/ownership.md): the working subset, with the annotations a
+  caller actually writes.
+- [Calling C safely](c-interop.md): what these contracts mean at the FFI
+  boundary they were built for.
