@@ -14,6 +14,7 @@ const toCmPos = (nuppOffset) => nuppOffset - 1;
 const toNuppOffset = (cmPos) => cmPos + 1;
 
 const FILENAME = "playground.nupp";
+const isEmbed = document.body.classList.contains("is-embed");
 
 // Everything below tolerates a page that only has #source-editor: the embed
 // page (embed.html) is just the editor, with none of the panel/tab/footer
@@ -25,7 +26,6 @@ const checkTimeEl = el("check-time");
 const compileButton = el("compile-button");
 const exampleSelect = el("example-select");
 const examplePicker = el("example-picker");
-const filenameEl = el("filename");
 const diagListEl = el("diagnostics");
 const outputHost = el("output-editor");
 const outputEl = el("output");
@@ -649,12 +649,11 @@ function loadExample(id) {
   sourceView.focus();
 }
 
-// The menu is what the head bar's leading edge holds when there is more than
-// one program to reach. A page that inlined its own has exactly one, so the
-// bar names it instead — the menu there would only offer to replace what the
-// page came to show. index.html always has the menu, because a reader who
-// opened a shared link is still free to go browse.
-const wantsExampleMenu = inlined === null || filenameEl === null;
+// An embed with a program supplied by its page has exactly one buffer, so it
+// needs neither the example menu nor a synthetic filename. The full playground
+// always has the menu because a reader who opened a shared link is still free
+// to browse; an empty embed uses it as its initial content picker.
+const wantsExampleMenu = !isEmbed || inlined === null;
 
 if (exampleSelect && wantsExampleMenu) {
   for (const example of EXAMPLES) {
@@ -667,10 +666,6 @@ if (exampleSelect && wantsExampleMenu) {
   exampleSelect.addEventListener("change", () => loadExample(exampleSelect.value));
 } else {
   if (examplePicker) examplePicker.hidden = true;
-  if (filenameEl) {
-    filenameEl.hidden = false;
-    filenameEl.textContent = FILENAME;
-  }
 }
 
 // --- Options menu -----------------------------------------------------------
@@ -761,7 +756,6 @@ if (shareButton) {
   });
 }
 
-const isEmbed = document.body.classList.contains("is-embed");
 let activated = false;
 
 function activateCompiler() {

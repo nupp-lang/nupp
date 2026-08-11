@@ -145,10 +145,10 @@ local function playgroundHeight(source: string): number
         lines = lines + 1
     end
     -- The embedded editor has a 2.1rem head and a 1.9rem collapsed output bar.
-    -- Give the source roughly one line-height per line, with enough room for a
-    -- small example to edit comfortably and a cap so a long program scrolls
-    -- inside the editor rather than swallowing the page.
-    return math.max(10, math.min(30, 5.5 + lines * 1.35))
+    -- Give the source roughly one line-height per line. The cap keeps a long
+    -- program scrolling inside the editor rather than swallowing the page;
+    -- short examples have no minimum height beyond their actual chrome.
+    return math.min(30, 5.5 + lines * 1.35)
 end
 
 local function playgroundHtml(source: string, caption: string?, compact: boolean?): string

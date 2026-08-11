@@ -152,9 +152,9 @@ link in the address bar and says so. The fragment, rather than a query, keeps
 a reader's program and edits from reaching any server.
 
 A page that inlined its own program has one buffer and has already chosen it,
-so the embed's head bar names it instead of offering the example menu. The
-full playground keeps the menu regardless: a reader who arrived on a shared
-link is still free to go browse.
+so the embed's head bar shows neither a synthetic filename nor the example
+menu. The full playground keeps the menu regardless: a reader who arrived on a
+shared link is still free to go browse.
 
 Both pages share `app.js`, which looks up each optional element by id and skips
 wiring it up when the page doesn't have one, rather than each page having its
