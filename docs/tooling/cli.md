@@ -3,28 +3,26 @@
 One executable holds every tool. `nupp help <command>` prints the same
 reference each command's `-h` does.
 
-```
- Command      Does
- ───────────  ──────────────────────────────────────────────────────
- ast          Dump a Nupp file's parsed syntax tree
- check        Type-check source without emitting Lua
- fmt          Format Nupp source
- build        Build source files or a configured project target
- clean        Remove build outputs configured in nupp.lua
- tasks        List or inspect project tasks from nupp.lua
- lints        List the lints and the level each runs at
- explain      Describe a diagnostic code, with an example either way
- reference    List or print a focused Nupp reference chapter
- test         Build and run the configured test command
- doc          Generate API documentation from source comments
- fixpoint     Verify a byte-identical self-hosting rebuild
- run          Compile and run a Nupp or Lua program
- import-c     Generate typed Nupp bindings from a C header
- rock         Create and package typed Lua rocks
- lsp          Language-server and semantic source operations
- completions  Print a shell completion script
- help         Show general or command-specific help
-```
+| Command | Does |
+| --- | --- |
+| [`ast`](#ast) | Dump a Nupp file's parsed syntax tree |
+| [`check`](#check) | Type-check source without emitting Lua |
+| [`fmt`](#fmt) | Format Nupp source |
+| [`build`](#build) | Build source files or a configured project target |
+| [`clean`](#tasks-and-clean) | Remove build outputs configured in `nupp.lua` |
+| [`tasks`](#tasks-and-clean) | List or inspect project tasks from `nupp.lua` |
+| [`lints`](#lints) | List the lints and the level each runs at |
+| [`explain`](#explain) | Describe a diagnostic code, with an example either way |
+| [`reference`](#reference) | List or print a focused Nupp reference chapter |
+| [`test`](#test) | Build and run the configured test command |
+| [`doc`](#doc) | Generate API documentation from source comments |
+| [`fixpoint`](#fixpoint) | Verify a byte-identical self-hosting rebuild |
+| [`run`](#run) | Compile and run a Nupp or Lua program |
+| [`import-c`](#import-c) | Generate typed Nupp bindings from a C header |
+| [`rock`](#rock) | Create and package typed Lua rocks |
+| [`lsp`](#lsp) | Language-server and semantic source operations |
+| [`completions`](#shell-completion) | Print a shell completion script |
+| [`help`](#nupp-command) | Show general or command-specific help |
 
 ## Options every command takes
 
