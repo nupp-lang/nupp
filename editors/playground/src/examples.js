@@ -42,7 +42,7 @@ export const EXAMPLES = [
   { id: "comptime", label: "Compile-time evaluation", source: COMPTIME },
   {
     id: "type-level-dsl",
-    label: "Type-level arithmetic DSL",
+    label: "Binary type DSL",
     source: TYPE_LEVEL_DSL,
   },
   { id: "peg", label: "PEG expressions", source: PEG },

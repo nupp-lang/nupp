@@ -1,34 +1,31 @@
--- Types can form a small language of their own. Here the "program" is an
--- addition assembled from Add and unary numbers. Checking the file evaluates
--- it; the aliases are erased before runtime.
+-- A recursive type can parse a literal and turn it into a function signature.
+-- This tiny DSL expands a binary string into exact integer digit types:
+-- Binary<"1101"> becomes the tuple {1, 1, 0, 1} while the file is checked.
 
-local type Zero = "zero"
-local type Next<Number> = {Number,}
-
--- The evaluator moves one Next at a time from the right operand to the left.
--- Its recursive call is guarded by `match`, and every step handles a smaller
--- right operand, which keeps the type-level computation bounded.
-local type Evaluate<Expression> = match Expression
-    when {infer Left, Zero} then Left
-    when {infer Left, {infer Previous,}} then
-        Evaluate<{{Left,}, Previous}>
-    else never
+local type Binary<Source> = match Source
+    when "" then {never}
+    when `0${infer Rest}` then {0, unpackof Binary<Rest>}
+    when `1${infer Rest}` then {1, unpackof Binary<Rest>}
+    else typeerror<`expected binary digits, got ${Source}`>
 end
 
-local type Add<Left, Right> = Evaluate<{Left, Right}>
+-- The first argument is a compile-time-known string. `unpackof` turns the
+-- tuple computed from it into the rest of this call's parameter list, so the
+-- checker requires the caller to supply exactly those integer digits.
+local function decimal<const Source: string>(
+    source: Source,
+    ...: unpackof Binary<Source>
+): number
+    local value = 0
+    for index = 1, select("#", ...) do
+        local digit = select(index, ...) as integer
+        value = value * 2 + digit
+    end
+    return value
+end
 
-local type One = Next<Zero>
-local type Two = Next<One>
-local type Three = Next<Two>
-local type Four = Next<Three>
-local type Seven = Next<Next<Next<Four>>>
-local type Fourteen = Next<Next<Next<Next<Next<Next<Next<Seven>>>>>>>
+print(decimal("1101", 1, 1, 0, 1)) -- 13
+print(decimal("101010", 1, 0, 1, 0, 1, 0)) -- 42
 
--- This is a program in the tiny DSL. The assignment checks only if evaluating
--- its type produces exactly the type-level number fourteen.
-local type Problem = Add<Seven, Seven>
-local proof: Fourteen = nil as Evaluate<Problem>
-
-print("the type checker proved 7 + 7 = 14", proof)
-
--- try breaking it: remove one Next from Fourteen and inspect the type mismatch
+-- try breaking it: write a digit other than 0 or 1 in either the string or
+-- its expanded integer arguments, and read the diagnostic at the call
