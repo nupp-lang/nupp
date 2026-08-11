@@ -1925,4 +1925,58 @@ function M.diagnosticIndexOnlyLinksWhatExists()
    assert(seen > 0, "no related code was linked at all")
 end
 
+-- A route a page used to answer at keeps answering, by way of a stub that names
+-- where the page went. An overview's redirects have to survive being folded onto
+-- the module's own page, which is the one that answers there afterwards.
+function M.aMovedPageLeavesAStubWhereItUsedToAnswer()
+   local dir = tempProject({
+      ["nupp.lua"] = [[return {
+   include = {"src"},
+   build = {default = "docs", targets = {
+      docs = {kind = "docs", sources = {"src"}, format = "site",
+         outDir = "site", title = "Example", name = "Example",
+         pages = {
+            {path = "guide", title = "Guide", source = "docs/guide.md",
+               redirects = {"tooling/guide", "/manual/guide/index.html"}},
+            {path = "modules/math", title = "Arithmetic",
+               source = "docs/math-overview.md", redirects = {"library/math"}},
+         },
+      },
+   }},
+}
+]],
+      ["docs/guide.md"] = "# Guide\n\nSetup instructions.\n",
+      ["docs/math-overview.md"] = "Prose above the generated API.\n",
+      ["src/math.nupp"] = table.concat({
+         "--[[ Arithmetic. ]]",
+         "local math = {}",
+         "--- Adds two numbers.",
+         "function math.add(left: number, right: number): number",
+         "   return left + right",
+         "end",
+         "return math",
+      }, "\n") .. "\n",
+   })
+   capture(("cd '%s' && '%s' build"):format(dir, NUPP))
+
+   local stub = readFile(dir .. "/site/tooling/guide/index.html")
+   assert(stub:find('url=../../guide/index.html"', 1, true), stub)
+   assert(stub:find('rel="canonical" href="../../guide/index.html"', 1, true), stub)
+   assert(stub:find(">Documentation moved</a>", 1, true), stub)
+
+   -- a former route is cleaned the way `path` is, so this spelling lands too
+   local rooted = readFile(dir .. "/site/manual/guide/index.html")
+   assert(rooted:find('url=../../guide/index.html"', 1, true), rooted)
+
+   -- an overview's former route follows it onto the module's own page
+   local module = readFile(dir .. "/site/library/math/index.html")
+   assert(module:find('url=../../modules/math/index.html"', 1, true), module)
+
+   -- and the pages themselves still answer where they say they do
+   assert(readFile(dir .. "/site/guide/index.html"):find("Setup instructions", 1, true))
+   assert(readFile(dir .. "/site/modules/math/index.html")
+      :find("Prose above the generated API", 1, true))
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 return M

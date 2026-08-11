@@ -241,6 +241,38 @@ public route at build time. Fragments survive.
 
 A page source may open with `---`-delimited front matter, which is stripped.
 
+## Moved pages
+
+`redirects` lists the routes a page used to answer at. A stub is written at
+each one pointing at where the page is now, so a link somebody else wrote
+still arrives:
+
+```lua
+{
+   path = "guides/build",
+   title = "Build system",
+   source = "docs/tooling/build.md",
+   redirects = {"tooling/build", "reference/build"},
+},
+```
+
+The stub is a meta refresh with a canonical link and a plain anchor, so a
+bookmark, a search result and a reader with scripting off all reach the page.
+
+A former route is cleaned the way `path` is, so `tooling/build`,
+`/tooling/build` and `tooling/build/index.html` all name the same one. An empty
+route is refused rather than written to the site root.
+
+A page whose `path` is a module's route is that module's overview, and its
+redirects move onto the module's own page with it. That is what lets a page
+that documented a module from somewhere else keep its former address after it
+is filed under the module.
+
+Links inside the documentation do not need this. They name the source file and
+are rewritten to whatever route it is published at, so moving a page leaves
+them working. Redirects are for addresses this project does not control:
+bookmarks, search results, and links from other sites.
+
 ## The diagnostic index
 
 `diagnostics` generates a page holding every diagnostic code, at the route it
@@ -269,17 +301,6 @@ appears among another section's related codes it is named rather than linked.
 The area reference a code carries is linked when the docs target publishes that
 file and named as a path when it does not, so a page the site does not build
 never becomes a dead link.
-
-A page that moved names where it used to answer, and a stub is written there
-pointing at the new route:
-
-```lua
-{path = "guides/build", title = "Build system", source = "docs/tooling/build.md",
- redirects = {"tooling/build"}},
-```
-
-The stub is a meta refresh with a canonical link, so a bookmark and a search
-result both still arrive.
 
 ## Cross-references
 
