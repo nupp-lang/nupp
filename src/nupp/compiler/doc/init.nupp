@@ -523,6 +523,9 @@ local function renderSite(root, outDir, modules, title, settings)
             module = module,
             overview = overview and overview.markdown or nil,
             source = overview and overview.source or nil,
+            -- An overview is folded into the module's own page, so the routes it
+            -- used to answer at have to come with it or they are dropped here.
+            redirects = overview and overview.redirects or nil,
         }
     end
     pages = ordered

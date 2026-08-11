@@ -458,6 +458,18 @@ nupp lsp            # start the language server]],
                   source = "docs/c-interop.md",
                },
                {
+                  path = "concepts/standard-library",
+                  redirects = {"library/overview"},
+                  title = "The standard library",
+                  source = "docs/stdlib.md",
+               },
+               {
+                  path = "concepts/paths-and-uris",
+                  redirects = {"library/path-uri"},
+                  title = "Paths and URIs",
+                  source = "docs/path-uri.md",
+               },
+               {
                   path = "concepts/metamethods",
                   redirects = {"reference/metamethods"},
                   title = "Metamethods",
@@ -535,81 +547,43 @@ nupp lsp            # start the language server]],
                   source = "docs/type-system/narrowing.md",
                },
 
-               {
-                  path = "library/overview",
-                  redirects = {"standard-library/overview"},
-                  title = "Standard library",
-                  source = "docs/stdlib.md",
-               },
-               {
-                  path = "library/data",
-                  redirects = {"standard-library/data"},
-                  title = "Data and text",
-                  source = "docs/data.md",
-               },
-               {
-                  path = "library/io",
-                  redirects = {"standard-library/io"},
-                  title = "Buffers and byte I/O",
-                  source = "docs/io.md",
-               },
-               {
-                  path = "library/files",
-                  redirects = {"standard-library/files"},
-                  title = "Filesystem metadata",
-                  source = "docs/files.md",
-               },
-               {
-                  path = "library/path-uri",
-                  redirects = {"standard-library/path-uri"},
-                  title = "Paths and URIs",
-                  source = "docs/path-uri.md",
-               },
-               {
-                  path = "library/logging",
-                  redirects = {"standard-library/logging"},
-                  title = "Logging",
-                  source = "docs/logging.md",
-               },
-               {
-                  path = "library/math",
-                  redirects = {"standard-library/math"},
-                  title = "Math helpers",
-                  source = "docs/math.md",
-               },
-               {
-                  path = "library/peg",
-                  redirects = {"standard-library/peg"},
-                  title = "Parsing-expression grammars",
-                  source = "docs/peg.md",
-               },
-
                -- The same handwritten pages, again as overviews on the
                -- @namespace-synthesized module routes, so a reader who
                -- follows a cross-reference into the API reference finds
                -- the same prose above the generated field list.
                {
+                  path = "modules/nupp/io/files",
+                  redirects = {"library/files"},
+                  title = "Filesystem metadata",
+                  source = "docs/files.md",
+               },
+               {
                   path = "modules/nupp/data",
+                  redirects = {"library/data"},
                   title = "Module: nupp.data",
                   source = "docs/data.md",
                },
                {
                   path = "modules/nupp/io",
+                  redirects = {"library/io"},
                   title = "Module: nupp.io",
                   source = "docs/io.md",
                },
                {
                   path = "modules/nupp/log",
+                  redirects = {"library/logging"},
                   title = "Module: nupp.log",
                   source = "docs/logging.md",
                },
                {
                   path = "modules/nupp/math",
+                  redirects = {"library/math"},
                   title = "Module: nupp.math",
                   source = "docs/math.md",
                },
                {
                   path = "modules/nupp/peg",
+                  redirects = {"library/peg"},
                   title = "Module: nupp.peg",
                   source = "docs/peg.md",
                },
