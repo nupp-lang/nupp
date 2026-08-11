@@ -82,16 +82,28 @@ function index.install(c: state.Checker): state.ExprHandlers
             end
             -- A declaration qualified by a table binds under its whole path, so
             -- `M.Point` is the record itself rather than an ordinary field read of M.
+            -- `key` is built from source text alone, so a path whose root also names an
+            -- ambient global answers this the same way whether that global is still in
+            -- scope or a local has shadowed it. Only a root that names a global is at
+            -- risk: a module-local qualifier like `profile` in `profile.Sample` has
+            -- nothing to shadow, and skipping the shortcut there breaks the ordinary
+            -- case instead of protecting it.
             local declared = key and c.lookupEntry(key)
             if declared then
-                c.infer(target)
-                c.markToken(
-                    member,
-                    declared.definition,
-                    declared.t,
-                    declared.definition and declared.definition.kind or "variable"
-                )
-                return declared.t
+                local rootName = key:match("^[^.]+")
+                local globalRoot = rootName and c.env and c.env.globals and c.env.globals[rootName]
+                local localRoot = globalRoot and c.lookupEntry(rootName)
+                local shadowed = globalRoot and localRoot and localRoot.definition ~= globalRoot.definition
+                if not shadowed then
+                    c.infer(target)
+                    c.markToken(
+                        member,
+                        declared.definition,
+                        declared.t,
+                        declared.definition and declared.definition.kind or "variable"
+                    )
+                    return declared.t
+                end
             end
         end
         local trackedObject = c.infer(target)

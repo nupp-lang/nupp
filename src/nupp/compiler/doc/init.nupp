@@ -190,7 +190,7 @@ local function loadModules(root, config, settings, requested)
     end
     -- A qualified type declaration belongs to the module its name spells, even when
     -- the declaration lives in a different file. The prelude is the important case:
-    -- `interface nupp.JSON` is written in the compiler's hidden declaration tree, but
+    -- `interface nupp.Debug` is written in the compiler's hidden declaration tree, but
     -- readers should find it on `nupp`, not lose it with that implementation module.
     -- An `@namespace` field is different: `record nupp.peg` describes the `nupp.peg`
     -- module, so it belongs on that nested page rather than as a second declaration on

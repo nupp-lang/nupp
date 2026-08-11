@@ -92,7 +92,7 @@ function fieldcodec.lower(envelope: any, expected: any, env: any): any, fieldcod
         return nil, failure(
             "NUPP2414",
             "a field-codec blueprint needs a directly declared runtime type",
-            "write nupp.FieldCodec.KeyedCodec<Record> on the declaration initialized by this comptime block"
+            "write nupp.fieldcodec.KeyedCodec<Record> on the declaration initialized by this comptime block"
         )
     end
     if envelope.schema ~= 1 or envelope.family ~= "KeyedCodecBlueprint"
@@ -113,13 +113,13 @@ function fieldcodec.lower(envelope: any, expected: any, env: any): any, fieldcod
     if envelope.fingerprint ~= hash.sha256("nupp.fieldcodec\0v1\0" .. canonical) then
         return nil, failure("NUPP2415", "field-codec blueprint fingerprint does not match")
     end
-    local namespace = env and env.globalTypes and env.globalTypes["nupp.FieldCodec"]
+    local namespace = env and env.globalTypes and env.globalTypes["nupp.fieldcodec"]
     local codec = namespace and namespace.nestedTypes and namespace.nestedTypes.KeyedCodec
     local target = expected and expected.typeArgs and expected.typeArgs[1]
     if not codec or not expected or (expected.origin or expected) ~= codec
         or not target or target.tag ~= "nominal" or target.declKind ~= "record"
         or target.name ~= envelope.payload.typeName then
-        return nil, failure("NUPP2415", "field-codec blueprint needs nupp.FieldCodec.KeyedCodec<Record>")
+        return nil, failure("NUPP2415", "field-codec blueprint needs nupp.fieldcodec.KeyedCodec<Record>")
     end
     local order = target.fieldOrder or {}
     if #order ~= #fields then

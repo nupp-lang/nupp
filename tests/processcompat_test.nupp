@@ -8,7 +8,7 @@ local process = require("nupp.io.process")
 
 local M = {}
 
-local function tecsCallSites(options: process.Options, buffer: nupp.Buffer): nil
+local function tecsCallSites(options: process.Options, buffer: nupp.io.Buffer): nil
     local child, spawnReason = process.new(options)
     if child == nil then
         error(spawnReason)

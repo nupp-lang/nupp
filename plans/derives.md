@@ -442,8 +442,8 @@ types remain unnecessary for this projection.
 
 ### JSON
 
-The prelude already has `interface nupp.JSON` for the bundled raw JSON runtime
-and `nupp.FieldCodec.KeyedCodec<T>` for the reflected keyed encoder. D4 adds no
+The prelude already has `interface nupp.data.JSON` for the bundled raw JSON runtime
+and `nupp.fieldcodec.KeyedCodec<T>` for the reflected keyed encoder. D4 adds no
 public `nupp.JSONCodec<T>` or sibling provider. It extends the shipped
 field-codec blueprint with typed decode and separately materializes a direct
 JSON emitter. The two runtime products share the reflection walk, schema graph
@@ -453,20 +453,20 @@ encoder with cjson.
 The value-level contract remains explicit:
 
 ```nupp
-interface nupp.JSONEncodable
+interface nupp.data.JSONEncodable
     toJSON: function(self): string
 end
 ```
 
 `@derive(JSON)` adds this contract just as `@derive(Debug)` adds `nupp.Debug`.
-Generic code over values uses `T is nupp.JSONEncodable`; generic code over
+Generic code over values uses `T is nupp.data.JSONEncodable`; generic code over
 declaration tables uses the projected `fieldCodec()` static factory after D1.
 The two paths serve different receivers and do not require a second codec type.
 
 `KeyedCodec<T>` gains one method:
 
 ```nupp
-record nupp.FieldCodec.KeyedCodec<T>
+record nupp.fieldcodec.KeyedCodec<T>
     encode: function(self, value: T): {[string]: any}
     decode: function(self, value: {[string]: any}): (T?, string?)
     fingerprint: string
@@ -482,7 +482,7 @@ User.toJSON: function(self): string
 
 -- Generated static members on the declaration table:
 User.fromJSON: function(text: string): (User?, string?)
-User.fieldCodec: function(): nupp.FieldCodec.KeyedCodec<User>
+User.fieldCodec: function(): nupp.fieldcodec.KeyedCodec<User>
 ```
 
 `fieldCodec()` returns the private keyed materialization; it does not rebuild
@@ -770,13 +770,13 @@ magnitude and never claims `uint64` round trips through a JSON number.
 `JSON` initially rejects generic record declarations. Nupp erases a record's
 type arguments, so one declaration table cannot hold a different materialized
 codec for every `Box<T>` instantiation. A later surface may derive a codec
-factory that accepts `nupp.FieldCodec.KeyedCodec<T>` explicitly; it will not
+factory that accepts `nupp.fieldcodec.KeyedCodec<T>` explicitly; it will not
 smuggle runtime type arguments into ordinary generics.
 
 The compiler-owned JSON derive consumes the base `TypeInfo` and checked
 `@json` annotations, asks the existing field-codec provider to finalize a
 canonical bidirectional blueprint, and lowers one
-`nupp.FieldCodec.KeyedCodec<User>` and one private JSON emitter through the
+`nupp.fieldcodec.KeyedCodec<User>` and one private JSON emitter through the
 closed materialization layer. This synthetic boundary is internal to
 `@derive(JSON)` and does not relax the ordinary rule that user-written opaque
 comptime results need an explicit materializable expected type. D4 extends the
@@ -1140,7 +1140,7 @@ static `from` signature rather than from an `any` fallback.
 
 - Activate the reserved typed `@json` annotation schemas and contradiction
   checking.
-- Extend `nupp.FieldCodec.KeyedCodec<T>` and its existing provider/runtime with
+- Extend `nupp.fieldcodec.KeyedCodec<T>` and its existing provider/runtime with
   typed object decode; do not add a sibling JSON codec type or provider.
 - Reuse the reflection graph, annotation edges, worker envelope,
   materialization relation, private expression IR and runtime effect manifest,
@@ -1157,7 +1157,7 @@ static `from` signature rather than from an `any` fallback.
   keys and integral-value semantics, and make the strict unknown-key walk part
   of the contract.
 - Remap field-codec schema failures to one NUPP2806 at the derive site.
-- Add `nupp.JSONEncodable` conformance to each JSON-derived record.
+- Add `nupp.data.JSONEncodable` conformance to each JSON-derived record.
 - Generate `toJSON`, `fromJSON`, and `fieldCodec` forwarders.
 - Differential-test encode/decode against a direct reference implementation
   and fuzz small supported schemas and values.

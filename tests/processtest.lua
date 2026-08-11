@@ -469,7 +469,7 @@ function M.aStepThatAnswersFailureIsNotMistakenForSuccess()
 end
 
 function M.pollTakesNoMoreThanItWasAskedForAndLosesNothing()
-   -- The shared `nupp.Reader` promises "at most `count`", and the surplus has to
+   -- The shared `nupp.io.Reader` promises "at most `count`", and the surplus has to
    -- survive somewhere. Keeping it in the pipe rather than in a buffer beside this
    -- record is what leaves end of stream and closedness with one home, so what matters
    -- is not that the argument was forwarded but that two small reads reconstruct what
@@ -485,7 +485,7 @@ function M.pollTakesNoMoreThanItWasAskedForAndLosesNothing()
 end
 
 function M.aNonPositiveLimitReadsOneByte()
-   -- What `nupp.Reader` says a non-positive count does, settled here so a zero or a
+   -- What `nupp.io.Reader` says a non-positive count does, settled here so a zero or a
    -- minus one never reaches a native size conversion -- where it is either an empty
    -- read that reads as end of stream or an enormous one.
    local backend = fakeBackend({out = {"abcdefgh"}, err = {}, eofWhenExited = true, exitAfter = 9, code = 0})

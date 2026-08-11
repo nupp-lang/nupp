@@ -3923,6 +3923,10 @@ local manifest = { }
 
 
 
+
+
+
+
 local function validateArray ( value , label , itemType , required )
 if value == nil then
 if required then
@@ -3976,7 +3980,7 @@ local DOCS_KEYS = {
 
 "sources" , "format" , "outDir" , "title" , "name" , "description" , "github" , "logo" , "favicon" , "public" , "customCss" , "lexers" , "includePrivate" , "all" , "pages" , "constructorPattern" ,
 
-"kind" , "dependencies" , "entries" , "resources" , "output" , "stub" , "nativeFeatures" , }
+"kind" , "dependencies" , "entries" , "resources" , "output" , "stub" , "nativeFeatures" , "layoutTarget" , }
 
 local PAGE_KEYS = { "path" , "title" , "source" , "layout" , "heroTitle" , "heroText" , "heroContent" , "heroImage" , "heroImageAlt" , "heroActions" ,
 
@@ -4068,6 +4072,20 @@ end
 end
 if target . description ~= nil and type ( target . description ) ~= "string" then
 return nil , label .. ".description must be a string"
+end
+if target . layoutTarget ~= nil then
+local valid , err = validateString ( target . layoutTarget , label .. ".layoutTarget" )
+if not valid then
+return nil , err
+end
+local layouts = require ( "nupp.compiler.target_layout" )
+if not layouts . has ( target . layoutTarget ) then
+return nil , label
+.. ".layoutTarget names unsupported target "
+.. target . layoutTarget
+.. "; supported targets: "
+.. table . concat ( layouts . keys ( ) , ", " )
+end
 end
 if target . nativeFeatures ~= nil then
 if type ( target . nativeFeatures ) ~= "table" then
@@ -5747,10 +5765,12 @@ root ,
 config ,
 target ,
 banner ,
-modules
+modules ,
+workerDispatch ,
+runtimeModules
 )
 local outDir = target . outDir or "build"
-local _ , mainPath = entryModule ( root , outDir , target )
+local mainName , mainPath = entryModule ( root , outDir , target )
 local chunks = { banner or "" }
 
 
@@ -5786,6 +5806,24 @@ table . sort ( names )
 for _ , name in ipairs ( names ) do
 local path = ( built [ name ] ) . output
 if path and normalize ( path ) ~= normalize ( mainPath ) then
+local text , readErr = readFile ( path )
+if not text then
+return nil , readErr
+end
+chunks [ # chunks + 1 ] = ( "package.preload[%q] = function(...)\n" ) : format ( name )
+chunks [ # chunks + 1 ] = text
+chunks [ # chunks + 1 ] = "\nend\n"
+end
+end
+
+
+
+
+
+
+for _ , name in ipairs ( runtimeModules or { } ) do
+if built [ name ] == nil and name ~= mainName then
+local path = join ( root , join ( outDir , name : gsub ( "%." , "/" ) .. ".lua" ) )
 local text , readErr = readFile ( path )
 if not text then
 return nil , readErr
@@ -5837,7 +5875,19 @@ local mainText , mainErr = readFile ( mainPath )
 if not mainText then
 return nil , mainErr
 end
+if workerDispatch then
+
+
+
+
+chunks [ # chunks + 1 ] = ( "package.preload[%q] = function(...)\n" ) : format ( mainName )
 chunks [ # chunks + 1 ] = mainText
+chunks [ # chunks + 1 ] = "\nend\n"
+chunks [ # chunks + 1 ] = "local __nuppEntry = rawget(_G, \"__nuppWorkerEntry\")\n"
+chunks [ # chunks + 1 ] = ( "return require(__nuppEntry or %q)\n" ) : format ( mainName )
+else
+chunks [ # chunks + 1 ] = mainText
+end
 
 return table . concat ( chunks ) , nil , unreachable
 end
@@ -5971,6 +6021,16 @@ local process = { }
 
 local windows = package . config : sub ( 1 , 1 ) == "\\"
 
+
+
+
+local function nativePath ( path )
+if windows then
+return ( path : gsub ( "^/([A-Za-z])(/)" , "%1:%2" ) )
+end
+return path
+end
+
 local function quote ( arg )
 arg = tostring ( arg )
 if windows then
@@ -5983,9 +6043,49 @@ end
 return "'" .. arg : gsub ( "'" , "'\\''" ) .. "'"
 end
 
+local function launchArgs ( argv )
+local testBash = windows and (
+rawget ( _G , "__NUPP_TEST_BASH" ) or os . getenv ( "NUPP_TEST_BASH" )
+) or nil
+if not testBash or not tostring ( argv [ 1 ] ) : gsub ( "\\" , "/" ) : match ( "/bin/nupp$" ) then
+return argv
+end
+
+local launched = { testBash }
+for _ , arg in ipairs ( argv ) do
+launched [ # launched + 1 ] = arg
+end
+return launched
+end
+
+
+
+
+
+local function isolatedArgs ( argv )
+if windows then
+local executable = tostring ( argv [ 1 ] ) : gsub ( "\\" , "/" )
+local root = executable : match ( "^(.*)/bin/nupp$" )
+if root then
+local path = ( "package.path=%q .. package.path" )
+: format ( root .. "/build/?.lua;" )
+local launched = {
+"luajit" , "-e" , path , root .. "/build/nupp/compiler/main.lua"
+}
+for index = 2 , # argv do
+launched [ # launched + 1 ] = argv [ index ]
+end
+return launched
+end
+end
+
+return launchArgs ( argv )
+end
+
 function process . command ( argv , opts )
 assert ( type ( argv ) == "table" and # argv > 0 , "argv must not be empty" )
 opts = ( opts or { } )
+argv = launchArgs ( argv )
 local parts = { }
 if opts . env then
 local names = { }
@@ -5996,7 +6096,9 @@ table . sort ( names )
 for _ , name in ipairs ( names ) do
 assert ( name : match ( "^[%a_][%w_]*$" ) , "invalid environment name" )
 if windows then
-parts [ # parts + 1 ] = "set " .. name .. "=" .. tostring ( opts . env [ name ] )
+
+
+parts [ # parts + 1 ] = 'set "' .. name .. "=" .. tostring ( opts . env [ name ] ) .. '"'
 parts [ # parts + 1 ] = "&&"
 else
 parts [ # parts + 1 ] = name .. "=" .. quote ( opts . env [ name ] )
@@ -6013,7 +6115,12 @@ command = windows and (
 ) or ( "cd " .. quote ( opts . cwd ) .. " && " .. command )
 end
 
-return command
+
+
+
+
+local testMarker = windows and rawget ( _G , "__NUPP_TEST_CMD_MARKER" ) or nil
+return testMarker and ( testMarker .. command ) or command
 end
 
 function process . mkdirCommand ( path , forWindows )
@@ -6051,7 +6158,7 @@ end
 
 function process . capture ( argv , opts )
 opts = ( opts or { } )
-local tmp = os . tmpname ( )
+local tmp = nativePath ( os . tmpname ( ) )
 local command = process . command ( argv , opts ) .. " >" .. quote ( tmp ) .. " 2>&1"
 local code = exitCode ( os . execute ( command ) )
 local f = io . open ( tmp , "rb" )
@@ -6069,7 +6176,7 @@ end
 
 function process . captureIsolated ( argv , opts )
 opts = ( opts or { } )
-local args = argv
+local args = isolatedArgs ( argv )
 if opts . memoryMb and not windows then
 local kilobytes = math . max ( 1 , math . floor ( opts . memoryMb * 1024 ) )
 args = {
@@ -6168,6 +6275,7 @@ local modules = require ( "nupp.compiler.build.modules" )
 local packaging = require ( "nupp.compiler.build.package" )
 local storeMod = require ( "nupp.compiler.build.store" )
 local native = require ( "nupp.compiler.build.native" )
+local nativeFeatures = require ( "nupp.compiler.native" )
 local materializeObserve = require ( "nupp.compiler.materialize.observe" )
 
 local project = { }
@@ -6396,6 +6504,13 @@ newState . outputs [ output ] = true
 end
 local detectedEffects = native . dependencyEffects ( root , config , target , result . effects )
 local resolvedEffects = native . resolve ( detectedEffects , target . nativeFeatures )
+if resolvedEffects [ "native.workers" ] and ( target . kind ~= "binary" or target . stub ~= "nupp" ) then
+io . stderr : write (
+"nupp: workers currently require a binary target with stub = \"nupp\"; "
+.. "the compiler-owned host supplies the isolated Lua states and early machine-code arena\n"
+)
+return 1
+end
 if target . kind == "bundle" and next ( resolvedEffects ) then
 io . stderr : write (
 "nupp: a one-file bundle cannot carry native features; "
@@ -6414,7 +6529,22 @@ end
 
 
 if target . kind == "bundle" or target . kind == "binary" then
-local text , bundleErr , unreachable = bundleText ( root , config , target , nil , newState . modules )
+local runtimeModules = { }
+for _ , feature in ipairs ( nativeFeatures . features ( resolvedEffects ) ) do
+if feature . runtimeModule then
+runtimeModules [ # runtimeModules + 1 ] = feature . runtimeModule
+end
+end
+table . sort ( runtimeModules )
+local text , bundleErr , unreachable = bundleText (
+root ,
+config ,
+target ,
+nil ,
+newState . modules ,
+resolvedEffects [ "native.workers" ] == true ,
+runtimeModules
+)
 if not text then
 io . stderr : write ( "nupp: " .. tostring ( bundleErr ) .. "\n" )
 return 1
@@ -7293,7 +7423,8 @@ all = target . all , includePrivate = target . includePrivate , resources = copy
 target . resources
 ) , dependencies = copyStrings (
 target . dependencies
-) , nativeFeatures = target . nativeFeatures , command = jsonArray ( { "nupp" , "build" , "--target" , name } ) , }
+) , nativeFeatures = target . nativeFeatures , layoutTarget = target . layoutTarget ,
+command = jsonArray ( { "nupp" , "build" , "--target" , name } ) , }
 end
 
 local function configuredTasks ( config , buildOnly )
@@ -11100,6 +11231,7 @@ local ffiMod = require ( "nupp.compiler.check.ffi" )
 local methodslots = require ( "nupp.compiler.methodslots" )
 local native = require ( "nupp.compiler.native" )
 local reflection = require ( "nupp.compiler.reflection" )
+local targetLayout = require ( "nupp.compiler.target_layout" )
 local state = require ( "nupp.compiler.check.state" )
 local pegTyping = require ( "nupp.compiler.materialize.peg" )
 
@@ -11408,6 +11540,42 @@ end
 return T . union ( nonnil )
 end
 
+
+
+local function concreteTypePath ( argument , typePosition )
+if argument and typePosition then
+local key = cst . textOf ( argument ) : gsub ( "%s+" , "" )
+return key , c . resolveType ( argument )
+end
+local key = argument and c . pathKey ( argument ) or nil
+local resolved = key and c . lookupType ( key ) or nil
+if not resolved and key and not key : find ( "." , 1 , true ) then
+local builtin = ( T ) [ key ]
+if type ( builtin ) == "table" and builtin . tag then
+resolved = builtin
+end
+end
+if not resolved and key and c . env and c . env . resolveQualifiedType then
+local moduleName , typeName = key : match ( "^(.*)%.([^.]+)$" )
+if moduleName and typeName then
+local first = moduleName : match ( "^[^.]+" )
+local holder = first and c . lookupEntry ( first ) or nil
+if holder and holder . requiredModule then
+local firstName = first
+moduleName = holder . requiredModule .. moduleName : sub ( # firstName + 1 )
+end
+resolved = c . env . resolveQualifiedType (
+c . env ,
+c . filename ,
+moduleName ,
+typeName
+)
+end
+end
+
+return key , resolved
+end
+
 handlers . call = function ( node )
 
 
@@ -11435,37 +11603,120 @@ local argsNode = node . args
 local argExprs = { }
 local argStr = nil
 local argTable = nil
-if argsNode and argsNode . kind == "args" then
-argExprs = argsNode . exprs or { }
-argStr = argsNode . str
-argTable = argsNode . table
+local callArgs = argsNode and argsNode . kind == "args" and argsNode or nil
+if callArgs then
+argExprs = callArgs . exprs or { }
+argStr = callArgs . str
+argTable = callArgs . table
 end
-if calleeName == "reflect" and # argExprs == 1 and not argStr and not argTable then
+local comptimeIntrinsic , intrinsicQualified = cst . comptimeTypeIntrinsicSpelling ( callee )
+local layoutIntrinsic = intrinsicQualified and comptimeIntrinsic ~= "reflect"
+and comptimeIntrinsic or nil
+if layoutIntrinsic and not argStr and not argTable then
 if ( c . comptimeDepth or 0 ) == 0 then
-c . diag ( "NUPP2418" , node , "reflect is available only inside a comptime block" )
+c . diag ( "NUPP2419" , node , "nupp." .. layoutIntrinsic .. " is available only inside a comptime block" )
 return T . any
 end
 local globals = c . env and c . env . globals
-local stable = globals and c . lookupEntry ( "reflect" ) == globals [ "reflect" ]
-local key = c . pathKey ( argExprs [ 1 ] )
-local reflected = key and c . lookupType ( key ) or nil
-if not reflected and key and c . env and c . env . resolveQualifiedType then
-local moduleName , typeName = key : match ( "^(.*)%.([^.]+)$" )
-if moduleName and typeName then
-local first = moduleName : match ( "^[^.]+" )
-local holder = first and c . lookupEntry ( first ) or nil
-if holder and holder . requiredModule then
-local firstName = first
-moduleName = holder . requiredModule .. moduleName : sub ( # firstName + 1 )
+local stable = globals and c . lookupEntry ( "nupp" ) == globals . nupp
+local expected = layoutIntrinsic == "offsetof" and 2 or 1
+if not stable or # argExprs ~= expected then
+c . diag (
+"NUPP2419" ,
+node ,
+( "nupp.%s expects %d argument%s" ) : format (
+layoutIntrinsic ,
+expected ,
+expected == 1 and "" or "s"
+)
+)
+return T . any
 end
-reflected = c . env . resolveQualifiedType ( c . env , c . filename , moduleName , typeName )
+local typeArgument = callArgs and callArgs . typeArg or argExprs [ 1 ]
+local key , subject = concreteTypePath (
+typeArgument ,
+callArgs and callArgs . typeArg ~= nil
+)
+if not key or not subject then
+c . diag (
+"NUPP2419" ,
+argExprs [ 1 ] or node ,
+"nupp." .. layoutIntrinsic .. " expects one concrete type name" ,
+nil ,
+{ help = "pass a declared or qualified type, not a runtime value" }
+)
+return T . any
+end
+local target = c . env and c . env . layoutTarget or nil
+if not target then
+c . diag (
+"NUPP2419" ,
+node ,
+"nupp." .. layoutIntrinsic .. " needs an explicit build layout target" ,
+nil ,
+{ help = "set layoutTarget on the selected build target in nupp.lua" }
+)
+return T . any
+end
+local measured , why = targetLayout . of ( subject , target )
+if not measured then
+c . diag (
+"NUPP2419" ,
+argExprs [ 1 ] or node ,
+( "%s has no layout for %s: %s" ) : format (
+key ,
+target ,
+tostring ( why )
+)
+)
+return T . any
+end
+if layoutIntrinsic == "offsetof" then
+local fieldType = argExprs [ 2 ] and c . infer ( argExprs [ 2 ] ) or nil
+local fieldName = literalString ( argExprs [ 2 ] )
+if not fieldName and fieldType and fieldType . tag == "literal"
+and type ( fieldType . constant ) == "string" then
+fieldName = fieldType . constant
+end
+if not fieldName then
+c . diag (
+"NUPP2419" ,
+argExprs [ 2 ] or node ,
+"nupp.offsetof field name must be a compile-time-known string"
+)
+return T . any
+end
+if measured . offsets [ fieldName ] == nil then
+c . diag (
+"NUPP2419" ,
+argExprs [ 2 ] or node ,
+( "%s has no field %q" ) : format ( key , fieldName )
+)
+return T . any
 end
 end
+node . targetLayout , node . targetLayoutKey = measured , key
+
+return T . integer
+end
+if comptimeIntrinsic == "reflect" and intrinsicQualified
+and # argExprs == 1 and not argStr and not argTable then
+if ( c . comptimeDepth or 0 ) == 0 then
+c . diag ( "NUPP2418" , node , "nupp.reflect is available only inside a comptime block" )
+return T . any
+end
+local globals = c . env and c . env . globals
+local stable = globals and c . lookupEntry ( "nupp" ) == globals . nupp
+local typeArgument = callArgs and callArgs . typeArg or argExprs [ 1 ]
+local key , reflected = concreteTypePath (
+typeArgument ,
+callArgs and callArgs . typeArg ~= nil
+)
 if not stable or not reflected then
 c . diag (
 "NUPP2418" ,
 argExprs [ 1 ] or node ,
-"reflect expects one concrete type name" ,
+"nupp.reflect expects one concrete type name" ,
 nil ,
 { help = "pass a declared or qualified type, not a runtime value" }
 )
@@ -17689,7 +17940,21 @@ return true
 end
 
 local function addContract ( n , name )
-local contract = c . env and c . env . globalTypes and c . env . globalTypes [ name ]
+
+
+
+local segments = { }
+for segment in name : gmatch ( "[^.]+" ) do
+segments [ # segments + 1 ] = segment
+end
+local contract = c . env
+and c . env . globalTypes
+and c . env . globalTypes [ segments [ 1 ] .. "." .. ( segments [ 2 ] or "" ) ]
+for i = 3 , # segments do
+contract = contract and contract . tag == "nominal" and contract . nestedTypes and contract . nestedTypes [
+segments [ i ]
+]
+end
 if not contract then return end
 for _ , existing in ipairs ( n . supertypes or { } ) do
 if existing == contract then return end
@@ -17770,14 +18035,14 @@ addDefinition ( n , "from" , T . func ( { source } , { n } ) , origin ( item , "
 end
 if requested . JSON then
 if addDefinition ( n , "toJSON" , T . func ( { n } , { T . string } ) , origin ( item , "JSON" ) , "method" , "JSON" , false ) then
-addContract ( n , "nupp.JSONEncodable" )
+addContract ( n , "nupp.data.JSONEncodable" )
 end
 addDefinition (
 n , "fromJSON" ,
 T . func ( { T . string } , { T . union ( { n , T . nil_ } ) , T . union ( { T . string , T . nil_ } ) } ) ,
 origin ( item , "JSON" ) , "function" , "JSON" , true
 )
-local namespace = c . env and c . env . globalTypes and c . env . globalTypes [ "nupp.FieldCodec" ]
+local namespace = c . env and c . env . globalTypes and c . env . globalTypes [ "nupp.fieldcodec" ]
 local codec = namespace and namespace . nestedTypes and namespace . nestedTypes . KeyedCodec
 local codecType = codec and codec . typeParams and codec . typeParams [ 1 ]
 and generics . instantiate ( codec , { [ codec . typeParams [ 1 ] ] = n } ) or T . any
@@ -18617,23 +18882,27 @@ c . retPackStack [ # c . retPackStack ] = nil
 c . retStack [ # c . retStack ] = nil
 c . popScope ( )
 
-local reflections = { }
-local function collectReflections ( value )
+local reflections , layouts = { } , { }
+local function collectComptimeFacts ( value )
 if type ( value ) ~= "table" then
 return
 end
 if value . reflectedTypeKey and value . reflectedType then
 reflections [ value . reflectedTypeKey ] = value . reflectedType
 end
+if value . targetLayoutKey and value . targetLayout then
+layouts [ value . targetLayoutKey ] = value . targetLayout
+end
 for _ , child in ipairs ( value ) do
-collectReflections ( child )
+collectComptimeFacts ( child )
 end
 end
-collectReflections ( node . body )
+collectComptimeFacts ( node . body )
 local quoted , resultType , failure , envelope = comptime . evaluate (
 untypedNode ,
 node . body ,
 reflections ,
+layouts ,
 c . comptimeFunctions ,
 c . env and c . env . comptimeHost or nil
 )
@@ -21125,8 +21394,19 @@ return narrowed
 end
 
 
+
+
+
+
+
+
 local declared = key and c . lookupEntry ( key )
 if declared then
+local rootName = key : match ( "^[^.]+" )
+local globalRoot = rootName and c . env and c . env . globals and c . env . globals [ rootName ]
+local localRoot = globalRoot and c . lookupEntry ( rootName )
+local shadowed = globalRoot and localRoot and localRoot . definition ~= globalRoot . definition
+if not shadowed then
 c . infer ( target )
 c . markToken (
 member ,
@@ -21135,6 +21415,7 @@ declared . t ,
 declared . definition and declared . definition . kind or "variable"
 )
 return declared . t
+end
 end
 end
 local trackedObject = c . infer ( target )
@@ -31725,6 +32006,7 @@ sources = { type = "array" , items = { type = "string" } } ,
 resources = { type = "array" , items = { type = "string" } } ,
 dependencies = { type = "array" , items = { type = "string" } } ,
 nativeFeatures = { type = "object" , additionalProperties = { type = "boolean" } } ,
+layoutTarget = { type = "string" } ,
 argv = { type = "array" , items = { type = "string" } } ,
 } ,
 required = { "name" } ,
@@ -31765,6 +32047,7 @@ field ( "Command" , table . concat ( task . command , " " ) )
 end
 field ( "Output directory" , task . outDir )
 field ( "Build target" , task . buildTarget )
+field ( "Layout target" , task . layoutTarget )
 field ( "Bootstrap" , task . bootstrap )
 field ( "Title" , task . title )
 field ( "Format" , task . format )
@@ -32383,6 +32666,7 @@ steps = 0 ,
 opaque = { } ,
 intrinsics = { } ,
 reflections = { } ,
+layouts = { } ,
 comptimeFunctions = { } ,
 callDepth = 0 ,
 }
@@ -32879,13 +33163,15 @@ end
 evalMulti = function ( state , node )
 local kind = node . kind
 local values
-if kind == "call" and node . obj and node . obj . kind == "name"
-and node . obj . token and node . obj . token . text == "reflect" then
+local comptimeIntrinsic , intrinsicQualified = cst . comptimeTypeIntrinsicSpelling ( node . obj )
+if kind == "call" and intrinsicQualified and comptimeIntrinsic == "reflect" then
 local args = node . args and node . args . exprs or { }
 local argument = args [ 1 ]
 local function typePath ( value )
 if not value then
 return nil
+elseif value . kind and value . kind : sub ( 1 , 1 ) == "t" then
+return cst . textOf ( value ) : gsub ( "%s+" , "" )
 elseif value . kind == "name" then
 return value . token and value . token . text or nil
 elseif value . kind == "dotIndex" then
@@ -32899,9 +33185,44 @@ end
 local key = # args == 1 and typePath ( argument ) or nil
 local descriptor = key and state . reflections [ key ] or nil
 if not descriptor then
-fail ( "NUPP2418" , node , "reflect type information is unavailable in this comptime worker" )
+fail ( "NUPP2418" , node , "nupp.reflect type information is unavailable in this comptime worker" )
 end
 values = { n = 1 , materializeProviders . reflect ( state , descriptor , node ) }
+elseif kind == "call" and intrinsicQualified and comptimeIntrinsic then
+local name = comptimeIntrinsic
+local args = node . args and node . args . exprs or { }
+local function typePath ( value )
+if not value then
+return nil
+elseif value . kind and value . kind : sub ( 1 , 1 ) == "t" then
+return cst . textOf ( value ) : gsub ( "%s+" , "" )
+elseif value . kind == "name" then
+return value . token and value . token . text or nil
+elseif value . kind == "dotIndex" then
+local base = typePath ( value . obj )
+local field = value . name and value . name . text or nil
+return base and field and ( base .. "." .. field ) or nil
+end
+
+return nil
+end
+local key = typePath ( args [ 1 ] )
+
+
+
+local layout = key and state . layouts [ key ] or nil
+layout = layout or { size = 0 , alignment = 1 , offsets = { } }
+local answer
+if name == "sizeof" then
+answer = layout . size
+elseif name == "alignof" then
+answer = layout . alignment
+else
+local field = evalExpr ( state , args [ 2 ] )
+answer = type ( field ) == "string" and layout . offsets [ field ] or nil
+answer = answer or 0
+end
+values = { n = 1 , answer }
 elseif kind == "methodCall" then
 local object = evalExpr ( state , node . obj )
 if object == nil and node . safeObj then
@@ -33283,10 +33604,12 @@ function comptime . evaluateDirect (
 node ,
 block ,
 reflections ,
+layouts ,
 helpers
 )
 local state = newState ( )
 state . reflections = reflections or { }
+state . layouts = layouts or { }
 local env , libraries = buildEnvironment ( state )
 state . env , state . libraries = env , libraries
 installComptimeFunctions ( state , env , helpers )
@@ -33350,6 +33673,7 @@ function comptime . evaluate (
 node ,
 block ,
 reflections ,
+layouts ,
 helpers ,
 host
 )
@@ -33365,6 +33689,7 @@ local quoted , failure , envelope = worker . evaluate (
 cst . textOf ( node ) ,
 executable ,
 reflections ,
+layouts ,
 helpers ,
 host
 )
@@ -33399,7 +33724,7 @@ end
 return quoted , typeOf ( value ) , nil
 end
 
-return comptime . evaluateDirect ( node , block , reflections , helpers )
+return comptime . evaluateDirect ( node , block , reflections , layouts , helpers )
 end
 
 return comptime
@@ -33560,6 +33885,7 @@ local quoted , _ , failure , envelope = comptime . evaluateDirect (
 node ,
 node . body ,
 request . reflections ,
+request . layouts ,
 helpers
 )
 if failure then
@@ -33584,6 +33910,7 @@ function worker . evaluate (
 source ,
 executable ,
 reflections ,
+layouts ,
 helpers ,
 host
 )
@@ -33603,6 +33930,7 @@ end
 local requestText = cjson . encode ( {
 source = source ,
 reflections = reflections or { } ,
+layouts = layouts or { } ,
 helpers = serializedHelpers ,
 } )
 if # requestText > MAX_PROTOCOL_BYTES then
@@ -33647,7 +33975,8 @@ local decoded , response = pcall ( cjson . decode , output )
 if not decoded or type ( response ) ~= "table" then
 return nil , {
 code = "NUPP2412" ,
-message = "the comptime worker crashed or returned an invalid response: " .. tostring ( response or output ) ,
+message = "the comptime worker crashed or returned an invalid response: "
+.. tostring ( decoded and response or output ) ,
 }
 end
 if not response . ok then
@@ -33959,7 +34288,12 @@ end
 function coverage . collect ( statePath , shardPath )
 local state = cache . loadState ( statePath )
 local shard , shardErr = readShard ( shardPath )
-local hits = shard and shard . hits or { }
+local hits = { }
+for path , counts in pairs ( shard and shard . hits or { } ) do
+
+
+hits [ normalize ( path ) ] = counts
+end
 local files , warnings = { } , { }
 if not shard then
 warnings [ # warnings + 1 ] = shardErr or "coverage runner did not flush a shard"
@@ -33985,7 +34319,7 @@ executableLines = { }
 }
 files [ path ] = file
 end
-local moduleHits = hits [ manifest . path ] or hits [ path ] or { }
+local moduleHits = hits [ path ] or { }
 for _ , site in ipairs ( manifest . sites ) do
 local id = tostring ( site . id )
 local line = tonumber ( site . line ) or 0
@@ -34474,6 +34808,11 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 local lexer = require ( "nupp.compiler.lexer" )
 
 local cst = { }
+
+
+
+
+
 
 
 
@@ -35980,6 +36319,9 @@ cst.Args = {} cst.Args.__index = cst.Args
 
 
 
+
+
+
 cst.NamedArg = {} cst.NamedArg.__index = cst.NamedArg
 
 
@@ -36642,6 +36984,35 @@ end
 local baseToken = base . token
 
 return baseToken and baseToken . text == "nupp" and member or nil , true
+end
+
+local COMPTIME_TYPE_INTRINSICS = {
+reflect = true ,
+sizeof = true ,
+alignof = true ,
+offsetof = true ,
+}
+
+
+
+
+
+
+function cst . comptimeTypeIntrinsicSpelling ( callee )
+if not callee then
+return nil
+end
+if callee . kind ~= "dotIndex" then
+return nil
+end
+local base = callee . obj
+local member = callee . name and callee . name . text or ""
+local baseToken = base and base . kind == "name" and base . token or nil
+if not baseToken or baseToken . text ~= "nupp" or not COMPTIME_TYPE_INTRINSICS [ member ] then
+return nil
+end
+
+return member , true
 end
 
 
@@ -37890,6 +38261,13 @@ end
 
 
 
+local function htag ( level )
+return "h" .. math . min ( level , 6 )
+end
+
+
+
+
 local function isConstructor ( item , pattern )
 if pattern == "" or item . kind ~= "function" then
 return false
@@ -38067,6 +38445,88 @@ end
 return next ( members ) and members or nil
 end
 
+
+
+
+
+
+
+local function renderHtmlMembers ( out , members , links , level )
+local fields , methods , types = splitMembers ( members )
+local hGroup , hName , hSub = htag ( level ) , htag ( level + 1 ) , htag ( level + 2 )
+if # methods > 0 then
+out [ # out + 1 ] = "<" .. hGroup .. ">Methods</" .. hGroup .. ">"
+for _ , method in ipairs ( methods ) do
+out [
+# out + 1
+] = '<div class="nuppdoc-api-member" id="' .. htmlEscape (
+method . path
+) .. '"><' .. hName .. '><code>' .. htmlEscape ( method . name ) .. "</code></" .. hName .. ">"
+out [ # out + 1 ] = markdownHtml ( method . text , links )
+out [
+# out + 1
+] = '<div class="nuppdoc-code-block" data-lang="nupp"><pre>'
+.. '<code class="language-nupp">'
+.. highlightNupp (
+method . name .. ": " .. method . type ,
+links
+) .. "</code></pre></div>"
+if # method . params > 0 then
+local rows = { }
+for _ , param in ipairs ( method . params ) do
+rows [
+# rows + 1
+] = {
+"<code>" .. htmlEscape ( param . name ) .. "</code>" ,
+inlineNupp ( param . type , links ) ,
+markdownHtml ( param . text , links )
+}
+end
+out [ # out + 1 ] = "<" .. hSub .. ">Arguments</" .. hSub .. ">" .. tableHtml ( { "Name" , "Type" , "Description" } , rows )
+end
+if # method . returns > 0 then
+local rows = { }
+for _ , value in ipairs ( method . returns ) do
+rows [ # rows + 1 ] = { inlineNupp ( value . type , links ) , markdownHtml ( value . text , links ) }
+end
+out [ # out + 1 ] = "<" .. hSub .. ">Returns</" .. hSub .. ">" .. tableHtml ( { "Type" , "Description" } , rows )
+end
+out [ # out + 1 ] = raisesHtml ( method . raises , hSub , links )
+out [ # out + 1 ] = "</div>"
+end
+end
+if # types > 0 then
+out [ # out + 1 ] = "<" .. hGroup .. ">Types</" .. hGroup .. ">"
+for _ , nested in ipairs ( types ) do
+out [
+# out + 1
+] = '<div class="nuppdoc-api-member nuppdoc-api-nested-type" id="' .. htmlEscape (
+nested . path
+) .. '"><' .. hName .. '><code>' .. htmlEscape (
+nested . name
+) .. '</code><span class="nuppdoc-kind-badge nuppdoc-kind-' .. htmlEscape (
+nested . type
+) .. '">' .. htmlEscape ( nested . type ) .. '</span></' .. hName .. '>'
+out [ # out + 1 ] = markdownHtml ( nested . text , links )
+renderHtmlMembers ( out , nested . members , links , level + 2 )
+out [ # out + 1 ] = "</div>"
+end
+end
+if # fields > 0 then
+local rows = { }
+for _ , field in ipairs ( fields ) do
+rows [
+# rows + 1
+] = {
+"<code>" .. htmlEscape ( field . name ) .. "</code>" ,
+inlineNupp ( field . type , links ) ,
+markdownHtml ( field . text , links )
+}
+end
+out [ # out + 1 ] = "<" .. hGroup .. ">Fields</" .. hGroup .. ">" .. tableHtml ( { "Name" , "Type" , "Description" } , rows )
+end
+end
+
 local function renderHtmlItem (
 out ,
 item ,
@@ -38123,61 +38583,7 @@ end
 out [ # out + 1 ] = "<h4>Returns</h4>" .. tableHtml ( { "Type" , "Description" } , rows )
 end
 out [ # out + 1 ] = raisesHtml ( item . raises , "h4" , links )
-local fields , methods = splitMembers ( item . members )
-if # methods > 0 then
-out [ # out + 1 ] = "<h4>Methods</h4>"
-for _ , method in ipairs ( methods ) do
-out [
-# out + 1
-] = '<div class="nuppdoc-api-member" id="' .. htmlEscape (
-method . path
-) .. '"><h5><code>' .. htmlEscape ( method . name ) .. "</code></h5>"
-out [ # out + 1 ] = markdownHtml ( method . text , links )
-out [
-# out + 1
-] = '<div class="nuppdoc-code-block" data-lang="nupp"><pre>'
-.. '<code class="language-nupp">'
-.. highlightNupp (
-method . name .. ": " .. method . type ,
-links
-) .. "</code></pre></div>"
-if # method . params > 0 then
-local rows = { }
-for _ , param in ipairs ( method . params ) do
-rows [
-# rows + 1
-] = {
-"<code>" .. htmlEscape ( param . name ) .. "</code>" ,
-inlineNupp ( param . type , links ) ,
-markdownHtml ( param . text , links )
-}
-end
-out [ # out + 1 ] = "<h6>Arguments</h6>" .. tableHtml ( { "Name" , "Type" , "Description" } , rows )
-end
-if # method . returns > 0 then
-local rows = { }
-for _ , value in ipairs ( method . returns ) do
-rows [ # rows + 1 ] = { inlineNupp ( value . type , links ) , markdownHtml ( value . text , links ) }
-end
-out [ # out + 1 ] = "<h6>Returns</h6>" .. tableHtml ( { "Type" , "Description" } , rows )
-end
-out [ # out + 1 ] = raisesHtml ( method . raises , "h6" , links )
-out [ # out + 1 ] = "</div>"
-end
-end
-if # fields > 0 then
-local rows = { }
-for _ , field in ipairs ( fields ) do
-rows [
-# rows + 1
-] = {
-"<code>" .. htmlEscape ( field . name ) .. "</code>" ,
-inlineNupp ( field . type , links ) ,
-markdownHtml ( field . text , links )
-}
-end
-out [ # out + 1 ] = "<h4>Fields</h4>" .. tableHtml ( { "Name" , "Type" , "Description" } , rows )
-end
+renderHtmlMembers ( out , item . members , links , 4 )
 out [ # out + 1 ] = "</section>"
 end
 
@@ -38230,7 +38636,7 @@ local THEME = [[
 .nuppdoc-code-block.has-line-numbers pre>code{overflow:auto;flex:1;min-width:0}
 .nuppdoc-line-numbers{flex:none;padding-right:.9rem;border-right:1px solid var(--nuppdoc-border);color:var(--nuppdoc-text-faint);font-family:var(--nuppdoc-font-mono);font-size:14px;line-height:1.55;text-align:right;user-select:none;-webkit-user-select:none}
 .nuppdoc-line-numbers span{display:block}
-/* A ```playground fence. Given a height rather than sized to its contents: an
+/* A Nupp or ```playground fence. Given a height rather than sized to its contents: an
  * iframe cannot measure a document it does not share an origin with, and the
  * editor inside scrolls on its own anyway.
  *
@@ -38242,6 +38648,7 @@ local THEME = [[
  * theme's own border toward its text so any palette gets a visible edge; a site
  * that wants the frame to match the panes exactly sets the property. */
 .nuppdoc-playground{display:block;width:100%;height:var(--nuppdoc-playground-height);margin:1.25rem 0;border:1px solid var(--nuppdoc-playground-border);border-radius:var(--nuppdoc-code-block-radius);background:var(--nuppdoc-code-background);color-scheme:normal}
+.nuppdoc-code-group>.nuppdoc-playground,.nuppdoc-code-panel>.nuppdoc-playground{margin:0;border:0;border-radius:0}
 .nuppdoc-logo{width:auto;height:28px;border-radius:5px}
 .nuppdoc-icon-link{display:grid;width:34px;height:34px;place-items:center;padding:0;color:var(--nuppdoc-text-muted);border:0;border-radius:7px;background:transparent;cursor:pointer;text-decoration:none}.nuppdoc-icon-link:hover,.nuppdoc-icon-link[aria-pressed="true"]{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}.nuppdoc-icon-link svg{width:18px;height:18px}.nuppdoc-panel-toggle-right svg{transform:scaleX(-1)}
 .nuppdoc-shell{transition:grid-template-columns 160ms ease}.nuppdoc-shell.is-sidebar-collapsed{grid-template-columns:0 minmax(0,1fr) var(--nuppdoc-outline-width)}.nuppdoc-shell.is-outline-collapsed{grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr) 0}.nuppdoc-shell.is-sidebar-collapsed.is-outline-collapsed{grid-template-columns:0 minmax(0,1fr) 0}.nuppdoc-shell.is-sidebar-collapsed>.nuppdoc-sidebar,.nuppdoc-shell.is-outline-collapsed>.nuppdoc-outline{overflow:hidden;padding-right:0;padding-left:0;border:0;opacity:0;pointer-events:none}
@@ -38570,6 +38977,11 @@ local extract = { }
 
 
 
+extract.Member = {} extract.Member.__index = extract.Member
+
+
+
+
 
 
 
@@ -38640,6 +39052,8 @@ end
 
 
 
+
+
 local function structureSignature ( node , includePrivate )
 local parts = { }
 local function walk ( child )
@@ -38674,7 +39088,9 @@ return
 end
 end
 for _ , nested in ipairs ( child ) do
+if child . kind ~= "funcbody" or nested ~= child . body then
 walk ( nested )
+end
 end
 end
 end
@@ -38870,6 +39286,12 @@ end
 
 
 
+
+
+
+
+
+
 local function recordNamed ( blocks , targetName )
 local function find ( stat , prefix )
 if stat . kind ~= "recordDecl" then
@@ -38896,6 +39318,63 @@ for _ , stat in ipairs ( block . stats or { } ) do
 local found = find ( stat , nil )
 if found then
 return found
+end
+end
+end
+
+local segments = { }
+for segment in targetName : gmatch ( "[^.]+" ) do
+segments [ # segments + 1 ] = segment
+end
+
+local function walk ( stat , index )
+if index > # segments then
+return stat
+end
+for _ , entry in ipairs ( stat . entries or { } ) do
+if entry . kind == "recordDecl" and entry . name and entry . name . text == segments [ index ] then
+local found = walk ( entry , index + 1 )
+if found then
+return found
+end
+end
+end
+
+return nil
+end
+
+local function findRelative ( entries )
+for _ , entry in ipairs ( entries or { } ) do
+if entry . kind == "recordDecl" then
+if entry . name and entry . name . text == segments [ 1 ] then
+local found = walk ( entry , 2 )
+if found then
+return found
+end
+end
+local nested = findRelative ( entry . entries )
+if nested then
+return nested
+end
+end
+end
+
+return nil
+end
+
+for _ , block in ipairs ( blocks or { } ) do
+for _ , stat in ipairs ( block . stats or { } ) do
+if stat . kind == "recordDecl" then
+if stat . name and stat . name . text == segments [ 1 ] then
+local found = walk ( stat , 2 )
+if found then
+return found
+end
+end
+local nested = findRelative ( stat . entries )
+if nested then
+return nested
+end
 end
 end
 end
@@ -38984,6 +39463,92 @@ end
 end
 
 return modules
+end
+
+
+
+
+
+local function buildMembers (
+entries ,
+basePath ,
+includePrivate ,
+fieldTextOverrides
+)
+local members = { }
+for _ , entry in ipairs ( entries or { } ) do
+local entryInfo = parseDoc ( docLines ( entry ) )
+local entryName = entry . name and entry . name . text or ""
+local entryVisible = includePrivate or ( not privateName ( entryName ) and not entryInfo . tags . internal )
+if ( entry . kind == "fieldDecl" or entry . kind == "metamethodDecl" ) and entryVisible then
+local fieldInfo = entryInfo
+local member = setmetatable({ name = 
+entry . name . text ,  type = 
+syntax ( entry . type ) ,  text = 
+fieldInfo . text ~= "" and fieldInfo . text or (
+fieldTextOverrides and fieldTextOverrides [ entry . name . text ]
+) or "" ,  path = 
+basePath .. "." .. entry . name . text ,  params = 
+{ } ,  returns = 
+{ } ,  raises = 
+fieldInfo . raises }, extract.Member)
+
+local fieldFunction = typeFunction ( entry . type )
+if fieldFunction then
+local details = typeFunctionDetails ( fieldFunction , fieldInfo )
+member . params , member . returns = details . params , details . returns
+member . isFunction = true
+end
+if entry . kind == "metamethodDecl" then
+member . isMetamethod = true
+end
+members [ # members + 1 ] = member
+elseif entry . kind == "inlineMethod" and entryVisible then
+local methodInfo = entryInfo
+local details = functionDetails ( entry , methodInfo )
+members [
+# members + 1
+] = setmetatable({ name = 
+entry . name . text ,  type = 
+functionSignature ( entry , entry . name . text ) ,  text = 
+methodInfo . text ,  path = 
+basePath .. "." .. entry . name . text ,  params = 
+details . params ,  returns = 
+details . returns ,  raises = 
+methodInfo . raises ,  isFunction = 
+true }, extract.Member)
+
+elseif entry . kind == "recordDecl" and entryVisible then
+local nestedPath = basePath .. "." .. entry . name . text
+members [
+# members + 1
+] = setmetatable({ name = 
+entry . name . text ,  type = 
+entry . declKind or "record" ,  text = 
+entryInfo . text ,  path = 
+nestedPath ,  params = 
+{ } ,  returns = 
+{ } ,  raises = 
+{ } ,  isType = 
+true ,  members = 
+buildMembers ( entry . entries , nestedPath , includePrivate , entryInfo . fields ) }, extract.Member)
+
+elseif entry . name and entryVisible then
+members [
+# members + 1
+] = setmetatable({ name = 
+entry . name . text ,  type = 
+entry . kind ,  text = 
+entryInfo . text ,  path = 
+basePath .. "." .. entry . name . text ,  params = 
+{ } ,  returns = 
+{ } ,  raises = 
+{ } }, extract.Member)
+
+end
+end
+
+return members
 end
 
 
@@ -39085,63 +39650,70 @@ elseif declaredFunction then
 local details = typeFunctionDetails ( declaredFunction , info )
 item . params , item . returns = details . params , details . returns
 elseif stat . kind == "recordDecl" or stat . kind == "cdefStruct" then
-for _ , entry in ipairs ( stat . entries or { } ) do
-local entryInfo = parseDoc ( docLines ( entry ) )
-local entryName = entry . name and entry . name . text or ""
-local entryVisible = includePrivate or ( not privateName ( entryName ) and not entryInfo . tags . internal )
-if ( entry . kind == "fieldDecl" or entry . kind == "metamethodDecl" ) and entryVisible then
-local fieldInfo = entryInfo
-local member = {
-name = entry . name . text ,
-type = syntax ( entry . type ) ,
-text = fieldInfo . text ~= "" and fieldInfo . text or info . fields [ entry . name . text ] or "" ,
-path = item . path .. "." .. entry . name . text ,
-params = { } ,
-returns = { } ,
-raises = fieldInfo . raises ,
-}
-local fieldFunction = typeFunction ( entry . type )
-if fieldFunction then
-local details = typeFunctionDetails ( fieldFunction , fieldInfo )
-member . params , member . returns = details . params , details . returns
-member . isFunction = true
-end
-if entry . kind == "metamethodDecl" then
-member . isMetamethod = true
-end
-item . members [ # item . members + 1 ] = member
-elseif entry . kind == "inlineMethod" and entryVisible then
-local methodInfo = entryInfo
-local details = functionDetails ( entry , methodInfo )
-item . members [
-# item . members + 1
-] = {
-name = entry . name . text ,
-type = functionSignature ( entry , entry . name . text ) ,
-text = methodInfo . text ,
-path = item . path .. "." .. entry . name . text ,
-params = details . params ,
-returns = details . returns ,
-raises = methodInfo . raises ,
-isFunction = true ,
-}
-elseif entry . name and entryVisible then
-item . members [
-# item . members + 1
-] = {
-name = entry . name . text ,
-type = entry . kind ,
-text = entryInfo . text ,
-path = item . path .. "." .. entry . name . text ,
-params = { } ,
-returns = { } ,
-raises = { } ,
-}
-end
-end
+item . members = buildMembers ( stat . entries , item . path , includePrivate , info . fields )
 end
 
 return item
+end
+
+
+
+
+
+
+
+
+local function memberNamed ( item , name )
+for _ , member in ipairs ( item . members ) do
+if member . name == name then
+return member
+end
+end
+
+return nil
+end
+
+local function foldMethods ( items )
+local types = { }
+for _ , item in ipairs ( items ) do
+if item . kind ~= "function" and item . kind ~= "method" and item . kind ~= "variable" then
+types [ item . path ] = item
+end
+end
+local kept = { }
+for _ , item in ipairs ( items ) do
+local ownerPath = item . kind == "method" and item . path : match ( "^(.*):" ) or nil
+local owner = ownerPath and types [ ownerPath ] or nil
+if owner then
+local name = item . name : match ( "([^:]+)$" ) or item . name
+local declared = memberNamed ( owner , name )
+if declared then
+if declared . text == "" then
+declared . text = item . doc . text
+end
+if # declared . raises == 0 then
+declared . raises = item . raises
+end
+else
+owner . members [
+# owner . members + 1
+] = setmetatable({ name = 
+name ,  type = 
+item . signature ,  text = 
+item . doc . text ,  path = 
+owner . path .. "." .. name ,  params = 
+item . params ,  returns = 
+item . returns ,  raises = 
+item . raises ,  isFunction = 
+true }, extract.Member)
+
+end
+else
+kept [ # kept + 1 ] = item
+end
+end
+
+return kept
 end
 
 local function moduleName ( path , root , includes )
@@ -39244,6 +39816,7 @@ end
 end
 end
 end
+result . items = foldMethods ( result . items )
 table . sort ( result . items , byKindThenName )
 
 return result , { } , extraModules
@@ -39252,14 +39825,15 @@ end
 
 
 
+
 local function splitMembers ( members )
-local fields , methods = { } , { }
+local fields , methods , types = { } , { } , { }
 for _ , member in ipairs ( members or { } ) do
-local into = member . isFunction and methods or fields
+local into = member . isType and types or member . isFunction and methods or fields
 into [ # into + 1 ] = member
 end
 
-return fields , methods
+return fields , methods , types
 end
 
 
@@ -39345,7 +39919,6 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 
-local process = require ( "nupp.compiler.build.process" )
 local fs = require ( "nupp.compiler.fs" )
 
 local files = { }
@@ -39408,17 +39981,8 @@ return filename : sub ( 1 , 1 ) == "_" or relative : match ( "^internal/" ) ~= n
 end
 
 local function listDirectoryFiles ( path )
-local code , output
-if package . config : sub ( 1 , 1 ) == "\\" then
-code , output = process . capture ( { "cmd" , "/c" , "dir" , "/s" , "/b" , path } )
-else
-code , output = process . capture ( { "find" , path , "-type" , "f" } )
-end
-if code ~= 0 then
-return { }
-end
 local paths = { }
-for candidate in output : gmatch ( "[^\r\n]+" ) do
+for _ , candidate in ipairs ( fs . listFiles ( path ) ) do
 candidate = normalize ( candidate )
 if not hiddenBelow ( path , candidate ) then
 paths [ # paths + 1 ] = candidate
@@ -39475,7 +40039,7 @@ return files
 
 end
 package.preload["nupp.compiler.doc.highlight"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[typedef struct NuppBytes NuppBytes;typedef struct NuppUri NuppUri;typedef struct{const uint8_t*data;size_t length;}NuppStringView;const char*nuppNativeError(void);const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);NuppBytes*nuppPathJoin(const NuppStringView*,size_t);NuppBytes*nuppPathNormalize(const uint8_t*,size_t);NuppBytes*nuppPathAbsolute(const uint8_t*,size_t);NuppBytes*nuppPathCanonicalize(const uint8_t*,size_t);NuppBytes*nuppPathRelative(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppPathPart(const uint8_t*,size_t,uint32_t);NuppBytes*nuppPathWith(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppPathIsAbsolute(const uint8_t*,size_t);NuppUri*nuppUriParse(const uint8_t*,size_t);const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);bool nuppUriPort(const NuppUri*,uint16_t*);NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);NuppUri*nuppUriWithPort(const NuppUri*,int32_t);NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);void nuppUriDestroy(NuppUri*);bool nuppUuid4(char*);bool nuppUuid7(char*);bool nuppSha256(const uint8_t*,size_t,char*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);void nuppProcessDestroy(NuppChild*);int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);size_t nuppProcessUncollectedTotal(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end __nuppLazy(__nuppIO,"files",function() local native=__nuppNative();local ffi,C=native.ffi,native.C;ffi.cdef[[NuppBytes*nuppFilesGlob(const uint8_t*,size_t);]];local files={};local record=ffi.new("NuppFileInfo[1]") local KINDS={[1]="file",[2]="directory",[3]="other",[4]="symlink"} local ENTRIES={f="file",d="directory",l="symlink",o="other"} local FOLDERS={home=0,documents=1,downloads=2,desktop=3,pictures=4,music=5,videos=6} local MODES={r=0,w=1,a=2,["r+"]=3,["w+"]=4,["a+"]=5} local ORIGINS={set=0,current=1,["end"]=2} local READ_SIZE=65536 local PENDING,READY=0,1 local SOURCE,PRIORITY="nupp-files",20 local waits={};local suspending local File={};File.__index=File;local Reader={};Reader.__index=Reader;local Writer={};Writer.__index=Writer local function named(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.toString then return value:toString()end;error("nupp: io.files "..what.." must be a path or a string",level)end local function done(answered)if answered then return true end;return false,native.error()end local function answer(handle)if handle==nil then return nil,native.error()end;return native.bytes(handle)end local function described(path,follow,level)local text=named(path,"path",level+1);if not C.nuppFilesInfo(text,#text,follow,record)then return nil end;return record[0]end local function optional(options,field,level)local value=options and options[field];if value==nil then return""end;if type(value)~="string"then error("nupp: io.files temporary "..field.." must be a string",level)end;return value end local function temporary(options,directory,level)local root=options and options.directory and named(options.directory,"temporary directory",level+1)or"";local prefix=optional(options,"prefix",level+1);local suffix=optional(options,"suffix",level+1);return answer(C.nuppFilesCreateTemporary(root,#root,prefix,#prefix,suffix,#suffix,directory))end local function payload(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.getString then return value:getString()end;error("nupp: io.files "..what.." must be bytes or a byte view",level)end local function harvest()local moved=0;local index=#waits;while index>0 do local entry=waits[index];if C.nuppFsStatus(entry.handle)~=PENDING then waits[index]=waits[#waits];waits[#waits]=nil;moved=moved+1;entry.resume(true)end;index=index-1 end;return moved end local function polled()C.nuppFsPoll();return harvest()end local function slept(waitMs)C.nuppFsWait(waitMs);return harvest()end local function forget(entry)for index=1,#waits do if waits[index]==entry then waits[index]=waits[#waits];waits[#waits]=nil;return end end end local function runtime()if suspending==nil then suspending=require("nupp.suspension")end;return suspending end local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,polled,slept);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end local function settled(handle)if handle==nil then return nil,native.error()end;await(handle);if C.nuppFsStatus(handle)~=READY then local reason=ffi.string(C.nuppFsError(handle));C.nuppFsDestroy(handle);return nil,reason end;return handle end local function transferred(handle)local done,reason=settled(handle);if not done then return false,reason end;C.nuppFsDestroy(done);return true end local function fetched(handle)local done,reason=settled(handle);if not done then return nil,reason end;local out=ffi.string(C.nuppFsData(done),tonumber(C.nuppFsLength(done)));C.nuppFsDestroy(done);return out end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: io.files "..what.." must be an integer",level)end;return value end local function counted(value,what,level)if whole(value,what,level)<0 then error("nupp: io.files "..what.." must not be negative",level)end;return value end local function live(self,what,level)if self._closed then error("nupp: io.files "..what.." is closed",level)end;return self end function File:isReleased()return self._closed end function File:close()if self._closed then return true end;self._closed=true;local handle=self._handle;self._handle=nil;C.nuppFileClose(handle);return true end function File:size()live(self,"File",2);local size=tonumber(C.nuppFileSize(self._handle));if size<0 then return nil,native.error()end;return size end function File:seek(offset,origin)live(self,"File",2);local whence=ORIGINS[origin or"set"];if whence==nil then error("nupp: io.files has no seek origin named "..tostring(origin),2)end;local at=tonumber(C.nuppFileSeek(self._handle,whole(offset or 0,"seek offset",2),whence));if at<0 then return nil,native.error()end;return at end function File:position()live(self,"File",2);return self:seek(0,"current")end function File:flush()live(self,"File",2);if C.nuppFileFlush(self._handle)then return true end;return false,native.error()end function File:newReader()live(self,"File",2);return setmetatable({_file=self,_scratch=nil,_capacity=0,_closed=false},Reader)end function File:newWriter()live(self,"File",2);return setmetatable({_file=self,_closed=false},Writer)end local function scratch(self,count)if count>self._capacity then local size=self._capacity*2;if size<count then size=count end;if size<READ_SIZE then size=READ_SIZE end;self._scratch=ffi.new("uint8_t[?]",size);self._capacity=size end;return self._scratch end local function usable(self)if self._closed then return nil,"the reader is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Reader:read(count)local file,reason=usable(self);if not file then return nil,reason end;count=whole(count,"Reader:read count",2);if count<1 then count=1 end;local into=scratch(self,count);local got=tonumber(C.nuppFileRead(file._handle,into,count));if got<0 then return nil,native.error()end;if got==0 then return""end;return ffi.string(into,got)end function Reader:readInto(destination,offset,count)local file,reason=usable(self);if not file then return nil,reason end;offset=counted(offset or 0,"Reader:readInto offset",2);count=counted(count or READ_SIZE,"Reader:readInto count",2);if count==0 then return 0 end;local data=rawget(destination,"_data");local capacity=rawget(destination,"_capacity");if data==nil and capacity==nil then local chunk,why=self:read(count);if chunk==nil then return nil,why end;if #chunk==0 then return 0 end;destination:setString(chunk,offset);return #chunk end;destination:ensureCapacity(offset+count);data=rawget(destination,"_data");local length=rawget(destination,"_length");if offset>length then ffi.fill(data+length,offset-length,0)end;local got=tonumber(C.nuppFileRead(file._handle,data+offset,count));if got<0 then return nil,native.error()end;if offset+got>length then rawset(destination,"_length",offset+got)end;return got end function Reader:transferTo(destination)local file,reason=usable(self);if not file then return nil,reason end;local total=0;while true do local chunk,why=self:read(READ_SIZE);if chunk==nil then return nil,why end;if chunk==""then return total end;local wrote,failure=destination:write(chunk);if not wrote then return nil,failure end;total=total+#chunk end end function Reader:close()self._closed=true;self._scratch=nil;self._capacity=0;return true end local function writable(self)if self._closed then return nil,"the writer is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Writer:write(bytes)local file,reason=writable(self);if not file then return false,reason end;if type(bytes)~="string"then error("nupp: io.files Writer:write needs a string",2)end;if C.nuppFileWrite(file._handle,bytes,#bytes)<0 then return false,native.error()end;return true end function Writer:writeFrom(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeFrom offset",2);count=counted(count==nil and length-offset or count,"Writer:writeFrom count",2);if offset+count>length then error("nupp: io.files Writer:writeFrom range is past the end",2)end;if count==0 then return 0 end;local data=rawget(source,"_data");if data==nil then local wrote,failure=self:write(source:getString(offset,count));if not wrote then return nil,failure end;return count end;if C.nuppFileWrite(file._handle,data+offset,count)<0 then return nil,native.error()end;return count end function Writer:writeView(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeView offset",2);count=counted(count==nil and length-offset or count,"Writer:writeView count",2);if offset+count>length then error("nupp: io.files Writer:writeView range is past the end",2)end;local wrote,failure=self:write(source:getString():sub(offset+1,offset+count));if not wrote then return nil,failure end;return count end function Writer:flush()local file,reason=writable(self);if not file then return false,reason end;return file:flush()end function Writer:close()self._closed=true;return true end function files.info(path)local found=described(path,true,2);if not found then return nil,native.error()end;return{kind=KINDS[tonumber(found.kind)]or"other",size=tonumber(found.size),modified=found.modified,readOnly=found.readOnly}end function files.exists(path)return described(path,true,2)~=nil end function files.isFile(path)local found=described(path,true,2);return found~=nil and found.kind==1 end function files.isDirectory(path)local found=described(path,true,2);return found~=nil and found.kind==2 end function files.isSymlink(path)local found=described(path,false,2);return found~=nil and found.kind==4 end function files.readLink(path)local text=named(path,"path",2);return answer(C.nuppFilesReadLink(text,#text))end function files.createSymlink(target,link,kind)local to=named(target,"symlink target",2);local at=named(link,"symlink path",2);if kind~=nil and kind~="file"and kind~="directory"then error("nupp: io.files symlink kind must be 'file' or 'directory'",2)end;return done(C.nuppFilesCreateSymlink(to,#to,at,#at,kind=="directory"))end function files.setReadOnly(path,readOnly)local text=named(path,"path",2);return done(C.nuppFilesSetReadOnly(text,#text,readOnly and true or false))end function files.createDirectory(path)local text=named(path,"path",2);return done(C.nuppFilesCreateDirectory(text,#text))end function files.remove(path,recursive)local text=named(path,"path",2);return done(C.nuppFilesRemove(text,#text,recursive and true or false))end function files.rename(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return done(C.nuppFilesRename(source,#source,destination,#destination))end function files.list(path)local text=named(path,"path",2);local handle=C.nuppFilesList(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local entries,at={},1;while at<=#blob do local stop=blob:find("\0",at+1,true);entries[#entries+1]={kind=ENTRIES[blob:sub(at,at)]or"other",name=blob:sub(at+1,stop-1)};at=stop+1 end;return entries end function files.glob(pattern)local text=named(pattern,"glob pattern",2);local handle=C.nuppFilesGlob(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local matches,at={},1;while at<=#blob do local stop=blob:find("\0",at,true);if not stop then matches[#matches+1]=blob:sub(at);break end;matches[#matches+1]=blob:sub(at,stop-1);at=stop+1 end;return matches end local Temporary={};Temporary.__index=Temporary;Temporary.__tostring=function(self)return self._text end function Temporary:toString()return self._text end function Temporary:isReleased()return self._closed end function Temporary:persist(destination)if self._closed then return false,"the temporary path is released"end;local to=named(destination,"destination path",2);local moved,reason=done(C.nuppFilesRename(self._text,#self._text,to,#to));if not moved then return false,reason end;self._closed=true;return true end function Temporary:close()if self._closed then return true end;self._closed=true;return done(C.nuppFilesRemove(self._text,#self._text,self._directory))end function files.createTemporaryFile(options)local text,reason=temporary(options,false,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=false,_closed=false},Temporary)end function files.createTemporaryDirectory(options)local text,reason=temporary(options,true,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=true,_closed=false},Temporary)end function files.read(path)local text=named(path,"path",2);return fetched(C.nuppFsSubmitRead(text,#text))end function files.write(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,0))end function files.append(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,1))end function files.writeAtomic(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,2))end function files.copy(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return transferred(C.nuppFsSubmitCopy(source,#source,destination,#destination))end function files.pendingTransfers()return tonumber(C.nuppFsPending())end function files.open(path,mode)local text=named(path,"path",2);local selected=MODES[mode or"r"];if selected==nil then error("nupp: io.files has no mode named "..tostring(mode),2)end;local handle=C.nuppFileOpen(text,#text,selected);if handle==nil then return nil,native.error()end;return setmetatable({_handle=handle,_closed=false},File)end function files.lines(path)local file,reason=files.open(path,"r");if not file then return nil,reason end;local reader=file:newReader();local held,finished="",false;local function trimmed(line)if line:sub(-1)=="\r"then return line:sub(1,-2)end;return line end;return function()if finished then return nil end;while true do local stop=held:find("\n",1,true);if stop then local line=held:sub(1,stop-1);held=held:sub(stop+1);return trimmed(line)end;local chunk=reader:read(READ_SIZE);if chunk==nil or chunk==""then finished=true;file:close();if #held>0 then local line=held;held="";return trimmed(line)end;return nil end;held=held..chunk end end end function files.currentDirectory()return answer(C.nuppFilesCurrentDirectory())end function files.userFolder(which)local index=FOLDERS[which];if index==nil then error("nupp: io.files has no user folder named "..tostring(which),2)end;return answer(C.nuppFilesUserFolder(index))end return files end);
 
 
 
@@ -39903,7 +40467,9 @@ local searchPath = base
 local lexerDir = settings and settings . lexers
 if lexerDir then
 local custom = join ( root , lexerDir )
-if exists ( custom ) then
+
+
+if nupp . io . files . isDirectory ( custom ) then
 searchPath = custom .. ";" .. base
 end
 end
@@ -40099,6 +40665,8 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 
+
+
 local stringsMod = require ( "nupp.compiler.doc.strings" )
 local highlightMod = require ( "nupp.compiler.doc.highlight" )
 local urlsMod = require ( "nupp.compiler.doc.urls" )
@@ -40213,14 +40781,38 @@ return ( "%%%02X" ) : format ( c : byte ( ) )
 end ) )
 end
 
-local function playgroundHtml ( source , caption )
+local function playgroundHeight ( source )
+local lines = 1
+for _ in source : gmatch ( "\n" ) do
+lines = lines + 1
+end
+
+
+
+
+return math . min ( 30 , 5.5 + lines * 1.35 )
+end
+
+local function playgroundHtml ( source , caption , compact )
 local trimmed = trim ( source )
 local title = caption or "Nupp playground: an editor that checks as you type"
 return '<iframe class="nuppdoc-playground" title="' .. htmlEscape (
 title
-) .. '" loading="lazy" src="' .. PLAYGROUND_EMBED .. (
+) .. '" loading="lazy"' .. (
+compact and ( ' style="height:' .. tostring ( playgroundHeight ( trimmed ) ) .. 'rem"' ) or ""
+) .. ' src="' .. PLAYGROUND_EMBED .. (
 trimmed ~= "" and "#source=" .. urlFragmentEscape ( trimmed ) or ""
 ) .. '"></iframe>'
+end
+
+local function renderedCodeBlockHtml ( block , links )
+if block . language == "playground" then
+return playgroundHtml ( block . source , block . caption )
+end
+if block . language == "nupp" and not block . static and not block . firstLine then
+return playgroundHtml ( block . source , block . caption , true )
+end
+return codeBlockHtml ( block . source , block . language , links , block . firstLine )
 end
 
 local function codeGroupHtml ( blocks , links )
@@ -40233,7 +40825,7 @@ end
 if # labeled == 0 then
 local out = { '<div class="nuppdoc-code-group" role="group">' }
 for _ , block in ipairs ( blocks ) do
-out [ # out + 1 ] = codeBlockHtml ( block . source , block . language , links , block . firstLine )
+out [ # out + 1 ] = renderedCodeBlockHtml ( block , links )
 end
 out [ # out + 1 ] = "</div>"
 return table . concat ( out )
@@ -40249,11 +40841,9 @@ out [
 index == 1 and " checked" or ""
 ) .. '><label class="nuppdoc-code-tab" for="' .. id .. '">' .. htmlEscape (
 block . caption
-) .. '</label><figure class="nuppdoc-code-panel">' .. codeBlockHtml (
-block . source ,
-block . language ,
-links ,
-block . firstLine
+) .. '</label><figure class="nuppdoc-code-panel">' .. renderedCodeBlockHtml (
+block ,
+links
 ) .. '</figure>'
 end
 out [ # out + 1 ] = "</div>"
@@ -40299,6 +40889,7 @@ return {
 language = language ~= "" and language or "text" ,
 caption = options : match ( "%[([^%]]+)%]" ) ,
 firstLine = lineNumberStart ( options ) ,
+static = options : find ( ":static" , 1 , true ) ~= nil ,
 source = table . concat ( code , "\n" ) ,
 } , index + 1
 end
@@ -40374,10 +40965,13 @@ end
 elseif lines [ index ] : match ( "^```" ) then
 local block , after = readFence ( lines , index )
 index = after - 1
-if block . language == "playground" then
-placeholder ( playgroundHtml ( block . source , block . caption ) )
+local interactive = block . language == "playground" or (
+block . language == "nupp" and not block . static and not block . firstLine
+)
+if interactive then
+placeholder ( renderedCodeBlockHtml ( block , links ) )
 else
-local markup = codeBlockHtml ( block . source , block . language , links , block . firstLine )
+local markup = renderedCodeBlockHtml ( block , links )
 if block . caption then
 markup = '<figure class="nuppdoc-labeled-code"><figcaption>' .. htmlEscape (
 block . caption
@@ -40451,7 +41045,10 @@ writer ,
 end
 
 markdownHtml = function ( text , links , headingShift )
-text = tostring ( text or "" )
+
+
+
+text = tostring ( text or "" ) : gsub ( "\r\n?" , "\n" )
 if text == "" then
 return ""
 end
@@ -40571,17 +41168,12 @@ local function cell ( text )
 return markdownCell ( prose ( text ) )
 end
 
+local splitMembers = extractMod . splitMembers
 
 
 
-local function splitMembers ( members )
-local fields , methods = { } , { }
-for _ , member in ipairs ( members or { } ) do
-local into = member . isFunction and methods or fields
-into [ # into + 1 ] = member
-end
-
-return fields , methods
+local function heading ( level )
+return ( "#" ) : rep ( math . min ( level , 6 ) )
 end
 
 local function markdownArguments ( out , params , heading )
@@ -40630,9 +41222,69 @@ end
 out [ # out + 1 ] = ""
 end
 
-local function renderMarkdownItem ( out , item , constructorPattern )
+
+
+
+
+
+local function renderMarkdownMembers ( out , members , level )
+local fields , methods , types = splitMembers ( members )
+local hGroup , hName , hSub = heading ( level ) , heading ( level + 1 ) , heading ( level + 2 )
+if # methods > 0 then
+out [ # out + 1 ] = hGroup .. " Methods"
+out [ # out + 1 ] = ""
+for _ , method in ipairs ( methods ) do
+out [ # out + 1 ] = '<a id="' .. method . path .. '"></a>'
+out [ # out + 1 ] = hName .. " `" .. method . name .. "`"
+out [ # out + 1 ] = ""
+if method . text ~= "" then
+out [ # out + 1 ] = prose ( method . text )
+out [ # out + 1 ] = ""
+end
+out [ # out + 1 ] = "```nupp"
+out [ # out + 1 ] = method . name .. ": " .. method . type
+out [ # out + 1 ] = "```"
+out [ # out + 1 ] = ""
+markdownArguments ( out , method . params , hSub )
+markdownReturns ( out , method . returns , hSub )
+markdownRaises ( out , method . raises , hSub )
+end
+end
+if # types > 0 then
+out [ # out + 1 ] = hGroup .. " Types"
+out [ # out + 1 ] = ""
+for _ , nested in ipairs ( types ) do
+out [ # out + 1 ] = '<a id="' .. nested . path .. '"></a>'
+out [ # out + 1 ] = hName .. " `" .. nested . name .. "` _" .. nested . type .. "_"
+out [ # out + 1 ] = ""
+if nested . text ~= "" then
+out [ # out + 1 ] = prose ( nested . text )
+out [ # out + 1 ] = ""
+end
+renderMarkdownMembers ( out , nested . members , level + 2 )
+end
+end
+if # fields > 0 then
+out [ # out + 1 ] = hGroup .. " Fields"
+out [ # out + 1 ] = ""
+out [ # out + 1 ] = "| Name | Type | Description |"
+out [ # out + 1 ] = "| --- | --- | --- |"
+for _ , field in ipairs ( fields ) do
+out [
+# out + 1
+] = "| `" .. markdownEscape (
+field . name
+) .. "` | `" .. markdownEscape ( field . type ) .. "` | " .. cell ( field . text ) .. " |"
+end
+out [ # out + 1 ] = ""
+end
+end
+
+local function renderMarkdownItem ( out , item , constructorPattern , level )
+level = level or 3
+local h , hSub = heading ( level ) , heading ( level + 1 )
 out [ # out + 1 ] = '<a id="' .. item . path .. '"></a>'
-out [ # out + 1 ] = "### `" .. item . name .. "` _" .. displayKind ( item , constructorPattern ) .. "_"
+out [ # out + 1 ] = h .. " `" .. item . name .. "` _" .. displayKind ( item , constructorPattern ) .. "_"
 out [ # out + 1 ] = ""
 
 
@@ -40647,7 +41299,7 @@ out [ # out + 1 ] = item . signature
 out [ # out + 1 ] = "```"
 out [ # out + 1 ] = ""
 if # item . typeargs > 0 then
-out [ # out + 1 ] = "#### Type parameters"
+out [ # out + 1 ] = hSub .. " Type parameters"
 out [ # out + 1 ] = ""
 out [ # out + 1 ] = "| Name | Description |"
 out [ # out + 1 ] = "| --- | --- |"
@@ -40656,44 +41308,10 @@ out [ # out + 1 ] = "| `" .. markdownEscape ( typearg . name ) .. "` | " .. cell
 end
 out [ # out + 1 ] = ""
 end
-markdownArguments ( out , item . params , "####" )
-markdownReturns ( out , item . returns , "####" )
-markdownRaises ( out , item . raises , "####" )
-local fields , methods = splitMembers ( item . members )
-if # methods > 0 then
-out [ # out + 1 ] = "#### Methods"
-out [ # out + 1 ] = ""
-for _ , method in ipairs ( methods ) do
-out [ # out + 1 ] = '<a id="' .. method . path .. '"></a>'
-out [ # out + 1 ] = "##### `" .. method . name .. "`"
-out [ # out + 1 ] = ""
-if method . text ~= "" then
-out [ # out + 1 ] = prose ( method . text )
-out [ # out + 1 ] = ""
-end
-out [ # out + 1 ] = "```nupp"
-out [ # out + 1 ] = method . name .. ": " .. method . type
-out [ # out + 1 ] = "```"
-out [ # out + 1 ] = ""
-markdownArguments ( out , method . params , "######" )
-markdownReturns ( out , method . returns , "######" )
-markdownRaises ( out , method . raises , "######" )
-end
-end
-if # fields > 0 then
-out [ # out + 1 ] = "#### Fields"
-out [ # out + 1 ] = ""
-out [ # out + 1 ] = "| Name | Type | Description |"
-out [ # out + 1 ] = "| --- | --- | --- |"
-for _ , field in ipairs ( fields ) do
-out [
-# out + 1
-] = "| `" .. markdownEscape (
-field . name
-) .. "` | `" .. markdownEscape ( field . type ) .. "` | " .. cell ( field . text ) .. " |"
-end
-out [ # out + 1 ] = ""
-end
+markdownArguments ( out , item . params , hSub )
+markdownReturns ( out , item . returns , hSub )
+markdownRaises ( out , item . raises , hSub )
+renderMarkdownMembers ( out , item . members , level + 1 )
 end
 
 
@@ -41220,7 +41838,11 @@ out [
 ] = '<img src="' .. htmlEscape ( feature . image ) .. '" alt="' .. htmlEscape ( feature . imageAlt or "" ) .. '">'
 elseif feature . code then
 local language = feature . codeLanguage or "nupp"
-out [ # out + 1 ] = markdownHtml ( "```" .. language .. "\n" .. feature . code .. "\n```" , links )
+
+
+
+local fence = language == "nupp" and "nupp:static" or language
+out [ # out + 1 ] = markdownHtml ( "```" .. fence .. "\n" .. feature . code .. "\n```" , links )
 elseif feature . icon then
 out [
 # out + 1
@@ -41799,7 +42421,7 @@ local lines = { }
 local pending = { }
 for _ , trivia in ipairs ( token and token . trivia or { } ) do
 if trivia . kind == "comment" and trivia . text : match ( "^%-%-%-" ) then
-pending [ # pending + 1 ] = trivia . text : gsub ( "^%-%-%- ?" , "" , 1 )
+pending [ # pending + 1 ] = trivia . text : gsub ( "^%-%-%- ?" , "" , 1 ) : gsub ( "\r$" , "" )
 elseif trivia . kind == "comment" then
 pending = { }
 elseif trivia . kind == "whitespace" then
@@ -41928,8 +42550,13 @@ local cst = require ( "nupp.compiler.cst" )
 local T = require ( "nupp.compiler.types" )
 local annotationMod = require ( "nupp.compiler.annotations" )
 local native = require ( "nupp.compiler.native" )
+local fs = require ( "nupp.compiler.fs" )
 
 local envMod = { }
+
+
+
+
 
 
 
@@ -42268,24 +42895,22 @@ end
 
 
 local function listLjppFiles ( root , withDeclarations )
-local command
-local relativeTo = nil
 if package . config : sub ( 1 , 1 ) == "\\" then
-command = ( 'dir /s /b "%s\\*.nupp" 2>nul' ) : format ( root : gsub ( '"' , '""' ) )
-if not normalizePath ( root ) : match ( "^%a:/" ) then
-local cwd = io . popen ( "cd" )
-relativeTo = cwd and normalizePath ( cwd : read ( "*l" ) or "" ) or nil
-if cwd then
-cwd : close ( )
+local files = { }
+for _ , path in ipairs ( fs . listFiles ( root ) ) do
+if path : match ( "%.nupp$" )
+and ( withDeclarations or not path : match ( "%.d%.nupp$" ) ) then
+files [ # files + 1 ] = path
 end
 end
-else
-command = "find " .. shellQuote (
+
+return files
+end
+local command = "find " .. shellQuote (
 root
 ) .. " -type d -name '.?*' -prune -o -type f -name '*.nupp'" .. (
 withDeclarations and "" or " ! -name '*.d.nupp'"
 ) .. " -print 2>/dev/null"
-end
 local pipe = io . popen ( command )
 if not pipe then
 return { }
@@ -42293,9 +42918,6 @@ end
 local files = { }
 for path in pipe : lines ( ) do
 path = normalizePath ( path )
-if relativeTo and path : sub ( 1 , # relativeTo + 1 ) : lower ( ) == ( relativeTo .. "/" ) : lower ( ) then
-path = path : sub ( # relativeTo + 2 )
-end
 files [ # files + 1 ] = path
 end
 pipe : close ( )
@@ -43167,14 +43789,20 @@ annotationMod . hydrateBuiltins ( env . annotations , T )
 
 local config = opts and opts . config or configAt ( rootDir )
 env . config = config or { }
+local selectedTarget = env . config . _target
+or require ( "nupp.compiler.build.tasks" ) . targetConfig ( env . config )
+env . layoutTarget = selectedTarget and selectedTarget . layoutTarget or nil
 
 local typeRoots = opts and opts . typeRoots or nil
 if not typeRoots then
 
 
 
-local target = require ( "nupp.compiler.build.tasks" ) . targetConfig ( env . config )
-local rocks = target and require ( "nupp.compiler.build.deps" ) . rockPaths ( rootDir , env . config , target ) or nil
+local rocks = selectedTarget and require ( "nupp.compiler.build.deps" ) . rockPaths (
+rootDir ,
+env . config ,
+selectedTarget
+) or nil
 typeRoots = rocks and rocks . typeRoots or { }
 end
 env . typeRoots = { }
@@ -43254,7 +43882,9 @@ local BUNDLED = { [
 "nupp.resource_set"
 ] = "/decls/resource_set.d.nupp" , [
 "nupp.io.processnative"
-] = "/decls/processnative.d.nupp" , }
+] = "/decls/processnative.d.nupp" , [
+"nupp.io.httpnative"
+] = "/decls/httpnative.d.nupp" , [ "nupp.workers.native" ] = "/decls/workersnative.d.nupp" , }
 
 
 
@@ -43266,8 +43896,11 @@ local BUNDLED_SOURCE = {
 [ "nupp.zone" ] = "/nupp/zone.nupp" ,
 [ "nupp.profile" ] = "/nupp/profile.nupp" ,
 [ "nupp.span" ] = "/nupp/span.nupp" ,
+[ "nupp.suspension" ] = "/nupp/suspension.nupp" ,
 [ "nupp.io.process" ] = "/nupp/io/process.nupp" ,
 [ "nupp.io.processtypes" ] = "/nupp/io/processtypes.nupp" ,
+[ "nupp.workers" ] = "/nupp/workers.nupp" ,
+[ "nupp.io.http" ] = "/nupp/io/http.nupp" ,
 }
 
 
@@ -45890,7 +46523,7 @@ return displayWidth
 
 end
 package.preload["nupp.compiler.fs"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[typedef struct NuppBytes NuppBytes;typedef struct NuppUri NuppUri;typedef struct{const uint8_t*data;size_t length;}NuppStringView;const char*nuppNativeError(void);const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);NuppBytes*nuppPathJoin(const NuppStringView*,size_t);NuppBytes*nuppPathNormalize(const uint8_t*,size_t);NuppBytes*nuppPathAbsolute(const uint8_t*,size_t);NuppBytes*nuppPathCanonicalize(const uint8_t*,size_t);NuppBytes*nuppPathRelative(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppPathPart(const uint8_t*,size_t,uint32_t);NuppBytes*nuppPathWith(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppPathIsAbsolute(const uint8_t*,size_t);NuppUri*nuppUriParse(const uint8_t*,size_t);const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);bool nuppUriPort(const NuppUri*,uint16_t*);NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);NuppUri*nuppUriWithPort(const NuppUri*,int32_t);NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);void nuppUriDestroy(NuppUri*);bool nuppUuid4(char*);bool nuppUuid7(char*);bool nuppSha256(const uint8_t*,size_t,char*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);void nuppProcessDestroy(NuppChild*);int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);size_t nuppProcessUncollectedTotal(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end __nuppLazy(__nuppIO,"files",function() local native=__nuppNative();local ffi,C=native.ffi,native.C;ffi.cdef[[NuppBytes*nuppFilesGlob(const uint8_t*,size_t);]];local files={};local record=ffi.new("NuppFileInfo[1]") local KINDS={[1]="file",[2]="directory",[3]="other",[4]="symlink"} local ENTRIES={f="file",d="directory",l="symlink",o="other"} local FOLDERS={home=0,documents=1,downloads=2,desktop=3,pictures=4,music=5,videos=6} local MODES={r=0,w=1,a=2,["r+"]=3,["w+"]=4,["a+"]=5} local ORIGINS={set=0,current=1,["end"]=2} local READ_SIZE=65536 local PENDING,READY,WAIT_SLICE=0,1,25 local SOURCE,PRIORITY="nupp-files",20 local waits={};local suspending local File={};File.__index=File;local Reader={};Reader.__index=Reader;local Writer={};Writer.__index=Writer local function named(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.toString then return value:toString()end;error("nupp: io.files "..what.." must be a path or a string",level)end local function done(answered)if answered then return true end;return false,native.error()end local function answer(handle)if handle==nil then return nil,native.error()end;return native.bytes(handle)end local function described(path,follow,level)local text=named(path,"path",level+1);if not C.nuppFilesInfo(text,#text,follow,record)then return nil end;return record[0]end local function optional(options,field,level)local value=options and options[field];if value==nil then return""end;if type(value)~="string"then error("nupp: io.files temporary "..field.." must be a string",level)end;return value end local function temporary(options,directory,level)local root=options and options.directory and named(options.directory,"temporary directory",level+1)or"";local prefix=optional(options,"prefix",level+1);local suffix=optional(options,"suffix",level+1);return answer(C.nuppFilesCreateTemporary(root,#root,prefix,#prefix,suffix,#suffix,directory))end local function payload(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.getString then return value:getString()end;error("nupp: io.files "..what.." must be bytes or a byte view",level)end local function harvest()local moved=0;local index=#waits;while index>0 do local entry=waits[index];if C.nuppFsStatus(entry.handle)~=PENDING then waits[index]=waits[#waits];waits[#waits]=nil;moved=moved+1;entry.resume(true)end;index=index-1 end;return moved end local function polled()C.nuppFsPoll();return harvest()end local function slept()C.nuppFsWait(WAIT_SLICE);return harvest()end local function forget(entry)for index=1,#waits do if waits[index]==entry then waits[index]=waits[#waits];waits[#waits]=nil;return end end end local function runtime()if suspending==nil then suspending=require("nupp.suspension")end;return suspending end local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();local pump=suspension.handled()and polled or slept;suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,pump);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end local function settled(handle)if handle==nil then return nil,native.error()end;await(handle);if C.nuppFsStatus(handle)~=READY then local reason=ffi.string(C.nuppFsError(handle));C.nuppFsDestroy(handle);return nil,reason end;return handle end local function transferred(handle)local done,reason=settled(handle);if not done then return false,reason end;C.nuppFsDestroy(done);return true end local function fetched(handle)local done,reason=settled(handle);if not done then return nil,reason end;local out=ffi.string(C.nuppFsData(done),tonumber(C.nuppFsLength(done)));C.nuppFsDestroy(done);return out end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: io.files "..what.." must be an integer",level)end;return value end local function counted(value,what,level)if whole(value,what,level)<0 then error("nupp: io.files "..what.." must not be negative",level)end;return value end local function live(self,what,level)if self._closed then error("nupp: io.files "..what.." is closed",level)end;return self end function File:isReleased()return self._closed end function File:close()if self._closed then return true end;self._closed=true;local handle=self._handle;self._handle=nil;C.nuppFileClose(handle);return true end function File:size()live(self,"File",2);local size=tonumber(C.nuppFileSize(self._handle));if size<0 then return nil,native.error()end;return size end function File:seek(offset,origin)live(self,"File",2);local whence=ORIGINS[origin or"set"];if whence==nil then error("nupp: io.files has no seek origin named "..tostring(origin),2)end;local at=tonumber(C.nuppFileSeek(self._handle,whole(offset or 0,"seek offset",2),whence));if at<0 then return nil,native.error()end;return at end function File:position()live(self,"File",2);return self:seek(0,"current")end function File:flush()live(self,"File",2);if C.nuppFileFlush(self._handle)then return true end;return false,native.error()end function File:newReader()live(self,"File",2);return setmetatable({_file=self,_scratch=nil,_capacity=0,_closed=false},Reader)end function File:newWriter()live(self,"File",2);return setmetatable({_file=self,_closed=false},Writer)end local function scratch(self,count)if count>self._capacity then local size=self._capacity*2;if size<count then size=count end;if size<READ_SIZE then size=READ_SIZE end;self._scratch=ffi.new("uint8_t[?]",size);self._capacity=size end;return self._scratch end local function usable(self)if self._closed then return nil,"the reader is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Reader:read(count)local file,reason=usable(self);if not file then return nil,reason end;count=whole(count,"Reader:read count",2);if count<1 then count=1 end;local into=scratch(self,count);local got=tonumber(C.nuppFileRead(file._handle,into,count));if got<0 then return nil,native.error()end;if got==0 then return""end;return ffi.string(into,got)end function Reader:readInto(destination,offset,count)local file,reason=usable(self);if not file then return nil,reason end;offset=counted(offset or 0,"Reader:readInto offset",2);count=counted(count or READ_SIZE,"Reader:readInto count",2);if count==0 then return 0 end;local data=rawget(destination,"_data");local capacity=rawget(destination,"_capacity");if data==nil and capacity==nil then local chunk,why=self:read(count);if chunk==nil then return nil,why end;if #chunk==0 then return 0 end;destination:setString(chunk,offset);return #chunk end;destination:ensureCapacity(offset+count);data=rawget(destination,"_data");local length=rawget(destination,"_length");if offset>length then ffi.fill(data+length,offset-length,0)end;local got=tonumber(C.nuppFileRead(file._handle,data+offset,count));if got<0 then return nil,native.error()end;if offset+got>length then rawset(destination,"_length",offset+got)end;return got end function Reader:transferTo(destination)local file,reason=usable(self);if not file then return nil,reason end;local total=0;while true do local chunk,why=self:read(READ_SIZE);if chunk==nil then return nil,why end;if chunk==""then return total end;local wrote,failure=destination:write(chunk);if not wrote then return nil,failure end;total=total+#chunk end end function Reader:close()self._closed=true;self._scratch=nil;self._capacity=0;return true end local function writable(self)if self._closed then return nil,"the writer is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Writer:write(bytes)local file,reason=writable(self);if not file then return false,reason end;if type(bytes)~="string"then error("nupp: io.files Writer:write needs a string",2)end;if C.nuppFileWrite(file._handle,bytes,#bytes)<0 then return false,native.error()end;return true end function Writer:writeFrom(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeFrom offset",2);count=counted(count==nil and length-offset or count,"Writer:writeFrom count",2);if offset+count>length then error("nupp: io.files Writer:writeFrom range is past the end",2)end;if count==0 then return 0 end;local data=rawget(source,"_data");if data==nil then local wrote,failure=self:write(source:getString(offset,count));if not wrote then return nil,failure end;return count end;if C.nuppFileWrite(file._handle,data+offset,count)<0 then return nil,native.error()end;return count end function Writer:writeView(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeView offset",2);count=counted(count==nil and length-offset or count,"Writer:writeView count",2);if offset+count>length then error("nupp: io.files Writer:writeView range is past the end",2)end;local wrote,failure=self:write(source:getString():sub(offset+1,offset+count));if not wrote then return nil,failure end;return count end function Writer:flush()local file,reason=writable(self);if not file then return false,reason end;return file:flush()end function Writer:close()self._closed=true;return true end function files.info(path)local found=described(path,true,2);if not found then return nil,native.error()end;return{kind=KINDS[tonumber(found.kind)]or"other",size=tonumber(found.size),modified=found.modified,readOnly=found.readOnly}end function files.exists(path)return described(path,true,2)~=nil end function files.isFile(path)local found=described(path,true,2);return found~=nil and found.kind==1 end function files.isDirectory(path)local found=described(path,true,2);return found~=nil and found.kind==2 end function files.isSymlink(path)local found=described(path,false,2);return found~=nil and found.kind==4 end function files.readLink(path)local text=named(path,"path",2);return answer(C.nuppFilesReadLink(text,#text))end function files.createSymlink(target,link,kind)local to=named(target,"symlink target",2);local at=named(link,"symlink path",2);if kind~=nil and kind~="file"and kind~="directory"then error("nupp: io.files symlink kind must be 'file' or 'directory'",2)end;return done(C.nuppFilesCreateSymlink(to,#to,at,#at,kind=="directory"))end function files.setReadOnly(path,readOnly)local text=named(path,"path",2);return done(C.nuppFilesSetReadOnly(text,#text,readOnly and true or false))end function files.createDirectory(path)local text=named(path,"path",2);return done(C.nuppFilesCreateDirectory(text,#text))end function files.remove(path,recursive)local text=named(path,"path",2);return done(C.nuppFilesRemove(text,#text,recursive and true or false))end function files.rename(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return done(C.nuppFilesRename(source,#source,destination,#destination))end function files.list(path)local text=named(path,"path",2);local handle=C.nuppFilesList(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local entries,at={},1;while at<=#blob do local stop=blob:find("\0",at+1,true);entries[#entries+1]={kind=ENTRIES[blob:sub(at,at)]or"other",name=blob:sub(at+1,stop-1)};at=stop+1 end;return entries end function files.glob(pattern)local text=named(pattern,"glob pattern",2);local handle=C.nuppFilesGlob(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local matches,at={},1;while at<=#blob do local stop=blob:find("\0",at,true);if not stop then matches[#matches+1]=blob:sub(at);break end;matches[#matches+1]=blob:sub(at,stop-1);at=stop+1 end;return matches end local Temporary={};Temporary.__index=Temporary;Temporary.__tostring=function(self)return self._text end function Temporary:toString()return self._text end function Temporary:isReleased()return self._closed end function Temporary:persist(destination)if self._closed then return false,"the temporary path is released"end;local to=named(destination,"destination path",2);local moved,reason=done(C.nuppFilesRename(self._text,#self._text,to,#to));if not moved then return false,reason end;self._closed=true;return true end function Temporary:close()if self._closed then return true end;self._closed=true;return done(C.nuppFilesRemove(self._text,#self._text,self._directory))end function files.createTemporaryFile(options)local text,reason=temporary(options,false,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=false,_closed=false},Temporary)end function files.createTemporaryDirectory(options)local text,reason=temporary(options,true,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=true,_closed=false},Temporary)end function files.read(path)local text=named(path,"path",2);return fetched(C.nuppFsSubmitRead(text,#text))end function files.write(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,0))end function files.append(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,1))end function files.writeAtomic(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,2))end function files.copy(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return transferred(C.nuppFsSubmitCopy(source,#source,destination,#destination))end function files.pendingTransfers()return tonumber(C.nuppFsPending())end function files.open(path,mode)local text=named(path,"path",2);local selected=MODES[mode or"r"];if selected==nil then error("nupp: io.files has no mode named "..tostring(mode),2)end;local handle=C.nuppFileOpen(text,#text,selected);if handle==nil then return nil,native.error()end;return setmetatable({_handle=handle,_closed=false},File)end function files.lines(path)local file,reason=files.open(path,"r");if not file then return nil,reason end;local reader=file:newReader();local held,finished="",false;local function trimmed(line)if line:sub(-1)=="\r"then return line:sub(1,-2)end;return line end;return function()if finished then return nil end;while true do local stop=held:find("\n",1,true);if stop then local line=held:sub(1,stop-1);held=held:sub(stop+1);return trimmed(line)end;local chunk=reader:read(READ_SIZE);if chunk==nil or chunk==""then finished=true;file:close();if #held>0 then local line=held;held="";return trimmed(line)end;return nil end;held=held..chunk end end end function files.currentDirectory()return answer(C.nuppFilesCurrentDirectory())end function files.userFolder(which)local index=FOLDERS[which];if index==nil then error("nupp: io.files has no user folder named "..tostring(which),2)end;return answer(C.nuppFilesUserFolder(index))end return files end);
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[typedef struct NuppBytes NuppBytes;typedef struct NuppUri NuppUri;typedef struct{const uint8_t*data;size_t length;}NuppStringView;const char*nuppNativeError(void);const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);NuppBytes*nuppPathJoin(const NuppStringView*,size_t);NuppBytes*nuppPathNormalize(const uint8_t*,size_t);NuppBytes*nuppPathAbsolute(const uint8_t*,size_t);NuppBytes*nuppPathCanonicalize(const uint8_t*,size_t);NuppBytes*nuppPathRelative(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppPathPart(const uint8_t*,size_t,uint32_t);NuppBytes*nuppPathWith(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppPathIsAbsolute(const uint8_t*,size_t);NuppUri*nuppUriParse(const uint8_t*,size_t);const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);bool nuppUriPort(const NuppUri*,uint16_t*);NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);NuppUri*nuppUriWithPort(const NuppUri*,int32_t);NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);void nuppUriDestroy(NuppUri*);bool nuppUuid4(char*);bool nuppUuid7(char*);bool nuppSha256(const uint8_t*,size_t,char*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);void nuppProcessDestroy(NuppChild*);int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);size_t nuppProcessUncollectedTotal(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end __nuppLazy(__nuppIO,"files",function() local native=__nuppNative();local ffi,C=native.ffi,native.C;ffi.cdef[[NuppBytes*nuppFilesGlob(const uint8_t*,size_t);]];local files={};local record=ffi.new("NuppFileInfo[1]") local KINDS={[1]="file",[2]="directory",[3]="other",[4]="symlink"} local ENTRIES={f="file",d="directory",l="symlink",o="other"} local FOLDERS={home=0,documents=1,downloads=2,desktop=3,pictures=4,music=5,videos=6} local MODES={r=0,w=1,a=2,["r+"]=3,["w+"]=4,["a+"]=5} local ORIGINS={set=0,current=1,["end"]=2} local READ_SIZE=65536 local PENDING,READY=0,1 local SOURCE,PRIORITY="nupp-files",20 local waits={};local suspending local File={};File.__index=File;local Reader={};Reader.__index=Reader;local Writer={};Writer.__index=Writer local function named(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.toString then return value:toString()end;error("nupp: io.files "..what.." must be a path or a string",level)end local function done(answered)if answered then return true end;return false,native.error()end local function answer(handle)if handle==nil then return nil,native.error()end;return native.bytes(handle)end local function described(path,follow,level)local text=named(path,"path",level+1);if not C.nuppFilesInfo(text,#text,follow,record)then return nil end;return record[0]end local function optional(options,field,level)local value=options and options[field];if value==nil then return""end;if type(value)~="string"then error("nupp: io.files temporary "..field.." must be a string",level)end;return value end local function temporary(options,directory,level)local root=options and options.directory and named(options.directory,"temporary directory",level+1)or"";local prefix=optional(options,"prefix",level+1);local suffix=optional(options,"suffix",level+1);return answer(C.nuppFilesCreateTemporary(root,#root,prefix,#prefix,suffix,#suffix,directory))end local function payload(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.getString then return value:getString()end;error("nupp: io.files "..what.." must be bytes or a byte view",level)end local function harvest()local moved=0;local index=#waits;while index>0 do local entry=waits[index];if C.nuppFsStatus(entry.handle)~=PENDING then waits[index]=waits[#waits];waits[#waits]=nil;moved=moved+1;entry.resume(true)end;index=index-1 end;return moved end local function polled()C.nuppFsPoll();return harvest()end local function slept(waitMs)C.nuppFsWait(waitMs);return harvest()end local function forget(entry)for index=1,#waits do if waits[index]==entry then waits[index]=waits[#waits];waits[#waits]=nil;return end end end local function runtime()if suspending==nil then suspending=require("nupp.suspension")end;return suspending end local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,polled,slept);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end local function settled(handle)if handle==nil then return nil,native.error()end;await(handle);if C.nuppFsStatus(handle)~=READY then local reason=ffi.string(C.nuppFsError(handle));C.nuppFsDestroy(handle);return nil,reason end;return handle end local function transferred(handle)local done,reason=settled(handle);if not done then return false,reason end;C.nuppFsDestroy(done);return true end local function fetched(handle)local done,reason=settled(handle);if not done then return nil,reason end;local out=ffi.string(C.nuppFsData(done),tonumber(C.nuppFsLength(done)));C.nuppFsDestroy(done);return out end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: io.files "..what.." must be an integer",level)end;return value end local function counted(value,what,level)if whole(value,what,level)<0 then error("nupp: io.files "..what.." must not be negative",level)end;return value end local function live(self,what,level)if self._closed then error("nupp: io.files "..what.." is closed",level)end;return self end function File:isReleased()return self._closed end function File:close()if self._closed then return true end;self._closed=true;local handle=self._handle;self._handle=nil;C.nuppFileClose(handle);return true end function File:size()live(self,"File",2);local size=tonumber(C.nuppFileSize(self._handle));if size<0 then return nil,native.error()end;return size end function File:seek(offset,origin)live(self,"File",2);local whence=ORIGINS[origin or"set"];if whence==nil then error("nupp: io.files has no seek origin named "..tostring(origin),2)end;local at=tonumber(C.nuppFileSeek(self._handle,whole(offset or 0,"seek offset",2),whence));if at<0 then return nil,native.error()end;return at end function File:position()live(self,"File",2);return self:seek(0,"current")end function File:flush()live(self,"File",2);if C.nuppFileFlush(self._handle)then return true end;return false,native.error()end function File:newReader()live(self,"File",2);return setmetatable({_file=self,_scratch=nil,_capacity=0,_closed=false},Reader)end function File:newWriter()live(self,"File",2);return setmetatable({_file=self,_closed=false},Writer)end local function scratch(self,count)if count>self._capacity then local size=self._capacity*2;if size<count then size=count end;if size<READ_SIZE then size=READ_SIZE end;self._scratch=ffi.new("uint8_t[?]",size);self._capacity=size end;return self._scratch end local function usable(self)if self._closed then return nil,"the reader is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Reader:read(count)local file,reason=usable(self);if not file then return nil,reason end;count=whole(count,"Reader:read count",2);if count<1 then count=1 end;local into=scratch(self,count);local got=tonumber(C.nuppFileRead(file._handle,into,count));if got<0 then return nil,native.error()end;if got==0 then return""end;return ffi.string(into,got)end function Reader:readInto(destination,offset,count)local file,reason=usable(self);if not file then return nil,reason end;offset=counted(offset or 0,"Reader:readInto offset",2);count=counted(count or READ_SIZE,"Reader:readInto count",2);if count==0 then return 0 end;local data=rawget(destination,"_data");local capacity=rawget(destination,"_capacity");if data==nil and capacity==nil then local chunk,why=self:read(count);if chunk==nil then return nil,why end;if #chunk==0 then return 0 end;destination:setString(chunk,offset);return #chunk end;destination:ensureCapacity(offset+count);data=rawget(destination,"_data");local length=rawget(destination,"_length");if offset>length then ffi.fill(data+length,offset-length,0)end;local got=tonumber(C.nuppFileRead(file._handle,data+offset,count));if got<0 then return nil,native.error()end;if offset+got>length then rawset(destination,"_length",offset+got)end;return got end function Reader:transferTo(destination)local file,reason=usable(self);if not file then return nil,reason end;local total=0;while true do local chunk,why=self:read(READ_SIZE);if chunk==nil then return nil,why end;if chunk==""then return total end;local wrote,failure=destination:write(chunk);if not wrote then return nil,failure end;total=total+#chunk end end function Reader:close()self._closed=true;self._scratch=nil;self._capacity=0;return true end local function writable(self)if self._closed then return nil,"the writer is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Writer:write(bytes)local file,reason=writable(self);if not file then return false,reason end;if type(bytes)~="string"then error("nupp: io.files Writer:write needs a string",2)end;if C.nuppFileWrite(file._handle,bytes,#bytes)<0 then return false,native.error()end;return true end function Writer:writeFrom(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeFrom offset",2);count=counted(count==nil and length-offset or count,"Writer:writeFrom count",2);if offset+count>length then error("nupp: io.files Writer:writeFrom range is past the end",2)end;if count==0 then return 0 end;local data=rawget(source,"_data");if data==nil then local wrote,failure=self:write(source:getString(offset,count));if not wrote then return nil,failure end;return count end;if C.nuppFileWrite(file._handle,data+offset,count)<0 then return nil,native.error()end;return count end function Writer:writeView(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeView offset",2);count=counted(count==nil and length-offset or count,"Writer:writeView count",2);if offset+count>length then error("nupp: io.files Writer:writeView range is past the end",2)end;local wrote,failure=self:write(source:getString():sub(offset+1,offset+count));if not wrote then return nil,failure end;return count end function Writer:flush()local file,reason=writable(self);if not file then return false,reason end;return file:flush()end function Writer:close()self._closed=true;return true end function files.info(path)local found=described(path,true,2);if not found then return nil,native.error()end;return{kind=KINDS[tonumber(found.kind)]or"other",size=tonumber(found.size),modified=found.modified,readOnly=found.readOnly}end function files.exists(path)return described(path,true,2)~=nil end function files.isFile(path)local found=described(path,true,2);return found~=nil and found.kind==1 end function files.isDirectory(path)local found=described(path,true,2);return found~=nil and found.kind==2 end function files.isSymlink(path)local found=described(path,false,2);return found~=nil and found.kind==4 end function files.readLink(path)local text=named(path,"path",2);return answer(C.nuppFilesReadLink(text,#text))end function files.createSymlink(target,link,kind)local to=named(target,"symlink target",2);local at=named(link,"symlink path",2);if kind~=nil and kind~="file"and kind~="directory"then error("nupp: io.files symlink kind must be 'file' or 'directory'",2)end;return done(C.nuppFilesCreateSymlink(to,#to,at,#at,kind=="directory"))end function files.setReadOnly(path,readOnly)local text=named(path,"path",2);return done(C.nuppFilesSetReadOnly(text,#text,readOnly and true or false))end function files.createDirectory(path)local text=named(path,"path",2);return done(C.nuppFilesCreateDirectory(text,#text))end function files.remove(path,recursive)local text=named(path,"path",2);return done(C.nuppFilesRemove(text,#text,recursive and true or false))end function files.rename(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return done(C.nuppFilesRename(source,#source,destination,#destination))end function files.list(path)local text=named(path,"path",2);local handle=C.nuppFilesList(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local entries,at={},1;while at<=#blob do local stop=blob:find("\0",at+1,true);entries[#entries+1]={kind=ENTRIES[blob:sub(at,at)]or"other",name=blob:sub(at+1,stop-1)};at=stop+1 end;return entries end function files.glob(pattern)local text=named(pattern,"glob pattern",2);local handle=C.nuppFilesGlob(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local matches,at={},1;while at<=#blob do local stop=blob:find("\0",at,true);if not stop then matches[#matches+1]=blob:sub(at);break end;matches[#matches+1]=blob:sub(at,stop-1);at=stop+1 end;return matches end local Temporary={};Temporary.__index=Temporary;Temporary.__tostring=function(self)return self._text end function Temporary:toString()return self._text end function Temporary:isReleased()return self._closed end function Temporary:persist(destination)if self._closed then return false,"the temporary path is released"end;local to=named(destination,"destination path",2);local moved,reason=done(C.nuppFilesRename(self._text,#self._text,to,#to));if not moved then return false,reason end;self._closed=true;return true end function Temporary:close()if self._closed then return true end;self._closed=true;return done(C.nuppFilesRemove(self._text,#self._text,self._directory))end function files.createTemporaryFile(options)local text,reason=temporary(options,false,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=false,_closed=false},Temporary)end function files.createTemporaryDirectory(options)local text,reason=temporary(options,true,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=true,_closed=false},Temporary)end function files.read(path)local text=named(path,"path",2);return fetched(C.nuppFsSubmitRead(text,#text))end function files.write(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,0))end function files.append(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,1))end function files.writeAtomic(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,2))end function files.copy(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return transferred(C.nuppFsSubmitCopy(source,#source,destination,#destination))end function files.pendingTransfers()return tonumber(C.nuppFsPending())end function files.open(path,mode)local text=named(path,"path",2);local selected=MODES[mode or"r"];if selected==nil then error("nupp: io.files has no mode named "..tostring(mode),2)end;local handle=C.nuppFileOpen(text,#text,selected);if handle==nil then return nil,native.error()end;return setmetatable({_handle=handle,_closed=false},File)end function files.lines(path)local file,reason=files.open(path,"r");if not file then return nil,reason end;local reader=file:newReader();local held,finished="",false;local function trimmed(line)if line:sub(-1)=="\r"then return line:sub(1,-2)end;return line end;return function()if finished then return nil end;while true do local stop=held:find("\n",1,true);if stop then local line=held:sub(1,stop-1);held=held:sub(stop+1);return trimmed(line)end;local chunk=reader:read(READ_SIZE);if chunk==nil or chunk==""then finished=true;file:close();if #held>0 then local line=held;held="";return trimmed(line)end;return nil end;held=held..chunk end end end function files.currentDirectory()return answer(C.nuppFilesCurrentDirectory())end function files.userFolder(which)local index=FOLDERS[which];if index==nil then error("nupp: io.files has no user folder named "..tostring(which),2)end;return answer(C.nuppFilesUserFolder(index))end return files end);
 
 
 
@@ -45918,14 +46551,18 @@ return ( path : gsub ( "/$" , "" ) )
 end
 
 local function join ( left , right )
+if not right then
+return normalize ( left or "" )
+end
+right = normalize ( right )
 if not left or left == "" or left == "." then
-return normalize ( right )
+return right
 end
 if not right or right == "" then
 return normalize ( left )
 end
-if right : sub ( 1 , 1 ) == "/" then
-return normalize ( right )
+if right : sub ( 1 , 1 ) == "/" or right : match ( "^[A-Za-z]:/" ) then
+return right
 end
 
 return normalize ( left .. "/" .. right )
@@ -48215,6 +48852,17 @@ e ( " end" )
 return
 
 elseif kind == "callStmt" and x . expr and x . expr . ownershipIntrinsic == "drop" then
+e ( "do" , sourceLine ( x ) )
+emit ( x . expr )
+e ( "end" )
+return
+
+elseif kind == "callStmt" and x . expr and x . expr . automaticOwnerMoves then
+
+
+
+
+
 e ( "do" , sourceLine ( x ) )
 emit ( x . expr )
 e ( "end" )
@@ -52418,7 +53066,7 @@ end
 local function macroValues ( dmOutput )
 local values = { }
 for name , value in dmOutput : gmatch ( "#define%s+([%a_][%w_]*)%s+([^\n]+)" ) do
-values [ name ] = value
+values [ name ] = value : gsub ( "\r$" , "" )
 end
 
 return values
@@ -55168,8 +55816,17 @@ if not executable then
 io . stderr : write ( "nupp-lsp: cannot identify the current executable\n" )
 return 1
 end
+local relayArgs = { executable , "__lsp-reader" }
+if compilerRoot and package . config : sub ( 1 , 1 ) == "\\" then
+local path = ( "package.path=%q .. package.path" )
+: format ( compilerRoot .. "/build/?.lua;" )
+relayArgs = {
+"luajit" , "-e" , path ,
+compilerRoot .. "/build/nupp/compiler/main.lua" , "__lsp-reader" ,
+}
+end
 do local __nuppT13=0; local  __nuppT19 ; const __nuppT14,__nuppT15,__nuppT16=__nuppT6(function() do const __nuppT20=__nuppT1( process . new ( {
-args = { executable , "__lsp-reader" } ,
+args = relayArgs ,
 stdin = "inherit" ,
 stdout = "pipe" ,
 stderr = "inherit" ,
@@ -55301,7 +55958,6 @@ string = true ,
 table = true ,
 bit = true ,
 nupp = true ,
-reflect = true ,
 }
 
 
@@ -57108,8 +57764,17 @@ if not executable then
 io . stderr : write ( "nupp-lsp: cannot identify the current executable\n" )
 return 1
 end
+local relayArgs = { executable , "__lsp-reader" }
+if compilerRoot and package . config : sub ( 1 , 1 ) == "\\" then
+local path = ( "package.path=%q .. package.path" )
+: format ( compilerRoot .. "/build/?.lua;" )
+relayArgs = {
+"luajit" , "-e" , path ,
+compilerRoot .. "/build/nupp/compiler/main.lua" , "__lsp-reader" ,
+}
+end
 do local __nuppT13=0; local  __nuppT19 ; const __nuppT14,__nuppT15,__nuppT16=__nuppT6(function() do const __nuppT20=__nuppT1( process . new ( {
-args = { executable , "__lsp-reader" } ,
+args = relayArgs ,
 stdin = "inherit" ,
 stdout = "pipe" ,
 stderr = "inherit" ,
@@ -59167,7 +59832,7 @@ if not expected then
 return nil , failure (
 "NUPP2414" ,
 "a field-codec blueprint needs a directly declared runtime type" ,
-"write nupp.FieldCodec.KeyedCodec<Record> on the declaration initialized by this comptime block"
+"write nupp.fieldcodec.KeyedCodec<Record> on the declaration initialized by this comptime block"
 )
 end
 if envelope . schema ~= 1 or envelope . family ~= "KeyedCodecBlueprint"
@@ -59188,13 +59853,13 @@ local canonical = table . concat ( fields , "\0" ) .. "\0" .. envelope . payload
 if envelope . fingerprint ~= hash . sha256 ( "nupp.fieldcodec\0v1\0" .. canonical ) then
 return nil , failure ( "NUPP2415" , "field-codec blueprint fingerprint does not match" )
 end
-local namespace = env and env . globalTypes and env . globalTypes [ "nupp.FieldCodec" ]
+local namespace = env and env . globalTypes and env . globalTypes [ "nupp.fieldcodec" ]
 local codec = namespace and namespace . nestedTypes and namespace . nestedTypes . KeyedCodec
 local target = expected and expected . typeArgs and expected . typeArgs [ 1 ]
 if not codec or not expected or ( expected . origin or expected ) ~= codec
 or not target or target . tag ~= "nominal" or target . declKind ~= "record"
 or target . name ~= envelope . payload . typeName then
-return nil , failure ( "NUPP2415" , "field-codec blueprint needs nupp.FieldCodec.KeyedCodec<Record>" )
+return nil , failure ( "NUPP2415" , "field-codec blueprint needs nupp.fieldcodec.KeyedCodec<Record>" )
 end
 local order = target . fieldOrder or { }
 if # order ~= # fields then
@@ -63596,7 +64261,7 @@ emittedOnly = true ,
 "stdlib.fieldcodec"
 ] = {
 name = "fieldcodec" ,
-globals = { "nupp.fieldcodec" } ,
+globals = { "nupp.fieldcodec.compile" } ,
 } , [
 "stdlib.derives"
 ] = {
@@ -63616,7 +64281,20 @@ globals = { "nupp.math" } ,
 "stdlib.log"
 ] = {
 name = "log" ,
-globals = { "nupp.log" } ,
+globals = {
+"nupp.log.error" ,
+"nupp.log.warn" ,
+"nupp.log.info" ,
+"nupp.log.debug" ,
+"nupp.log.level" ,
+"nupp.log.enabled" ,
+"nupp.log.sink" ,
+"nupp.log.formatter" ,
+"nupp.log.timestamp" ,
+"nupp.log.timestampFormat" ,
+"nupp.log.named" ,
+"nupp.log.levelName" ,
+} ,
 } , [
 "stdlib.fnv1a64"
 ] = {
@@ -63631,7 +64309,7 @@ globals = { "nupp.data.adler32" , "nupp.data.crc32" } ,
 "native.path"
 ] = {
 name = "path" ,
-globals = { "nupp.io.Path" } ,
+globals = { "nupp.io.newPath" , "nupp.io.currentDirectory" , "nupp.io.separator" } ,
 cargo = "runtime/native/Cargo.toml" ,
 cargoFeature = "path" ,
 library = "nupp_native" ,
@@ -63640,7 +64318,7 @@ binary = true ,
 "native.uri"
 ] = {
 name = "uri" ,
-globals = { "nupp.io.URI" } ,
+globals = { "nupp.io.newURI" , "nupp.io.validate" , "nupp.io.isURI" } ,
 cargo = "runtime/native/Cargo.toml" ,
 cargoFeature = "uri" ,
 library = "nupp_native" ,
@@ -63684,11 +64362,32 @@ name = "process" ,
 
 
 module = "nupp.io.process" ,
+runtimeModule = "nupp.io.process" ,
 cargo = "runtime/native/Cargo.toml" ,
 cargoFeature = "process" ,
 library = "nupp_native" ,
 binary = true ,
 requires = { "runtime.suspension" } ,
+} , [
+"native.workers"
+] = {
+name = "workers" ,
+module = "nupp.workers" ,
+host = "workers" ,
+binary = true ,
+runtimeModule = "nupp.workers" ,
+requires = { "runtime.suspension" } ,
+} , [
+"native.http"
+] = {
+name = "http" ,
+module = "nupp.io.http" ,
+runtimeModule = "nupp.io.http" ,
+cargo = "runtime/native/Cargo.toml" ,
+cargoFeature = "http" ,
+library = "nupp_native" ,
+binary = true ,
+requires = { "runtime.suspension" , "native.uri" , "stdlib.io" } ,
 } , [
 "native.sha256"
 ] = {
@@ -66290,7 +66989,7 @@ return exprs
 end
 
 
-local function parseCallargs ( )
+local function parseCallargs ( typeFirst )
 local kind = cur ( ) . kind
 if kind == "(" then
 local n = setmetatable({ kind =  "args" }, cst.Args)
@@ -66299,7 +66998,10 @@ n . exprs = { }
 if cur ( ) . kind ~= ")" then
 repeat
 local argument
-if cur ( ) . kind == "name" and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "=" then
+if typeFirst and # n . exprs == 0 then
+argument = parseType ( )
+n . typeArg = argument
+elseif cur ( ) . kind == "name" and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "=" then
 local named = setmetatable({ kind =  "namedArg" }, cst.NamedArg)
 named . name = add ( named , advance ( ) )
 add ( named , advance ( ) )
@@ -66470,7 +67172,8 @@ e = n
 end
 end
 else
-local args = parseCallargs ( )
+local comptimeIntrinsic = cst . comptimeTypeIntrinsicSpelling ( e )
+local args = parseCallargs ( comptimeIntrinsic ~= nil )
 if args then
 local n = setmetatable({ kind =  "call" }, cst.Call)
 n . obj = add ( n , e )
@@ -69862,7 +70565,7 @@ return m
 
 
 "Comptime" ,  codes = 
-{ "NUPP2410" , "NUPP2411" , "NUPP2412" , "NUPP2413" , "NUPP2414" , "NUPP2415" , "NUPP2416" , } ,  body = 
+{ "NUPP2410" , "NUPP2411" , "NUPP2412" , "NUPP2413" , "NUPP2414" , "NUPP2415" , "NUPP2416" , "NUPP2419" , } ,  body = 
 [=[
 `comptime do ... end` is an expression whose value is computed while the file is
 compiled. The block is ordinary Nupp, and what it returns is written into the
@@ -70095,7 +70798,7 @@ return m
 "Semantic reflection and field codecs" ,  codes = 
 { "NUPP2414" , "NUPP2415" , "NUPP2416" , "NUPP2418" } ,  body = 
 [=[
-`reflect(T)` resolves `T` in a type position and creates an immutable,
+`nupp.reflect(T)` resolves `T` in a type position and creates an immutable,
 target-independent semantic descriptor for comptime. Schema 2 represents the
 possibly recursive type as an acyclic indexed graph: `root` selects a node in
 `types`, and edges between nodes are integer indices. The graph covers nominal
@@ -70111,13 +70814,13 @@ with deterministic `ipairs` or `pairs`. Views preserve identity for equality
 but reject mutation and cannot escape as runtime tables. The fingerprint is
 computed from the canonical semantic graph rather than the checker's
 process-local type identities. Reflection reads declared meaning, not FFI
-layout; `sizeof`, alignment, and offsets remain separate target-dependent
-questions. Annotation names, arguments, values and referenced types participate
+layout; `nupp.sizeof`, `nupp.alignof`, and `nupp.offsetof` use the build's `layoutTarget`.
+Annotation names, arguments, values and referenced types participate
 in the fingerprint, so changing serialization metadata invalidates a cached
 comptime result even when the field types themselves are unchanged.
 
-`nupp.fieldcodec.compile(reflect(R))` is the first non-PEG materializer. For a
-record `R`, it produces a `nupp.FieldCodec.KeyedCodec<R>` whose `encode` method
+`nupp.fieldcodec.compile(nupp.reflect(R))` is the first non-PEG materializer. For a
+record `R`, it produces a `nupp.fieldcodec.KeyedCodec<R>` whose `encode` method
 copies exactly the record's present declared fields with `rawget`. Its stable
 compatibility fingerprint is `t:` followed by those field names in declaration
 order. The declared codec type must name the same nominal record.
@@ -70134,8 +70837,8 @@ local record Position
     y: number
 end
 
-const PositionCodec: nupp.FieldCodec.KeyedCodec<Position> = comptime do
-    return nupp.fieldcodec.compile(reflect(Position))
+const PositionCodec: nupp.fieldcodec.KeyedCodec<Position> = comptime do
+    return nupp.fieldcodec.compile(nupp.reflect(Position))
 end
 
 function m.encode(position: Position): {[string]: any}
@@ -71974,10 +72677,19 @@ local fs = require ( "nupp.compiler.fs" )
 local process = require ( "nupp.compiler.build.process" )
 local diagnostics = require ( "nupp.compiler.diagnostics" )
 
-local join , normalize = fs . join , fs . normalize
+local join , normalize , dirname , basename = fs . join , fs . normalize , fs . dirname , fs . basename
 local readFile , writeFile = fs . readFile , fs . writeFile
 
 local rock = { }
+local windows = package . config : sub ( 1 , 1 ) == "\\"
+
+local function commandPath ( path )
+if not windows then
+return path
+end
+path = path : gsub ( "^/([A-Za-z])(/)" , "%1:%2" )
+return ( path : gsub ( "/" , "\\" ) )
+end
 
 
 
@@ -72237,7 +72949,8 @@ local path = packedPath ( output )
 if not path then
 return nil , "LuaRocks packed the project but did not report the output path"
 end
-if path : sub ( 1 , 1 ) ~= "/" and root ~= "." then
+local absolute = path : sub ( 1 , 1 ) == "/" or path : match ( "^[A-Za-z]:/" ) ~= nil
+if not absolute and root ~= "." then
 path = join ( root , path )
 end
 
@@ -72245,8 +72958,8 @@ return path
 end
 
 local function removeTree ( path )
-if package . config : sub ( 1 , 1 ) == "\\" then
-return process . run ( { "cmd" , "/d" , "/c" , "rmdir" , "/s" , "/q" , path } )
+if windows then
+return process . run ( { "cmd" , "/d" , "/c" , "rmdir" , "/s" , "/q" , commandPath ( path ) } )
 end
 return process . run ( { "rm" , "-rf" , path } )
 end
@@ -72267,11 +72980,19 @@ os . remove ( temp )
 if not fs . mkdir ( temp ) then
 return nil , "cannot create temporary rock tree"
 end
-local code , output = process . capture ( { "luarocks" , "--lua-version=5.1" , "--tree=" .. temp , "install" , packed } )
+local localArtifact = ( windows and ".\\" or "./" ) .. basename ( packed )
+local code , output = process . capture ( {
+"luarocks" ,
+"--lua-version=5.1" ,
+"--tree=" .. commandPath ( temp ) ,
+"install" ,
+localArtifact ,
+} , { cwd = commandPath ( dirname ( packed ) ) } )
 if code ~= 0 then
 io . stderr : write ( output )
 removeTree ( temp )
-return nil , "the packed rock could not be installed"
+return nil , ( "the packed rock %s could not be installed from %s (present: %s)" )
+: format ( localArtifact , dirname ( packed ) , tostring ( fs . exists ( packed ) ) )
 end
 local modules , modulesErr = declarationModules (
 join ( temp , "lib/luarocks/rocks-5.1/" .. meta . name .. "/" .. meta . version )
@@ -73056,7 +73777,7 @@ local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then r
 
 local PATH = compact (
 [=[
-__nuppLazy(__nuppIO,"Path",function()
+local function __nuppInstallPath()
 local native=__nuppNative();local ffi,C=native.ffi,native.C;local Path={};Path.__index=Path;Path.__tostring=function(self)return self._text end;Path.__eq=function(a,b)return a._text==b._text end
 local function value(v)return type(v)=="table"and getmetatable(v)==Path and v._text or v end
 local function path(text)return setmetatable({_text=text},Path)end
@@ -73075,15 +73796,17 @@ function Path:withFileName(name)return returned(C.nuppPathWith(self._text,#self.
 function Path:withExtension(extension)return returned(C.nuppPathWith(self._text,#self._text,extension,#extension,true))end
 function Path:isAbsolute()return C.nuppPathIsAbsolute(self._text,#self._text)end
 function Path:isRelative()return not self:isAbsolute()end
-local library={};function library.new(first,...)return path(first):join(...)end
-function library.currentDirectory()local out=C.nuppPathAbsolute("",0);if out==nil then return nil,native.error()end;return returned(out)end
-function library.separator()return package.config:sub(1,1)end;return library end)
+__nuppIO.newPath=function(first,...)return path(first):join(...)end
+__nuppIO.currentDirectory=function()local out=C.nuppPathAbsolute("",0);if out==nil then return nil,native.error()end;return returned(out)end
+__nuppIO.separator=function()return package.config:sub(1,1)end
+return __nuppIO end
+for _,__name in ipairs({"newPath","currentDirectory","separator"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallPath();return rawget(__nuppIO,name)end)end
 ]=]
 )
 
 local URI = compact (
 [=[
-__nuppLazy(__nuppIO,"URI",function()
+local function __nuppInstallURI()
 local native=__nuppNative();local ffi,C=native.ffi,native.C;local URI={};URI.__index=URI;URI.__tostring=function(self)return self:toString()end;URI.__eq=function(a,b)return a:toString()==b:toString()end
 local function wrap(handle)if handle==nil then return nil,native.error()end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end
 local function changed(handle)if handle==nil then error("nupp: cannot modify URI: "..native.error(),3)end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end
@@ -73097,10 +73820,12 @@ function URI:withPort(port)if port~=nil and(type(port)~="number"or port~=math.fl
 function URI:concatPath(path)path=required(path,"URI path");if path==""then return self end;return changed(C.nuppUriConcatPath(self._handle,path,#path))end
 function URI:resolve(reference)if type(reference)~="string"then return nil,"nupp: URI reference needs a string"end;return wrap(C.nuppUriResolve(self._handle,reference,#reference))end
 function URI:withEndpoint(endpoint)if type(endpoint)~="table"or getmetatable(endpoint)~=URI then error("nupp: URI endpoint must be an io.URI",2)end;return changed(C.nuppUriWithEndpoint(self._handle,endpoint._handle))end
-local library={};local function compose(c)if type(c)~="table"then return nil,"nupp: URI.new needs absolute text or URI components"end;if type(c.scheme)~="string"or c.scheme==""then return nil,"nupp: URI components need a non-empty scheme"end;for _,name in ipairs({"userInfo","host","path","query","fragment"})do if c[name]~=nil and type(c[name])~="string"then return nil,"nupp: URI component "..name.." must be a string or nil"end end;if c.port~=nil and(type(c.port)~="number"or c.port~=math.floor(c.port)or c.port<0 or c.port>65535)then return nil,"nupp: URI component port must be an integer from 0 through 65535 or nil"end;local out=c.scheme..":";if c.host or c.userInfo or c.port then out=out.."//";if c.userInfo then out=out..c.userInfo.."@"end;out=out..(c.host or"");if c.port then out=out..":"..c.port end end;out=out..(c.path or"");if c.query then out=out.."?"..c.query end;if c.fragment then out=out.."#"..c.fragment end;return out end
-function library.new(value)local text,problem;if type(value)=="string"then text=value else text,problem=compose(value);if not text then return nil,problem end end;return wrap(C.nuppUriParse(text,#text))end
-function library.validate(text)if type(text)~="string"then return false,"nupp: URI.validate needs a string"end;local handle=C.nuppUriParse(text,#text);if handle==nil then return false,native.error()end;C.nuppUriDestroy(handle);return true end
-function library.isURI(value)return type(value)=="table"and getmetatable(value)==URI end;return library end)
+local function compose(c)if type(c)~="table"then return nil,"nupp: io.newURI needs absolute text or URI components"end;if type(c.scheme)~="string"or c.scheme==""then return nil,"nupp: URI components need a non-empty scheme"end;for _,name in ipairs({"userInfo","host","path","query","fragment"})do if c[name]~=nil and type(c[name])~="string"then return nil,"nupp: URI component "..name.." must be a string or nil"end end;if c.port~=nil and(type(c.port)~="number"or c.port~=math.floor(c.port)or c.port<0 or c.port>65535)then return nil,"nupp: URI component port must be an integer from 0 through 65535 or nil"end;local out=c.scheme..":";if c.host or c.userInfo or c.port then out=out.."//";if c.userInfo then out=out..c.userInfo.."@"end;out=out..(c.host or"");if c.port then out=out..":"..c.port end end;out=out..(c.path or"");if c.query then out=out.."?"..c.query end;if c.fragment then out=out.."#"..c.fragment end;return out end
+__nuppIO.newURI=function(value)local text,problem;if type(value)=="string"then text=value else text,problem=compose(value);if not text then return nil,problem end end;return wrap(C.nuppUriParse(text,#text))end
+__nuppIO.validate=function(text)if type(text)~="string"then return false,"nupp: io.validate needs a string"end;local handle=C.nuppUriParse(text,#text);if handle==nil then return false,native.error()end;C.nuppUriDestroy(handle);return true end
+__nuppIO.isURI=function(value)return type(value)=="table"and getmetatable(value)==URI end
+return __nuppIO end
+for _,__name in ipairs({"newURI","validate","isURI"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallURI();return rawget(__nuppIO,name)end)end
 ]=]
 )
 
@@ -73126,7 +73851,7 @@ local FOLDERS={home=0,documents=1,downloads=2,desktop=3,pictures=4,music=5,video
 local MODES={r=0,w=1,a=2,["r+"]=3,["w+"]=4,["a+"]=5}
 local ORIGINS={set=0,current=1,["end"]=2}
 local READ_SIZE=65536
-local PENDING,READY,WAIT_SLICE=0,1,25
+local PENDING,READY=0,1
 local SOURCE,PRIORITY="nupp-files",20
 local waits={};local suspending
 local File={};File.__index=File;local Reader={};Reader.__index=Reader;local Writer={};Writer.__index=Writer
@@ -73139,10 +73864,10 @@ local function temporary(options,directory,level)local root=options and options.
 local function payload(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.getString then return value:getString()end;error("nupp: io.files "..what.." must be bytes or a byte view",level)end
 local function harvest()local moved=0;local index=#waits;while index>0 do local entry=waits[index];if C.nuppFsStatus(entry.handle)~=PENDING then waits[index]=waits[#waits];waits[#waits]=nil;moved=moved+1;entry.resume(true)end;index=index-1 end;return moved end
 local function polled()C.nuppFsPoll();return harvest()end
-local function slept()C.nuppFsWait(WAIT_SLICE);return harvest()end
+local function slept(waitMs)C.nuppFsWait(waitMs);return harvest()end
 local function forget(entry)for index=1,#waits do if waits[index]==entry then waits[index]=waits[#waits];waits[#waits]=nil;return end end end
 local function runtime()if suspending==nil then suspending=require("nupp.suspension")end;return suspending end
-local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();local pump=suspension.handled()and polled or slept;suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,pump);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end
+local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,polled,slept);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end
 local function settled(handle)if handle==nil then return nil,native.error()end;await(handle);if C.nuppFsStatus(handle)~=READY then local reason=ffi.string(C.nuppFsError(handle));C.nuppFsDestroy(handle);return nil,reason end;return handle end
 local function transferred(handle)local done,reason=settled(handle);if not done then return false,reason end;C.nuppFsDestroy(done);return true end
 local function fetched(handle)local done,reason=settled(handle);if not done then return nil,reason end;local out=ffi.string(C.nuppFsData(done),tonumber(C.nuppFsLength(done)));C.nuppFsDestroy(done);return out end
@@ -73253,6 +73978,77 @@ function backend:now()return C.nuppProcessMonotonicMs()end
 function backend:waitReady(interest,timeoutMs)local readable,readCount=makeArray(interest.read);local writable,writeCount=makeArray(interest.write);local timeout=whole(timeoutMs);if timeout<0 then timeout=0 elseif timeout>INT32_MAX then timeout=INT32_MAX end;local answered=C.nuppProcessWaitReady(readable,readCount,writable,writeCount,timeout);if answered<0 then error(reason("nupp: process readiness wait failed"),0)end;return tonumber(answered)end
 return backend end}
 end
+]=]
+)
+
+
+
+local HTTP = compact (
+[=[
+package.preload["nupp.io.httpnative"]=function()
+local native=__nuppNative();local ffi,C=native.ffi,native.C
+ffi.cdef[[
+typedef struct NuppHttpClient NuppHttpClient;
+typedef struct NuppHttpTransfer NuppHttpTransfer;
+typedef struct{const uint8_t*data;size_t length;}NuppHttpSlice;
+typedef struct{NuppHttpSlice name;NuppHttpSlice value;}NuppHttpHeader;
+typedef struct{uint64_t connect_timeout_ms;uint32_t max_redirects;uint32_t max_pending_requests;uint32_t max_connections;uint32_t max_connections_per_host;int compressed;int has_insecure_hosts;int proxy_mode;NuppHttpSlice proxy;int no_proxy_set;NuppHttpSlice no_proxy;NuppHttpSlice proxy_credentials;}NuppHttpClientOptions;
+typedef struct{const NuppUri*uri;NuppHttpSlice method;const NuppHttpHeader*headers;size_t header_count;NuppHttpSlice body;uint32_t body_kind;int64_t body_length;uint64_t timeout_ms;uint64_t stall_timeout_ms;uint64_t max_bytes;int insecure;}NuppHttpRequest;
+typedef struct{uint16_t status;uint8_t version;const uint8_t*url;size_t url_length;const uint8_t*headers;size_t headers_length;}NuppHttpResponseHead;
+typedef struct{const NuppHttpTransfer*transfer;uint32_t tokens;}NuppHttpReady;
+NuppHttpClient*nuppHttpClientCreate(const NuppHttpClientOptions*);
+void nuppHttpClientDestroy(NuppHttpClient*);
+const NuppHttpTransfer*nuppHttpClientSend(NuppHttpClient*,const NuppHttpRequest*);
+void nuppHttpTransferCancel(const NuppHttpTransfer*);
+void nuppHttpTransferDestroy(const NuppHttpTransfer*);
+int nuppHttpTransferOffer(const NuppHttpTransfer*,const uint8_t*,size_t,bool);
+uint32_t nuppHttpTransferPollHeaders(const NuppHttpTransfer*,NuppHttpResponseHead*);
+const char*nuppHttpTransferError(const NuppHttpTransfer*);
+const NuppHttpTransfer*nuppHttpTransferTakeBody(const NuppHttpTransfer*);
+bool nuppHttpBodyArm(const NuppHttpTransfer*);
+bool nuppHttpBodyPeek(const NuppHttpTransfer*,const uint8_t**,size_t*,uint32_t*);
+bool nuppHttpBodyConsume(const NuppHttpTransfer*,size_t);
+const char*nuppHttpBodyError(const NuppHttpTransfer*);
+void nuppHttpBodyDestroy(const NuppHttpTransfer*);
+size_t nuppHttpClientPoll(NuppHttpClient*,NuppHttpReady*,size_t,bool*);
+size_t nuppHttpClientWait(NuppHttpClient*,uint64_t,NuppHttpReady*,size_t,bool*);
+void nuppHttpReadyRelease(const NuppHttpTransfer*);
+size_t nuppHttpClientPending(const NuppHttpClient*);
+double nuppHttpMonotonicMs(void);
+]]
+local HEAD_PENDING,HEAD_READY,HEAD_FAILED=0,1,2
+local BODY_DATA,BODY_PENDING,BODY_EOF,BODY_FAILED,BODY_CLOSED=1,2,3,4,5
+local TOKEN_HEADERS,TOKEN_BODY,TOKEN_UPLOAD,TOKEN_FAILED=1,2,4,8
+local BODY_NONE,BODY_INLINE,BODY_UPLOAD,BODY_FILE=0,1,2,3
+local UPLOAD_CLOSED,UPLOAD_BACKPRESSURE,UPLOAD_ACCEPTED=-1,0,1
+local function slice(value,pointer,length)local out=ffi.new("NuppHttpSlice");if pointer~=nil then out.data=pointer;out.length=length;elseif value~=nil then out.data=value;out.length=#value end;return out end
+local function reason(pointer,fallback)if pointer==nil then return fallback end;local text=ffi.string(pointer);return text~=""and text or fallback end
+local Transfer={};Transfer.__index=Transfer
+local Client={};Client.__index=Client
+local function dispatch(self,field)local waiters=self[field];if waiters==nil then return 0 end;self[field]=nil;local count=#waiters;for index=count,1,-1 do waiters[index]()end;return count end
+local function dispatchOne(self,field)local waiters=self[field];if waiters==nil or#waiters==0 then return 0 end;local wake=table.remove(waiters,1);if#waiters==0 then self[field]=nil end;wake();return 1 end
+function Transfer:_ready(tokens)local moved=0;if bit.band(tokens,TOKEN_HEADERS+TOKEN_FAILED)~=0 then moved=moved+dispatch(self,"_headWaiters")end;if bit.band(tokens,TOKEN_BODY)~=0 then moved=moved+dispatch(self,"_bodyWaiters")end;if bit.band(tokens,TOKEN_UPLOAD)~=0 then moved=moved+dispatch(self,"_uploadWaiters")end;return moved end
+local function addWaiter(self,field,wake)local waiters=self[field];if waiters==nil then waiters={};self[field]=waiters end;waiters[#waiters+1]=wake;local active=true;return function()if not active then return end;active=false;for index=1,#waiters do if waiters[index]==wake then table.remove(waiters,index);break end end end end
+function Transfer:onHead(wake)return addWaiter(self,"_headWaiters",wake)end
+function Transfer:onBody(wake)local forget=addWaiter(self,"_bodyWaiters",wake);if self._body~=nil then C.nuppHttpBodyArm(self._body)end;return forget end
+function Transfer:onUpload(wake)return addWaiter(self,"_uploadWaiters",wake)end
+function Client:onAdmission(wake)if self._closed or tonumber(C.nuppHttpClientPending(self._handle))<self._maxPending then wake();return function()end end;return addWaiter(self,"_admissionWaiters",wake)end
+function Transfer:head()local out=ffi.new("NuppHttpResponseHead[1]");local state=C.nuppHttpTransferPollHeaders(self._handle,out);if state==HEAD_PENDING then return"pending"end;if state==HEAD_FAILED then return"failed",nil,nil,nil,nil,reason(C.nuppHttpTransferError(self._handle),"HTTP transfer failed")end;local head=out[0];local url;if head.url~=nil then url=ffi.string(head.url,tonumber(head.url_length))end;return"ready",tonumber(head.status),tonumber(head.version),url,ffi.string(head.headers,tonumber(head.headers_length))end
+function Transfer:offer(value,finished,count)local data,length=nil,0;if value~=nil then local raw=type(value)=="table"and rawget(value,"_data")or nil;if raw~=nil then data=raw;length=count or rawget(value,"_length")else data=value;length=count or#value end end;local answer=C.nuppHttpTransferOffer(self._handle,data,length,finished==true);if answer==UPLOAD_ACCEPTED then return"accepted"end;if answer==UPLOAD_BACKPRESSURE then return"backpressure"end;return"closed"end
+function Transfer:takeBody()if self._body==nil then local handle=C.nuppHttpTransferTakeBody(self._handle);if handle==nil then return nil,"the HTTP response has no body"end;self._body=ffi.gc(handle,C.nuppHttpBodyDestroy)end;return true end
+function Transfer:bodyRead(count,destination,offset)local data=ffi.new("const uint8_t*[1]");local length=ffi.new("size_t[1]");local state=ffi.new("uint32_t[1]");if not C.nuppHttpBodyPeek(self._body,data,length,state)then return"failed",nil,native.error()end;local kind=tonumber(state[0]);if kind==BODY_PENDING then return"pending"end;if kind==BODY_EOF then return"eof"end;if kind==BODY_FAILED then return"failed",nil,reason(C.nuppHttpBodyError(self._body),"HTTP response body failed")end;if kind==BODY_CLOSED then return"closed",nil,"the body is closed"end;local available=tonumber(length[0]);local take=math.min(count,available);if destination~=nil then local raw=rawget(destination,"_data");local capacity=rawget(destination,"_capacity");if raw~=nil or capacity~=nil then destination:ensureCapacity(offset+take);raw=rawget(destination,"_data");local old=rawget(destination,"_length");if offset>old then ffi.fill(raw+old,offset-old,0)end;ffi.copy(raw+offset,data[0],take);if offset+take>old then rawset(destination,"_length",offset+take)end;if not C.nuppHttpBodyConsume(self._body,take)then return"failed",nil,native.error()end;return"data",take end end;local bytes=ffi.string(data[0],take);if not C.nuppHttpBodyConsume(self._body,take)then return"failed",nil,native.error()end;return"data",bytes end
+function Transfer:directDestination(destination)local buffer=rawget(destination,"_buffer");if buffer~=nil and rawget(destination,"_at")~=nil and rawget(buffer,"_capacity")~=nil then return true end;local file=rawget(destination,"_file");return file~=nil and rawget(file,"_handle")~=nil end
+function Transfer:bodyWrite(destination,count)if rawget(destination,"_closed")then return"failed",nil,"the writer is closed"end;local buffer=rawget(destination,"_buffer");if buffer~=nil and rawget(destination,"_at")~=nil and rawget(buffer,"_capacity")~=nil then local at=rawget(destination,"_at");local state,value,why=self:bodyRead(count,buffer,at);if state=="data"then rawset(destination,"_at",at+value)end;return state,value,why end;local file=rawget(destination,"_file");local handle=file and rawget(file,"_handle")or nil;if handle==nil then return"unsupported"end;local data=ffi.new("const uint8_t*[1]");local length=ffi.new("size_t[1]");local state=ffi.new("uint32_t[1]");if not C.nuppHttpBodyPeek(self._body,data,length,state)then return"failed",nil,native.error()end;local kind=tonumber(state[0]);if kind==BODY_PENDING then return"pending"end;if kind==BODY_EOF then return"eof"end;if kind==BODY_FAILED then return"failed",nil,reason(C.nuppHttpBodyError(self._body),"HTTP response body failed")end;if kind==BODY_CLOSED then return"closed",nil,"the body is closed"end;local take=math.min(count,tonumber(length[0]));local wrote=tonumber(C.nuppFileWrite(handle,data[0],take));if wrote<0 then return"failed",nil,native.error()end;if not C.nuppHttpBodyConsume(self._body,wrote)then return"failed",nil,native.error()end;return"data",wrote end
+function Transfer:cancel()if self._handle~=nil then C.nuppHttpTransferCancel(self._handle)end end
+function Transfer:close()if self._closed then return end;self._closed=true;self._client._byHandle[tostring(self._handle)]=nil;if self._body~=nil then local body=self._body;self._body=nil;ffi.gc(body,nil);C.nuppHttpBodyDestroy(body)else C.nuppHttpTransferCancel(self._handle)end;local handle=self._handle;self._handle=nil;ffi.gc(handle,nil);C.nuppHttpTransferDestroy(handle)end
+function Client:send(request)local headers=request.headers or{};local count=#headers;local packed=count>0 and ffi.new("NuppHttpHeader[?]",count)or nil;for index=1,count do local item=headers[index];packed[index-1].name=slice(item[1]);packed[index-1].value=slice(item[2])end;local bodyPointer,bodyLength=nil,0;local value=request.body;if request.bodyKind==BODY_INLINE then if type(value)=="string"then bodyPointer=value;bodyLength=#value else local raw=rawget(value,"_data");if raw~=nil then bodyPointer=raw;bodyLength=rawget(value,"_length")else local bytes=rawget(value,"_bytes")or value:getString();bodyPointer=bytes;bodyLength=#bytes end end elseif request.bodyKind==BODY_FILE then bodyPointer=value;bodyLength=#value end;local descriptor=ffi.new("NuppHttpRequest");descriptor.uri=rawget(request.uri,"_handle");descriptor.method=slice(request.method);descriptor.headers=packed;descriptor.header_count=count;descriptor.body=slice(nil,bodyPointer,bodyLength);descriptor.body_kind=request.bodyKind;descriptor.body_length=request.bodyLength or-1;descriptor.timeout_ms=request.timeoutMs;descriptor.stall_timeout_ms=request.stallTimeoutMs;descriptor.max_bytes=request.maxBytes;descriptor.insecure=request.insecure and 1 or 0;local handle=C.nuppHttpClientSend(self._handle,descriptor);if handle==nil then local why=native.error();return nil,why,why=="the HTTP client has reached maxPendingRequests"end;handle=ffi.gc(handle,C.nuppHttpTransferDestroy);local transfer=setmetatable({_client=self,_handle=handle,_body=nil,_closed=false},Transfer);self._byHandle[tostring(handle)]=transfer;return transfer end
+function Client:poll(waitMs)local count;if waitMs>0 then count=C.nuppHttpClientWait(self._handle,waitMs,self._ready,256,self._more)else count=C.nuppHttpClientPoll(self._handle,self._ready,256,self._more)end;local moved=0;for index=0,tonumber(count)-1 do local item=self._ready[index];local transfer=self._byHandle[tostring(item.transfer)];local ok,problem=true,nil;if transfer~=nil then ok,problem=pcall(function()moved=moved+transfer:_ready(tonumber(item.tokens))end)end;C.nuppHttpReadyRelease(item.transfer);if not ok then error(problem,0)end end;if self._admissionWaiters~=nil and tonumber(C.nuppHttpClientPending(self._handle))<self._maxPending then moved=moved+dispatchOne(self,"_admissionWaiters")end;return moved end
+function Client:pending()if self._closed then return 0 end;return tonumber(C.nuppHttpClientPending(self._handle))end
+function Client:now()return tonumber(C.nuppHttpMonotonicMs())end
+function Client:close()if self._closed then return end;self._closed=true;dispatch(self,"_admissionWaiters");local transfers={};for _,transfer in pairs(self._byHandle)do transfers[#transfers+1]=transfer end;for index=1,#transfers do transfers[index]:close()end;local handle=self._handle;self._handle=nil;ffi.gc(handle,nil);C.nuppHttpClientDestroy(handle)end
+local backend={}
+function backend.newClient(options)local proxyMode=options.proxy==nil and 0 or(options.proxy==""and 1 or 2);local proxy=options.proxy or"";local noProxy=options.noProxy or"";local credentials=options.proxyCredentials or"";local nativeOptions=ffi.new("NuppHttpClientOptions");nativeOptions.connect_timeout_ms=options.connectTimeoutMs;nativeOptions.max_redirects=options.maxRedirects;nativeOptions.max_pending_requests=options.maxPendingRequests;nativeOptions.max_connections=options.maxConnections;nativeOptions.max_connections_per_host=options.maxConnectionsPerHost;nativeOptions.compressed=options.compressed and 1 or 0;nativeOptions.has_insecure_hosts=next(options.insecureHosts)and 1 or 0;nativeOptions.proxy_mode=proxyMode;nativeOptions.proxy=slice(proxy);nativeOptions.no_proxy_set=options.noProxy~=nil and 1 or 0;nativeOptions.no_proxy=slice(noProxy);nativeOptions.proxy_credentials=slice(credentials);local handle=C.nuppHttpClientCreate(nativeOptions);if handle==nil then return nil,native.error()end;handle=ffi.gc(handle,C.nuppHttpClientDestroy);return setmetatable({_handle=handle,_closed=false,_byHandle={},_admissionWaiters=nil,_maxPending=options.maxPendingRequests,_ready=ffi.new("NuppHttpReady[256]"),_more=ffi.new("bool[1]")},Client)end
+return backend end
 ]=]
 )
 
@@ -73411,7 +74207,7 @@ end
 local hasNative = effects [
 "native.path"
 ] or effects [ "native.uri" ] or effects [ "native.uuid" ] or effects [ "native.sha256" ]
-or effects [ "native.files" ] or effects [ "native.process" ]
+or effects [ "native.files" ] or effects [ "native.process" ] or effects [ "native.http" ]
 if hasNative then
 out [ # out + 1 ] = NATIVE
 end
@@ -73420,6 +74216,9 @@ out [ # out + 1 ] = FILES
 end
 if effects [ "native.process" ] then
 out [ # out + 1 ] = PROCESS
+end
+if effects [ "native.http" ] then
+out [ # out + 1 ] = HTTP
 end
 if effects [ "native.path" ] then
 out [ # out + 1 ] = PATH
@@ -73439,6 +74238,218 @@ return code : sub ( - 1 ) == ";" and code or code .. ";"
 end
 
 return stdlib
+
+end
+package.preload["nupp.compiler.target_layout"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+
+
+
+
+
+const targetLayout = {} targetLayout.__index = targetLayout
+
+
+
+
+
+
+targetLayout . ABI = 1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local function scalar ( size , alignment )
+return { size = size , alignment = alignment or size }
+end
+
+
+
+
+
+local LP64 = { pointer = scalar ( 8 ) , int64 = scalar ( 8 ) , number = scalar ( 8 ) }
+local ILP32_SYSV = { pointer = scalar ( 4 ) , int64 = scalar ( 8 , 4 ) , number = scalar ( 8 , 4 ) }
+local ILP32_MSVC = { pointer = scalar ( 4 ) , int64 = scalar ( 8 ) , number = scalar ( 8 ) }
+
+local MODELS = { }
+
+local function install ( keys , profile )
+for _ , key in ipairs ( keys ) do
+MODELS [ key ] = { key = key , pointer = profile . pointer , int64 = profile . int64 , number = profile . number , }
+end
+end
+
+install (
+{
+"x86_64-unknown-linux-gnu" ,
+"aarch64-unknown-linux-gnu" ,
+"x86_64-apple-darwin" ,
+"aarch64-apple-darwin" ,
+"x86_64-pc-windows-msvc" ,
+"aarch64-pc-windows-msvc" ,
+} ,
+LP64
+)
+install ( { "i686-unknown-linux-gnu" } , ILP32_SYSV )
+install ( { "i686-pc-windows-msvc" } , ILP32_MSVC )
+
+local ORDERED_KEYS = {
+"aarch64-apple-darwin" ,
+"aarch64-pc-windows-msvc" ,
+"aarch64-unknown-linux-gnu" ,
+"i686-pc-windows-msvc" ,
+"i686-unknown-linux-gnu" ,
+"x86_64-apple-darwin" ,
+"x86_64-pc-windows-msvc" ,
+"x86_64-unknown-linux-gnu" ,
+}
+
+function targetLayout . keys ( )
+local out = { }
+for index , key in ipairs ( ORDERED_KEYS ) do
+out [ index ] = key
+end
+
+return out
+end
+
+function targetLayout . has ( key )
+return key ~= nil and MODELS [ key ] ~= nil
+end
+
+local function roundUp ( value , alignment )
+return math . floor ( ( value + alignment - 1 ) / alignment ) * alignment
+end
+
+local FIXED
+
+= {
+boolean = scalar ( 1 ) ,
+float = scalar ( 4 ) ,
+integer = scalar ( 4 ) ,
+int8 = scalar ( 1 ) ,
+int16 = scalar ( 2 ) ,
+int32 = scalar ( 4 ) ,
+uint8 = scalar ( 1 ) ,
+uint16 = scalar ( 2 ) ,
+uint32 = scalar ( 4 ) ,
+}
+
+
+
+
+
+
+function targetLayout . of ( t , key )
+local model = MODELS [ key ]
+if not model then
+return nil , "unknown layout target " .. tostring ( key )
+end
+
+local active = { }
+local layoutType
+
+layoutType = function ( subject )
+if not subject then
+return nil , "the type is unresolved"
+end
+local fixed = FIXED [ subject . tag ]
+if fixed then
+return fixed
+elseif subject . tag == "number" then
+return model . number
+elseif subject . tag == "int64" or subject . tag == "uint64" then
+return model . int64
+elseif subject . tag == "cstring" or subject . tag == "voidptr" or subject . tag == "ptr" then
+return model . pointer
+elseif subject . tag == "union" and subject . hasNil and # subject . members == 2 then
+local other = subject . members [ 1 ] . tag == "nil" and subject . members [ 2 ] or subject . members [ 1 ]
+if other and ( other . tag == "ptr" or other . tag == "cstring" or other . tag == "voidptr" ) then
+return model . pointer
+end
+elseif subject . tag == "carray" then
+if not subject . count or subject . count < 0 then
+return nil , "an unsized C array has no compile-time layout"
+end
+local element , why = layoutType ( subject . elem )
+if not element then
+return nil , why
+end
+return scalar ( element . size * ( subject . count ) , element . alignment )
+elseif subject . tag == "nominal" and subject . declKind == "struct" then
+if active [ subject ] then
+return nil , "a by-value struct cycle has no finite layout"
+end
+active [ subject ] = true
+local fields , offsets = { } , { }
+local cursor , aggregateAlignment = 0 , 1
+for _ , name in ipairs ( subject . fieldOrder or { } ) do
+local fieldType = subject . byname and subject . byname [ name ] or nil
+local one , why = layoutType ( fieldType )
+if not one then
+active [ subject ] = nil
+return nil , ( "field %q %s" ) : format ( name , why or "has no layout" )
+end
+cursor = roundUp ( cursor , one . alignment )
+fields [ # fields + 1 ] = { name = name , offset = cursor , size = one . size , alignment = one . alignment , }
+offsets [ name ] = cursor
+cursor = cursor + one . size
+if one . alignment > aggregateAlignment then
+aggregateAlignment = one . alignment
+end
+end
+active [ subject ] = nil
+if # fields == 0 then
+return nil , "an empty struct has no C layout"
+end
+return scalar ( roundUp ( cursor , aggregateAlignment ) , aggregateAlignment ) , nil , fields , offsets
+end
+
+return nil , ( "%s has no runtime layout" ) : format ( tostring ( subject . tag ) )
+end
+
+local measured , why , fields , offsets = layoutType ( t )
+if not measured then
+return nil , why
+end
+fields , offsets = fields or { } , offsets or { }
+local parts = { key , "abi=" .. targetLayout . ABI }
+for _ , field in ipairs ( fields ) do
+parts [ # parts + 1 ] = ( "%s@%d:%d/%d" ) : format ( field . name , field . offset , field . size , field . alignment )
+end
+parts [ # parts + 1 ] = ( "size=%d/align=%d" ) : format ( measured . size , measured . alignment )
+
+return {
+target = key ,
+abi = targetLayout . ABI ,
+size = measured . size ,
+alignment = measured . alignment ,
+fields = fields ,
+offsets = offsets ,
+fingerprint = table . concat ( parts , "|" ) ,
+}
+end
+
+return targetLayout
 
 end
 package.preload["nupp.compiler.types"] = function(...)
@@ -76106,6 +77117,883 @@ return nil
 end
 
 return types
+
+end
+package.preload["nupp.io.http"] = function(...)
+const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppInstallIO()local ffi=require("ffi");local Buffer,View,Reader,Writer={},{},{},{};Buffer.__index=Buffer;View.__index=View;Reader.__index=Reader;Writer.__index=Writer local __nuppBytes=ffi.typeof("uint8_t[?]");local SMALLEST=32 local function integer(value,what,level)if type(value)~="number"or value~=math.floor(value)or value<0 then error("nupp: "..what.." must be a non-negative integer",level)end;return value end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: "..what.." must be an integer",level)end;return value end local function opened(self,what,level)if self._closed then error("nupp: "..what.." is closed",level)end end local function range(length,offset,count,what,level)offset=integer(offset or 0,what.." offset",level);if offset>length then error("nupp: "..what.." offset is past the end",level)end;count=integer(count==nil and length-offset or count,what.." count",level);if offset+count>length then error("nupp: "..what.." range is past the end",level)end;return offset,count end local function reserve(self,minimum)if minimum<=self._capacity then return end;local capacity=self._capacity*2;if capacity<minimum then capacity=minimum end;if capacity<SMALLEST then capacity=SMALLEST end;local data=__nuppBytes(capacity);if self._length>0 then ffi.copy(data,self._data,self._length)end;self._data=data;self._capacity=capacity end local function bytesAt(self,offset,count)if count==0 then return""end;return ffi.string(self._data+offset,count)end function View:length()opened(self,"io.ByteView",2);return #self._bytes end;function View:getString()opened(self,"io.ByteView",2);return self._bytes end;function View:newReader()opened(self,"io.ByteView",2);return setmetatable({_bytes=self._bytes,_at=1,_closed=false},Reader)end;function View:view(offset,count)opened(self,"io.ByteView",2);offset,count=range(#self._bytes,offset,count,"io.ByteView",2);return setmetatable({_bytes=self._bytes:sub(offset+1,offset+count),_closed=false},View)end;function View:isReleased()return self._closed end;function View:close()self._closed=true;self._bytes="";return true end function Buffer:length()opened(self,"io.Buffer",2);return self._length end;function Buffer:capacity()opened(self,"io.Buffer",2);return self._capacity end;function Buffer:clear()opened(self,"io.Buffer",2);self._length=0 end;function Buffer:ensureCapacity(minimum)opened(self,"io.Buffer",2);reserve(self,integer(minimum,"io.Buffer capacity",2))end function Buffer:resize(length)opened(self,"io.Buffer",2);length=integer(length,"io.Buffer length",2);if length>self._length then reserve(self,length);ffi.fill(self._data+self._length,length-self._length,0)end;self._length=length end function Buffer:getString(offset,count)opened(self,"io.Buffer",2);offset,count=range(self._length,offset,count,"io.Buffer",2);return bytesAt(self,offset,count)end function Buffer:setString(bytes,offset)opened(self,"io.Buffer",2);if type(bytes)~="string"then error("nupp: io.Buffer bytes must be a string",2)end;offset=integer(offset or 0,"io.Buffer offset",2);local ending=offset+#bytes;reserve(self,ending);if offset>self._length then ffi.fill(self._data+self._length,offset-self._length,0)end;if #bytes>0 then ffi.copy(self._data+offset,bytes,#bytes)end;if ending>self._length then self._length=ending end end function Buffer:view(offset,count)opened(self,"io.Buffer",2);offset,count=range(self._length,offset,count,"io.Buffer",2);return setmetatable({_bytes=bytesAt(self,offset,count),_closed=false},View)end;function Buffer:isReleased()return self._closed end;function Buffer:close()self._closed=true;self._data=nil;self._length=0;self._capacity=0;return true end function Reader:read(count)if self._closed then return nil,"the reader is closed"end;count=whole(count,"Reader:read count",2);if self._at>#self._bytes then return ""end;local taking=math.min(math.max(1,count),#self._bytes-self._at+1);local out=self._bytes:sub(self._at,self._at+taking-1);self._at=self._at+taking;return out end function Reader:readInto(destination,offset,count)if self._closed then return nil,"the reader is closed"end;offset=integer(offset or 0,"Reader:readInto offset",2);count=integer(count or 65536,"Reader:readInto count",2);if self._at>#self._bytes or count==0 then return 0 end;local taking=math.min(count,#self._bytes-self._at+1);destination:setString(self._bytes:sub(self._at,self._at+taking-1),offset);self._at=self._at+taking;return taking end function Reader:transferTo(destination)if self._closed then return nil,"the reader is closed"end;local remaining=self._bytes:sub(self._at);local ok,reason=destination:write(remaining);if not ok then return nil,reason end;self._at=#self._bytes+1;return #remaining end;function Reader:close()self._closed=true;self._bytes="";return true end local function slice(source,offset,count,what)offset,count=range(source:length(),offset,count,what,3);return source:getString(offset,count),count end function Writer:write(bytes)if self._closed then return false,"the writer is closed"end;if self._buffer:isReleased()then return false,"the destination buffer is closed"end;self._buffer:setString(bytes,self._at);self._at=self._at+#bytes;return true end function Writer:writeFrom(source,offset,count)if self._closed then return nil,"the writer is closed"end;if source==self._buffer then return nil,"cannot write a buffer into itself"end;local bytes,n=slice(source,offset,count,"io.Buffer");local ok,reason=self:write(bytes);if not ok then return nil,reason end;return n end function Writer:writeView(source,offset,count)if self._closed then return nil,"the writer is closed"end;offset,count=range(source:length(),offset,count,"io.ByteView",2);local ok,reason=self:write(source:getString():sub(offset+1,offset+count));if not ok then return nil,reason end;return count end;function Writer:flush()if self._closed then return false,"the writer is closed"end;return true end;function Writer:close()self._closed=true;return not self._buffer:isReleased(),self._buffer:isReleased()and"the destination buffer is closed"or nil end function Buffer:newReader()opened(self,"io.Buffer",2);return setmetatable({_bytes=bytesAt(self,0,self._length),_at=1,_closed=false},Reader)end;function Buffer:newWriter()opened(self,"io.Buffer",2);self:clear();return setmetatable({_buffer=self,_at=0,_closed=false},Writer)end local function newBuffer(initial)if initial~=nil and type(initial)~="number"and type(initial)~="string"then error("nupp: io.newBuffer initial value must be bytes or a capacity",2)end;local bytes=type(initial)=="string"and initial or"";local capacity=type(initial)=="number"and integer(initial,"io.newBuffer capacity",2)or#bytes;local self=setmetatable({_data=capacity>0 and __nuppBytes(capacity)or nil,_length=0,_capacity=capacity,_closed=false},Buffer);if#bytes>0 then ffi.copy(self._data,bytes,#bytes);self._length=#bytes end;return self end __nuppIO.newBuffer=newBuffer;__nuppIO.newStringReader=function(text)if type(text)~="string"then error("nupp: io.newStringReader needs a string",2)end;return setmetatable({_bytes=text,_at=1,_closed=false},Reader)end;return __nuppIO end for _,__name in ipairs({"newBuffer","newStringReader"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallIO();return rawget(__nuppIO,name)end)end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[typedef struct NuppBytes NuppBytes;typedef struct NuppUri NuppUri;typedef struct{const uint8_t*data;size_t length;}NuppStringView;const char*nuppNativeError(void);const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);NuppBytes*nuppPathJoin(const NuppStringView*,size_t);NuppBytes*nuppPathNormalize(const uint8_t*,size_t);NuppBytes*nuppPathAbsolute(const uint8_t*,size_t);NuppBytes*nuppPathCanonicalize(const uint8_t*,size_t);NuppBytes*nuppPathRelative(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppPathPart(const uint8_t*,size_t,uint32_t);NuppBytes*nuppPathWith(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppPathIsAbsolute(const uint8_t*,size_t);NuppUri*nuppUriParse(const uint8_t*,size_t);const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);bool nuppUriPort(const NuppUri*,uint16_t*);NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);NuppUri*nuppUriWithPort(const NuppUri*,int32_t);NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);void nuppUriDestroy(NuppUri*);bool nuppUuid4(char*);bool nuppUuid7(char*);bool nuppSha256(const uint8_t*,size_t,char*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);void nuppProcessDestroy(NuppChild*);int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);size_t nuppProcessUncollectedTotal(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end local function __nuppInstallURI() local native=__nuppNative();local ffi,C=native.ffi,native.C;local URI={};URI.__index=URI;URI.__tostring=function(self)return self:toString()end;URI.__eq=function(a,b)return a:toString()==b:toString()end local function wrap(handle)if handle==nil then return nil,native.error()end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end local function changed(handle)if handle==nil then error("nupp: cannot modify URI: "..native.error(),3)end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end local function part(self,kind)local length=ffi.new("size_t[1]");local data=C.nuppUriPart(self._handle,kind,length);if data==nil then return nil end;return ffi.string(data,tonumber(length[0]))end function URI:toString()return part(self,0)end;function URI:scheme()return part(self,1)end;function URI:authority()return part(self,2)end;function URI:username()return part(self,3)end;function URI:password()return part(self,4)end;function URI:host()return part(self,5)end;function URI:path()return part(self,6)end;function URI:query()return part(self,7)end;function URI:fragment()return part(self,8)end function URI:userInfo()local username=self:username();local password=self:password();if username==""and password==nil then return nil end;return password and(username..":"..password)or username end function URI:port()local value=ffi.new("uint16_t[1]");return C.nuppUriPort(self._handle,value)and tonumber(value[0])or nil end local function required(value,what)if type(value)~="string"then error("nupp: "..what.." needs a string",3)end;return value end local kinds={withScheme={0,"scheme",true},withUserInfo={1,"userInfo"},withHost={2,"host"},withPath={3,"path",true},withQuery={4,"query"},withFragment={5,"fragment"}};for name,spec in pairs(kinds)do URI[name]=function(self,value)if spec[3]then value=required(value,"URI "..spec[2])elseif value~=nil then value=required(value,"URI "..spec[2])end;if value==self[spec[2]](self)then return self end;return changed(C.nuppUriWithText(self._handle,spec[1],value or"",value and#value or 0,value~=nil))end end function URI:withPort(port)if port~=nil and(type(port)~="number"or port~=math.floor(port)or port<0 or port>65535)then error("nupp: URI port must be an integer from 0 through 65535 or nil",2)end;if port==self:port()then return self end;return changed(C.nuppUriWithPort(self._handle,port or-1))end function URI:concatPath(path)path=required(path,"URI path");if path==""then return self end;return changed(C.nuppUriConcatPath(self._handle,path,#path))end function URI:resolve(reference)if type(reference)~="string"then return nil,"nupp: URI reference needs a string"end;return wrap(C.nuppUriResolve(self._handle,reference,#reference))end function URI:withEndpoint(endpoint)if type(endpoint)~="table"or getmetatable(endpoint)~=URI then error("nupp: URI endpoint must be an io.URI",2)end;return changed(C.nuppUriWithEndpoint(self._handle,endpoint._handle))end local function compose(c)if type(c)~="table"then return nil,"nupp: io.newURI needs absolute text or URI components"end;if type(c.scheme)~="string"or c.scheme==""then return nil,"nupp: URI components need a non-empty scheme"end;for _,name in ipairs({"userInfo","host","path","query","fragment"})do if c[name]~=nil and type(c[name])~="string"then return nil,"nupp: URI component "..name.." must be a string or nil"end end;if c.port~=nil and(type(c.port)~="number"or c.port~=math.floor(c.port)or c.port<0 or c.port>65535)then return nil,"nupp: URI component port must be an integer from 0 through 65535 or nil"end;local out=c.scheme..":";if c.host or c.userInfo or c.port then out=out.."//";if c.userInfo then out=out..c.userInfo.."@"end;out=out..(c.host or"");if c.port then out=out..":"..c.port end end;out=out..(c.path or"");if c.query then out=out.."?"..c.query end;if c.fragment then out=out.."#"..c.fragment end;return out end __nuppIO.newURI=function(value)local text,problem;if type(value)=="string"then text=value else text,problem=compose(value);if not text then return nil,problem end end;return wrap(C.nuppUriParse(text,#text))end __nuppIO.validate=function(text)if type(text)~="string"then return false,"nupp: io.validate needs a string"end;local handle=C.nuppUriParse(text,#text);if handle==nil then return false,native.error()end;C.nuppUriDestroy(handle);return true end __nuppIO.isURI=function(value)return type(value)=="table"and getmetatable(value)==URI end return __nuppIO end for _,__name in ipairs({"newURI","validate","isURI"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallURI();return rawget(__nuppIO,name)end)end;local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.io.http#destroyBody@13910"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io.http#destroyBody@13910") end;__nuppCleanup1=cleanup;return cleanup(value) end;
+
+
+
+
+
+
+
+
+
+local suspension = require ( "nupp.suspension" )
+
+local native = require ( "nupp.io.httpnative" )
+
+local http = { }
+
+
+
+http.Options = {} http.Options.__index = http.Options
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+http.ReaderBody = {} http.ReaderBody.__index = http.ReaderBody
+
+
+
+
+
+http.FileBody = {} http.FileBody.__index = http.FileBody
+
+
+
+
+
+
+http.Request = {} http.Request.__index = http.Request
+
+
+
+
+
+
+
+
+
+local READ_SIZE = 64 * 1024
+local UPLOAD_SIZE = 512 * 1024
+local UPLOAD_PAGE = 64 * 1024
+local COALESCE_BELOW = 8 * 1024
+local COPY_TURN = 16 * 1024 * 1024
+local BODY_INLINE , BODY_UPLOAD , BODY_FILE = 1 , 2 , 3
+
+local function whole ( value , what , minimum , maximum )
+if type ( value ) ~= "number" or value ~= math . floor ( value ) or value < minimum or maximum ~= nil and value > maximum then
+error (
+(
+"nupp: HTTP %s must be an integer%s"
+) : format ( what , maximum ~= nil and ( " from " .. minimum .. " through " .. maximum ) or " of at least " .. minimum ) ,
+3
+)
+end
+
+return value
+end
+
+local function optionInteger ( options , name , fallback , minimum )
+local value = options and options [ name ]
+if value == nil then
+return fallback
+end
+
+return whole ( value , name , minimum )
+end
+
+local function canonicalHost ( text , level )
+if text == "" or text : find ( "[/?#@*]" ) ~= nil then
+error ( "nupp: HTTP insecureHosts entries must be exact host names or IP literals" , level )
+end
+local spelling = text : sub ( - 1 ) == "." and text : sub ( 1 , - 2 ) or text
+local uri = nupp . io . newURI ( "https://" .. spelling .. "/" )
+if uri == nil or uri : username ( ) ~= "" or uri : password ( ) ~= nil or uri : port ( ) ~= nil or uri : path ( ) ~= "/" then
+error ( "nupp: HTTP insecureHosts entries must not contain a scheme, port, path, or user information" , level )
+end
+local host = uri : host ( )
+if host == nil or host == "" then
+error ( "nupp: HTTP insecureHosts entry is not a host" , level )
+end
+
+return host : lower ( )
+end
+
+local function mergedHeaders ( first , second , contentType )
+local byLower , merged = { } , { }
+local function add ( headers )
+for name , value in pairs ( headers or { } ) do
+if type ( name ) ~= "string" or type ( value ) ~= "string" or name == "" or name : find ( "[\r\n:]" ) ~= nil or value : find ( "[\r\n]" ) ~= nil then
+error ( "nupp: HTTP headers need valid string names and values" , 3 )
+end
+local lower = name : lower ( )
+local previous = byLower [ lower ]
+if previous ~= nil then
+merged [ previous ] = nil
+end
+merged [ name ] = value
+byLower [ lower ] = name
+end
+end
+add ( first )
+add ( second )
+if contentType ~= nil and byLower [ "content-type" ] == nil then
+merged [ "content-type" ] = contentType
+byLower [ "content-type" ] = "content-type"
+end
+local packed = { }
+for name , value in pairs ( merged ) do
+packed [ # packed + 1 ] = { name , value }
+end
+return byLower , merged , packed
+end
+
+local function copiedOptions ( options )
+local given = options or { }
+local headers = { }
+for name , value in pairs ( given . headers or { } ) do
+if type ( name ) ~= "string" or type ( value ) ~= "string" then
+error ( "nupp: HTTP default headers must have string names and values" , 3 )
+end
+headers [ name ] = value
+end
+if given . userAgent ~= nil then
+if type ( given . userAgent ) ~= "string" then
+error ( "nupp: HTTP userAgent must be a string" , 3 )
+end
+headers [ "user-agent" ] = given . userAgent
+end
+local insecure = { }
+for _ , host in ipairs ( given . insecureHosts or { } ) do
+if type ( host ) ~= "string" then
+error ( "nupp: HTTP insecureHosts entries must be strings" , 3 )
+end
+insecure [ canonicalHost ( host , 3 ) ] = true
+end
+for _ , name in ipairs ( { "proxy" , "noProxy" , "proxyCredentials" } ) do
+if given [ name ] ~= nil and type ( given [ name ] ) ~= "string" then
+error ( "nupp: HTTP " .. name .. " must be a string" , 3 )
+end
+end
+if given . compressed ~= nil and type ( given . compressed ) ~= "boolean" then
+error ( "nupp: HTTP compressed must be a boolean" , 3 )
+end
+local _ , _ , packedHeaders = mergedHeaders ( nil , headers , nil )
+local manualRedirects = next ( insecure ) ~= nil
+
+return {
+headers = headers ,
+packedHeaders = packedHeaders ,
+timeoutMs = optionInteger ( given , "timeoutMs" , 30000 , 1 ) ,
+connectTimeoutMs = optionInteger ( given , "connectTimeoutMs" , 10000 , 1 ) ,
+stallTimeoutMs = optionInteger ( given , "stallTimeoutMs" , 0 , 0 ) ,
+maxRedirects = optionInteger ( given , "maxRedirects" , 5 , 0 ) ,
+maxPendingRequests = optionInteger ( given , "maxPendingRequests" , 256 , 1 ) ,
+maxConnections = optionInteger ( given , "maxConnections" , 16 , 1 ) ,
+maxConnectionsPerHost = optionInteger ( given , "maxConnectionsPerHost" , 16 , 1 ) ,
+maxBytes = optionInteger ( given , "maxBytes" , 0 , 0 ) ,
+compressed = given . compressed ~= false ,
+insecureHosts = insecure ,
+manualRedirects = manualRedirects ,
+proxy = given . proxy ,
+noProxy = given . noProxy ,
+proxyCredentials = given . proxyCredentials ,
+}
+end
+
+local function appendWaiter ( client , transfer , which , cancelNative )
+suspension . suspend ( "HTTP " .. which , function ( resume , context )
+local active = true
+client : _retainSource ( context )
+local forget
+local function finish ( )
+if not active then
+return
+end
+active = false
+if forget ~= nil then
+forget ( )
+end
+client : _releaseSource ( )
+resume ( true )
+end
+if which == "response headers" then
+forget = transfer : onHead ( finish )
+elseif which == "response body" then
+forget = transfer : onBody ( finish )
+else
+forget = transfer : onUpload ( finish )
+end
+
+return function ( )
+if active then
+active = false
+forget ( )
+client : _releaseSource ( )
+if cancelNative then
+transfer : cancel ( )
+end
+end
+end
+end )
+end
+
+local function waitAdmission ( client )
+suspension . suspend ( "HTTP request admission" , function ( resume , context )
+local active = true
+client : _retainSource ( context )
+local forget
+local function finish ( )
+if not active then return end
+active = false
+if forget ~= nil then forget ( ) end
+client : _releaseSource ( )
+resume ( true )
+end
+forget = client . _native : onAdmission ( finish )
+return function ( )
+if active then
+active = false
+forget ( )
+client : _releaseSource ( )
+end
+end
+end )
+end
+
+local function waitHead ( client , transfer , cancelNative )
+while true do
+local state , status , version , url , headers , reason = transfer : head ( )
+if state == "ready" then
+return { status = status , version = version , url = url , headers = headers }
+elseif state == "failed" then
+return { reason = reason }
+end
+appendWaiter ( client , transfer , "response headers" , cancelNative )
+end
+end
+
+local function fairnessYield ( )
+suspension . suspend ( "HTTP response copy fairness" , function ( resume , context )
+local active = true
+context : source ( "nupp-http-fairness" , 20 , function ( )
+if not active then
+return 0
+end
+active = false
+resume ( true )
+return 1
+end )
+return function ( )
+active = false
+end
+end )
+end
+
+http.Body = {} http.Body.__index = http.Body
+
+
+
+
+
+function http.Body:_next(count, destination, offset)
+if self . _closed then
+return nil , "the body is closed"
+end
+if self . _reading then
+error ( "nupp: an HTTP response body may only have one reader" , 3 )
+end
+self . _reading = true
+while true do
+local state , value , reason = self . _transfer : bodyRead ( count , destination , offset )
+if state == "data" then
+self . _reading = false
+return value
+elseif state == "eof" then
+self . _reading = false
+return destination ~= nil and 0 or ""
+elseif state == "failed" or state == "closed" then
+self . _reading = false
+return nil , reason
+end
+local ok , problem = pcall ( appendWaiter , self . _client , self . _transfer , "response body" , true )
+if not ok then
+self . _reading = false
+error ( problem , 0 )
+end
+end
+end
+
+function http.Body:read(count)
+local wanted = whole ( count , "body read count" , - 9007199254740991 )
+return self : _next ( wanted < 1 and 1 or wanted , nil , 0 )
+end
+
+function http.Body:readInto(destination, offset, count)
+local at = whole ( offset or 0 , "body destination offset" , 0 )
+local wanted = whole ( count or READ_SIZE , "body read count" , 0 )
+if wanted == 0 then
+return 0
+end
+local value , reason = self : _next ( wanted , destination , at )
+if type ( value ) == "string" then
+destination : setString ( value , at )
+return # value
+end
+
+return value , reason
+end
+
+function http.Body:transferTo(destination)
+local total = 0
+local turn = 0
+if self . _transfer : directDestination ( destination ) then
+while true do
+if self . _closed then
+return nil , "the body is closed"
+end
+if self . _reading then
+error ( "nupp: an HTTP response body may only have one reader" , 2 )
+end
+self . _reading = true
+local state , count , reason = self . _transfer : bodyWrite ( destination , READ_SIZE )
+if state == "pending" then
+local ok , problem = pcall ( appendWaiter , self . _client , self . _transfer , "response body" , true )
+self . _reading = false
+if not ok then error ( problem , 0 ) end
+elseif state == "eof" then
+self . _reading = false
+return total
+elseif state == "failed" or state == "closed" then
+self . _reading = false
+return nil , reason
+else
+self . _reading = false
+total = total + ( count )
+turn = turn + ( count )
+if turn >= COPY_TURN then
+fairnessYield ( )
+turn = 0
+end
+end
+end
+end
+while true do
+local chunk , reason = self : read ( READ_SIZE )
+if chunk == nil then
+return nil , reason
+elseif chunk == "" then
+return total
+end
+local wrote , failure = destination : write ( chunk )
+if not wrote then
+return nil , failure
+end
+total = total + # chunk
+turn = turn + # chunk
+if turn >= COPY_TURN then
+fairnessYield ( )
+turn = 0
+end
+end
+end
+
+function http.Body:close()
+self : release ( )
+return true
+end
+
+
+function http.Body:release()
+if self . _closed then
+return
+end
+self . _closed = true
+local transfer = self . _transfer
+transfer : close ( )
+end
+
+
+
+local function destroyBody ( body )
+if not body . _closed then
+body . _closed = true
+local transfer = body . _transfer
+transfer : close ( )
+end
+end ;__nuppCleanups["nupp.io.http#destroyBody@13910"]=destroyBody
+
+__nuppCleanups["nupp.io.http#destroyBody@13910"]=destroyBody;
+local function makeBody ( client , transfer )
+return setmetatable({ _client =  client ,  _transfer =  transfer ,  _closed =  false ,  _reading =  false }, http.Body)
+end
+
+local function u32 ( bytes , at )
+local a , b , c , d = bytes : byte ( at , at + 3 )
+if d == nil then
+error ( "nupp: malformed packed HTTP response headers" , 0 )
+end
+return ( ( a or 0 ) + ( b or 0 ) * 256 + ( c or 0 ) * 65536 + ( d or 0 ) * 16777216 )
+end
+
+local function packedHeader ( bytes , wanted )
+local count = u32 ( bytes , 1 )
+local tableEnd = 4 + count * 16
+if tableEnd > # bytes then
+return nil
+end
+for index = 0 , count - 1 do
+local at = 5 + index * 16
+local nameAt , nameLength = u32 ( bytes , at ) , u32 ( bytes , at + 4 )
+local valueAt , valueLength = u32 ( bytes , at + 8 ) , u32 ( bytes , at + 12 )
+if nameAt < tableEnd or valueAt < tableEnd or nameAt + nameLength > # bytes or valueAt + valueLength > # bytes then
+return nil
+end
+if bytes : sub ( nameAt + 1 , nameAt + nameLength ) : lower ( ) == wanted then
+return bytes : sub ( valueAt + 1 , valueAt + valueLength )
+end
+end
+
+return nil
+end
+
+local function origin ( uri )
+local scheme = uri : scheme ( )
+local port = uri : port ( ) or ( scheme == "https" and 443 or 80 )
+return scheme .. "://" .. ( uri : host ( ) or "" ) : lower ( ) .. ":" .. port
+end
+
+http.Response = {} http.Response.__index = http.Response
+
+
+
+
+
+
+
+
+
+function http.Response:_decode()
+if self . _values ~= nil then
+return
+end
+local values = { }
+local count = u32 ( self . _packed , 1 )
+local tableEnd = 4 + count * 16
+if tableEnd > # self . _packed then
+error ( "nupp: malformed packed HTTP response headers" , 0 )
+end
+for index = 0 , count - 1 do
+local at = 5 + index * 16
+local nameAt , nameLength = u32 ( self . _packed , at ) , u32 ( self . _packed , at + 4 )
+local valueAt , valueLength = u32 ( self . _packed , at + 8 ) , u32 ( self . _packed , at + 12 )
+if nameAt < tableEnd or valueAt < tableEnd or nameAt + nameLength > # self . _packed or valueAt + valueLength > # self . _packed then
+error ( "nupp: malformed packed HTTP response headers" , 0 )
+end
+local name = self . _packed : sub ( nameAt + 1 , nameAt + nameLength ) : lower ( )
+local value = self . _packed : sub ( valueAt + 1 , valueAt + valueLength )
+local list = values [ name ]
+if list == nil then
+list = { }
+values [ name ] = list
+end
+list [ # list + 1 ] = value
+end
+self . _values = values
+end
+
+function http.Response:ok()
+return self . status >= 200 and self . status < 300
+end
+
+function http.Response:header(name)
+if type ( name ) ~= "string" then
+error ( "nupp: HTTP header name must be a string" , 2 )
+end
+self : _decode ( )
+local values = ( self . _values ) [ name : lower ( ) ]
+if values == nil then
+return nil
+end
+return name : lower ( ) == "set-cookie" and values [ 1 ] or table . concat ( values , ", " )
+end
+
+function http.Response:getAll(name)
+if type ( name ) ~= "string" then
+error ( "nupp: HTTP header name must be a string" , 2 )
+end
+self : _decode ( )
+local found = ( self . _values ) [ name : lower ( ) ] or { }
+local out = { }
+for index = 1 , # found do
+out [ index ] = found [ index ]
+end
+return out
+end
+
+function http.Response:headers()
+if self . _headers == nil then
+self : _decode ( )
+local out = { }
+for name , values in pairs ( self . _values ) do
+out [ name ] = name == "set-cookie" and values [ 1 ] or table . concat ( values , ", " )
+end
+self . _headers = out
+end
+local copy = { }
+for name , value in pairs ( self . _headers ) do
+copy [ name ] = value
+end
+return copy
+end
+
+
+function http.Response:close()
+if self . _closed then
+return true
+end
+self . _closed = true
+local body = self . body
+destroyBody ( body )
+return true
+end
+
+
+
+local function makeResponse (
+status ,
+version ,
+url ,
+body ,
+packed
+)
+return setmetatable({ status =  status ,  version =  version ,  url =  url ,  body =  body ,  _packed = 
+packed ,  _values =  nil ,  _headers =  nil ,  _closed =  false }, http.Response)
+end
+
+http.Client = {} http.Client.__index = http.Client
+
+
+
+
+
+
+function http.Client:_retainSource(context)
+if self . _source == nil then
+local backend = self . _native
+self . _source = suspension . source ( "nupp-http" , 20 , function ( )
+return backend : poll ( 0 )
+end , function ( waitMs )
+return backend : poll ( waitMs )
+end )
+end
+self . _sourceUsers = self . _sourceUsers + 1
+context : uses ( self . _source )
+end
+
+function http.Client:_releaseSource()
+self . _sourceUsers = self . _sourceUsers - 1
+if self . _sourceUsers == 0 and self . _source ~= nil then
+self . _source : release ( )
+self . _source = nil
+end
+end
+
+
+
+function http . Client : send ( request )
+if self . _closed then
+return nil , "the HTTP client is closed"
+end
+local given = request
+if given == nil or given . url == nil or type ( given . url . toString ) ~= "function" then
+error ( "nupp: HTTP request url must be a URI" , 2 )
+end
+local scheme = given . url : scheme ( )
+if scheme ~= "http" and scheme ~= "https" then
+error ( "nupp: HTTP request URL must use http or https" , 2 )
+end
+local method = given . method
+if method == nil then
+method = "GET"
+elseif type ( method ) ~= "string" or method == "" or method : find ( "[^!#$%%&'*+%.^_`|~%w%-]" ) ~= nil then
+error ( "nupp: HTTP method is not a valid token" , 2 )
+end
+local requestBody = given . body
+local body , bodyKind , bodyLength , reader = requestBody , 0 , nil , nil
+local contentType = nil
+if body ~= nil then
+local concrete = body
+if concrete . reader ~= nil then
+reader = concrete . reader
+bodyKind = BODY_UPLOAD
+bodyLength = concrete . length
+contentType = concrete . contentType
+if bodyLength ~= nil then whole ( bodyLength , "reader body length" , 0 ) end
+elseif concrete . path ~= nil then
+bodyKind = BODY_FILE
+body = type ( concrete . path ) == "string" and concrete . path or concrete . path : toString ( )
+bodyLength = - 1
+contentType = concrete . contentType
+elseif type ( body ) == "string" then
+bodyKind = BODY_INLINE
+bodyLength = # body
+elseif type ( concrete . length ) == "function" and type ( concrete . getString ) == "function" then
+bodyKind = BODY_INLINE
+bodyLength = concrete : length ( )
+else
+error ( "nupp: HTTP request body is not bytes, a Buffer, ReaderBody, or FileBody" , 2 )
+end
+end
+local manualRedirects = self . _options . manualRedirects
+local byLower , merged , packed
+if given . headers == nil and not given . _redirected and contentType == nil and not manualRedirects then
+packed = self . _options . packedHeaders
+else
+byLower , merged , packed = mergedHeaders (
+not given . _redirected and self . _options . headers or nil ,
+given . headers ,
+contentType
+)
+end
+local insecure = false
+if manualRedirects then
+local host = ( given . url : host ( ) or "" ) : lower ( )
+insecure = self . _options . insecureHosts [ host ] == true
+end
+local requestTimeout = given . timeoutMs ~= nil and whole ( given . timeoutMs , "timeoutMs" , 1 ) or self . _options . timeoutMs
+local now = self . _native : now ( )
+local deadline = given . _deadline or ( now + requestTimeout )
+local remaining = math . floor ( deadline - now )
+if remaining < 1 then
+return nil , "HTTP request timed out"
+end
+local descriptor = {
+uri = given . url , method = method , headers = packed ,
+body = body , bodyKind = bodyKind , bodyLength = bodyLength ,
+timeoutMs = remaining ,
+stallTimeoutMs = given . stallTimeoutMs ~= nil and whole ( given . stallTimeoutMs , "stallTimeoutMs" , 0 ) or self . _options . stallTimeoutMs ,
+maxBytes = given . maxBytes ~= nil and whole ( given . maxBytes , "maxBytes" , 0 ) or self . _options . maxBytes ,
+insecure = insecure ,
+}
+if not suspension . canSuspend ( ) then
+error ( "nupp: HTTP request cannot suspend here" , 2 )
+end
+local transfer , reason
+while transfer == nil do
+remaining = math . floor ( deadline - self . _native : now ( ) )
+if remaining < 1 then
+return nil , "HTTP request timed out waiting for admission"
+end
+descriptor . timeoutMs = remaining
+local full
+transfer , reason , full = self . _native : send ( descriptor )
+if transfer == nil and not full then
+return nil , reason
+elseif transfer == nil then
+waitAdmission ( self )
+if self . _closed then
+return nil , "the HTTP client is closed"
+end
+end
+end
+local head , problem
+if reader ~= nil then
+local scratch = nupp . io . newBuffer ( UPLOAD_SIZE )
+local function uploadAndWait ( )
+local transferred = 0
+while true do
+scratch : clear ( )
+local got , failure = reader : readInto ( scratch , 0 , UPLOAD_SIZE )
+if got == nil then
+transfer : cancel ( )
+error ( failure or "HTTP request reader failed" , 0 )
+end
+local finished = got == 0
+if not finished and ( got ) < COALESCE_BELOW then
+while scratch : length ( ) < UPLOAD_PAGE do
+local more , moreFailure = reader : readInto (
+scratch ,
+scratch : length ( ) ,
+UPLOAD_PAGE - scratch : length ( )
+)
+if more == nil then
+transfer : cancel ( )
+error ( moreFailure or "HTTP request reader failed" , 0 )
+elseif more == 0 then
+finished = true
+break
+end
+end
+end
+local offered = scratch : length ( )
+if offered > 0 then
+while true do
+local accepted = transfer : offer ( scratch , false , offered )
+if accepted == "accepted" then
+break
+elseif accepted == "closed" then
+return waitHead ( self , transfer , false )
+end
+appendWaiter ( self , transfer , "upload space" , false )
+end
+transferred = transferred + offered
+end
+if finished then
+if bodyLength ~= nil and transferred ~= bodyLength then
+transfer : cancel ( )
+error (
+( "HTTP request reader ended after %d bytes; expected %d" ) : format ( transferred , bodyLength ) ,
+0
+)
+end
+if transfer : offer ( nil , true ) == "closed" then
+return waitHead ( self , transfer , false )
+end
+return waitHead ( self , transfer , false )
+end
+end
+end
+local ok , value = pcall ( function ( )
+local answer = suspension . race ( { uploadAndWait , function ( ) return waitHead ( self , transfer , false ) end } )
+return answer
+end )
+scratch : close ( )
+if not ok then
+transfer : cancel ( )
+transfer : close ( )
+error ( value , 0 )
+end
+head = value
+else
+head = waitHead ( self , transfer , true )
+end
+if head == nil or head . reason ~= nil then
+problem = head and head . reason or "HTTP transfer failed"
+transfer : close ( )
+return nil , problem
+end
+local status = head . status
+local location = manualRedirects and packedHeader ( head . headers , "location" ) or nil
+if manualRedirects and location ~= nil and ( status == 301 or status == 302 or status == 303 or status == 307 or status == 308 ) then
+local followed = ( given . _redirects or 0 )
+if followed >= self . _options . maxRedirects then
+if self . _options . maxRedirects == 0 then
+location = nil
+else
+transfer : close ( )
+return nil , "HTTP request exceeded maxRedirects"
+end
+end
+if location ~= nil then
+local target , targetReason = given . url : resolve ( location )
+if target == nil then
+transfer : close ( )
+return nil , targetReason or "HTTP redirect has an invalid location"
+end
+if target : scheme ( ) ~= "http" and target : scheme ( ) ~= "https" then
+transfer : close ( )
+return nil , "HTTP redirect must use http or https"
+end
+local nextMethod , nextBody = method , requestBody
+local dropsBody = status == 303 and method ~= "HEAD" or ( status == 301 or status == 302 ) and method == "POST"
+if dropsBody then
+nextMethod = "GET"
+nextBody = nil
+for _ , name in ipairs ( { "content-length" , "content-type" , "transfer-encoding" } ) do
+local spelling = byLower [ name ]
+if spelling ~= nil then merged [ spelling ] = nil end
+end
+elseif reader ~= nil then
+transfer : close ( )
+return nil , "HTTP redirect cannot replay a ReaderBody"
+end
+if origin ( given . url ) ~= origin ( target ) then
+for _ , name in ipairs ( { "authorization" , "proxy-authorization" , "cookie" , "host" } ) do
+local spelling = byLower [ name ]
+if spelling ~= nil then merged [ spelling ] = nil end
+end
+end
+transfer : close ( )
+local redirected = {
+url = target ,
+method = nextMethod ,
+headers = merged ,
+body = nextBody ,
+timeoutMs = given . timeoutMs ,
+stallTimeoutMs = given . stallTimeoutMs ,
+maxBytes = given . maxBytes ,
+_redirected = true ,
+_redirects = followed + 1 ,
+_deadline = deadline ,
+}
+return self : send ( redirected )
+end
+end
+local bodyReady , bodyReason = transfer : takeBody ( )
+if not bodyReady then
+transfer : close ( )
+return nil , bodyReason
+end
+local effective = head . url == nil and given . url or nupp . io . newURI ( head . url )
+if effective == nil then
+transfer : close ( )
+return nil , "the HTTP provider returned an invalid effective URL"
+end
+local version = head . version == 10 and "1.0" or head . version == 20 and "2" or "1.1"
+do local __nuppT13=0; local  __nuppT19 ; local __nuppT20=false ; const __nuppT14,__nuppT15,__nuppT16=__nuppT6(function() do const __nuppT21= makeBody ( self , transfer ) ; __nuppT19= __nuppT21 ; __nuppT13=1;  __nuppT20=true;  local responseBody=__nuppT19;
+return "return",__nuppT1( (function(__nuppT22,...)  __nuppT20=false;  return __nuppT22(...)  end)( makeResponse , head . status , version , effective , responseBody , head . headers ) ) end; return "normal" end,__nuppT2); const __nuppT17={}; local __nuppT18=0; if __nuppT13>=1 and __nuppT20 then  const __nuppT23,__nuppT24=__nuppT5(__nuppCleanup1,__nuppT19);  if not __nuppT23 then __nuppT18=__nuppT18+1; __nuppT17[__nuppT18]=__nuppT24 end; end; if not __nuppT14 then if __nuppT18>0 then __nuppT7(__nuppT3(__nuppT15,__nuppT17,1),0) else __nuppT7(__nuppT15,0) end end; if __nuppT18>0 then if __nuppT18>1 then __nuppT7(__nuppT3(__nuppT17[1],__nuppT17,2),0) else __nuppT7(__nuppT17[1],0) end end; if __nuppT15=="return" then  return __nuppT8(__nuppT16,1,__nuppT16.n)  end; end
+end
+
+function http . Client : pending ( )
+return self . _closed and 0 or self . _native : pending ( )
+end
+
+
+function http . Client : close ( )
+if self . _closed then
+return true
+end
+self . _closed = true
+if self . _source ~= nil then
+self . _source : release ( )
+self . _source = nil
+self . _sourceUsers = 0
+end
+self . _native : close ( )
+return true
+end
+
+function http . reader ( reader , length , contentType )
+if length ~= nil then whole ( length , "reader body length" , 0 ) end
+if contentType ~= nil and type ( contentType ) ~= "string" then error ( "nupp: HTTP content type must be a string" , 2 ) end
+return setmetatable({ reader =  reader ,  length =  length ,  contentType =  contentType }, http.ReaderBody)
+end
+
+function http . file ( path , contentType )
+if type ( path ) ~= "string" and type ( ( path ) . toString ) ~= "function" then error ( "nupp: HTTP file body needs a path" , 2 ) end
+if contentType ~= nil and type ( contentType ) ~= "string" then error ( "nupp: HTTP content type must be a string" , 2 ) end
+return setmetatable({ path =  path ,  contentType =  contentType }, http.FileBody)
+end
+
+
+function http . newClient ( options )
+local copied = copiedOptions ( options )
+local backend , reason = native . newClient ( copied )
+if backend == nil then
+return nil , reason
+end
+
+return setmetatable({ _native =  backend ,  _options =  copied ,  _source =  nil ,  _sourceUsers =  0 ,  _closed =  false }, http.Client)
+end
+
+return http
 
 end
 package.preload["nupp.io.process"] = function(...)
@@ -78792,6 +80680,11 @@ local MAX_DRAIN_PASSES = 64
 
 
 
+local BLOCKING_WAIT_SLICE_MS = 1
+
+
+
+
 
 suspension.Source = {} suspension.Source.__index = suspension.Source
 
@@ -78809,7 +80702,21 @@ suspension.Source = {} suspension.Source.__index = suspension.Source
 
 
 
+
+
+
+
 suspension.Context = {} suspension.Context.__index = suspension.Context
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -78925,8 +80832,13 @@ end
 end
 end
 
-local function addSource ( name , priority , poll )
-local source = setmetatable ( { name = name , priority = priority , poll = poll , released = false } , SourceMT )
+local function addSource (
+name ,
+priority ,
+poll ,
+wait
+)
+local source = setmetatable ( { name = name , priority = priority , poll = poll , wait = wait , released = false } , SourceMT )
 sources [ # sources + 1 ] = source
 sortSources ( )
 
@@ -78942,8 +80854,13 @@ end
 
 
 
-function suspension . source ( name , priority , poll )
-return addSource ( name , priority , poll )
+function suspension . source (
+name ,
+priority ,
+poll ,
+wait
+)
+return addSource ( name , priority , poll , wait )
 end
 
 
@@ -78973,12 +80890,55 @@ end
 
 
 
+local function waitCandidates ( waiting )
+local associated = waiting . context and waiting . context . associated
+local preferred = { }
+if associated ~= nil then
+for index = 1 , # sources do
+local source = sources [ index ]
+if associated [ source ] and not source . released and source . wait ~= nil then
+preferred [ # preferred + 1 ] = source . wait
+end
+end
+end
+if # preferred > 0 then
+return preferred
+end
+
+local fallback = { }
+for index = 1 , # sources do
+local source = sources [ index ]
+if not source . released and source . wait ~= nil then
+fallback [ # fallback + 1 ] = source . wait
+end
+end
+
+return fallback
+end
+
 local function blockingPark ( waiting )
 while not waiting : ready ( ) do
 if # sources == 0 then
 error ( ( "nupp: %s cannot complete: no readiness source is registered" ) : format ( waiting . operation ) , 0 )
 end
+if suspension . poll ( ) == 0 and not waiting : ready ( ) then
+local candidates = waitCandidates ( waiting )
+if # candidates > 0 then
+local cursor = waiting . waitCursor or 1
+if cursor > # candidates then
+cursor = 1
+end
+local wait = candidates [ cursor ]
+waiting . waitCursor = cursor % # candidates + 1
+wait ( BLOCKING_WAIT_SLICE_MS )
+
+
+
+if not waiting : ready ( ) then
 suspension . poll ( )
+end
+end
+end
 end
 end
 
@@ -78996,8 +80956,14 @@ end
 local ContextMT = { }
 ContextMT . __index = ContextMT
 
-function ContextMT . source ( self , name , priority , poll )
-local source = addSource ( name , priority , poll )
+function ContextMT . source (
+self ,
+name ,
+priority ,
+poll ,
+wait
+)
+local source = addSource ( name , priority , poll , wait )
 
 
 local owned = self . owned
@@ -79006,8 +80972,18 @@ owned = { }
 self . owned = owned
 end
 owned [ # owned + 1 ] = source
+self . associated = self . associated or { }
+self . associated [ source ] = true
 
 return source
+end
+
+function ContextMT . uses ( self , source )
+if source == nil or source . released then
+error ( "nupp: cannot use a released readiness source" , 2 )
+end
+self . associated = self . associated or { }
+self . associated [ source ] = true
 end
 
 function ContextMT . canPark ( self )
@@ -79071,7 +81047,7 @@ wake ( )
 end
 end
 
-local context = setmetatable ( { handler = handler , owned = nil } , ContextMT )
+local context = setmetatable ( { handler = handler , owned = nil , associated = nil } , ContextMT )
 
 
 local subscribed , cancel = pcall ( subscribe , resume , context )
@@ -79149,7 +81125,7 @@ end
 current . parks [ ticket ] = true
 end
 
-local waiting = setmetatable ( { operation = operation , isReady = function ( )
+local waiting = setmetatable ( { operation = operation , context = context , waitCursor = 1 , isReady = function ( )
 return state . resumed or state . cancelled
 end , setWaker = function ( wake )
 state . waker = wake
@@ -79672,6 +81648,568 @@ end
 return suspension
 
 end
+package.preload["nupp.workers"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local buffer = require ( "string.buffer" )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local native = require ( "nupp.workers.native" )
+local suspension = require ( "nupp.suspension" )
+
+local workers = { }
+
+
+
+
+
+
+
+
+
+const Channel = {} Channel.__index = Channel
+
+
+
+
+
+
+workers.Exit = {} workers.Exit.__index = workers.Exit
+
+
+
+
+
+
+
+
+
+
+
+workers.Self = {} workers.Self.__index = workers.Self
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+workers.Worker = {} workers.Worker.__index = workers.Worker
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local ChannelMT = { __index = Channel }
+local WorkerMT = { __index = workers . Worker }
+local SelfMT = { __index = workers . Self }
+
+local function channel ( handle , owned )
+return setmetatable ( { handle = handle , owned = owned , destroyed = false } , ChannelMT )
+end
+
+local function newChannel ( )
+local handle = native . channelCreate ( )
+if handle == nil then
+error ( "nupp: cannot create a worker channel" , 3 )
+end
+
+return channel ( handle , true )
+end
+
+local SENDABLE = { boolean = true , number = true , string = true , }
+
+
+
+local function unsendable ( value , path , depth , seen )
+local kind = type ( value )
+if SENDABLE [ kind ] then
+return nil
+end
+if kind ~= "table" then
+return ( "%s is a %s" ) : format ( path , kind )
+end
+if getmetatable ( value ) ~= nil then
+return ( "%s has a metatable" ) : format ( path )
+end
+if depth >= 32 then
+return ( "%s nests deeper than 32 tables" ) : format ( path )
+end
+if seen [ value ] then
+return ( "%s repeats a table already present in the message" ) : format ( path )
+end
+seen [ value ] = true
+for key , item in pairs ( value
+
+) do
+if not SENDABLE [ type ( key ) ] then
+return ( "%s has a %s key" ) : format ( path , type ( key ) )
+end
+local rejected = unsendable ( item , ( "%s[%s]" ) : format ( path , tostring ( key ) ) , depth + 1 , seen )
+if rejected ~= nil then
+return rejected
+end
+end
+
+return nil
+end
+
+local function encode ( frame )
+local rejected = unsendable ( frame , "message" , 0 , { } )
+if rejected ~= nil then
+error ( "nupp: cannot send to a worker: " .. rejected , 3 )
+end
+
+return buffer . encode ( frame )
+end
+
+local function decode ( bytes )
+local ok , value = pcall ( buffer . decode , bytes )
+if not ok or type ( value ) ~= "table" or type ( ( value ) [ "kind" ] ) ~= "string" then
+error ( "nupp: a worker returned an invalid message frame" , 3 )
+end
+
+return value
+end
+
+local function push ( self , frame )
+if self . destroyed or not native . channelPush ( self . handle , encode ( frame ) ) then
+error ( "nupp: a worker channel is closed or its bounded queue is full" , 3 )
+end
+end
+
+local function pop ( self , timeoutMs )
+if self . destroyed then
+return nil
+end
+local bytes = native . channelPop ( self . handle , timeoutMs )
+
+return bytes ~= nil and decode ( bytes ) or nil
+end
+
+local function destroy ( self )
+if self . destroyed or not self . owned then
+return
+end
+self . destroyed = true
+native . channelDestroy ( self . handle )
+self . handle = nil
+end
+
+local function takeMessage ( self )
+if self . _firstMessage > self . _lastMessage then
+return nil
+end
+local value = self . _messages [ self . _firstMessage ]
+self . _messages [ self . _firstMessage ] = nil
+if self . _firstMessage == self . _lastMessage then
+self . _firstMessage = 1
+self . _lastMessage = 0
+else
+self . _firstMessage = self . _firstMessage + 1
+end
+
+return value
+end
+
+local function takeReply ( self , id )
+local reply = self . _replies [ id ]
+if reply ~= nil then
+self . _replies [ id ] = nil
+end
+
+return reply
+end
+
+
+
+local function route ( self , timeoutMs )
+local frame = pop ( self . _outbox , timeoutMs )
+if frame == nil then
+return false
+end
+if frame . kind == "reply" and frame . id ~= nil then
+if self . _pendingIds [ frame . id ] then
+self . _pendingIds [ frame . id ] = nil
+self . _replies [ frame . id ] = frame
+end
+elseif frame . kind == "message" then
+self . _lastMessage = self . _lastMessage + 1
+self . _messages [ self . _lastMessage ] = frame . payload
+else
+error ( "nupp: a worker returned an unknown message frame" , 3 )
+end
+
+return true
+end
+
+local function ended ( self )
+return native . channelClosed ( self . _outbox . handle ) and native . channelCount ( self . _outbox . handle ) == 0
+end
+
+
+
+
+local function waitFor (
+self ,
+operation ,
+ready ,
+timeoutMs
+)
+if ready ( ) then
+return true
+end
+if timeoutMs ~= nil and timeoutMs == 0 then
+return false
+end
+local deadline = timeoutMs ~= nil and native . now ( ) + timeoutMs or nil
+if not suspension . handled ( ) then
+while not ready ( ) do
+local budget = - 1
+if deadline ~= nil then
+local remaining = math . ceil ( deadline - native . now ( ) )
+if remaining <= 0 then
+return false
+end
+budget = remaining
+end
+if not route ( self , budget ) and ended ( self ) then
+return ready ( )
+end
+end
+
+return true
+end
+
+local function subscribe ( resume , context )
+local source = context : source ( "nupp.workers" , 50 , function ( )
+local moved = route ( self , 0 )
+if ready ( ) or ended ( self ) or deadline ~= nil and native . now ( ) >= deadline then
+resume ( true )
+
+return 1
+end
+
+return moved and 1 or 0
+end )
+
+return function ( )
+source : release ( )
+end
+end
+
+while not ready ( ) do
+if ended ( self ) then
+return false
+end
+if deadline ~= nil and native . now ( ) >= deadline then
+return false
+end
+suspension . suspend ( operation , subscribe )
+end
+
+return true
+end
+
+function workers . Worker : send ( value )
+if self . _closed or self . _exit ~= nil then
+error ( "nupp: cannot send to a closed worker" , 2 )
+end
+local rejected = unsendable ( value , "value" , 0 , { } )
+if rejected ~= nil then
+error ( "nupp: cannot send to a worker: " .. rejected , 2 )
+end
+push ( self . _inbox , { kind = "message" , payload = value } )
+end
+
+function workers . Worker : tryReceive ( )
+local value = takeMessage ( self )
+if value ~= nil then
+return value
+end
+while route ( self , 0 ) do
+value = takeMessage ( self )
+if value ~= nil then
+return value
+end
+end
+
+return nil
+end
+
+function workers . Worker : receive ( timeoutMs )
+if timeoutMs ~= nil and ( timeoutMs < 0 or math . floor ( timeoutMs ) ~= timeoutMs ) then
+error ( "nupp: worker receive timeout must be a nonnegative integer" , 2 )
+end
+local value = self : tryReceive ( )
+if value ~= nil then
+return value
+end
+waitFor ( self , "worker receive" , function ( )
+return self . _firstMessage <= self . _lastMessage
+end , timeoutMs )
+
+return takeMessage ( self )
+end
+
+function workers . Worker : call ( value )
+if self . _closed or self . _exit ~= nil then
+error ( "nupp: cannot call a closed worker" , 2 )
+end
+local rejected = unsendable ( value , "value" , 0 , { } )
+if rejected ~= nil then
+error ( "nupp: cannot call a worker: " .. rejected , 2 )
+end
+local id = self . _nextId
+if id > 9007199254740991 then
+error ( "nupp: worker request identifiers are exhausted" , 2 )
+end
+self . _nextId = id + 1
+self . _pendingIds [ id ] = true
+push ( self . _inbox , { kind = "request" , id = id , payload = value } )
+waitFor ( self , "worker call" , function ( )
+return self . _replies [ id ] ~= nil
+end )
+local reply = takeReply ( self , id )
+if reply == nil then
+self . _pendingIds [ id ] = nil
+local exit = self : join ( )
+error ( exit . error or "nupp: worker ended before replying" , 2 )
+end
+if reply . ok ~= true then
+error ( "nupp: worker call failed: " .. ( reply . error or "without saying why" ) , 2 )
+end
+
+return reply . payload
+end
+
+function workers . Worker : close ( )
+if self . _closed then
+return
+end
+self . _closed = true
+native . channelClose ( self . _inbox . handle )
+end
+
+function workers . Worker : join ( )
+if self . _exit ~= nil then
+return self . _exit
+end
+if suspension . handled ( ) and not native . workerFinished ( self . _handle ) then
+suspension . suspend ( "worker join" , function ( resume , context )
+local source = context : source ( "nupp.workers.join" , 50 , function ( )
+if native . workerFinished ( self . _handle ) then
+resume ( true )
+
+return 1
+end
+
+return 0
+end )
+
+return function ( )
+source : release ( )
+end
+end )
+end
+local status , failure = native . workerJoin ( self . _handle )
+self . _handle = nil
+self . _exit = setmetatable({ succeeded =  status == 0 ,  status =  status ,  error =  failure }, workers.Exit)
+
+return self . _exit
+end
+
+
+function workers . Worker : stop ( )
+if self . _destroyed then
+return self . _exit
+end
+self : close ( )
+local exit = self : join ( )
+destroy ( self . _inbox )
+destroy ( self . _outbox )
+self . _destroyed = true
+
+return exit
+end
+
+local function receiveSelf ( self )
+return pop ( self . inbox , - 1 )
+end
+
+function workers . Self : receive ( )
+local frame = receiveSelf ( self )
+
+return frame and frame . payload or nil
+end
+
+function workers . Self : send ( value )
+local rejected = unsendable ( value , "value" , 0 , { } )
+if rejected ~= nil then
+error ( "nupp: cannot send from a worker: " .. rejected , 2 )
+end
+push ( self . outbox , { kind = "message" , payload = value } )
+end
+
+function workers . Self : serve ( handler )
+while true do
+local frame = receiveSelf ( self )
+if frame == nil then
+return
+end
+local ok , answer = pcall ( handler , frame . payload )
+if frame . kind == "request" and frame . id ~= nil then
+if ok then
+local rejected = unsendable ( answer , "result" , 0 , { } )
+if rejected == nil then
+push ( self . outbox , { kind = "reply" , id = frame . id , ok = true , payload = answer } )
+else
+push (
+self . outbox ,
+{ kind = "reply" , id = frame . id , ok = false , error = "a call result cannot cross: " .. rejected , }
+)
+end
+else
+push ( self . outbox , { kind = "reply" , id = frame . id , ok = false , error = tostring ( answer ) , } )
+end
+end
+end
+end
+
+
+
+
+function workers . spawn ( entry )
+if type ( entry ) ~= "string" or entry == "" then
+error ( "nupp: a worker entry must be a nonempty module name" , 2 )
+end
+local inbox = newChannel ( )
+local outbox = newChannel ( )
+local handle , problem = native . workerSpawn ( entry , inbox . handle , outbox . handle )
+if handle == nil then
+destroy ( inbox )
+destroy ( outbox )
+error ( "nupp: cannot spawn worker: " .. ( problem or "unknown failure" ) , 2 )
+end
+
+return setmetatable (
+{
+_handle = handle ,
+_inbox = inbox ,
+_outbox = outbox ,
+_closed = false ,
+_destroyed = false ,
+_exit = nil ,
+_nextId = 1 ,
+_pendingIds = { } ,
+_replies = { } ,
+_messages = { } ,
+_firstMessage = 1 ,
+_lastMessage = 0 ,
+} ,
+WorkerMT
+)
+end
+
+
+
+function workers . current ( )
+local inbox , outbox = native . current ( )
+if inbox == nil or outbox == nil then
+error ( "nupp: workers.current is only valid inside a worker" , 2 )
+end
+
+return setmetatable ( { inbox = channel ( inbox , false ) , outbox = channel ( outbox , false ) , } , SelfMT )
+end
+
+workers . Worker = workers . Worker
+workers . Self = workers . Self
+workers . Exit = workers . Exit
+
+return workers
+
+end
 package.preload["nupp.zone"] = function(...)
 local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
@@ -80068,6 +82606,22 @@ end
 
 return ffi
 ]=],
+["/decls/httpnative.d.nupp"] = [[
+--- Private provider binding for `nupp.io.http`.
+local httpnative: {
+    newClient: function(options: any): (any?, string?)
+}
+
+return httpnative
+]],
+["/decls/httpnative.d.nupp"] = [[
+--- Private provider binding for `nupp.io.http`.
+local httpnative: {
+    newClient: function(options: any): (any?, string?)
+}
+
+return httpnative
+]],
 ["/decls/jit/profile.d.nupp"] = [=[
 --[[
 Declarations for LuaJIT's jit.profile module, loaded for
@@ -80621,191 +83175,35 @@ local require: function(name: string): any
 --- @namespace nupp
 local nupp: {
     --- JSON, UTF-8, UUIDs, hashes and checksums.
-    data: {
-        --- Encodes a Lua value as JSON text.
-        --- @param value the value to encode
-        --- @return the encoded JSON document
-        encodeJSON: function(value: any): string,
+    data: nupp.data,
 
-        --- Decodes one JSON document into Lua values.
-        --- @param text the JSON document to decode
-        --- @return the decoded value
-        decodeJSON: function(text: string): any,
-
-        --- Creates an independent JSON codec with its own settings.
-        --- @return the new codec
-        newJSON: function(): nupp.JSON,
-
-        --- Sentinel that decodes from and encodes as JSON null.
-        null: any,
-
-        --- Sentinel that always encodes as an empty JSON array.
-        emptyArray: any,
-
-        --- Metatable marking a table to encode as a JSON array.
-        arrayMt: metatable<{any}>,
-
-        --- Metatable marking a table to encode as an empty JSON array.
-        emptyArrayMt: metatable<{any}>,
-
-        --- Sets whether an empty table encodes as an object, or reads the current
-        --- setting when omitted.
-        --- @param setting true or "on" for `{}`, false or "off" for `[]`
-        --- @return whether empty tables encode as objects
-        encodeEmptyTableAsObject: function(setting: boolean | string?): boolean,
-
-        --- Sets whether decoded arrays carry `arrayMt`, or reads the current setting
-        --- when omitted.
-        --- @param setting the new setting
-        --- @return whether decoded arrays carry `arrayMt`
-        decodeArrayWithArrayMt: function(setting: boolean | string?): boolean,
-
-        --- Sets whether the decoder accepts comments, or reads the current setting
-        --- when omitted.
-        --- @param setting the new setting
-        --- @return whether comments are accepted
-        decodeAllowComment: function(setting: boolean | string?): boolean,
-
-        --- Configures how excessively sparse arrays are encoded, or reads the current
-        --- settings when every argument is omitted.
-        --- @param convert whether sparse arrays become JSON objects instead of raising
-        --- @param ratio the maximum ratio between the highest index and item count
-        --- @param safe the array size below which sparsity is always accepted
-        --- @return whether sparse arrays are converted
-        --- @return the current ratio limit
-        --- @return the current safe size
-        encodeSparseArray: function(convert: boolean?, ratio: integer?, safe: integer?): (boolean, integer, integer),
-
-        --- Sets the maximum nested-container depth accepted by the encoder, or reads
-        --- the current limit when omitted.
-        --- @param depth the new maximum depth
-        --- @return the current maximum depth
-        encodeMaxDepth: function(depth: integer?): integer,
-
-        --- Sets the maximum nested-container depth accepted by the decoder, or reads
-        --- the current limit when omitted.
-        --- @param depth the new maximum depth
-        --- @return the current maximum depth
-        decodeMaxDepth: function(depth: integer?): integer,
-
-        --- Sets the significant-digit precision used to encode numbers, or reads the
-        --- current precision when omitted.
-        --- @param precision the new number of significant digits
-        --- @return the current precision
-        encodeNumberPrecision: function(precision: integer?): integer,
-
-        --- Sets whether the encoder reuses its internal buffer, or reads the current
-        --- setting when omitted.
-        --- @param keep the new setting
-        --- @return whether the internal buffer is retained
-        encodeKeepBuffer: function(keep: boolean | string?): boolean,
-
-        --- Configures encoding of NaN and infinities, or reads the current setting
-        --- when omitted.
-        --- @param setting false to reject them, true to emit them, or "null" to emit
-        ---     null
-        --- @return the active invalid-number setting
-        encodeInvalidNumbers: function(setting: boolean | string?): boolean | string,
-
-        --- Sets whether the decoder accepts NaN and infinities, or reads the current
-        --- setting when omitted.
-        --- @param setting the new setting
-        --- @return whether invalid numbers are accepted
-        decodeInvalidNumbers: function(setting: boolean | string?): boolean,
-
-        --- Sets whether `/` is escaped in JSON strings, or reads the current setting
-        --- when omitted.
-        --- @param setting the new setting
-        --- @return whether forward slashes are escaped
-        encodeEscapeForwardSlash: function(setting: boolean | string?): boolean,
-
-        --- Sets whether unsupported values are skipped instead of raising, or reads the
-        --- current setting when omitted.
-        --- @param setting the new setting
-        --- @return whether unsupported values are skipped
-        encodeSkipUnsupportedValueTypes: function(setting: boolean | string?): boolean,
-
-        --- Sets the indentation used for encoded containers, or reads the current
-        --- indentation when omitted.
-        --- @param indent the indentation string
-        --- @return the current indentation string
-        encodeIndent: function(indent: string?): string,
-
-        --- UTF-8 codepoint operations over strings and byte views.
-        --- @namespace
-        utf8: nupp.UTF8Library,
-
-        --- Generates a random version 4 UUID.
-        --- @return the canonical lowercase UUID text
-        uuid4: function(): string,
-
-        --- Generates a time-ordered version 7 UUID.
-        --- @return the canonical lowercase UUID text
-        uuid7: function(): string,
-
-        --- Computes the 64-bit FNV-1a digest of bytes.
-        --- @param value the bytes to hash
-        --- @return the lowercase hexadecimal digest
-        fnv1a64: function(value: string | nupp.ByteView): string,
-
-        --- Computes the SHA-256 digest of bytes.
-        --- @param value the bytes to hash
-        --- @return the lowercase hexadecimal digest
-        sha256: function(value: string | nupp.ByteView): string,
-
-        --- Computes or continues an Adler-32 checksum.
-        --- @param value the bytes to checksum
-        --- @param previous a previous Adler-32 value, or 1 to start
-        --- @return the unsigned 32-bit checksum
-        adler32: function(value: string | nupp.ByteView, previous: integer?): integer,
-
-        --- Computes or continues a CRC-32 checksum.
-        --- @param value the bytes to checksum
-        --- @param previous a previous CRC-32 value, or 0 to start
-        --- @return the unsigned 32-bit checksum
-        crc32: function(value: string | nupp.ByteView, previous: integer?): integer
-    },
-
-    --- Buffers, byte views, readers and writers.
-    io: {
-        --- Creates an owned growable byte buffer.
-        --- @param initial initial bytes, an initial capacity, or nothing for an empty
-        ---     buffer
-        --- @return the new buffer
-        newBuffer: function(initial: integer | string?): nupp.Buffer,
-
-        --- Creates a forward-only reader over a string.
-        --- @param text the bytes to read
-        --- @return the new reader
-        newStringReader: function(text: string): nupp.Reader,
-
-        --- Filesystem metadata, directory contents, and the operations that move
-        --- names rather than bytes.
-        --- @namespace
-        files: nupp.Files.Library,
-
-        --- Constructors and platform operations for immutable filesystem paths.
-        --- @namespace
-        Path: nupp.Path.Library,
-
-        --- Parsing and inspection operations for immutable absolute URIs.
-        --- @namespace
-        URI: nupp.URI.Library
-    },
+    --- Buffers, byte views, readers, writers, filesystem paths and URIs.
+    io: nupp.io,
 
     --- Scalar helpers and two-dimensional vectors.
     math: nupp.MathLibrary,
 
     --- Leveled logging over a swappable destination.
-    --- @namespace
-    log: nupp.Log.Library,
+    log: nupp.log,
 
     --- Compile and run byte-oriented parsing-expression grammars.
     --- @namespace
     peg: nupp.peg,
 
     --- Type-directed keyed codecs materialized from semantic reflection.
-    fieldcodec: nupp.FieldCodec.Library,
+    fieldcodec: nupp.fieldcodec,
+
+    --- Reflects a concrete type for use inside a `comptime` block.
+    reflect: function(typeName: any): TypeInfo,
+
+    --- Size in bytes under the build target's declared C ABI.
+    sizeof: function(typeName: any): integer,
+
+    --- Alignment in bytes under the build target's declared C ABI.
+    alignof: function(typeName: any): integer,
+
+    --- Byte offset of one field under the build target's declared C ABI.
+    offsetof: function(typeName: any, fieldName: string): integer,
 
     --- Calls the static factory generated by `@derive(Default)`.
     default: function<T>(factory: {readonly default: function(): T}): T,
@@ -81316,16 +83714,8 @@ interface nupp.Debug
     debug: function(self): string
 end
 
---- Values that can encode themselves as JSON text.
-interface nupp.JSONEncodable
-    toJSON: function(self): string
-end
-
---- Reflects a concrete type for use inside a `comptime` block.
-local reflect: function(typeName: any): TypeInfo
-
---- Types for materialized keyed field codecs.
-record nupp.FieldCodec
+--- Type-directed keyed codecs materialized from semantic reflection.
+record nupp.fieldcodec
     record Blueprint
     end
 
@@ -81335,13 +83725,123 @@ record nupp.FieldCodec
         fingerprint: string
     end
 
-    record Library
-        compile: function(info: TypeInfo): Blueprint
-    end
+    compile: function(info: TypeInfo): Blueprint
 end
 
---- One independently configured JSON encoder and decoder.
-interface nupp.JSON
+--- JSON, UTF-8, UUIDs, hashes and checksums.
+record nupp.data
+    --- Values that can encode themselves as JSON text.
+    interface JSONEncodable
+        toJSON: function(self): string
+    end
+
+    --- One independently configured JSON encoder and decoder.
+    interface JSON
+        --- Encodes a Lua value as JSON text.
+        --- @param value the value to encode
+        --- @return the encoded JSON document
+        encodeJSON: function(value: any): string
+
+        --- Decodes one JSON document into Lua values.
+        --- @param text the JSON document to decode
+        --- @return the decoded value
+        decodeJSON: function(text: string): any
+
+        --- Sentinel that decodes from and encodes as JSON null.
+        null: any
+
+        --- Sentinel that always encodes as an empty JSON array.
+        emptyArray: any
+
+        --- Metatable marking a table to encode as a JSON array.
+        arrayMt: metatable<{any}>
+
+        --- Metatable marking a table to encode as an empty JSON array.
+        emptyArrayMt: metatable<{any}>
+
+        --- Sets whether an empty table encodes as an object, or reads the current
+        --- setting when omitted.
+        --- @param setting true or "on" for `{}`, false or "off" for `[]`
+        --- @return whether empty tables encode as objects
+        encodeEmptyTableAsObject: function(setting: boolean | string?): boolean
+
+        --- Sets whether decoded arrays carry `arrayMt`, or reads the current setting
+        --- when omitted.
+        --- @param setting the new setting
+        --- @return whether decoded arrays carry `arrayMt`
+        decodeArrayWithArrayMt: function(setting: boolean | string?): boolean
+
+        --- Sets whether the decoder accepts comments, or reads the current setting
+        --- when omitted.
+        --- @param setting the new setting
+        --- @return whether comments are accepted
+        decodeAllowComment: function(setting: boolean | string?): boolean
+
+        --- Configures how excessively sparse arrays are encoded, or reads the current
+        --- settings when every argument is omitted.
+        --- @param convert whether sparse arrays become JSON objects instead of raising
+        --- @param ratio the maximum ratio between the highest index and item count
+        --- @param safe the array size below which sparsity is always accepted
+        --- @return whether sparse arrays are converted
+        --- @return the current ratio limit
+        --- @return the current safe size
+        encodeSparseArray: function(convert: boolean?, ratio: integer?, safe: integer?): (boolean, integer, integer)
+
+        --- Sets the maximum nested-container depth accepted by the encoder, or reads
+        --- the current limit when omitted.
+        --- @param depth the new maximum depth
+        --- @return the current maximum depth
+        encodeMaxDepth: function(depth: integer?): integer
+
+        --- Sets the maximum nested-container depth accepted by the decoder, or reads
+        --- the current limit when omitted.
+        --- @param depth the new maximum depth
+        --- @return the current maximum depth
+        decodeMaxDepth: function(depth: integer?): integer
+
+        --- Sets the significant-digit precision used to encode numbers, or reads the
+        --- current precision when omitted.
+        --- @param precision the new number of significant digits
+        --- @return the current precision
+        encodeNumberPrecision: function(precision: integer?): integer
+
+        --- Sets whether the encoder reuses its internal buffer, or reads the current
+        --- setting when omitted.
+        --- @param keep the new setting
+        --- @return whether the internal buffer is retained
+        encodeKeepBuffer: function(keep: boolean | string?): boolean
+
+        --- Configures encoding of NaN and infinities, or reads the current setting
+        --- when omitted.
+        --- @param setting false to reject them, true to emit them, or "null" to emit null
+        --- @return the active invalid-number setting
+        encodeInvalidNumbers: function(setting: boolean | string?): boolean | string
+
+        --- Sets whether the decoder accepts NaN and infinities, or reads the current
+        --- setting when omitted.
+        --- @param setting the new setting
+        --- @return whether invalid numbers are accepted
+        decodeInvalidNumbers: function(setting: boolean | string?): boolean
+
+        --- Sets whether `/` is escaped in JSON strings, or reads the current setting
+        --- when omitted.
+        --- @param setting the new setting
+        --- @return whether forward slashes are escaped
+        encodeEscapeForwardSlash: function(setting: boolean | string?): boolean
+
+        --- Sets whether unsupported values are skipped instead of raising, or reads the
+        --- current setting when omitted.
+        --- @param setting the new setting
+        --- @return whether unsupported values are skipped
+        encodeSkipUnsupportedValueTypes: function(setting: boolean | string?): boolean
+
+        --- Sets the indentation used for encoded containers, or reads the current
+        --- indentation when omitted.
+        --- @param indent the indentation string
+        --- @return the current indentation string
+        encodeIndent: function(indent: string?): string
+    end
+
     --- Encodes a Lua value as JSON text.
     --- @param value the value to encode
     --- @return the encoded JSON document
@@ -81351,6 +83851,10 @@ interface nupp.JSON
     --- @param text the JSON document to decode
     --- @return the decoded value
     decodeJSON: function(text: string): any
+
+    --- Creates an independent JSON codec with its own settings.
+    --- @return the new codec
+    newJSON: function(): JSON
 
     --- Sentinel that decodes from and encodes as JSON null.
     null: any
@@ -81418,7 +83922,8 @@ interface nupp.JSON
 
     --- Configures encoding of NaN and infinities, or reads the current setting
     --- when omitted.
-    --- @param setting false to reject them, true to emit them, or "null" to emit null
+    --- @param setting false to reject them, true to emit them, or "null" to emit
+    ---     null
     --- @return the active invalid-number setting
     encodeInvalidNumbers: function(setting: boolean | string?): boolean | string
 
@@ -81445,881 +83950,925 @@ interface nupp.JSON
     --- @param indent the indentation string
     --- @return the current indentation string
     encodeIndent: function(indent: string?): string
+
+    --- UTF-8 codepoint operations over strings and byte views.
+    --- @namespace
+    utf8: nupp.UTF8Library
+
+    --- Generates a random version 4 UUID.
+    --- @return the canonical lowercase UUID text
+    uuid4: function(): string
+
+    --- Generates a time-ordered version 7 UUID.
+    --- @return the canonical lowercase UUID text
+    uuid7: function(): string
+
+    --- Computes the 64-bit FNV-1a digest of bytes.
+    --- @param value the bytes to hash
+    --- @return the lowercase hexadecimal digest
+    fnv1a64: function(value: string | nupp.io.ByteView): string
+
+    --- Computes the SHA-256 digest of bytes.
+    --- @param value the bytes to hash
+    --- @return the lowercase hexadecimal digest
+    sha256: function(value: string | nupp.io.ByteView): string
+
+    --- Computes or continues an Adler-32 checksum.
+    --- @param value the bytes to checksum
+    --- @param previous a previous Adler-32 value, or 1 to start
+    --- @return the unsigned 32-bit checksum
+    adler32: function(value: string | nupp.io.ByteView, previous: integer?): integer
+
+    --- Computes or continues a CRC-32 checksum.
+    --- @param value the bytes to checksum
+    --- @param previous a previous CRC-32 value, or 0 to start
+    --- @return the unsigned 32-bit checksum
+    crc32: function(value: string | nupp.io.ByteView, previous: integer?): integer
 end
 
 --- UTF-8 codepoint operations over strings and immutable byte views.
 --- @internal
 record nupp.UTF8Library
-    length: function(value: string | nupp.ByteView): integer
-    decodeAt: function(value: string | nupp.ByteView, byteOffset: integer): (integer?, integer)
-    decodeBefore: function(value: string | nupp.ByteView, byteOffset: integer): (integer?, integer)
+    length: function(value: string | nupp.io.ByteView): integer
+    decodeAt: function(value: string | nupp.io.ByteView, byteOffset: integer): (integer?, integer)
+    decodeBefore: function(value: string | nupp.io.ByteView, byteOffset: integer): (integer?, integer)
     encode: function(codepoint: integer): string
-    isValid: function(value: string | nupp.ByteView): boolean
-    validPrefixLength: function(value: string | nupp.ByteView, maxBytes: integer): integer
+    isValid: function(value: string | nupp.io.ByteView): boolean
+    validPrefixLength: function(value: string | nupp.io.ByteView, maxBytes: integer): integer
     truncate: function(text: string, maxBytes: integer): string
 end
 
---- An immutable snapshot of bytes.
-interface nupp.ByteView
-    --- Opens a reader over this snapshot.
-    --- @param self this byte view
-    --- @return the new reader
-    newReader: function(self: nupp.ByteView): nupp.Reader
+--- Buffers, byte views, readers, writers, filesystem paths and URIs.
+record nupp.io
+    --- An immutable snapshot of bytes.
+    interface ByteView
+        --- Opens a reader over this snapshot.
+        --- @param self this byte view
+        --- @return the new reader
+        newReader: function(self: ByteView): Reader
 
-    --- Reports the number of bytes in this snapshot.
-    --- @param self this byte view
-    --- @return the byte length
-    length: function(self: nupp.ByteView): integer
+        --- Reports the number of bytes in this snapshot.
+        --- @param self this byte view
+        --- @return the byte length
+        length: function(self: ByteView): integer
 
-    --- Copies all bytes into a string.
-    --- @param self this byte view
-    --- @return the copied bytes
-    getString: function(self: nupp.ByteView): string
+        --- Copies all bytes into a string.
+        --- @param self this byte view
+        --- @return the copied bytes
+        getString: function(self: ByteView): string
 
-    --- Retains an immutable subrange of this snapshot.
-    --- @param self this byte view
-    --- @param offset the zero-based start, or zero when omitted
-    --- @param count the number of bytes, or the rest of the view when omitted
-    --- @return the retained subrange
-    view: function(self: nupp.ByteView, offset: integer?, count: integer?): nupp.ByteView
+        --- Retains an immutable subrange of this snapshot.
+        --- @param self this byte view
+        --- @param offset the zero-based start, or zero when omitted
+        --- @param count the number of bytes, or the rest of the view when omitted
+        --- @return the retained subrange
+        view: function(self: ByteView, offset: integer?, count: integer?): ByteView
 
-    --- Reports whether this snapshot has been released.
-    --- @param self this byte view
-    --- @return whether the view is released
-    isReleased: function(self: nupp.ByteView): boolean
+        --- Reports whether this snapshot has been released.
+        --- @param self this byte view
+        --- @return whether the view is released
+        isReleased: function(self: ByteView): boolean
 
-    --- Releases this snapshot. Repeated calls are safe.
-    --- @param self this byte view
-    --- @return whether the release succeeded
-    --- @return a failure reason, when unsuccessful
-    close: function(self: nupp.ByteView): (boolean, string?)
-end
-
---- A forward-only byte source. An empty read or zero-byte readInto is EOF.
-interface nupp.Reader
-    --- Reads the next bytes, returning an empty string at EOF.
-    --- @param self this reader
-    --- @param count the maximum number of bytes; non-positive values still read one
-    --- @return the bytes, or nil on failure
-    --- @return a failure reason, when unsuccessful
-    read: function(self: nupp.Reader, count: integer): (string?, string?)
-
-    --- Reads bytes into a buffer, returning zero at EOF.
-    --- @param self this reader
-    --- @param destination the buffer to append to or overwrite
-    --- @param offset the zero-based destination offset, or zero when omitted
-    --- @param count the maximum bytes to read, or 64 KiB when omitted
-    --- @return the number of bytes read, or nil on failure
-    --- @return a failure reason, when unsuccessful
-    readInto: function(
-        self: nupp.Reader,
-        destination: nupp.Buffer,
-        offset: integer?,
-        count: integer?
-    ): (integer?, string?)
-
-    --- Copies all remaining bytes into a writer.
-    --- @param self this reader
-    --- @param destination the writer to receive the bytes
-    --- @return the number of bytes copied, or nil on failure
-    --- @return a failure reason, when unsuccessful
-    transferTo: function(self: nupp.Reader, destination: nupp.Writer): (integer?, string?)
-
-    --- Closes this reader. Repeated calls are safe.
-    --- @param self this reader
-    --- @return whether the close succeeded
-    --- @return a failure reason, when unsuccessful
-    close: function(self: nupp.Reader): (boolean, string?)
-end
-
---- A forward-only byte destination.
-interface nupp.Writer
-    --- Writes a string of bytes.
-    --- @param self this writer
-    --- @param bytes the bytes to write
-    --- @return whether the write succeeded
-    --- @return a failure reason, when unsuccessful
-    write: function(self: nupp.Writer, bytes: string): (boolean, string?)
-
-    --- Copies bytes from a mutable buffer.
-    --- @param self this writer
-    --- @param source the source buffer
-    --- @param offset the zero-based start, or zero when omitted
-    --- @param count the number of bytes, or the rest of the buffer when omitted
-    --- @return the number of bytes written, or nil on failure
-    --- @return a failure reason, when unsuccessful
-    writeFrom: function(self: nupp.Writer, source: nupp.Buffer, offset: integer?, count: integer?): (integer?, string?)
-
-    --- Copies bytes from an immutable view.
-    --- @param self this writer
-    --- @param source the source byte view
-    --- @param offset the zero-based start, or zero when omitted
-    --- @param count the number of bytes, or the rest of the view when omitted
-    --- @return the number of bytes written, or nil on failure
-    --- @return a failure reason, when unsuccessful
-    writeView: function(
-        self: nupp.Writer,
-        source: nupp.ByteView,
-        offset: integer?,
-        count: integer?
-    ): (integer?, string?)
-
-    --- Flushes any buffered output.
-    --- @param self this writer
-    --- @return whether the flush succeeded
-    --- @return a failure reason, when unsuccessful
-    flush: function(self: nupp.Writer): (boolean, string?)
-
-    --- Closes this writer. Repeated calls are safe.
-    --- @param self this writer
-    --- @return whether the close succeeded
-    --- @return a failure reason, when unsuccessful
-    close: function(self: nupp.Writer): (boolean, string?)
-end
-
---- An owned growable byte sequence. All offsets are zero-based.
-interface nupp.Buffer
-    --- Opens a reader over a snapshot of the current bytes.
-    --- @param self this buffer
-    --- @return the new reader
-    newReader: function(self: nupp.Buffer): nupp.Reader
-
-    --- Clears the buffer and opens a writer that targets it.
-    --- @param self this buffer
-    --- @return the new writer
-    newWriter: function(self: nupp.Buffer): nupp.Writer
-
-    --- Reports the logical byte length.
-    --- @param self this buffer
-    --- @return the byte length
-    length: function(self: nupp.Buffer): integer
-
-    --- Reports the reserved byte capacity.
-    --- @param self this buffer
-    --- @return the byte capacity
-    capacity: function(self: nupp.Buffer): integer
-
-    --- Removes every byte without discarding reserved capacity.
-    --- @param self this buffer
-    clear: function(self: nupp.Buffer)
-
-    --- Reserves at least a byte capacity without changing the length.
-    --- @param self this buffer
-    --- @param minimum the minimum capacity
-    ensureCapacity: function(self: nupp.Buffer, minimum: integer)
-
-    --- Changes the byte length, truncating or zero-filling as needed.
-    --- @param self this buffer
-    --- @param length the new byte length
-    resize: function(self: nupp.Buffer, length: integer)
-
-    --- Copies a byte range into a string.
-    --- @param self this buffer
-    --- @param offset the zero-based start, or zero when omitted
-    --- @param count the number of bytes, or the rest of the buffer when omitted
-    --- @return the copied bytes
-    getString: function(self: nupp.Buffer, offset: integer?, count: integer?): string
-
-    --- Overwrites bytes at an offset, growing and zero-filling any gap.
-    --- @param self this buffer
-    --- @param bytes the bytes to write
-    --- @param offset the zero-based start, or zero when omitted
-    setString: function(self: nupp.Buffer, bytes: string, offset: integer?)
-
-    --- Retains an immutable snapshot of a byte range.
-    --- @param self this buffer
-    --- @param offset the zero-based start, or zero when omitted
-    --- @param count the number of bytes, or the rest of the buffer when omitted
-    --- @return the retained byte view
-    view: function(self: nupp.Buffer, offset: integer?, count: integer?): nupp.ByteView
-
-    --- Reports whether this buffer has been released.
-    --- @param self this buffer
-    --- @return whether the buffer is released
-    isReleased: function(self: nupp.Buffer): boolean
-
-    --- Releases this buffer. Repeated calls are safe.
-    --- @param self this buffer
-    --- @return whether the release succeeded
-    --- @return a failure reason, when unsuccessful
-    close: function(self: nupp.Buffer): (boolean, string?)
-end
-
---- Filesystem metadata and directory contents.
----
---- Every operation here answers before a transfer could have started: it reads a
---- name, a listing, or an attribute. Reading and writing a file's bytes is a
---- separate layer.
-record nupp.Files
-    --- What a resolved path refers to. A `symlink` answer only ever comes from
-    --- `isSymlink`, since every other operation follows the link first.
-    type Kind = "file" | "directory" | "symlink" | "other"
-
-    --- A well-known user folder. Resolved from the environment, so a desktop that
-    --- records its folders elsewhere is not consulted.
-    type UserFolder = "home" | "documents" | "downloads" | "desktop" | "pictures" | "music" | "videos"
-
-    --- One resolved path's attributes.
-    record Info
-        --- What the path refers to, after following symbolic links.
-        kind: nupp.Files.Kind
-
-        --- The byte length of a file's contents.
-        size: integer
-
-        --- Seconds since the Unix epoch, with a fractional part where the
-        --- platform records one.
-        modified: number
-
-        --- Whether the platform refuses writes to this path.
-        readOnly: boolean
+        --- Releases this snapshot. Repeated calls are safe.
+        --- @param self this byte view
+        --- @return whether the release succeeded
+        --- @return a failure reason, when unsuccessful
+        close: function(self: ByteView): (boolean, string?)
     end
 
-    --- How an open file may be used. The three update modes read and write:
-    --- `r+` needs an existing file, `w+` truncates one, and `a+` appends.
-    type Mode = "r" | "w" | "a" | "r+" | "w+" | "a+"
-
-    --- What a seek offset is measured from.
-    type Origin = "set" | "current" | "end"
-
-    --- Answers each line in turn, and nil at the end of the file.
-    type LineIterator = function(): string?
-
-    --- An open file, and the obligation to close it.
-    ---
-    --- Readers and writers opened from it satisfy the same [`nupp.Reader`
-    --- and `nupp.Writer`](../docs/io.md) contracts a buffer's do, so code
-    --- written against those works over a file without knowing one is there.
-    record File
-        --- Opens a forward-only reader at the file's current position.
-        --- @param self this file
-        --- @return the new reader
-        newReader: nosuspend function(self: nupp.Files.File): nupp.Reader
-
-        --- Opens a forward-only writer at the file's current position.
-        --- @param self this file
-        --- @return the new writer
-        newWriter: nosuspend function(self: nupp.Files.File): nupp.Writer
-
-        --- Answers the file's byte length without moving the cursor.
-        --- @param self this file
-        --- @return the byte length, or nil on failure
+    --- A forward-only byte source. An empty read or zero-byte readInto is EOF.
+    interface Reader
+        --- Reads the next bytes, returning an empty string at EOF.
+        --- @param self this reader
+        --- @param count the maximum number of bytes; non-positive values still read one
+        --- @return the bytes, or nil on failure
         --- @return a failure reason, when unsuccessful
-        size: nosuspend function(self: nupp.Files.File): (integer?, string?)
+        read: function(self: Reader, count: integer): (string?, string?)
 
-        --- Moves the cursor and answers where it landed.
-        --- @param self this file
-        --- @param offset the distance to move
-        --- @param origin what the offset is measured from, defaulting to the
-        ---     start
-        --- @return the new position, or nil on failure
+        --- Reads bytes into a buffer, returning zero at EOF.
+        --- @param self this reader
+        --- @param destination the buffer to append to or overwrite
+        --- @param offset the zero-based destination offset, or zero when omitted
+        --- @param count the maximum bytes to read, or 64 KiB when omitted
+        --- @return the number of bytes read, or nil on failure
         --- @return a failure reason, when unsuccessful
-        seek: nosuspend function(
-            self: nupp.Files.File,
+        readInto: function(
+            self: Reader,
+            destination: Buffer,
             offset: integer?,
-            origin: nupp.Files.Origin?
+            count: integer?
         ): (integer?, string?)
 
-        --- Answers the cursor's current position.
-        --- @param self this file
-        --- @return the position, or nil on failure
+        --- Copies all remaining bytes into a writer.
+        --- @param self this reader
+        --- @param destination the writer to receive the bytes
+        --- @return the number of bytes copied, or nil on failure
         --- @return a failure reason, when unsuccessful
-        position: nosuspend function(self: nupp.Files.File): (integer?, string?)
+        transferTo: function(self: Reader, destination: Writer): (integer?, string?)
 
-        --- Pushes buffered writes at the operating system.
-        --- @param self this file
+        --- Closes this reader. Repeated calls are safe.
+        --- @param self this reader
+        --- @return whether the close succeeded
+        --- @return a failure reason, when unsuccessful
+        close: function(self: Reader): (boolean, string?)
+    end
+
+    --- A forward-only byte destination.
+    interface Writer
+        --- Writes a string of bytes.
+        --- @param self this writer
+        --- @param bytes the bytes to write
+        --- @return whether the write succeeded
+        --- @return a failure reason, when unsuccessful
+        write: function(self: Writer, bytes: string): (boolean, string?)
+
+        --- Copies bytes from a mutable buffer.
+        --- @param self this writer
+        --- @param source the source buffer
+        --- @param offset the zero-based start, or zero when omitted
+        --- @param count the number of bytes, or the rest of the buffer when omitted
+        --- @return the number of bytes written, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        writeFrom: function(self: Writer, source: Buffer, offset: integer?, count: integer?): (integer?, string?)
+
+        --- Copies bytes from an immutable view.
+        --- @param self this writer
+        --- @param source the source byte view
+        --- @param offset the zero-based start, or zero when omitted
+        --- @param count the number of bytes, or the rest of the view when omitted
+        --- @return the number of bytes written, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        writeView: function(
+            self: Writer,
+            source: ByteView,
+            offset: integer?,
+            count: integer?
+        ): (integer?, string?)
+
+        --- Flushes any buffered output.
+        --- @param self this writer
         --- @return whether the flush succeeded
         --- @return a failure reason, when unsuccessful
-        flush: nosuspend function(self: nupp.Files.File): (boolean, string?)
+        flush: function(self: Writer): (boolean, string?)
 
-        --- Whether this file has been closed.
-        --- @param self this file
-        --- @return whether it is closed
-        isReleased: nosuspend function(self: nupp.Files.File): boolean
-
-        --- Closes the file. Repeated calls are safe.
-        --- @param self this file
+        --- Closes this writer. Repeated calls are safe.
+        --- @param self this writer
         --- @return whether the close succeeded
-        @drop
-
-        close: nosuspend function(takes self: nupp.Files.File): boolean
-    end
-
-    --- A created temporary path, and the obligation to settle it.
-    ---
-    --- Closing removes it. `persist` moves it somewhere permanent instead and
-    --- discharges the obligation, which is the whole reason to make one: write
-    --- to a name nobody else can take, then put it where it belongs.
-    record TemporaryPath
-        --- Answers the created path.
-        --- @param self this temporary path
-        --- @return the path text
-        toString: nosuspend function(self: nupp.Files.TemporaryPath): string
-
-        --- Moves this path to a permanent destination, replacing what is there.
-        --- @param self this temporary path
-        --- @param destination where to move it
-        --- @return whether the move happened
         --- @return a failure reason, when unsuccessful
-        persist: nosuspend function(self: nupp.Files.TemporaryPath, destination: string | nupp.Path): (boolean, string?)
-
-        --- Whether this path has been removed or persisted.
-        --- @param self this temporary path
-        --- @return whether it is settled
-        isReleased: nosuspend function(self: nupp.Files.TemporaryPath): boolean
-
-        --- Removes the path. Repeated calls, and a call after `persist`, are
-        --- safe and do nothing.
-        --- @param self this temporary path
-        --- @return whether the removal succeeded
-        @drop
-
-        close: nosuspend function(takes self: nupp.Files.TemporaryPath): boolean
+        close: function(self: Writer): (boolean, string?)
     end
 
-    --- One directory child, as the directory itself describes it.
-    record Entry
-        --- The child's name, without any directory part.
-        name: string
+    --- An owned growable byte sequence. All offsets are zero-based.
+    interface Buffer
+        --- Opens a reader over a snapshot of the current bytes.
+        --- @param self this buffer
+        --- @return the new reader
+        newReader: function(self: Buffer): Reader
 
-        --- What the entry itself is, without following a symbolic link.
-        kind: nupp.Files.Kind
+        --- Clears the buffer and opens a writer that targets it.
+        --- @param self this buffer
+        --- @return the new writer
+        newWriter: function(self: Buffer): Writer
+
+        --- Reports the logical byte length.
+        --- @param self this buffer
+        --- @return the byte length
+        length: function(self: Buffer): integer
+
+        --- Reports the reserved byte capacity.
+        --- @param self this buffer
+        --- @return the byte capacity
+        capacity: function(self: Buffer): integer
+
+        --- Removes every byte without discarding reserved capacity.
+        --- @param self this buffer
+        clear: function(self: Buffer)
+
+        --- Reserves at least a byte capacity without changing the length.
+        --- @param self this buffer
+        --- @param minimum the minimum capacity
+        ensureCapacity: function(self: Buffer, minimum: integer)
+
+        --- Changes the byte length, truncating or zero-filling as needed.
+        --- @param self this buffer
+        --- @param length the new byte length
+        resize: function(self: Buffer, length: integer)
+
+        --- Copies a byte range into a string.
+        --- @param self this buffer
+        --- @param offset the zero-based start, or zero when omitted
+        --- @param count the number of bytes, or the rest of the buffer when omitted
+        --- @return the copied bytes
+        getString: function(self: Buffer, offset: integer?, count: integer?): string
+
+        --- Overwrites bytes at an offset, growing and zero-filling any gap.
+        --- @param self this buffer
+        --- @param bytes the bytes to write
+        --- @param offset the zero-based start, or zero when omitted
+        setString: function(self: Buffer, bytes: string, offset: integer?)
+
+        --- Retains an immutable snapshot of a byte range.
+        --- @param self this buffer
+        --- @param offset the zero-based start, or zero when omitted
+        --- @param count the number of bytes, or the rest of the buffer when omitted
+        --- @return the retained byte view
+        view: function(self: Buffer, offset: integer?, count: integer?): ByteView
+
+        --- Reports whether this buffer has been released.
+        --- @param self this buffer
+        --- @return whether the buffer is released
+        isReleased: function(self: Buffer): boolean
+
+        --- Releases this buffer. Repeated calls are safe.
+        --- @param self this buffer
+        --- @return whether the release succeeded
+        --- @return a failure reason, when unsuccessful
+        close: function(self: Buffer): (boolean, string?)
     end
 
-    --- The generated part of a temporary name.
-    record TemporaryOptions
-        --- Where to create it, or the platform's temporary directory when
-        --- omitted.
-        directory: (string | nupp.Path)?
+    --- Filesystem metadata and directory contents.
+    ---
+    --- Every operation here answers before a transfer could have started: it reads a
+    --- name, a listing, or an attribute. Reading and writing a file's bytes is a
+    --- separate layer.
+    record Files
+        --- What a resolved path refers to. A `symlink` answer only ever comes from
+        --- `isSymlink`, since every other operation follows the link first.
+        type Kind = "file" | "directory" | "symlink" | "other"
 
-        --- Text before the generated part.
-        prefix: string?
+        --- A well-known user folder. Resolved from the environment, so a desktop that
+        --- records its folders elsewhere is not consulted.
+        type UserFolder = "home" | "documents" | "downloads" | "desktop" | "pictures" | "music" | "videos"
 
-        --- Text after the generated part, such as an extension.
-        suffix: string?
+        --- One resolved path's attributes.
+        record Info
+            --- What the path refers to, after following symbolic links.
+            kind: Kind
+
+            --- The byte length of a file's contents.
+            size: integer
+
+            --- Seconds since the Unix epoch, with a fractional part where the
+            --- platform records one.
+            modified: number
+
+            --- Whether the platform refuses writes to this path.
+            readOnly: boolean
+        end
+
+        --- How an open file may be used. The three update modes read and write:
+        --- `r+` needs an existing file, `w+` truncates one, and `a+` appends.
+        type Mode = "r" | "w" | "a" | "r+" | "w+" | "a+"
+
+        --- What a seek offset is measured from.
+        type Origin = "set" | "current" | "end"
+
+        --- Answers each line in turn, and nil at the end of the file.
+        type LineIterator = function(): string?
+
+        --- An open file, and the obligation to close it.
+        ---
+        --- Readers and writers opened from it satisfy the same [`nupp.io.Reader`
+        --- and `nupp.io.Writer`](../docs/io.md) contracts a buffer's do, so code
+        --- written against those works over a file without knowing one is there.
+        record File
+            --- Opens a forward-only reader at the file's current position.
+            --- @param self this file
+            --- @return the new reader
+            newReader: nosuspend function(self: File): nupp.io.Reader
+
+            --- Opens a forward-only writer at the file's current position.
+            --- @param self this file
+            --- @return the new writer
+            newWriter: nosuspend function(self: File): nupp.io.Writer
+
+            --- Answers the file's byte length without moving the cursor.
+            --- @param self this file
+            --- @return the byte length, or nil on failure
+            --- @return a failure reason, when unsuccessful
+            size: nosuspend function(self: File): (integer?, string?)
+
+            --- Moves the cursor and answers where it landed.
+            --- @param self this file
+            --- @param offset the distance to move
+            --- @param origin what the offset is measured from, defaulting to the
+            ---     start
+            --- @return the new position, or nil on failure
+            --- @return a failure reason, when unsuccessful
+            seek: nosuspend function(
+                self: File,
+                offset: integer?,
+                origin: Origin?
+            ): (integer?, string?)
+
+            --- Answers the cursor's current position.
+            --- @param self this file
+            --- @return the position, or nil on failure
+            --- @return a failure reason, when unsuccessful
+            position: nosuspend function(self: File): (integer?, string?)
+
+            --- Pushes buffered writes at the operating system.
+            --- @param self this file
+            --- @return whether the flush succeeded
+            --- @return a failure reason, when unsuccessful
+            flush: nosuspend function(self: File): (boolean, string?)
+
+            --- Whether this file has been closed.
+            --- @param self this file
+            --- @return whether it is closed
+            isReleased: nosuspend function(self: File): boolean
+
+            --- Closes the file. Repeated calls are safe.
+            --- @param self this file
+            --- @return whether the close succeeded
+            @drop
+
+            close: nosuspend function(takes self: File): boolean
+        end
+
+        --- A created temporary path, and the obligation to settle it.
+        ---
+        --- Closing removes it. `persist` moves it somewhere permanent instead and
+        --- discharges the obligation, which is the whole reason to make one: write
+        --- to a name nobody else can take, then put it where it belongs.
+        record TemporaryPath
+            --- Answers the created path.
+            --- @param self this temporary path
+            --- @return the path text
+            toString: nosuspend function(self: TemporaryPath): string
+
+            --- Moves this path to a permanent destination, replacing what is there.
+            --- @param self this temporary path
+            --- @param destination where to move it
+            --- @return whether the move happened
+            --- @return a failure reason, when unsuccessful
+            persist: nosuspend function(self: TemporaryPath, destination: string | nupp.io.Path): (boolean, string?)
+
+            --- Whether this path has been removed or persisted.
+            --- @param self this temporary path
+            --- @return whether it is settled
+            isReleased: nosuspend function(self: TemporaryPath): boolean
+
+            --- Removes the path. Repeated calls, and a call after `persist`, are
+            --- safe and do nothing.
+            --- @param self this temporary path
+            --- @return whether the removal succeeded
+            @drop
+
+            close: nosuspend function(takes self: TemporaryPath): boolean
+        end
+
+        --- One directory child, as the directory itself describes it.
+        record Entry
+            --- The child's name, without any directory part.
+            name: string
+
+            --- What the entry itself is, without following a symbolic link.
+            kind: Kind
+        end
+
+        --- The generated part of a temporary name.
+        record TemporaryOptions
+            --- Where to create it, or the platform's temporary directory when
+            --- omitted.
+            directory: (string | nupp.io.Path)?
+
+            --- Text before the generated part.
+            prefix: string?
+
+            --- Text after the generated part, such as an extension.
+            suffix: string?
+        end
+
+        --- Filesystem metadata, directory contents, and the operations that move
+        --- names rather than bytes.
+        --- @internal
+        record Library
+            --- Describes one path, following symbolic links.
+            ---
+            --- #### Examples
+            ---
+            --- Read a file's size:
+            ---
+            --- ```nupp
+            --- local info = assert(nupp.io.files.info("nupp.lua"))
+            --- assert(info.kind == "file" and info.size > 0)
+            --- ```
+            --- @param path the path to describe
+            --- @return the attributes, or nil when the path cannot be read
+            --- @return a failure reason, when unsuccessful
+            info: nosuspend function(path: string | nupp.io.Path): (Info?, string?)
+
+            --- Whether a path resolves to anything at all.
+            --- @param path the path to test
+            --- @return whether it resolves
+            exists: nosuspend function(path: string | nupp.io.Path): boolean
+
+            --- Whether a path resolves to a regular file.
+            --- @param path the path to test
+            --- @return whether it is a file
+            isFile: nosuspend function(path: string | nupp.io.Path): boolean
+
+            --- Whether a path resolves to a directory.
+            --- @param path the path to test
+            --- @return whether it is a directory
+            isDirectory: nosuspend function(path: string | nupp.io.Path): boolean
+
+            --- Whether a path is itself a symbolic link, without following it.
+            --- @param path the path to test
+            --- @return whether it is a symbolic link
+            isSymlink: nosuspend function(path: string | nupp.io.Path): boolean
+
+            --- Reads a symbolic link's target without resolving it.
+            --- @param path the link to read
+            --- @return the target text, or nil on failure
+            --- @return a failure reason, when unsuccessful
+            readLink: nosuspend function(path: string | nupp.io.Path): (string?, string?)
+
+            --- Creates a symbolic link.
+            ---
+            --- `kind` selects Windows's directory link and is ignored elsewhere,
+            --- because only Windows distinguishes the two.
+            --- @param target what the link points at
+            --- @param link where to create the link
+            --- @param kind the link kind, defaulting to a file link
+            --- @return whether the link was created
+            --- @return a failure reason, when unsuccessful
+            createSymlink: nosuspend function(
+                target: string | nupp.io.Path,
+                link: string | nupp.io.Path,
+                kind: ("file" | "directory")?
+            ): (boolean, string?)
+
+            --- Sets or clears a path's read-only attribute.
+            --- @param path the path to change
+            --- @param readOnly whether to refuse writes
+            --- @return whether the attribute was set
+            --- @return a failure reason, when unsuccessful
+            setReadOnly: nosuspend function(path: string | nupp.io.Path, readOnly: boolean): (boolean, string?)
+
+            --- Creates a directory and every missing parent. An existing directory
+            --- succeeds.
+            --- @param path the directory to create
+            --- @return whether the directory exists afterwards
+            --- @return a failure reason, when unsuccessful
+            createDirectory: nosuspend function(path: string | nupp.io.Path): (boolean, string?)
+
+            --- Removes a file, a symbolic link, or a directory.
+            --- @param path the path to remove
+            --- @param recursive whether to remove a directory's contents with it
+            --- @return whether the path was removed
+            --- @return a failure reason, when unsuccessful
+            remove: nosuspend function(path: string | nupp.io.Path, recursive: boolean?): (boolean, string?)
+
+            --- Renames a path, replacing an existing destination.
+            --- @param from the path to rename
+            --- @param to the new path
+            --- @return whether the rename happened
+            --- @return a failure reason, when unsuccessful
+            rename: nosuspend function(from: string | nupp.io.Path, to: string | nupp.io.Path): (boolean, string?)
+
+            --- Lists a directory's immediate children.
+            ---
+            --- #### Examples
+            ---
+            --- Count the modules beside a file:
+            ---
+            --- ```nupp
+            --- local entries = assert(nupp.io.files.list("src"))
+            --- for _, entry in ipairs(entries) do
+            ---     print(entry.kind, entry.name)
+            --- end
+            --- ```
+            --- @param path the directory to list
+            --- @return the children in the platform's order, or nil on failure
+            --- @return a failure reason, when unsuccessful
+            list: nosuspend function(path: string | nupp.io.Path): ({Entry}?, string?)
+
+            --- Expands a filesystem pattern into matching paths.
+            ---
+            --- `*` and `?` match within one path component, character classes use
+            --- `[abc]` or `[!abc]`, and `**` crosses directory boundaries. The
+            --- returned paths are sorted, and no matches is an empty list.
+            --- @param pattern the filesystem pattern to expand
+            --- @return the matching paths, or nil when the pattern or walk fails
+            --- @return a failure reason, when unsuccessful
+            glob: nosuspend function(pattern: string | nupp.io.Path): ({string}?, string?)
+
+            --- Reads a whole file.
+            ---
+            --- #### Examples
+            ---
+            --- Read a file's bytes, or report why not:
+            ---
+            --- ```nupp
+            --- local text, reason = nupp.io.files.read("nupp.lua")
+            --- assert(text, reason)
+            --- ```
+            --- @param path the file to read
+            --- @return the contents, or nil on failure
+            --- @return a failure reason, when unsuccessful
+            read: function(path: string | nupp.io.Path): (string?, string?)
+
+            --- Writes a whole file, replacing its contents.
+            --- @param path the file to write
+            --- @param bytes the contents
+            --- @return whether the write succeeded
+            --- @return a failure reason, when unsuccessful
+            write: function(path: string | nupp.io.Path, bytes: string | nupp.io.ByteView): (boolean, string?)
+
+            --- Adds to the end of a file, creating it when it does not exist.
+            --- @param path the file to extend
+            --- @param bytes what to add
+            --- @return whether the write succeeded
+            --- @return a failure reason, when unsuccessful
+            append: function(path: string | nupp.io.Path, bytes: string | nupp.io.ByteView): (boolean, string?)
+
+            --- Writes a whole file through a temporary beside it, so an interrupted
+            --- write leaves the destination as it was rather than half replaced.
+            --- @param path the file to write
+            --- @param bytes the contents
+            --- @return whether the write succeeded
+            --- @return a failure reason, when unsuccessful
+            writeAtomic: function(path: string | nupp.io.Path, bytes: string | nupp.io.ByteView): (boolean, string?)
+
+            --- Copies a file's contents over a destination.
+            --- @param from the file to copy
+            --- @param to where to copy it
+            --- @return whether the copy succeeded
+            --- @return a failure reason, when unsuccessful
+            copy: function(from: string | nupp.io.Path, to: string | nupp.io.Path): (boolean, string?)
+
+            --- Opens a file and hands over the obligation to close it.
+            ---
+            --- #### Examples
+            ---
+            --- Read a header without holding the whole file:
+            ---
+            --- ```nupp
+            --- do
+            ---     local file = assert(nupp.io.files.open("image.png"))
+            ---     print(file:newReader():read(8))
+            --- end
+            --- ```
+            --- @param path the file to open
+            --- @param mode how it may be used, defaulting to reading
+            --- @return the open file, or nil on failure
+            --- @return a failure reason, when unsuccessful
+            @owned
+
+            open: function(path: string | nupp.io.Path, mode: Mode?): (File?, string?)
+
+            --- Iterates a file's lines, closing it at the end.
+            ---
+            --- A trailing carriage return is removed, so a file written on either
+            --- platform reads the same. The iterator stops at the end of the file;
+            --- abandoning it early leaves the file open until it is collected.
+            --- @param path the file to read
+            --- @return an iterator answering each line, or nil on failure
+            --- @return a failure reason, when unsuccessful
+            lines: function(path: string | nupp.io.Path): (LineIterator?, string?)
+
+            --- Creates a uniquely named empty file and hands over the obligation to
+            --- remove or persist it.
+            ---
+            --- The file is created rather than merely proposed, so no second caller
+            --- can take the name in between.
+            --- @param options where to create it and how to name it
+            --- @return the created path, or nil on failure
+            --- @return a failure reason, when unsuccessful
+            @owned
+
+            createTemporaryFile: nosuspend function(
+                options: TemporaryOptions?
+            ): (TemporaryPath?, string?)
+
+            --- Creates a uniquely named empty directory and hands over the
+            --- obligation to remove or persist it.
+            --- @param options where to create it and how to name it
+            --- @return the created path, or nil on failure
+            --- @return a failure reason, when unsuccessful
+            @owned
+
+            createTemporaryDirectory: nosuspend function(
+                options: TemporaryOptions?
+            ): (TemporaryPath?, string?)
+
+            --- Reads the process's current working directory.
+            --- @return the current directory, or nil on failure
+            --- @return a failure reason, when unsuccessful
+            currentDirectory: nosuspend function(): (string?, string?)
+
+            --- How many whole-file transfers this program is still holding.
+            ---
+            --- Whole-file reads, writes and copies settle on worker threads, and
+            --- the lane that runs them is bounded. This answers what it holds,
+            --- which is what a program that submitted more than it consumed needs
+            --- to see.
+            --- @return the number of live transfers
+            pendingTransfers: nosuspend function(): integer
+
+            --- Answers a well-known user folder.
+            --- @param which the folder to locate
+            --- @return the folder, or nil when the platform has no such folder
+            --- @return a failure reason, when unsuccessful
+            userFolder: nosuspend function(which: UserFolder): (string?, string?)
+        end
     end
+
+    --- An immutable platform-native UTF-8 filesystem path.
+    record Path
+        --- Returns the native UTF-8 path text.
+        --- @param self this path
+        --- @return the path text
+        toString: function(self: Path): string
+
+        --- Appends path components using the current platform's rules.
+        --- @param self this path
+        --- @param ... the components to append
+        --- @return the joined path
+        join: function(self: Path, ...: string | Path): Path
+
+        --- Removes lexical `.` and `..` components without accessing the filesystem.
+        --- @param self this path
+        --- @return the normalized path
+        normalize: function(self: Path): Path
+
+        --- Resolves a relative path against the current working directory.
+        --- @param self this path
+        --- @return the absolute path, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        absolute: function(self: Path): (Path?, string?)
+
+        --- Makes this path absolute, appends components, and normalizes the result.
+        --- @param self this path
+        --- @param ... the components to append
+        --- @return the resolved path, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        resolve: function(self: Path, ...: string | Path): (Path?, string?)
+
+        --- Resolves filesystem links and returns the real path.
+        --- @param self this path
+        --- @return the canonical path, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        canonicalize: function(self: Path): (Path?, string?)
+
+        --- Computes this path relative to a compatible base path.
+        --- @param self this path
+        --- @param base the path to make this value relative to
+        --- @return the relative path, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        relativeTo: function(self: Path, base: string | Path): (Path?, string?)
+
+        --- Returns the parent path, when one exists.
+        --- @param self this path
+        --- @return the parent path
+        parent: function(self: Path): Path?
+
+        --- Returns the final path component, when one exists.
+        --- @param self this path
+        --- @return the file name
+        fileName: function(self: Path): string?
+
+        --- Returns the file name without its final extension, when one exists.
+        --- @param self this path
+        --- @return the file stem
+        stem: function(self: Path): string?
+
+        --- Returns the final file-name extension without its separator.
+        --- @param self this path
+        --- @return the extension
+        extension: function(self: Path): string?
+
+        --- Replaces the final path component.
+        --- @param self this path
+        --- @param name the replacement file name, without path separators
+        --- @return the modified path
+        withFileName: function(self: Path, name: string): Path
+
+        --- Replaces the final file-name extension.
+        --- @param self this path
+        --- @param extension the replacement extension, without path separators
+        --- @return the modified path
+        withExtension: function(self: Path, extension: string): Path
+
+        --- Reports whether this path is absolute.
+        --- @param self this path
+        --- @return whether the path is absolute
+        isAbsolute: function(self: Path): boolean
+
+        --- Reports whether this path is relative.
+        --- @param self this path
+        --- @return whether the path is relative
+        isRelative: function(self: Path): boolean
+    end
+
+    --- An immutable normalized absolute URI.
+    record URI
+        --- Components accepted when constructing an absolute URI.
+        record Components
+            --- The required URI scheme.
+            scheme: string
+
+            --- Optional user information, including a password when needed.
+            userInfo: string?
+
+            --- The optional host name or address.
+            host: string?
+
+            --- The optional port from 0 through 65535.
+            port: integer?
+
+            --- The path, or an empty path when omitted.
+            path: string?
+
+            --- The optional query without its leading `?`.
+            query: string?
+
+            --- The optional fragment without its leading `#`.
+            fragment: string?
+        end
+
+        --- Returns the complete normalized URI text.
+        --- @param self this URI
+        --- @return the URI text
+        toString: function(self: URI): string
+
+        --- Returns the normalized URI scheme.
+        --- @param self this URI
+        --- @return the scheme
+        scheme: function(self: URI): string
+
+        --- Returns the complete authority component, when present.
+        --- @param self this URI
+        --- @return the authority
+        authority: function(self: URI): string?
+
+        --- Returns the username component, or an empty string when absent.
+        --- @param self this URI
+        --- @return the username
+        username: function(self: URI): string
+
+        --- Returns the password component, when present.
+        --- @param self this URI
+        --- @return the password
+        password: function(self: URI): string?
+
+        --- Returns the normalized host, when present.
+        --- @param self this URI
+        --- @return the host
+        host: function(self: URI): string?
+
+        --- Returns the port, when explicitly present.
+        --- @param self this URI
+        --- @return the port
+        port: function(self: URI): integer?
+
+        --- Returns the URI path component.
+        --- @param self this URI
+        --- @return the path
+        path: function(self: URI): string
+
+        --- Returns the query without its leading `?`, when present.
+        --- @param self this URI
+        --- @return the query
+        query: function(self: URI): string?
+
+        --- Returns the fragment without its leading `#`, when present.
+        --- @param self this URI
+        --- @return the fragment
+        fragment: function(self: URI): string?
+
+        --- Returns the complete user-information component, when present.
+        --- @param self this URI
+        --- @return the user information
+        userInfo: function(self: URI): string?
+
+        --- Returns a copy with a replacement scheme.
+        --- @param self this URI
+        --- @param scheme the replacement scheme
+        --- @return the modified URI
+        withScheme: function(self: URI, scheme: string): URI
+
+        --- Returns a copy with replacement or removed user information.
+        --- @param self this URI
+        --- @param userInfo the replacement, or nil to remove it
+        --- @return the modified URI
+        withUserInfo: function(self: URI, userInfo: string?): URI
+
+        --- Returns a copy with a replacement or removed host.
+        --- @param self this URI
+        --- @param host the replacement, or nil to remove it
+        --- @return the modified URI
+        withHost: function(self: URI, host: string?): URI
+
+        --- Returns a copy with a replacement or removed port.
+        --- @param self this URI
+        --- @param port the replacement from 0 through 65535, or nil to remove it
+        --- @return the modified URI
+        withPort: function(self: URI, port: integer?): URI
+
+        --- Returns a copy with a replacement path.
+        --- @param self this URI
+        --- @param path the replacement path
+        --- @return the modified URI
+        withPath: function(self: URI, path: string): URI
+
+        --- Returns a copy with a replacement or removed query.
+        --- @param self this URI
+        --- @param query the replacement without `?`, or nil to remove it
+        --- @return the modified URI
+        withQuery: function(self: URI, query: string?): URI
+
+        --- Returns a copy with a replacement or removed fragment.
+        --- @param self this URI
+        --- @param fragment the replacement without `#`, or nil to remove it
+        --- @return the modified URI
+        withFragment: function(self: URI, fragment: string?): URI
+
+        --- Appends path text without interpreting it as a URI reference.
+        --- @param self this URI
+        --- @param path the path text to append
+        --- @return the modified URI
+        concatPath: function(self: URI, path: string): URI
+
+        --- Replaces the scheme and authority while retaining resource components.
+        --- @param self this URI
+        --- @param endpoint the URI supplying the scheme and authority
+        --- @return the endpoint-rerouted URI
+        withEndpoint: function(self: URI, endpoint: URI): URI
+
+        --- Resolves a URI reference according to RFC reference-resolution rules.
+        --- @param self this URI
+        --- @param reference the URI reference to resolve
+        --- @return the resolved URI, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        resolve: function(self: URI, reference: string): (URI?, string?)
+    end
+
+    --- Creates a path by joining one or more components.
+    ---
+    --- #### Examples
+    ---
+    --- Build a path from components:
+    ---
+    --- ```nupp
+    --- local source = nupp.io.newPath("src", "main.nupp")
+    --- assert(source:toString() == "src" .. nupp.io.separator() .. "main.nupp")
+    --- ```
+    ---
+    --- Normalize the path after joining its components:
+    ---
+    --- ```nupp
+    --- local source = nupp.io.newPath("src", "app", "..", "main.nupp"):normalize()
+    --- assert(source:fileName() == "main.nupp")
+    --- ```
+    --- @param first the first path component
+    --- @param ... the remaining path components
+    --- @return the new path
+    newPath: function(first: string, ...: string): Path
+
+    --- Reads the process's current working directory.
+    --- @return the current directory, or nil on failure
+    --- @return a failure reason, when unsuccessful
+    currentDirectory: function(): (Path?, string?)
+
+    --- Returns the current platform's primary path separator.
+    --- @return the path separator
+    separator: function(): string
+
+    --- Parses and normalizes an absolute URI.
+    --- @param value URI text or its individual components
+    --- @return the parsed URI, or nil on failure
+    --- @return a failure reason, when unsuccessful
+    newURI: function(value: string | URI.Components): (URI?, string?)
+
+    --- Checks whether text is a valid absolute URI without retaining an object.
+    --- @param text the URI text to validate
+    --- @return whether the text is valid
+    --- @return a failure reason, when invalid
+    validate: function(text: string): (boolean, string?)
+
+    --- Reports whether a value is a URI object.
+    --- @param value the value to inspect
+    --- @return whether the value is a URI
+    isURI: function(value: any): boolean
+
+    --- Creates an owned growable byte buffer.
+    --- @param initial initial bytes, an initial capacity, or nothing for an empty
+    ---     buffer
+    --- @return the new buffer
+    newBuffer: function(initial: integer | string?): Buffer
+
+    --- Creates a forward-only reader over a string.
+    --- @param text the bytes to read
+    --- @return the new reader
+    newStringReader: function(text: string): Reader
 
     --- Filesystem metadata, directory contents, and the operations that move
     --- names rather than bytes.
-    --- @internal
-    record Library
-        --- Describes one path, following symbolic links.
-        ---
-        --- #### Examples
-        ---
-        --- Read a file's size:
-        ---
-        --- ```nupp
-        --- local info = assert(nupp.io.files.info("nupp.lua"))
-        --- assert(info.kind == "file" and info.size > 0)
-        --- ```
-        --- @param path the path to describe
-        --- @return the attributes, or nil when the path cannot be read
-        --- @return a failure reason, when unsuccessful
-        info: nosuspend function(path: string | nupp.Path): (nupp.Files.Info?, string?)
-
-        --- Whether a path resolves to anything at all.
-        --- @param path the path to test
-        --- @return whether it resolves
-        exists: nosuspend function(path: string | nupp.Path): boolean
-
-        --- Whether a path resolves to a regular file.
-        --- @param path the path to test
-        --- @return whether it is a file
-        isFile: nosuspend function(path: string | nupp.Path): boolean
-
-        --- Whether a path resolves to a directory.
-        --- @param path the path to test
-        --- @return whether it is a directory
-        isDirectory: nosuspend function(path: string | nupp.Path): boolean
-
-        --- Whether a path is itself a symbolic link, without following it.
-        --- @param path the path to test
-        --- @return whether it is a symbolic link
-        isSymlink: nosuspend function(path: string | nupp.Path): boolean
-
-        --- Reads a symbolic link's target without resolving it.
-        --- @param path the link to read
-        --- @return the target text, or nil on failure
-        --- @return a failure reason, when unsuccessful
-        readLink: nosuspend function(path: string | nupp.Path): (string?, string?)
-
-        --- Creates a symbolic link.
-        ---
-        --- `kind` selects Windows's directory link and is ignored elsewhere,
-        --- because only Windows distinguishes the two.
-        --- @param target what the link points at
-        --- @param link where to create the link
-        --- @param kind the link kind, defaulting to a file link
-        --- @return whether the link was created
-        --- @return a failure reason, when unsuccessful
-        createSymlink: nosuspend function(
-            target: string | nupp.Path,
-            link: string | nupp.Path,
-            kind: ("file" | "directory")?
-        ): (boolean, string?)
-
-        --- Sets or clears a path's read-only attribute.
-        --- @param path the path to change
-        --- @param readOnly whether to refuse writes
-        --- @return whether the attribute was set
-        --- @return a failure reason, when unsuccessful
-        setReadOnly: nosuspend function(path: string | nupp.Path, readOnly: boolean): (boolean, string?)
-
-        --- Creates a directory and every missing parent. An existing directory
-        --- succeeds.
-        --- @param path the directory to create
-        --- @return whether the directory exists afterwards
-        --- @return a failure reason, when unsuccessful
-        createDirectory: nosuspend function(path: string | nupp.Path): (boolean, string?)
-
-        --- Removes a file, a symbolic link, or a directory.
-        --- @param path the path to remove
-        --- @param recursive whether to remove a directory's contents with it
-        --- @return whether the path was removed
-        --- @return a failure reason, when unsuccessful
-        remove: nosuspend function(path: string | nupp.Path, recursive: boolean?): (boolean, string?)
-
-        --- Renames a path, replacing an existing destination.
-        --- @param from the path to rename
-        --- @param to the new path
-        --- @return whether the rename happened
-        --- @return a failure reason, when unsuccessful
-        rename: nosuspend function(from: string | nupp.Path, to: string | nupp.Path): (boolean, string?)
-
-        --- Lists a directory's immediate children.
-        ---
-        --- #### Examples
-        ---
-        --- Count the modules beside a file:
-        ---
-        --- ```nupp
-        --- local entries = assert(nupp.io.files.list("src"))
-        --- for _, entry in ipairs(entries) do
-        ---     print(entry.kind, entry.name)
-        --- end
-        --- ```
-        --- @param path the directory to list
-        --- @return the children in the platform's order, or nil on failure
-        --- @return a failure reason, when unsuccessful
-        list: nosuspend function(path: string | nupp.Path): ({nupp.Files.Entry}?, string?)
-
-        --- Expands a filesystem pattern into matching paths.
-        ---
-        --- `*` and `?` match within one path component, character classes use
-        --- `[abc]` or `[!abc]`, and `**` crosses directory boundaries. The
-        --- returned paths are sorted, and no matches is an empty list.
-        --- @param pattern the filesystem pattern to expand
-        --- @return the matching paths, or nil when the pattern or walk fails
-        --- @return a failure reason, when unsuccessful
-        glob: nosuspend function(pattern: string | nupp.Path): ({string}?, string?)
-
-        --- Reads a whole file.
-        ---
-        --- #### Examples
-        ---
-        --- Read a file's bytes, or report why not:
-        ---
-        --- ```nupp
-        --- local text, reason = nupp.io.files.read("nupp.lua")
-        --- assert(text, reason)
-        --- ```
-        --- @param path the file to read
-        --- @return the contents, or nil on failure
-        --- @return a failure reason, when unsuccessful
-        read: function(path: string | nupp.Path): (string?, string?)
-
-        --- Writes a whole file, replacing its contents.
-        --- @param path the file to write
-        --- @param bytes the contents
-        --- @return whether the write succeeded
-        --- @return a failure reason, when unsuccessful
-        write: function(path: string | nupp.Path, bytes: string | nupp.ByteView): (boolean, string?)
-
-        --- Adds to the end of a file, creating it when it does not exist.
-        --- @param path the file to extend
-        --- @param bytes what to add
-        --- @return whether the write succeeded
-        --- @return a failure reason, when unsuccessful
-        append: function(path: string | nupp.Path, bytes: string | nupp.ByteView): (boolean, string?)
-
-        --- Writes a whole file through a temporary beside it, so an interrupted
-        --- write leaves the destination as it was rather than half replaced.
-        --- @param path the file to write
-        --- @param bytes the contents
-        --- @return whether the write succeeded
-        --- @return a failure reason, when unsuccessful
-        writeAtomic: function(path: string | nupp.Path, bytes: string | nupp.ByteView): (boolean, string?)
-
-        --- Copies a file's contents over a destination.
-        --- @param from the file to copy
-        --- @param to where to copy it
-        --- @return whether the copy succeeded
-        --- @return a failure reason, when unsuccessful
-        copy: function(from: string | nupp.Path, to: string | nupp.Path): (boolean, string?)
-
-        --- Opens a file and hands over the obligation to close it.
-        ---
-        --- #### Examples
-        ---
-        --- Read a header without holding the whole file:
-        ---
-        --- ```nupp
-        --- do
-        ---     local file = assert(nupp.io.files.open("image.png"))
-        ---     print(file:newReader():read(8))
-        --- end
-        --- ```
-        --- @param path the file to open
-        --- @param mode how it may be used, defaulting to reading
-        --- @return the open file, or nil on failure
-        --- @return a failure reason, when unsuccessful
-        @owned
-
-        open: function(path: string | nupp.Path, mode: nupp.Files.Mode?): (nupp.Files.File?, string?)
-
-        --- Iterates a file's lines, closing it at the end.
-        ---
-        --- A trailing carriage return is removed, so a file written on either
-        --- platform reads the same. The iterator stops at the end of the file;
-        --- abandoning it early leaves the file open until it is collected.
-        --- @param path the file to read
-        --- @return an iterator answering each line, or nil on failure
-        --- @return a failure reason, when unsuccessful
-        lines: function(path: string | nupp.Path): (nupp.Files.LineIterator?, string?)
-
-        --- Creates a uniquely named empty file and hands over the obligation to
-        --- remove or persist it.
-        ---
-        --- The file is created rather than merely proposed, so no second caller
-        --- can take the name in between.
-        --- @param options where to create it and how to name it
-        --- @return the created path, or nil on failure
-        --- @return a failure reason, when unsuccessful
-        @owned
-
-        createTemporaryFile: nosuspend function(
-            options: nupp.Files.TemporaryOptions?
-        ): (nupp.Files.TemporaryPath?, string?)
-
-        --- Creates a uniquely named empty directory and hands over the
-        --- obligation to remove or persist it.
-        --- @param options where to create it and how to name it
-        --- @return the created path, or nil on failure
-        --- @return a failure reason, when unsuccessful
-        @owned
-
-        createTemporaryDirectory: nosuspend function(
-            options: nupp.Files.TemporaryOptions?
-        ): (nupp.Files.TemporaryPath?, string?)
-
-        --- Reads the process's current working directory.
-        --- @return the current directory, or nil on failure
-        --- @return a failure reason, when unsuccessful
-        currentDirectory: nosuspend function(): (string?, string?)
-
-        --- How many whole-file transfers this program is still holding.
-        ---
-        --- Whole-file reads, writes and copies settle on worker threads, and
-        --- the lane that runs them is bounded. This answers what it holds,
-        --- which is what a program that submitted more than it consumed needs
-        --- to see.
-        --- @return the number of live transfers
-        pendingTransfers: nosuspend function(): integer
-
-        --- Answers a well-known user folder.
-        --- @param which the folder to locate
-        --- @return the folder, or nil when the platform has no such folder
-        --- @return a failure reason, when unsuccessful
-        userFolder: nosuspend function(which: nupp.Files.UserFolder): (string?, string?)
-    end
-end
-
---- An immutable platform-native UTF-8 filesystem path.
-record nupp.Path
-    --- Constructors and platform operations for immutable filesystem paths.
-    --- @internal
-    record Library
-        --- Creates a path by joining one or more components.
-        ---
-        --- #### Examples
-        ---
-        --- Build a path from components:
-        ---
-        --- ```nupp
-        --- local Path = nupp.io.Path
-        --- local source = Path.new("src", "main.nupp")
-        --- assert(source:toString() == "src" .. Path.separator() .. "main.nupp")
-        --- ```
-        ---
-        --- Normalize the path after joining its components:
-        ---
-        --- ```nupp
-        --- local source = nupp.io.Path.new("src", "app", "..", "main.nupp"):normalize()
-        --- assert(source:fileName() == "main.nupp")
-        --- ```
-        --- @param first the first path component
-        --- @param ... the remaining path components
-        --- @return the new path
-        new: function(first: string, ...: string): Path
-
-        --- Reads the process's current working directory.
-        --- @return the current directory, or nil on failure
-        --- @return a failure reason, when unsuccessful
-        currentDirectory: function(): (Path?, string?)
-
-        --- Returns the current platform's primary path separator.
-        --- @return the path separator
-        separator: function(): string
-    end
-
-    --- Returns the native UTF-8 path text.
-    --- @param self this path
-    --- @return the path text
-    toString: function(self: nupp.Path): string
-
-    --- Appends path components using the current platform's rules.
-    --- @param self this path
-    --- @param ... the components to append
-    --- @return the joined path
-    join: function(self: nupp.Path, ...: string | nupp.Path): nupp.Path
-
-    --- Removes lexical `.` and `..` components without accessing the filesystem.
-    --- @param self this path
-    --- @return the normalized path
-    normalize: function(self: nupp.Path): nupp.Path
-
-    --- Resolves a relative path against the current working directory.
-    --- @param self this path
-    --- @return the absolute path, or nil on failure
-    --- @return a failure reason, when unsuccessful
-    absolute: function(self: nupp.Path): (nupp.Path?, string?)
-
-    --- Makes this path absolute, appends components, and normalizes the result.
-    --- @param self this path
-    --- @param ... the components to append
-    --- @return the resolved path, or nil on failure
-    --- @return a failure reason, when unsuccessful
-    resolve: function(self: nupp.Path, ...: string | nupp.Path): (nupp.Path?, string?)
-
-    --- Resolves filesystem links and returns the real path.
-    --- @param self this path
-    --- @return the canonical path, or nil on failure
-    --- @return a failure reason, when unsuccessful
-    canonicalize: function(self: nupp.Path): (nupp.Path?, string?)
-
-    --- Computes this path relative to a compatible base path.
-    --- @param self this path
-    --- @param base the path to make this value relative to
-    --- @return the relative path, or nil on failure
-    --- @return a failure reason, when unsuccessful
-    relativeTo: function(self: nupp.Path, base: string | nupp.Path): (nupp.Path?, string?)
-
-    --- Returns the parent path, when one exists.
-    --- @param self this path
-    --- @return the parent path
-    parent: function(self: nupp.Path): nupp.Path?
-
-    --- Returns the final path component, when one exists.
-    --- @param self this path
-    --- @return the file name
-    fileName: function(self: nupp.Path): string?
-
-    --- Returns the file name without its final extension, when one exists.
-    --- @param self this path
-    --- @return the file stem
-    stem: function(self: nupp.Path): string?
-
-    --- Returns the final file-name extension without its separator.
-    --- @param self this path
-    --- @return the extension
-    extension: function(self: nupp.Path): string?
-
-    --- Replaces the final path component.
-    --- @param self this path
-    --- @param name the replacement file name, without path separators
-    --- @return the modified path
-    withFileName: function(self: nupp.Path, name: string): nupp.Path
-
-    --- Replaces the final file-name extension.
-    --- @param self this path
-    --- @param extension the replacement extension, without path separators
-    --- @return the modified path
-    withExtension: function(self: nupp.Path, extension: string): nupp.Path
-
-    --- Reports whether this path is absolute.
-    --- @param self this path
-    --- @return whether the path is absolute
-    isAbsolute: function(self: nupp.Path): boolean
-
-    --- Reports whether this path is relative.
-    --- @param self this path
-    --- @return whether the path is relative
-    isRelative: function(self: nupp.Path): boolean
-end
-
---- An immutable normalized absolute URI.
-record nupp.URI
-    --- Components accepted when constructing an absolute URI.
-    record Components
-        --- The required URI scheme.
-        scheme: string
-
-        --- Optional user information, including a password when needed.
-        userInfo: string?
-
-        --- The optional host name or address.
-        host: string?
-
-        --- The optional port from 0 through 65535.
-        port: integer?
-
-        --- The path, or an empty path when omitted.
-        path: string?
-
-        --- The optional query without its leading `?`.
-        query: string?
-
-        --- The optional fragment without its leading `#`.
-        fragment: string?
-    end
-
-    --- Parsing and inspection operations for immutable absolute URIs.
-    --- @internal
-    record Library
-        --- Parses and normalizes an absolute URI.
-        --- @param value URI text or its individual components
-        --- @return the parsed URI, or nil on failure
-        --- @return a failure reason, when unsuccessful
-        new: function(value: string | Components): (URI?, string?)
-
-        --- Checks whether text is a valid absolute URI without retaining an object.
-        --- @param text the URI text to validate
-        --- @return whether the text is valid
-        --- @return a failure reason, when invalid
-        validate: function(text: string): (boolean, string?)
-
-        --- Reports whether a value is a URI object.
-        --- @param value the value to inspect
-        --- @return whether the value is a URI
-        isURI: function(value: any): boolean
-    end
-
-    --- Returns the complete normalized URI text.
-    --- @param self this URI
-    --- @return the URI text
-    toString: function(self: nupp.URI): string
-
-    --- Returns the normalized URI scheme.
-    --- @param self this URI
-    --- @return the scheme
-    scheme: function(self: nupp.URI): string
-
-    --- Returns the complete authority component, when present.
-    --- @param self this URI
-    --- @return the authority
-    authority: function(self: nupp.URI): string?
-
-    --- Returns the username component, or an empty string when absent.
-    --- @param self this URI
-    --- @return the username
-    username: function(self: nupp.URI): string
-
-    --- Returns the password component, when present.
-    --- @param self this URI
-    --- @return the password
-    password: function(self: nupp.URI): string?
-
-    --- Returns the normalized host, when present.
-    --- @param self this URI
-    --- @return the host
-    host: function(self: nupp.URI): string?
-
-    --- Returns the port, when explicitly present.
-    --- @param self this URI
-    --- @return the port
-    port: function(self: nupp.URI): integer?
-
-    --- Returns the URI path component.
-    --- @param self this URI
-    --- @return the path
-    path: function(self: nupp.URI): string
-
-    --- Returns the query without its leading `?`, when present.
-    --- @param self this URI
-    --- @return the query
-    query: function(self: nupp.URI): string?
-
-    --- Returns the fragment without its leading `#`, when present.
-    --- @param self this URI
-    --- @return the fragment
-    fragment: function(self: nupp.URI): string?
-
-    --- Returns the complete user-information component, when present.
-    --- @param self this URI
-    --- @return the user information
-    userInfo: function(self: nupp.URI): string?
-
-    --- Returns a copy with a replacement scheme.
-    --- @param self this URI
-    --- @param scheme the replacement scheme
-    --- @return the modified URI
-    withScheme: function(self: nupp.URI, scheme: string): nupp.URI
-
-    --- Returns a copy with replacement or removed user information.
-    --- @param self this URI
-    --- @param userInfo the replacement, or nil to remove it
-    --- @return the modified URI
-    withUserInfo: function(self: nupp.URI, userInfo: string?): nupp.URI
-
-    --- Returns a copy with a replacement or removed host.
-    --- @param self this URI
-    --- @param host the replacement, or nil to remove it
-    --- @return the modified URI
-    withHost: function(self: nupp.URI, host: string?): nupp.URI
-
-    --- Returns a copy with a replacement or removed port.
-    --- @param self this URI
-    --- @param port the replacement from 0 through 65535, or nil to remove it
-    --- @return the modified URI
-    withPort: function(self: nupp.URI, port: integer?): nupp.URI
-
-    --- Returns a copy with a replacement path.
-    --- @param self this URI
-    --- @param path the replacement path
-    --- @return the modified URI
-    withPath: function(self: nupp.URI, path: string): nupp.URI
-
-    --- Returns a copy with a replacement or removed query.
-    --- @param self this URI
-    --- @param query the replacement without `?`, or nil to remove it
-    --- @return the modified URI
-    withQuery: function(self: nupp.URI, query: string?): nupp.URI
-
-    --- Returns a copy with a replacement or removed fragment.
-    --- @param self this URI
-    --- @param fragment the replacement without `#`, or nil to remove it
-    --- @return the modified URI
-    withFragment: function(self: nupp.URI, fragment: string?): nupp.URI
-
-    --- Appends path text without interpreting it as a URI reference.
-    --- @param self this URI
-    --- @param path the path text to append
-    --- @return the modified URI
-    concatPath: function(self: nupp.URI, path: string): nupp.URI
-
-    --- Replaces the scheme and authority while retaining resource components.
-    --- @param self this URI
-    --- @param endpoint the URI supplying the scheme and authority
-    --- @return the endpoint-rerouted URI
-    withEndpoint: function(self: nupp.URI, endpoint: nupp.URI): nupp.URI
-
-    --- Resolves a URI reference according to RFC reference-resolution rules.
-    --- @param self this URI
-    --- @param reference the URI reference to resolve
-    --- @return the resolved URI, or nil on failure
-    --- @return a failure reason, when unsuccessful
-    resolve: function(self: nupp.URI, reference: string): (nupp.URI?, string?)
+    --- @namespace
+    files: Files.Library
 end
 
 --- Two-dimensional vector operations on number pairs.
@@ -82846,9 +85395,7 @@ end
 --- filtered call evaluates none of its arguments. Every other spelling stays an
 --- ordinary call meaning the same thing, only slower: a value rather than a call,
 --- a computed format, a named argument, or a `nupp` some local has taken.
----
---- @namespace nupp.log
-record nupp.Log
+record nupp.log
     --- The threshold, from silent to most verbose. Each level admits itself and
     --- everything above it, so "warn" emits warnings and errors.
     type Level = "off" | "error" | "warn" | "info" | "debug"
@@ -82897,72 +85444,68 @@ record nupp.Log
         enabled: function(self: Logger, level: Level): boolean
     end
 
-    --- The compiler-provided logging library.
-    --- @internal
-    record Library
-        --- Logs at error. Accepts `string.format` directives.
-        error: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
+    --- Logs at error. Accepts `string.format` directives.
+    error: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
 
-        --- Logs at warn. Accepts `string.format` directives.
-        warn: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
+    --- Logs at warn. Accepts `string.format` directives.
+    warn: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
 
-        --- Logs at info. Accepts `string.format` directives.
-        info: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
+    --- Logs at info. Accepts `string.format` directives.
+    info: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
 
-        --- Logs at debug. Accepts `string.format` directives.
-        debug: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
+    --- Logs at debug. Accepts `string.format` directives.
+    debug: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
 
-        --- Reads the threshold, or sets it and answers the one it replaced.
-        ---
-        --- @param level the threshold to install
-        --- @return the threshold in force before the call
-        level: function(): Level & function(level: Level): Level
+    --- Reads the threshold, or sets it and answers the one it replaced.
+    ---
+    --- @param level the threshold to install
+    --- @return the threshold in force before the call
+    level: function(): Level & function(level: Level): Level
 
-        --- Whether a level would emit. Guards preparation spanning more than one
-        --- call, which no single rewritten site can elide.
-        ---
-        --- @param level the level to ask about
-        --- @return whether a call at that level would reach the sink
-        enabled: function(level: Level): boolean
+    --- Whether a level would emit. Guards preparation spanning more than one
+    --- call, which no single rewritten site can elide.
+    ---
+    --- @param level the level to ask about
+    --- @return whether a call at that level would reach the sink
+    enabled: function(level: Level): boolean
 
-        --- Reads the destination, or sets it and answers the one it replaced.
-        ---
-        --- @param target the sink function or file-like destination to install
-        --- @return the destination in force before the call
-        sink: function(): Target & function(target: Target): Target
+    --- Reads the destination, or sets it and answers the one it replaced.
+    ---
+    --- @param target the sink function or file-like destination to install
+    --- @return the destination in force before the call
+    sink: function(): Target & function(target: Target): Target
 
-        --- Reads the line format, or sets it and answers the one it replaced. Only
-        --- a file-like target consults it.
-        ---
-        --- @param format the formatter to install
-        --- @return the formatter in force before the call
-        formatter: function(): Formatter & function(format: Formatter): Formatter
+    --- Reads the line format, or sets it and answers the one it replaced. Only
+    --- a file-like target consults it.
+    ---
+    --- @param format the formatter to install
+    --- @return the formatter in force before the call
+    formatter: function(): Formatter & function(format: Formatter): Formatter
 
-        --- The current time formatted, recomputed at most once a second and shared
-        --- by every logger. Empty while timestamps are off.
-        ---
-        --- @return the cached timestamp
-        timestamp: function(): string
+    --- The current time formatted, recomputed at most once a second and shared
+    --- by every logger. Empty while timestamps are off.
+    ---
+    --- @return the cached timestamp
+    timestamp: function(): string
 
-        --- Reads the timestamp format, or sets it and answers the one it replaced.
-        --- Setting it drops the cached value; an empty format turns timestamps off.
-        ---
-        --- @param format the `os.date` format to install
-        --- @return the format in force before the call
-        timestampFormat: function(): string & function(format: string): string
+    --- Reads the timestamp format, or sets it and answers the one it replaced.
+    --- Setting it drops the cached value; an empty format turns timestamps off.
+    ---
+    --- @param format the `os.date` format to install
+    --- @return the format in force before the call
+    timestampFormat: function(): string & function(format: string): string
 
-        --- A logger with a fixed name. Repeating a name answers the same logger.
-        ---
-        --- @param name the name its lines carry
-        --- @return the logger
-        named: function(name: string): Logger
+    --- A logger with a fixed name. Repeating a name answers the same logger.
+    ---
+    --- @param name the name its lines carry
+    --- @return the logger
+    named: function(name: string): Logger
 
-        --- The name for a sink's numeric level.
-        ---
-        --- @param level the numeric level a sink received
-        --- @return the level's name
-        levelName: function(level: Severity): Level
-    end
+    --- The name for a sink's numeric level.
+    ---
+    --- @param level the numeric level a sink received
+    --- @return the level's name
+    levelName: function(level: Severity): Level
 end
 
 --- String manipulation and pattern matching. Every function here is also reachable as a
@@ -84126,6 +86669,54 @@ local decode: function(s: string): any
 
 return {new = new, encode = encode, decode = decode}
 ]=],
+["/decls/workersnative.d.nupp"] = [[
+--- Private compiler-host primitives used by `nupp.workers`.
+---
+--- The public module owns values, framing, suspension, and lifecycle. These
+--- functions deliberately expose only opaque handles and serialized bytes.
+local record native
+    channelCreate: function(): any
+    channelDestroy: function(any)
+    channelClose: function(any)
+    channelPush: function(any, string): boolean
+    channelPop: function(any, integer): string?
+    channelCount: function(any): integer
+    channelClosed: function(any): boolean
+
+    workerSpawn: function(string, any, any): (any?, string?)
+    workerFinished: function(any): boolean
+    workerJoin: function(any): (integer, string?)
+
+    current: function(): (any?, any?)
+    now: function(): number
+end
+
+return native
+]],
+["/decls/workersnative.d.nupp"] = [[
+--- Private compiler-host primitives used by `nupp.workers`.
+---
+--- The public module owns values, framing, suspension, and lifecycle. These
+--- functions deliberately expose only opaque handles and serialized bytes.
+local record native
+    channelCreate: function(): any
+    channelDestroy: function(any)
+    channelClose: function(any)
+    channelPush: function(any, string): boolean
+    channelPop: function(any, integer): string?
+    channelCount: function(any): integer
+    channelClosed: function(any): boolean
+
+    workerSpawn: function(string, any, any): (any?, string?)
+    workerFinished: function(any): boolean
+    workerJoin: function(any): (integer, string?)
+
+    current: function(): (any?, any?)
+    now: function(): number
+end
+
+return native
+]],
 ["/nupp/bytes.nupp"] = [=[
 --[[
 Typed binary reads and writes over a string.buffer.Buffer.
@@ -84371,6 +86962,882 @@ end
 
 return bytes
 ]=],
+["/nupp/io/http.nupp"] = [=[
+--[[
+An optional asynchronous HTTP client whose sockets and TLS run in the native
+Reqwest/Tokio provider. Calls suspend through `nupp.suspension`: a CLI blocks on the
+provider's condvar, while a scheduler or SDL host only drives the nonblocking source.
+
+Response bodies and generic request readers are progressive and bounded. A response
+status is an answer (including 4xx and 5xx); transport and body failures are returned
+as reasons.
+]]
+
+local suspension = require("nupp.suspension")
+local type NativeBackend = {newClient: function(any): (any?, string?)}
+local native = require("nupp.io.httpnative") as NativeBackend
+
+local http = {}
+
+type http.Version = "1.0" | "1.1" | "2"
+
+record http.Options
+    userAgent: string?
+    headers: {string: string}?
+    timeoutMs: integer?
+    connectTimeoutMs: integer?
+    stallTimeoutMs: integer?
+    maxRedirects: integer?
+    maxPendingRequests: integer?
+    maxConnections: integer?
+    maxConnectionsPerHost: integer?
+    maxBytes: integer?
+    compressed: boolean?
+    insecureHosts: {string}?
+    proxy: string?
+    noProxy: string?
+    proxyCredentials: string?
+end
+
+record http.ReaderBody
+    reader: nupp.io.Reader
+    length: integer?
+    contentType: string?
+end
+
+record http.FileBody
+    path: string | nupp.io.Path
+    contentType: string?
+end
+
+type http.RequestBody = string | nupp.io.ByteView | nupp.io.Buffer | http.ReaderBody | http.FileBody
+
+record http.Request
+    url: nupp.io.URI
+    method: string?
+    headers: {string: string}?
+    body: http.RequestBody?
+    timeoutMs: integer?
+    stallTimeoutMs: integer?
+    maxBytes: integer?
+end
+
+local READ_SIZE: integer = 64 * 1024
+local UPLOAD_SIZE: integer = 512 * 1024
+local UPLOAD_PAGE: integer = 64 * 1024
+local COALESCE_BELOW: integer = 8 * 1024
+local COPY_TURN: integer = 16 * 1024 * 1024
+local BODY_INLINE, BODY_UPLOAD, BODY_FILE = 1, 2, 3
+
+local function whole(value: any, what: string, minimum: integer, maximum: integer?): integer
+    if type(value) ~= "number" or value ~= math.floor(value) or value < minimum or maximum ~= nil and value > maximum then
+        error(
+            (
+                "nupp: HTTP %s must be an integer%s"
+            ):format(what, maximum ~= nil and (" from " .. minimum .. " through " .. maximum) or " of at least " .. minimum),
+            3
+        )
+    end
+
+    return value as integer
+end
+
+local function optionInteger(options: any, name: string, fallback: integer, minimum: integer): integer
+    local value = options and options[name]
+    if value == nil then
+        return fallback
+    end
+
+    return whole(value, name, minimum)
+end
+
+local function canonicalHost(text: string, level: integer): string
+    if text == "" or text:find("[/?#@*]") ~= nil then
+        error("nupp: HTTP insecureHosts entries must be exact host names or IP literals", level)
+    end
+    local spelling = text:sub(-1) == "." and text:sub(1, -2) or text
+    local uri = nupp.io.newURI("https://" .. spelling .. "/")
+    if uri == nil or uri:username() ~= "" or uri:password() ~= nil or uri:port() ~= nil or uri:path() ~= "/" then
+        error("nupp: HTTP insecureHosts entries must not contain a scheme, port, path, or user information", level)
+    end
+    local host = uri:host()
+    if host == nil or host == "" then
+        error("nupp: HTTP insecureHosts entry is not a host", level)
+    end
+
+    return host:lower()
+end
+
+local function mergedHeaders(first: any, second: any, contentType: string?): (any, any, {any})
+    local byLower, merged = {}, {}
+    local function add(headers: any): nil
+        for name, value in pairs(headers or {}) do
+            if type(name) ~= "string" or type(value) ~= "string" or name == "" or name:find("[\r\n:]") ~= nil or value:find("[\r\n]") ~= nil then
+                error("nupp: HTTP headers need valid string names and values", 3)
+            end
+            local lower = name:lower()
+            local previous = byLower[lower]
+            if previous ~= nil then
+                merged[previous] = nil
+            end
+            merged[name] = value
+            byLower[lower] = name
+        end
+    end
+    add(first)
+    add(second)
+    if contentType ~= nil and byLower["content-type"] == nil then
+        merged["content-type"] = contentType
+        byLower["content-type"] = "content-type"
+    end
+    local packed = {}
+    for name, value in pairs(merged) do
+        packed[#packed + 1] = {name, value}
+    end
+    return byLower, merged, packed
+end
+
+local function copiedOptions(options: http.Options?): any
+    local given: any = options or {}
+    local headers = {}
+    for name, value in pairs(given.headers or {}) do
+        if type(name) ~= "string" or type(value) ~= "string" then
+            error("nupp: HTTP default headers must have string names and values", 3)
+        end
+        headers[name] = value
+    end
+    if given.userAgent ~= nil then
+        if type(given.userAgent) ~= "string" then
+            error("nupp: HTTP userAgent must be a string", 3)
+        end
+        headers["user-agent"] = given.userAgent
+    end
+    local insecure = {}
+    for _, host in ipairs(given.insecureHosts or {}) do
+        if type(host) ~= "string" then
+            error("nupp: HTTP insecureHosts entries must be strings", 3)
+        end
+        insecure[canonicalHost(host, 3)] = true
+    end
+    for _, name in ipairs({"proxy", "noProxy", "proxyCredentials"}) do
+        if given[name] ~= nil and type(given[name]) ~= "string" then
+            error("nupp: HTTP " .. name .. " must be a string", 3)
+        end
+    end
+    if given.compressed ~= nil and type(given.compressed) ~= "boolean" then
+        error("nupp: HTTP compressed must be a boolean", 3)
+    end
+    local _, _, packedHeaders = mergedHeaders(nil, headers, nil)
+    local manualRedirects = next(insecure) ~= nil
+
+    return {
+        headers = headers,
+        packedHeaders = packedHeaders,
+        timeoutMs = optionInteger(given, "timeoutMs", 30000, 1),
+        connectTimeoutMs = optionInteger(given, "connectTimeoutMs", 10000, 1),
+        stallTimeoutMs = optionInteger(given, "stallTimeoutMs", 0, 0),
+        maxRedirects = optionInteger(given, "maxRedirects", 5, 0),
+        maxPendingRequests = optionInteger(given, "maxPendingRequests", 256, 1),
+        maxConnections = optionInteger(given, "maxConnections", 16, 1),
+        maxConnectionsPerHost = optionInteger(given, "maxConnectionsPerHost", 16, 1),
+        maxBytes = optionInteger(given, "maxBytes", 0, 0),
+        compressed = given.compressed ~= false,
+        insecureHosts = insecure,
+        manualRedirects = manualRedirects,
+        proxy = given.proxy,
+        noProxy = given.noProxy,
+        proxyCredentials = given.proxyCredentials,
+    }
+end
+
+local function appendWaiter(client: any, transfer: any, which: string, cancelNative: boolean): nil
+    suspension.suspend("HTTP " .. which, function(resume: function(boolean), context: suspension.Context): function()?
+        local active = true
+        client:_retainSource(context)
+        local forget: any
+        local function finish(): nil
+            if not active then
+                return
+            end
+            active = false
+            if forget ~= nil then
+                forget()
+            end
+            client:_releaseSource()
+            resume(true)
+        end
+        if which == "response headers" then
+            forget = transfer:onHead(finish)
+        elseif which == "response body" then
+            forget = transfer:onBody(finish)
+        else
+            forget = transfer:onUpload(finish)
+        end
+
+        return function(): nil
+            if active then
+                active = false
+                forget()
+                client:_releaseSource()
+                if cancelNative then
+                    transfer:cancel()
+                end
+            end
+        end
+    end)
+end
+
+local function waitAdmission(client: any): nil
+    suspension.suspend("HTTP request admission", function(resume: function(boolean), context: suspension.Context): function()?
+        local active = true
+        client:_retainSource(context)
+        local forget: any
+        local function finish(): nil
+            if not active then return end
+            active = false
+            if forget ~= nil then forget() end
+            client:_releaseSource()
+            resume(true)
+        end
+        forget = client._native:onAdmission(finish)
+        return function(): nil
+            if active then
+                active = false
+                forget()
+                client:_releaseSource()
+            end
+        end
+    end)
+end
+
+local function waitHead(client: any, transfer: any, cancelNative: boolean): any
+    while true do
+        local state, status, version, url, headers, reason = transfer:head()
+        if state == "ready" then
+            return {status = status, version = version, url = url, headers = headers}
+        elseif state == "failed" then
+            return {reason = reason}
+        end
+        appendWaiter(client, transfer, "response headers", cancelNative)
+    end
+end
+
+local function fairnessYield(): nil
+    suspension.suspend("HTTP response copy fairness", function(resume: function(boolean), context: suspension.Context): function()
+        local active = true
+        context:source("nupp-http-fairness", 20, function(): integer
+            if not active then
+                return 0
+            end
+            active = false
+            resume(true)
+            return 1
+        end)
+        return function(): nil
+            active = false
+        end
+    end)
+end
+
+record http.Body is nupp.io.Reader
+    _client: any
+    _transfer: any
+    _closed: boolean
+    _reading: boolean
+
+    function _next(self, count: integer, destination: nupp.io.Buffer?, offset: integer): (any?, string?)
+        if self._closed then
+            return nil, "the body is closed"
+        end
+        if self._reading then
+            error("nupp: an HTTP response body may only have one reader", 3)
+        end
+        self._reading = true
+        while true do
+            local state, value, reason = self._transfer:bodyRead(count, destination, offset)
+            if state == "data" then
+                self._reading = false
+                return value
+            elseif state == "eof" then
+                self._reading = false
+                return destination ~= nil and 0 or ""
+            elseif state == "failed" or state == "closed" then
+                self._reading = false
+                return nil, reason
+            end
+            local ok, problem = pcall(appendWaiter, self._client, self._transfer, "response body", true)
+            if not ok then
+                self._reading = false
+                error(problem, 0)
+            end
+        end
+    end
+
+    function read(self, count: integer): (string?, string?)
+        local wanted = whole(count, "body read count", -9007199254740991)
+        return self:_next(wanted < 1 and 1 or wanted, nil, 0)
+    end
+
+    function readInto(self, destination: nupp.io.Buffer, offset: integer?, count: integer?): (integer?, string?)
+        local at = whole(offset or 0, "body destination offset", 0)
+        local wanted = whole(count or READ_SIZE, "body read count", 0)
+        if wanted == 0 then
+            return 0
+        end
+        local value, reason = self:_next(wanted, destination, at)
+        if type(value) == "string" then
+            destination:setString(value, at)
+            return #value
+        end
+
+        return value, reason
+    end
+
+    function transferTo(self, destination: nupp.io.Writer): (integer?, string?)
+        local total: integer = 0
+        local turn: integer = 0
+        if self._transfer:directDestination(destination) then
+            while true do
+                if self._closed then
+                    return nil, "the body is closed"
+                end
+                if self._reading then
+                    error("nupp: an HTTP response body may only have one reader", 2)
+                end
+                self._reading = true
+                local state, count, reason = self._transfer:bodyWrite(destination, READ_SIZE)
+                if state == "pending" then
+                    local ok, problem = pcall(appendWaiter, self._client, self._transfer, "response body", true)
+                    self._reading = false
+                    if not ok then error(problem, 0) end
+                elseif state == "eof" then
+                    self._reading = false
+                    return total
+                elseif state == "failed" or state == "closed" then
+                    self._reading = false
+                    return nil, reason
+                else
+                    self._reading = false
+                    total = total + (count as integer)
+                    turn = turn + (count as integer)
+                    if turn >= COPY_TURN then
+                        fairnessYield()
+                        turn = 0
+                    end
+                end
+            end
+        end
+        while true do
+            local chunk, reason = self:read(READ_SIZE)
+            if chunk == nil then
+                return nil, reason
+            elseif chunk == "" then
+                return total
+            end
+            local wrote, failure = destination:write(chunk)
+            if not wrote then
+                return nil, failure
+            end
+            total = total + #chunk
+            turn = turn + #chunk
+            if turn >= COPY_TURN then
+                fairnessYield()
+                turn = 0
+            end
+        end
+    end
+
+    function close(self): (boolean, string?)
+        self:release()
+        return true
+    end
+
+    @drop
+    function release(self): nil
+        if self._closed then
+            return
+        end
+        self._closed = true
+        local transfer = self._transfer as {close: nosuspend function(any): nil}
+        transfer:close()
+    end
+end
+
+@drop
+local function destroyBody(takes body: http.Body): nil
+    if not body._closed then
+        body._closed = true
+        local transfer = body._transfer as {close: nosuspend function(any): nil}
+        transfer:close()
+    end
+end
+
+@owned(destroyBody)
+local function makeBody(client: any, transfer: any): http.Body
+    return new http.Body(_client = client, _transfer = transfer, _closed = false, _reading = false)
+end
+
+local function u32(bytes: string, at: integer): integer
+    local a, b, c, d = bytes:byte(at, at + 3)
+    if d == nil then
+        error("nupp: malformed packed HTTP response headers", 0)
+    end
+    return ((a or 0) + (b or 0) * 256 + (c or 0) * 65536 + (d or 0) * 16777216) as integer
+end
+
+local function packedHeader(bytes: string, wanted: string): string?
+    local count = u32(bytes, 1)
+    local tableEnd = 4 + count * 16
+    if tableEnd > #bytes then
+        return nil
+    end
+    for index = 0, count - 1 do
+        local at = 5 + index * 16
+        local nameAt, nameLength = u32(bytes, at), u32(bytes, at + 4)
+        local valueAt, valueLength = u32(bytes, at + 8), u32(bytes, at + 12)
+        if nameAt < tableEnd or valueAt < tableEnd or nameAt + nameLength > #bytes or valueAt + valueLength > #bytes then
+            return nil
+        end
+        if bytes:sub(nameAt + 1, nameAt + nameLength):lower() == wanted then
+            return bytes:sub(valueAt + 1, valueAt + valueLength)
+        end
+    end
+
+    return nil
+end
+
+local function origin(uri: nupp.io.URI): string
+    local scheme = uri:scheme()
+    local port = uri:port() or (scheme == "https" and 443 or 80)
+    return scheme .. "://" .. (uri:host() or ""):lower() .. ":" .. port
+end
+
+record http.Response
+    status: integer
+    version: http.Version
+    url: nupp.io.URI
+    body: owned<http.Body>
+    _packed: string
+    _values: {[string]: {string}}?
+    _headers: {string: string}?
+    _closed: boolean
+
+    function _decode(self): nil
+        if self._values ~= nil then
+            return
+        end
+        local values: {[string]: {string}} = {}
+        local count = u32(self._packed, 1)
+        local tableEnd = 4 + count * 16
+        if tableEnd > #self._packed then
+            error("nupp: malformed packed HTTP response headers", 0)
+        end
+        for index = 0, count - 1 do
+            local at = 5 + index * 16
+            local nameAt, nameLength = u32(self._packed, at), u32(self._packed, at + 4)
+            local valueAt, valueLength = u32(self._packed, at + 8), u32(self._packed, at + 12)
+            if nameAt < tableEnd or valueAt < tableEnd or nameAt + nameLength > #self._packed or valueAt + valueLength > #self._packed then
+                error("nupp: malformed packed HTTP response headers", 0)
+            end
+            local name = self._packed:sub(nameAt + 1, nameAt + nameLength):lower()
+            local value = self._packed:sub(valueAt + 1, valueAt + valueLength)
+            local list = values[name]
+            if list == nil then
+                list = {}
+                values[name] = list
+            end
+            list[#list + 1] = value
+        end
+        self._values = values
+    end
+
+    function ok(self): boolean
+        return self.status >= 200 and self.status < 300
+    end
+
+    function header(self, name: string): string?
+        if type(name) ~= "string" then
+            error("nupp: HTTP header name must be a string", 2)
+        end
+        self:_decode()
+        local values = (self._values as {[string]: {string}})[name:lower()]
+        if values == nil then
+            return nil
+        end
+        return name:lower() == "set-cookie" and values[1] or table.concat(values, ", ")
+    end
+
+    function getAll(self, name: string): {string}
+        if type(name) ~= "string" then
+            error("nupp: HTTP header name must be a string", 2)
+        end
+        self:_decode()
+        local found = (self._values as {[string]: {string}})[name:lower()] or {}
+        local out = {}
+        for index = 1, #found do
+            out[index] = found[index]
+        end
+        return out
+    end
+
+    function headers(self): {string: string}
+        if self._headers == nil then
+            self:_decode()
+            local out = {}
+            for name, values in pairs(self._values as {[string]: {string}}) do
+                out[name] = name == "set-cookie" and values[1] or table.concat(values, ", ")
+            end
+            self._headers = out
+        end
+        local copy = {}
+        for name, value in pairs(self._headers as {string: string}) do
+            copy[name] = value
+        end
+        return copy
+    end
+
+    @drop
+    function close(self): (boolean, string?)
+        if self._closed then
+            return true
+        end
+        self._closed = true
+        local body = self.body
+        destroyBody(body)
+        return true
+    end
+end
+
+@owned
+local function makeResponse(
+    status: integer,
+    version: http.Version,
+    url: nupp.io.URI,
+    takes body: http.Body,
+    packed: string
+): http.Response
+    return new http.Response(status = status, version = version, url = url, body = body,
+        _packed = packed, _values = nil, _headers = nil, _closed = false)
+end
+
+record http.Client
+    _native: any
+    _options: any
+    _source: suspension.Source?
+    _sourceUsers: integer
+    _closed: boolean
+
+    function _retainSource(self, context: suspension.Context): nil
+        if self._source == nil then
+            local backend = self._native
+            self._source = suspension.source("nupp-http", 20, function(): integer
+                return backend:poll(0)
+            end, function(waitMs: integer): integer
+                return backend:poll(waitMs)
+            end)
+        end
+        self._sourceUsers = self._sourceUsers + 1
+        context:uses(self._source as suspension.Source)
+    end
+
+    function _releaseSource(self): nil
+        self._sourceUsers = self._sourceUsers - 1
+        if self._sourceUsers == 0 and self._source ~= nil then
+            self._source:release()
+            self._source = nil
+        end
+    end
+end
+
+@owned
+function http.Client:send(request: http.Request): (http.Response?, string?)
+        if self._closed then
+            return nil, "the HTTP client is closed"
+        end
+        local given: any = request
+        if given == nil or given.url == nil or type(given.url.toString) ~= "function" then
+            error("nupp: HTTP request url must be a URI", 2)
+        end
+        local scheme = given.url:scheme()
+        if scheme ~= "http" and scheme ~= "https" then
+            error("nupp: HTTP request URL must use http or https", 2)
+        end
+        local method = given.method
+        if method == nil then
+            method = "GET"
+        elseif type(method) ~= "string" or method == "" or method:find("[^!#$%%&'*+%.^_`|~%w%-]") ~= nil then
+            error("nupp: HTTP method is not a valid token", 2)
+        end
+        local requestBody = given.body
+        local body, bodyKind, bodyLength, reader = requestBody, 0, nil, nil
+        local contentType = nil
+        if body ~= nil then
+            local concrete: any = body
+            if concrete.reader ~= nil then
+                reader = concrete.reader
+                bodyKind = BODY_UPLOAD
+                bodyLength = concrete.length
+                contentType = concrete.contentType
+                if bodyLength ~= nil then whole(bodyLength, "reader body length", 0) end
+            elseif concrete.path ~= nil then
+                bodyKind = BODY_FILE
+                body = type(concrete.path) == "string" and concrete.path or concrete.path:toString()
+                bodyLength = -1
+                contentType = concrete.contentType
+            elseif type(body) == "string" then
+                bodyKind = BODY_INLINE
+                bodyLength = #body
+            elseif type(concrete.length) == "function" and type(concrete.getString) == "function" then
+                bodyKind = BODY_INLINE
+                bodyLength = concrete:length()
+            else
+                error("nupp: HTTP request body is not bytes, a Buffer, ReaderBody, or FileBody", 2)
+            end
+        end
+        local manualRedirects = self._options.manualRedirects
+        local byLower, merged, packed
+        if given.headers == nil and not given._redirected and contentType == nil and not manualRedirects then
+            packed = self._options.packedHeaders
+        else
+            byLower, merged, packed = mergedHeaders(
+                not given._redirected and self._options.headers or nil,
+                given.headers,
+                contentType
+            )
+        end
+        local insecure = false
+        if manualRedirects then
+            local host = (given.url:host() or ""):lower()
+            insecure = self._options.insecureHosts[host] == true
+        end
+        local requestTimeout = given.timeoutMs ~= nil and whole(given.timeoutMs, "timeoutMs", 1) or self._options.timeoutMs
+        local now = self._native:now()
+        local deadline = given._deadline or (now + requestTimeout)
+        local remaining = math.floor(deadline - now) as integer
+        if remaining < 1 then
+            return nil, "HTTP request timed out"
+        end
+        local descriptor = {
+            uri = given.url, method = method, headers = packed,
+            body = body, bodyKind = bodyKind, bodyLength = bodyLength,
+            timeoutMs = remaining,
+            stallTimeoutMs = given.stallTimeoutMs ~= nil and whole(given.stallTimeoutMs, "stallTimeoutMs", 0) or self._options.stallTimeoutMs,
+            maxBytes = given.maxBytes ~= nil and whole(given.maxBytes, "maxBytes", 0) or self._options.maxBytes,
+            insecure = insecure,
+        }
+        if not suspension.canSuspend() then
+            error("nupp: HTTP request cannot suspend here", 2)
+        end
+        local transfer, reason
+        while transfer == nil do
+            remaining = math.floor(deadline - self._native:now()) as integer
+            if remaining < 1 then
+                return nil, "HTTP request timed out waiting for admission"
+            end
+            descriptor.timeoutMs = remaining
+            local full: boolean?
+            transfer, reason, full = self._native:send(descriptor)
+            if transfer == nil and not full then
+                return nil, reason
+            elseif transfer == nil then
+                waitAdmission(self)
+                if self._closed then
+                    return nil, "the HTTP client is closed"
+                end
+            end
+        end
+        local head, problem
+        if reader ~= nil then
+            local scratch = nupp.io.newBuffer(UPLOAD_SIZE)
+            local function uploadAndWait(): any
+                local transferred: integer = 0
+                while true do
+                    scratch:clear()
+                    local got, failure = reader:readInto(scratch, 0, UPLOAD_SIZE)
+                    if got == nil then
+                        transfer:cancel()
+                        error(failure or "HTTP request reader failed", 0)
+                    end
+                    local finished = got == 0
+                    if not finished and (got as integer) < COALESCE_BELOW then
+                        while scratch:length() < UPLOAD_PAGE do
+                            local more, moreFailure = reader:readInto(
+                                scratch,
+                                scratch:length(),
+                                UPLOAD_PAGE - scratch:length()
+                            )
+                            if more == nil then
+                                transfer:cancel()
+                                error(moreFailure or "HTTP request reader failed", 0)
+                            elseif more == 0 then
+                                finished = true
+                                break
+                            end
+                        end
+                    end
+                    local offered = scratch:length()
+                    if offered > 0 then
+                        while true do
+                            local accepted = transfer:offer(scratch, false, offered)
+                            if accepted == "accepted" then
+                                break
+                            elseif accepted == "closed" then
+                                return waitHead(self, transfer, false)
+                            end
+                            appendWaiter(self, transfer, "upload space", false)
+                        end
+                        transferred = transferred + offered
+                    end
+                    if finished then
+                        if bodyLength ~= nil and transferred ~= bodyLength then
+                            transfer:cancel()
+                            error(
+                                ("HTTP request reader ended after %d bytes; expected %d"):format(transferred, bodyLength),
+                                0
+                            )
+                        end
+                        if transfer:offer(nil, true) == "closed" then
+                            return waitHead(self, transfer, false)
+                        end
+                        return waitHead(self, transfer, false)
+                    end
+                end
+            end
+            local ok, value = pcall(function(): any
+                local answer = suspension.race({uploadAndWait, function(): any return waitHead(self, transfer, false) end})
+                return answer
+            end)
+            scratch:close()
+            if not ok then
+                transfer:cancel()
+                transfer:close()
+                error(value, 0)
+            end
+            head = value
+        else
+            head = waitHead(self, transfer, true)
+        end
+        if head == nil or head.reason ~= nil then
+            problem = head and head.reason or "HTTP transfer failed"
+            transfer:close()
+            return nil, problem
+        end
+        local status = head.status as integer
+        local location = manualRedirects and packedHeader(head.headers, "location") or nil
+        if manualRedirects and location ~= nil and (status == 301 or status == 302 or status == 303 or status == 307 or status == 308) then
+            local followed = (given._redirects or 0) as integer
+            if followed >= self._options.maxRedirects then
+                if self._options.maxRedirects == 0 then
+                    location = nil
+                else
+                    transfer:close()
+                    return nil, "HTTP request exceeded maxRedirects"
+                end
+            end
+            if location ~= nil then
+                local target, targetReason = given.url:resolve(location)
+                if target == nil then
+                    transfer:close()
+                    return nil, targetReason or "HTTP redirect has an invalid location"
+                end
+                if target:scheme() ~= "http" and target:scheme() ~= "https" then
+                    transfer:close()
+                    return nil, "HTTP redirect must use http or https"
+                end
+                local nextMethod, nextBody = method, requestBody
+                local dropsBody = status == 303 and method ~= "HEAD" or (status == 301 or status == 302) and method == "POST"
+                if dropsBody then
+                    nextMethod = "GET"
+                    nextBody = nil
+                    for _, name in ipairs({"content-length", "content-type", "transfer-encoding"}) do
+                        local spelling = byLower[name]
+                        if spelling ~= nil then merged[spelling] = nil end
+                    end
+                elseif reader ~= nil then
+                    transfer:close()
+                    return nil, "HTTP redirect cannot replay a ReaderBody"
+                end
+                if origin(given.url) ~= origin(target) then
+                    for _, name in ipairs({"authorization", "proxy-authorization", "cookie", "host"}) do
+                        local spelling = byLower[name]
+                        if spelling ~= nil then merged[spelling] = nil end
+                    end
+                end
+                transfer:close()
+                local redirected: any = {
+                    url = target,
+                    method = nextMethod,
+                    headers = merged,
+                    body = nextBody,
+                    timeoutMs = given.timeoutMs,
+                    stallTimeoutMs = given.stallTimeoutMs,
+                    maxBytes = given.maxBytes,
+                    _redirected = true,
+                    _redirects = followed + 1,
+                    _deadline = deadline,
+                }
+                return self:send(redirected as http.Request)
+            end
+        end
+        local bodyReady, bodyReason = transfer:takeBody()
+        if not bodyReady then
+            transfer:close()
+            return nil, bodyReason
+        end
+        local effective = head.url == nil and given.url or nupp.io.newURI(head.url)
+        if effective == nil then
+            transfer:close()
+            return nil, "the HTTP provider returned an invalid effective URL"
+        end
+        local version: http.Version = head.version == 10 and "1.0" or head.version == 20 and "2" or "1.1"
+        local responseBody = makeBody(self, transfer)
+        return makeResponse(head.status, version, effective, responseBody, head.headers)
+end
+
+function http.Client:pending(): integer
+    return self._closed and 0 or self._native:pending()
+end
+
+@drop
+function http.Client:close(): (boolean, string?)
+    if self._closed then
+        return true
+    end
+    self._closed = true
+    if self._source ~= nil then
+        self._source:release()
+        self._source = nil
+        self._sourceUsers = 0
+    end
+    self._native:close()
+    return true
+end
+
+function http.reader(reader: nupp.io.Reader, length: integer?, contentType: string?): http.ReaderBody
+    if length ~= nil then whole(length, "reader body length", 0) end
+    if contentType ~= nil and type(contentType) ~= "string" then error("nupp: HTTP content type must be a string", 2) end
+    return new http.ReaderBody(reader = reader, length = length, contentType = contentType)
+end
+
+function http.file(path: string | nupp.io.Path, contentType: string?): http.FileBody
+    if type(path) ~= "string" and type((path as any).toString) ~= "function" then error("nupp: HTTP file body needs a path", 2) end
+    if contentType ~= nil and type(contentType) ~= "string" then error("nupp: HTTP content type must be a string", 2) end
+    return new http.FileBody(path = path, contentType = contentType)
+end
+
+@owned
+function http.newClient(options: http.Options?): (http.Client?, string?)
+    local copied = copiedOptions(options)
+    local backend, reason = native.newClient(copied)
+    if backend == nil then
+        return nil, reason
+    end
+
+    return new http.Client(_native = backend, _options = copied, _source = nil, _sourceUsers = 0, _closed = false)
+end
+
+return http
+]=],
 ["/nupp/io/process.nupp"] = [=[
 --[[
 Running a child process.
@@ -84448,7 +87915,7 @@ local type NativeBackendFactory = {
 --- because waiting on one is exactly what starves the others -- which is the whole
 --- reason `communicate` can drain three pipes without deadlocking.
 ---
---- The completion-oriented `nupp.Reader` methods are the public tecs-compatible
+--- The completion-oriented `nupp.io.Reader` methods are the public tecs-compatible
 --- surface. `poll` remains alongside them as the concrete nonblocking operation the
 --- combined drain needs; generic readers are not widened with readiness operations.
 ---
@@ -84461,7 +87928,7 @@ local type NativeBackendFactory = {
 ---
 --- Borrowing the record through `asReader` keeps a single owner and makes its lifetime
 --- a question about Nupp values, which the checker can answer.
-record process.Reader is nupp.Reader
+record process.Reader is nupp.io.Reader
     owner: any
     handle: any
     closed: boolean
@@ -84534,12 +88001,12 @@ record process.Reader is nupp.Reader
     --- The non-blocking half of reading, which `communicate` needs so that one quiet
     --- stream does not stop it serving another.
     --- `limit` caps how many bytes to take, defaulting to a whole pipe's worth. It is
-    --- here because the shared `nupp.Reader` promises "at most `count`". Without the
+    --- here because the shared `nupp.io.Reader` promises "at most `count`". Without the
     --- limit its completion-oriented method would have to keep surplus bytes beside
     --- this record, giving end of stream and closedness two homes. One place decides
     --- both, and the caller says how much it wants.
     ---
-    --- Zero and negative limits read one byte, which is what `nupp.Reader` says a
+    --- Zero and negative limits read one byte, which is what `nupp.io.Reader` says a
     --- non-positive count does. Settled here rather than at the platform because the
     --- platform is where it stops being a number and becomes a buffer size: a signed
     --- zero or minus one arriving at a native size conversion is either an empty read
@@ -84616,7 +88083,7 @@ record process.Reader is nupp.Reader
         return chunk or ""
     end
 
-    function readInto(self, destination: nupp.Buffer, offset: integer?, count: integer?): (integer?, string?)
+    function readInto(self, destination: nupp.io.Buffer, offset: integer?, count: integer?): (integer?, string?)
         local at = offset or 0
         local wanted: integer = count or READ_LIMIT
         if at < 0 or wanted < 0 then
@@ -84637,7 +88104,7 @@ record process.Reader is nupp.Reader
         return #chunk
     end
 
-    function transferTo(self, destination: nupp.Writer): (integer?, string?)
+    function transferTo(self, destination: nupp.io.Writer): (integer?, string?)
         local total: integer = 0
         while true do
             local chunk, reason = self:read(READ_LIMIT)
@@ -84670,10 +88137,10 @@ end
 --- A child's writable stream.
 ---
 --- `offer` and `isGone` are the nonblocking half, for the same reason the reader has
---- `poll`: the prelude's `nupp.Writer.write` writes the whole value, which a drain loop
+--- `poll`: the prelude's `nupp.io.Writer.write` writes the whole value, which a drain loop
 --- serving three pipes cannot afford to wait for. The completion-oriented `write`
---- remains the ordinary `nupp.Writer` operation; `offer` is concrete and additional.
-record process.Writer is nupp.Writer
+--- remains the ordinary `nupp.io.Writer` operation; `offer` is concrete and additional.
+record process.Writer is nupp.io.Writer
     owner: any
     handle: any
     closed: boolean
@@ -84830,7 +88297,7 @@ record process.Writer is nupp.Writer
         return true
     end
 
-    function writeFrom(self, source: nupp.Buffer, offset: integer?, count: integer?): (integer?, string?)
+    function writeFrom(self, source: nupp.io.Buffer, offset: integer?, count: integer?): (integer?, string?)
         local at = offset or 0
         local length = source:length()
         local wanted: integer = count == nil and length - at or count as integer
@@ -84845,7 +88312,7 @@ record process.Writer is nupp.Writer
         return wanted
     end
 
-    function writeView(self, source: nupp.ByteView, offset: integer?, count: integer?): (integer?, string?)
+    function writeView(self, source: nupp.io.ByteView, offset: integer?, count: integer?): (integer?, string?)
         local at = offset or 0
         local length = source:length()
         local wanted: integer = count == nil and length - at or count as integer
@@ -84885,12 +88352,12 @@ record process.Writer is nupp.Writer
 end
 
 --- Borrows a process reader through the shared completion-oriented contract.
-function process.asReader(borrows source: process.Reader): nupp.Reader borrows source
+function process.asReader(borrows source: process.Reader): nupp.io.Reader borrows source
     return source
 end
 
 --- Borrows a process writer through the shared completion-oriented contract.
-function process.asWriter(borrows source: process.Writer): nupp.Writer borrows source
+function process.asWriter(borrows source: process.Writer): nupp.io.Writer borrows source
     return source
 end
 
@@ -85678,7 +89145,7 @@ type processtypes.Options = {
     args: {string},
 
     --- The child's working directory, or nil to inherit this one.
-    cwd: (string | nupp.Path)?,
+    cwd: (string | nupp.io.Path)?,
 
     --- Variables overlaid on the inherited environment, or the whole environment
     --- when `clearEnv` is set.
@@ -85704,7 +89171,7 @@ type processtypes.Options = {
 --- Controls a complete duplex exchange.
 type processtypes.CommunicateOptions = {
     --- Complete standard input. Omitted input sends EOF immediately.
-    input: (string | nupp.Buffer | nupp.ByteView)?,
+    input: (string | nupp.io.Buffer | nupp.io.ByteView)?,
 
     --- Maximum stdout and stderr bytes together. Defaults to 256 MiB.
     maxOutputBytes: integer?
@@ -85793,7 +89260,7 @@ record processtypes.Backend
     --- ask for, so a backend never converts a zero or a negative into a buffer size.
     ---
     --- The limit is part of the seam rather than something above it, because the
-    --- contract above promises one: `nupp.Reader.read(count)` answers at most `count`
+    --- contract above promises one: `nupp.io.Reader.read(count)` answers at most `count`
     --- bytes, and a platform that always handed back whatever a pipe held would leave
     --- the completion-oriented method holding a surplus buffer of its own -- a second
     --- place where bytes wait, with its own emptiness to reason about, to work around a
@@ -87001,6 +90468,1583 @@ span.ByteSpan = ByteSpan
 span.ByteWriteSpan = ByteWriteSpan
 return span
 ]=],
+["/nupp/suspension.nupp"] = [=[
+--[[
+Waiting, as an operation with an installable handler.
+
+A library that must wait performs `suspend`, and does not decide how waiting
+happens. Where a handler is installed -- a scheduler, a game frame -- the handler
+answers; where none is, the built-in one drives the registered sources. One call
+site, no `async` colouring, and no policy parameter threaded through an API that
+did not want one.
+
+The shape is tecs's, whose `taskruntime` has done this by hand inside one library
+for years: subscribe for a resumption, be resumed once, be cancellable. What is
+different is that the seam is the language's, so every library gets it rather
+than each re-implementing the dispatch or being unusable inside a frame.
+
+Three properties the protocol is built to keep, each because losing it is a
+silent bug rather than a loud one:
+
+- **Resumption has one path.** A handler is given no writable state. It parks,
+  it is woken, and it returns; the value only ever arrives through the one-shot
+  `resume` the runtime made, so the guard against a second resumption cannot be
+  walked around.
+- **A park is always cancellable.** A subscription that did not resume during
+  the call must answer a cancellation, because a handler that has to abandon a
+  wait -- a cancelled task, a shutdown -- otherwise has no way to tell the
+  library. Only a subscription that already completed may answer nil, having
+  nothing left to cancel.
+- **The context is available before subscribing.** A library registers its
+  readiness pump with whoever is handling suspensions, which means it has to
+  know who that is at subscription time rather than after.
+
+Measured against tecs's own numbers (`bench/suspension-baseline.lua`), the row
+that matters is the *ready* path -- an await whose subscription completes during
+the call, which is most of the cost of waiting even when waiting really happens.
+That path allocates no park and never wakes a handler.
+
+See `plans/suspension.md`.
+]]
+
+local suspension = {}
+
+--- How many times a release drives the readiness pumps waiting for an abandoned park to
+--- finish unwinding. A handler that has not finished by then is not going to: the point
+--- is to give a scheduler its chance, not to spin.
+local MAX_DRAIN_PASSES = 64
+
+--- Maximum time the built-in driver lets one waitable source sleep before every
+--- source is polled again. Hosts never call source waits; this applies only when a
+--- program has not installed a suspension handler.
+local BLOCKING_WAIT_SLICE_MS = 1
+
+--- A readiness pump, and the handle that owns its lifetime.
+---
+--- Returned rather than named, so two libraries registering "io" do not collide and
+--- neither has to invent a unique string. Releasing is idempotent.
+record suspension.Source
+    --- Stops the pump being polled. Idempotent.
+    release: function(suspension.Source): nil
+
+    --- What this is, for diagnostics and for ordering ties.
+    name: string
+
+    --- Where in a pass it runs, lowest first.
+    priority: integer
+
+    --- Optionally blocks for at most the supplied milliseconds. Only the built-in
+    --- driver calls this; a host drives `poll` and therefore never sleeps here.
+    wait: (function(integer): integer)?
+end
+
+--- What a library is handed while it subscribes: who is handling suspensions here, and
+--- how to give them a readiness pump.
+---
+--- Available *before* the subscription runs, because registering a pump is part of
+--- subscribing rather than something to do afterwards.
+record suspension.Context
+    --- Registers a pump this wait needs driven. Answers the handle that stops it.
+    source: function(
+        suspension.Context,
+        string,
+        integer,
+        function(): integer,
+        (function(integer): integer)?
+    ): suspension.Source
+
+    --- Associates a shared source with this wait without taking ownership of it.
+    --- Shared clients use this so one source may serve several simultaneous parks.
+    uses: function(suspension.Context, suspension.Source): nil
+
+    --- Whether a suspension may happen here at all. A host with regions of its own --
+    --- tecs's barriers -- answers false inside them.
+    canPark: function(suspension.Context): boolean
+end
+
+--- What a park exposes to the handler driving it.
+---
+--- Deliberately no writable fields. A handler waits and is woken; it never supplies the
+--- value, because the value has exactly one path and that path is guarded.
+record suspension.Waiting
+    --- Whether the subscription has resumed.
+    ready: function(suspension.Waiting): boolean
+
+    --- Registers what to run when it does. One waker; the handler installing a second
+    --- replaces the first, which is what re-parking means.
+    onResume: function(suspension.Waiting, function(): nil): nil
+
+    --- What is being waited for, which is what a stuck host reports.
+    operation: string
+end
+
+--- What a host installs to answer suspensions.
+record suspension.Handler
+    --- Waits until `waiting:ready()`. Returning before that is a broken handler and
+    --- `suspend` reports it rather than handing back a value nobody produced.
+    ---
+    --- `cancel` abandons the subscription. A handler that gives up on a park -- a
+    --- cancelled task, a shutdown -- must call it, and must then raise rather than
+    --- return.
+    park: function(suspension.Handler, suspension.Waiting, function(): nil): nil
+
+    --- Whether a suspension may happen here. False inside a host's own barrier, which
+    --- is the run-time backstop for what `nosuspend` checks while compiling.
+    canPark: function(suspension.Handler): boolean
+
+    --- Told when a handled extent ends, so a handler owning parks or pumps can abandon
+    --- them deterministically rather than at collection.
+    shutdown: function(suspension.Handler): nil
+end
+
+-- The installation in force, per coroutine, and the parks each one has accepted.
+--
+-- Keyed by *installation* rather than by handler. One handler may be installed twice --
+-- nested extents, or a scheduler reused across frames -- and keying on it would let the
+-- inner extent cancel the outer's parks on its way out, and discard the bookkeeping the
+-- outer still needed.
+--
+-- Weak-keyed so a finished coroutine's entry goes with it. The main thread has no
+-- coroutine object in LuaJIT, so it gets its own slot rather than a sentinel key.
+local installed = setmetatable({}, {__mode = "k"})
+local mainInstalled = nil
+
+local running = coroutine.running
+
+-- The installation in force here, or nil. What is stored per coroutine is the
+-- installation rather than the handler, because a park belongs to the extent that
+-- accepted it and two extents may share one handler.
+local function effectiveInstallation()
+    local co = running()
+    local current = co == nil and mainInstalled or installed[co]
+    -- A coroutine created under an extent may not start until after that extent has
+    -- ended. Using its handler then would add parks to bookkeeping nobody will ever
+    -- release, so a closed installation is stepped over in favour of whatever it
+    -- restored -- which is what the coroutine would have inherited had it been made a
+    -- moment later.
+    --
+    -- The test is `restored`, not `released`: an extent whose drain failed is still
+    -- retryable and its parks still outstanding, but its scope has ended and it is not
+    -- in force for anything starting now.
+    while current ~= nil and current.restored do
+        current = current.previous
+    end
+
+    return current
+end
+
+local function effective()
+    local current = effectiveInstallation()
+
+    return current and current.handler or nil
+end
+
+-- Sources, held by identity rather than by name: two libraries may both call theirs
+-- "io", and neither should be able to unregister the other's.
+local sources: {any} = {}
+
+local function sortSources()
+    table.sort(sources, function(a, b)
+        if a.priority == b.priority then
+            return a.name < b.name
+        end
+
+        return a.priority < b.priority
+    end)
+end
+
+local SourceMT = {}
+SourceMT.__index = SourceMT
+
+function SourceMT.release(self: any): nil
+    if self.released then
+        return
+    end
+    self.released = true
+    for index = 1, #sources do
+        if sources[index] == self then
+            table.remove(sources, index)
+            break
+        end
+    end
+end
+
+local function addSource(
+    name: string,
+    priority: integer,
+    poll: function(): integer,
+    wait: (function(integer): integer)?
+): any
+    local source = setmetatable({name = name, priority = priority, poll = poll, wait = wait, released = false}, SourceMT)
+    sources[#sources + 1] = source
+    sortSources()
+
+    return source
+end
+
+--- Registers a readiness pump outside any subscription.
+---
+--- Inside one, prefer the context's `source`: a pump registered there belongs to the
+--- handler answering that wait, and a handler that owns its pumps can shut them down.
+---
+--- @param name what this is, for diagnostics and ordering ties
+--- @param priority where in a pass it runs, lowest first
+--- @param poll answers how many things it settled
+--- @return the handle that stops it
+function suspension.source(
+    name: string,
+    priority: integer,
+    poll: function(): integer,
+    wait: (function(integer): integer)?
+): suspension.Source
+    return addSource(name, priority, poll, wait) as suspension.Source
+end
+
+--- Drives every registered pump once. Answers how many things settled.
+---
+--- Public because a host with its own loop drives the same pumps rather than a private
+--- copy of them.
+function suspension.poll(): integer
+    local settled = 0
+    -- Copied, because a pump may register or release one while it runs.
+    local pass = {}
+    for index = 1, #sources do
+        pass[index] = sources[index]
+    end
+    for index = 1, #pass do
+        local source = pass[index]
+        if not source.released then
+            settled = settled + (source.poll() or 0)
+        end
+    end
+
+    return settled as integer
+end
+
+-- The built-in handler: drives the sources until the wait completes.
+--
+-- A pump answering zero means "not ready yet", not "never will be", so a quiet pass is
+-- no reason to stop. What is a reason is having nothing to drive at all: with no pump
+-- registered and no synchronous resumption, nothing in this process can complete the
+-- wait, and saying so beats hanging.
+local function waitCandidates(waiting: any): {any}
+    local associated = waiting.context and waiting.context.associated
+    local preferred = {}
+    if associated ~= nil then
+        for index = 1, #sources do
+            local source = sources[index]
+            if associated[source] and not source.released and source.wait ~= nil then
+                preferred[#preferred + 1] = source.wait
+            end
+        end
+    end
+    if #preferred > 0 then
+        return preferred
+    end
+
+    local fallback = {}
+    for index = 1, #sources do
+        local source = sources[index]
+        if not source.released and source.wait ~= nil then
+            fallback[#fallback + 1] = source.wait
+        end
+    end
+
+    return fallback
+end
+
+local function blockingPark(waiting: any): nil
+    while not waiting:ready() do
+        if #sources == 0 then
+            error(("nupp: %s cannot complete: no readiness source is registered"):format(waiting.operation), 0)
+        end
+        if suspension.poll() == 0 and not waiting:ready() then
+            local candidates = waitCandidates(waiting)
+            if #candidates > 0 then
+                local cursor = waiting.waitCursor or 1
+                if cursor > #candidates then
+                    cursor = 1
+                end
+                local wait = candidates[cursor]
+                waiting.waitCursor = cursor % #candidates + 1
+                wait(BLOCKING_WAIT_SLICE_MS)
+                -- A wait is only a sleep primitive. Polling every source afterwards is
+                -- what observes readiness, including an unrelated source that became
+                -- ready during the bounded slice.
+                if not waiting:ready() then
+                    suspension.poll()
+                end
+            end
+        end
+    end
+end
+
+local WaitingMT = {}
+WaitingMT.__index = WaitingMT
+
+function WaitingMT.ready(self: any): boolean
+    return self.isReady()
+end
+
+function WaitingMT.onResume(self: any, waker: function(): nil): nil
+    self.setWaker(waker)
+end
+
+local ContextMT = {}
+ContextMT.__index = ContextMT
+
+function ContextMT.source(
+    self: any,
+    name: string,
+    priority: integer,
+    poll: function(): integer,
+    wait: (function(integer): integer)?
+): any
+    local source = addSource(name, priority, poll, wait)
+    -- Built on first use. Most waits register no pump at all, and a list allocated for
+    -- every one of them would be paid on the path this design exists to keep cheap.
+    local owned = self.owned
+    if owned == nil then
+        owned = {}
+        self.owned = owned
+    end
+    owned[#owned + 1] = source
+    self.associated = self.associated or {}
+    self.associated[source] = true
+
+    return source
+end
+
+function ContextMT.uses(self: any, source: any): nil
+    if source == nil or source.released then
+        error("nupp: cannot use a released readiness source", 2)
+    end
+    self.associated = self.associated or {}
+    self.associated[source] = true
+end
+
+function ContextMT.canPark(self: any): boolean
+    local handler = self.handler
+    if handler == nil then
+        return true
+    end
+    if handler.canPark == nil then
+        return true
+    end
+
+    return handler.canPark(handler) ~= false
+end
+
+-- Releases the pumps a subscription registered through its context. They belonged to
+-- this wait; a wait that is over, cancelled or refused has no business being polled.
+local function releaseOwned(context: any): nil
+    local owned = context and context.owned
+    if owned == nil then
+        return
+    end
+    context.owned = nil
+    for index = 1, #owned do
+        pcall(owned[index].release, owned[index])
+    end
+end
+
+--- Performs a suspension.
+---
+--- `subscribe` is handed a one-shot `resume` and the context of whoever is handling
+--- suspensions here, and answers a cancellation. It may answer nil only when it resumed
+--- during the call, having nothing left to cancel; otherwise a cancellation is
+--- required,
+--- because a handler that has to abandon the wait needs a way to say so.
+---
+--- @param operation what is being waited for, which is what a stuck host reports
+--- @param subscribe hands over the resumption and the context, answers a cancellation
+--- @return whatever `resume` was given
+--- @raises when the subscription resumes twice, answers no cancellation for a real
+---   park, suspends where the handler forbids it, or is handled by one that returns
+---   without resuming
+function suspension.suspend<
+    T
+    >(operation: string, subscribe: function(function(T), suspension.Context): (function()?)): T
+    local current = effectiveInstallation()
+    local handler = current and current.handler or nil
+    -- The ready path's cost: one table for the state a cancellation also has to reach,
+    -- one closure, and the context the subscription is entitled to see. No waiting
+    -- view, no owned list, no park.
+    local state = {resumed = false, value = nil, cancelled = false, reason = nil, waker = nil}
+
+    local function resume(answer: T): nil
+        if state.resumed or state.cancelled then
+            error(("nupp: %s was resumed twice"):format(operation), 0)
+        end
+        state.resumed, state.value = true, answer
+        local wake = state.waker
+        if wake then
+            state.waker = nil
+            wake()
+        end
+    end
+
+    local context = setmetatable({handler = handler, owned = nil, associated = nil}, ContextMT)
+    -- Protected, because a subscription that registers a pump and *then* raises would
+    -- otherwise leave that pump polling for a wait nobody is doing.
+    local subscribed, cancel = pcall(subscribe, resume, context as suspension.Context)
+    if not subscribed then
+        releaseOwned(context)
+        error(cancel, 0)
+    end
+    if state.resumed then
+        -- The subscription answered during the call. Nothing was parked and no handler
+        -- was woken; any pump it registered has served its purpose.
+        releaseOwned(context)
+
+        return state.value as T
+    end
+
+    if not cancel then
+        releaseOwned(context)
+        error(
+            ("nupp: %s did not resume and answered no cancellation, so it could never be abandoned"):format(operation),
+            0
+        )
+    end
+    if not ContextMT.canPark(context) then
+        pcall(cancel)
+        releaseOwned(context)
+        error(("nupp: %s cannot suspend here"):format(operation), 0)
+    end
+
+    -- Registered against the *installation* that accepted it, so an extent ending with
+    -- this park outstanding can find it -- and so a nested extent sharing the handler
+    -- cannot.
+    local ticket = nil
+    if current ~= nil then
+        ticket = {operation = operation, unsubscribeAttempted = false}
+        function ticket.abandon(reason: string): nil
+            -- Retryable, because a release that could not finish is called again. Each
+            -- half of abandoning tracks its own progress: unsubscribing happens at most
+            -- once whatever it did, and a wake that failed is put back so the next
+            -- attempt can deliver it.
+            local unsubscribeError = nil
+            if not ticket.unsubscribeAttempted then
+                ticket.unsubscribeAttempted = true
+                -- Under protection, with the failure held rather than raised. A
+                -- cancellation that threw used to abandon the abandonment: the park was
+                -- never marked cancelled and never woken, so the coroutine stayed
+                -- suspended forever with its cleanup unrun.
+                local ok, err = pcall(cancel)
+                if not ok then
+                    unsubscribeError = err
+                end
+            end
+            state.cancelled, state.reason = true, reason
+            local wakeError = nil
+            local wake = state.waker
+            if wake then
+                -- Cleared only once it has been delivered. Clearing first and then
+                -- failing would lose the only way to wake this park, and a retry would
+                -- have nothing left to call.
+                local ok, err = pcall(wake)
+                if ok then
+                    state.waker = nil
+                else
+                    wakeError = err
+                end
+            end
+            -- Both attempted, then the first failure reported.
+            if unsubscribeError ~= nil then
+                error(unsubscribeError, 0)
+            end
+            if wakeError ~= nil then
+                error(wakeError, 0)
+            end
+        end
+
+        current.parks[ticket] = true
+    end
+
+    local waiting = setmetatable({operation = operation, context = context, waitCursor = 1, isReady = function()
+        return state.resumed or state.cancelled
+    end, setWaker = function(wake)
+        state.waker = wake
+    end,}, WaitingMT)
+
+    -- A park suspends, and suspending fails when non-yieldable C code is on the stack:
+    -- an FFI callback, a comparator, a pattern replacement. Most of those positions are
+    -- refused while compiling (NUPP2702); the ones reached through an unknown C API are
+    -- not, so the failure is caught here and told what it was doing.
+    local ok, err
+    if handler then
+        ok, err = pcall(handler.park, handler, waiting as suspension.Waiting, cancel as function(): nil)
+    else
+        ok, err = pcall(blockingPark, waiting)
+    end
+    -- The acknowledgement. Reaching here is what "this park finished" means, whether it
+    -- resumed, was cancelled, or failed; until then the ticket stays registered so a
+    -- releasing extent can see it is still outstanding.
+    if ticket and current then
+        current.parks[ticket] = nil
+    end
+    releaseOwned(context)
+    if state.cancelled then
+        error(("nupp: %s was cancelled: %s"):format(operation, state.reason or "the extent ended"), 0)
+    end
+    if not ok then
+        -- Every failed park unsubscribes. A park that raised left the subscription live
+        -- and nobody else is going to take it down.
+        pcall(cancel)
+        local text = tostring(err)
+        if text:find("C%-call boundary") or text:find("attempt to yield across") then
+            error(("nupp: %s cannot suspend: non-yieldable C code is on the stack"):format(operation), 0)
+        end
+        error(err, 0)
+    end
+    if not state.resumed then
+        pcall(cancel)
+        error(("nupp: %s: the handler returned without resuming it"):format(operation), 0)
+    end
+
+    return state.value as T
+end
+
+--- An installed handler, and the obligation to put back what it displaced.
+record suspension.Installed
+    co: any
+    previous: any
+    handler: suspension.Handler
+
+    --- Whether the slot this displaced has been put back. Separate from `released`,
+    --- which additionally means every park it accepted has finished: a release that
+    --- could not drain its parks has restored the slot and is still retryable.
+    restored: boolean
+
+    released: boolean
+
+    --- Parks this extent accepted and has not seen finish. Held per installation, not
+    --- per handler: one handler may be installed twice, and keying on it would let a
+    --- nested extent cancel the enclosing one's parks on its way out.
+    parks: any
+
+    --- Restores the previous handler, unwinds what it left parked, and shuts it down.
+    --- Idempotent, because a scope that ended twice is a scope that ended.
+    @drop
+
+    function release(self: suspension.Installed): nil
+        if self.released then
+            return
+        end
+        -- Restoring the slot happens once and is not undone by a failed drain: the
+        -- handler is no longer in force whatever else went wrong. Only `released` --
+        -- "this extent is finished with" -- waits for the parks to be, so a release
+        -- that could not finish can be called again rather than leaving its
+        -- continuations owned by nobody.
+        if not self.restored then
+            self.restored = true
+            if self.co == nil then
+                mainInstalled = self.previous
+            else
+                installed[self.co] = self.previous
+            end
+        end
+
+        -- Every step is attempted and the first failure reported at the end. Stopping
+        -- at the first would leave the remaining parks abandoned in the literal sense,
+        -- which is what this exists to prevent; swallowing them all would close the
+        -- scope on a lie.
+        local firstError = nil
+        local function attempt(fn: any, argument: any): nil
+            local ok, err = pcall(fn, argument)
+            if not ok and firstError == nil then
+                firstError = err
+            end
+        end
+
+        -- Cancellation before shutdown, and outside its failure: a handler whose
+        -- shutdown raises would otherwise strand every park it accepted.
+        --
+        -- Abandoning unsubscribes *and* wakes the park with a cancellation, so the
+        -- suspended stack resumes, `suspend` raises, and every cleanup region between there and
+        -- the park runs its cleanup.
+        for ticket in pairs(self.parks or {}) do
+            attempt(ticket.abandon, "the handled extent ended")
+        end
+        -- Shutdown is also how a handler *drives* what it only enqueued. A scheduler
+        -- that answers a wake by queueing the coroutine has not unwound anything yet;
+        -- this is its opportunity to run the queue down.
+        if self.handler.shutdown then
+            attempt(self.handler.shutdown, self.handler)
+        end
+        -- And the pumps, in case unwinding is waiting on one.
+        local remaining = next(self.parks or {})
+        local passes = 0
+        while remaining ~= nil and passes < MAX_DRAIN_PASSES do
+            passes = passes + 1
+            attempt(suspension.poll, nil)
+            remaining = next(self.parks or {})
+        end
+
+        -- The first failure wins, whatever it was: an unfinished-park report raised
+        -- ahead of it would hide the cancellation or shutdown error that is very likely
+        -- why the park is unfinished.
+        if firstError ~= nil then
+            -- The tickets stay: they are still outstanding, and `released` stays false
+            -- so this can be tried again once whatever failed is dealt with.
+            error(firstError, 0)
+        end
+        -- A ticket comes off when its `suspend` returns, so anything still here is a
+        -- park told to abandon that has not finished. Returning successfully would
+        -- report a scope closed while a coroutine is still suspended inside it with its
+        -- obligations undischarged -- and clearing the tickets would leave those
+        -- continuations owned by nobody, with no way to try again.
+        if remaining ~= nil then
+            local names = {}
+            for ticket in pairs(self.parks or {}) do
+                names[#names + 1] = ticket.operation
+            end
+            table.sort(names)
+            error(
+                (
+                    "nupp: the handled extent ended with %d park(s) unfinished: %s"
+                ):format(#names, table.concat(names, ", ")),
+                0
+            )
+        end
+        self.released = true
+    end
+end
+
+--- Installs `handler` for suspensions performed on this coroutine.
+---
+--- A scope rather than a callback, deliberately. Wrapping a body would make the extent
+--- a
+--- closure boundary -- which costs the caller its multi-value results and puts the
+--- resource model's closure rules in the way of something that has nothing to do with
+--- them -- so this hands back the obligation and lexical cleanup discharges it:
+---
+---     do
+---         local handling = suspension.install(scheduler)
+---         runFrame()
+---     end
+---
+--- The extent is dynamic and per-coroutine: a suspension at any depth, through any
+--- library, reaches the innermost handler installed on the coroutine performing it.
+---
+--- @param handler what answers suspensions inside the scope
+--- @return the installation, which must be released
+@owned
+function suspension.install(handler: suspension.Handler): suspension.Installed
+    local co = running()
+    local previous
+    if co == nil then
+        previous = mainInstalled
+    else
+        previous = installed[co]
+    end
+    -- What is stored is the installation, not the handler: a park belongs to the extent
+    -- that accepted it, and one handler may be installed by two of them.
+    local installation = new suspension.Installed(
+        co = co,
+        previous = previous,
+        handler = handler,
+        restored = false,
+        released = false,
+        parks = {}
+    )
+    if co == nil then
+        mainInstalled = installation
+    else
+        installed[co] = installation
+    end
+
+    return installation
+end
+
+--- Creates a coroutine that inherits the handler installed where it was created.
+---
+--- Stock `coroutine.create` gives the new thread no handler, so a library that spawns
+--- one -- a worker, a pipeline stage -- would find itself blocking inside a frame that
+--- was handling suspensions perfectly well. Inheritance is what makes a handled extent
+--- mean the work started inside it rather than only the frames literally below it.
+---
+--- Inherited at creation rather than at resumption. What answers is the handler that
+--- was in force where the coroutine was made, which is the lexical reading and the one
+--- a reader can point at; a resumption-time rule would make a coroutine's behaviour
+--- depend on who happened to resume it.
+---
+--- @param body what the coroutine runs
+--- @return the coroutine
+function suspension.create<A..., R...>(body: function(A...): R...): thread
+    local co = coroutine.create(body)
+    -- The installation, not just its handler: a park the new coroutine accepts belongs
+    -- to the extent that was in force where it was created, and has to be cancelled
+    -- when that extent ends.
+    local inherited = effectiveInstallation()
+    if inherited ~= nil then
+        installed[co] = inherited
+    end
+
+    return co
+end
+
+-- There is deliberately no `resume` or `wrap` here, and their absence is the design
+-- rather than a gap.
+--
+-- Inheriting at *creation* is what makes resumption free. The plan expected a
+-- save/switch/restore around every `coroutine.resume` while a handler was active, and
+-- budgeted for it; a coroutine that carries the handler it was made under needs none of
+-- that, so `coroutine.resume` is used unwrapped and costs exactly what it always did.
+--
+-- It is also the better reading. What answers a suspension is the handler in force
+-- where the work was started, which a reader can point at; a resumption-time rule would
+-- make a coroutine's behaviour depend on whoever happened to resume it, which nobody
+-- can see from the coroutine.
+
+--- Whether a handler is installed here, which is what `blocking` against `cooperative`
+--- means to a caller deciding before it commits to waiting.
+function suspension.handled(): boolean
+    return effective() ~= nil
+end
+
+--- Whether a suspension performed here would be permitted, handler barriers included.
+---
+--- The run-time backstop for what `nosuspend` checks while compiling, for the calls
+--- static analysis could not see.
+function suspension.canSuspend(): boolean
+    local handler = effective()
+    if handler == nil or handler.canPark == nil then
+        return true
+    end
+
+    return handler.canPark(handler) ~= false
+end
+
+----------------------------------------------------------------------------
+-- Running several things at once
+----------------------------------------------------------------------------
+
+--[[
+One driver wearing four faces.
+
+`create` hands out a coroutine that inherits a handler, which is what a caller
+needs to *start* concurrent work; nothing here said what to do next. Driving it
+was left to each caller, so everyone waiting on several things wrote the same
+resume loop, and wrote it slightly differently.
+
+Two parts of that loop are why this is a library function rather than an example
+in a doc comment:
+
+**A branch parks on this driver; the driver parks on whoever is above it.** The
+handler is installed inside each branch rather than around the driver, so a
+branch that waits yields here and its siblings run. When nothing can run, the
+driver performs an ordinary `suspend`, which reaches the outer handler under a
+scheduler and the built-in one otherwise. Installing around the driver instead
+would send the driver's own wait to itself, and a combinator that deadlocks when
+nested in a frame is worse than no combinator.
+
+**Abandoning a branch is not forgetting it.** `race` stops caring about the
+losers, but each holds a subscription the protocol says must be cancelled. So a
+loser is resumed once more with its abandonment flag set: the park cancels, then
+raises, and the branch unwinds through whatever cleanup it had. Dropping the
+coroutine instead would leave a pump polling for a wait nobody is doing.
+]]
+
+--- Raised inside a branch being abandoned. It never escapes: the driver recognises this
+--- one and reports the winner instead.
+local ABANDONED = {}
+
+--- Runs `bodies` concurrently, at most `limit` at a time, and reports what each did.
+---
+--- The shared machinery. `stopEarly` is asked after each branch settles whether the rest
+--- are still wanted; the four public forms differ only in that and in what they return.
+---
+--- @param bodies what to run
+--- @param limit how many may be in flight, or nil for all of them
+--- @param stopEarly asked after each branch settles; true abandons the remainder
+--- @return per-branch values, per-branch errors, and which branch settled first
+local function drive<T>(
+    bodies: {function(): T},
+    limit: integer?,
+    stopEarly: (function(): boolean)?
+): {T?}, {any}, integer?
+    local count = #bodies
+    local values: {T?} = {}
+    local errors: {any} = {}
+    local threads: {[integer]: thread} = {}
+    local indexOf: any = setmetatable({}, {__mode = "k"})
+    local runnable: {[integer]: boolean} = {}
+    local abandoned: {[integer]: boolean} = {}
+    local started: integer = 0
+    local finished: integer = 0
+    local first: integer? = nil
+    local wakeDriver: any = nil
+    local inFlight: integer = limit and (limit > 1 and limit or 1) or count
+
+    -- A branch becoming runnable while the driver waits is the only thing that ends
+    -- that wait.
+    local function nudge()
+        local wake = wakeDriver
+        if wake then
+            wakeDriver = nil
+            wake()
+        end
+    end
+
+    local branchHandler = new suspension.Handler(
+        park = function(_: suspension.Handler, waiting: suspension.Waiting, cancel: function(): nil): nil
+            local index = indexOf[running()] as integer
+            local function markRunnable(): nil
+                runnable[index] = true
+                nudge()
+            end
+            while not waiting:ready() do
+                waiting:onResume(markRunnable)
+                -- It may have completed between subscribing and yielding, and yielding
+                -- then would wait for a wake that has already been and gone.
+                if waiting:ready() then
+                    break
+                end
+                coroutine.yield()
+                if abandoned[index] then
+                    cancel()
+                    error(ABANDONED, 0)
+                end
+            end
+        end,
+        canPark = function(_: suspension.Handler): boolean
+            return true
+        end,
+        shutdown = function(_: suspension.Handler): nil
+        end
+    )
+
+    --- Starts the next body that has not been started. Counting inside is what keeps the
+    --- index an integer rather than one arithmetic step away from being one.
+    local function startNext()
+        started = started + 1
+        local index = started
+        local body = bodies[index]
+        local co = suspension.create(function(): T
+            local produced: T
+            do
+                local handling = suspension.install(branchHandler)
+                produced = body()
+            end
+
+            return produced
+        end)
+        threads[index] = co
+        indexOf[co] = index
+        runnable[index] = true
+    end
+
+    local ceiling = inFlight < count and inFlight or count
+    for _ = 1, ceiling do
+        startNext()
+    end
+
+    --- Subscribes the driver's own wait. Named rather than written at the call site so
+    --- it is built once instead of on every pass that finds nothing to run.
+    local function parkDriver(resume: function(any), _: suspension.Context): (function()?)
+        wakeDriver = function(): nil
+            resume(true)
+        end
+
+        return function(): nil
+            wakeDriver = nil
+        end
+    end
+
+    while finished < count do
+        local ran = false
+        for index = 1, count do
+            local co = threads[index]
+            if co ~= nil and runnable[index] then
+                runnable[index] = nil
+                ran = true
+                local ok, answer = coroutine.resume(co)
+                if coroutine.status(co) == "dead" then
+                    threads[index] = nil
+                    finished = finished + 1
+                    if ok then
+                        values[index] = answer as T
+                    elseif answer ~= ABANDONED then
+                        errors[index] = answer
+                    end
+                    if first == nil and answer ~= ABANDONED then
+                        first = index
+                    end
+                    if stopEarly ~= nil and stopEarly() then
+                        -- Every branch still going is resumed once so its park can
+                        -- cancel and unwind. One that never started simply never does.
+                        for other = 1, count do
+                            local victim = threads[other]
+                            if victim ~= nil then
+                                abandoned[other] = true
+                                coroutine.resume(victim)
+                                threads[other] = nil
+                                finished = finished + 1
+                            end
+                        end
+                        finished = finished + (count - started)
+                        started = count
+                    elseif started < count then
+                        startNext()
+                    end
+                end
+            end
+        end
+        if finished >= count then
+            break
+        end
+        if not ran then
+            -- Nothing can run and something is still waiting, so the driver waits too --
+            -- on the handler above it, which is what lets this nest inside a frame.
+            suspension.suspend("suspension.all", parkDriver)
+        end
+    end
+
+    return values, errors, first
+end
+
+--- Runs every body concurrently and answers their values in order.
+---
+--- A branch that fails decides the whole call, but not until every branch has settled:
+--- unwinding while siblings are still parked would strand their subscriptions, and a
+--- caller who asked for all of them has no use for some of them.
+---
+--- @param bodies what to run
+--- @return each body's value, indexed as `bodies` was
+--- @raises the first error any branch raised
+function suspension.all<T>(bodies: {function(): T}): {T}
+    local values, errors = drive(bodies, nil, nil)
+    for index = 1, #bodies do
+        if errors[index] ~= nil then
+            error(errors[index], 0)
+        end
+    end
+
+    return values as {T}
+end
+
+--- Runs every body concurrently and answers what each of them did, failures included.
+---
+--- `all` for a caller who wants the failures rather than the first of them. Both arrays
+--- are indexed as `bodies` was, and exactly one of them holds an entry per branch.
+---
+--- @param bodies what to run
+--- @return each body's value where it returned, and each body's error where it raised
+function suspension.gather<T>(bodies: {function(): T}): {T?}, {any}
+    local values, errors = drive(bodies, nil, nil)
+
+    return values, errors
+end
+
+--- Runs every body concurrently and answers the first one to settle.
+---
+--- The losers are abandoned rather than forgotten: each is resumed once so its park
+--- cancels and its branch unwinds. A loser that had not started never starts.
+---
+--- @param bodies what to run
+--- @return the winner's value, and which body won
+--- @raises the winner's error, when the first to settle settled by failing
+function suspension.race<T>(bodies: {function(): T}): T?, integer?
+    if #bodies == 0 then
+        return nil, nil
+    end
+    local values, errors, first = drive(bodies, nil, function(): boolean
+        return true
+    end)
+    if first ~= nil and errors[first] ~= nil then
+        error(errors[first], 0)
+    end
+
+    return first ~= nil and values[first] or nil, first
+end
+
+--- Runs every body concurrently with at most `limit` in flight, and answers their values
+--- in order.
+---
+--- `all` with a ceiling, for fanning out over more work than the thing underneath will
+--- take at once -- child processes against cores, requests against a pool. A branch
+--- finishing is what lets the next one start.
+---
+--- @param bodies what to run
+--- @param limit how many may be in flight at once; below one is treated as one
+--- @return each body's value, indexed as `bodies` was
+--- @raises the first error any branch raised
+function suspension.batch<T>(bodies: {function(): T}, limit: integer): {T}
+    local values, errors = drive(bodies, limit, nil)
+    for index = 1, #bodies do
+        if errors[index] ~= nil then
+            error(errors[index], 0)
+        end
+    end
+
+    return values as {T}
+end
+
+return suspension
+]=],
+["/nupp/workers.nupp"] = [=[
+--[[
+Isolated worker threads.
+
+Each worker owns a fresh LuaJIT state on a native thread. Values cross only as
+bounded `string.buffer` messages, so neither Lua heap, module state, globals,
+closures, userdata, nor cdata are shared.
+
+Worker entry modules run from the same stamped payload as their spawner:
+
+```nupp
+local workers = require("nupp.workers")
+
+do
+    local worker = workers.spawn("jobs.hash")
+    local answer = worker:call({bytes = contents})
+end -- automatic stop
+```
+
+The entry obtains its endpoints independently:
+
+```nupp
+local workers = require("nupp.workers")
+
+workers.current():serve(function(job: any): any
+    return {length = #job.bytes}
+end)
+```
+
+A ready receive returns inline. A wait blocks efficiently in an ordinary
+program and suspends under an installed handler. Closing is cooperative: it
+wakes a worker blocked in `Self:receive`, but source that ignores the closed
+inbox can keep `join` and `stop` waiting indefinitely.
+]]
+
+local buffer = require("string.buffer")
+local type Native = {
+    channelCreate: function(): any,
+    channelDestroy: function(any),
+    channelClose: function(any),
+    channelPush: function(any, string): boolean,
+    channelPop: function(any, integer): string?,
+    channelCount: function(any): integer,
+    channelClosed: function(any): boolean,
+    workerSpawn: function(string, any, any): (any?, string?),
+    workerFinished: function(any): boolean,
+    workerJoin: function(any): (integer, string?),
+    current: function(): (any?, any?),
+    now: function(): number
+}
+local native = require("nupp.workers.native") as Native
+local suspension = require("nupp.suspension")
+
+local workers = {}
+
+local type Frame = {
+    kind: string,
+    id: integer?,
+    ok: boolean?,
+    payload: any,
+    error: string?
+}
+
+local record Channel
+    handle: any
+    owned: boolean
+    destroyed: boolean
+end
+
+--- How a worker ended.
+record workers.Exit
+    --- True when the entry module returned without an uncaught error.
+    succeeded: boolean
+
+    --- Zero for a clean return and nonzero for a load or runtime failure.
+    status: integer
+
+    --- The worker's load or runtime error, when it failed.
+    error: string?
+end
+
+--- The worker-side endpoints.
+record workers.Self
+    inbox: Channel
+    outbox: Channel
+
+    --- Waits for and returns the next payload. Nil means the inbox closed and drained.
+    receive: function(workers.Self): any?
+
+    --- Sends an ordinary message to the spawner.
+    send: function(workers.Self, any)
+
+    --- Answers requests until the inbox closes.
+    serve: function(workers.Self, function(any): any)
+end
+
+--- A fresh Lua state running on a native thread.
+record workers.Worker
+    _handle: any
+    _inbox: Channel
+    _outbox: Channel
+    _closed: boolean
+    _destroyed: boolean
+    _exit: workers.Exit?
+    _nextId: integer
+    _pendingIds: {[integer]: boolean}
+    _replies: {[integer]: Frame}
+    _messages: {any}
+    _firstMessage: integer
+    _lastMessage: integer
+
+    --- Queues a copied value without waiting for capacity.
+    send: function(workers.Worker, any)
+
+    --- Takes a ready ordinary message without waiting.
+    tryReceive: function(workers.Worker): any?
+
+    --- Waits for an ordinary message, or up to `timeoutMs` when supplied.
+    receive: function(workers.Worker, integer?): any?
+
+    --- Sends a request and waits for the matching reply.
+    call: function(workers.Worker, any): any
+
+    --- Closes the worker inbox. Nonblocking and idempotent.
+    close: function(workers.Worker)
+
+    --- Waits for the worker thread and records how it ended.
+    join: function(workers.Worker): workers.Exit
+
+    --- Closes, joins, and releases the worker. Idempotent.
+    stop: function(workers.Worker): workers.Exit
+end
+
+local ChannelMT: metatable<Channel> = {__index = Channel}
+local WorkerMT: metatable<workers.Worker> = {__index = workers.Worker}
+local SelfMT: metatable<workers.Self> = {__index = workers.Self}
+
+local function channel(handle: any, owned: boolean): Channel
+    return setmetatable({handle = handle, owned = owned, destroyed = false}, ChannelMT) as Channel
+end
+
+local function newChannel(): Channel
+    local handle = native.channelCreate()
+    if handle == nil then
+        error("nupp: cannot create a worker channel", 3)
+    end
+
+    return channel(handle, true)
+end
+
+local SENDABLE: {[string]: boolean} = {boolean = true, number = true, string = true,}
+
+--- Names the first value that cannot cross. Repeated tables are rejected as
+--- aliases as well as cycles because the encoding contract promises neither.
+local function unsendable(value: any, path: string, depth: integer, seen: {[any]: boolean}): string?
+    local kind = type(value)
+    if SENDABLE[kind] then
+        return nil
+    end
+    if kind ~= "table" then
+        return ("%s is a %s"):format(path, kind)
+    end
+    if getmetatable(value) ~= nil then
+        return ("%s has a metatable"):format(path)
+    end
+    if depth >= 32 then
+        return ("%s nests deeper than 32 tables"):format(path)
+    end
+    if seen[value] then
+        return ("%s repeats a table already present in the message"):format(path)
+    end
+    seen[value] = true
+    for key, item in pairs(value as {
+        any: any
+    }) do
+        if not SENDABLE[type(key)] then
+            return ("%s has a %s key"):format(path, type(key))
+        end
+        local rejected = unsendable(item, ("%s[%s]"):format(path, tostring(key)), depth + 1, seen)
+        if rejected ~= nil then
+            return rejected
+        end
+    end
+
+    return nil
+end
+
+local function encode(frame: Frame): string
+    local rejected = unsendable(frame, "message", 0, {})
+    if rejected ~= nil then
+        error("nupp: cannot send to a worker: " .. rejected, 3)
+    end
+
+    return buffer.encode(frame as string) as string
+end
+
+local function decode(bytes: string): Frame
+    local ok, value = pcall(buffer.decode, bytes)
+    if not ok or type(value) ~= "table" or type((value as {[string]: any})["kind"]) ~= "string" then
+        error("nupp: a worker returned an invalid message frame", 3)
+    end
+
+    return value as Frame
+end
+
+local function push(self: Channel, frame: Frame): nil
+    if self.destroyed or not native.channelPush(self.handle, encode(frame)) then
+        error("nupp: a worker channel is closed or its bounded queue is full", 3)
+    end
+end
+
+local function pop(self: Channel, timeoutMs: integer): Frame?
+    if self.destroyed then
+        return nil
+    end
+    local bytes = native.channelPop(self.handle, timeoutMs)
+
+    return bytes ~= nil and decode(bytes) or nil
+end
+
+local function destroy(self: Channel): nil
+    if self.destroyed or not self.owned then
+        return
+    end
+    self.destroyed = true
+    native.channelDestroy(self.handle)
+    self.handle = nil
+end
+
+local function takeMessage(self: workers.Worker): any?
+    if self._firstMessage > self._lastMessage then
+        return nil
+    end
+    local value = self._messages[self._firstMessage]
+    self._messages[self._firstMessage] = nil
+    if self._firstMessage == self._lastMessage then
+        self._firstMessage = 1
+        self._lastMessage = 0
+    else
+        self._firstMessage = self._firstMessage + 1
+    end
+
+    return value
+end
+
+local function takeReply(self: workers.Worker, id: integer): Frame?
+    local reply = self._replies[id]
+    if reply ~= nil then
+        self._replies[id] = nil
+    end
+
+    return reply
+end
+
+--- Routes exactly one frame. Returns whether one was taken.
+--- @raises when the worker supplied an unknown frame kind
+local function route(self: workers.Worker, timeoutMs: integer): boolean
+    local frame = pop(self._outbox, timeoutMs)
+    if frame == nil then
+        return false
+    end
+    if frame.kind == "reply" and frame.id ~= nil then
+        if self._pendingIds[frame.id] then
+            self._pendingIds[frame.id] = nil
+            self._replies[frame.id] = frame
+        end
+    elseif frame.kind == "message" then
+        self._lastMessage = self._lastMessage + 1
+        self._messages[self._lastMessage] = frame.payload
+    else
+        error("nupp: a worker returned an unknown message frame", 3)
+    end
+
+    return true
+end
+
+local function ended(self: workers.Worker): boolean
+    return native.channelClosed(self._outbox.handle) and native.channelCount(self._outbox.handle) == 0
+end
+
+--- Waits until `ready` succeeds. Without a handler the channel's condvar does
+--- the sleeping. Under a handler one readiness source polls without entering
+--- Lua from the worker thread.
+local function waitFor(
+    self: workers.Worker,
+    operation: string,
+    ready: function(): boolean,
+    timeoutMs: integer?
+): boolean
+    if ready() then
+        return true
+    end
+    if timeoutMs ~= nil and timeoutMs == 0 then
+        return false
+    end
+    local deadline = timeoutMs ~= nil and native.now() + timeoutMs or nil
+    if not suspension.handled() then
+        while not ready() do
+            local budget: integer = -1
+            if deadline ~= nil then
+                local remaining = math.ceil(deadline - native.now())
+                if remaining <= 0 then
+                    return false
+                end
+                budget = remaining as integer
+            end
+            if not route(self, budget) and ended(self) then
+                return ready()
+            end
+        end
+
+        return true
+    end
+
+    local function subscribe(resume: function(boolean), context: suspension.Context): function()
+        local source = context:source("nupp.workers", 50, function(): integer
+            local moved = route(self, 0)
+            if ready() or ended(self) or deadline ~= nil and native.now() >= deadline then
+                resume(true)
+
+                return 1
+            end
+
+            return moved and 1 or 0
+        end)
+
+        return function(): nil
+            source:release()
+        end
+    end
+
+    while not ready() do
+        if ended(self) then
+            return false
+        end
+        if deadline ~= nil and native.now() >= deadline then
+            return false
+        end
+        suspension.suspend(operation, subscribe)
+    end
+
+    return true
+end
+
+function workers.Worker:send(value: any): nil
+    if self._closed or self._exit ~= nil then
+        error("nupp: cannot send to a closed worker", 2)
+    end
+    local rejected = unsendable(value, "value", 0, {})
+    if rejected ~= nil then
+        error("nupp: cannot send to a worker: " .. rejected, 2)
+    end
+    push(self._inbox, {kind = "message", payload = value})
+end
+
+function workers.Worker:tryReceive(): any?
+    local value = takeMessage(self)
+    if value ~= nil then
+        return value
+    end
+    while route(self, 0) do
+        value = takeMessage(self)
+        if value ~= nil then
+            return value
+        end
+    end
+
+    return nil
+end
+
+function workers.Worker:receive(timeoutMs: integer?): any?
+    if timeoutMs ~= nil and (timeoutMs < 0 or math.floor(timeoutMs) ~= timeoutMs) then
+        error("nupp: worker receive timeout must be a nonnegative integer", 2)
+    end
+    local value = self:tryReceive()
+    if value ~= nil then
+        return value
+    end
+    waitFor(self, "worker receive", function(): boolean
+        return self._firstMessage <= self._lastMessage
+    end, timeoutMs)
+
+    return takeMessage(self)
+end
+
+function workers.Worker:call(value: any): any
+    if self._closed or self._exit ~= nil then
+        error("nupp: cannot call a closed worker", 2)
+    end
+    local rejected = unsendable(value, "value", 0, {})
+    if rejected ~= nil then
+        error("nupp: cannot call a worker: " .. rejected, 2)
+    end
+    local id = self._nextId
+    if id > 9007199254740991 then
+        error("nupp: worker request identifiers are exhausted", 2)
+    end
+    self._nextId = id + 1
+    self._pendingIds[id] = true
+    push(self._inbox, {kind = "request", id = id, payload = value})
+    waitFor(self, "worker call", function(): boolean
+        return self._replies[id] ~= nil
+    end)
+    local reply = takeReply(self, id)
+    if reply == nil then
+        self._pendingIds[id] = nil
+        local exit = self:join()
+        error(exit.error or "nupp: worker ended before replying", 2)
+    end
+    if reply.ok ~= true then
+        error("nupp: worker call failed: " .. (reply.error or "without saying why"), 2)
+    end
+
+    return reply.payload
+end
+
+function workers.Worker:close(): nil
+    if self._closed then
+        return
+    end
+    self._closed = true
+    native.channelClose(self._inbox.handle)
+end
+
+function workers.Worker:join(): workers.Exit
+    if self._exit ~= nil then
+        return self._exit
+    end
+    if suspension.handled() and not native.workerFinished(self._handle) then
+        suspension.suspend("worker join", function(resume: function(boolean), context: suspension.Context): function()
+            local source = context:source("nupp.workers.join", 50, function(): integer
+                if native.workerFinished(self._handle) then
+                    resume(true)
+
+                    return 1
+                end
+
+                return 0
+            end)
+
+            return function(): nil
+                source:release()
+            end
+        end)
+    end
+    local status, failure = native.workerJoin(self._handle)
+    self._handle = nil
+    self._exit = new workers.Exit(succeeded = status == 0, status = status, error = failure)
+
+    return self._exit
+end
+
+@drop
+function workers.Worker:stop(): workers.Exit
+    if self._destroyed then
+        return self._exit as workers.Exit
+    end
+    self:close()
+    local exit = self:join()
+    destroy(self._inbox)
+    destroy(self._outbox)
+    self._destroyed = true
+
+    return exit
+end
+
+local function receiveSelf(self: workers.Self): Frame?
+    return pop(self.inbox, -1)
+end
+
+function workers.Self:receive(): any?
+    local frame = receiveSelf(self)
+
+    return frame and frame.payload or nil
+end
+
+function workers.Self:send(value: any): nil
+    local rejected = unsendable(value, "value", 0, {})
+    if rejected ~= nil then
+        error("nupp: cannot send from a worker: " .. rejected, 2)
+    end
+    push(self.outbox, {kind = "message", payload = value})
+end
+
+function workers.Self:serve(handler: function(any): any): nil
+    while true do
+        local frame = receiveSelf(self)
+        if frame == nil then
+            return
+        end
+        local ok, answer = pcall(handler, frame.payload)
+        if frame.kind == "request" and frame.id ~= nil then
+            if ok then
+                local rejected = unsendable(answer, "result", 0, {})
+                if rejected == nil then
+                    push(self.outbox, {kind = "reply", id = frame.id, ok = true, payload = answer})
+                else
+                    push(
+                        self.outbox,
+                        {kind = "reply", id = frame.id, ok = false, error = "a call result cannot cross: " .. rejected,}
+                    )
+                end
+            else
+                push(self.outbox, {kind = "reply", id = frame.id, ok = false, error = tostring(answer),})
+            end
+        end
+    end
+end
+
+--- Starts `entry` in a fresh LuaJIT state.
+--- @return an owned worker that is stopped on every structured exit
+@owned
+function workers.spawn(entry: string): workers.Worker
+    if type(entry) ~= "string" or entry == "" then
+        error("nupp: a worker entry must be a nonempty module name", 2)
+    end
+    local inbox = newChannel()
+    local outbox = newChannel()
+    local handle, problem = native.workerSpawn(entry, inbox.handle, outbox.handle)
+    if handle == nil then
+        destroy(inbox)
+        destroy(outbox)
+        error("nupp: cannot spawn worker: " .. (problem or "unknown failure"), 2)
+    end
+
+    return setmetatable(
+        {
+            _handle = handle,
+            _inbox = inbox,
+            _outbox = outbox,
+            _closed = false,
+            _destroyed = false,
+            _exit = nil,
+            _nextId = 1,
+            _pendingIds = {},
+            _replies = {},
+            _messages = {},
+            _firstMessage = 1,
+            _lastMessage = 0,
+        },
+        WorkerMT
+    ) as workers.Worker
+end
+
+--- Returns the endpoints installed in the current worker state.
+--- @raises outside a worker state
+function workers.current(): workers.Self
+    local inbox, outbox = native.current()
+    if inbox == nil or outbox == nil then
+        error("nupp: workers.current is only valid inside a worker", 2)
+    end
+
+    return setmetatable({inbox = channel(inbox, false), outbox = channel(outbox, false),}, SelfMT) as workers.Self
+end
+
+workers.Worker = workers.Worker
+workers.Self = workers.Self
+workers.Exit = workers.Exit
+
+return workers
+]=],
 ["/nupp/zone.nupp"] = [=[
 --[[
 Gated LuaJIT profiler zones: the stack work is skipped until a profiler asks for
@@ -87203,7 +92247,7 @@ return zone
 ]=],
 }
 end
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -87212,5 +92256,17 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 
+
+
+
+
+
+if package . config : sub ( 1 , 1 ) == "\\" then
+pcall(__nuppFfi.cdef, "int32_t _setmode(int32_t, int32_t);") const _setmode = __nuppFfi.C._setmode
+const BINARY = 0x8000
+_setmode ( 0 , BINARY )
+_setmode ( 1 , BINARY )
+_setmode ( 2 , BINARY )
+end
 
 os . exit ( require ( "nupp.compiler.cli" ) . main ( arg ) )

@@ -55,7 +55,7 @@ local record Position
     y: number
 end
 
-const PositionCodec: nupp.FieldCodec.KeyedCodec<Position> = comptime do
+const PositionCodec: nupp.fieldcodec.KeyedCodec<Position> = comptime do
     return nupp.fieldcodec.compile(nupp.reflect(Position))
 end
 
@@ -75,10 +75,10 @@ local record Point
     x: number
     y: number
 end
-@comptime local function keyed(info: TypeInfo): nupp.FieldCodec.Blueprint
+@comptime local function keyed(info: TypeInfo): nupp.fieldcodec.Blueprint
     return nupp.fieldcodec.compile(info)
 end
-const Codec: nupp.FieldCodec.KeyedCodec<Point> = comptime do
+const Codec: nupp.fieldcodec.KeyedCodec<Point> = comptime do
     return keyed(nupp.reflect(Point))
 end
 local encoded = Codec:encode(new Point(x = 3, y = 4))
@@ -185,7 +185,7 @@ function M.rejectsAReflectedTypeAndRuntimeTargetMismatch()
    local codes = errorsOf([[
 local record Position x: number end
 local record Velocity x: number end
-const Bad: nupp.FieldCodec.KeyedCodec<Velocity> = comptime do
+const Bad: nupp.fieldcodec.KeyedCodec<Velocity> = comptime do
     return nupp.fieldcodec.compile(nupp.reflect(Position))
 end
 ]])
@@ -195,7 +195,7 @@ end
 function M.requiresATypePositionForReflection()
    local codes = errorsOf([[
 local value = 1
-const Bad: nupp.FieldCodec.KeyedCodec<any> = comptime do
+const Bad: nupp.fieldcodec.KeyedCodec<any> = comptime do
     return nupp.fieldcodec.compile(nupp.reflect(value))
 end
 ]])

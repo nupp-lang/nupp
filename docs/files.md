@@ -167,7 +167,7 @@ do
 end
 ```
 
-The reader and writer satisfy `nupp.Reader` and `nupp.Writer`, so `read`,
+The reader and writer satisfy `nupp.io.Reader` and `nupp.io.Writer`, so `read`,
 `readInto`, `transferTo`, `write`, `writeFrom`, `writeView` and `flush` mean
 what they mean over a buffer. `readInto` lands bytes in the destination
 buffer's own storage rather than in a string on the way there, and `transferTo`

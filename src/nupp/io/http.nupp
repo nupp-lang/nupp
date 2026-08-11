@@ -35,20 +35,20 @@ record http.Options
 end
 
 record http.ReaderBody
-    reader: nupp.Reader
+    reader: nupp.io.Reader
     length: integer?
     contentType: string?
 end
 
 record http.FileBody
-    path: string | nupp.Path
+    path: string | nupp.io.Path
     contentType: string?
 end
 
-type http.RequestBody = string | nupp.ByteView | nupp.Buffer | http.ReaderBody | http.FileBody
+type http.RequestBody = string | nupp.io.ByteView | nupp.io.Buffer | http.ReaderBody | http.FileBody
 
 record http.Request
-    url: nupp.URI
+    url: nupp.io.URI
     method: string?
     headers: {string: string}?
     body: http.RequestBody?
@@ -91,7 +91,7 @@ local function canonicalHost(text: string, level: integer): string
         error("nupp: HTTP insecureHosts entries must be exact host names or IP literals", level)
     end
     local spelling = text:sub(-1) == "." and text:sub(1, -2) or text
-    local uri = nupp.io.URI.new("https://" .. spelling .. "/")
+    local uri = nupp.io.newURI("https://" .. spelling .. "/")
     if uri == nil or uri:username() ~= "" or uri:password() ~= nil or uri:port() ~= nil or uri:path() ~= "/" then
         error("nupp: HTTP insecureHosts entries must not contain a scheme, port, path, or user information", level)
     end
@@ -274,13 +274,13 @@ local function fairnessYield(): nil
     end)
 end
 
-record http.Body is nupp.Reader
+record http.Body is nupp.io.Reader
     _client: any
     _transfer: any
     _closed: boolean
     _reading: boolean
 
-    function _next(self, count: integer, destination: nupp.Buffer?, offset: integer): (any?, string?)
+    function _next(self, count: integer, destination: nupp.io.Buffer?, offset: integer): (any?, string?)
         if self._closed then
             return nil, "the body is closed"
         end
@@ -313,7 +313,7 @@ record http.Body is nupp.Reader
         return self:_next(wanted < 1 and 1 or wanted, nil, 0)
     end
 
-    function readInto(self, destination: nupp.Buffer, offset: integer?, count: integer?): (integer?, string?)
+    function readInto(self, destination: nupp.io.Buffer, offset: integer?, count: integer?): (integer?, string?)
         local at = whole(offset or 0, "body destination offset", 0)
         local wanted = whole(count or READ_SIZE, "body read count", 0)
         if wanted == 0 then
@@ -328,7 +328,7 @@ record http.Body is nupp.Reader
         return value, reason
     end
 
-    function transferTo(self, destination: nupp.Writer): (integer?, string?)
+    function transferTo(self, destination: nupp.io.Writer): (integer?, string?)
         local total: integer = 0
         local turn: integer = 0
         if self._transfer:directDestination(destination) then
@@ -441,7 +441,7 @@ local function packedHeader(bytes: string, wanted: string): string?
     return nil
 end
 
-local function origin(uri: nupp.URI): string
+local function origin(uri: nupp.io.URI): string
     local scheme = uri:scheme()
     local port = uri:port() or (scheme == "https" and 443 or 80)
     return scheme .. "://" .. (uri:host() or ""):lower() .. ":" .. port
@@ -450,7 +450,7 @@ end
 record http.Response
     status: integer
     version: http.Version
-    url: nupp.URI
+    url: nupp.io.URI
     body: owned<http.Body>
     _packed: string
     _values: {[string]: {string}}?
@@ -547,7 +547,7 @@ end
 local function makeResponse(
     status: integer,
     version: http.Version,
-    url: nupp.URI,
+    url: nupp.io.URI,
     takes body: http.Body,
     packed: string
 ): http.Response
@@ -819,7 +819,7 @@ function http.Client:send(request: http.Request): (http.Response?, string?)
             transfer:close()
             return nil, bodyReason
         end
-        local effective = head.url == nil and given.url or nupp.io.URI.new(head.url)
+        local effective = head.url == nil and given.url or nupp.io.newURI(head.url)
         if effective == nil then
             transfer:close()
             return nil, "the HTTP provider returned an invalid effective URL"
@@ -848,13 +848,13 @@ function http.Client:close(): (boolean, string?)
     return true
 end
 
-function http.reader(reader: nupp.Reader, length: integer?, contentType: string?): http.ReaderBody
+function http.reader(reader: nupp.io.Reader, length: integer?, contentType: string?): http.ReaderBody
     if length ~= nil then whole(length, "reader body length", 0) end
     if contentType ~= nil and type(contentType) ~= "string" then error("nupp: HTTP content type must be a string", 2) end
     return new http.ReaderBody(reader = reader, length = length, contentType = contentType)
 end
 
-function http.file(path: string | nupp.Path, contentType: string?): http.FileBody
+function http.file(path: string | nupp.io.Path, contentType: string?): http.FileBody
     if type(path) ~= "string" and type((path as any).toString) ~= "function" then error("nupp: HTTP file body needs a path", 2) end
     if contentType ~= nil and type(contentType) ~= "string" then error("nupp: HTTP content type must be a string", 2) end
     return new http.FileBody(path = path, contentType = contentType)

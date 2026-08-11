@@ -74,7 +74,7 @@ local type NativeBackendFactory = {
 --- because waiting on one is exactly what starves the others -- which is the whole
 --- reason `communicate` can drain three pipes without deadlocking.
 ---
---- The completion-oriented `nupp.Reader` methods are the public tecs-compatible
+--- The completion-oriented `nupp.io.Reader` methods are the public tecs-compatible
 --- surface. `poll` remains alongside them as the concrete nonblocking operation the
 --- combined drain needs; generic readers are not widened with readiness operations.
 ---
@@ -87,7 +87,7 @@ local type NativeBackendFactory = {
 ---
 --- Borrowing the record through `asReader` keeps a single owner and makes its lifetime
 --- a question about Nupp values, which the checker can answer.
-record process.Reader is nupp.Reader
+record process.Reader is nupp.io.Reader
     owner: any
     handle: any
     closed: boolean
@@ -160,12 +160,12 @@ record process.Reader is nupp.Reader
     --- The non-blocking half of reading, which `communicate` needs so that one quiet
     --- stream does not stop it serving another.
     --- `limit` caps how many bytes to take, defaulting to a whole pipe's worth. It is
-    --- here because the shared `nupp.Reader` promises "at most `count`". Without the
+    --- here because the shared `nupp.io.Reader` promises "at most `count`". Without the
     --- limit its completion-oriented method would have to keep surplus bytes beside
     --- this record, giving end of stream and closedness two homes. One place decides
     --- both, and the caller says how much it wants.
     ---
-    --- Zero and negative limits read one byte, which is what `nupp.Reader` says a
+    --- Zero and negative limits read one byte, which is what `nupp.io.Reader` says a
     --- non-positive count does. Settled here rather than at the platform because the
     --- platform is where it stops being a number and becomes a buffer size: a signed
     --- zero or minus one arriving at a native size conversion is either an empty read
@@ -242,7 +242,7 @@ record process.Reader is nupp.Reader
         return chunk or ""
     end
 
-    function readInto(self, destination: nupp.Buffer, offset: integer?, count: integer?): (integer?, string?)
+    function readInto(self, destination: nupp.io.Buffer, offset: integer?, count: integer?): (integer?, string?)
         local at = offset or 0
         local wanted: integer = count or READ_LIMIT
         if at < 0 or wanted < 0 then
@@ -263,7 +263,7 @@ record process.Reader is nupp.Reader
         return #chunk
     end
 
-    function transferTo(self, destination: nupp.Writer): (integer?, string?)
+    function transferTo(self, destination: nupp.io.Writer): (integer?, string?)
         local total: integer = 0
         while true do
             local chunk, reason = self:read(READ_LIMIT)
@@ -296,10 +296,10 @@ end
 --- A child's writable stream.
 ---
 --- `offer` and `isGone` are the nonblocking half, for the same reason the reader has
---- `poll`: the prelude's `nupp.Writer.write` writes the whole value, which a drain loop
+--- `poll`: the prelude's `nupp.io.Writer.write` writes the whole value, which a drain loop
 --- serving three pipes cannot afford to wait for. The completion-oriented `write`
---- remains the ordinary `nupp.Writer` operation; `offer` is concrete and additional.
-record process.Writer is nupp.Writer
+--- remains the ordinary `nupp.io.Writer` operation; `offer` is concrete and additional.
+record process.Writer is nupp.io.Writer
     owner: any
     handle: any
     closed: boolean
@@ -456,7 +456,7 @@ record process.Writer is nupp.Writer
         return true
     end
 
-    function writeFrom(self, source: nupp.Buffer, offset: integer?, count: integer?): (integer?, string?)
+    function writeFrom(self, source: nupp.io.Buffer, offset: integer?, count: integer?): (integer?, string?)
         local at = offset or 0
         local length = source:length()
         local wanted: integer = count == nil and length - at or count as integer
@@ -471,7 +471,7 @@ record process.Writer is nupp.Writer
         return wanted
     end
 
-    function writeView(self, source: nupp.ByteView, offset: integer?, count: integer?): (integer?, string?)
+    function writeView(self, source: nupp.io.ByteView, offset: integer?, count: integer?): (integer?, string?)
         local at = offset or 0
         local length = source:length()
         local wanted: integer = count == nil and length - at or count as integer
@@ -511,12 +511,12 @@ record process.Writer is nupp.Writer
 end
 
 --- Borrows a process reader through the shared completion-oriented contract.
-function process.asReader(borrows source: process.Reader): nupp.Reader borrows source
+function process.asReader(borrows source: process.Reader): nupp.io.Reader borrows source
     return source
 end
 
 --- Borrows a process writer through the shared completion-oriented contract.
-function process.asWriter(borrows source: process.Writer): nupp.Writer borrows source
+function process.asWriter(borrows source: process.Writer): nupp.io.Writer borrows source
     return source
 end
 

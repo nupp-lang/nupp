@@ -17,7 +17,7 @@ assert(decoded.name == "Nupp")
 
 `null`, `emptyArray`, `arrayMt`, and `emptyArrayMt` preserve distinctions Lua tables
 cannot express by themselves. The configuration methods match cjson's established
-semantics, but live on `nupp.data`. `newJSON()` returns an independent `nupp.JSON`
+semantics, but live on `nupp.data`. `newJSON()` returns an independent `nupp.data.JSON`
 encoder/decoder with its own settings:
 
 ```nupp
@@ -32,7 +32,7 @@ JSON selects the `cjson` native feature. No `require("cjson")` is needed or reco
 | --- | --- | --- |
 | `encodeJSON(value)` | `string` | Encode one Lua value. |
 | `decodeJSON(text)` | `any` | Decode one JSON document. |
-| `newJSON()` | `nupp.JSON` | Create an independently configured codec. |
+| `newJSON()` | `nupp.data.JSON` | Create an independently configured codec. |
 | `null`, `emptyArray` | sentinel values | Represent JSON values that plain Lua tables cannot distinguish. |
 | `arrayMt`, `emptyArrayMt` | metatables | Mark array-shaped tables explicitly. |
 
@@ -47,7 +47,7 @@ provider supports that form; passing a setting changes only that codec.
 
 ## UTF-8
 
-`nupp.data.utf8` treats strings and [`nupp.ByteView`](io.md#byte-views) values as byte
+`nupp.data.utf8` treats strings and [`nupp.io.ByteView`](io.md#byte-views) values as byte
 sequences. Byte offsets are 1-based here so they compose with Lua string positions.
 Invalid input decodes as U+FFFD while validation remains explicit.
 
@@ -97,7 +97,7 @@ native UUID object.
 
 ## Hashes and checksums
 
-Each function accepts a string or immutable [`nupp.ByteView`](io.md#byte-views).
+Each function accepts a string or immutable [`nupp.io.ByteView`](io.md#byte-views).
 
 ```nupp
 assert(nupp.data.fnv1a64("hello") == "a430d84680aabd0b")

@@ -33,7 +33,7 @@ The four built-in providers are:
 | `Debug` | `debug(self): string` and `nupp.Debug` conformance |
 | `Default` | static `default(): T` and `nupp.default(T)` support |
 | `From` | static `from(value): T` and `nupp.into(value, T)` support |
-| `JSON` | `toJSON`, static `fromJSON`, `fieldCodec`, and `nupp.JSONEncodable` conformance |
+| `JSON` | `toJSON`, static `fromJSON`, `fieldCodec`, and `nupp.data.JSONEncodable` conformance |
 
 Generated members participate in normal member lookup, generic inference, and
 interface checking. A written member of the same name is a compile-time

@@ -443,7 +443,7 @@ gradual result also checks clean.
 
 Almost none, and for a structural reason worth writing down: **there is not one
 `record X is Y` in `src/`.** Every interface the compiler and standard library
-declare — `cdecl`'s ten, `envMod.Env`, `nupp.Reader` and `nupp.Writer`,
+declare — `cdecl`'s ten, `envMod.Env`, `nupp.io.Reader` and `nupp.io.Writer`,
 `methodslots`, `symbols.Symbol`, `cst.Hints` — is satisfied structurally, with no
 declaration naming it. An associated type needs a contract with an answering
 site, so adopting one here means first nominalizing something.

@@ -229,7 +229,7 @@ work makes sense in.
         rather than hiding it behind the unfinished-park report.
 
   - [x] S5: `nupp.io.Process`. The platform-neutral state machine, public
-        module, contextual waits, `communicate`, `nupp.Reader`/`nupp.Writer`
+        module, contextual waits, `communicate`, `nupp.io.Reader`/`nupp.io.Writer`
         streams and `Exit:succeeded` are integrated. The Unix provider is
         tested against real children on macOS and Linux; the Linux masking path
         has run, including preservation of an already-pending `SIGPIPE`.
@@ -273,8 +273,8 @@ work makes sense in.
   - [x] F1: `File` and `TemporaryPath` as owners over the existing contracts,
         with whole-file read, write, append, atomic write, copy and lines.
 
-        Done. The reader and writer are declared as `nupp.Reader` and
-        `nupp.Writer`, which are interfaces, so a parser written against a
+        Done. The reader and writer are declared as `nupp.io.Reader` and
+        `nupp.io.Writer`, which are interfaces, so a parser written against a
         buffer takes a file with no adapter. `readInto` and `writeFrom` reach
         the destination buffer's FFI storage directly, which is what backing
         `Buffer` with an array bought.

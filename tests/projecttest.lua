@@ -216,7 +216,7 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"}}}
 ]],
       ["src/main.nupp"] = [[
 local models = require("models")
-const UserCodec: nupp.FieldCodec.KeyedCodec<models.User> = comptime do
+const UserCodec: nupp.fieldcodec.KeyedCodec<models.User> = comptime do
     return nupp.fieldcodec.compile(nupp.reflect(models.User))
 end
 return UserCodec.fingerprint

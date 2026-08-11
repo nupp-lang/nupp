@@ -1,9 +1,9 @@
 # Paths and URIs
 
-`nupp.io.Path` and `nupp.io.URI` are immutable value objects. Their public API contains
-only Nupp values; parsing and normalization are delegated to a feature-gated Rust
-provider. Selecting either builds the shared provider once with only the required Cargo
-features.
+`nupp.io.Path` and `nupp.io.URI` are immutable value objects, nested under `nupp.io`
+alongside the other byte and filesystem facilities. Their public API contains only Nupp
+values; parsing and normalization are delegated to a feature-gated Rust provider.
+Selecting either builds the shared provider once with only the required Cargo features.
 
 ## Paths
 
@@ -11,16 +11,16 @@ A path is platform-native UTF-8 text. Constructing joins components using the cu
 platform's rules:
 
 ```nupp
-local Path = nupp.io.Path
-local source = Path.new("src", "app", "..", "main.nupp"):normalize()
-assert(source:toString() == "src" .. Path.separator() .. "main.nupp")
+local source = nupp.io.newPath("src", "app", "..", "main.nupp"):normalize()
+assert(source:toString() == "src" .. nupp.io.separator() .. "main.nupp")
 local name, stem, extension = source:fileName(), source:stem(), source:extension()
 assert(name == "main.nupp")
 assert(stem == "main")
 assert(extension == "nupp")
 ```
 
-The constructor table exposed as `nupp.io.Path` has type `nupp.Path.Library`.
+`nupp.io.newPath` is a constructor on `nupp.io` rather than a static on the `Path` type
+itself: `Path` is a nested type, and its statics would otherwise share a name with it.
 
 `join` appends components. `normalize` removes lexical `.` and `..` components without
 touching the filesystem. `absolute` resolves against the current working directory;
@@ -35,23 +35,23 @@ reject separators in the replacement.
 `isAbsolute` and `isRelative` classify without accessing the filesystem.
 
 ```nupp
-local current, reason = Path.currentDirectory()
+local current, reason = nupp.io.currentDirectory()
 assert(current, reason)
 local log = current:join("var", "app.log"):withExtension("jsonl")
 ```
 
-| Path member | Result |
+| `nupp.io` member | Result |
 | --- | --- |
-| `Path.new(first, parts...)` | `nupp.Path` |
-| `Path.currentDirectory()` | `nupp.Path?, reason?` |
-| `Path.separator()` | platform separator string |
+| `newPath(first, parts...)` | `nupp.io.Path` |
+| `currentDirectory()` | `nupp.io.Path?, reason?` |
+| `separator()` | platform separator string |
 | `toString()`, `tostring(path)` | native UTF-8 path string |
-| `join(parts...)`, `normalize()` | `nupp.Path` |
-| `absolute()`, `resolve(parts...)`, `canonicalize()` | `nupp.Path?, reason?` |
-| `relativeTo(base)` | `nupp.Path?, reason?` |
-| `parent()` | `nupp.Path?` |
+| `join(parts...)`, `normalize()` | `nupp.io.Path` |
+| `absolute()`, `resolve(parts...)`, `canonicalize()` | `nupp.io.Path?, reason?` |
+| `relativeTo(base)` | `nupp.io.Path?, reason?` |
+| `parent()` | `nupp.io.Path?` |
 | `fileName()`, `stem()`, `extension()` | component `string?` |
-| `withFileName(name)`, `withExtension(extension)` | `nupp.Path` |
+| `withFileName(name)`, `withExtension(extension)` | `nupp.io.Path` |
 | `isAbsolute()`, `isRelative()` | `boolean` |
 
 Path equality compares its native text. `tostring(path)` and `path:toString()`
@@ -59,13 +59,12 @@ are equivalent.
 
 ## URIs
 
-`URI.new` parses and normalizes one absolute URI. It returns `nil, reason` for malformed
-input. `validate` checks without retaining an object; `isURI` distinguishes URI objects
-from strings and records.
+`nupp.io.newURI` parses and normalizes one absolute URI. It returns `nil, reason` for
+malformed input. `nupp.io.validate` checks without retaining an object; `nupp.io.isURI`
+distinguishes URI objects from strings and records.
 
 ```nupp
-local URI = nupp.io.URI
-local endpoint, reason = URI.new("https://user:pass@example.com:8443/api?q=1#top")
+local endpoint, reason = nupp.io.newURI("https://user:pass@example.com:8443/api?q=1#top")
 assert(endpoint, reason)
 assert(endpoint:scheme() == "https")
 assert(endpoint:host() == "example.com")
@@ -89,7 +88,7 @@ assert(avatar, resolveReason)
 
 A malformed replacement passed to `withScheme`, `withUserInfo`, `withHost`,
 `withPort`, `withPath`, `withQuery`, `withFragment`, `concatPath`, or
-`withEndpoint` raises at the call site. Use `new`, `validate`, and `resolve` when
+`withEndpoint` raises at the call site. Use `newURI`, `validate`, and `resolve` when
 the text came from an untrusted source and must be handled as a fallible value.
 Ports must be integers from 0 through 65535. Supplying a component equal to its
 current normalized value returns the receiver itself.
@@ -102,7 +101,7 @@ when a request URI must be rerouted through a configured service endpoint.
 A component record can be passed instead of text:
 
 ```nupp
-local uri = assert(URI.new({
+local uri = assert(nupp.io.newURI({
     scheme = "https",
     userInfo = "reader:secret",
     host = "example.com",
@@ -111,24 +110,24 @@ local uri = assert(URI.new({
 }))
 ```
 
-The input record type is `nupp.URI.Components`. Components are URI text, not
-filesystem paths. Use [Path](#paths) for filesystem semantics and URI for
-network/resource identity.
+The input record type is `nupp.io.URI.Components`, the one type still nested inside
+`URI` itself. Components are URI text, not filesystem paths. Use [Path](#paths) for
+filesystem semantics and URI for network/resource identity.
 
-| URI member | Result |
+| `nupp.io` member | Result |
 | --- | --- |
-| `URI.new(textOrComponents)` | `nupp.URI?, reason?` |
-| `URI.validate(text)` | `boolean, reason?` |
-| `URI.isURI(value)` | `boolean` |
+| `newURI(textOrComponents)` | `nupp.io.URI?, reason?` |
+| `validate(text)` | `boolean, reason?` |
+| `isURI(value)` | `boolean` |
 | `toString()`, `tostring(uri)` | normalized absolute URI string |
 | `scheme()`, `username()`, `path()` | required component string |
 | `authority()`, `userInfo()`, `password()`, `host()` | optional component string |
 | `port()` | `integer?` |
 | `query()`, `fragment()` | optional component string |
-| `withScheme`, `withUserInfo`, `withHost`, `withPort` | modified `nupp.URI` |
-| `withPath`, `withQuery`, `withFragment`, `concatPath` | modified `nupp.URI` |
-| `withEndpoint(endpoint)` | endpoint-rerouted `nupp.URI` |
-| `resolve(reference)` | `nupp.URI?, reason?` |
+| `withScheme`, `withUserInfo`, `withHost`, `withPort` | modified `nupp.io.URI` |
+| `withPath`, `withQuery`, `withFragment`, `concatPath` | modified `nupp.io.URI` |
+| `withEndpoint(endpoint)` | endpoint-rerouted `nupp.io.URI` |
+| `resolve(reference)` | `nupp.io.URI?, reason?` |
 
 URI equality compares normalized values, so case normalization in a host or
 scheme does not make two otherwise identical URIs unequal.

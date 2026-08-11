@@ -68,7 +68,7 @@ end
 local user: User = nupp.default(User)
 local id: UserId = nupp.into(42, UserId)
 local printable: nupp.Debug = user
-local encodable: nupp.JSONEncodable = user
+local encodable: nupp.data.JSONEncodable = user
 local text = encodable:toJSON()
 local decoded, err = User.fromJSON(text)
 assert(decoded and not err)

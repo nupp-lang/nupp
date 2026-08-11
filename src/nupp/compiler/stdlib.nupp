@@ -649,7 +649,7 @@ local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then r
 
 local PATH = compact(
     [=[
-__nuppLazy(__nuppIO,"Path",function()
+local function __nuppInstallPath()
 local native=__nuppNative();local ffi,C=native.ffi,native.C;local Path={};Path.__index=Path;Path.__tostring=function(self)return self._text end;Path.__eq=function(a,b)return a._text==b._text end
 local function value(v)return type(v)=="table"and getmetatable(v)==Path and v._text or v end
 local function path(text)return setmetatable({_text=text},Path)end
@@ -668,15 +668,17 @@ function Path:withFileName(name)return returned(C.nuppPathWith(self._text,#self.
 function Path:withExtension(extension)return returned(C.nuppPathWith(self._text,#self._text,extension,#extension,true))end
 function Path:isAbsolute()return C.nuppPathIsAbsolute(self._text,#self._text)end
 function Path:isRelative()return not self:isAbsolute()end
-local library={};function library.new(first,...)return path(first):join(...)end
-function library.currentDirectory()local out=C.nuppPathAbsolute("",0);if out==nil then return nil,native.error()end;return returned(out)end
-function library.separator()return package.config:sub(1,1)end;return library end)
+__nuppIO.newPath=function(first,...)return path(first):join(...)end
+__nuppIO.currentDirectory=function()local out=C.nuppPathAbsolute("",0);if out==nil then return nil,native.error()end;return returned(out)end
+__nuppIO.separator=function()return package.config:sub(1,1)end
+return __nuppIO end
+for _,__name in ipairs({"newPath","currentDirectory","separator"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallPath();return rawget(__nuppIO,name)end)end
 ]=]
 )
 
 local URI = compact(
     [=[
-__nuppLazy(__nuppIO,"URI",function()
+local function __nuppInstallURI()
 local native=__nuppNative();local ffi,C=native.ffi,native.C;local URI={};URI.__index=URI;URI.__tostring=function(self)return self:toString()end;URI.__eq=function(a,b)return a:toString()==b:toString()end
 local function wrap(handle)if handle==nil then return nil,native.error()end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end
 local function changed(handle)if handle==nil then error("nupp: cannot modify URI: "..native.error(),3)end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end
@@ -690,10 +692,12 @@ function URI:withPort(port)if port~=nil and(type(port)~="number"or port~=math.fl
 function URI:concatPath(path)path=required(path,"URI path");if path==""then return self end;return changed(C.nuppUriConcatPath(self._handle,path,#path))end
 function URI:resolve(reference)if type(reference)~="string"then return nil,"nupp: URI reference needs a string"end;return wrap(C.nuppUriResolve(self._handle,reference,#reference))end
 function URI:withEndpoint(endpoint)if type(endpoint)~="table"or getmetatable(endpoint)~=URI then error("nupp: URI endpoint must be an io.URI",2)end;return changed(C.nuppUriWithEndpoint(self._handle,endpoint._handle))end
-local library={};local function compose(c)if type(c)~="table"then return nil,"nupp: URI.new needs absolute text or URI components"end;if type(c.scheme)~="string"or c.scheme==""then return nil,"nupp: URI components need a non-empty scheme"end;for _,name in ipairs({"userInfo","host","path","query","fragment"})do if c[name]~=nil and type(c[name])~="string"then return nil,"nupp: URI component "..name.." must be a string or nil"end end;if c.port~=nil and(type(c.port)~="number"or c.port~=math.floor(c.port)or c.port<0 or c.port>65535)then return nil,"nupp: URI component port must be an integer from 0 through 65535 or nil"end;local out=c.scheme..":";if c.host or c.userInfo or c.port then out=out.."//";if c.userInfo then out=out..c.userInfo.."@"end;out=out..(c.host or"");if c.port then out=out..":"..c.port end end;out=out..(c.path or"");if c.query then out=out.."?"..c.query end;if c.fragment then out=out.."#"..c.fragment end;return out end
-function library.new(value)local text,problem;if type(value)=="string"then text=value else text,problem=compose(value);if not text then return nil,problem end end;return wrap(C.nuppUriParse(text,#text))end
-function library.validate(text)if type(text)~="string"then return false,"nupp: URI.validate needs a string"end;local handle=C.nuppUriParse(text,#text);if handle==nil then return false,native.error()end;C.nuppUriDestroy(handle);return true end
-function library.isURI(value)return type(value)=="table"and getmetatable(value)==URI end;return library end)
+local function compose(c)if type(c)~="table"then return nil,"nupp: io.newURI needs absolute text or URI components"end;if type(c.scheme)~="string"or c.scheme==""then return nil,"nupp: URI components need a non-empty scheme"end;for _,name in ipairs({"userInfo","host","path","query","fragment"})do if c[name]~=nil and type(c[name])~="string"then return nil,"nupp: URI component "..name.." must be a string or nil"end end;if c.port~=nil and(type(c.port)~="number"or c.port~=math.floor(c.port)or c.port<0 or c.port>65535)then return nil,"nupp: URI component port must be an integer from 0 through 65535 or nil"end;local out=c.scheme..":";if c.host or c.userInfo or c.port then out=out.."//";if c.userInfo then out=out..c.userInfo.."@"end;out=out..(c.host or"");if c.port then out=out..":"..c.port end end;out=out..(c.path or"");if c.query then out=out.."?"..c.query end;if c.fragment then out=out.."#"..c.fragment end;return out end
+__nuppIO.newURI=function(value)local text,problem;if type(value)=="string"then text=value else text,problem=compose(value);if not text then return nil,problem end end;return wrap(C.nuppUriParse(text,#text))end
+__nuppIO.validate=function(text)if type(text)~="string"then return false,"nupp: io.validate needs a string"end;local handle=C.nuppUriParse(text,#text);if handle==nil then return false,native.error()end;C.nuppUriDestroy(handle);return true end
+__nuppIO.isURI=function(value)return type(value)=="table"and getmetatable(value)==URI end
+return __nuppIO end
+for _,__name in ipairs({"newURI","validate","isURI"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallURI();return rawget(__nuppIO,name)end)end
 ]=]
 )
 

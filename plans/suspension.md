@@ -610,7 +610,7 @@ because reading one pipe at a time deadlocks against a child that writes both,
 and that lesson should be copied rather than re-learned.
 
 **What ports directly.** `Process.Reader` and `Process.Writer` satisfy the
-prelude's completion-oriented `nupp.Reader` and `nupp.Writer` contracts. Their
+prelude's completion-oriented `nupp.io.Reader` and `nupp.io.Writer` contracts. Their
 concrete `poll` and `offer` operations remain alongside that surface for
 `communicate`: completion-oriented calls alone cannot multiplex stdin, stdout
 and stderr without risking the same sequential deadlock the method exists to
@@ -768,7 +768,7 @@ that it is what proves them.
 The implementation is joined end to end: requiring the public module selects
 the native provider and suspension runtime; the private ABI stays out of the
 public surface; blocking and handled waits share the state machine; and the
-streams satisfy `nupp.Reader` and `nupp.Writer` without removing the concrete
+streams satisfy `nupp.io.Reader` and `nupp.io.Writer` without removing the concrete
 nonblocking operations `communicate` needs. Real-child tests run on macOS and
 Linux, including Linux's signal-mask `SIGPIPE` path. The Windows provider and
 its tests cross-check for `x86_64-pc-windows-gnu`; the native-process workflow

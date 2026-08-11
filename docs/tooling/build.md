@@ -120,7 +120,7 @@ resources = {
 Compiler-provided native APIs do not appear in `dependencies`. Their resolved
 uses record effects while Nupp checks the target's complete source set, and the
 build stages the matching providers automatically. For example,
-[`nupp.io.Path.parse(...)`](../path-uri.md) records `native.path` and builds the
+[`nupp.io.newPath(...)`](../path-uri.md) records `native.path` and builds the
 compiler-owned Rust bridge into `build/lib/nupp_native` with that feature
 compiled in; a target with no resolved native use does not build or retain the
 library at all. The global

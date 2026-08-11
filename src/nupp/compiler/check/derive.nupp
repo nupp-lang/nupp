@@ -199,7 +199,21 @@ function derive.install(c: state.Checker): derive.Ops
     end
 
     local function addContract(n, name)
-        local contract = c.env and c.env.globalTypes and c.env.globalTypes[name]
+        -- `globalTypes` only indexes one qualified level, so a contract nested deeper
+        -- (`nupp.data.JSONEncodable`) walks the rest through `nestedTypes`, the same way
+        -- the field-codec lookup below reaches `nupp.fieldcodec.KeyedCodec`.
+        local segments = {}
+        for segment in name:gmatch("[^.]+") do
+            segments[#segments + 1] = segment
+        end
+        local contract = c.env
+            and c.env.globalTypes
+            and c.env.globalTypes[segments[1] .. "." .. (segments[2] or "")]
+        for i = 3, #segments do
+            contract = contract and contract.tag == "nominal" and contract.nestedTypes and contract.nestedTypes[
+                segments[i]
+            ]
+        end
         if not contract then return end
         for _, existing in ipairs(n.supertypes or {}) do
             if existing == contract then return end
@@ -280,14 +294,14 @@ function derive.install(c: state.Checker): derive.Ops
         end
         if requested.JSON then
             if addDefinition(n, "toJSON", T.func({n}, {T.string}), origin(item, "JSON"), "method", "JSON", false) then
-                addContract(n, "nupp.JSONEncodable")
+                addContract(n, "nupp.data.JSONEncodable")
             end
             addDefinition(
                 n, "fromJSON",
                 T.func({T.string}, {T.union({n, T.nil_}), T.union({T.string, T.nil_})}),
                 origin(item, "JSON"), "function", "JSON", true
             )
-            local namespace = c.env and c.env.globalTypes and c.env.globalTypes["nupp.FieldCodec"]
+            local namespace = c.env and c.env.globalTypes and c.env.globalTypes["nupp.fieldcodec"]
             local codec = namespace and namespace.nestedTypes and namespace.nestedTypes.KeyedCodec
             local codecType = codec and codec.typeParams and codec.typeParams[1]
                 and generics.instantiate(codec, {[codec.typeParams[1]] = n}) or T.any

@@ -67,7 +67,7 @@ and `close`. Its `view` offsets are zero-based like Buffer offsets.
 
 ## Readers
 
-A `nupp.Reader` is a forward-only byte source. `newStringReader(text)` reads a string;
+A `nupp.io.Reader` is a forward-only byte source. `newStringReader(text)` reads a string;
 `buffer:newReader()` reads a snapshot of the buffer's current contents.
 
 ```nupp
@@ -156,7 +156,7 @@ exit. Doing those operations sequentially can deadlock when a child fills one ou
 pipe while waiting for more input.
 
 The concrete `Reader` and `Writer` satisfy the shared completion-oriented
-`nupp.Reader` and `nupp.Writer` contracts and also expose the nonblocking `poll` and
+`nupp.io.Reader` and `nupp.io.Writer` contracts and also expose the nonblocking `poll` and
 `offer` operations needed by that combined drain. `asReader` and `asWriter` borrow the
 same records through their shared interfaces; they do not allocate or duplicate the
 native handle. The owning `Process` retains and eventually destroys that handle, so a

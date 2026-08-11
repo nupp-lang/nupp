@@ -38,19 +38,24 @@ type extract.TypeArg = {
     text: string
 }
 
---- A field, method, or metamethod of a record, interface, or struct. A function-typed
---- one carries its own arguments and results, which is what tells the two apart.
-type extract.Member = {
-    name: string,
-    type: string,
-    text: string,
-    path: string,
-    params: {extract.Param},
-    returns: {extract.Result},
-    raises: {string},
-    isFunction: boolean?,
+--- A field, method, nested type, or metamethod of a record, interface, or struct. A
+--- function-typed one carries its own arguments and results, which is what tells a
+--- method apart from a field; a nested type carries its own members recursively,
+--- which is what tells it apart from both. A record, not a `type` alias, because a
+--- nested type's own members recur through this same shape.
+record extract.Member
+    name: string
+    type: string
+    text: string
+    path: string
+    params: {extract.Param}
+    returns: {extract.Result}
+    raises: {string}
+    isFunction: boolean?
     isMetamethod: boolean?
-}
+    isType: boolean?
+    members: {Member}?
+end
 
 --- One documented declaration: what it is called, how it is spelled, and everything its
 --- `---` run said about it.
@@ -343,10 +348,16 @@ local function fieldItem(field, childModuleName, includePrivate)
 end
 
 -- A named type this file also declares, for a field spelled by reference rather than
--- inline — `math: nupp.MathLibrary` beside `record nupp.MathLibrary ... end`.
--- Documenting
+-- inline — `math: nupp.MathLibrary` beside `record nupp.MathLibrary ... end`. Documenting
 -- never resolves a type the way the checker does, so the only reference this can follow
 -- is one this same file answers itself.
+--
+-- Tried first as a full path from a top-level declaration, which is how a field outside
+-- the record it names has to spell it. Failing that, as a bare reference to a type
+-- nested somewhere in this file — `files: Files.Library` inside `record nupp.io`, which
+-- answers to its own simple name the same as any other nested reference does inside the
+-- body it sits in, so resolving it has to search every record's own nested types too,
+-- not just the top-level ones a full path starts from.
 local function recordNamed(blocks, targetName)
     local function find(stat, prefix)
         if stat.kind ~= "recordDecl" then
@@ -373,6 +384,63 @@ local function recordNamed(blocks, targetName)
             local found = find(stat, nil)
             if found then
                 return found
+            end
+        end
+    end
+
+    local segments = {}
+    for segment in targetName:gmatch("[^.]+") do
+        segments[#segments + 1] = segment
+    end
+
+    local function walk(stat, index)
+        if index > #segments then
+            return stat
+        end
+        for _, entry in ipairs(stat.entries or {}) do
+            if entry.kind == "recordDecl" and entry.name and entry.name.text == segments[index] then
+                local found = walk(entry, index + 1)
+                if found then
+                    return found
+                end
+            end
+        end
+
+        return nil
+    end
+
+    local function findRelative(entries)
+        for _, entry in ipairs(entries or {}) do
+            if entry.kind == "recordDecl" then
+                if entry.name and entry.name.text == segments[1] then
+                    local found = walk(entry, 2)
+                    if found then
+                        return found
+                    end
+                end
+                local nested = findRelative(entry.entries)
+                if nested then
+                    return nested
+                end
+            end
+        end
+
+        return nil
+    end
+
+    for _, block in ipairs(blocks or {}) do
+        for _, stat in ipairs(block.stats or {}) do
+            if stat.kind == "recordDecl" then
+                if stat.name and stat.name.text == segments[1] then
+                    local found = walk(stat, 2)
+                    if found then
+                        return found
+                    end
+                end
+                local nested = findRelative(stat.entries)
+                if nested then
+                    return nested
+                end
             end
         end
     end
@@ -461,6 +529,92 @@ local function namespaceChildren(shape, prefix, path, blocks, includePrivate)
     end
 
     return modules
+end
+
+-- A field, method, metamethod, or nested type of a record, interface, or struct, read
+-- recursively: a nested `record`/`interface`/`struct` becomes a member carrying its own
+-- members rather than a row flattened to its raw AST kind, so its fields and methods
+-- stay reachable instead of disappearing into the parent's Fields table.
+local function buildMembers(
+    entries: {any}?,
+    basePath: string,
+    includePrivate: boolean,
+    fieldTextOverrides: {[string]: string}?
+): {extract.Member}
+    local members = {}
+    for _, entry in ipairs(entries or {}) do
+        local entryInfo = parseDoc(docLines(entry))
+        local entryName = entry.name and entry.name.text or ""
+        local entryVisible = includePrivate or (not privateName(entryName) and not entryInfo.tags.internal)
+        if (entry.kind == "fieldDecl" or entry.kind == "metamethodDecl") and entryVisible then
+            local fieldInfo = entryInfo
+            local member = new extract.Member(
+                name = entry.name.text,
+                type = syntax(entry.type),
+                text = fieldInfo.text ~= "" and fieldInfo.text or (
+                    fieldTextOverrides and fieldTextOverrides[entry.name.text]
+                ) or "",
+                path = basePath .. "." .. entry.name.text,
+                params = {},
+                returns = {},
+                raises = fieldInfo.raises
+            )
+            local fieldFunction = typeFunction(entry.type)
+            if fieldFunction then
+                local details = typeFunctionDetails(fieldFunction, fieldInfo)
+                member.params, member.returns = details.params, details.returns
+                member.isFunction = true
+            end
+            if entry.kind == "metamethodDecl" then
+                member.isMetamethod = true
+            end
+            members[#members + 1] = member
+        elseif entry.kind == "inlineMethod" and entryVisible then
+            local methodInfo = entryInfo
+            local details = functionDetails(entry, methodInfo)
+            members[
+                #members + 1
+            ] = new extract.Member(
+                name = entry.name.text,
+                type = functionSignature(entry, entry.name.text),
+                text = methodInfo.text,
+                path = basePath .. "." .. entry.name.text,
+                params = details.params,
+                returns = details.returns,
+                raises = methodInfo.raises,
+                isFunction = true
+            )
+        elseif entry.kind == "recordDecl" and entryVisible then
+            local nestedPath = basePath .. "." .. entry.name.text
+            members[
+                #members + 1
+            ] = new extract.Member(
+                name = entry.name.text,
+                type = entry.declKind or "record",
+                text = entryInfo.text,
+                path = nestedPath,
+                params = {},
+                returns = {},
+                raises = {},
+                isType = true,
+                members = buildMembers(entry.entries, nestedPath, includePrivate, entryInfo.fields)
+            )
+        elseif entry.name and entryVisible then
+            members[
+                #members + 1
+            ] = new extract.Member(
+                name = entry.name.text,
+                type = entry.kind,
+                text = entryInfo.text,
+                path = basePath .. "." .. entry.name.text,
+                params = {},
+                returns = {},
+                raises = {}
+            )
+        end
+    end
+
+    return members
 end
 
 -- Statement annotations wrap the declaration they modify in `pragmaStmt` nodes. The
@@ -562,60 +716,7 @@ declarationItem = function(stat, moduleName, includeAll, declarationFile, includ
         local details = typeFunctionDetails(declaredFunction, info)
         item.params, item.returns = details.params, details.returns
     elseif stat.kind == "recordDecl" or stat.kind == "cdefStruct" then
-        for _, entry in ipairs(stat.entries or {}) do
-            local entryInfo = parseDoc(docLines(entry))
-            local entryName = entry.name and entry.name.text or ""
-            local entryVisible = includePrivate or (not privateName(entryName) and not entryInfo.tags.internal)
-            if (entry.kind == "fieldDecl" or entry.kind == "metamethodDecl") and entryVisible then
-                local fieldInfo = entryInfo
-                local member = {
-                    name = entry.name.text,
-                    type = syntax(entry.type),
-                    text = fieldInfo.text ~= "" and fieldInfo.text or info.fields[entry.name.text] or "",
-                    path = item.path .. "." .. entry.name.text,
-                    params = {},
-                    returns = {},
-                    raises = fieldInfo.raises,
-                }
-                local fieldFunction = typeFunction(entry.type)
-                if fieldFunction then
-                    local details = typeFunctionDetails(fieldFunction, fieldInfo)
-                    member.params, member.returns = details.params, details.returns
-                    member.isFunction = true
-                end
-                if entry.kind == "metamethodDecl" then
-                    member.isMetamethod = true
-                end
-                item.members[#item.members + 1] = member
-            elseif entry.kind == "inlineMethod" and entryVisible then
-                local methodInfo = entryInfo
-                local details = functionDetails(entry, methodInfo)
-                item.members[
-                    #item.members + 1
-                ] = {
-                    name = entry.name.text,
-                    type = functionSignature(entry, entry.name.text),
-                    text = methodInfo.text,
-                    path = item.path .. "." .. entry.name.text,
-                    params = details.params,
-                    returns = details.returns,
-                    raises = methodInfo.raises,
-                    isFunction = true,
-                }
-            elseif entry.name and entryVisible then
-                item.members[
-                    #item.members + 1
-                ] = {
-                    name = entry.name.text,
-                    type = entry.kind,
-                    text = entryInfo.text,
-                    path = item.path .. "." .. entry.name.text,
-                    params = {},
-                    returns = {},
-                    raises = {},
-                }
-            end
-        end
+        item.members = buildMembers(stat.entries, item.path, includePrivate, info.fields)
     end
 
     return item
@@ -662,7 +763,7 @@ local function foldMethods(items: {extract.Item}): {extract.Item}
             else
                 owner.members[
                     #owner.members + 1
-                ] = {
+                ] = new extract.Member(
                     name = name,
                     type = item.signature,
                     text = item.doc.text,
@@ -670,8 +771,8 @@ local function foldMethods(items: {extract.Item}): {extract.Item}
                     params = item.params,
                     returns = item.returns,
                     raises = item.raises,
-                    isFunction = true,
-                }
+                    isFunction = true
+                )
             end
         else
             kept[#kept + 1] = item
@@ -788,16 +889,17 @@ function extract.extract(
 end
 
 -- Function-typed members document like the functions they are, with their own arguments
--- and results, so they are listed apart from the data fields rather than flattened into
--- one table that has nowhere to put an annotation.
-local function splitMembers(members: {extract.Member}?): {extract.Member}, {extract.Member}
-    local fields, methods = {}, {}
+-- and results, and a nested type documents like a declaration in its own right, with its
+-- own members, so both are listed apart from the data fields rather than flattened into
+-- one table that has nowhere to put either.
+local function splitMembers(members: {extract.Member}?): {extract.Member}, {extract.Member}, {extract.Member}
+    local fields, methods, types = {}, {}, {}
     for _, member in ipairs(members or {}) do
-        local into = member.isFunction and methods or fields
+        local into = member.isType and types or member.isFunction and methods or fields
         into[#into + 1] = member
     end
 
-    return fields, methods
+    return fields, methods, types
 end
 
 --- The modules one module's page is responsible for listing: every module nested under

@@ -173,6 +173,16 @@ function M.nativeFeaturesAreResolvedEffects()
    }, "\n"))
    assert(not shadowed["native.sha256"], "a local nupp is not the global facility")
 
+   -- Same shadow, through a qualified declaration nested one level deeper
+   -- (nupp.io.newPath) rather than an ordinary field (nupp.data.sha256) --
+   -- the qualified-declaration shortcut in dotIndex used to trust the path
+   -- text alone and ignore the shadow entirely.
+   local shadowedIO = effectsOf(table.concat({
+      "local nupp = {io = {newPath = function() end}}",
+      "nupp.io.newPath()",
+   }, "\n"))
+   assert(not shadowedIO["native.path"], "a local nupp.io is not the global facility")
+
    local shadowedRequire = effectsOf(table.concat({
       "local require = function(_) return {} end",
       "require('lpeg')",
@@ -189,8 +199,8 @@ function M.nativeFeaturesAreResolvedEffects()
       ["nupp.math.vec2.length(3, 4)"] = "stdlib.math",
       ["nupp.data.fnv1a64('hello')"] = "stdlib.fnv1a64",
       ["nupp.data.crc32('hello')"] = "stdlib.checksums",
-      ["nupp.io.Path.new('hello')"] = "native.path",
-      ["nupp.io.URI.new('https://example.com')"] = "native.uri",
+      ["nupp.io.newPath('hello')"] = "native.path",
+      ["nupp.io.newURI('https://example.com')"] = "native.uri",
       ["nupp.data.uuid7()"] = "native.uuid",
       ["nupp.data.sha256('hello')"] = "native.sha256",
    }
@@ -203,10 +213,10 @@ function M.nativeFeaturesAreResolvedEffects()
    end
 
    assertClean(table.concat({
-      "local paths: nupp.Path.Library = nupp.io.Path",
-      "local library: nupp.URI.Library = nupp.io.URI",
-      "local components: nupp.URI.Components = nil as any",
-      "local uri: nupp.URI? = library.new(components)",
+      "local newPath: function(first: string, ...: string): nupp.io.Path = nupp.io.newPath",
+      "local components: nupp.io.URI.Components = nil as any",
+      "local newURI: function(value: string | nupp.io.URI.Components): (nupp.io.URI?, string?) = nupp.io.newURI",
+      "local uri: nupp.io.URI? = newURI(components)",
    }, "\n"))
 
    local aliased = effectsOf(table.concat({
@@ -227,8 +237,8 @@ function M.processViewsSatisfyTheSharedContracts()
       "local child = nil as process.Process",
       "local input = child.stdin as process.Writer",
       "local output = child.stdout as process.Reader",
-      "local function useReader(borrows value: nupp.Reader) value:close() end",
-      "local function useWriter(borrows value: nupp.Writer) value:close() end",
+      "local function useReader(borrows value: nupp.io.Reader) value:close() end",
+      "local function useWriter(borrows value: nupp.io.Writer) value:close() end",
       "local reader = process.asReader(output)",
       "local writer = process.asWriter(input)",
       "useReader(reader)",
@@ -238,7 +248,7 @@ function M.processViewsSatisfyTheSharedContracts()
       "local process = require('nupp.io.process')",
       "local child = nil as process.Process",
       "local output = child.stdout as process.Reader",
-      "local leaked: nupp.Reader? = nil",
+      "local leaked: nupp.io.Reader? = nil",
       "leaked = process.asReader(output)",
    }, "\n"))), "NUPP2603:5", "a view cannot escape its borrowed process stream")
    assertEq((diagsOf(table.concat({
@@ -321,9 +331,9 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
    assertClean(table.concat({
       "local files = nupp.io.files",
       "do",
-      "    local file = files.open('input.txt') as nupp.Files.File",
-      "    local reader: nupp.Reader = file:newReader()",
-      "    local writer: nupp.Writer = file:newWriter()",
+      "    local file = files.open('input.txt') as nupp.io.Files.File",
+      "    local reader: nupp.io.Reader = file:newReader()",
+      "    local writer: nupp.io.Writer = file:newWriter()",
       "    local bytes: string? = reader:read(16)",
       "    local wrote: boolean = writer:write('x')",
       "end",
@@ -348,7 +358,7 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
    -- The prelude marks `open` and the temporaries `@owned`, so a binding the
    -- program drops is dropped where it goes out of scope rather than leaking.
    local source = table.concat({
-      "local file = nupp.io.files.open('input.txt') as nupp.Files.File",
+      "local file = nupp.io.files.open('input.txt') as nupp.io.Files.File",
       "print(file)",
    }, "\n")
    local parsed = parser.parse(source, "owned.g.nupp")
@@ -435,25 +445,25 @@ end
 
 function M.nativeGlobalMembersLoadOnFirstAccess()
    local bootstrap = stdlib.bootstrap({["native.path"] = true})
-   assert(bootstrap:find('__nuppLazy(__nuppIO,"Path"', 1, true),
-      "Path is registered as a lazy global member")
+   assert(bootstrap:find('ipairs({"newPath"', 1, true),
+      "newPath is registered as a lazy global member")
    local previous = rawget(_G, "nupp")
    local loadedFFI = package.loaded.ffi
    _G.nupp = nil
    package.loaded.ffi = nil
    local chunk = assert(loadstring(bootstrap
-      .. " return nupp, rawget(nupp.io, 'Path')"))
-   local namespace, path = chunk()
+      .. " return nupp, rawget(nupp.io, 'newPath')"))
+   local namespace, newPath = chunk()
    assert(type(namespace) == "table", "nupp is always present")
-   assertEq(path, nil, "registering Path does not load its Rust provider")
+   assertEq(newPath, nil, "registering newPath does not load its Rust provider")
    assertEq(package.loaded.ffi, nil, "native FFI initializes only on first access")
 
    package.loaded.ffi = {
       cdef = function() end,
       load = function() return {} end,
    }
-   assert(type(_G.nupp.io.Path.new) == "function",
-      "reading Path dispatches its registered lazy loader")
+   assert(type(_G.nupp.io.newPath) == "function",
+      "reading newPath dispatches its registered lazy loader")
    package.loaded.ffi = loadedFFI
    _G.nupp = previous
 end

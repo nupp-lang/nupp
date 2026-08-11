@@ -48,17 +48,12 @@ local function cell(text: string?): string
     return markdownCell(prose(text))
 end
 
--- Function-typed members document like the functions they are, with their own arguments
--- and results, so they are listed apart from the data fields rather than flattened into
--- one table that has nowhere to put an annotation.
-local function splitMembers(members)
-    local fields, methods = {}, {}
-    for _, member in ipairs(members or {}) do
-        local into = member.isFunction and methods or fields
-        into[#into + 1] = member
-    end
+local splitMembers = extractMod.splitMembers
 
-    return fields, methods
+-- Markdown stops at `######`; a type nested deeply enough to reach it renders its own
+-- sections at the same depth as its members rather than past the edge.
+local function heading(level)
+    return ("#"):rep(math.min(level, 6))
 end
 
 local function markdownArguments(out, params, heading)
@@ -107,9 +102,69 @@ local function markdownRaises(out, raises, heading)
     out[#out + 1] = ""
 end
 
-local function renderMarkdownItem(out, item, constructorPattern)
+-- Methods, nested types, and fields, at `level` for the group heading (`Methods` /
+-- `Types` / `Fields`). A nested type recurses at two levels deeper than its own group
+-- heading — one for its name, one for its own groups — the same relationship an item
+-- has to its top-level Methods/Types/Fields, so a type nested arbitrarily deep still
+-- gets real sub-headings instead of losing its members to a flattened table.
+local function renderMarkdownMembers(out, members, level)
+    local fields, methods, types = splitMembers(members)
+    local hGroup, hName, hSub = heading(level), heading(level + 1), heading(level + 2)
+    if #methods > 0 then
+        out[#out + 1] = hGroup .. " Methods"
+        out[#out + 1] = ""
+        for _, method in ipairs(methods) do
+            out[#out + 1] = '<a id="' .. method.path .. '"></a>'
+            out[#out + 1] = hName .. " `" .. method.name .. "`"
+            out[#out + 1] = ""
+            if method.text ~= "" then
+                out[#out + 1] = prose(method.text)
+                out[#out + 1] = ""
+            end
+            out[#out + 1] = "```nupp"
+            out[#out + 1] = method.name .. ": " .. method.type
+            out[#out + 1] = "```"
+            out[#out + 1] = ""
+            markdownArguments(out, method.params, hSub)
+            markdownReturns(out, method.returns, hSub)
+            markdownRaises(out, method.raises, hSub)
+        end
+    end
+    if #types > 0 then
+        out[#out + 1] = hGroup .. " Types"
+        out[#out + 1] = ""
+        for _, nested in ipairs(types) do
+            out[#out + 1] = '<a id="' .. nested.path .. '"></a>'
+            out[#out + 1] = hName .. " `" .. nested.name .. "` _" .. nested.type .. "_"
+            out[#out + 1] = ""
+            if nested.text ~= "" then
+                out[#out + 1] = prose(nested.text)
+                out[#out + 1] = ""
+            end
+            renderMarkdownMembers(out, nested.members, level + 2)
+        end
+    end
+    if #fields > 0 then
+        out[#out + 1] = hGroup .. " Fields"
+        out[#out + 1] = ""
+        out[#out + 1] = "| Name | Type | Description |"
+        out[#out + 1] = "| --- | --- | --- |"
+        for _, field in ipairs(fields) do
+            out[
+                #out + 1
+            ] = "| `" .. markdownEscape(
+                field.name
+            ) .. "` | `" .. markdownEscape(field.type) .. "` | " .. cell(field.text) .. " |"
+        end
+        out[#out + 1] = ""
+    end
+end
+
+local function renderMarkdownItem(out, item, constructorPattern, level)
+    level = level or 3
+    local h, hSub = heading(level), heading(level + 1)
     out[#out + 1] = '<a id="' .. item.path .. '"></a>'
-    out[#out + 1] = "### `" .. item.name .. "` _" .. displayKind(item, constructorPattern) .. "_"
+    out[#out + 1] = h .. " `" .. item.name .. "` _" .. displayKind(item, constructorPattern) .. "_"
     out[#out + 1] = ""
     -- What it is, then how it is spelled: the prose says whether this is the
     -- declaration you are looking for, and the signature answers how to call it once
@@ -124,7 +179,7 @@ local function renderMarkdownItem(out, item, constructorPattern)
     out[#out + 1] = "```"
     out[#out + 1] = ""
     if #item.typeargs > 0 then
-        out[#out + 1] = "#### Type parameters"
+        out[#out + 1] = hSub .. " Type parameters"
         out[#out + 1] = ""
         out[#out + 1] = "| Name | Description |"
         out[#out + 1] = "| --- | --- |"
@@ -133,44 +188,10 @@ local function renderMarkdownItem(out, item, constructorPattern)
         end
         out[#out + 1] = ""
     end
-    markdownArguments(out, item.params, "####")
-    markdownReturns(out, item.returns, "####")
-    markdownRaises(out, item.raises, "####")
-    local fields, methods = splitMembers(item.members)
-    if #methods > 0 then
-        out[#out + 1] = "#### Methods"
-        out[#out + 1] = ""
-        for _, method in ipairs(methods) do
-            out[#out + 1] = '<a id="' .. method.path .. '"></a>'
-            out[#out + 1] = "##### `" .. method.name .. "`"
-            out[#out + 1] = ""
-            if method.text ~= "" then
-                out[#out + 1] = prose(method.text)
-                out[#out + 1] = ""
-            end
-            out[#out + 1] = "```nupp"
-            out[#out + 1] = method.name .. ": " .. method.type
-            out[#out + 1] = "```"
-            out[#out + 1] = ""
-            markdownArguments(out, method.params, "######")
-            markdownReturns(out, method.returns, "######")
-            markdownRaises(out, method.raises, "######")
-        end
-    end
-    if #fields > 0 then
-        out[#out + 1] = "#### Fields"
-        out[#out + 1] = ""
-        out[#out + 1] = "| Name | Type | Description |"
-        out[#out + 1] = "| --- | --- | --- |"
-        for _, field in ipairs(fields) do
-            out[
-                #out + 1
-            ] = "| `" .. markdownEscape(
-                field.name
-            ) .. "` | `" .. markdownEscape(field.type) .. "` | " .. cell(field.text) .. " |"
-        end
-        out[#out + 1] = ""
-    end
+    markdownArguments(out, item.params, hSub)
+    markdownReturns(out, item.returns, hSub)
+    markdownRaises(out, item.raises, hSub)
+    renderMarkdownMembers(out, item.members, level + 1)
 end
 
 --- Renders modules as one markdown document.

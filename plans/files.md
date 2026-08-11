@@ -365,7 +365,7 @@ declarations.
 - Whole-file `read`, `write`, `append`, `writeAtomic`, `copy` and `lines`.
 - `docs/files.md`, and `nupp.io.files` listed in `stdlib.md`.
 
-The reader and writer are declared as `nupp.Reader` and `nupp.Writer`, which
+The reader and writer are declared as `nupp.io.Reader` and `nupp.io.Writer`, which
 are interfaces, so conformance is structural and a parser written against a
 buffer takes a file with no adapter. `readInto` and `writeFrom` reach into the
 destination buffer's FFI storage directly, which is the payoff for backing

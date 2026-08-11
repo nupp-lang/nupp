@@ -83,7 +83,7 @@ local FEATURES: {
     "stdlib.fieldcodec"
 ] = {
     name = "fieldcodec",
-    globals = {"nupp.fieldcodec"},
+    globals = {"nupp.fieldcodec.compile"},
 }, [
     "stdlib.derives"
 ] = {
@@ -103,7 +103,20 @@ local FEATURES: {
     "stdlib.log"
 ] = {
     name = "log",
-    globals = {"nupp.log"},
+    globals = {
+        "nupp.log.error",
+        "nupp.log.warn",
+        "nupp.log.info",
+        "nupp.log.debug",
+        "nupp.log.level",
+        "nupp.log.enabled",
+        "nupp.log.sink",
+        "nupp.log.formatter",
+        "nupp.log.timestamp",
+        "nupp.log.timestampFormat",
+        "nupp.log.named",
+        "nupp.log.levelName",
+    },
 }, [
     "stdlib.fnv1a64"
 ] = {
@@ -118,7 +131,7 @@ local FEATURES: {
     "native.path"
 ] = {
     name = "path",
-    globals = {"nupp.io.Path"},
+    globals = {"nupp.io.newPath", "nupp.io.currentDirectory", "nupp.io.separator"},
     cargo = "runtime/native/Cargo.toml",
     cargoFeature = "path",
     library = "nupp_native",
@@ -127,7 +140,7 @@ local FEATURES: {
     "native.uri"
 ] = {
     name = "uri",
-    globals = {"nupp.io.URI"},
+    globals = {"nupp.io.newURI", "nupp.io.validate", "nupp.io.isURI"},
     cargo = "runtime/native/Cargo.toml",
     cargoFeature = "uri",
     library = "nupp_native",

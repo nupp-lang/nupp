@@ -1534,7 +1534,7 @@ in the fingerprint, so changing serialization metadata invalidates a cached
 comptime result even when the field types themselves are unchanged.
 
 `nupp.fieldcodec.compile(nupp.reflect(R))` is the first non-PEG materializer. For a
-record `R`, it produces a `nupp.FieldCodec.KeyedCodec<R>` whose `encode` method
+record `R`, it produces a `nupp.fieldcodec.KeyedCodec<R>` whose `encode` method
 copies exactly the record's present declared fields with `rawget`. Its stable
 compatibility fingerprint is `t:` followed by those field names in declaration
 order. The declared codec type must name the same nominal record.
@@ -1551,7 +1551,7 @@ local record Position
     y: number
 end
 
-const PositionCodec: nupp.FieldCodec.KeyedCodec<Position> = comptime do
+const PositionCodec: nupp.fieldcodec.KeyedCodec<Position> = comptime do
     return nupp.fieldcodec.compile(nupp.reflect(Position))
 end
 
