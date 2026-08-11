@@ -354,7 +354,8 @@ local function configuredPages(root, settings, title)
     -- The diagnostic index is generated rather than configured: the codes are the
     -- compiler's, so a manifest that had to list them would be a copy that goes stale
     -- the first time one is added.
-    for _, generated in ipairs(diagnosticsMod.pages(settings.diagnostics, published)) do
+    local generated = diagnosticsMod.page(settings.diagnostics, published)
+    if generated then
         local generatedRoute = cleanRoute(generated.path)
         if not generatedRoute then
             return nil, "invalid diagnostic index path"

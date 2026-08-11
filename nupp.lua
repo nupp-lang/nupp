@@ -136,10 +136,14 @@ return {
             public = "docs/public",
             customCss = "docs/public/nupp.css",
             lexers = "docs/lexers",
-            -- One page per diagnostic code, generated from what `nupp explain`
+            -- Every diagnostic code on one page, generated from what `nupp explain`
             -- knows. Listing them here instead would be a copy of the compiler's
-            -- own table, stale the first time a code is added.
-            diagnostics = {path = "diagnostics", title = "Diagnostic index"},
+            -- own table, stale the first time a code is added. It sits beside the
+            -- page that says what a diagnostic is, which is what it indexes.
+            diagnostics = {
+               path = "reference/diagnostic-index",
+               title = "Diagnostic index",
+            },
             pages = {
                {
                   path = "",

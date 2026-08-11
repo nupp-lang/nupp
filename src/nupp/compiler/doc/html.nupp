@@ -468,6 +468,10 @@ local function inlineHtml(text: string?, links: nupp.compiler.doc.urls.Links?): 
     return out
 end
 
+--- Percent-encodes text for a URL fragment. What a link carrying a program to the
+--- playground needs, so a page that shows one can offer to open it there.
+html.urlFragmentEscape = urlFragmentEscape
+
 html.tableHtml = tableHtml
 html.markdownHtml = markdownHtml
 html.inlineHtml = inlineHtml

@@ -243,23 +243,28 @@ A page source may open with `---`-delimited front matter, which is stripped.
 
 ## The diagnostic index
 
-`diagnostics` generates one page per diagnostic code, under the route it names:
+`diagnostics` generates a page holding every diagnostic code, at the route it
+names:
 
 ```lua
 diagnostics = {path = "diagnostics", title = "Diagnostic index"},
 ```
 
-The pages are the compiler's own explanations, so nothing lists the codes and
-nothing goes stale when one is added. Each page states the rule, shows the
-program that reports the code, and shows the same program corrected. A lint's
-page also says its name, category, and default level. The index groups every
-code by family.
+The page is the compiler's own explanations, so nothing lists the codes and
+nothing goes stale when one is added. Each code is a section that states the
+rule, shows the program that reports it, and shows the same program corrected.
+A lint's section also says its name, category, and default level. Sections are
+grouped by family, and a code links to its related codes by anchor.
 
-A code gets a page when the compiler knows it specifically: it has an example
+One page rather than one per code, because an index is searched: the browser's
+find reaches every code, rule and program at once. That is also why the programs
+are `:static` rather than editors, since text inside an editor frame is not
+findable. Each reported program carries a link that opens it in the playground.
+
+A code gets a section when the compiler knows it specifically: it has an example
 pair of its own, or it is a lint. A code that resolves only through its family
 does not, because the family answers for all of them at once. Where such a code
-appears among another page's related codes it is named rather than linked, with
-the `nupp explain` that answers it.
+appears among another section's related codes it is named rather than linked.
 
 The area reference a code carries is linked when the docs target publishes that
 file and named as a path when it does not, so a page the site does not build

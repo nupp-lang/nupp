@@ -1837,64 +1837,63 @@ function M.headingsKeepTheirAnchors()
    assert(html.markdownHtml("# One", {}, 0):find("<h1 ", 1, true))
 end
 
--- The diagnostic index is generated from the compiler's own table, so the pages
--- exist for exactly the codes `nupp explain` can answer for and no manifest
+-- The diagnostic index is generated from the compiler's own table, so it holds a
+-- section for exactly the codes `nupp explain` can answer for and no manifest
 -- lists them.
 function M.diagnosticIndexCoversEveryDocumentedCode()
    local diagnostics = require("nupp.compiler.doc.diagnostics")
    local explain = require("nupp.compiler.explain")
 
-   assert(#diagnostics.pages(nil) == 0)
+   assert(diagnostics.page(nil) == nil)
 
-   local pages = diagnostics.pages({path = "diagnostics"})
+   local page = assert(diagnostics.page({path = "diagnostics"}))
+   assert(page.path == "diagnostics")
+   assert(page.title == "Diagnostic index")
+
    local codes = explain.documented()
-   assert(#pages == #codes + 1, #pages .. " pages for " .. #codes .. " codes")
-   assert(pages[1].path == "diagnostics")
-
-   local byPath = {}
-   for _, page in ipairs(pages) do byPath[page.path] = page end
+   assert(#codes > 0)
+   local sections = 0
+   for _ in page.markdown:gmatch("\n### NUPP%d+\n") do sections = sections + 1 end
+   assert(sections == #codes, sections .. " sections for " .. #codes .. " codes")
    for _, code in ipairs(codes) do
-      local page = byPath["diagnostics/" .. code:lower()]
-      assert(page, "no page for " .. code)
-      assert(page.title == code)
-      assert(page.markdown:find("# " .. code, 1, true), code)
-      assert(pages[1].markdown:find(code, 1, true), code .. " is missing from the index")
+      assert(page.markdown:find("### " .. code .. "\n", 1, true), "no section for " .. code)
    end
 end
 
--- A code with an example pair shows the program that reports it above the fold and
--- the correction under its own heading, which is what the page is for.
-function M.diagnosticPageShowsBothProgramsAndItsLint()
+-- A code with an example pair shows the program that reports it before the rule and
+-- the correction after it, as highlighted text rather than an editor: an index is
+-- searched, and text inside an editor frame is not findable.
+function M.diagnosticSectionsShowBothProgramsAsText()
    local diagnostics = require("nupp.compiler.doc.diagnostics")
-   local pages = diagnostics.pages({path = "diagnostics"}, {["docs/lints.md"] = true})
+   local page = assert(diagnostics.page({path = "diagnostics"}, {["docs/lints.md"] = true}))
 
-   local page
-   for _, candidate in ipairs(pages) do
-      if candidate.path == "diagnostics/nupp2107" then page = candidate end
-   end
-   assert(page, "NUPP2107 has no page")
-   local wrong = assert(page.markdown:find("```nupp", 1, true))
-   assert(page.markdown:find("## Correction", 1, true) > wrong)
-   assert(page.markdown:find("`exhaustiveness` lint", 1, true), page.markdown)
-   assert(page.markdown:find("](docs/lints.md)", 1, true), page.markdown)
+   local at = assert(page.markdown:find("### NUPP2107\n", 1, true))
+   local body = page.markdown:sub(at, (page.markdown:find("\n### ", at + 5, true)))
+   local reported = assert(body:find("```nupp:static [Reported]", 1, true))
+   local accepted = assert(body:find("```nupp:static [Accepted]", 1, true))
+   assert(reported < accepted)
+   assert(not body:find("```nupp\n", 1, true), "an index section embedded an editor")
+   assert(body:find("`exhaustiveness` lint", 1, true), body)
+   assert(body:find("](docs/lints.md)", 1, true), body)
+   assert(body:find("/playground/#source=", 1, true), body)
 end
 
--- A reference the site has no page for is named rather than linked, and so is a
--- related code with no page of its own. Both would otherwise be dead links.
-function M.diagnosticPagesOnlyLinkWhatExists()
+-- Every link the page writes has somewhere to land: a related code that has no
+-- section is named rather than anchored, and so is a reference the site does not
+-- publish.
+function M.diagnosticIndexOnlyLinksWhatExists()
    local diagnostics = require("nupp.compiler.doc.diagnostics")
-   local pages = diagnostics.pages({path = "diagnostics"})
+   local page = assert(diagnostics.page({path = "diagnostics"}))
 
-   for _, page in ipairs(pages) do
-      assert(not page.markdown:find("](docs/", 1, true), page.path .. " links an unpublished page")
-      for target in page.markdown:gmatch("%]%(%.%./(nupp%d+)/index%.html%)") do
-         local found = false
-         for _, candidate in ipairs(pages) do
-            if candidate.path == "diagnostics/" .. target then found = true end
-         end
-         assert(found, page.path .. " links missing " .. target)
-      end
+   assert(not page.markdown:find("](docs/", 1, true), "linked an unpublished page")
+   local anchors = {}
+   for code in page.markdown:gmatch("### (NUPP%d+)") do anchors["#" .. code:lower()] = true end
+   local seen = 0
+   for target in page.markdown:gmatch("%]%((#nupp%d+)%)") do
+      assert(anchors[target], "link to missing section " .. target)
+      seen = seen + 1
    end
+   assert(seen > 0, "no related code was linked at all")
 end
 
 return M
