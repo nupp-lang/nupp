@@ -110,20 +110,16 @@ it back. Under about 720px there is no room for two columns, so the panel
 becomes the embed's drawer along the bottom and the same edge drags up and down
 instead.
 
-**`embed.html`** is the same thing sized for an `<iframe src=".../embed.html">`
-— Run and Open sit above the editor's border at the right, while Options stays
-in the full playground. The panel is a drawer along the bottom that stays
-hidden until Run is clicked, and the diagnostics sit beside the output in it
-rather than under. It is what the docs site's ` ```playground ` fence embeds
-(see `src/nupp/compiler/doc/html.nupp`). Its extra action is **Open**, which
-hands the buffer to the full playground rather than opening a blank one; the
-full playground has no such button, being already there.
+**`embed.html`** remains the self-contained version for a site that explicitly
+wants an iframe. Run and Open sit above the editor's border at the right, while
+Options stays in the full playground.
 
-Documentation pages turn ordinary `nupp` fences into these embeds too.
-Browsers lazy-load the iframe itself, and the embed does not create its Fengari
-worker or load the self-hosted compiler until the reader focuses, edits, or
-otherwise engages with it. That keeps a page with many examples close to the
-cost of static code while it is being read; the full playground starts eagerly.
+Nupp's own documentation does not use that iframe. Its `nupp` and
+`playground` fences render as `<nupp-playground>` elements in the page itself;
+`src/doc-app.js` defines that component. The editors size from their actual
+content, their CodeMirror popups can paint in page space, and the page shares
+one lazy compiler worker between all of them. Run reveals an output panel with
+a close control, while Open hands the current buffer to the full playground.
 
 The panel answers one question — what did the compiler say. Its main pane
 holds the diagnostics as the CLI prints them when something is wrong, and the
@@ -173,6 +169,8 @@ own script.
       app.js               the UI: editor, diagnostics panel, generated-code
                            panel, debounced check-on-edit — shared by both
                            pages, see "Two pages" above
+      doc-app.js           the inline custom element used by generated docs;
+                           all instances on a page share one compiler worker
       examples.js          the example picker's menu, in order — the first
                            entry is what the editor opens on
       examples/            one .nupp file per menu entry — see "Examples"
@@ -184,7 +182,7 @@ own script.
     static/                 index.html, embed.html, style.css, favicon
     tools/
       patch-bootstrap-for-browser.lua  the const/ULL fix above, run by build.mjs
-    build.mjs                esbuild bundle: app.js and worker.js to dist/,
+    build.mjs                esbuild bundle: app.js, doc-app.js and worker.js to dist/,
                              plus bootstrap/nupp.lua patched and copied in as
                              a fetched asset — dist/nupp-bootstrap.lua is
                              browser-safe, worker.js does no further patching

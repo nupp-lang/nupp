@@ -1492,9 +1492,11 @@ function M.siteMatchesTheNuppdocPageModel()
    assert(guide:find(">Nupp</label>", 1, true), guide)
    assert(guide:find(">Generated Lua</label>", 1, true), guide)
    assert(guide:find('class="nuppdoc-playground"', 1, true), guide)
-   assert(guide:find('loading="lazy"', 1, true), guide)
-   assert(guide:find('style="height:', 1, true), guide)
-   assert(guide:find('#source=local%20record%20Resource%20end', 1, true), guide)
+   assert(guide:find("<nupp-playground", 1, true), guide)
+   assert(not guide:find("<iframe", 1, true), guide)
+   assert(guide:find('data-source="local%20record%20Resource%20end', 1, true), guide)
+   assert(guide:find('<script type="module" src="/playground/doc-app.js"></script>',
+      1, true), guide)
    assert(guide:find("keyword-local", 1, true), guide)
    assert(guide:find('href="../modules/math/index.html#math.Point"', 1, true),
       "custom-page Nupp example did not link to the API reference")
@@ -1766,15 +1768,15 @@ end
 
 -- Nupp examples are working editors by default, while the two cases whose source
 -- positions matter remain highlighted text.
-function M.nuppFencesUseLazyPlaygrounds()
+function M.nuppFencesUseInlinePlaygrounds()
    local html = require("nupp.compiler.doc.html")
    local editable = html.markdownHtml(
       "```nupp\nlocal answer: integer = 42\n```", {})
    assert(editable:find('class="nuppdoc-playground"', 1, true), editable)
-   assert(editable:find('loading="lazy"', 1, true), editable)
-   assert(editable:find('style="height:4rem"', 1, true), editable)
+   assert(editable:find("<nupp-playground", 1, true), editable)
+   assert(not editable:find("<iframe", 1, true), editable)
    assert(editable:find(
-      '#source=local%20answer%3A%20integer%20%3D%2042', 1, true), editable)
+      'data-source="local%20answer%3A%20integer%20%3D%2042', 1, true), editable)
    assert(not editable:find('class="nuppdoc-code-block"', 1, true), editable)
 
    local static = html.markdownHtml(

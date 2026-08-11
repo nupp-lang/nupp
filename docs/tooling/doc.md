@@ -208,16 +208,17 @@ An ordinary `nupp` fence supplies its program the same way. The program is
 checked in the reader's browser, as they type, by the real
 compiler — see [`editors/playground`](https://github.com/nupp-lang/nupp/tree/main/editors/playground)
 for how that works and what it cannot do. An empty fence opens on the editor's
-own example menu instead of a program; a caption becomes the frame's title.
+own example menu instead of a program; a caption becomes the editor's accessible label.
 Add `:static` to a `nupp` fence when it is deliberately an incomplete fragment.
 `:line-numbers` also keeps a Nupp fence static so its requested starting line
 is preserved.
 
-The block is an `<iframe>` pointing at `/playground/embed.html`, so a site using
-this has to serve the playground's `dist/` at `/playground/`, the way
-`nupp task docs-serve` does. Explicit playground fences use
-`--nuppdoc-playground-height`; ordinary Nupp examples are sized from their line
-count and capped at that same height.
+The block is an inline `<nupp-playground>` custom element, not an iframe. A site
+using it serves the playground's `dist/` at `/playground/`, the way `nupp task
+docs-serve` does, so the page can load `doc-app.js`, its shared compiler worker,
+and the browser-safe compiler. Editors size from their content; long programs
+scroll after 28rem. Because the editor lives in the page, CodeMirror popups are
+not clipped at an iframe boundary.
 
 **File embeds**, which read a file at build time:
 

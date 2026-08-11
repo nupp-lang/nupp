@@ -51,6 +51,11 @@ async function run() {
     entryPoints: [path.join(root, "src/app.js")],
     outfile: path.join(dist, "app.js"),
   };
+  const docAppOpts = {
+    ...shared,
+    entryPoints: [path.join(root, "src/doc-app.js")],
+    outfile: path.join(dist, "doc-app.js"),
+  };
   const workerOpts = {
     ...shared,
     entryPoints: [path.join(root, "src/worker.js")],
@@ -59,11 +64,12 @@ async function run() {
 
   if (watch) {
     const appCtx = await context(appOpts);
+    const docAppCtx = await context(docAppOpts);
     const workerCtx = await context(workerOpts);
-    await Promise.all([appCtx.watch(), workerCtx.watch()]);
+    await Promise.all([appCtx.watch(), docAppCtx.watch(), workerCtx.watch()]);
     console.log("watching for changes…");
   } else {
-    await Promise.all([build(appOpts), build(workerOpts)]);
+    await Promise.all([build(appOpts), build(docAppOpts), build(workerOpts)]);
   }
 
   cpSync(path.join(root, "static"), dist, { recursive: true });

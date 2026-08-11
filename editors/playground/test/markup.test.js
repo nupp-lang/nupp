@@ -32,3 +32,11 @@ test("condensed controls sit above the rounded editor border", () => {
   assert.match(index, /id="options-button"/);
   assert.doesNotMatch(embed, /id="options-button"/);
 });
+
+test("documentation playgrounds are inline and have dismissible output", () => {
+  const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
+  assert.match(docApp, /customElements\.define\("nupp-playground"/);
+  assert.match(docApp, /class="icon-button output-close"[^>]+aria-label="Close output">×<\/button>/);
+  assert.match(docApp, /root\.querySelector\("\.output-close"\)\.addEventListener\("click"/);
+  assert.match(docApp, /const compiler = new CompilerClient\(\)/);
+});

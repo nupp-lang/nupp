@@ -34,11 +34,6 @@ local headingId = stringsMod.headingId
 local rewriteSymbolLinks = urlsMod.rewriteSymbolLinks
 local codeHtml = highlightMod.codeHtml
 
--- Where scripts/docs-serve.mjs mounts editors/playground/dist, and where the home
--- page's own "Playground" hero action already points. Absolute, so a ```playground
--- fence renders the same wherever in the route tree the page holding it sits.
-const PLAYGROUND_EMBED = "/playground/embed.html"
-
 local html = {}
 
 --- One heading of a rendered document: the slug it is reachable at, the text as it
@@ -123,45 +118,27 @@ local function codeBlockHtml(source, language, links, firstLine)
     ) .. '">' .. codeHtml(source, language, links) .. "</code></pre></div>"
 end
 
--- A ```playground fence: the editor from editors/playground, in an iframe, checking
--- with the real compiler as the reader types. An empty fence opens on the editor's own
--- example menu; a fence with a body opens on that program instead, which is what makes
--- a snippet on a page runnable rather than only readable.
+-- A ```playground fence: the inline editor from editors/playground, checking with the
+-- real compiler as the reader types. An empty fence opens on the editor's own example
+-- menu; a fence with a body opens on that program instead, which is what makes a
+-- snippet on a page runnable rather than only readable.
 --
--- The body travels in the URL fragment rather than a query, so it stays a client-side
--- detail: no server sees a reader's edits, and the embed page reads it the same way
--- whether the site is served by scripts/docs-serve.mjs or anything else. Percent
--- encoding, not base64, because the decoder on the other side is decodeURIComponent and
--- needs no code at all.
+-- Keep authored source out of HTML syntax while preserving it byte for byte. The
+-- custom element decodes this attribute before creating its CodeMirror document.
 local function urlFragmentEscape(text: string): string
     return (text:gsub("[^%w%-%._~]", function(c: string): string
         return ("%%%02X"):format(c:byte())
     end))
 end
 
-local function playgroundHeight(source: string): number
-    local lines = 1
-    for _ in source:gmatch("\n") do
-        lines = lines + 1
-    end
-    -- The embedded editor has a 2rem control row; output stays hidden until Run.
-    -- The remaining .85rem covers the border and the deliberately asymmetric
-    -- editor padding: breathing room above the first line, only a small gap
-    -- below the last. Each source line is 18.2px at the embed's 13px font.
-    -- The cap keeps a long program scrolling instead of swallowing the page.
-    return math.min(30, 2.85 + lines * 1.15)
-end
-
-local function playgroundHtml(source: string, caption: string?, compact: boolean?): string
+local function playgroundHtml(source: string, caption: string?): string
     local trimmed = trim(source)
     local title = caption or "Nupp playground: an editor that checks as you type"
-    return '<iframe class="nuppdoc-playground" title="' .. htmlEscape(
+    return '<nupp-playground class="nuppdoc-playground" aria-label="' .. htmlEscape(
         title
-    ) .. '" loading="lazy"' .. (
-        compact and (' style="height:' .. tostring(playgroundHeight(trimmed)) .. 'rem"') or ""
-    ) .. ' src="' .. PLAYGROUND_EMBED .. (
-        trimmed ~= "" and "#source=" .. urlFragmentEscape(trimmed) or ""
-    ) .. '"></iframe>'
+    ) .. '"' .. (
+        trimmed ~= "" and ' data-source="' .. urlFragmentEscape(trimmed) .. '"' or ""
+    ) .. '></nupp-playground>'
 end
 
 local function renderedCodeBlockHtml(block, links)
@@ -169,7 +146,7 @@ local function renderedCodeBlockHtml(block, links)
         return playgroundHtml(block.source, block.caption)
     end
     if block.language == "nupp" and not block.static and not block.firstLine then
-        return playgroundHtml(block.source, block.caption, true)
+        return playgroundHtml(block.source, block.caption)
     end
     return codeBlockHtml(block.source, block.language, links, block.firstLine)
 end
