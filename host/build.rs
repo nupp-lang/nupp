@@ -75,7 +75,13 @@ fn main() {
     }
 
     println!("cargo:rustc-link-search=native={}", include.display());
-    println!("cargo:rustc-link-lib=static={}", static_library_stem());
+    if std::env::var("TARGET").expect("cargo sets TARGET").contains("msvc") {
+        let library = include.join(static_library_name());
+        assert!(library.is_file(), "LuaJIT did not write {}", library.display());
+        println!("cargo:rustc-link-arg={}", library.display());
+    } else {
+        println!("cargo:rustc-link-lib=static=luajit");
+    }
     for library in link_libraries() {
         println!("cargo:rustc-link-lib={library}");
     }
@@ -254,11 +260,6 @@ fn build_luajit(out: &Path) -> PathBuf {
 fn static_library_name() -> &'static str {
     let target = std::env::var("TARGET").expect("cargo sets TARGET");
     if target.contains("msvc") { "lua51.lib" } else { "libluajit.a" }
-}
-
-fn static_library_stem() -> &'static str {
-    let target = std::env::var("TARGET").expect("cargo sets TARGET");
-    if target.contains("msvc") { "lua51" } else { "luajit" }
 }
 
 /// What LuaJIT itself needs from the platform.
