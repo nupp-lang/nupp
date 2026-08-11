@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  build-unix:
     name: ${{ matrix.name }}
     strategy:
       fail-fast: false
@@ -25,18 +25,11 @@ jobs:
           - name: macOS arm64
             os: macos-14
             artifact: nupp-macos-arm64
-          - name: Windows x86-64
-            os: windows-2022
-            artifact: nupp-windows-x86_64.exe
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
-
-      - name: Set up the MSVC environment
-        if: runner.os == 'Windows'
-        uses: step-security/msvc-dev-cmd@v1
 
       - name: Set up Lua
         uses: leafo/gh-actions-lua@v13
@@ -44,30 +37,9 @@ jobs:
           luaVersion: "5.1.5"
 
       - name: Set up LuaRocks
-        if: runner.os != 'Windows'
         uses: leafo/gh-actions-luarocks@v6
         with:
           luaRocksVersion: "3.12.2"
-
-      - name: Set up LuaRocks on Windows
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $version = "3.12.2"
-          $archive = Join-Path $env:RUNNER_TEMP "luarocks.zip"
-          $destination = Join-Path $env:RUNNER_TEMP "luarocks"
-          $url = "https://github.com/luarocks/luarocks/releases/download/v$version/luarocks-$version-windows-64.zip"
-          Invoke-WebRequest -Uri $url -OutFile $archive
-
-          $expected = "d3f4ddda6926618cadf560170a7c18a5ceead5997ba10832cd0e3b624c7de886"
-          $actual = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
-          if ($actual -ne $expected) {
-            throw "LuaRocks archive checksum mismatch: $actual"
-          }
-
-          Expand-Archive -Path $archive -DestinationPath $destination
-          Join-Path $destination "luarocks-$version-windows-64" |
-            Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Build Nupp
         env:
@@ -75,12 +47,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "$RUNNER_OS" = Windows ]; then
-            msvc_bin=$(cygpath -u "${VCToolsInstallDir}bin\\Hostx64\\x64")
-            export PATH="$msvc_bin:$PATH"
-            export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER="${VCToolsInstallDir}bin\\Hostx64\\x64\\link.exe"
-          fi
-
           cargo build --release --manifest-path host/Cargo.toml \
             --target-dir build/bootstrap-host --features cjson
           cargo build --release --manifest-path runtime/native/Cargo.toml \
@@ -88,10 +54,6 @@ jobs:
             --features files,process
 
           case "$RUNNER_OS" in
-            Windows)
-              bootstrap_host=build/bootstrap-host/release/nupp-host.exe
-              native_library=build/bootstrap-native/release/nupp_native.dll
-              ;;
             macOS)
               bootstrap_host=build/bootstrap-host/release/nupp-host
               native_library=build/bootstrap-native/release/libnupp_native.dylib
@@ -114,6 +76,25 @@ jobs:
           unset NUPP_NATIVE_LIBRARY
           "release/$ARTIFACT_NAME" check src/nupp/init.nupp
 
+      - name: Extract the platform-independent payload
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct
+
+          binary = Path("release/nupp-linux-x86_64").read_bytes()
+          magic, version, reserved, offset, length, digest, trailer = struct.unpack(
+              "<8sIIQQ8sQ", binary[-48:]
+          )
+          assert magic == b"NUPPLOAD" and version == 1 and reserved == 0
+          assert trailer == 48 and offset + length == len(binary) - trailer
+          Path("release/standalone-payload").write_bytes(
+              binary[offset : offset + length]
+          )
+          PY
+
       - name: Upload the standalone binary
         uses: actions/upload-artifact@v4
         with:
@@ -121,10 +102,75 @@ jobs:
           path: release/${{ matrix.artifact }}
           if-no-files-found: error
 
+      - name: Upload the platform-independent payload
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: standalone-payload
+          path: release/standalone-payload
+          if-no-files-found: error
+
+  build-windows:
+    name: Windows x86-64
+    needs: build-unix
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up the MSVC environment
+        uses: step-security/msvc-dev-cmd@v1
+
+      - name: Download the platform-independent payload
+        uses: actions/download-artifact@v4
+        with:
+          name: standalone-payload
+          path: release
+
+      - name: Build the Windows host
+        shell: pwsh
+        run: |
+          cargo build --release --manifest-path host/Cargo.toml `
+            --target-dir build/release-host `
+            --features cjson,lua-utf8,native-files,native-process
+
+      - name: Stamp and smoke-test the standalone binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+          import struct
+
+          stub = Path("build/release-host/release/nupp-host.exe").read_bytes()
+          payload = Path("release/standalone-payload").read_bytes()
+          trailer = (
+              b"NUPPLOAD"
+              + struct.pack("<IIQQ", 1, 0, len(stub), len(payload))
+              + sha256(payload).digest()[:8]
+              + struct.pack("<Q", 48)
+          )
+          Path("release/nupp-windows-x86_64.exe").write_bytes(
+              stub + payload + trailer
+          )
+          PY
+          release/nupp-windows-x86_64.exe --help
+
+      - name: Upload the standalone binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupp-windows-x86_64.exe
+          path: release/nupp-windows-x86_64.exe
+          if-no-files-found: error
+
   release:
     name: Add binaries to the release
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-    needs: build
+    needs:
+      - build-unix
+      - build-windows
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -133,6 +179,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: release
+          pattern: nupp-*
           merge-multiple: true
 
       - name: Create or update the tagged release
