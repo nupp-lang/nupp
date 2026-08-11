@@ -174,7 +174,6 @@ function M.documentsInheritedContractsMetamethodsAndInlineMethods()
       "record Task<T is Value> is Named, Runnable where true",
       "    metamethod __call: function(self, value: T): self",
       "    function describe(prefix: string): string",
-      "        return prefix",
       "    end",
       "end",
    }, "\n"), task.signature)
@@ -182,6 +181,54 @@ function M.documentsInheritedContractsMetamethodsAndInlineMethods()
    assert(task.members[1].name == "__call" and task.members[1].isMetamethod)
    assert(task.members[2].name == "describe" and task.members[2].isFunction)
    assert(task.members[2].params[1].name == "prefix")
+end
+
+function M.omitsImplementationBodiesFromStructureSignatures()
+   local source = table.concat({
+      "interface Named",
+      "   function label(self): string",
+      "      local prefix = 'name:'",
+      "      return prefix .. self.name",
+      "   end",
+      "end",
+      "record User is Named",
+      "   name: string",
+      "   constructor(name: string)",
+      "      self.name = name",
+      "   end",
+      "   function label(self): string",
+      "      return self.name",
+      "   end",
+      "end",
+   }, "\n")
+   local module = assert(doc.extract(source, "src/user.nupp", "user",
+      {includeAll = true, includePrivate = true}))
+   local named, user
+   for _, item in ipairs(module.items) do
+      if item.name == "Named" then named = item end
+      if item.name == "User" then user = item end
+   end
+   assert(named and user, "record and interface must both be documented")
+   assert(named.signature == table.concat({
+      "interface Named",
+      "    function label(self): string",
+      "    end",
+      "end",
+   }, "\n"), named.signature)
+   assert(user.signature == table.concat({
+      "record User is Named",
+      "    name: string",
+      "    constructor(name: string)",
+      "    end",
+      "    function label(self): string",
+      "    end",
+      "end",
+   }, "\n"), user.signature)
+   for _, signature in ipairs({named.signature, user.signature}) do
+      assert(not signature:find("prefix", 1, true), signature)
+      assert(not signature:find("return", 1, true), signature)
+      assert(not signature:find("self.name =", 1, true), signature)
+   end
 end
 
 function M.documentsDeclarationsWrappedInAnnotations()

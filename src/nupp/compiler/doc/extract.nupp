@@ -110,9 +110,11 @@ local function syntax(node)
 end
 
 -- A structure's signature is its complete declaration, not only its opening line.
--- Documentation is rendered beside the code block, so omit `---` trivia while
--- preserving ordinary comments and every syntax token, then let the language's own
--- formatter decide indentation and line breaks.
+-- Documentation is rendered beside the code block, so omit `---` trivia and executable
+-- function blocks while preserving ordinary comments and every declaration token, then
+-- let the language's own formatter decide indentation and line breaks. Keeping the
+-- function's closing `end` leaves the complete structure parseable for highlighting and
+-- member links without publishing an interface default, method, or constructor body.
 local function structureSignature(node, includePrivate)
     local parts: {string} = {}
     local function walk(child)
@@ -147,7 +149,9 @@ local function structureSignature(node, includePrivate)
                 end
             end
             for _, nested in ipairs(child) do
-                walk(nested)
+                if child.kind ~= "funcbody" or nested ~= child.body then
+                    walk(nested)
+                end
             end
         end
     end
