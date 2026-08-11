@@ -1755,6 +1755,7 @@ function calls.install(c: state.Checker): calls.Ops
                 local kind = c.ownershipKind(ats[j])
                 if kind == "owned" or kind == "pinned" then
                     local movedNode = cst.isToken(argNodes[j]) and node or argNodes[j]
+                    local sourceEntry = c.ownershipEntry(movedNode)
                     local conditional = node.kind == "safeCall" or node.kind == "methodCall" and (
                         node.safeObj ~= nil or node.safeMethod ~= nil
                     )
@@ -1764,7 +1765,7 @@ function calls.install(c: state.Checker): calls.Ops
                             movedNode,
                             "a conditional call cannot preserve ownership; narrow the callee or receiver first"
                         )
-                    else
+                    elseif not (node.discardingResults and sourceEntry) then
                         c.moveExpression(
                             movedNode,
                             ats[j],

@@ -9483,7 +9483,8 @@ end
 return discarded
 end
 for j = first , # pack . head do
-if affineType ( pack . head [ j ] ) then
+local state = at and at . returnOwnershipStates and at . returnOwnershipStates [ j ]
+if affineType ( pack . head [ j ] ) and not ( state and state . ownershipOrigin ) then
 discarded = true
 end
 end
@@ -11190,7 +11191,33 @@ local called = stat . expr
 if not called then
 return
 end
+
+
+
+called . discardingResults = true
 local resultT = c . infer ( called )
+
+
+
+
+if called . kind == "call" then
+local callee , args = called . obj , called . args
+local globalAssert = c . env and c . env . globals and c . env . globals . assert
+if callee
+and callee . kind == "name"
+and callee . token
+and callee . token . text == "assert"
+and globalAssert
+and callee . token . definition == globalAssert . definition
+and args
+and args . kind == "args"
+then
+local exprs = args . exprs or { }
+if exprs [ 1 ] then
+applyFacts ( facts . analyzeCond ( exprs [ 1 ] ) . t )
+end
+end
+end
 
 
 
@@ -11751,7 +11778,7 @@ local format = argExprs [ 1 ]
 
 local positional = true
 for _ , argument in ipairs ( argExprs ) do
-if argument . kind == "namedArg" or argument . kind == "expandArg" then
+if argument . kind == "namedArg" or argument . kind == "pluckArg" then
 positional = false
 end
 end
@@ -11765,7 +11792,7 @@ local zoneOp = zoneIntrinsic ( c , callee )
 if zoneOp and not argTable and not argStr then
 local positional = true
 for _ , argument in ipairs ( argExprs ) do
-if argument . kind == "namedArg" or argument . kind == "expandArg" then
+if argument . kind == "namedArg" or argument . kind == "pluckArg" then
 positional = false
 end
 end
@@ -12758,7 +12785,8 @@ end
 
 
 
-local function isExpansionPath ( node )
+
+local function isPluckPath ( node )
 if not node then
 return false
 end
@@ -12766,7 +12794,7 @@ if node . kind == "name" then
 return true
 end
 
-return node . kind == "dotIndex" and isExpansionPath ( node . obj )
+return node . kind == "dotIndex" and isPluckPath ( node . obj )
 end
 
 local function constInferenceProblem ( ft , map )
@@ -12986,54 +13014,6 @@ end
 end
 
 return { { title = "build it from arguments" , edits = edits } }
-end
-
-
-
-
-local function expansionsOf ( t )
-t = rawType ( t )
-if t . tag == "typevar" and t . bound then
-return expansionsOf ( t . bound )
-end
-if t . tag == "nominal" then
-return t . expansions or { }
-end
-if t . tag ~= "union" then
-return { }
-end
-local common = nil
-for _ , member in ipairs ( t . members ) do
-local found = expansionsOf ( member )
-if not common then
-common = { }
-for arity , names in pairs ( found ) do
-local copied = { }
-for j , name in ipairs ( names ) do
-copied [ j ] = name
-end
-common [ arity ] = copied
-end
-else
-for arity , names in pairs ( common ) do
-local other = found [ arity ]
-local same = other and # other == # names
-if same then
-for j , name in ipairs ( names ) do
-if other [ j ] ~= name then
-same = false
-break
-end
-end
-end
-if not same then
-common [ arity ] = nil
-end
-end
-end
-end
-
-return common or { }
 end
 
 c . fieldType = function ( t , name )
@@ -13694,14 +13674,14 @@ c . markToken ( arg . name , fieldDef , calleeT . writeByname [ fname ] or calle
 end
 bindField ( fname , arg . value or arg , arg , ( "field %q" ) : format ( fname or "?" ) )
 end
-elseif arg . kind == "expandArg" then
+elseif arg . kind == "pluckArg" then
 
 
 
 c . diag (
 "NUPP2202" ,
 arg ,
-"a construction fills fields, so there is no parameter list to expand into" ,
+"a construction fills fields, so there are no parameters to pluck into" ,
 nil ,
 { help = ( "declare a constructor on %s, or name the fields" ) : format ( declared ) }
 )
@@ -13849,12 +13829,12 @@ end
 
 for _ , arg in ipairs ( args ) do
 if not cst . isToken ( arg ) then
-local value = ( arg . kind == "namedArg" or arg . kind == "expandArg" ) and arg . value or arg
-if arg . kind == "namedArg" or arg . kind == "expandArg" then
+local value = ( arg . kind == "namedArg" or arg . kind == "pluckArg" ) and arg . value or arg
+if arg . kind == "namedArg" or arg . kind == "pluckArg" then
 c . diag (
 "NUPP2006" ,
 arg ,
-"named arguments and value expansion require a statically known callable"
+"named and plucked arguments require a statically known callable"
 )
 end
 local argumentType = c . infer ( value )
@@ -13873,7 +13853,7 @@ end
 
 local advanced = false
 for _ , argument in ipairs ( args ) do
-if not cst . isToken ( argument ) and ( argument . kind == "namedArg" or argument . kind == "expandArg" ) then
+if not cst . isToken ( argument ) and ( argument . kind == "namedArg" or argument . kind == "pluckArg" ) then
 advanced = true
 break
 end
@@ -13902,36 +13882,64 @@ node = value ,
 type = c . infer ( value ) ,
 source = argument ,
 }
-elseif not cst . isToken ( argument ) and argument . kind == "expandArg" then
-if namedStarted then
-c . diag ( "NUPP2006" , argument , "a positional expansion cannot follow a named argument" )
-end
+elseif not cst . isToken ( argument ) and argument . kind == "pluckArg" then
+
+
+
+
+
+
+namedStarted = true
 local value = argument . value or argument
-if not isExpansionPath ( value ) then
+if not isPluckPath ( value ) then
 c . diag (
 "NUPP2006" ,
 value ,
-"an expansion operand must be a name or dotted field path" ,
+"a plucked operand must be a name or dotted field path" ,
 nil ,
 {
-help = "bind the producing expression to a local, then expand "
+help = "bind the producing expression to a local, then pluck from "
 .. "that local or one of its dotted fields" ,
 }
 )
 end
 local valueType = c . infer ( value )
 if c . ownershipKind ( valueType ) then
-c . diag ( "NUPP2603" , value , "an owned or borrowed container cannot be expanded" )
+c . diag ( "NUPP2603" , value , "an owned or borrowed container cannot be plucked from" )
+end
+local group , seenHere = argument , { }
+for _ , token in ipairs ( argument . names or { } ) do
+if seenHere [ token . text ] then
+c . diag ( "NUPP2006" , token , ( "a plucked group repeats %q" ) : format ( token . text ) )
+end
+seenHere [ token . text ] = true
+local fieldType , definition = c . fieldType ( valueType , token . text )
+if not fieldType then
+c . diag (
+"NUPP2004" ,
+token ,
+( "no field %q in %s" ) : format ( token . text , T . tostring ( valueType ) ) ,
+c . edits . nameSpellingFix ( token , c . fieldNames ( valueType ) ) ,
+{
+help = "a plucked name is read as that field of the operand and "
+.. "filled into the parameter of the same name" ,
+}
+)
+else
+c . markToken ( token , definition , fieldType , "property" )
 end
 rawArguments [
 # rawArguments + 1
 ] = {
-kind = "expand" ,
+kind = "named" ,
+name = token . text ,
 node = value ,
-type = valueType ,
-expansions = expansionsOf ( valueType ) ,
+type = fieldType or T . any ,
+field = token . text ,
+group = group ,
 source = argument ,
 }
+end
 else
 if namedStarted then
 c . diag ( "NUPP2006" , argument , "a positional argument cannot follow a named argument" )
@@ -13951,7 +13959,10 @@ rawArguments [
 end
 end
 
-local function normalizations ( ft )
+
+
+
+local function normalization ( ft )
 local labels = { }
 for j , name in ipairs ( ft . paramNames or { } ) do
 if name ~= "" then
@@ -13960,161 +13971,100 @@ end
 end
 local named , firstNamed , lastNamed , priorNamed = { } , nil , 0 , 0
 local positional = { }
-for _ , argument in ipairs ( rawArguments ) do
-if argument . kind == "named" then
-local index = labels [ argument . name ]
+local at = 1
+while at <= # rawArguments do
+local argument = rawArguments [ at ]
+if argument . kind ~= "named" then
+positional [ # positional + 1 ] = argument
+at = at + 1
+else
+
+
+
+
+
+local run = { argument }
+local group = argument . group
+at = at + 1
+while group and at <= # rawArguments and rawArguments [ at ] . group == group do
+run [ # run + 1 ] = rawArguments [ at ]
+at = at + 1
+end
+local highest = priorNamed
+for _ , entry in ipairs ( run ) do
+local index = labels [ entry . name ]
 if not index then
-return { } , ( "unknown named argument %q" ) : format ( argument . name )
+return nil , ( "unknown named argument %q" ) : format ( entry . name )
 end
 if named [ index ] then
-return { } , ( "named argument %q is supplied twice" ) : format ( argument . name )
+return nil , ( "named argument %q is supplied twice" ) : format ( entry . name )
 end
 if index <= priorNamed then
-return { } , "named arguments must follow parameter order"
+return nil , "named arguments must follow parameter order"
 end
-priorNamed = index
+highest = math . max ( highest , index )
 firstNamed = firstNamed and math . min ( firstNamed , index ) or index
 lastNamed = math . max ( lastNamed , index )
-named [ index ] = argument
-else
-positional [ # positional + 1 ] = argument
+named [ index ] = entry
+end
+priorNamed = highest
 end
 end
 
-local states = { { types = { } , nodes = { } , lowered = { } } }
+local types , nodes , lowered = { } , { } , { }
 for _ , argument in ipairs ( positional ) do
-local nextStates = { }
-if argument . kind == "plain" then
-for _ , current in ipairs ( states ) do
-local copy = { types = { } , nodes = { } , lowered = { } }
-for j , item in ipairs ( current . types ) do
-copy . types [ j ] = item
-copy . nodes [ j ] = current . nodes [ j ]
-end
-for j , item in ipairs ( current . lowered ) do
-copy . lowered [ j ] = item
-end
 local pack = argument . pack
 if pack and not pack . tail and # pack . head > 0 then
 for _ , itemType in ipairs ( pack . head ) do
-copy . types [ # copy . types + 1 ] = itemType
-copy . nodes [ # copy . nodes + 1 ] = argument . node
+types [ # types + 1 ] = itemType
+nodes [ # nodes + 1 ] = argument . node
 end
 else
-copy . types [ # copy . types + 1 ] = argument . type
-copy . nodes [ # copy . nodes + 1 ] = argument . node
+types [ # types + 1 ] = argument . type
+nodes [ # nodes + 1 ] = argument . node
 end
-copy . lowered [
-# copy . lowered + 1
-] = { generatedKind = "expr" , expr = argument . node , pack = argument . pack }
-nextStates [ # nextStates + 1 ] = copy
-end
-else
-local arities = { }
-for arity in pairs ( argument . expansions or { } ) do
-arities [ # arities + 1 ] = arity
-end
-table . sort ( arities )
-if # arities == 0 then
-return { } , ( "%s has no declared expansion" ) : format ( T . tostring ( argument . type ) )
-end
-for _ , current in ipairs ( states ) do
-for _ , arity in ipairs ( arities ) do
-local names = argument . expansions [ arity ]
-local copy = { types = { } , nodes = { } , lowered = { } }
-for j , item in ipairs ( current . types ) do
-copy . types [ j ] = item
-copy . nodes [ j ] = current . nodes [ j ]
-end
-for j , item in ipairs ( current . lowered ) do
-copy . lowered [ j ] = item
-end
-local readable = true
-for _ , name in ipairs ( names ) do
-local fieldType = c . fieldType ( argument . type , name )
-if not fieldType or c . ownershipKind ( fieldType ) then
-readable = false
-break
-end
-copy . types [ # copy . types + 1 ] = fieldType
-copy . nodes [ # copy . nodes + 1 ] = argument . node
-copy . lowered [
-# copy . lowered + 1
-] = { generatedKind = "field" , source = argument . node , name = name }
-end
-if readable then
-nextStates [ # nextStates + 1 ] = copy
-end
-end
-end
-end
-states = nextStates
+lowered [ # lowered + 1 ] = { generatedKind = "expr" , expr = argument . node , pack = argument . pack }
 end
 
-local completed = { }
-for _ , current in ipairs ( states ) do
 if not firstNamed then
-completed [
-# completed + 1
-] = {
-pack = T . pack ( current . types ) ,
-types = current . types ,
-nodes = current . nodes ,
-lowered = current . lowered ,
-}
-elseif # current . types < firstNamed then
-local total = math . max ( # current . types , lastNamed )
-local types , nodes , lowered = { } , { } , { }
-for j = 1 , total do
-if j <= # current . types then
-types [ j ] = current . types [ j ]
-nodes [ j ] = current . nodes [ j ]
-lowered [ j ] = current . lowered [ j ]
-elseif named [ j ] then
-types [ j ] = named [ j ] . type
-nodes [ j ] = named [ j ] . node
-lowered [ j ] = { generatedKind = "expr" , expr = named [ j ] . node }
+return { pack = T . pack ( types ) , types = types , nodes = nodes , lowered = lowered }
+end
+if # types >= firstNamed then
+return nil , "a named argument overlaps the positional prefix"
+end
+
+
+for j = # types + 1 , math . max ( # types , lastNamed ) do
+local entry = named [ j ]
+if entry then
+types [ j ] = entry . type
+nodes [ j ] = entry . node
+lowered [ j ] = entry . field and {
+generatedKind = "field" ,
+source = entry . node ,
+name = entry . field ,
+} or { generatedKind = "expr" , expr = entry . node }
 else
 types [ j ] = T . nil_
 nodes [ j ] = node
 lowered [ j ] = { generatedKind = "nil" }
 end
 end
-completed [
-# completed + 1
-] = { pack = T . pack ( types ) , types = types , nodes = nodes , lowered = lowered }
-end
-end
 
-return completed
+return { pack = T . pack ( types ) , types = types , nodes = nodes , lowered = lowered }
 end
 
 local function chooseFor ( ft )
-local choices , why = normalizations ( ft )
-if # choices == 0 then
+local choice , why = normalization ( ft )
+if not choice then
 return nil , nil , why
 end
-if # choices == 1 then
-local specialized , rejected = probeSignature ( ft , choices [ 1 ] . pack , node . cdefCall )
+local specialized , rejected = probeSignature ( ft , choice . pack , node . cdefCall )
 if specialized then
-return choices [ 1 ] , specialized
-end
-return nil , nil , rejected or "arguments do not fit"
-end
-local accepted = { }
-for _ , choice in ipairs ( choices ) do
-local specialized = probeSignature ( ft , choice . pack , node . cdefCall )
-if specialized then
-accepted [ # accepted + 1 ] = { choice = choice , signature = specialized }
-end
-end
-if # accepted == 1 then
-return accepted [ 1 ] . choice , accepted [ 1 ] . signature
-elseif # accepted > 1 then
-return nil , nil , "several expansion arities accept this call"
+return choice , specialized
 end
 
-return nil , nil , "no declared expansion arity accepts this call"
+return nil , nil , rejected or "arguments do not fit"
 end
 
 local selected
@@ -14493,6 +14443,7 @@ elseif preservationResult then
 local kind = c . ownershipKind ( ats [ j ] )
 if kind == "owned" or kind == "pinned" then
 local movedNode = cst . isToken ( argNodes [ j ] ) and node or argNodes [ j ]
+local sourceEntry = c . ownershipEntry ( movedNode )
 local conditional = node . kind == "safeCall" or node . kind == "methodCall" and (
 node . safeObj ~= nil or node . safeMethod ~= nil
 )
@@ -14502,7 +14453,7 @@ c . diag (
 movedNode ,
 "a conditional call cannot preserve ownership; narrow the callee or receiver first"
 )
-else
+elseif not ( node . discardingResults and sourceEntry ) then
 c . moveExpression (
 movedNode ,
 ats [ j ] ,
@@ -16775,7 +16726,6 @@ n . overloadedMethods = { }
 n . staticEntries = { }
 n . overloadedStatics = { }
 n . defaultEntries = { }
-n . expansions = { }
 n . annotations = stat . semanticAnnotations or { }
 
 c . bindDeclaredType ( stat , n )
@@ -16902,33 +16852,6 @@ end
 for name , inherited in pairs ( super . metamethods or { } ) do
 if not n . metamethods [ name ] then
 n . metamethods [ name ] = substType ( inherited , selfMap )
-end
-end
-for arity , inherited in pairs ( super . expansions or { } ) do
-local prior = n . expansions [ arity ]
-local same = prior and # prior == # inherited
-if same then
-for j , field in ipairs ( inherited ) do
-if prior [ j ] ~= field then
-same = false
-break
-end
-end
-end
-if prior and not same then
-c . diag (
-"NUPP2118" ,
-superNode ,
-( "inherited expansions of arity %d disagree" ) : format ( arity ) ,
-nil ,
-{ help = "interfaces inherited together must project the same ordered fields" }
-)
-elseif not prior then
-local copied = { }
-for j , field in ipairs ( inherited ) do
-copied [ j ] = field
-end
-n . expansions [ arity ] = copied
 end
 end
 end
@@ -17500,55 +17423,6 @@ n . writeByname [ field ] = nil
 n . writeByname [ source ] = nil
 n . writeFieldDefs [ field ] = nil
 n . writeFieldDefs [ source ] = nil
-end
-
-
-
-for _ , e in ipairs ( stat . entries ) do
-if e . kind == "expansionDecl" then
-local names , seen = { } , { }
-for j , token in ipairs ( e . names or { } ) do
-names [ j ] = token . text
-if seen [ token . text ] then
-c . diag ( "NUPP2118" , token , ( "expansion repeats field %q" ) : format ( token . text ) )
-else
-seen [ token . text ] = true
-end
-local fieldType , definition = c . fieldType ( n , token . text )
-if not fieldType then
-c . diag (
-"NUPP2118" ,
-token ,
-( "expansion field %q is not readable on %s" ) : format ( token . text , n . name )
-)
-elseif c . ownershipKind ( fieldType ) then
-c . diag (
-"NUPP2118" ,
-token ,
-( "expansion field %q is affine and cannot be projected" ) : format ( token . text ) ,
-nil ,
-{ help = "pass the container explicitly so ownership remains visible" }
-)
-else
-c . markToken ( token , definition , fieldType , "property" )
-end
-end
-local arity = # names
-if arity > 0 then
-local inherited = n . expansions [ arity ]
-if inherited then
-c . diag (
-"NUPP2118" ,
-e ,
-( "%s already has an expansion of arity %d" ) : format ( n . name , arity ) ,
-nil ,
-{ help = "remove the duplicate, or choose a different number of fields" }
-)
-else
-n . expansions [ arity ] = names
-end
-end
-end
 end
 
 
@@ -35230,6 +35104,10 @@ local cst = { }
 
 
 
+
+
+
+
 cst.Chunk = {} cst.Chunk.__index = cst.Chunk
 
 
@@ -35818,17 +35696,6 @@ cst.RecordDecl = {} cst.RecordDecl.__index = cst.RecordDecl
 
 
 
-cst.ExpansionDecl = {} cst.ExpansionDecl.__index = cst.ExpansionDecl
-
-
-
-
-
-
-
-
-
-
 cst.WhereClause = {} cst.WhereClause.__index = cst.WhereClause
 
 
@@ -36356,7 +36223,16 @@ cst.NamedArg = {} cst.NamedArg.__index = cst.NamedArg
 
 
 
-cst.ExpandArg = {} cst.ExpandArg.__index = cst.ExpandArg
+
+cst.PluckArg = {} cst.PluckArg.__index = cst.PluckArg
+
+
+
+
+
+
+
+
 
 
 
@@ -37748,14 +37624,17 @@ pages [ # pages + 1 ] = candidate
 end
 
 
-
 local published = { }
 for _ , configured in ipairs ( settings . pages or { } ) do
 if type ( configured ) == "table" and configured . source then
 published [ configured . source ] = true
 end
 end
-for _ , generated in ipairs ( diagnosticsMod . pages ( settings . diagnostics , published ) ) do
+
+
+
+local generated = diagnosticsMod . page ( settings . diagnostics , published )
+if generated then
 local generatedRoute = cleanRoute ( generated . path )
 if not generatedRoute then
 return nil , "invalid diagnostic index path"
@@ -38679,7 +38558,7 @@ local THEME = [[
 @media(max-width:1100px){.nuppdoc-shell{grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr)}.nuppdoc-outline{display:none}.nuppdoc-content{width:min(100% - 5rem,var(--nuppdoc-content-width))}}@media(max-width:760px){.nuppdoc-top-nav{display:none}.nuppdoc-search{width:140px}.nuppdoc-shell{display:block}.nuppdoc-sidebar{position:static;max-height:none;padding:.7rem 1rem;border-right:0;border-bottom:1px solid var(--nuppdoc-border);box-shadow:none}.nuppdoc-sidebar h2{display:none}.nuppdoc-sidebar ul{display:flex;overflow:auto;gap:.25rem}.nuppdoc-content{width:auto;padding:1.5rem 1.25rem 4rem}}@media(max-width:480px){.nuppdoc-search{display:none}.nuppdoc-brand span:last-child{display:none}.nuppdoc-content table{display:block;overflow:auto}}
 /* The custom properties a site is meant to override. They are named and grouped
  * deliberately: this is the part of the stylesheet a project stylesheet targets. */
-:root{--nuppdoc-text-faint:color-mix(in srgb,var(--nuppdoc-text-muted) 72%,transparent);--nuppdoc-sidebar-background:var(--nuppdoc-background-alt);--nuppdoc-accent-contrast:#fff;--nuppdoc-home-width:1152px;--nuppdoc-home-gutter:2rem;--nuppdoc-hero-glow-color:var(--nuppdoc-accent);--nuppdoc-hero-glow-size:520px;--nuppdoc-hero-glow-blur:24px;--nuppdoc-hero-glow-opacity:.68;--nuppdoc-code-block-radius:8px;--nuppdoc-playground-height:30rem;--nuppdoc-playground-border:color-mix(in srgb,var(--nuppdoc-border) 70%,var(--nuppdoc-text));--nuppdoc-code-tab-text:var(--nuppdoc-text-muted);--nuppdoc-code-tab-hover-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-bar:var(--nuppdoc-accent);--nuppdoc-code-tab-divider:var(--nuppdoc-border);--nuppdoc-code-tab-font-size:.72rem;--nuppdoc-code-tab-font-weight:600;--nuppdoc-code-tab-padding:.45rem .75rem;--nuppdoc-admonition-note:var(--nuppdoc-accent);--nuppdoc-admonition-info:#0969da;--nuppdoc-admonition-tip:#1a7f37;--nuppdoc-admonition-warning:#9a6700;--nuppdoc-admonition-danger:#cf222e}
+:root{--nuppdoc-text-faint:color-mix(in srgb,var(--nuppdoc-text-muted) 72%,transparent);--nuppdoc-sidebar-background:var(--nuppdoc-background-alt);--nuppdoc-accent-contrast:#fff;--nuppdoc-home-width:1152px;--nuppdoc-home-gutter:2rem;--nuppdoc-hero-glow-color:var(--nuppdoc-accent);--nuppdoc-hero-glow-size:520px;--nuppdoc-hero-glow-blur:24px;--nuppdoc-hero-glow-opacity:.68;--nuppdoc-code-block-radius:8px;--nuppdoc-playground-border:color-mix(in srgb,var(--nuppdoc-border) 70%,var(--nuppdoc-text));--nuppdoc-code-tab-text:var(--nuppdoc-text-muted);--nuppdoc-code-tab-hover-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-bar:var(--nuppdoc-accent);--nuppdoc-code-tab-divider:var(--nuppdoc-border);--nuppdoc-code-tab-font-size:.72rem;--nuppdoc-code-tab-font-weight:600;--nuppdoc-code-tab-padding:.45rem .75rem;--nuppdoc-admonition-note:var(--nuppdoc-accent);--nuppdoc-admonition-info:#0969da;--nuppdoc-admonition-tip:#1a7f37;--nuppdoc-admonition-warning:#9a6700;--nuppdoc-admonition-danger:#cf222e}
 .nuppdoc-admonition{--nuppdoc-admonition-color:var(--nuppdoc-admonition-note);margin:1.25rem 0;padding:.85rem 1rem;border:1px solid color-mix(in srgb,var(--nuppdoc-admonition-color) 45%,var(--nuppdoc-border));border-left:4px solid var(--nuppdoc-admonition-color);border-radius:8px;background:color-mix(in srgb,var(--nuppdoc-admonition-color) 9%,var(--nuppdoc-background))}.nuppdoc-admonition-info{--nuppdoc-admonition-color:var(--nuppdoc-admonition-info)}.nuppdoc-admonition-tip{--nuppdoc-admonition-color:var(--nuppdoc-admonition-tip)}.nuppdoc-admonition-warning{--nuppdoc-admonition-color:var(--nuppdoc-admonition-warning)}.nuppdoc-admonition-danger{--nuppdoc-admonition-color:var(--nuppdoc-admonition-danger)}.nuppdoc-admonition-title{margin:0;color:var(--nuppdoc-admonition-color);font-size:.78rem;font-weight:750;text-transform:uppercase;letter-spacing:.04em}.nuppdoc-admonition-body>:first-child{margin-top:.35rem}.nuppdoc-admonition-body>:last-child{margin-bottom:0}
 .nuppdoc-code-group{position:relative;display:flex;overflow:hidden;flex-wrap:wrap;margin:1.25rem 0;border:1px solid var(--nuppdoc-border);border-radius:var(--nuppdoc-code-block-radius);background:var(--nuppdoc-code-background);box-shadow:none}.nuppdoc-code-tab-input{position:absolute;width:1px;height:1px;margin:0;padding:0;border:0;opacity:0;appearance:none;clip-path:inset(50%);pointer-events:none;-webkit-appearance:none}.nuppdoc-code-tab{order:-1;padding:var(--nuppdoc-code-tab-padding);border-bottom:2px solid transparent;color:var(--nuppdoc-code-tab-text);cursor:pointer;font-family:var(--nuppdoc-font);font-size:var(--nuppdoc-code-tab-font-size);font-weight:var(--nuppdoc-code-tab-font-weight)}.nuppdoc-code-tab:hover{color:var(--nuppdoc-code-tab-hover-text)}.nuppdoc-code-panel{display:none;width:100%;margin:0;border-top:1px solid var(--nuppdoc-code-tab-divider)}.nuppdoc-code-tab-input:checked+.nuppdoc-code-tab+.nuppdoc-code-panel{display:block}.nuppdoc-code-tab-input:checked+.nuppdoc-code-tab{border-bottom-color:var(--nuppdoc-code-tab-active-bar);color:var(--nuppdoc-code-tab-active-text)}.nuppdoc-code-tab-input:focus-visible+.nuppdoc-code-tab{outline:2px solid var(--nuppdoc-accent);outline-offset:-2px}.nuppdoc-code-group>.nuppdoc-code-block{width:100%}.nuppdoc-code-group>.nuppdoc-code-block pre,.nuppdoc-code-panel .nuppdoc-code-block pre{margin:0;border:0;border-radius:0}.nuppdoc-labeled-code{margin:1.25rem 0}.nuppdoc-code-group>.nuppdoc-labeled-code{margin:0}.nuppdoc-code-group>.nuppdoc-labeled-code+.nuppdoc-labeled-code{border-top:1px solid var(--nuppdoc-border)}.nuppdoc-labeled-code figcaption{padding:.45rem .6rem;color:var(--nuppdoc-text-muted);font-family:var(--nuppdoc-font);font-size:.72rem;font-weight:600}.nuppdoc-labeled-code pre{margin:0;border-radius:0}.nuppdoc-code-group>.nuppdoc-labeled-code pre{border:0}@media print{.nuppdoc-code-panel{display:block}}
 /* The gutter and the code are siblings sharing the pre's line box metrics, so the
@@ -38689,19 +38568,10 @@ local THEME = [[
 .nuppdoc-code-block.has-line-numbers pre>code{overflow:auto;flex:1;min-width:0}
 .nuppdoc-line-numbers{flex:none;padding-right:.9rem;border-right:1px solid var(--nuppdoc-border);color:var(--nuppdoc-text-faint);font-family:var(--nuppdoc-font-mono);font-size:14px;line-height:1.55;text-align:right;user-select:none;-webkit-user-select:none}
 .nuppdoc-line-numbers span{display:block}
-/* A Nupp or ```playground fence. Given a height rather than sized to its contents: an
- * iframe cannot measure a document it does not share an origin with, and the
- * editor inside scrolls on its own anyway.
- *
- * Its own border property rather than the prose one. This frame is the outer
- * edge of a stack of panes whose inner edges the playground draws for itself,
- * and at the hairline a body of text wants it was the one line in the picture
- * that disappeared -- most visibly down the left and right, where it stands
- * alone rather than beside a rule the playground drew. The default carries the
- * theme's own border toward its text so any palette gets a visible edge; a site
- * that wants the frame to match the panes exactly sets the property. */
-.nuppdoc-playground{display:block;width:100%;height:var(--nuppdoc-playground-height);margin:1.25rem 0;border:1px solid var(--nuppdoc-playground-border);border-radius:var(--nuppdoc-code-block-radius);background:var(--nuppdoc-code-background);color-scheme:normal}
-.nuppdoc-code-group>.nuppdoc-playground,.nuppdoc-code-panel>.nuppdoc-playground{margin:0;border:0;border-radius:0}
+/* A Nupp or ```playground fence. The custom element owns its editor chrome and
+ * sizes naturally in the page; long sources scroll inside CodeMirror. */
+.nuppdoc-playground{display:block;width:100%;margin:1.75rem 0 .75rem}
+.nuppdoc-code-group>.nuppdoc-playground,.nuppdoc-code-panel>.nuppdoc-playground{margin:0}
 .nuppdoc-logo{width:auto;height:28px;border-radius:5px}
 .nuppdoc-icon-link{display:grid;width:34px;height:34px;place-items:center;padding:0;color:var(--nuppdoc-text-muted);border:0;border-radius:7px;background:transparent;cursor:pointer;text-decoration:none}.nuppdoc-icon-link:hover,.nuppdoc-icon-link[aria-pressed="true"]{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}.nuppdoc-icon-link svg{width:18px;height:18px}.nuppdoc-panel-toggle-right svg{transform:scaleX(-1)}
 .nuppdoc-shell{transition:grid-template-columns 160ms ease}.nuppdoc-shell.is-sidebar-collapsed{grid-template-columns:0 minmax(0,1fr) var(--nuppdoc-outline-width)}.nuppdoc-shell.is-outline-collapsed{grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr) 0}.nuppdoc-shell.is-sidebar-collapsed.is-outline-collapsed{grid-template-columns:0 minmax(0,1fr) 0}.nuppdoc-shell.is-sidebar-collapsed>.nuppdoc-sidebar,.nuppdoc-shell.is-outline-collapsed>.nuppdoc-outline{overflow:hidden;padding-right:0;padding-left:0;border:0;opacity:0;pointer-events:none}
@@ -39002,7 +38872,12 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 
+
+
+
+
 local explainMod = require ( "nupp.compiler.explain" )
+local htmlMod = require ( "nupp.compiler.doc.html" )
 local lintsMod = require ( "nupp.compiler.lints" )
 
 local diagnostics = { }
@@ -39025,30 +38900,34 @@ local diagnostics = { }
 
 
 
-local function fence ( source )
-return "```nupp\n" .. source : gsub ( "%s+$" , "" ) .. "\n```"
+
+local function anchor ( code )
+return "#" .. code : lower ( )
 end
 
-local function route ( prefix , code )
-return prefix .. "/" .. code : lower ( )
+local function lintFor ( code )
+for _ , candidate in ipairs ( lintsMod . all ) do
+if candidate . code == code then
+return candidate
+end
 end
 
-
-
-
-local function siblingLink ( code )
-return "../" .. code : lower ( ) .. "/index.html"
+return nil
 end
 
-local function codeMarkdown (
+local function fence ( caption , source )
+return "```nupp:static [" .. caption .. "]\n" .. source : gsub ( "%s+$" , "" ) .. "\n```"
+end
+
+local function section (
 code ,
 entry ,
-paged ,
+listed ,
 published
 )
-local out = { "# " .. code , "" , entry . summary .. "." , "" }
+local out = { "### " .. code , "" , entry . summary .. "." , "" }
 if entry . wrong then
-out [ # out + 1 ] = fence ( entry . wrong )
+out [ # out + 1 ] = fence ( "Reported" , entry . wrong )
 out [ # out + 1 ] = ""
 end
 out [ # out + 1 ] = entry . rule
@@ -39058,76 +38937,81 @@ out [ # out + 1 ] = "This applies only under `--strict`, or in a `.nupp` file."
 out [ # out + 1 ] = ""
 end
 if entry . right then
-out [ # out + 1 ] = "## Correction"
-out [ # out + 1 ] = ""
-out [ # out + 1 ] = fence ( entry . right )
+out [ # out + 1 ] = fence ( "Accepted" , entry . right )
 out [ # out + 1 ] = ""
 elseif entry . family then
-out [ # out + 1 ] = "This code has no example pair of its own. What is above is "
-.. "its family's rule, which is what the compiler knows about it."
+out [ # out + 1 ] = "This code has no example pair of its own. The rule above is "
+.. "its family's, which is what the compiler knows about it."
 out [ # out + 1 ] = ""
 end
-local lint = nil
-for _ , candidate in ipairs ( lintsMod . all ) do
-if candidate . code == code then
-lint = candidate
-end
-end
+local lint = lintFor ( code )
 if lint then
-out [ # out + 1 ] = "## Lint configuration"
-out [ # out + 1 ] = ""
 out [ # out + 1 ] = "Reported by the `"
 .. lint . name
 .. "` lint, category `"
 .. lint . category
 .. "`, at `"
 .. lint . level
-.. "` by default. Configure it by name or by category, or suppress "
-.. "it at the site with an annotation."
+.. "` by default. Configure it by name or by category."
 out [ # out + 1 ] = ""
 end
+local trail = { }
 if # entry . related > 0 then
-out [ # out + 1 ] = "## Related codes"
-out [ # out + 1 ] = ""
+local names = { }
 for _ , other in ipairs ( entry . related ) do
-local sibling = explainMod . lookup ( other )
-local name = paged [ other ] and "[**" .. other .. "**](" .. siblingLink ( other ) .. ")" or "**"
+names [
+# names + 1
+] = listed [ other ] and ( "[**" .. other .. "**](" .. anchor ( other ) .. ")" ) or ( "**"
 .. other
-.. "**"
-out [
-# out + 1
-] = "- "
-.. name
-.. ": "
-.. ( sibling and sibling . summary : lower ( ) or "a related rule" )
-.. ". Run `nupp explain "
-.. other
-.. "`."
+.. "**" )
 end
-out [ # out + 1 ] = ""
+trail [ # trail + 1 ] = "Related: " .. table . concat ( names , ", " ) .. "."
 end
-out [ # out + 1 ] = "## Reference"
-out [ # out + 1 ] = ""
 local target = entry . docs : match ( "^([^#]+)" ) or entry . docs
-out [
-# out + 1
-] = published [ target ] and (
-"- [" .. entry . docs .. "](" .. entry . docs .. ") covers the area this rule belongs to."
-) or ( "- `" .. entry . docs .. "` in the repository covers the area this rule belongs to." )
-out [ # out + 1 ] = "- [Diagnostic index](../index.html) lists every code."
+if published [ target ] then
+trail [ # trail + 1 ] = "Reference: [" .. entry . docs .. "](" .. entry . docs .. ")."
+else
+trail [ # trail + 1 ] = "Reference: `" .. entry . docs .. "` in the repository."
+end
+if entry . wrong then
+trail [
+# trail + 1
+] = "[Open the reported program in the playground](/playground/#source="
+.. htmlMod . urlFragmentEscape ( ( entry . wrong : gsub ( "%s+$" , "" ) ) )
+.. ")."
+end
+out [ # out + 1 ] = table . concat ( trail , " " )
 out [ # out + 1 ] = ""
 
-return table . concat ( out , "\n" )
+return out
 end
 
-local function indexMarkdown ( codes , title )
+
+function diagnostics . page (
+settings ,
+published
+)
+if not settings then
+return nil
+end
+local known = published or { }
+local title = settings . title or "Diagnostic index"
+local codes = explainMod . documented ( )
+local listed = { }
+for _ , code in ipairs ( codes ) do
+listed [ code ] = true
+end
+
 local out = {
 "# " .. title ,
 "" ,
-"Every code the compiler reports, with the rule it enforces and, where "
-.. "one is known, the program that reports it beside the same program "
-.. "corrected. `nupp explain <code>` prints the same thing in a "
+"Every code the compiler reports specifically, with the rule it enforces "
+.. "and, where one is known, the program that reports it beside the same "
+.. "program corrected. `nupp explain <code>` prints the same thing in a "
 .. "terminal." ,
+"" ,
+"A code that resolves only through its family is not here. The families "
+.. "are the leading digit, and each one answers for every code under it." ,
 "" ,
 }
 local byFamily = { }
@@ -39146,59 +39030,19 @@ out [ # out + 1 ] = "## " .. family
 out [ # out + 1 ] = ""
 for _ , code in ipairs ( byFamily [ family ] or { } ) do
 local entry = explainMod . lookup ( code )
-out [
-# out + 1
-] = "- [**"
-.. code
-.. "**]("
-.. code : lower ( )
-.. "/index.html): "
-.. ( entry and entry . summary : lower ( ) or "a diagnostic" )
-.. "."
-end
-out [ # out + 1 ] = ""
-end
-
-return table . concat ( out , "\n" )
-end
-
-
-
-function diagnostics . pages (
-settings ,
-published
-)
-local pages = { }
-if not settings then
-return pages
-end
-local known = published or { }
-local prefix = settings . path or "diagnostics"
-local title = settings . title or "Diagnostic index"
-local codes = explainMod . documented ( )
-local paged = { }
-for _ , code in ipairs ( codes ) do
-paged [ code ] = true
-end
-pages [ # pages + 1 ] = {
-path = prefix ,
-title = title ,
-markdown = indexMarkdown ( codes , title )
-}
-for _ , code in ipairs ( codes ) do
-local entry = explainMod . lookup ( code )
 if entry then
-pages [
-# pages + 1
-] = {
-path = route ( prefix , code ) ,
-title = code ,
-markdown = codeMarkdown ( code , entry , paged , known )
-}
+for _ , line in ipairs ( section ( code , entry , listed , known ) ) do
+out [ # out + 1 ] = line
+end
+end
 end
 end
 
-return pages
+return {
+path = settings . path or "diagnostics" ,
+title = title ,
+markdown = table . concat ( out , "\n" )
+}
 end
 
 return diagnostics
@@ -39386,6 +39230,20 @@ local docLines , parseDoc = docblock . linesOf , docblock . parse
 
 
 
+
+
+
+local function documentedNode ( entry )
+local annotations = entry and entry . annotations
+return annotations and annotations [ 1 ] or entry
+end
+
+local function entryDoc ( entry )
+return parseDoc ( docLines ( documentedNode ( entry ) ) )
+end
+
+
+
 local function declaredName ( stat )
 local name = stat . name . text
 if not stat . qualifiers then
@@ -39524,7 +39382,7 @@ end
 
 local function fieldItem ( field , childModuleName , includePrivate )
 local name = field . name . text
-local info = parseDoc ( docLines ( field ) )
+local info = entryDoc ( field )
 if not ( includePrivate or ( not privateName ( name ) and not info . tags . internal ) ) then
 return nil
 end
@@ -39694,7 +39552,7 @@ local childName = parentName .. "." .. field . name . text
 local items = { }
 for _ , entry in ipairs ( entries ) do
 if entry . kind == "fieldDecl" or entry . kind == "tshapeField" then
-local info = parseDoc ( docLines ( entry ) )
+local info = entryDoc ( entry )
 if info . tags . namespace and entriesOf ( entry ) then
 addModule ( entry , childName )
 else
@@ -39721,14 +39579,14 @@ table . sort ( items , byKindThenName )
 modules [ # modules + 1 ] = {
 name = childName ,
 path = path ,
-text = parseDoc ( docLines ( field ) ) . text ,
+text = entryDoc ( field ) . text ,
 items = items ,
 }
 expanding [ entries ] = nil
 end
 
 for _ , field in ipairs ( shape . fields or { } ) do
-local info = parseDoc ( docLines ( field ) )
+local info = entryDoc ( field )
 if field . kind == "tshapeField"
 and ( includePrivate or ( not privateName ( field . name . text ) and not info . tags . internal ) ) then
 addModule ( field , prefix )
@@ -39750,7 +39608,7 @@ fieldTextOverrides
 )
 local members = { }
 for _ , entry in ipairs ( entries or { } ) do
-local entryInfo = parseDoc ( docLines ( entry ) )
+local entryInfo = entryDoc ( entry )
 local entryName = entry . name and entry . name . text or ""
 local entryVisible = includePrivate or ( not privateName ( entryName ) and not entryInfo . tags . internal )
 if ( entry . kind == "fieldDecl" or entry . kind == "metamethodDecl" ) and entryVisible then
@@ -40374,7 +40232,6 @@ constructor = true ,
 continue = true ,
 each = true ,
 exclusive = true ,
-expands = true ,
 from = true ,
 takes = true ,
 const = true ,
@@ -40949,11 +40806,6 @@ local headingId = stringsMod . headingId
 local rewriteSymbolLinks = urlsMod . rewriteSymbolLinks
 local codeHtml = highlightMod . codeHtml
 
-
-
-
-const PLAYGROUND_EMBED = "/playground/embed.html"
-
 local html = { }
 
 
@@ -41045,37 +40897,20 @@ end
 
 
 
-
-
-
 local function urlFragmentEscape ( text )
 return ( text : gsub ( "[^%w%-%._~]" , function ( c )
 return ( "%%%02X" ) : format ( c : byte ( ) )
 end ) )
 end
 
-local function playgroundHeight ( source )
-local lines = 1
-for _ in source : gmatch ( "\n" ) do
-lines = lines + 1
-end
-
-
-
-
-return math . min ( 30 , 3.6 + lines * 1.35 )
-end
-
-local function playgroundHtml ( source , caption , compact )
+local function playgroundHtml ( source , caption )
 local trimmed = trim ( source )
 local title = caption or "Nupp playground: an editor that checks as you type"
-return '<iframe class="nuppdoc-playground" title="' .. htmlEscape (
+return '<nupp-playground class="nuppdoc-playground" aria-label="' .. htmlEscape (
 title
-) .. '" loading="lazy"' .. (
-compact and ( ' style="height:' .. tostring ( playgroundHeight ( trimmed ) ) .. 'rem"' ) or ""
-) .. ' src="' .. PLAYGROUND_EMBED .. (
-trimmed ~= "" and "#source=" .. urlFragmentEscape ( trimmed ) or ""
-) .. '"></iframe>'
+) .. '"' .. (
+trimmed ~= "" and ' data-source="' .. urlFragmentEscape ( trimmed ) .. '"' or ""
+) .. '></nupp-playground>'
 end
 
 local function renderedCodeBlockHtml ( block , links )
@@ -41083,7 +40918,7 @@ if block . language == "playground" then
 return playgroundHtml ( block . source , block . caption )
 end
 if block . language == "nupp" and not block . static and not block . firstLine then
-return playgroundHtml ( block . source , block . caption , true )
+return playgroundHtml ( block . source , block . caption )
 end
 return codeBlockHtml ( block . source , block . language , links , block . firstLine )
 end
@@ -41381,6 +41216,10 @@ end
 
 return out
 end
+
+
+
+html . urlFragmentEscape = urlFragmentEscape
 
 html . tableHtml = tableHtml
 html . markdownHtml = markdownHtml
@@ -41864,7 +41703,6 @@ for _ , candidate in ipairs ( pages or { } ) do
 if candidate . path ~= "" and not candidate . module then
 
 
-
 local key = candidate . path : match ( "^([^/]+)" ) or "Pages"
 if not byGroup [ key ] then
 byGroup [ key ] = { key = key , pages = { } }
@@ -42225,6 +42063,8 @@ local favicon = ""
 if settings . favicon and settings . favicon ~= "" then
 favicon = '<link rel="icon" href="' .. htmlEscape ( assetHref ( prefix , settings . favicon ) ) .. '">'
 end
+local playground = body : find ( "<nupp-playground" , 1 , true )
+and '<script type="module" src="/playground/doc-app.js"></script>' or ""
 
 return "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
 .. '<meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -42270,7 +42110,7 @@ home and "" or pageNavigation ( route , pages , prefix )
 .. '<span aria-hidden="true">·</span><span>Generated by nupp</span></footer></div>'
 .. searchDialog (
 prefix .. 'assets/search-index.js'
-) .. '<script src="' .. prefix .. 'assets/site.js"></script></body></html>\n'
+) .. playground .. '<script src="' .. prefix .. 'assets/site.js"></script></body></html>\n'
 end
 
 page . homeHero = homeHero
@@ -45433,11 +45273,12 @@ end
 if prev . _shortfnOpen or tok . _shortfnClose then
 return ""
 end
-if prev . kind == "..." and ( tok . namedVararg or prev . valueExpansion ) then
+if prev . kind == "..." and tok . namedVararg then
 return ""
 end
-if prev . expansionKeyword and tok . kind == "(" then
-return " "
+
+if prev . pluck then
+return ""
 end
 
 
@@ -47710,9 +47551,9 @@ end
 
 
 
-local expansion = { plans = { } , statementActive = { } , }
+local pluck = { plans = { } , statementActive = { } , }
 
-local function dottedExpansionParts ( node )
+local function dottedPathParts ( node )
 if not node or cst . isToken ( node ) then
 return nil , nil
 end
@@ -47722,7 +47563,7 @@ end
 if node . kind ~= "dotIndex" or not node . name then
 return nil , nil
 end
-local root , parts = dottedExpansionParts ( node . obj )
+local root , parts = dottedPathParts ( node . obj )
 if not root or not parts then
 return nil , nil
 end
@@ -47731,7 +47572,7 @@ parts [ # parts + 1 ] = node . name . text
 return root , parts
 end
 
-local function expansionCall ( call )
+local function pluckableCall ( call )
 if call . kind == "methodCall" then
 return call . obj ~= nil and call . name ~= nil
 end
@@ -47761,8 +47602,8 @@ and not call . layoutOf
 and not call . passPinnedPointer
 end
 
-function expansion . callPlan ( call )
-if not expansionCall ( call ) or not call . obj or not call . args or not call . args . loweredArgs then
+function pluck . callPlan ( call )
+if not pluckableCall ( call ) or not call . obj or not call . args or not call . args . loweredArgs then
 return nil
 end
 local hasDotted = false
@@ -47825,7 +47666,7 @@ plan . setupSteps [
 end
 
 local function bindPath ( source )
-local root , parts = dottedExpansionParts ( source )
+local root , parts = dottedPathParts ( source )
 if not root or not parts then
 return nil
 end
@@ -47877,7 +47718,7 @@ end
 return plan
 end
 
-function expansion . emitSteps ( steps )
+function pluck . emitSteps ( steps )
 for _ , step in ipairs ( steps ) do
 e ( "const " .. step . name .. "=" , sourceLine ( step . at ) )
 if step . kind == "field" then
@@ -47889,7 +47730,7 @@ e ( ";" )
 end
 end
 
-function expansion . directCall ( statement )
+function pluck . directCall ( statement )
 local kind = statement . kind
 local direct
 if kind == "callStmt" then
@@ -47909,9 +47750,9 @@ end
 return direct
 end
 
-function expansion . emitArgument ( argument , owner )
-local alias = expansion . argumentAliases and expansion . argumentAliases [ argument ]
-local field = expansion . argumentFields and expansion . argumentFields [ argument ]
+function pluck . emitArgument ( argument , owner )
+local alias = pluck . argumentAliases and pluck . argumentAliases [ argument ]
+local field = pluck . argumentFields and pluck . argumentFields [ argument ]
 if alias then
 e ( alias , sourceLine ( argument . expr or argument . source or owner ) )
 elseif field then
@@ -47926,36 +47767,36 @@ emit ( argument . expr )
 end
 end
 
-function expansion . emitArgs ( args )
+function pluck . emitArgs ( args )
 for j , argument in ipairs ( args . loweredArgs or { } ) do
 if j > 1 then
 e ( "," )
 end
-expansion . emitArgument ( argument , args )
+pluck . emitArgument ( argument , args )
 end
 end
 
-function expansion . activate ( plan )
-local prior = { aliases = expansion . argumentAliases , fields = expansion . argumentFields , }
-expansion . argumentAliases = plan . argAliases
-expansion . argumentFields = plan . argFields
-expansion . plans [ plan . call ] = plan
+function pluck . activate ( plan )
+local prior = { aliases = pluck . argumentAliases , fields = pluck . argumentFields , }
+pluck . argumentAliases = plan . argAliases
+pluck . argumentFields = plan . argFields
+pluck . plans [ plan . call ] = plan
 
 return prior
 end
 
-function expansion . restore ( plan , prior )
-expansion . plans [ plan . call ] = nil
-expansion . argumentAliases = prior . aliases
-expansion . argumentFields = prior . fields
+function pluck . restore ( plan , prior )
+pluck . plans [ plan . call ] = nil
+pluck . argumentAliases = prior . aliases
+pluck . argumentFields = prior . fields
 end
 
-function expansion . emitCall ( call , plan )
+function pluck . emitCall ( call , plan )
 if plan . methodAlias then
 e ( plan . methodAlias .. "(" .. plan . receiverAlias , sourceLine ( call ) )
 if call . args and # ( call . args . loweredArgs or { } ) > 0 then
 e ( "," )
-expansion . emitArgs ( call . args )
+pluck . emitArgs ( call . args )
 end
 e ( ")" )
 elseif plan . receiverAlias then
@@ -47971,14 +47812,14 @@ emit ( call . args )
 end
 end
 
-function expansion . emitStatement ( statement , call , plan )
-expansion . emitSteps ( plan . setupSteps )
+function pluck . emitStatement ( statement , call , plan )
+pluck . emitSteps ( plan . setupSteps )
 local guards = 0
 if plan . safeReceiver then
 e ( "if " .. plan . receiverAlias .. "~=nil then" )
 guards = guards + 1
 end
-expansion . emitSteps ( plan . afterReceiverSteps )
+pluck . emitSteps ( plan . afterReceiverSteps )
 if plan . safeCallee then
 e ( "if " .. plan . calleeAlias .. "~=nil then" )
 guards = guards + 1
@@ -47987,31 +47828,31 @@ if plan . safeMethod then
 e ( "if " .. plan . methodAlias .. "~=nil then" )
 guards = guards + 1
 end
-expansion . emitSteps ( plan . steps )
-local prior = expansion . activate ( plan )
+pluck . emitSteps ( plan . steps )
+local prior = pluck . activate ( plan )
 emit ( statement )
-expansion . restore ( plan , prior )
+pluck . restore ( plan , prior )
 for _ = 1 , guards do
 e ( "end" )
 end
 end
 
-function expansion . emitReturn ( statement , plan )
-expansion . emitSteps ( plan . setupSteps )
+function pluck . emitReturn ( statement , plan )
+pluck . emitSteps ( plan . setupSteps )
 if plan . safeReceiver then
 e ( "if " .. plan . receiverAlias .. "==nil then return nil end;" )
 end
-expansion . emitSteps ( plan . afterReceiverSteps )
+pluck . emitSteps ( plan . afterReceiverSteps )
 if plan . safeCallee then
 e ( "if " .. plan . calleeAlias .. "==nil then return nil end;" )
 end
 if plan . safeMethod then
 e ( "if " .. plan . methodAlias .. "==nil then return nil end;" )
 end
-expansion . emitSteps ( plan . steps )
-local prior = expansion . activate ( plan )
+pluck . emitSteps ( plan . steps )
+local prior = pluck . activate ( plan )
 emit ( statement )
-expansion . restore ( plan , prior )
+pluck . restore ( plan , prior )
 end
 
 local function coverageRuntime ( )
@@ -48399,34 +48240,30 @@ if kind == "recordDecl" and x . isAnnotationDefinition then
 
 return
 end
-if kind == "expansionDecl" then
-
-return
-end
-if not expansion . statementActive [ x ] then
-local direct = expansion . directCall ( x )
-local plan = direct and expansion . callPlan ( direct ) or nil
+if not pluck . statementActive [ x ] then
+local direct = pluck . directCall ( x )
+local plan = direct and pluck . callPlan ( direct ) or nil
 if plan and ( not plan . isSafe or kind == "callStmt" or kind == "returnStmt" ) then
-expansion . statementActive [ x ] = true
+pluck . statementActive [ x ] = true
 if plan . isSafe and kind == "returnStmt" then
-expansion . emitReturn ( x , plan )
+pluck . emitReturn ( x , plan )
 else
-expansion . emitStatement ( x , direct , plan )
+pluck . emitStatement ( x , direct , plan )
 end
-expansion . statementActive [ x ] = nil
+pluck . statementActive [ x ] = nil
 return
 end
 end
 if kind == "call" or kind == "safeCall" or kind == "methodCall" then
-local activePlan = expansion . plans [ x ]
+local activePlan = pluck . plans [ x ]
 if activePlan and not activePlan . delegate then
-expansion . emitCall ( x , activePlan )
+pluck . emitCall ( x , activePlan )
 return
 end
 end
 if kind == "args" and x . loweredArgs then
 e ( "(" , sourceLine ( x ) )
-expansion . emitArgs ( x )
+pluck . emitArgs ( x )
 e ( ")" )
 return
 end
@@ -49215,7 +49052,7 @@ if outputAt [ cIndex ] then
 e ( outputAt [ cIndex ] )
 else
 if loweredArgs then
-expansion . emitArgument ( args [ argumentIndex ] , x . args )
+pluck . emitArgument ( args [ argumentIndex ] , x . args )
 else
 emit ( args [ argumentIndex ] )
 end
@@ -49444,7 +49281,7 @@ end
 if args and args . loweredArgs then
 if # args . loweredArgs > 0 then
 e ( "," )
-expansion . emitArgs ( args )
+pluck . emitArgs ( args )
 end
 else
 for _ , value in ipairs ( values ) do
@@ -52573,7 +52410,6 @@ inst . constArgs [ j ] = map [ cv ] or cv
 end
 inst . paramKinds = n . paramKinds
 inst . fieldOrder = n . fieldOrder
-inst . expansions = n . expansions
 inst . arrayOf = n . arrayOf and substWith ( n . arrayOf , map , PRESERVE ) or nil
 inst . fieldDefs = n . fieldDefs
 inst . writeFieldDefs = n . writeFieldDefs
@@ -54219,9 +54055,6 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 local lexer = { }
-
-
-
 
 
 
@@ -67313,6 +67146,27 @@ return exprs
 end
 
 
+
+
+local function pluckGroupAhead ( )
+local j = i + 1
+if not tokens [ j ] or tokens [ j ] . kind ~= "name" then
+return false
+end
+j = j + 1
+while tokens [ j ] and tokens [ j ] . kind == "," do
+if not tokens [ j + 1 ] or tokens [ j + 1 ] . kind ~= "name" then
+return false
+end
+j = j + 2
+end
+
+return tokens [ j ] ~= nil and tokens [ j ] . kind == ")" and tokens [
+j + 1
+] ~= nil and tokens [ j + 1 ] . kind == "=" and tokens [ j + 2 ] ~= nil and tokens [ j + 2 ] . kind == "*"
+end
+
+
 local function parseCallargs ( typeFirst )
 local kind = cur ( ) . kind
 if kind == "(" then
@@ -67325,19 +67179,37 @@ local argument
 if typeFirst and # n . exprs == 0 then
 argument = parseType ( )
 n . typeArg = argument
+elseif ( cur ( ) . kind == "name" and tokens [ i + 1 ] and tokens [
+i + 1
+] . kind == "=" and tokens [ i + 2 ] and tokens [
+i + 2
+] . kind == "*" ) or ( cur ( ) . kind == "(" and pluckGroupAhead ( ) ) then
+local pluck = setmetatable({ kind =  "pluckArg" ,  names =  { } }, cst.PluckArg)
+if cur ( ) . kind == "(" then
+pluck . grouped = true
+add ( pluck , advance ( ) )
+pluck . names [ 1 ] = add ( pluck , advance ( ) )
+while cur ( ) . kind == "," do
+add ( pluck , advance ( ) )
+pluck . names [ # pluck . names + 1 ] = add ( pluck , advance ( ) )
+end
+add ( pluck , expect ( ")" , "to close a plucked parameter group" ) )
+else
+pluck . names [ 1 ] = add ( pluck , advance ( ) )
+end
+add ( pluck , advance ( ) )
+add ( pluck , advance ( ) ) . pluck = true
+
+
+
+pluck . value = add ( pluck , resetNoMethod ( parseExp ) )
+argument = pluck
 elseif cur ( ) . kind == "name" and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "=" then
 local named = setmetatable({ kind =  "namedArg" }, cst.NamedArg)
 named . name = add ( named , advance ( ) )
 add ( named , advance ( ) )
 named . value = add ( named , resetNoMethod ( parseExp ) )
 argument = named
-elseif cur ( ) . kind == "..." and tokens [
-i + 1
-] and tokens [ i + 1 ] . kind ~= "," and tokens [ i + 1 ] . kind ~= ")" then
-local expanded = setmetatable({ kind =  "expandArg" }, cst.ExpandArg)
-add ( expanded , advance ( ) ) . valueExpansion = true
-expanded . value = add ( expanded , resetNoMethod ( parseExp ) )
-argument = expanded
 else
 argument = resetNoMethod ( parseExp )
 end
@@ -68115,24 +67987,6 @@ e . body = add ( e , parseShortfn ( ) )
 else
 e . body = add ( e , parseFuncbody ( ) )
 end
-elseif cur ( ) . kind == "name" and cur ( ) . text == "expands" and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "(" then
-
-
-e = setmetatable({ kind =  "expansionDecl" ,  names =  { } }, cst.ExpansionDecl)
-add ( e , advance ( ) ) . expansionKeyword = true
-add ( e , advance ( ) )
-if cur ( ) . kind == ")" then
-errAt ( cur ( ) , "an expansion needs at least one field" )
-else
-repeat
-e . names [ # e . names + 1 ] = add ( e , expectName ( "in expansion declaration" ) )
-if cur ( ) . kind ~= "," then
-break
-end
-add ( e , advance ( ) )
-until false
-end
-add ( e , expect ( ")" , "to close expansion declaration" ) )
 elseif cur ( ) . kind == "name" and cur ( ) . text == "metamethod" and tokens [
 i + 1
 ] and tokens [ i + 1 ] . kind == "name" then
@@ -69829,48 +69683,47 @@ return m
 , setmetatable({ title = 
 
 
-"Named arguments and value expansion" ,  codes = 
-{ "NUPP2006" , "NUPP2118" , "NUPP2125" , "NUPP2126" } ,  body = 
+"Named and plucked arguments" ,  codes = 
+{ "NUPP2004" , "NUPP2006" , "NUPP2125" } ,  body = 
 [=[
 Inside a parenthesized call, `name = value` fills that parameter directly.
 Named arguments follow every positional argument and appear in parameter order.
 They erase to ordinary positional Lua arguments; an omitted optional slot before
 a later named argument is emitted as `nil`.
 
-A record, interface, or struct may declare ordered readable-field projections
-with `expands (field, ...)`. `...value` explicitly contributes one of those
-projections to a call's positional prefix. A plain `value` remains one argument.
-The named suffix reserves its parameter slots, and the checker selects the one
-expansion arity that makes the complete call fit. No match is **NUPP2125** and
-more than one is **NUPP2126**.
+`name = *value` fills that parameter from the field of `value` the parameter
+names: it means `name = value.name` and nothing more. `(a, b) = *value` fills
+several parameters from one operand. Nothing is declared on the operand's type,
+so a plucked name reaches any record with a field of that name, including one
+the caller does not own. A name that is not a field of the operand is
+**NUPP2004**; the resulting binding is checked like any other named argument, so
+a field whose type does not fit its parameter is an ordinary rejected call.
 
-Interfaces pass expansions to declarations that take their contract. A bounded
-type parameter sees its interface bound's projections, so generic adapters use
-the same syntax. An expansion operand is a name or dotted field path, such as
-`...entity.position`. Bind calls, computed indexes, and other producing
-expressions to a local before expanding them. A statement-level call evaluates
-each dotted operand path and common prefix once, while projected leaves remain
-direct positional arguments. A nested expression instead repeats prefixes when
-needed; expansion never introduces a closure or upvalue. A trailing call can
-still fill the remaining positional slots with its multiple results. This
-applies to functions, callable records, methods, constructors, and specialized
-calls with a statically known positional pack. Safe statements and returns guard
-the optional callee, receiver, and method before binding paths; nested safe calls
-retain the native safe operator and its lazy argument evaluation.
+A group's names are a set rather than a sequence. Every read is a field of one
+path, so no order among them is observable and `(y, x)` binds exactly what
+`(x, y)` does. Ordering is enforced between arguments, not inside a group.
+
+A plucked operand is a name or dotted field path, such as `*entity.position`.
+Bind calls, computed indexes, and other producing expressions to a local first;
+that restriction is what lets the reads be unordered and evaluated once. A
+statement-level call evaluates each dotted operand path and common prefix once,
+while the projected fields remain direct positional arguments. A nested
+expression instead repeats prefixes when needed; plucking never introduces a
+closure or upvalue. Plucking is a named binding, so positional arguments cannot
+follow it; a call keeps its several results only as the last argument, and so
+fills the remaining positional slots only when nothing is plucked after it.
+This applies to functions, callable
+records, methods, constructors, and specialized calls with a statically known
+positional pack. A bounded type parameter plucks through its bound, since the
+read is an ordinary field access. Safe statements and returns guard the optional
+callee, receiver, and method before binding paths; nested safe calls retain the
+native safe operator and its lazy argument evaluation.
 ]=] ,  example = 
 [=[
-local interface XY
-    readonly x: number
-    readonly y: number
-    expands (x, y)
-end
-
-local record Vec3 is XY
+local record Vec3
     x: number
     y: number
     z: number
-
-    expands (x, y, z)
 end
 
 local record Entity
@@ -69883,8 +69736,9 @@ end
 
 local position = new Vec3(x = 1, y = 2, z = 3)
 local entity = new Entity(position = position)
-draw(...entity.position, color = "blue")
-draw(x = position.x, y = position.y)
+draw(x = *position, y = *position, color = "blue")
+draw((x, y) = *entity.position, color = "blue")
+draw(10, y = *position)
 
 return position
 ]=] }, reference.Section)
@@ -75376,9 +75230,6 @@ types.AssociatedLookup = {} types.AssociatedLookup.__index = types.AssociatedLoo
 
 
 types.Nominal = {} types.Nominal.__index = types.Nominal
-
-
-
 
 
 

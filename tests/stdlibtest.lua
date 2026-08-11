@@ -234,6 +234,12 @@ end
 function M.processViewsSatisfyTheSharedContracts()
    assertClean(table.concat({
       "local process = require('nupp.io.process')",
+      "local child, spawnReason = process.new({args = {'true'}})",
+      "assert(child, spawnReason)",
+      "print(child.pid)",
+   }, "\n"))
+   assertClean(table.concat({
+      "local process = require('nupp.io.process')",
       "local child = nil as process.Process",
       "local input = child.stdin as process.Writer",
       "local output = child.stdout as process.Reader",

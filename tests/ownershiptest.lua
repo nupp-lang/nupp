@@ -94,6 +94,24 @@ function M.assertPreservesAndNarrowsAnOptionalOwner()
    }, "\n"))
 end
 
+function M.assertingANamedOptionalOwnerKeepsItInPlace()
+   local declaration = table.concat({
+      RESOURCE,
+      "local function cleanup(takes value: resource*?)",
+      "   if value then resource_free(value) end",
+      "end",
+      "@owned(cleanup)",
+      "cdef function maybe_resource(): resource*?",
+   }, "\n")
+   assertClean(table.concat({
+      declaration,
+      "local value = maybe_resource()",
+      "assert(value, 'resource is required')",
+      "drop(value)",
+   }, "\n"))
+   assertEq(codes(declaration .. "\nassert(maybe_resource())"), "NUPP2605")
+end
+
 function M.aPreservesBodyMustReturnTheNamedParameter()
    assertEq(codes(table.concat({
       "local function wrong<T>(value: T, other: T): T preserves value",

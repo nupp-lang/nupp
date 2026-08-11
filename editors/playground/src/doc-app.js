@@ -204,7 +204,7 @@ select {
   font-family: var(--pg-font-mono);
   font-size: 13px;
 }
-.editor .cm-content { padding: .75rem 0 0 !important; }
+.editor .cm-content { padding: .75rem 0 !important; }
 .output {
   margin-top: .35rem;
   border: 1px solid var(--pg-border);

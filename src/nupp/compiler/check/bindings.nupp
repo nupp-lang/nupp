@@ -649,7 +649,33 @@ function bindings.install(c: state.Checker): state.StatHandlers
         if not called then
             return
         end
+        -- A preserves result that is intentionally ignored leaves a named owner at
+        -- its source. The call checker needs this context before it decides whether
+        -- to transfer that source into the result.
+        called.discardingResults = true
         local resultT = c.infer(called)
+        -- Lua commonly spells a checked optional as two statements: `assert(value)`
+        -- followed by uses of that same name. The builtin returns only on the truthy
+        -- arm, so that fact continues after the statement even when its result is not
+        -- rebound.
+        if called.kind == "call" then
+            local callee, args = called.obj, called.args
+            local globalAssert = c.env and c.env.globals and c.env.globals.assert
+            if callee
+                and callee.kind == "name"
+                and callee.token
+                and callee.token.text == "assert"
+                and globalAssert
+                and callee.token.definition == globalAssert.definition
+                and args
+                and args.kind == "args"
+            then
+                local exprs = args.exprs or {}
+                if exprs[1] then
+                    applyFacts(facts.analyzeCond(exprs[1]).t)
+                end
+            end
+        end
         -- Registered here, where an `@allow` on the statement is still in scope, and
         -- judged once every effect summary in the file has settled. Ahead of the pack
         -- discard, which leaves early and asks a different question about the same

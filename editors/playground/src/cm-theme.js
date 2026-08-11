@@ -43,8 +43,19 @@ const chrome = EditorView.theme({
     color: "var(--pg-text)",
     backgroundColor: "var(--pg-background)",
     border: "1px solid var(--pg-border)",
+    fontSize: ".72rem",
+    lineHeight: "1.35",
   },
   ".cm-tooltip-lint": { fontFamily: "var(--pg-font)" },
+  ".cm-diagnostic": { padding: ".2rem .75rem" },
+  ".cm-nupp-hover pre": {
+    margin: "0",
+    padding: ".2rem .75rem",
+    fontFamily: "var(--pg-font-mono)",
+    fontSize: ".72rem",
+    lineHeight: "1.35",
+    whiteSpace: "pre-wrap",
+  },
 });
 
 // The Lua legacy stream-mode (see nupp-lang.js) only ever emits "keyword",

@@ -283,7 +283,7 @@ body {
   min-height: 0;
 }
 .is-embed .editor-host .cm-scroller { font-size: 13px; }
-.is-embed .editor-host .cm-content { padding: .5rem 0 .25rem; }
+.is-embed .editor-host .cm-content { padding: .5rem 0; }
 .is-embed #source-editor {
   overflow: hidden;
   border: 1px solid var(--pg-border);
@@ -549,9 +549,10 @@ body {
 
 .cm-nupp-hover pre {
   margin: 0;
-  padding: .45rem .6rem;
+  padding: .2rem .75rem;
   color: var(--pg-text);
   font-family: var(--pg-font-mono);
-  font-size: .78rem;
+  font-size: .72rem;
+  line-height: 1.35;
   white-space: pre-wrap;
 }

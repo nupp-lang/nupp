@@ -368,6 +368,10 @@ interface cst.Hints
     --- Capability state transported by a `preserves` result, per result slot.
     returnOwnershipStates: any
 
+    --- This call is a statement, so a named capability preserved through an ignored
+    --- result stays at its source rather than transferring into temporary storage.
+    discardingResults: boolean?
+
     --- Ordered discharge functions injected into ResourceSet.adopt.
     resourceAdoptCleanups: any
 
