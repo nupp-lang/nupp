@@ -1,5 +1,6 @@
 .nupp/
 /build/
+/editors/playground/node_modules
 /.rocks
 .claude/
 .DS_Store

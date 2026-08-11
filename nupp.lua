@@ -119,7 +119,7 @@ return {
             outDir = "build/docs",
             title = "Nupp API",
             name = "Nupp",
-            description = "LuaJIT, with the hard parts checked...at compile time",
+            description = "LuaJIT with static guarantees.",
             github = "https://github.com/nupp-lang/nupp",
             logo = "images/nupp.svg",
             favicon = "images/nupp-icon-32.png",
@@ -133,7 +133,7 @@ return {
                   source = "docs/home.md",
                   layout = "home",
                   heroTitle = "Nupp",
-                  heroText = "LuaJIT, with the hard parts checked.",
+                  heroText = "LuaJIT with static guarantees.",
                   heroContent = "Nupp gives LuaJIT precise types, checked C interop, "
                      .. "deterministic ownership, scheduler-neutral suspension, isolated "
                      .. "workers, and self-contained builds—without hiding the Lua underneath.",
