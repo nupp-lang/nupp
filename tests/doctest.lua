@@ -1209,7 +1209,7 @@ function M.siteMatchesTheNuppdocPageModel()
          "local answer = 42 -- highlighted Lua",
          "```",
          "",
-         "```nupp",
+         "```nupp:static",
          "local point: Point",
          "```",
          "",
@@ -1339,7 +1339,10 @@ function M.siteMatchesTheNuppdocPageModel()
       guide)
    assert(guide:find(">Nupp</label>", 1, true), guide)
    assert(guide:find(">Generated Lua</label>", 1, true), guide)
-   assert(guide:find("keyword-record", 1, true), guide)
+   assert(guide:find('class="nuppdoc-playground"', 1, true), guide)
+   assert(guide:find('loading="lazy"', 1, true), guide)
+   assert(guide:find('style="height:', 1, true), guide)
+   assert(guide:find('#source=local%20record%20Resource%20end', 1, true), guide)
    assert(guide:find("keyword-local", 1, true), guide)
    assert(guide:find('href="../modules/math/index.html#math.Point"', 1, true),
       "custom-page Nupp example did not link to the API reference")
@@ -1607,6 +1610,33 @@ function M.fencedBlocksKeepTheirOptions()
    assert(group:find(">two</label>", 1, true), group)
    -- and the prose on the far side of the block is still prose
    assert(group:find("<p>after</p>", 1, true), group)
+end
+
+-- Nupp examples are working editors by default, while the two cases whose source
+-- positions matter remain highlighted text.
+function M.nuppFencesUseLazyPlaygrounds()
+   local html = require("nupp.compiler.doc.html")
+   local editable = html.markdownHtml(
+      "```nupp\nlocal answer: integer = 42\n```", {})
+   assert(editable:find('class="nuppdoc-playground"', 1, true), editable)
+   assert(editable:find('loading="lazy"', 1, true), editable)
+   assert(editable:find('style="height:10rem"', 1, true), editable)
+   assert(editable:find(
+      '#source=local%20answer%3A%20integer%20%3D%2042', 1, true), editable)
+   assert(not editable:find('class="nuppdoc-code-block"', 1, true), editable)
+
+   local static = html.markdownHtml(
+      "```nupp:static\nlocal answer: integer\n```", {})
+   assert(static:find('class="nuppdoc-code-block"', 1, true), static)
+   assert(static:find('class="language-nupp"', 1, true), static)
+   assert(not static:find('nuppdoc-playground', 1, true), static)
+
+   local numbered = html.markdownHtml(
+      "```nupp:line-numbers=41\nlocal answer = 42\n```", {})
+   assert(numbered:find('class="nuppdoc-code-block has-line-numbers"',
+      1, true), numbered)
+   assert(numbered:find("<span>41</span>", 1, true), numbered)
+   assert(not numbered:find('nuppdoc-playground', 1, true), numbered)
 end
 
 -- Lunamark does not parse `:::` containers itself. The container is lifted out,

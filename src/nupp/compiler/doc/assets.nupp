@@ -37,7 +37,7 @@ local THEME = [[
 .nuppdoc-code-block.has-line-numbers pre>code{overflow:auto;flex:1;min-width:0}
 .nuppdoc-line-numbers{flex:none;padding-right:.9rem;border-right:1px solid var(--nuppdoc-border);color:var(--nuppdoc-text-faint);font-family:var(--nuppdoc-font-mono);font-size:14px;line-height:1.55;text-align:right;user-select:none;-webkit-user-select:none}
 .nuppdoc-line-numbers span{display:block}
-/* A ```playground fence. Given a height rather than sized to its contents: an
+/* A Nupp or ```playground fence. Given a height rather than sized to its contents: an
  * iframe cannot measure a document it does not share an origin with, and the
  * editor inside scrolls on its own anyway.
  *
@@ -49,6 +49,7 @@ local THEME = [[
  * theme's own border toward its text so any palette gets a visible edge; a site
  * that wants the frame to match the panes exactly sets the property. */
 .nuppdoc-playground{display:block;width:100%;height:var(--nuppdoc-playground-height);margin:1.25rem 0;border:1px solid var(--nuppdoc-playground-border);border-radius:var(--nuppdoc-code-block-radius);background:var(--nuppdoc-code-background);color-scheme:normal}
+.nuppdoc-code-group>.nuppdoc-playground,.nuppdoc-code-panel>.nuppdoc-playground{margin:0;border:0;border-radius:0}
 .nuppdoc-logo{width:auto;height:28px;border-radius:5px}
 .nuppdoc-icon-link{display:grid;width:34px;height:34px;place-items:center;padding:0;color:var(--nuppdoc-text-muted);border:0;border-radius:7px;background:transparent;cursor:pointer;text-decoration:none}.nuppdoc-icon-link:hover,.nuppdoc-icon-link[aria-pressed="true"]{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}.nuppdoc-icon-link svg{width:18px;height:18px}.nuppdoc-panel-toggle-right svg{transform:scaleX(-1)}
 .nuppdoc-shell{transition:grid-template-columns 160ms ease}.nuppdoc-shell.is-sidebar-collapsed{grid-template-columns:0 minmax(0,1fr) var(--nuppdoc-outline-width)}.nuppdoc-shell.is-outline-collapsed{grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr) 0}.nuppdoc-shell.is-sidebar-collapsed.is-outline-collapsed{grid-template-columns:0 minmax(0,1fr) 0}.nuppdoc-shell.is-sidebar-collapsed>.nuppdoc-sidebar,.nuppdoc-shell.is-outline-collapsed>.nuppdoc-outline{overflow:hidden;padding-right:0;padding-left:0;border:0;opacity:0;pointer-events:none}

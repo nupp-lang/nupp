@@ -9,12 +9,14 @@ What is not lunamark's is the fenced blocks and `:::` containers. A fence here
 carries more than a language — an optional `[caption]`, `:line-numbers` with an
 optional start — and a `::: code-group` gathers several fences into one tabbed
 widget. Note, info, tip, warning, and danger containers become admonitions whose
-bodies are still rendered by lunamark. A `playground` fence is not code to read
-at all: it embeds the editor, so the block checks as the reader types it.
-Rather than teach a markdown grammar
-about any of that, every custom region is lifted out before lunamark sees the
-document and an HTML comment is left in its place; markdown does not touch a
-comment, so the rendered block goes back exactly where it came from afterwards.
+bodies are still rendered by lunamark. A `nupp` fence embeds the editor, so the
+block checks once the reader engages with it; `playground` remains the explicit
+spelling for an empty editor or example picker. `:static` keeps a Nupp excerpt
+as highlighted text when editing would not make sense. Rather than teach a
+markdown grammar about any of that, every custom region is lifted out before
+lunamark sees the document and an HTML comment is left in its place; markdown
+does not touch a comment, so the rendered block goes back exactly where it came
+from afterwards.
 Reading the fences here also avoids the trap of reading them back out of the
 output, where the whole info string has been folded into one class attribute
 and `lua [caption]` no longer matches `lua`.
@@ -137,14 +139,38 @@ local function urlFragmentEscape(text: string): string
     end))
 end
 
-local function playgroundHtml(source: string, caption: string?): string
+local function playgroundHeight(source: string): number
+    local lines = 1
+    for _ in source:gmatch("\n") do
+        lines = lines + 1
+    end
+    -- The embedded editor has a 2.1rem head and a 1.9rem collapsed output bar.
+    -- Give the source roughly one line-height per line, with enough room for a
+    -- small example to edit comfortably and a cap so a long program scrolls
+    -- inside the editor rather than swallowing the page.
+    return math.max(10, math.min(30, 5.5 + lines * 1.35))
+end
+
+local function playgroundHtml(source: string, caption: string?, compact: boolean?): string
     local trimmed = trim(source)
     local title = caption or "Nupp playground: an editor that checks as you type"
     return '<iframe class="nuppdoc-playground" title="' .. htmlEscape(
         title
-    ) .. '" loading="lazy" src="' .. PLAYGROUND_EMBED .. (
+    ) .. '" loading="lazy"' .. (
+        compact and (' style="height:' .. tostring(playgroundHeight(trimmed)) .. 'rem"') or ""
+    ) .. ' src="' .. PLAYGROUND_EMBED .. (
         trimmed ~= "" and "#source=" .. urlFragmentEscape(trimmed) or ""
     ) .. '"></iframe>'
+end
+
+local function renderedCodeBlockHtml(block, links)
+    if block.language == "playground" then
+        return playgroundHtml(block.source, block.caption)
+    end
+    if block.language == "nupp" and not block.static and not block.firstLine then
+        return playgroundHtml(block.source, block.caption, true)
+    end
+    return codeBlockHtml(block.source, block.language, links, block.firstLine)
 end
 
 local function codeGroupHtml(blocks, links)
@@ -157,7 +183,7 @@ local function codeGroupHtml(blocks, links)
     if #labeled == 0 then
         local out = {'<div class="nuppdoc-code-group" role="group">'}
         for _, block in ipairs(blocks) do
-            out[#out + 1] = codeBlockHtml(block.source, block.language, links, block.firstLine)
+            out[#out + 1] = renderedCodeBlockHtml(block, links)
         end
         out[#out + 1] = "</div>"
         return table.concat(out)
@@ -173,11 +199,9 @@ local function codeGroupHtml(blocks, links)
             index == 1 and " checked" or ""
         ) .. '><label class="nuppdoc-code-tab" for="' .. id .. '">' .. htmlEscape(
             block.caption
-        ) .. '</label><figure class="nuppdoc-code-panel">' .. codeBlockHtml(
-            block.source,
-            block.language,
-            links,
-            block.firstLine
+        ) .. '</label><figure class="nuppdoc-code-panel">' .. renderedCodeBlockHtml(
+            block,
+            links
         ) .. '</figure>'
     end
     out[#out + 1] = "</div>"
@@ -223,6 +247,7 @@ local function readFence(lines, index)
         language = language ~= "" and language or "text",
         caption = options:match("%[([^%]]+)%]"),
         firstLine = lineNumberStart(options),
+        static = options:find(":static", 1, true) ~= nil,
         source = table.concat(code, "\n"),
     }, index + 1
 end
@@ -298,10 +323,13 @@ local function extractBlocks(text, links, rendered)
         elseif lines[index]:match("^```") then
             local block, after = readFence(lines, index)
             index = after - 1
-            if block.language == "playground" then
-                placeholder(playgroundHtml(block.source, block.caption))
+            local interactive = block.language == "playground" or (
+                block.language == "nupp" and not block.static and not block.firstLine
+            )
+            if interactive then
+                placeholder(renderedCodeBlockHtml(block, links))
             else
-                local markup = codeBlockHtml(block.source, block.language, links, block.firstLine)
+                local markup = renderedCodeBlockHtml(block, links)
                 if block.caption then
                     markup = '<figure class="nuppdoc-labeled-code"><figcaption>' .. htmlEscape(
                         block.caption

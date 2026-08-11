@@ -71,11 +71,18 @@ const options = { ...OPTION_DEFAULTS };
 
 // --- Worker request/response plumbing -------------------------------------
 
-const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+// A documentation page can carry dozens of playground iframes. The iframe itself is
+// lazy-loaded by the browser; within an embed, defer the substantially more expensive
+// Fengari VM and self-hosted compiler until the reader actually engages with it. The
+// full playground has only one instance and starts eagerly below.
+let worker = null;
+let workerReady = null;
+let resolveWorkerReady = null;
+let rejectWorkerReady = null;
 let nextId = 1;
 const pending = new Map();
 
-worker.onmessage = (event) => {
+function onWorkerMessage(event) {
   const msg = event.data;
   if (msg.type === "status") {
     setStatus(msg.message);
@@ -84,7 +91,9 @@ worker.onmessage = (event) => {
   if (msg.type === "ready") {
     setStatus("ready");
     setBusy(false);
-    checkNow();
+    resolveWorkerReady?.();
+    resolveWorkerReady = null;
+    rejectWorkerReady = null;
     return;
   }
   if (msg.type === "boot-error") {
@@ -101,15 +110,45 @@ worker.onmessage = (event) => {
       outputSummary.classList.add("is-error");
     }
     setOutputExpanded(true);
+    rejectWorkerReady?.(new Error(msg.message));
+    resolveWorkerReady = null;
+    rejectWorkerReady = null;
     return;
   }
   const resolver = pending.get(msg.id);
   if (!resolver) return;
   pending.delete(msg.id);
   resolver(msg);
-};
+}
 
-function request(kind, extra) {
+function startWorker() {
+  if (workerReady) return workerReady;
+
+  setBusy(true);
+  setStatus("starting…");
+  workerReady = new Promise((resolve, reject) => {
+    resolveWorkerReady = resolve;
+    rejectWorkerReady = reject;
+  });
+  worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+  worker.onmessage = onWorkerMessage;
+  worker.onerror = (event) => {
+    const message = event.message || "the compiler worker failed to start";
+    setBusy(false);
+    setStatus("failed to start: " + message, true);
+    rejectWorkerReady?.(new Error(message));
+    resolveWorkerReady = null;
+    rejectWorkerReady = null;
+  };
+  return workerReady;
+}
+
+async function request(kind, extra) {
+  try {
+    await startWorker();
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
   const id = nextId++;
   return new Promise((resolve) => {
     pending.set(id, resolve);
@@ -722,5 +761,25 @@ if (shareButton) {
   });
 }
 
-setBusy(true);
-setStatus("starting…");
+const isEmbed = document.body.classList.contains("is-embed");
+let activated = false;
+
+function activateCompiler() {
+  if (activated) return;
+  activated = true;
+  startWorker().then(checkNow).catch(() => {
+    // startWorker already put the useful failure in the status/output UI.
+  });
+}
+
+if (isEmbed) {
+  setBusy(false);
+  setStatus("checking starts when you edit");
+  // Capture sees the first gesture before CodeMirror consumes it. Keyboard covers a
+  // reader who tabs into the editor; focusin covers assistive technology and scripts.
+  addEventListener("pointerdown", activateCompiler, { once: true, capture: true });
+  addEventListener("keydown", activateCompiler, { once: true, capture: true });
+  addEventListener("focusin", activateCompiler, { once: true, capture: true });
+} else {
+  activateCompiler();
+}

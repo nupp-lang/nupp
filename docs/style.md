@@ -123,8 +123,13 @@ ownership page for a reason.
   `-- file is borrowed<LuaFile> here`.
 - Show the error too. A page that teaches a rule shows one program that breaks
   it and the code that reports it.
-- Use ` ```playground ` when the reader should edit the example rather than
-  read it. One per page at most, near the top.
+- A `nupp` fence is editable and checked in the browser. Keep each example a
+  small, self-contained program so its diagnostics teach the intended rule.
+- Use `:static` on a Nupp fence only for a declaration fragment or excerpt that
+  is useful to read but cannot sensibly be checked on its own. A line-numbered
+  Nupp fence is static as well.
+- Use ` ```playground ` explicitly for an empty playground that should open on
+  the example menu rather than a particular program.
 
 ## Cross-linking
 

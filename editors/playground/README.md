@@ -118,6 +118,12 @@ rather than under. It is what the docs site's ` ```playground ` fence embeds
 hands the buffer to the full playground rather than opening a blank one; the
 full playground has no such button, being already there.
 
+Documentation pages turn ordinary `nupp` fences into these embeds too.
+Browsers lazy-load the iframe itself, and the embed does not create its Fengari
+worker or load the self-hosted compiler until the reader focuses, edits, or
+otherwise engages with it. That keeps a page with many examples close to the
+cost of static code while it is being read; the full playground starts eagerly.
+
 The panel answers one question — what did the compiler say. Its main pane
 holds the diagnostics as the CLI prints them when something is wrong, and the
 generated Lua when nothing is; the list stays either way, because a clean

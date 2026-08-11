@@ -145,7 +145,9 @@ there is not privacy — its bindings are the interface it describes. Mark one
 ## Markdown pages
 
 A docs target can carry handwritten pages alongside the generated API. Beyond
-ordinary Markdown, five things are available in a fenced block.
+ordinary Markdown, five things are available in a fenced block. Every ordinary
+`nupp` fence becomes an editable playground; the other languages stay
+highlighted, static code.
 
 **A caption**, which also becomes a tab label:
 
@@ -192,7 +194,8 @@ The supported kinds are `note`, `info`, `tip`, `warning`, and `danger`. Omit
 the title to use the capitalized kind. Containers may nest, and a fenced code
 block containing `:::` does not close its admonition.
 
-**A playground**, which is the editor rather than a picture of one:
+**A playground**, which is also the editor rather than a picture of one. Spell
+it explicitly when an empty block should open on the playground's example menu:
 
 ````
 ```playground
@@ -201,14 +204,20 @@ local p: Priority = "urgent"
 ```
 ````
 
-The program is checked in the reader's browser, as they type, by the real
+An ordinary `nupp` fence supplies its program the same way. The program is
+checked in the reader's browser, as they type, by the real
 compiler — see [`editors/playground`](https://github.com/nupp-lang/nupp/tree/main/editors/playground)
 for how that works and what it cannot do. An empty fence opens on the editor's
 own example menu instead of a program; a caption becomes the frame's title.
+Add `:static` to a `nupp` fence when it is deliberately an incomplete fragment.
+`:line-numbers` also keeps a Nupp fence static so its requested starting line
+is preserved.
 
 The block is an `<iframe>` pointing at `/playground/embed.html`, so a site using
 this has to serve the playground's `dist/` at `/playground/`, the way
-`nupp task docs-serve` does. Its height is `--nuppdoc-playground-height`.
+`nupp task docs-serve` does. Explicit playground fences use
+`--nuppdoc-playground-height`; ordinary Nupp examples are sized from their line
+count and capped at that same height.
 
 **File embeds**, which read a file at build time:
 
@@ -220,10 +229,11 @@ The language is guessed from the extension. This page's
 [grammar reference](../grammar.md) is written this way, so it cannot drift from
 the file it documents.
 
-Use `nupp` as the language for Nupp source: it is highlighted by the compiler's
-own parser and lexer, which agree about tokens and contextual syntax and can turn
-a name into a link into the API reference. Every other language goes to
-Scintillua.
+Use `nupp` as the language for Nupp source. The embedded editor checks it with
+the compiler once the reader engages with the frame. A `:static` Nupp excerpt
+is highlighted by the compiler's own parser and lexer, which agree about tokens
+and contextual syntax and can turn a name into a link into the API reference.
+Every other language goes to Scintillua.
 
 Links between pages are written as ordinary relative Markdown paths to the
 source file — `[ownership](ownership.md)` — and are rewritten to the page's
@@ -255,8 +265,9 @@ A target that reads as a URL, has a slash, or carries a fragment is left alone,
 so ordinary links are never captured. A name nothing documents is left alone
 too, except that empty link text still renders the name — a reference to
 something that has moved reads as the name it used to have rather than as an
-invisible link. References inside a code block are code; use the `nupp`
-language there, which links names by itself.
+invisible link. References inside a code block are code. A `nupp:static` block
+can link names into the API reference; an editable Nupp block treats them only
+as program text.
 
 In `markdown` output the same references resolve to anchors within the
 document. A module's own `llms.txt` holds one module, so a reference to a

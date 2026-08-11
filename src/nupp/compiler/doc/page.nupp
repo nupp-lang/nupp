@@ -427,7 +427,11 @@ local function homeFeatures(config: page.Hero, links: urlsMod.Links?): string
             ] = '<img src="' .. htmlEscape(feature.image) .. '" alt="' .. htmlEscape(feature.imageAlt or "") .. '">'
         elseif feature.code then
             local language = feature.codeLanguage or "nupp"
-            out[#out + 1] = markdownHtml("```" .. language .. "\n" .. feature.code .. "\n```", links)
+            -- Feature cards are compact illustrations rather than authored Markdown
+            -- examples. Keep their Nupp static: the home page already has its one
+            -- full playground immediately above the showcase.
+            local fence = language == "nupp" and "nupp:static" or language
+            out[#out + 1] = markdownHtml("```" .. fence .. "\n" .. feature.code .. "\n```", links)
         elseif feature.icon then
             out[
                 #out + 1
