@@ -33,6 +33,8 @@ const LUAJIT_SHA256: &str = "85497ea149d136afbe2d7ef222e08849248e52cecc6dc8deefd
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
+    export_native_provider();
+
     let out = PathBuf::from(std::env::var("OUT_DIR").expect("cargo sets OUT_DIR"));
     let luajit = build_luajit(&out);
     let include = luajit.join("src");
@@ -78,6 +80,109 @@ fn main() {
         println!("cargo:rustc-link-lib={library}");
     }
     println!("cargo:include={}", include.display());
+}
+
+const NATIVE_COMMON_SYMBOLS: &[&str] = &[
+    "nuppNativeError",
+    "nuppBytesData",
+    "nuppBytesLength",
+    "nuppBytesDestroy",
+];
+
+const NATIVE_FILES_SYMBOLS: &[&str] = &[
+    "nuppFilesInfo",
+    "nuppFilesReadLink",
+    "nuppFilesCreateSymlink",
+    "nuppFilesSetReadOnly",
+    "nuppFilesCreateDirectory",
+    "nuppFilesRemove",
+    "nuppFilesRename",
+    "nuppFilesList",
+    "nuppFilesGlob",
+    "nuppFilesCreateTemporary",
+    "nuppFilesCurrentDirectory",
+    "nuppFilesUserFolder",
+    "nuppFileOpen",
+    "nuppFileRead",
+    "nuppFileWrite",
+    "nuppFileSeek",
+    "nuppFileSize",
+    "nuppFileFlush",
+    "nuppFileClose",
+    "nuppFsSubmitRead",
+    "nuppFsSubmitWrite",
+    "nuppFsSubmitCopy",
+    "nuppFsStatus",
+    "nuppFsData",
+    "nuppFsLength",
+    "nuppFsError",
+    "nuppFsCancel",
+    "nuppFsDestroy",
+    "nuppFsPoll",
+    "nuppFsWait",
+    "nuppFsPending",
+];
+
+const NATIVE_PROCESS_SYMBOLS: &[&str] = &[
+    "nuppProcessMonotonicMs",
+    "nuppProcessSpawnBegin",
+    "nuppProcessSpawnArg",
+    "nuppProcessSpawnEnv",
+    "nuppProcessSpawnClearEnv",
+    "nuppProcessSpawnCwd",
+    "nuppProcessSpawnStdio",
+    "nuppProcessSpawnCancel",
+    "nuppProcessSpawnRun",
+    "nuppProcessTakeStream",
+    "nuppProcessTryRead",
+    "nuppProcessTryWrite",
+    "nuppProcessCloseStream",
+    "nuppProcessStreamDestroy",
+    "nuppProcessPollExit",
+    "nuppProcessId",
+    "nuppProcessKill",
+    "nuppProcessReap",
+    "nuppProcessUncollectedTotal",
+    "nuppProcessDestroy",
+    "nuppProcessWaitReady",
+];
+
+/// Makes statically linked provider functions visible to LuaJIT's `ffi.C`.
+///
+/// Each named undefined symbol also keeps that function alive when the linker
+/// garbage-collects sections from the provider rlib. Windows' export directive
+/// does both jobs; ELF and Mach-O need an export-all flag beside their roots.
+fn export_native_provider() {
+    let files = enabled("NATIVE_FILES");
+    let process = enabled("NATIVE_PROCESS");
+    if !files && !process {
+        return;
+    }
+
+    let target = std::env::var("TARGET").expect("cargo sets TARGET");
+    let mut symbols = NATIVE_COMMON_SYMBOLS.to_vec();
+    if files {
+        symbols.extend_from_slice(NATIVE_FILES_SYMBOLS);
+    }
+    if process {
+        symbols.extend_from_slice(NATIVE_PROCESS_SYMBOLS);
+    }
+
+    if target.contains("msvc") {
+        for symbol in symbols {
+            println!("cargo:rustc-link-arg=/EXPORT:{symbol}");
+        }
+    } else if target.contains("apple") {
+        println!("cargo:rustc-link-arg=-Wl,-export_dynamic");
+        for symbol in symbols {
+            println!("cargo:rustc-link-arg=-Wl,-u,_{symbol}");
+        }
+    } else {
+        println!("cargo:rustc-link-arg=-Wl,--export-dynamic");
+        for symbol in symbols {
+            println!("cargo:rustc-link-arg=-Wl,-u,{symbol}");
+        }
+    }
 }
 
 fn enabled(name: &str) -> bool {

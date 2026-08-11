@@ -148,6 +148,7 @@ local FEATURES: {
     globals = {"nupp.io.files"},
     cargo = "runtime/native/Cargo.toml",
     cargoFeature = "files",
+    host = "native-files",
     library = "nupp_native",
     binary = true,
     -- A file operation that waits performs `suspend`, so the runtime that
@@ -174,6 +175,7 @@ local FEATURES: {
     runtimeModule = "nupp.io.process",
     cargo = "runtime/native/Cargo.toml",
     cargoFeature = "process",
+    host = "native-process",
     library = "nupp_native",
     binary = true,
     requires = {"runtime.suspension"},
