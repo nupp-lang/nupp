@@ -103,6 +103,35 @@ local function canonicalHost(text: string, level: integer): string
     return host:lower()
 end
 
+local function mergedHeaders(first: any, second: any, contentType: string?): (any, any, {any})
+    local byLower, merged = {}, {}
+    local function add(headers: any): nil
+        for name, value in pairs(headers or {}) do
+            if type(name) ~= "string" or type(value) ~= "string" or name == "" or name:find("[\r\n:]") ~= nil or value:find("[\r\n]") ~= nil then
+                error("nupp: HTTP headers need valid string names and values", 3)
+            end
+            local lower = name:lower()
+            local previous = byLower[lower]
+            if previous ~= nil then
+                merged[previous] = nil
+            end
+            merged[name] = value
+            byLower[lower] = name
+        end
+    end
+    add(first)
+    add(second)
+    if contentType ~= nil and byLower["content-type"] == nil then
+        merged["content-type"] = contentType
+        byLower["content-type"] = "content-type"
+    end
+    local packed = {}
+    for name, value in pairs(merged) do
+        packed[#packed + 1] = {name, value}
+    end
+    return byLower, merged, packed
+end
+
 local function copiedOptions(options: http.Options?): any
     local given: any = options or {}
     local headers = {}
@@ -133,9 +162,12 @@ local function copiedOptions(options: http.Options?): any
     if given.compressed ~= nil and type(given.compressed) ~= "boolean" then
         error("nupp: HTTP compressed must be a boolean", 3)
     end
+    local _, _, packedHeaders = mergedHeaders(nil, headers, nil)
+    local manualRedirects = next(insecure) ~= nil
 
     return {
         headers = headers,
+        packedHeaders = packedHeaders,
         timeoutMs = optionInteger(given, "timeoutMs", 30000, 1),
         connectTimeoutMs = optionInteger(given, "connectTimeoutMs", 10000, 1),
         stallTimeoutMs = optionInteger(given, "stallTimeoutMs", 0, 0),
@@ -146,6 +178,7 @@ local function copiedOptions(options: http.Options?): any
         maxBytes = optionInteger(given, "maxBytes", 0, 0),
         compressed = given.compressed ~= false,
         insecureHosts = insecure,
+        manualRedirects = manualRedirects,
         proxy = given.proxy,
         noProxy = given.noProxy,
         proxyCredentials = given.proxyCredentials,
@@ -564,29 +597,12 @@ function http.Client:send(request: http.Request): (http.Response?, string?)
         if scheme ~= "http" and scheme ~= "https" then
             error("nupp: HTTP request URL must use http or https", 2)
         end
-        local method = given.method or "GET"
-        if type(method) ~= "string" or method == "" or method:find("[^!#$%%&'*+%.^_`|~%w%-]") ~= nil then
+        local method = given.method
+        if method == nil then
+            method = "GET"
+        elseif type(method) ~= "string" or method == "" or method:find("[^!#$%%&'*+%.^_`|~%w%-]") ~= nil then
             error("nupp: HTTP method is not a valid token", 2)
         end
-        local byLower, merged = {}, {}
-        local function addHeaders(headers: any): nil
-            for name, value in pairs(headers or {}) do
-                if type(name) ~= "string" or type(value) ~= "string" or name == "" or name:find("[\r\n:]") ~= nil or value:find("[\r\n]") ~= nil then
-                    error("nupp: HTTP headers need valid string names and values", 3)
-                end
-                local lower = name:lower()
-                local previous = byLower[lower]
-                if previous ~= nil then
-                    merged[previous] = nil
-                end
-                merged[name] = value
-                byLower[lower] = name
-            end
-        end
-        if not given._redirected then
-            addHeaders(self._options.headers)
-        end
-        addHeaders(given.headers)
         local requestBody = given.body
         local body, bodyKind, bodyLength, reader = requestBody, 0, nil, nil
         local contentType = nil
@@ -613,28 +629,36 @@ function http.Client:send(request: http.Request): (http.Response?, string?)
                 error("nupp: HTTP request body is not bytes, a Buffer, ReaderBody, or FileBody", 2)
             end
         end
-        if contentType ~= nil and byLower["content-type"] == nil then
-            merged["content-type"] = contentType
-            byLower["content-type"] = "content-type"
+        local manualRedirects = self._options.manualRedirects
+        local byLower, merged, packed
+        if given.headers == nil and not given._redirected and contentType == nil and not manualRedirects then
+            packed = self._options.packedHeaders
+        else
+            byLower, merged, packed = mergedHeaders(
+                not given._redirected and self._options.headers or nil,
+                given.headers,
+                contentType
+            )
         end
-        local packed = {}
-        for name, value in pairs(merged) do
-            packed[#packed + 1] = {name, value}
+        local insecure = false
+        if manualRedirects then
+            local host = (given.url:host() or ""):lower()
+            insecure = self._options.insecureHosts[host] == true
         end
-        local host = (given.url:host() or ""):lower()
         local requestTimeout = given.timeoutMs ~= nil and whole(given.timeoutMs, "timeoutMs", 1) or self._options.timeoutMs
-        local deadline = given._deadline or (self._native:now() + requestTimeout)
-        local remaining = math.floor(deadline - self._native:now()) as integer
+        local now = self._native:now()
+        local deadline = given._deadline or (now + requestTimeout)
+        local remaining = math.floor(deadline - now) as integer
         if remaining < 1 then
             return nil, "HTTP request timed out"
         end
         local descriptor = {
-            url = given.url:toString(), method = method, headers = packed,
+            uri = given.url, method = method, headers = packed,
             body = body, bodyKind = bodyKind, bodyLength = bodyLength,
             timeoutMs = remaining,
             stallTimeoutMs = given.stallTimeoutMs ~= nil and whole(given.stallTimeoutMs, "stallTimeoutMs", 0) or self._options.stallTimeoutMs,
             maxBytes = given.maxBytes ~= nil and whole(given.maxBytes, "maxBytes", 0) or self._options.maxBytes,
-            insecure = self._options.insecureHosts[host] == true,
+            insecure = insecure,
         }
         if not suspension.canSuspend() then
             error("nupp: HTTP request cannot suspend here", 2)
@@ -734,8 +758,7 @@ function http.Client:send(request: http.Request): (http.Response?, string?)
             return nil, problem
         end
         local status = head.status as integer
-        local location = packedHeader(head.headers, "location")
-        local manualRedirects = next(self._options.insecureHosts) ~= nil
+        local location = manualRedirects and packedHeader(head.headers, "location") or nil
         if manualRedirects and location ~= nil and (status == 301 or status == 302 or status == 303 or status == 307 or status == 308) then
             local followed = (given._redirects or 0) as integer
             if followed >= self._options.maxRedirects then
@@ -796,7 +819,7 @@ function http.Client:send(request: http.Request): (http.Response?, string?)
             transfer:close()
             return nil, bodyReason
         end
-        local effective = head.url == given.url:toString() and given.url or nupp.io.URI.new(head.url)
+        local effective = head.url == nil and given.url or nupp.io.URI.new(head.url)
         if effective == nil then
             transfer:close()
             return nil, "the HTTP provider returned an invalid effective URL"

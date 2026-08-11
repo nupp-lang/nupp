@@ -17,6 +17,7 @@ http = [
     "dep:tokio",
     "dep:tokio-stream",
     "dep:tokio-util",
+    "uri",
 ]
 process = ["dep:libc", "dep:windows-sys"]
 path = ["dep:camino", "dep:path-clean", "dep:pathdiff"]

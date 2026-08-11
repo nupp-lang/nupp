@@ -28,6 +28,7 @@ use tokio_stream::Stream;
 use tokio_util::io::ReaderStream;
 
 use super::set_error;
+use super::uri::{clone_uri, NuppUri};
 
 const MAX_HEADER_BYTES: usize = 256 * 1024;
 const RESPONSE_WINDOW_BYTES: usize = 1024 * 1024;
@@ -132,7 +133,7 @@ pub struct NuppHttpClientOptions {
 
 #[repr(C)]
 pub struct NuppHttpRequest {
-    url: NuppHttpSlice,
+    uri: *const NuppUri,
     method: NuppHttpSlice,
     headers: *const NuppHttpHeader,
     header_count: usize,
@@ -234,7 +235,7 @@ enum Head {
     Ready {
         status: u16,
         version: u8,
-        url: Box<[u8]>,
+        url: Option<Box<[u8]>>,
         headers: Box<[u8]>,
     },
     Failed(CString),
@@ -541,8 +542,7 @@ unsafe fn own_request(
     request: &NuppHttpRequest,
     transfer: &Arc<Transfer>,
 ) -> Result<OwnedRequest, String> {
-    let url = Url::parse(&unsafe { owned_text(request.url, "request URL") }?)
-        .map_err(|error| error.to_string())?;
+    let url = unsafe { clone_uri(request.uri) }?;
     if url.scheme() != "http" && url.scheme() != "https" {
         return Err("request URL must use http or https".to_owned());
     }
@@ -757,15 +757,18 @@ async fn run_transfer(transfer: Arc<Transfer>, request: OwnedRequest) {
         if transfer.cancelled.load(Ordering::Acquire) {
             return;
         }
-        state.head = Head::Ready {
-            status,
-            version,
-            url: response
+        let effective_url = (response.url() != &request.url).then(|| {
+            response
                 .url()
                 .as_str()
                 .as_bytes()
                 .to_vec()
-                .into_boxed_slice(),
+                .into_boxed_slice()
+        });
+        state.head = Head::Ready {
+            status,
+            version,
+            url: effective_url,
             headers,
         };
     }
@@ -1157,12 +1160,16 @@ pub unsafe extern "C" fn nuppHttpTransferPollHeaders(
                     set_error("HTTP response head output is null");
                     return HEAD_FAILED;
                 }
+                let (url, url_length) = match url {
+                    Some(url) => (url.as_ptr(), url.len()),
+                    None => (ptr::null(), 0),
+                };
                 unsafe {
                     *output = NuppHttpResponseHead {
                         status: *status,
                         version: *version,
-                        url: url.as_ptr(),
-                        url_length: url.len(),
+                        url,
+                        url_length,
                         headers: headers.as_ptr(),
                         headers_length: headers.len(),
                     }

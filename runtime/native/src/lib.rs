@@ -268,10 +268,10 @@ mod path {
 }
 
 #[cfg(feature = "uri")]
-mod uri {
+pub(crate) mod uri {
     use super::*;
     use url::Url;
-    pub struct NuppUri {
+    pub(crate) struct NuppUri {
         url: Url,
     }
     fn output(url: Url) -> *mut NuppUri {
@@ -281,7 +281,7 @@ mod uri {
         set_error(error);
         ptr::null_mut()
     }
-    unsafe fn clone_uri(uri: *const NuppUri) -> Result<Url, String> {
+    pub(crate) unsafe fn clone_uri(uri: *const NuppUri) -> Result<Url, String> {
         if uri.is_null() {
             Err("URI is null".to_owned())
         } else {
