@@ -109,6 +109,44 @@ function control.install(c: state.Checker): state.StatHandlers
     local borrowRoot, moveExpression = c.borrowRoot, c.moveExpression
     local ownershipKind, ownershipState = c.ownershipKind, c.ownershipState
 
+    -- An owner discharged on one arm of a branch is not discharged on its sibling: the
+    -- arms are alternatives, and each runs from the state the statement began in. A
+    -- narrowed binding shares its declaration's ownership state, so without this a move
+    -- in the first arm is still visible in the second, and closing on both arms of an
+    -- if/else reports the second as a use after move.
+    --
+    -- The statement still records the move once every arm has been seen, so what a
+    -- later statement sees does not change; only what a sibling arm sees does.
+    local function ownershipSnapshot(): {any}
+        local seen, snapshot = {}, {}
+        local scope = c.scope
+        while scope do
+            for _, entry in pairs(scope.vars or {}) do
+                local state = ownershipState(entry)
+                if state and state.ownership and not seen[state] then
+                    seen[state] = true
+                    snapshot[
+                        #snapshot + 1
+                    ] = {state = state, moved = state.moved or false, movedAt = state.movedAt}
+                end
+            end
+            scope = scope.parent
+        end
+
+        return snapshot
+    end
+
+    -- Rewinds every owner to the state the branch began in, and records the ones this
+    -- arm moved so the statement can apply them once the last arm has run.
+    local function ownershipRewind(snapshot: {any}, moved: {[any]: boolean}): nil
+        for _, item in ipairs(snapshot) do
+            if item.state.moved and not item.moved then
+                moved[item.state] = true
+            end
+            item.state.moved, item.state.movedAt = item.moved, item.movedAt
+        end
+    end
+
     local handlers = {}
 
     handlers.returnStmt = function(stat: cst.ReturnStmt)
@@ -386,6 +424,8 @@ function control.install(c: state.Checker): state.StatHandlers
         -- what lets a variable assigned in one branch and tested in another be known
         -- afterwards.
         local paths = {}
+        local ownershipBefore = ownershipSnapshot()
+        local branchMoved: {[any]: boolean} = {}
         for _, clause in ipairs(stat.clauses) do
             -- analyze under the accumulated else-facts so that subtraction chains
             -- compose ("elseif v is number" sees v already minus the earlier branches)
@@ -407,6 +447,7 @@ function control.install(c: state.Checker): state.StatHandlers
                 paths[#paths + 1] = snapshotNarrowed()
             end
             c.popScope()
+            ownershipRewind(ownershipBefore, branchMoved)
             accumulatedElse = mergeFacts(accumulatedElse, facts.f)
             if cond then
                 local key, seen = nil, 0
@@ -469,12 +510,19 @@ function control.install(c: state.Checker): state.StatHandlers
                 paths[#paths + 1] = snapshotNarrowed()
             end
             c.popScope()
+            ownershipRewind(ownershipBefore, branchMoved)
         else
             -- the implicit else: everything the conditions ruled out
             c.pushScope()
             applyFacts(accumulatedElse)
             paths[#paths + 1] = snapshotNarrowed()
             c.popScope()
+        end
+        -- Every arm has run, so a move any of them made is what the statement leaves
+        -- behind. Applying it here rather than in the arm is what kept the arms
+        -- independent of each other.
+        for state in pairs(branchMoved) do
+            state.moved = true
         end
         -- Join: a key is known afterwards only if every surviving path says something
         -- about it, and then it holds the union of what they say. A key one path is

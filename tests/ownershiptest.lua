@@ -44,6 +44,66 @@ local RESOURCE = table.concat({
 
 local M = {}
 
+-- The arms of a branch are alternatives, so an owner discharged on one is not
+-- discharged on its sibling. A narrowed binding shares its declaration's ownership
+-- state, which used to make the first arm's move visible in the second and report
+-- the second as a use after move.
+function M.everyArmOfABranchDischargesIndependently()
+   assertClean(table.concat({
+      RESOURCE,
+      "local function twoArms(flag: boolean): nil",
+      "   local value = resource_new()",
+      "   if flag then",
+      "      drop(value)",
+      "   else",
+      "      drop(value)",
+      "   end",
+      "end",
+   }, "\n"))
+
+   assertClean(table.concat({
+      RESOURCE,
+      "local function chain(n: integer): nil",
+      "   local value = resource_new()",
+      "   if n == 1 then",
+      "      drop(value)",
+      "   elseif n == 2 then",
+      "      drop(value)",
+      "   else",
+      "      drop(value)",
+      "   end",
+      "end",
+   }, "\n"))
+end
+
+-- The independence is per arm, not a licence to discharge twice: a second move on
+-- the same path, and a use after the statement, both still report.
+function M.branchIndependenceStillCatchesADoubleMove()
+   assertEq(codes(table.concat({
+      RESOURCE,
+      "local function twice(flag: boolean): nil",
+      "   local value = resource_new()",
+      "   if flag then",
+      "      drop(value)",
+      "      drop(value)",
+      "   end",
+      "end",
+   }, "\n")), "NUPP2601", "a second move on one path still reports")
+
+   assertEq(codes(table.concat({
+      RESOURCE,
+      "local function afterwards(flag: boolean): nil",
+      "   local value = resource_new()",
+      "   if flag then",
+      "      drop(value)",
+      "   else",
+      "      drop(value)",
+      "   end",
+      "   drop(value)",
+      "end",
+   }, "\n")), "NUPP2601", "a move after every arm moved still reports")
+end
+
 function M.scalarGenericPreservationTransfersAnOwner()
    assertClean(table.concat({
       RESOURCE,
