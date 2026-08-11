@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { luaHighlightSegments } from "../src/lua-output.js";
+import { luaHighlightLines, luaHighlightSegments } from "../src/lua-output.js";
 
 test("generated Lua is split into syntax-highlighted segments", () => {
   const segments = luaHighlightSegments([
@@ -21,4 +21,14 @@ test("generated Lua is split into syntax-highlighted segments", () => {
   assert.ok(segments.some(({ text, classes }) => text === "true" && classes === "lua-boolean"));
   assert.ok(segments.some(({ text, classes }) => text === "answer" && classes === "lua-property"));
   assert.ok(segments.some(({ text, classes }) => text === "(" && classes === "lua-punctuation"));
+});
+
+test("generated Lua is split into numbered lines without losing highlighting", () => {
+  const lines = luaHighlightLines("local answer = 42\n\nreturn answer\n");
+
+  assert.equal(lines.length, 4);
+  assert.deepEqual(lines[1], []);
+  assert.deepEqual(lines[3], []);
+  assert.ok(lines[0].some(({ text, classes }) => text === "local" && classes === "lua-keyword"));
+  assert.ok(lines[2].some(({ text, classes }) => text === "return" && classes === "lua-keyword"));
 });

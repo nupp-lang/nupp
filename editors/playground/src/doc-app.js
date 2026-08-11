@@ -257,6 +257,22 @@ select {
   line-height: 1.45;
   white-space: pre-wrap;
 }
+.output-main.is-code { padding-inline: 0; }
+.output-main .lua-line {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+}
+.output-main .lua-line-number {
+  min-width: 2.75rem;
+  padding: 0 .65rem;
+  color: var(--pg-faint);
+  text-align: right;
+  user-select: none;
+}
+.output-main .lua-line-code {
+  min-width: 0;
+  padding-right: .75rem;
+}
 .output-main .lua-keyword { color: var(--pg-syntax-keyword); }
 .output-main .lua-boolean { color: var(--pg-syntax-boolean); }
 .output-main .lua-string { color: var(--pg-syntax-string); }
