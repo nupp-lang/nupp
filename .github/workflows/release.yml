@@ -45,6 +45,8 @@ jobs:
 
       - name: Set up LuaRocks
         uses: leafo/gh-actions-luarocks@v6
+        with:
+          luaRocksVersion: "3.12.2"
 
       - name: Build Nupp
         env:
