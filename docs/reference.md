@@ -168,11 +168,10 @@ while the projected fields remain direct positional arguments. A nested
 expression instead repeats prefixes when needed; plucking never introduces a
 closure or upvalue. Plucking is a named binding, so positional arguments cannot
 follow it; a call keeps its several results only as the last argument, and so
-fills the remaining positional slots only when nothing is plucked after it.
-This applies to functions, callable
-records, methods, constructors, and specialized calls with a statically known
-positional pack. A bounded type parameter plucks through its bound, since the
-read is an ordinary field access. Safe statements and returns guard the optional
+fills the remaining positional slots only when nothing is plucked after it. This
+applies to functions, callable records, methods, constructors, and specialized
+calls with a statically known positional pack. A bounded type parameter plucks
+through its bound, since the read is an ordinary field access. Safe statements and returns guard the optional
 callee, receiver, and method before binding paths; nested safe calls retain the
 native safe operator and its lazy argument evaluation.
 
@@ -1510,6 +1509,7 @@ says more.
 - **NUPP1006**: The typed layer appears in a plain Lua file.
 - **NUPP2001**: A value does not fit the type it is bound to.
 - **NUPP2004**: The field does not exist on that type.
+- **NUPP2006**: A call's arguments are not arranged in a way it can be given.
 - **NUPP2009**: A property view does not grant the requested access.
 - **NUPP2010**: A complete value pack does not fit the required sequence.
 - **NUPP2106**: An exported declaration needs a type annotation.

@@ -160,6 +160,25 @@ local ENTRIES: {
     related = {"NUPP2005", "NUPP2119"},
     docs = "docs/modules.md#diagnostics",
 }, {
+    code = "NUPP2006",
+    summary = "A call's arguments are not arranged in a way it can be given",
+    rule = "Named and plucked arguments follow every positional argument, so "
+    .. "nothing positional may come after one. A plucked operand must be a "
+    .. "name or dotted field path: each name it fills reads one field of that "
+    .. "path, and confining it to a path is what lets those reads be unordered "
+    .. "and the path be evaluated once. Bind a call or a computed index to a "
+    .. "local and pluck from the local.",
+    wrong = "local record Vec3\n    x: number\n    y: number\n    z: number\nend\n\n"
+    .. "local function draw(x: number, y: number): nil\n    print(x, y)\nend\n\n"
+    .. "local function make(): Vec3\n    return new Vec3(x = 1, y = 2, z = 3)\nend\n\n"
+    .. "draw((x, y) = *make())\n\nreturn draw\n",
+    right = "local record Vec3\n    x: number\n    y: number\n    z: number\nend\n\n"
+    .. "local function draw(x: number, y: number): nil\n    print(x, y)\nend\n\n"
+    .. "local function make(): Vec3\n    return new Vec3(x = 1, y = 2, z = 3)\nend\n\n"
+    .. "local position = make()\ndraw((x, y) = *position)\n\nreturn draw\n",
+    related = {"NUPP2004", "NUPP2125"},
+    docs = "docs/reference.md#named-and-plucked-arguments",
+}, {
     code = "NUPP2009",
     summary = "A property view does not grant the requested access",
     rule = "A read-only property may be read but not assigned, and a "
