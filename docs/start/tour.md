@@ -119,8 +119,6 @@ handles "green" | "red" and leaves "green" unhandled
 ## Unions, optionals, and narrowing
 
 ```nupp
-local type Shape = Point | Vec2
-
 local function widthOf(s: string?): integer
     if s then
         return #s
@@ -204,7 +202,7 @@ end
 `@drop` marks the operation that consumes the resource; `@owned` marks the
 function that produces one. An ordinary local is destroyed automatically:
 
-```nupp
+```nupp:static
 do
     local session = openSession()
     print(session.closed)

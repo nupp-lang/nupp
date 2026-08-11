@@ -8,8 +8,15 @@ import { EXAMPLES } from "./examples.js";
 
 const FILENAME = "playground.nupp";
 const OPTIONS = { strict: true, optimize: true };
+// Documentation frequently introduces a declaration before showing its use.
+// Keep that teaching shape without turning every first step into yellow chrome.
+const IGNORED_DOC_DIAGNOSTICS = new Set(["NUPP2507"]);
 const toCmPos = (offset) => offset - 1;
 const toNuppOffset = (position) => position + 1;
+
+function visibleDiagnostics(diagnostics) {
+  return diagnostics.filter((diagnostic) => !IGNORED_DOC_DIAGNOSTICS.has(diagnostic.code));
+}
 
 // One compiler serves every editor on a documentation page. Worker calls are
 // serialized because hover reads the parse produced by the most recent check;
@@ -349,18 +356,10 @@ class NuppDocPlayground extends HTMLElement {
       this.output.hidden = true;
       this.runButton.focus();
     });
-
-    this.observer = new IntersectionObserver((entries) => {
-      if (!entries.some((entry) => entry.isIntersecting)) return;
-      this.observer.disconnect();
-      this.check();
-    }, { rootMargin: "200px" });
-    this.observer.observe(this);
   }
 
   disconnectedCallback() {
     clearTimeout(this.checkTimer);
-    this.observer?.disconnect();
     this.view?.destroy();
     this.view = null;
   }
@@ -372,7 +371,7 @@ class NuppDocPlayground extends HTMLElement {
 
   applyDiagnostics(diagnostics) {
     const length = this.view.state.doc.length;
-    const markers = diagnostics
+    const markers = visibleDiagnostics(diagnostics)
       .filter((diagnostic) => typeof diagnostic.offset === "number")
       .map((diagnostic) => {
         const from = Math.max(0, Math.min(length, toCmPos(diagnostic.offset)));
@@ -411,13 +410,14 @@ class NuppDocPlayground extends HTMLElement {
       const result = await compiler.compile(this.view.state.doc.toString());
       if (!result.ok) throw new Error(result.error);
       this.applyDiagnostics(result.diagnostics);
-      const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === "error").length;
-      const warnings = result.diagnostics.filter((diagnostic) => diagnostic.severity === "warning").length;
+      const diagnostics = visibleDiagnostics(result.diagnostics);
+      const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error").length;
+      const warnings = diagnostics.filter((diagnostic) => diagnostic.severity === "warning").length;
       this.outputSummary.textContent = [
         errors && `${errors} error${errors === 1 ? "" : "s"}`,
         warnings && `${warnings} warning${warnings === 1 ? "" : "s"}`,
       ].filter(Boolean).join(", ") || (result.code ? "compiled" : result.reason || "clean");
-      this.outputMain.textContent = result.code || result.diagnostics.map(diagnosticText).join("\n\n");
+      this.outputMain.textContent = result.code || diagnostics.map(diagnosticText).join("\n\n");
     } catch (error) {
       this.outputSummary.textContent = "failed";
       this.outputMain.textContent = `-- ${error instanceof Error ? error.message : String(error)}`;

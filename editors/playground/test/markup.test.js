@@ -43,3 +43,10 @@ test("documentation playgrounds are inline and have dismissible output", () => {
   assert.match(docApp, /root\.querySelector\("\.output-close"\)\.addEventListener\("click"/);
   assert.match(docApp, /const compiler = new CompilerClient\(\)/);
 });
+
+test("documentation playgrounds check only after the reader engages", () => {
+  const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
+  assert.doesNotMatch(docApp, /IntersectionObserver/);
+  assert.match(docApp, /const IGNORED_DOC_DIAGNOSTICS = new Set\(\["NUPP2507"\]\)/);
+  assert.match(docApp, /const diagnostics = visibleDiagnostics\(result\.diagnostics\)/);
+});
