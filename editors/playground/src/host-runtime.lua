@@ -56,12 +56,16 @@ os.remove = function() return nil, "no filesystem in the browser playground" end
 do
     local MASK = 0xFFFFFFFF
     local function wrap(n)
-        n = math.floor(n) & MASK
-        if n >= 0x80000000 then n = n - 0x100000000 end
-        return n
+        -- Fengari's hexadecimal lexer routes these two boundary values
+        -- through its signed 32-bit integer representation: 0x80000000 is
+        -- negative and 0x100000000 becomes zero. Decimal arithmetic keeps the
+        -- modulo well-defined before native bitwise operators see the value.
+        n = math.floor(n) % 4294967296
+        if n >= 2147483648 then n = n - 4294967296 end
+        return n | 0
     end
     local bitlib = {}
-    function bitlib.tobit(n) return wrap(n | 0) end
+    function bitlib.tobit(n) return wrap(n) end
     function bitlib.band(a, b, ...)
         a = wrap(a)
         local r = a & (b ~= nil and wrap(b) or -1)

@@ -116,8 +116,10 @@ function hash.sha256(input: string): string
     input = input .. "\128"
     local padding = (56 - (#input % 64)) % 64
     input = input .. string.rep("\0", padding)
-    local high = math.floor(bitLength / 0x100000000)
-    local low = bitLength % 0x100000000
+    -- Spell 2^32 in decimal. LuaJIT reads the hexadecimal form as a number,
+    -- but Lua 5.3 VMs with 32-bit integers may wrap 0x100000000 to zero.
+    local high = math.floor(bitLength / 4294967296)
+    local low = bitLength % 4294967296
     input = input .. string.char(
         band(rshift(high, 24), 0xff),
         band(rshift(high, 16), 0xff),
@@ -158,10 +160,7 @@ function hash.sha256(input: string): string
     end
     local out = {}
     for _, value in ipairs(h) do
-        if value < 0 then
-            value = value + 0x100000000
-        end
-        out[#out + 1] = ("%08x"):format(value)
+        out[#out + 1] = bit.tohex(value, 8)
     end
 
     return table.concat(out)

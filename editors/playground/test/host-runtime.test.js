@@ -31,3 +31,16 @@ test("does not expose native environment variables", () => {
   run(L, 'assert(os.getenv("NUPP_COMPILER_ROOT") == nil)');
   lua.lua_close(L);
 });
+
+test("wraps LuaJIT bit values without overflowing Fengari hex integers", () => {
+  const L = lauxlib.luaL_newstate();
+  lualib.luaL_openlibs(L);
+  run(L, hostRuntime);
+  run(L, [
+    "assert(bit.tobit(4294967295) == -1)",
+    "assert(bit.tobit(2147483648) == -2147483648)",
+    "assert(bit.bnot(0) == -1)",
+    'assert(bit.tohex(-1) == "ffffffff")',
+  ].join("\n"));
+  lua.lua_close(L);
+});

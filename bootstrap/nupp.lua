@@ -3590,8 +3590,10 @@ local bitLength = # input * 8
 input = input .. "\128"
 local padding = ( 56 - ( # input % 64 ) ) % 64
 input = input .. string . rep ( "\0" , padding )
-local high = math . floor ( bitLength / 0x100000000 )
-local low = bitLength % 0x100000000
+
+
+local high = math . floor ( bitLength / 4294967296 )
+local low = bitLength % 4294967296
 input = input .. string . char (
 band ( rshift ( high , 24 ) , 0xff ) ,
 band ( rshift ( high , 16 ) , 0xff ) ,
@@ -3632,10 +3634,7 @@ h [ 5 ] , h [ 6 ] , h [ 7 ] , h [ 8 ] = add ( h [ 5 ] , e ) , add ( h [ 6 ] , f 
 end
 local out = { }
 for _ , value in ipairs ( h ) do
-if value < 0 then
-value = value + 0x100000000
-end
-out [ # out + 1 ] = ( "%08x" ) : format ( value )
+out [ # out + 1 ] = bit . tohex ( value , 8 )
 end
 
 return table . concat ( out )
@@ -68011,6 +68010,12 @@ end
 
 
 
+
+
+
+
+
+
 if cur ( ) . kind == "name" and cur ( ) . text == "borrows" and tokens [
 i + 1
 ] and ( tokens [ i + 1 ] . kind == "name" or tokens [ i + 1 ] . kind == "(" ) then
@@ -68018,8 +68023,7 @@ local n = setmetatable({ kind =  "tborrows" }, cst.Tborrows)
 n . type = add ( n , result )
 add ( n , advance ( ) )
 n . params = { }
-if cur ( ) . kind == "(" then
-add ( n , advance ( ) )
+add ( n , expect ( "(" , "to open borrowed-result sources" ) )
 repeat
 local param = add ( n , expectName ( "as borrowed-result source" ) )
 n . params [ # n . params + 1 ] = param
@@ -68029,9 +68033,6 @@ end
 add ( n , advance ( ) )
 until false
 add ( n , expect ( ")" , "to close borrowed-result sources" ) )
-else
-n . params [ 1 ] = add ( n , advance ( ) )
-end
 n . param = n . params [ 1 ]
 return n
 end
@@ -70566,7 +70567,7 @@ other view live, and `retains`/`releases` describe C holding a pointer across a
 call.
 
 `T preserves value` on a result transports the exact capability of that
-parameter through scalar generic narrowing. `T borrows source` ties a result,
+parameter through scalar generic narrowing. `T borrows (source)` ties a result,
 or a nominal record field, to its named root. A `scoped` callback parameter may
 capture borrows only because its callee proves that callback cannot escape.
 `@owned(cleanup)` may decorate a function-valued record or interface field so a
@@ -86854,7 +86855,7 @@ local record ResourceSet
     @drop
     close: nosuspend function(takes self: ResourceSet)
 
-    adopt: function<T>(self: ResourceSet, takes value: T, terminal: function(takes value: T)?): T borrows self
+    adopt: function<T>(self: ResourceSet, takes value: T, terminal: function(takes value: T)?): T borrows (self)
     remove: function<T>(self: ResourceSet, borrows value: T): T
 end
 
@@ -86893,7 +86894,7 @@ record Buffer
     --- @param b the buffer to append to
     --- @param ... the values to append, in order
     --- @return `b`
-    put: function(exclusive b: Buffer, ...: any): Buffer borrows b
+    put: function(exclusive b: Buffer, ...: any): Buffer borrows (b)
 
     --- Appends the arguments formatted by `fmt`, which takes the same directives as
     --- `string.format`.
@@ -86902,7 +86903,7 @@ record Buffer
     --- @param fmt the format string
     --- @param ... the values that the directives consume
     --- @return `b`
-    putf: function(exclusive b: Buffer, fmt: string, ...: any): Buffer borrows b
+    putf: function(exclusive b: Buffer, fmt: string, ...: any): Buffer borrows (b)
 
     --- Appends `len` bytes read from the memory that `data` points to. The cdata object
     --- has to be convertible to a pointer.
@@ -86911,7 +86912,7 @@ record Buffer
     --- @param data the memory to copy from
     --- @param len how many bytes to copy
     --- @return `b`
-    putcdata: function(exclusive b: Buffer, data: voidptr, len: uint64): Buffer borrows b
+    putcdata: function(exclusive b: Buffer, data: voidptr, len: uint64): Buffer borrows (b)
 
     --- Replaces the buffer contents with a reference to `data`, freeing any space
     --- already allocated. Nothing is copied until the buffer is written to again, and
@@ -86921,7 +86922,7 @@ record Buffer
     --- @param data the string, or cdata pointer, to reference
     --- @param len how many bytes `data` holds, required for cdata
     --- @return `b`
-    set: function(exclusive b: Buffer, data: any, len: uint64?): Buffer borrows b
+    set: function(exclusive b: Buffer, data: any, len: uint64?): Buffer borrows (b)
 
     --- Consumes bytes from the front of the buffer and returns them. With no argument
     --- the whole buffer is consumed; each further argument takes one more string, and a
@@ -86943,7 +86944,7 @@ record Buffer
     ---
     --- @param b the buffer to empty
     --- @return `b`
-    reset: function(exclusive b: Buffer): Buffer borrows b
+    reset: function(exclusive b: Buffer): Buffer borrows (b)
 
     --- Frees the buffer space at once, leaving the object itself intact and empty. The
     --- collector does this on its own, so it is only worth calling when the memory has
@@ -86951,7 +86952,7 @@ record Buffer
     ---
     --- @param b the buffer to free
     --- @return `b`
-    free: function(exclusive b: Buffer): Buffer borrows b
+    free: function(exclusive b: Buffer): Buffer borrows (b)
 
     --- Consumes `n` bytes from the front of the buffer and discards them, stopping at
     --- the end of the data.
@@ -86959,7 +86960,7 @@ record Buffer
     --- @param b the buffer to skip in
     --- @param n how many bytes to discard
     --- @return `b`
-    skip: function(exclusive b: Buffer, n: integer): Buffer borrows b
+    skip: function(exclusive b: Buffer, n: integer): Buffer borrows (b)
 
     --- Returns a pointer to the buffer data, for zero-copy reads and in-place writes.
     --- The data is not zero-terminated, so the length has to travel with the pointer.
@@ -86968,7 +86969,7 @@ record Buffer
     --- @return the unconsumed data, as the zero-based `uint8_t *` view that
     ---     bytewise reads and writes go through
     --- @return how many bytes are readable there
-    ref: function(borrows b: Buffer): (uint8[?] borrows b, uint64)
+    ref: function(borrows b: Buffer): (uint8[?] borrows (b), uint64)
 
     --- Reserves at least `size` bytes of write space and returns a pointer to it. The
     --- space is uninitialized, and joins the buffer data only once `commit` says how
@@ -86979,7 +86980,7 @@ record Buffer
     --- @return the write space, as the zero-based `uint8_t *` view that
     ---     bytewise writes go through
     --- @return how many bytes are actually available, at least `size`
-    reserve: function(exclusive b: Buffer, size: integer): (uint8[?] borrows b, uint64)
+    reserve: function(exclusive b: Buffer, size: integer): (uint8[?] borrows (b), uint64)
 
     --- Appends the first `used` bytes of the space handed out by the last `reserve` to
     --- the buffer data.
@@ -86987,7 +86988,7 @@ record Buffer
     --- @param b the buffer that space was reserved in
     --- @param used how many bytes were written
     --- @return `b`
-    commit: function(exclusive b: Buffer, used: integer): Buffer borrows b
+    commit: function(exclusive b: Buffer, used: integer): Buffer borrows (b)
 
     --- Serializes `obj` and appends the encoding to the buffer. Encodings concatenate,
     --- so several objects can be streamed into one buffer.
@@ -86995,7 +86996,7 @@ record Buffer
     --- @param b the buffer to append to
     --- @param obj the value to serialize
     --- @return `b`
-    encode: function(exclusive b: Buffer, obj: any): Buffer borrows b
+    encode: function(exclusive b: Buffer, obj: any): Buffer borrows (b)
 
     --- Deserializes one object from the front of the buffer, leaving any data after it
     --- in place. Raises on malformed or truncated input.
@@ -88715,12 +88716,12 @@ record process.Writer is nupp.io.Writer
 end
 
 --- Borrows a process reader through the shared completion-oriented contract.
-function process.asReader(borrows source: process.Reader): nupp.io.Reader borrows source
+function process.asReader(borrows source: process.Reader): nupp.io.Reader borrows (source)
     return source
 end
 
 --- Borrows a process writer through the shared completion-oriented contract.
-function process.asWriter(borrows source: process.Writer): nupp.io.Writer borrows source
+function process.asWriter(borrows source: process.Writer): nupp.io.Writer borrows (source)
     return source
 end
 
@@ -90744,7 +90745,7 @@ local span = {}
 --- @export
 local record ByteSpan
     readonly anchor: any
-    readonly pointer: uint8[?] borrows anchor
+    readonly pointer: uint8[?] borrows (anchor)
     readonly offset: integer
     readonly count: integer
 end
@@ -90754,7 +90755,7 @@ end
 --- @export
 local record ByteWriteSpan
     readonly anchor: any
-    readonly pointer: uint8[?] borrows anchor
+    readonly pointer: uint8[?] borrows (anchor)
     readonly offset: integer
     readonly count: integer
 
@@ -90785,7 +90786,7 @@ end
 
 --- Returns a checked subspan, inclusive at both ends.
 --- @raises when the requested range is outside this span
-function ByteSpan:slice(first: integer, last: integer?): ByteSpan borrows self
+function ByteSpan:slice(first: integer, last: integer?): ByteSpan borrows (self)
     local finish = last or self.count
     if first < 1 or finish < first - 1 or finish > self.count then
         error("span slice out of bounds", 2)
@@ -90800,7 +90801,7 @@ end
 
 --- Creates a byte span over a Lua string and keeps that string rooted.
 --- @export
-function span.from_string(borrows source: string): ByteSpan borrows source
+function span.from_string(borrows source: string): ByteSpan borrows (source)
     local pointer = ffi.cast<uint8[?]>(source)
     return new ByteSpan(anchor = source, pointer = pointer, offset = 0, count = #source)
 end
@@ -90808,7 +90809,7 @@ end
 --- Creates a checked shared span over a C array and an explicit logical count.
 --- @export
 --- @raises when count is negative
-function span.from_carray(borrows source: uint8[?], count: integer): ByteSpan borrows source
+function span.from_carray(borrows source: uint8[?], count: integer): ByteSpan borrows (source)
     if count < 0 then
         error("span count cannot be negative", 2)
     end
@@ -90820,7 +90821,7 @@ end
 --- @export
 --- @raises when count is negative
 @owned
-function span.write_carray(exclusive source: uint8[?], count: integer): ByteWriteSpan borrows source
+function span.write_carray(exclusive source: uint8[?], count: integer): ByteWriteSpan borrows (source)
     if count < 0 then
         error("write span count cannot be negative", 2)
     end
