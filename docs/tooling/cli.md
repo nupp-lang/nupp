@@ -26,13 +26,11 @@ reference each command's `-h` does.
 
 ## Options every command takes
 
-```
- Option          Means
- ──────────────  ────────────────────────────────────
- --color[=WHEN]  always, never, or auto (the default)
- --no-color      The same as --color=never
- -h, --help      Show this help
-```
+| Option | Means |
+| --- | --- |
+| `--color[=WHEN]` | always, never, or auto (the default) |
+| `--no-color` | The same as `--color=never` |
+| `-h`, `--help` | Show this help |
 
 `--color` never consumes the next argument. Write `--color=never`; a bare
 `--color` means `always`. Passing both `--color` and `--no-color` is an error
@@ -83,13 +81,11 @@ error. No option repeats unless it says so, and only `-Zno-opt` does.
 
 ## Exit codes
 
-```
- Code  Means
- ────  ──────────────────────────────────────────────────────
- 0     Success
- 1     The work was attempted and failed
- 2     Usage error: unknown option, wrong argument count, ...
-```
+| Code | Means |
+| --- | --- |
+| 0 | Success |
+| 1 | The work was attempted and failed |
+| 2 | Usage error: unknown option, wrong argument count, ... |
 
 A usage error prints `nupp: <message>` on stderr and points at
 `nupp help <command>`.
