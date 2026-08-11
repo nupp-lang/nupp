@@ -123,19 +123,31 @@ const styles = `
   --pg-syntax-variable: var(--pg-text);
   --pg-font: var(--nuppdoc-font, Inter, ui-sans-serif, system-ui, sans-serif);
   --pg-font-mono: var(--nuppdoc-font-mono, ui-monospace, monospace);
+  position: relative;
   display: block;
   overflow: visible;
-  margin: 1.25rem 0;
+  margin: 1.75rem 0 .75rem;
   color: var(--pg-text);
   font-family: var(--pg-font);
 }
 * { box-sizing: border-box; }
 .toolbar {
+  position: absolute;
+  z-index: 2;
+  top: -1.75rem;
+  right: 0;
+  left: 0;
   display: flex;
-  height: 2rem;
+  height: 1.625rem;
   align-items: center;
   justify-content: flex-end;
   gap: .5rem;
+  padding: 0;
+}
+:host([data-grouped]) { margin: 0; }
+:host([data-grouped]) .toolbar {
+  position: static;
+  height: 2rem;
   padding: 0 0 .2rem;
 }
 .example-picker {
@@ -238,6 +250,7 @@ function diagnosticText(diagnostic) {
 class NuppDocPlayground extends HTMLElement {
   connectedCallback() {
     if (this.view) return;
+    if (this.closest(".nuppdoc-code-group")) this.setAttribute("data-grouped", "");
     const encoded = this.getAttribute("data-source");
     let source = encoded === null ? EXAMPLES[0].source : "";
     if (encoded !== null) {
