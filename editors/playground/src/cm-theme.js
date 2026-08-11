@@ -17,7 +17,7 @@ import { tags } from "@lezer/highlight";
 const chrome = EditorView.theme({
   "&": {
     color: "var(--pg-text)",
-    backgroundColor: "var(--pg-background)",
+    backgroundColor: "var(--pg-code-background, var(--pg-background))",
   },
   ".cm-content": { caretColor: "var(--pg-accent)" },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--pg-accent)" },
@@ -27,13 +27,16 @@ const chrome = EditorView.theme({
   ".cm-panels": { color: "var(--pg-text)", backgroundColor: "var(--pg-background-alt)" },
   ".cm-gutters": {
     color: "var(--pg-muted)",
-    backgroundColor: "var(--pg-background)",
+    backgroundColor: "var(--pg-code-background, var(--pg-background))",
     borderRight: "0",
   },
-  ".cm-activeLineGutter": { backgroundColor: "var(--pg-background)" },
+  ".cm-activeLineGutter": {
+    backgroundColor: "var(--pg-code-background, var(--pg-background))",
+  },
   ".cm-activeLine": { backgroundColor: "var(--pg-background-alt)" },
   ".cm-lineNumbers .cm-gutterElement": {
-    color: "color-mix(in srgb, var(--pg-muted) 55%, var(--pg-background))",
+    paddingLeft: ".65rem",
+    color: "var(--pg-faint, color-mix(in srgb, var(--pg-muted) 72%, transparent))",
   },
   ".cm-matchingBracket, .cm-nonmatchingBracket": {
     backgroundColor: "var(--pg-accent-soft)",

@@ -1,23 +1,7 @@
-/* This is docs/public/nupp.css's actual "woodblock" palette, not
-   src/nupp/compiler/doc/assets.nupp's generic docs-generator default (the earlier
-   version of this file used that one — a plausible-looking but wrong
-   source, since it's the *un*-customized theme the real site overrides).
-   --pg-button is --nupp-woodblock-vermilion from that file exactly; the
-   real site uses one value for it in both modes (see its .brand rule),
-   which is why there's no separate dark vermilion below either.
-   --pg-accent departs from it deliberately: nupp.css's own accent is the
-   teal at --nuppdoc-*-accent, kept for links there, but here it's that
-   file's string-syntax green instead, doing UI-accent duty too.
-
-   --pg-border departs too, and for a reason worth writing down. The site's
-   own value is a hairline between long runs of prose, where barely-there is
-   the point. This page is panes: a head bar, an editor, an output drawer,
-   and a list beside it, and the border is the only thing saying where one
-   ends. At the site's #d4cda8 that is 1.5:1 against the page and 1.4:1
-   against the alt surface -- under the 3:1 WCAG asks of a boundary that
-   carries meaning, and it read as no edge at all. These are the same hues
-   carried down (light) and up (dark) to about 3:1, which is a visible edge
-   without becoming a drawn line. */
+/* The standalone playground uses the same palette as docs/public/nupp.css.
+   In particular, editor surfaces use the normal code-block background and
+   borders use the normal code-block border instead of a playground-only
+   approximation. */
 :root {
   color-scheme: light;
   --pg-accent: #607331;
@@ -27,10 +11,11 @@
   --pg-button-hover: #8d3829;
   --pg-background: #faf7e8;
   --pg-background-alt: #f2eed8;
-  --pg-border: #9d8e5e;
+  --pg-border: #d4cda8;
   --pg-code-background: #ded7b9;
   --pg-text: #173333;
   --pg-muted: #626956;
+  --pg-faint: color-mix(in srgb, var(--pg-muted) 72%, transparent);
   --pg-error: #cf222e;
   --pg-warning: #8c5f22;
   --pg-info: #1b5670;
@@ -40,8 +25,8 @@
   --pg-syntax-number: #8c5f22;
   --pg-syntax-function: #1b5670;
   --pg-syntax-meta: #315f58;
-  --pg-syntax-type: #1b5670;
-  --pg-syntax-operator: #765128;
+  --pg-syntax-type: #315f58;
+  --pg-syntax-operator: #315f58;
   --pg-syntax-variable: #173333;
   --pg-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --pg-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -57,7 +42,7 @@
     --pg-button-hover: #c25a41;
     --pg-background: #081e27;
     --pg-background-alt: #0d2931;
-    --pg-border: #3a7a6f;
+    --pg-border: #2b4943;
     --pg-code-background: #0a252b;
     --pg-text: #f4f3ed;
     --pg-muted: #b9c0b8;
@@ -70,8 +55,8 @@
     --pg-syntax-number: #d7a45a;
     --pg-syntax-function: #79aabe;
     --pg-syntax-meta: #9fba83;
-    --pg-syntax-type: #79aabe;
-    --pg-syntax-operator: #d7bd72;
+    --pg-syntax-type: #9fba83;
+    --pg-syntax-operator: #93b7ac;
     --pg-syntax-variable: #e5dfb7;
   }
 }
@@ -453,7 +438,7 @@ body {
   grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
   min-height: 0;
   border-top: 1px solid var(--pg-border);
-  background: var(--pg-background);
+  background: var(--pg-code-background);
   flex: 1;
 }
 .output-body[hidden] { display: none; }

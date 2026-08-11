@@ -23,8 +23,8 @@ test("condensed controls sit above the rounded editor border", () => {
   const embed = readFileSync(new URL("../static/embed.html", import.meta.url), "utf8");
   const theme = readFileSync(new URL("../src/cm-theme.js", import.meta.url), "utf8");
   const style = readFileSync(new URL("../static/style.css", import.meta.url), "utf8");
-  assert.match(theme, /"\.cm-gutters": \{[\s\S]*?backgroundColor: "var\(--pg-background\)"[\s\S]*?borderRight: "0"/);
-  assert.match(theme, /"\.cm-lineNumbers \.cm-gutterElement": \{[\s\S]*?var\(--pg-muted\) 55%/);
+  assert.match(theme, /"\.cm-gutters": \{[\s\S]*?backgroundColor: "var\(--pg-code-background, var\(--pg-background\)\)"[\s\S]*?borderRight: "0"/);
+  assert.match(theme, /"\.cm-lineNumbers \.cm-gutterElement": \{[\s\S]*?paddingLeft: "\.65rem"[\s\S]*?var\(--pg-faint/);
   assert.match(style, /\.is-embed \.editor-host \.cm-content \{ padding: \.5rem 0; \}/);
   assert.match(style, /\.is-embed #source-editor \{[\s\S]*?border: 1px solid var\(--pg-border\);[\s\S]*?border-radius: 2px;/);
   assert.match(style, /\.head-bar \{[\s\S]*?justify-content: flex-end;[\s\S]*?border: 0;[\s\S]*?background: transparent;/);
@@ -43,6 +43,16 @@ test("documentation playgrounds are inline and have dismissible output", () => {
   assert.match(docApp, /class="icon-button output-close"[^>]+aria-label="Close output">×<\/button>/);
   assert.match(docApp, /root\.querySelector\("\.output-close"\)\.addEventListener\("click"/);
   assert.match(docApp, /const compiler = new CompilerClient\(\)/);
+});
+
+test("documentation playgrounds inherit normal code-block colors", () => {
+  const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
+  assert.match(docApp, /--pg-background: var\(--nuppdoc-code-background/);
+  assert.match(docApp, /--pg-border: var\(--nuppdoc-border/);
+  assert.doesNotMatch(docApp, /--nuppdoc-playground-border/);
+  for (const token of ["keyword", "string", "comment", "number", "function", "meta", "type", "operator", "variable"]) {
+    assert.match(docApp, new RegExp(`--pg-syntax-${token}: var\\(--nuppdoc-syntax-${token}`));
+  }
 });
 
 test("editor tooltips use compact text and balanced padding", () => {
