@@ -1,0 +1,333 @@
+# Documentation generator
+
+```bash
+nupp doc site -o build/docs src
+nupp doc markdown -o docs/api.md src
+nupp doc both -o build/docs
+```
+
+This site is built by it.
+
+`nupp doc` reads the parser's lossless CST and never invokes the checker or the
+code generator, so a documentation build costs parsing and rendering alone.
+Unchanged output files are left untouched.
+
+```
+nupp doc [site|markdown|both] [-o PATH] [--title TITLE] [--all] [path...]
+```
+
+The format is a positional word rather than a flag, and `md` is accepted for
+`markdown`. With none, the manifest's configured format is used, and `site` if
+it has none. Anything in first position that is not a format word is a path.
+
+`nupp doc` needs [lunamark](https://github.com/jgm/lunamark) and stops with a
+message if it is missing. Scintillua is optional: without it, a fence in a
+language it cannot load renders as escaped text. Both are ordinary
+[rock dependencies](build.md#rock-dependencies), so a docs target that declares
+them has them installed by the command that renders:
+
+```lua
+docs = {
+   kind = "docs",
+   dependencies = { "lunamark", "scintillua" },
+   sources = { "src" },
+}
+```
+
+## Doc comments
+
+Two forms, and they are different.
+
+**A long comment at the very top of a file** is that file's module
+documentation, kept as Markdown. Only whitespace may precede it, and an
+ordinary `--` header does not count.
+
+```nupp
+--[[
+What this module is for.
+
+Prose here is rendered as Markdown.
+]]
+```
+
+**A run of `---` line comments** immediately above a declaration documents it:
+
+```nupp
+--- Opens a session against the account service.
+---
+--- @param id the stable account identifier
+--- @return the open session
+--- @raises when the service refuses the connection
+@owned(closeSession)
+local function openSession(id: uint64): Session
+```
+
+Only the final adjacent run counts. An ordinary `--` comment or a blank line is
+a hard boundary, so a copyright header cannot become the first declaration's
+documentation.
+
+### Tags
+
+```
+ Tag                        Shape
+ ─────────────────────────  ──────────────────────────────────
+ @param <name> <text>       Named, by parameter
+ @field <name> <text>       Named, by field
+ @typearg <name> <text>     Named, by type parameter
+ @return <text>             Listed, one per occurrence, in order
+ @returns <text>            The same tag
+ @raises <text>             Listed, one per occurrence, in order
+ @module [text]             Overrides the file's module blurb
+ @export, @public           Force a declaration public
+ @local                     Keep a declaration out; --all brings it back
+ @namespace [prefix]        Document a shape's own fields as modules
+```
+
+A tag's description continues onto any following indented line. Any other
+`@name` is kept as a tag with its value.
+
+`@namespace` is for a shape with no file of its own to be documented from — an
+ambient global declared once, whose fields are the surface a reader actually
+reaches. On a `local name: {...}` declaration it replaces that one item with a
+module per field, named `prefix.field` (the enclosing module's own name, when
+`prefix` is omitted). A field inside one of those modules may carry
+`@namespace` too; it becomes a nested module instead of a value on its parent.
+A field written inline (`data: {...}`) documents its own fields directly; a
+field spelled as a name (`math: nupp.MathLibrary`) is followed to a record of
+that name declared in the same file. Documentation never resolves a type the
+way the checker does, so a field answering to neither is left out rather than
+guessed at. This is how the standard library's own `nupp` global —
+`nupp.data`, `nupp.io`, and `nupp.math` — gets pages nested under
+`nupp` without a file to require any of them by, since native members have
+none.
+
+`@raises` says what makes a function raise, one line per condition. Lua has no
+signature to find that out from, so it is written down. The
+`undocumented-raise` lint asks a documented function that calls `error` to say
+so; it judges only documented functions, `assert` does not count, and it does
+not propagate through calls, because documenting what a callee raises is a
+claim the checker cannot verify.
+
+Tags are read wherever a function is declared, including the typed bindings and
+function-typed record fields that declaration files are written with, so
+`local ipairs: function<V>(t: {V}): ...` documents its arguments like any other
+function.
+
+## What is public
+
+Without `--all`, an ordinary module shows its globals, its exported types, and
+anything marked `@export`. Private by default:
+
+- a source file whose basename starts with `_`;
+- any file below an `internal/` directory;
+- a file beginning with `@!internal`;
+- every module below an `init.nupp` beginning with `@!internal`;
+- a record method or member whose name starts with `_`.
+
+`includePrivate = true` on the docs target includes them.
+
+`@!internal` is a file-level inner annotation, not a docblock tag. Put it first
+in a namespace's `init.nupp` to keep that module and every descendant out of
+public API documentation without naming the directory `internal`:
+
+```nupp
+@!internal
+return {}
+```
+
+It affects documentation only. The compiler still checks, builds, and resolves
+the modules normally.
+
+A `.d.nupp` declaration file documents in full without `--all`, because `local`
+there is not privacy — its bindings are the interface it describes. Mark one
+`@local` to keep it out.
+
+## Markdown pages
+
+A docs target can carry handwritten pages alongside the generated API. Beyond
+ordinary Markdown, five things are available in a fenced block.
+
+**A caption**, which also becomes a tab label:
+
+````
+```lua [Generated Lua]
+local x = 1
+```
+````
+
+**Line numbers**, optionally starting partway into a file:
+
+````
+```nupp:line-numbers=41
+local offset = true
+```
+````
+
+The numbers sit in their own gutter, so selecting the block copies the code
+without them.
+
+**Code groups**, which need no JavaScript:
+
+````
+::: code-group
+```nupp [Nupp]
+local record Point x: number end
+```
+
+```lua [Generated Lua]
+const Point = {} Point.__index = Point
+```
+:::
+````
+
+**Admonitions**, whose bodies remain ordinary Lunamark Markdown:
+
+````
+::: note Optional title
+Use **normal Markdown** here, including links, lists, and fenced code.
+:::
+````
+
+The supported kinds are `note`, `info`, `tip`, `warning`, and `danger`. Omit
+the title to use the capitalized kind. Containers may nest, and a fenced code
+block containing `:::` does not close its admonition.
+
+**A playground**, which is the editor rather than a picture of one:
+
+````
+```playground
+local type Priority = "low" | "high"
+local p: Priority = "urgent"
+```
+````
+
+The program is checked in the reader's browser, as they type, by the real
+compiler — see [`editors/playground`](https://github.com/nupp-lang/nupp/tree/main/editors/playground)
+for how that works and what it cannot do. An empty fence opens on the editor's
+own example menu instead of a program; a caption becomes the frame's title.
+
+The block is an `<iframe>` pointing at `/playground/embed.html`, so a site using
+this has to serve the playground's `dist/` at `/playground/`, the way
+`nupp task docs-serve` does. Its height is `--nuppdoc-playground-height`.
+
+**File embeds**, which read a file at build time:
+
+```
+<<< @docs/grammar.abnf
+```
+
+The language is guessed from the extension. This page's
+[grammar reference](../grammar.md) is written this way, so it cannot drift from
+the file it documents.
+
+Use `nupp` as the language for Nupp source: it is highlighted by the compiler's
+own parser and lexer, which agree about tokens and contextual syntax and can turn
+a name into a link into the API reference. Every other language goes to
+Scintillua.
+
+Links between pages are written as ordinary relative Markdown paths to the
+source file — `[ownership](ownership.md)` — and are rewritten to the page's
+public route at build time. Fragments survive.
+
+A page source may open with `---`-delimited front matter, which is stripped.
+
+## Cross-references
+
+A Markdown link whose target names something the documentation knows resolves
+to whatever documents it. The name may be a module, a declaration, or a member,
+and it works the same in a handwritten page, a module blurb, and a `---` run:
+
+```
+[the zone module](nupp.zone)
+[](nupp.zone.Zone)
+[the guard's field](nupp.zone.Zone.active)
+```
+
+Empty link text stands for the target, so `[](nupp.zone)` renders that name
+as code and links it — the whole cost of a reference in passing.
+
+An unqualified name works wherever it is unambiguous, and a name declared in
+the module being rendered resolves to that module first. A name two modules
+both export resolves to neither, because guessing between them would silently
+point at the wrong one.
+
+A target that reads as a URL, has a slash, or carries a fragment is left alone,
+so ordinary links are never captured. A name nothing documents is left alone
+too, except that empty link text still renders the name — a reference to
+something that has moved reads as the name it used to have rather than as an
+invisible link. References inside a code block are code; use the `nupp`
+language there, which links names by itself.
+
+In `markdown` output the same references resolve to anchors within the
+document. A module's own `llms.txt` holds one module, so a reference to a
+neighbour keeps its name and drops its link.
+
+## Module pages
+
+Every module gets its own page: its blurb, a table of the modules nested under
+it, and a table per group of what it declares — constructors, types, functions,
+and values. The detailed reference repeats those group headings, nests each
+declaration beneath its group, and uses the same hierarchy in the page outline
+and companion Markdown.
+
+A directory with no `init.nupp` gets a page too, holding the modules below it
+and nothing else — the name every module inside it is spelled with, and it
+would otherwise be the one name in the reference that led nowhere. Such a page
+is titled `Namespace:` rather than `Module:`, and its entries in the sidebar,
+the search index, and the Markdown output say the same.
+
+A constructor is a function whose last name segment matches
+`constructorPattern`, which defaults to `^new`. Set it to another Lua pattern to
+match a different convention, or to `""` to leave every function in Functions.
+Deciding by result type instead would file every accessor and query under
+Constructors, so the name is what answers.
+
+### Overviews
+
+A configured page whose `path` is a module's route is that module's overview,
+rendered above the generated API rather than as a second page beside it:
+
+```lua
+{ path = "modules/engine", title = "Engine", source = "docs/engine.md" },
+```
+
+The route is `modules/` followed by the module name with its dots as slashes.
+This is where prose longer than a blurb belongs — a page a doc comment would
+have to hold. It is ordinary page Markdown, so cross-references, links to
+other pages, code groups, and admonitions all work, and its headings join the
+page outline above the generated ones. `title` overrides the generated
+`Module:` or `Namespace:` one. A module with both an overview and a blurb
+shows the overview first.
+
+## Output
+
+**`site`** writes a page per route, `assets/style.css`, `assets/site.js`, a
+JavaScript search index, and redirect stubs for the former `modules/name.html`
+URLs. The header search opens with Ctrl-K or Command-K and searches page titles
+and headings together with modules, declarations, and members.
+
+**`markdown`** writes one file: a section per module, with signature blocks and
+tables for type parameters, arguments, returns, methods, fields, and values.
+
+**`both`** writes the site plus `api.md` inside the output directory.
+
+Every page also emits a colocated `llms.txt` holding its Markdown. The output
+root adds an `llms.txt` index and `llms-full.txt`, the whole reference
+concatenated.
+
+## As a build target
+
+```lua
+docs = {
+   kind = "docs",
+   sources = { "src" },
+   format = "both",
+   outDir = "build/docs",
+   title = "Project API",
+   pages = { { path = "guide", title = "Guide", source = "docs/guide.md" } },
+}
+```
+
+Then `nupp build --target docs`, and `nupp check --target docs` parses and
+validates every source without writing output. [The build
+system](build.md#documentation-targets) documents every key.

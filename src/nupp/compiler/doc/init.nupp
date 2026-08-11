@@ -1,0 +1,841 @@
+--[[
+Fast, CST-native API documentation.
+
+Documentation deliberately stops after parsing. The lossless CST already contains
+declaration structure, source locations, types, and doc trivia, so invoking the
+checker would add work without improving the rendered API.
+
+A long comment at the very top of a file — this one — is that file's module
+documentation, and is rendered as markdown.
+]]
+
+local stringsMod = require("nupp.compiler.doc.strings")
+local filesMod = require("nupp.compiler.doc.files")
+local extractMod = require("nupp.compiler.doc.extract")
+local markdownMod = require("nupp.compiler.doc.markdown")
+local highlightMod = require("nupp.compiler.doc.highlight")
+local htmlMod = require("nupp.compiler.doc.html")
+local assetsMod = require("nupp.compiler.doc.assets")
+local urlsMod = require("nupp.compiler.doc.urls")
+local apiMod = require("nupp.compiler.doc.api")
+local pageMod = require("nupp.compiler.doc.page")
+
+local trim, htmlEscape = stringsMod.trim, stringsMod.htmlEscape
+local escapeJs = stringsMod.escapeJs
+local normalize, join = filesMod.normalize, filesMod.join
+local readFile, writeFile = filesMod.readFile, filesMod.writeFile
+local listFiles, privateSource = filesMod.listFiles, filesMod.privateSource
+local copyPublicFiles = filesMod.copyPublicFiles
+local moduleName, childModules = extractMod.moduleName, extractMod.children
+local namespaceModules = extractMod.namespaces
+local configureScintillua = highlightMod.configureScintillua
+local markdownHtml, markdownOutline = htmlMod.markdownHtml, htmlMod.markdownOutline
+local THEME, SCRIPT = assetsMod.THEME, assetsMod.SCRIPT
+local moduleFile, routeFile = urlsMod.moduleFile, urlsMod.routeFile
+local relativePrefix, cleanRoute = urlsMod.relativePrefix, urlsMod.cleanRoute
+local symbolLinkIndex, symbolLinks = urlsMod.symbolLinkIndex, urlsMod.symbolLinks
+local rewriteConfiguredPageLinks = urlsMod.rewriteConfiguredPageLinks
+local moduleSummary, renderHtmlItem, itemGroups = apiMod.moduleSummary, apiMod.renderHtmlItem, apiMod.itemGroups
+local nestedModules = apiMod.nestedModules
+local renderPage, homeHero, homeFeatures = pageMod.render, pageMod.homeHero, pageMod.homeFeatures
+
+local doc = {}
+
+--- One page a manifest configured. `path` is the route it is written to; `source` is
+--- the markdown read into it. A hero key is accepted in either spelling, because a
+--- manifest is Lua and both are what people write.
+type doc.Page = {
+    features: {pageMod.Feature}?,
+    heroActions: {pageMod.HeroAction}?,
+    heroContent: string?,
+    heroImage: string?,
+    heroImageAlt: string?,
+    heroText: string?,
+    heroTitle: string?,
+    hero_actions: {pageMod.HeroAction}?,
+    hero_content: string?,
+    hero_image: string?,
+    hero_image_alt: string?,
+    hero_text: string?,
+    hero_title: string?,
+    layout: string?,
+    path: string,
+    source: string?,
+    title: string?
+}
+
+--- What a manifest configured documentation to do. A build target of kind `docs` is
+--- read as one of these too, which is why `kind` and `targetName` are here.
+type doc.Settings = {
+    all: boolean?,
+    constructorPattern: string?,
+    customCss: string?,
+    description: string?,
+    favicon: string?,
+    format: string?,
+    github: string?,
+    includePrivate: boolean?,
+    kind: string?,
+    lexers: string?,
+    logo: string?,
+    name: string?,
+    outDir: string?,
+    pages: {doc.Page}?,
+    public: string?,
+    sources: {string}?,
+    targetName: string?,
+    title: string?
+}
+
+--- The manifest, as much of it as documentation reads.
+type doc.Config = {
+    build: {
+        targets: {[string]: doc.Settings}?
+    }?,
+    docs: doc.Settings?,
+    include: {string}?,
+    name: string?
+}
+
+--- What one run was asked for beyond what the manifest said. Every field overrides its
+--- counterpart in the settings, and `written` collects the paths the run wrote.
+type doc.BuildOptions = {
+    checkOnly: boolean?,
+    format: string?,
+    output: string?,
+    sources: {string}?,
+    title: string?,
+    written: {string}?
+}
+
+--- Reads one source file as its documented declarations. Returns the module, or nil and
+--- the parse errors that stopped it. A third result carries the modules an `@namespace`
+--- declaration implied, empty when the file held none.
+function doc.extract(
+    source: string,
+    path: string?,
+    name: string,
+    opts: extractMod.Options?
+): extractMod.Module?, {nupp.compiler.lexer.LexError}?, {extractMod.Module}?
+    return extractMod.extract(source, path, name, opts)
+end
+
+--- Renders extracted modules as a single markdown document. `all` is every module the
+--- run documented, which is what says which modules are nested under the ones being
+--- rendered; it defaults to the modules themselves. `overview` is handwritten prose to
+--- open with, which only a single module's page has.
+function doc.markdown(
+    modules: {extractMod.Module},
+    title: string?,
+    all: {extractMod.Module}?,
+    overview: string?,
+    constructorPattern: string?
+): string
+    return markdownMod.render(modules, title, all, overview, constructorPattern)
+end
+
+local function sourceFiles(root, config, settings, requested)
+    local paths, seen = {}, {}
+    local sources = requested and #requested > 0 and requested or settings.sources or config.include or {"."}
+    for _, source in ipairs(sources) do
+        local path = join(root, source)
+        local candidates = path:match("%.nupp$") and {path} or listFiles(path)
+        for _, candidate in ipairs(candidates) do
+            candidate = normalize(candidate)
+            if not seen[candidate] and (settings.includePrivate or not privateSource(root, candidate)) then
+                seen[candidate] = true
+                paths[#paths + 1] = candidate
+            end
+        end
+    end
+    table.sort(paths)
+
+    return paths
+end
+
+local function byKindThenName(left, right)
+    if left.kind == right.kind then
+        return left.name < right.name
+    end
+    return left.kind < right.kind
+end
+
+local function loadModules(root, config, settings, requested)
+    local modules, errors = {}, {}
+    local namespaceBacked = {}
+    for _, path in ipairs(sourceFiles(root, config, settings, requested)) do
+        local source, readErr = readFile(path)
+        if not source then
+            errors[#errors + 1] = {filename = path, line = 1, col = 1, msg = tostring(readErr)}
+        else
+            local name = moduleName(path, root, config.include or {})
+            local module, parseErrors, extraModules = doc.extract(
+                source,
+                path,
+                name,
+                {includeAll = settings.all, includePrivate = settings.includePrivate}
+            )
+            if module then
+                modules[#modules + 1] = module
+                for _, extra in ipairs(extraModules or {}) do
+                    modules[#modules + 1] = extra
+                    namespaceBacked[extra.name] = true
+                end
+            else
+                for _, err in ipairs(parseErrors as {nupp.compiler.lexer.LexError}) do
+                    errors[#errors + 1] = err
+                end
+            end
+        end
+    end
+    -- A qualified type declaration belongs to the module its name spells, even when
+    -- the declaration lives in a different file. The prelude is the important case:
+    -- `interface nupp.JSON` is written in the compiler's hidden declaration tree, but
+    -- readers should find it on `nupp`, not lose it with that implementation module.
+    -- An `@namespace` field is different: `record nupp.peg` describes the `nupp.peg`
+    -- module, so it belongs on that nested page rather than as a second declaration on
+    -- `nupp`. Move these after every source has been read so either destination can
+    -- supply its prose and source path.
+    local byName = {}
+    for _, module in ipairs(modules) do
+        byName[module.name] = byName[module.name] or module
+    end
+    for _, module in ipairs(modules) do
+        local kept = {}
+        for _, item in ipairs(module.items) do
+            local target = item.module and byName[item.module] or nil
+            local nested = target and byName[item.module .. "." .. item.name] or nil
+            if nested and namespaceBacked[nested.name] then
+                if item.doc.text ~= "" then
+                    nested.text = item.doc.text
+                end
+            elseif target and target ~= module then
+                item.path = item.module .. "." .. item.name
+                for _, member in ipairs(item.members) do
+                    member.path = item.path .. "." .. member.name
+                end
+                target.items[#target.items + 1] = item
+            else
+                kept[#kept + 1] = item
+            end
+        end
+        module.items = kept
+    end
+    for _, module in ipairs(modules) do
+        table.sort(module.items, byKindThenName)
+    end
+    if not settings.includePrivate then
+        local internalTrees = {}
+        for _, module in ipairs(modules) do
+            if module.documentationInternal and module.path and module.path:match("[/\\]init%.nupp$") then
+                internalTrees[#internalTrees + 1] = module.name
+            end
+        end
+        local public = {}
+        for _, module in ipairs(modules) do
+            local hidden = module.documentationInternal and true or false
+            for _, namespace in ipairs(internalTrees) do
+                if module.name == namespace or module.name:sub(1, #namespace + 1) == namespace .. "." then
+                    hidden = true
+                    break
+                end
+            end
+            if not hidden then
+                public[#public + 1] = module
+            end
+        end
+        modules = public
+    end
+    -- After the private ones are dropped, so a directory whose every module is internal
+    -- does not document as an empty namespace.
+    for _, namespace in ipairs(namespaceModules(modules)) do
+        modules[#modules + 1] = namespace
+    end
+    table.sort(modules, function(left, right)
+        return left.name < right.name
+    end)
+
+    return modules, errors
+end
+
+-- `<<< @path` on its own line embeds another file's contents as a fenced code block,
+-- language guessed from its extension. A page like the grammar reference is written
+-- this way instead of pasting the grammar in by hand, so the two can never drift: the
+-- build reads whatever bytes docs/grammar.abnf holds, every time it runs.
+--
+-- A directive inside a fence is a page showing the syntax rather than using it, and
+-- expanding one there produces a fence inside a fence: the inner block's closing line
+-- ends the outer one, and every heading after it is swallowed by the block the leftover
+-- opening starts. This page documents the directive, so it is the case that matters.
+local function embedFiles(root, markdown)
+    local out, fence = {}, nil
+    for line in (markdown .. "\n"):gmatch("(.-)\n") do
+        local marker = line:match("^%s*(```+)") or line:match("^%s*(~~~+)")
+        if marker then
+            if not fence then
+                fence = marker
+            elseif marker:sub(1, 1) == fence:sub(1, 1) and #marker >= #fence then
+                fence = nil
+            end
+        end
+        local path = not fence and line:match("^<<<%s+@(%S+)%s*$")
+        if path then
+            local contents, err = readFile(join(root, path))
+            if not contents then
+                return nil, err
+            end
+            out[#out + 1] = "```" .. (path:match("%.([%w_]+)$") or "text")
+            out[#out + 1] = (contents:gsub("\n$", ""))
+            out[#out + 1] = "```"
+        else
+            out[#out + 1] = line
+        end
+    end
+
+    return table.concat(out, "\n")
+end
+
+local function configuredPages(root, settings, title)
+    local pages, seen, home = {}, {}, false
+    for index, configured in ipairs(settings.pages or {}) do
+        if type(configured) ~= "table" then
+            return nil, "documentation page " .. index .. " must be a table"
+        end
+        local route = cleanRoute(configured.path)
+        if not route then
+            return nil, "invalid documentation page path"
+        end
+        if seen[route] then
+            return nil, "duplicate documentation page path: " .. route
+        end
+        seen[route], home = true, home or route == ""
+        local candidate = {}
+        for key, value in pairs(configured) do
+            candidate[key] = value
+        end
+        candidate.heroTitle = candidate.heroTitle or candidate.hero_title
+        candidate.heroText = candidate.heroText or candidate.hero_text
+        candidate.heroContent = candidate.heroContent or candidate.hero_content
+        candidate.heroImage = candidate.heroImage or candidate.hero_image
+        candidate.heroImageAlt = candidate.heroImageAlt or candidate.hero_image_alt
+        candidate.heroActions = candidate.heroActions or candidate.hero_actions
+        candidate.path = route
+        candidate.title = candidate.title or (route == "" and title or route)
+        candidate.markdown = ""
+        if candidate.source then
+            local source, err = readFile(join(root, candidate.source))
+            if not source then
+                return nil, err
+            end
+            if source:sub(1, 4) == "---\n" then
+                local ending = source:find("\n---\n", 5, true)
+                if ending then
+                    source = source:sub(ending + 5)
+                end
+            end
+            source, err = embedFiles(root, source)
+            if not source then
+                return nil, err
+            end
+            candidate.markdown = source
+        end
+        pages[#pages + 1] = candidate
+    end
+    if not home then
+        table.insert(
+            pages,
+            1,
+            {
+                path = "",
+                title = title,
+                layout = "home",
+                heroTitle = title,
+                heroText = settings.description or "API reference generated directly from Nupp source.",
+                markdown = ""
+            }
+        )
+    end
+
+    return pages
+end
+
+local function redirectHtml(target)
+    return '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=' .. htmlEscape(
+        target
+    ) .. '"><link rel="canonical" href="' .. htmlEscape(
+        target
+    ) .. '"><a href="' .. htmlEscape(target) .. '">Documentation moved</a>\n'
+end
+
+local function searchIndexJs(entries)
+    local out = {"window.NUPP_SEARCH_INDEX = [\n"}
+    for _, entry in ipairs(entries) do
+        out[
+            #out + 1
+        ] = '  {title:"' .. escapeJs(
+            entry.title
+        ) .. '",url:"' .. escapeJs(entry.url) .. '",text:"' .. escapeJs(entry.text) .. '"},\n'
+    end
+    out[#out + 1] = "];\n"
+
+    return table.concat(out)
+end
+
+local function appendSearchEntries(entries, candidate, file, markdown)
+    local url = "../" .. file
+    if candidate.module then
+        local module = candidate.module
+        entries[
+            #entries + 1
+        ] = {
+            title = (module.namespace and "Namespace › " or "Module › ") .. module.name,
+            url = url,
+            text = module.name .. " " .. (module.text or ""),
+        }
+        for _, item in ipairs(module.items) do
+            local itemText = {item.name, item.signature, item.doc.text or ""}
+            for _, param in ipairs(item.params) do
+                itemText[#itemText + 1] = param.name .. " " .. param.type .. " " .. (param.text or "")
+            end
+            for _, value in ipairs(item.returns) do
+                itemText[#itemText + 1] = value.type .. " " .. (value.text or "")
+            end
+            entries[
+                #entries + 1
+            ] = {title = "API › " .. item.name, url = url .. "#" .. item.path, text = table.concat(itemText, " ")}
+            for _, member in ipairs(item.members) do
+                entries[
+                    #entries + 1
+                ] = {
+                    title = "API › " .. item.name .. "." .. member.name,
+                    url = url .. "#" .. member.path,
+                    text = member.name .. " " .. (member.type or "") .. " " .. (member.text or ""),
+                }
+            end
+        end
+    else
+        entries[
+            #entries + 1
+        ] = {title = candidate.title, url = url, text = (candidate.heroText or "") .. " " .. markdown}
+        for _, heading in ipairs(markdownOutline(markdown)) do
+            if heading.level ~= 1 then
+                entries[
+                    #entries + 1
+                ] = {
+                    title = candidate.title .. " › " .. heading.name,
+                    url = url .. "#" .. heading.path,
+                    text = heading.name .. " " .. candidate.title,
+                }
+            end
+        end
+    end
+end
+
+local function renderSite(root, outDir, modules, title, settings)
+    configureScintillua(root, settings)
+    local ok, err = copyPublicFiles(root, outDir, settings.public)
+    if not ok then
+        return nil, err
+    end
+    local css = THEME
+    if settings.customCss then
+        local custom
+        custom, err = readFile(join(root, tostring(settings.customCss)))
+        if not custom then
+            return nil, err
+        end
+        css = css .. "\n" .. custom
+    end
+    ok, err = writeFile(join(outDir, "assets/style.css"), css)
+    if not ok then
+        return nil, err
+    end
+    ok, err = writeFile(join(outDir, "assets/site.js"), SCRIPT)
+    if not ok then
+        return nil, err
+    end
+    local pages
+    pages, err = configuredPages(root, settings, title)
+    if not pages then
+        return nil, err
+    end
+    -- A configured page whose route is a module's is that module's overview: prose an
+    -- author wants above the generated API, written where prose is written rather than
+    -- in a doc comment that would have to hold a page. It is carried onto the module's
+    -- own entry rather than kept beside it, so the module keeps its place in the
+    -- navigation and one page still answers at that route.
+    local configured, moduleRoutes, ordered = {}, {}, {}
+    for _, candidate in ipairs(pages) do
+        configured[candidate.path] = candidate
+    end
+    for _, module in ipairs(modules) do
+        local route = moduleFile(module.name):gsub("/index%.html$", "")
+        if moduleRoutes[route] then
+            return nil, "two modules document to the same page: " .. route
+        end
+        moduleRoutes[route] = true
+    end
+    for _, candidate in ipairs(pages) do
+        if not moduleRoutes[candidate.path] then
+            ordered[#ordered + 1] = candidate
+        end
+    end
+    for _, module in ipairs(modules) do
+        local route = moduleFile(module.name):gsub("/index%.html$", "")
+        local overview = configured[route]
+        ordered[
+            #ordered + 1
+        ] = {
+            path = route,
+            title = overview and overview.title or (module.namespace and "Namespace: " or "Module: ") .. module.name,
+            module = module,
+            overview = overview and overview.markdown or nil,
+            source = overview and overview.source or nil,
+        }
+    end
+    pages = ordered
+
+    local allMarkdown, linkIndex, searchEntries = {}, symbolLinkIndex(modules), {}
+    for _, candidate in ipairs(pages) do
+        local file = routeFile(candidate.path)
+        local markdown, body, current = candidate.markdown or "", {}, nil
+        local items: {pageMod.Entry} = {}
+        if candidate.module then
+            local module = candidate.module
+            local children = childModules(modules, module.name)
+            current = module.name
+            for _, heading in ipairs(markdownOutline(candidate.overview)) do
+                items[#items + 1] = {path = heading.path, name = heading.name}
+            end
+            if #children > 0 then
+                items[#items + 1] = {path = "modules", name = "Submodules"}
+            end
+            if #module.items > 0 then
+                items[#items + 1] = {path = "module-contents", name = "Module contents"}
+            end
+            local groups = itemGroups(module.items, settings.constructorPattern)
+            for _, group in ipairs(groups) do
+                if #group.items > 0 then
+                    local entries = {}
+                    for _, item in ipairs(group.items) do
+                        entries[#entries + 1] = {path = item.path, name = item.name}
+                    end
+                    items[#items + 1] = {path = group.path, name = group.title, items = entries}
+                end
+            end
+            local overview = candidate.overview or ""
+            markdown = doc.markdown({module}, nil, modules, overview, settings.constructorPattern)
+            local links = symbolLinks(linkIndex, module, relativePrefix(file))
+            body[
+                #body + 1
+            ] = '<h1>' .. (
+                module.namespace and "Namespace: " or "Module: "
+            ) .. '<code>' .. htmlEscape(module.name) .. '</code></h1>'
+            -- An overview is what the author wanted said here, so it replaces the line
+            -- that stands in for one rather than repeating the subject above it.
+            if overview ~= "" then
+                body[#body + 1] = markdownHtml(rewriteConfiguredPageLinks(overview, candidate, pages, file), links, 0)
+            elseif module.namespace then
+                body[
+                    #body + 1
+                ] = '<p class="nuppdoc-namespace-note">Modules nested under <code>' .. htmlEscape(
+                    module.name
+                ) .. '</code>. Nothing is required by this name itself.</p>'
+            elseif module.text ~= "" then
+                body[#body + 1] = markdownHtml(module.text, links)
+            end
+            if overview ~= "" and module.text ~= "" then
+                body[#body + 1] = markdownHtml(module.text, links)
+            end
+            body[#body + 1] = nestedModules(children, relativePrefix(file), modules)
+            if #module.items == 0 then
+                -- A namespace's table of nested modules is the whole of what it has to
+                -- say, so the notice below would be saying it holds no declarations
+                -- when nothing ever suggested it would.
+                if #children == 0 and not module.namespace then
+                    body[#body + 1] = '<div class="nuppdoc-empty">No public declarations.</div>'
+                end
+            else
+                body[#body + 1] = moduleSummary(module, settings.constructorPattern)
+                for _, group in ipairs(groups) do
+                    if #group.items > 0 then
+                        body[
+                            #body + 1
+                        ] = '<section class="nuppdoc-api-group"><h2 id="' .. htmlEscape(
+                            group.path
+                        ) .. '">' .. htmlEscape(
+                            group.title
+                        ) .. '<a class="nuppdoc-header-anchor" href="#' .. htmlEscape(
+                            group.path
+                        ) .. '" aria-label="Link to ' .. htmlEscape(group.title) .. '">#</a></h2>'
+                        for _, item in ipairs(group.items) do
+                            renderHtmlItem(body, item, links, settings.constructorPattern)
+                        end
+                        body[#body + 1] = "</section>"
+                    end
+                end
+            end
+        else
+            local links = symbolLinks(linkIndex, nil, relativePrefix(file))
+            for _, heading in ipairs(markdownOutline(markdown)) do
+                items[#items + 1] = {path = heading.path, name = heading.name}
+            end
+            body[#body + 1] = homeHero(candidate, links)
+            local renderedMarkdown = rewriteConfiguredPageLinks(markdown, candidate, pages, file)
+            local featureStart, featureEnd
+            if candidate.path == "" then
+                -- A home page can put its long-form feature tour directly after an
+                -- interactive introduction, before its lower-priority link sections.
+                featureStart, featureEnd = markdown:find("<!-- nupp:features -->", 1, true)
+            end
+            if featureStart and featureEnd then
+                local introduction = rewriteConfiguredPageLinks(
+                    markdown:sub(1, featureStart - 1),
+                    candidate,
+                    pages,
+                    file
+                )
+                local remainder = rewriteConfiguredPageLinks(markdown:sub(featureEnd + 1), candidate, pages, file)
+                body[#body + 1] = markdownHtml(introduction, links, 0)
+                body[#body + 1] = '<h2 id="nupp-features">Nupp Features</h2>'
+                body[#body + 1] = homeFeatures(candidate, links)
+                body[#body + 1] = markdownHtml(remainder, links, 0)
+            else
+                body[#body + 1] = markdownHtml(renderedMarkdown, links, 0)
+            end
+            if candidate.path == "" then
+                if not featureStart then
+                    body[#body + 1] = homeFeatures(candidate, links)
+                end
+                body[#body + 1] = '<h2 id="modules">Modules</h2><div class="nuppdoc-module-grid">'
+                for _, module in ipairs(modules) do
+                    -- A namespace has no declarations to count, and saying it has none
+                    -- reads as an empty module rather than as the index it is.
+                    local held = module.namespace and #childModules(modules, module.name) or #module.items
+                    local noun = module.namespace and " module" or " documented declaration"
+                    body[
+                        #body + 1
+                    ] = '<a class="nuppdoc-module-card" href="' .. moduleFile(
+                        module.name
+                    ) .. '"><code>' .. htmlEscape(
+                        module.name
+                    ) .. '</code><span>' .. held .. noun .. (held == 1 and "" or "s") .. '</span></a>'
+                end
+                body[#body + 1] = '</div>'
+            end
+        end
+        local html = renderPage(
+            candidate.title,
+            title,
+            table.concat(body, "\n"),
+            modules,
+            current,
+            items,
+            file,
+            settings,
+            pages,
+            candidate.path,
+            candidate.layout
+        )
+        appendSearchEntries(searchEntries, candidate, file, markdown)
+        ok, err = writeFile(join(outDir, file), html)
+        if not ok then
+            return nil, err
+        end
+        local mdFile = candidate.path == "" and "index.md" or candidate.path .. ".md"
+        ok, err = writeFile(join(outDir, mdFile), markdown)
+        if not ok then
+            return nil, err
+        end
+        if candidate.path ~= "" then
+            ok, err = writeFile(join(outDir, candidate.path .. "/llms.txt"), markdown)
+            if not ok then
+                return nil, err
+            end
+        end
+        allMarkdown[#allMarkdown + 1] = {page = candidate, text = markdown}
+        -- A namespace gets no redirect stub: it is a page this generator started
+        -- writing, so no former URL ever pointed at it.
+        if candidate.module and not candidate.module.namespace then
+            local legacy = "modules/" .. candidate.module.name:gsub("[^%w._-]", "-"):gsub("%.", "/") .. ".html"
+            ok, err = writeFile(
+                join(outDir, legacy),
+                redirectHtml(
+                    candidate.module.name:match(
+                        "%."
+                    ) and candidate.module.name:match(
+                        "([^.]+)$"
+                    ) .. "/index.html" or candidate.module.name .. "/index.html"
+                )
+            )
+            if not ok then
+                return nil, err
+            end
+        end
+    end
+
+    local llms = {"# " .. (settings.name or title), ""}
+    if settings.description and settings.description ~= "" then
+        llms[#llms + 1] = "> " .. settings.description
+        llms[#llms + 1] = ""
+    end
+    llms[#llms + 1] = "## Documentation"
+    for _, entry in ipairs(allMarkdown) do
+        local target = entry.page.path == "" and "index.md" or entry.page.path .. "/llms.txt"
+        llms[#llms + 1] = "- [" .. entry.page.title .. "](" .. target .. ")"
+    end
+    llms[#llms + 1] = ""
+    llms[#llms + 1] = "- [Complete documentation](llms-full.txt)"
+    ok, err = writeFile(join(outDir, "llms.txt"), table.concat(llms, "\n") .. "\n")
+    if not ok then
+        return nil, err
+    end
+    local full = {"# " .. (settings.name or title)}
+    for _, entry in ipairs(allMarkdown) do
+        full[#full + 1] = "\n---\n\n## " .. entry.page.title .. "\n\n" .. trim(entry.text) .. "\n"
+    end
+    ok, err = writeFile(join(outDir, "llms-full.txt"), table.concat(full, "\n"))
+    if not ok then
+        return nil, err
+    end
+    ok, err = writeFile(join(outDir, "assets/search-index.js"), searchIndexJs(searchEntries))
+    if not ok then
+        return nil, err
+    end
+
+    return true
+end
+
+local function report(errors)
+    for _, err in ipairs(errors) do
+        io.stderr:write(
+            (
+                "%s:%d:%d: error: %s\n"
+            ):format(err.filename or "?", err.line or 1, err.col or 1, err.msg or "documentation error")
+        )
+    end
+end
+
+--- Where a documentation target writes when the manifest names no `outDir`.
+---
+--- `nupp tasks` reports this and `nupp clean` removes it, so the default lives here
+--- rather than being spelled again wherever it is needed: a build that writes somewhere
+--- the task table does not name is a build clean can miss.
+---
+--- @param format site, markdown, or both
+--- @return the path, relative to the project root
+function doc.defaultOutDir(format: string?): string
+    return format == "markdown" and "docs/api.md" or "build/docs"
+end
+
+--- Generates the documentation one target asked for. Returns the exit code, and the
+--- path and format it resolved to.
+---
+--- The command line assembles its overrides out of parsed option values, so they arrive
+--- as a plain table rather than as `doc.BuildOptions`; that is what is read out of it.
+--- The manifest's own types are what callers hold: `nupp.compiler.build.project` hands
+--- over
+--- whatever it validated, and a docs target is an ordinary build target with the
+--- generator's keys on it. They arrive as those types and are read as the richer ones
+--- declared above, which describe the same tables in the detail this module needs.
+function doc.build(
+    root: string?,
+    config: nupp.compiler.build.manifest.Config,
+    settings: nupp.compiler.build.manifest.Target?,
+    opts: table?
+): integer, string?, string?
+    root = root or "."
+    local config = config as doc.Config
+    local settings = (settings or {}) as doc.Settings
+    local opts = opts as doc.BuildOptions or {} as doc.BuildOptions
+    local modules, errors = loadModules(root, config or {}, settings, opts.sources)
+    if #errors > 0 then
+        report(errors)
+        ;
+        return 1
+    end
+    if opts.checkOnly then
+        return 0
+    end
+    local format = opts.format or settings.format or "site"
+    local title = opts.title or settings.title or config.name or "Nupp API"
+    local output = normalize(opts.output or settings.outDir or doc.defaultOutDir(format))
+    output = join(root, output)
+    -- Recording is on for the writes below and off again before returning, so a later
+    -- caller without a collector cannot inherit this one's.
+    filesMod.collect(opts.written)
+    local code: integer, message: string? = 0, nil
+    if format == "markdown" then
+        local ok, err = writeFile(output, doc.markdown(modules, title, nil, nil, settings.constructorPattern))
+        if not ok then
+            code, message = 1, tostring(err)
+        end
+    elseif format == "site" then
+        local ok, err = renderSite(root, output, modules, title, settings)
+        if not ok then
+            code, message = 1, tostring(err)
+        end
+    elseif format == "both" then
+        local ok, err = renderSite(root, output, modules, title, settings)
+        if ok then
+            ok, err = writeFile(
+                join(output, "api.md"),
+                doc.markdown(modules, title, nil, nil, settings.constructorPattern)
+            )
+        end
+        if not ok then
+            code, message = 1, tostring(err)
+        end
+    else
+        code = 2
+        message = "documentation format must be site, markdown, or both"
+    end
+    filesMod.collect(nil)
+    if message then
+        io.stderr:write("nupp: " .. message .. "\n")
+    end
+
+    return code, output, format
+end
+
+--- The documentation settings a manifest configured, either as its own `docs` table or
+--- as a build target of that kind. Exported because the command line needs to read them
+--- before it can let options override them.
+function doc.manifestSettings(config: doc.Config): doc.Settings
+    if type(config.docs) == "table" then
+        return config.docs as doc.Settings
+    end
+    for name, target in pairs(config.build and config.build.targets or {}) do
+        if type(target) == "table" and target.kind == "docs" then
+            local copy = {}
+            for key, value in pairs(target) do
+                copy[key] = value
+            end
+            copy.targetName = name
+            return copy
+        end
+    end
+
+    return {}
+end
+
+--- Reads the manifest a project root configured, or an empty configuration when it has
+--- none. Returns nil and a message when there is one and it does not load.
+function doc.loadConfig(root: string?): doc.Config?, string?
+    local manifest = loadfile(join(root or ".", "nupp.lua"))
+    if not manifest then
+        return {}
+    end
+    local ok, loaded = pcall(manifest)
+    if not ok then
+        return nil, tostring(loaded)
+    end
+
+    return type(loaded) == "table" and loaded or {}
+end
+
+doc.theme = THEME
+doc.script = SCRIPT
+doc.highlight = highlightMod.nuppSource
+
+return doc

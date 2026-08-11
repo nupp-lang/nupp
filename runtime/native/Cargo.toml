@@ -1,0 +1,40 @@
+[package]
+name = "nupp-native"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+files = ["dep:glob"]
+process = ["dep:libc", "dep:windows-sys"]
+path = ["dep:camino", "dep:path-clean", "dep:pathdiff"]
+uri = ["dep:url"]
+uuid = ["dep:uuid"]
+sha256 = ["dep:sha2"]
+
+[dependencies]
+camino = { version = "1.1", optional = true }
+glob = { version = "0.3", optional = true }
+path-clean = { version = "1.0", optional = true }
+pathdiff = { version = "0.2", features = ["camino"], optional = true }
+sha2 = { version = "0.10", optional = true }
+url = { version = "2.5", optional = true }
+uuid = { version = "1.10", features = ["v4", "v7"], optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { version = "0.2", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }

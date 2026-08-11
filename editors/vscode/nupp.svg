@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Nupp programming language icon</title>
+  <desc id="desc">A nuppeppo yokai rendered as a flat silhouette inside a blue circle,
+    with drooping closed eyes and a small mouth.</desc>
+
+  <defs>
+    <!-- Two small, close-set feet. -->
+    <path id="foot-l" d="M42 98c-10 1-17 8-16 16 1 6 7 9 12 5 3 5 10 5 13 0 4 4 11 1 11-5 0-8-8-16-20-16Z"/>
+    <path id="foot-r" d="M86 98c10 1 17 8 16 16-1 6-7 9-12 5-3 5-10 5-13 0-4 4-11 1-11-5 0-8 8-16 20-16Z"/>
+
+    <!-- Heavy, round-bottomed torso, like a gourd rather than an egg. -->
+    <path id="torso" d="M61 10
+             C82 8 95 24 96 46
+             C97 59 103 70 108 85
+             C110 98 102 106 94 111
+             C82 117 46 117 34 111
+             C26 106 18 98 20 85
+             C25 70 31 59 32 47
+             C31 26 42 12 61 10Z"/>
+
+    <!-- Two low arms merge into the torso. -->
+    <path id="arm-l" d="M37 55c-8 8-14 18-19 28-4 8-1 16 6 18 4 1 7-2 7-6 1 5 6 6 9 2 2 4 7 2 8-2 2-8-3-28-11-40Z"/>
+    <path id="arm-r" d="M92 54c9 8 15 18 19 29 3 9 0 17-7 19-4 1-7-2-6-6-2 5-7 5-10 1-3 4-8 2-9-2-2-9 5-29 13-41Z"/>
+  </defs>
+
+  <!-- Theme accent blue disc behind the figure. -->
+  <circle cx="64" cy="64" r="62" fill="#176b8a"/>
+
+  <g transform="translate(64,64) scale(0.72) translate(-65.5,-63.5)"
+     stroke-linejoin="round" stroke-linecap="round">
+
+    <!-- Outer edge: the same shapes, drawn behind at a heavier weight. Feet
+         are scaled down around their attach point so the heavier outline
+         doesn't also inflate the feet themselves. -->
+    <g fill="#0d4a5f" stroke="#0d4a5f">
+      <use href="#foot-l" stroke-width="16.5" transform="translate(43,103) scale(0.85) translate(-43,-98)"/>
+      <use href="#foot-r" stroke-width="16.5" transform="translate(85,103) scale(0.85) translate(-85,-98)"/>
+      <use href="#torso"  stroke-width="16.5"/>
+      <use href="#arm-l"  stroke-width="14.5"/>
+      <use href="#arm-r"  stroke-width="14.5"/>
+    </g>
+
+    <!-- The nuppeppo, flattened to a single silhouette colour. -->
+    <g fill="#e6dfc0" stroke="#e6dfc0">
+      <use href="#foot-l" stroke-width="3.2" transform="translate(43,103) scale(0.85) translate(-43,-98)"/>
+      <use href="#foot-r" stroke-width="3.2" transform="translate(85,103) scale(0.85) translate(-85,-98)"/>
+      <use href="#torso"  stroke-width="5"/>
+      <use href="#arm-l"  stroke-width="3.8"/>
+      <use href="#arm-r"  stroke-width="3.8"/>
+    </g>
+
+    <!-- Sunken eyes: tapered lid strokes, outer corners drooping, and a small mouth. -->
+    <g fill="#176b8a" stroke="none">
+      <path d="M35 63 Q46 39 59 50 Q46 53 35 63 Z"/>
+      <path d="M41 70 Q50 57 60 61 Q50 65 41 70 Z"/>
+      <path d="M93 63 Q82 39 69 50 Q82 53 93 63 Z"/>
+      <path d="M87 70 Q78 57 68 61 Q78 65 87 70 Z"/>
+      <path d="M53 77 Q65 96 79 77 Q65 85 53 77 Z"/>
+    </g>
+  </g>
+
+</svg>

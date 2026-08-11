@@ -1,0 +1,349 @@
+-- Versioned, target-independent semantic type descriptors for comptime and derive.
+
+local hash = require("nupp.compiler.build.hash")
+local stable = require("nupp.compiler.build.cache").stable
+local members = require("nupp.compiler.members")
+
+local record reflection
+    SCHEMA: integer
+    describe: function(any, string?): any
+end
+
+reflection.SCHEMA = 2
+
+local function sortedNames(values)
+    local names = {}
+    for name in pairs(values or {}) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+
+    return names
+end
+
+--- Converts the checker's interned, possibly recursive graph into plain acyclic data.
+--- Every type appears once in `types`; edges are integer indices, so recursive
+--- declarations survive JSON transport without exposing checker objects or identities.
+function reflection.describe(root: any, qualifiedName: string?): any
+    local indices, types = {}, {}
+
+    local intern
+
+    local function reflectedAnnotations(applications)
+        local out = {}
+        for _, application in ipairs(applications or {}) do
+            local reflected = {name = application.name, arguments = {}}
+            for _, argument in ipairs(application.arguments or {}) do
+                local encoded = {name = argument.name, kind = argument.kind}
+                if argument.kind == "type" then
+                    encoded.type = intern(argument.type)
+                elseif argument.kind == "value" then
+                    encoded.value = argument.value
+                end
+                reflected.arguments[#reflected.arguments + 1] = encoded
+            end
+            out[#out + 1] = reflected
+        end
+
+        return out
+    end
+
+    intern = function(t): integer?
+        if not t then
+            return nil
+        end
+        local prior = indices[t]
+        if prior then
+            return prior
+        end
+        local index = #types + 1
+        indices[t] = index
+        local out = {kind = t.tag}
+        types[index] = out
+        local tag = t.tag
+
+        if tag == "nominal" then
+            out.kind = t.declKind
+            out.name = t.name
+            out.nominal = true
+            out.annotations = reflectedAnnotations(t.annotations)
+            out.fields = {}
+            local view = members.view(t)
+            for _, field in ipairs(view.ordered) do
+                local read, write = field.readType, field.writeType
+                out.fields[
+                    #out.fields + 1
+                ] = {
+                    name = field.name,
+                    read = intern(read),
+                    write = intern(write),
+                    readable = read ~= nil,
+                    writable = write ~= nil,
+                    annotations = reflectedAnnotations(field.annotations),
+                }
+            end
+            out.staticFields = {}
+            for _, name in ipairs(sortedNames(t.staticByname)) do
+                out.staticFields[
+                    #out.staticFields + 1
+                ] = {name = name, read = intern(t.staticByname[name]), write = intern(t.staticWriteByname[name]),}
+            end
+            out.index = {
+                readKey = intern(view.readIndexer and view.readIndexer.keyType),
+                readValue = intern(view.readIndexer and view.readIndexer.valueType),
+                writeKey = intern(view.writeIndexer and view.writeIndexer.keyType),
+                writeValue = intern(view.writeIndexer and view.writeIndexer.valueType),
+            }
+            out.metamethods = {}
+            for _, name in ipairs(sortedNames(t.metamethods)) do
+                out.metamethods[#out.metamethods + 1] = {name = name, type = intern(t.metamethods[name])}
+            end
+            out.nestedTypes = {}
+            for _, name in ipairs(sortedNames(t.nestedTypes)) do
+                out.nestedTypes[#out.nestedTypes + 1] = {name = name, type = intern(t.nestedTypes[name])}
+            end
+            out.associatedTypes = {}
+            for _, name in ipairs(t.associatedOrder or {}) do
+                out.associatedTypes[
+                    #out.associatedTypes + 1
+                ] = {
+                    name = name,
+                    bound = intern(t.associatedBounds and t.associatedBounds[name]),
+                    answer = intern(t.nestedTypes and t.nestedTypes[name]),
+                    default = t.associatedDefaults and t.associatedDefaults[name] or false,
+                }
+            end
+            out.supertypes = {}
+            for _, supertype in ipairs(t.supertypes or {}) do
+                out.supertypes[#out.supertypes + 1] = intern(supertype)
+            end
+            out.arrayOf = intern(t.arrayOf)
+            out.typeParameters, out.typeBounds, out.packParameters, out.constParameters = {}, {}, {}, {}
+            for position, parameter in ipairs(t.typeParams or {}) do
+                out.typeParameters[position] = intern(parameter)
+                out.typeBounds[position] = intern(t.typeBounds and t.typeBounds[position])
+            end
+            for position, parameter in ipairs(t.packParams or {}) do
+                out.packParameters[position] = intern(parameter)
+            end
+            for position, parameter in ipairs(t.constParams or {}) do
+                out.constParameters[position] = intern(parameter)
+            end
+            out.parameterKinds = t.paramKinds or {}
+            out.typeArguments = {}
+            for _, argument in ipairs(t.typeArgs or {}) do
+                out.typeArguments[#out.typeArguments + 1] = intern(argument)
+            end
+            out.packArguments = {}
+            for _, argument in ipairs(t.packArgs or {}) do
+                out.packArguments[#out.packArguments + 1] = intern(argument)
+            end
+            out.constArguments = {}
+            for _, argument in ipairs(t.constArgs or {}) do
+                out.constArguments[#out.constArguments + 1] = intern(argument)
+            end
+            out.origin = intern(t.origin)
+        elseif tag == "shape" then
+            out.fields = {}
+            local view = members.view(t)
+            for _, field in ipairs(view.ordered) do
+                out.fields[
+                    #out.fields + 1
+                ] = {
+                    name = field.name,
+                    read = intern(field.readType),
+                    write = intern(field.writeType),
+                    readable = field.readType ~= nil,
+                    writable = field.writeType ~= nil,
+                }
+            end
+            out.index = {
+                readKey = intern(view.readIndexer and view.readIndexer.keyType),
+                readValue = intern(view.readIndexer and view.readIndexer.valueType),
+                writeKey = intern(view.writeIndexer and view.writeIndexer.keyType),
+                writeValue = intern(view.writeIndexer and view.writeIndexer.valueType),
+            }
+        elseif tag == "func" then
+            out.parameters, out.returns = {}, {}
+            for position, parameter in ipairs(t.params or {}) do
+                out.parameters[
+                    position
+                ] = {
+                    name = t.paramNames and t.paramNames[position] or "",
+                    mode = t.paramModes and t.paramModes[position] or "plain",
+                    type = intern(parameter),
+                }
+            end
+            for position, returned in ipairs(t.rets or {}) do
+                out.returns[position] = intern(returned)
+            end
+            out.vararg = t.vararg or false
+            out.varargType = intern(t.varargType)
+            out.noReturn = t.noreturn or false
+            out.noYield = t.noYield or false
+            out.borrowedFrom = t.borrowsParam
+            out.borrowedFromMany = t.borrowsParams or {}
+            out.typeParameters, out.typeBounds, out.packParameters = {}, {}, {}
+            for position, parameter in ipairs(t.typeParams or {}) do
+                out.typeParameters[position] = intern(parameter)
+                out.typeBounds[position] = intern(t.typeBounds and t.typeBounds[position])
+            end
+            for position, parameter in ipairs(t.packParams or {}) do
+                out.packParameters[position] = intern(parameter)
+            end
+            out.constParameters = {}
+            for position, parameter in ipairs(t.constParams or {}) do
+                out.constParameters[position] = intern(parameter)
+            end
+            out.parameterKinds = t.paramKinds or {}
+            out.parameterPack = intern(t.paramPack)
+            out.returnPack = intern(t.retPack)
+            out.yieldPack = intern(t.yieldPack)
+            out.resumePack = intern(t.resumePack)
+        elseif tag == "map" then
+            out.readKey = t.readable and intern(t.key) or nil
+            out.readValue = t.readable and intern(t.value) or nil
+            out.writeKey = intern(t.writeKey)
+            out.writeValue = intern(t.writeValue)
+        elseif tag == "tuple" then
+            out.members = {}
+            for position, member in ipairs(t.elems or {}) do
+                out.members[position] = intern(member)
+            end
+        elseif tag == "union" or tag == "intersection" then
+            out.members = {}
+            for position, member in ipairs(t.members or {}) do
+                out.members[position] = intern(member)
+            end
+        elseif tag == "pack" then
+            out.head = {}
+            for position, member in ipairs(t.head or {}) do
+                out.head[position] = {type = intern(member), mode = t.modes and t.modes[position] or "plain"}
+            end
+            local tail = t.tail
+            out.tail = tail and {
+                kind = tail.kind,
+                type = intern(tail.type),
+                variable = intern(tail.var),
+                mode = tail.mode,
+            } or nil
+            out.alternatives = {}
+            for position, alternative in ipairs(t.alternatives or {}) do
+                out.alternatives[position] = intern(alternative)
+            end
+        elseif tag == "protocolThread" then
+            out.startPack = intern(t.startPack)
+            out.resumePack = intern(t.resumePack)
+            out.yieldPack = intern(t.yieldPack)
+            out.returnPack = intern(t.returnPack)
+        elseif tag == "genericAlias" then
+            out.name = t.name
+            out.body = intern(t.body)
+            out.typeParameters, out.typeBounds, out.packParameters, out.constParameters = {}, {}, {}, {}
+            for position, parameter in ipairs(t.typeParams or {}) do
+                out.typeParameters[position] = intern(parameter)
+                out.typeBounds[position] = intern(t.typeBounds and t.typeBounds[position])
+            end
+            for position, parameter in ipairs(t.packParams or {}) do
+                out.packParameters[position] = intern(parameter)
+            end
+            for position, parameter in ipairs(t.constParams or {}) do
+                out.constParameters[position] = intern(parameter)
+            end
+            out.parameterKinds = t.paramKinds or {}
+        elseif tag == "neutral" and t.op == "alias" then
+            out.operation = "recursiveAlias"
+            out.name = t.aliasHeader and t.aliasHeader.name or nil
+            out.typeArguments, out.packArguments, out.constArguments = {}, {}, {}
+            for position, argument in ipairs(t.aliasTypeArgs or {}) do
+                out.typeArguments[position] = intern(argument)
+            end
+            for position, argument in ipairs(t.aliasPackArgs or {}) do
+                out.packArguments[position] = intern(argument)
+            end
+            for position, argument in ipairs(t.aliasConstArgs or {}) do
+                out.constArguments[position] = intern(argument)
+            end
+        elseif tag == "literal" then
+            out.value = t.constant
+            out.base = intern(t.base)
+        elseif tag == "typevar" then
+            out.name = t.name
+            out.bound = intern(t.bound)
+        elseif tag == "packvar" then
+            out.name = t.name
+        elseif tag == "constLiteral" then
+            out.domain = t.domain
+            out.value = t.value
+        elseif tag == "constVar" then
+            out.name = t.name
+            out.domain = t.domain
+        elseif tag == "constOp" then
+            out.operation = t.operation
+            out.operands = {}
+            for position, operand in ipairs(t.operands or {}) do
+                out.operands[position] = intern(operand)
+            end
+        elseif tag == "projection" then
+            out.of = intern(t.of)
+            out.name = t.name
+        elseif tag == "array"
+            or tag == "ptr"
+            or tag == "owned"
+            or tag == "borrowed"
+            or tag == "pinned"
+            or tag == "const"
+        then
+            out.element = intern(t.elem or t.inner)
+            if tag == "owned" then
+                out.cleanups = {}
+                for position, cleanup in ipairs(t.cleanups or {}) do
+                    out.cleanups[
+                        position
+                    ] = {
+                        kind = cleanup.kind,
+                        key = cleanup.key,
+                        name = cleanup.name,
+                        field = cleanup.field,
+                        functionType = intern(cleanup.functionType),
+                    }
+                end
+            end
+        elseif tag == "carray" then
+            out.element = intern(t.elem)
+            out.count = t.count
+            out.countTerm = intern(t.countTerm)
+        elseif tag == "ctype" or tag == "metatable" then
+            out.of = intern(t.of)
+        end
+
+        return index
+    end
+
+    local rootIndex = intern(root)
+    local descriptor = {schema = reflection.SCHEMA, root = rootIndex, types = types, qualifiedName = qualifiedName,}
+    local rootType = types[rootIndex or 0] or {}
+    descriptor.kind = rootType.kind
+    descriptor.name = rootType.name or qualifiedName
+    descriptor.annotations = rootType.annotations or {}
+    descriptor.fields = {}
+    for _, field in ipairs(rootType.fields or {}) do
+        local fieldType = types[field.read or field.write or 0] or {}
+        descriptor.fields[
+            #descriptor.fields + 1
+        ] = {
+            name = field.name,
+            kind = fieldType.kind,
+            typeName = fieldType.name,
+            type = field.read or field.write,
+            readable = field.readable,
+            writable = field.writable,
+            annotations = field.annotations or {},
+        }
+    end
+    descriptor.fingerprint = hash.sha256("nupp.reflect\0v" .. tostring(reflection.SCHEMA) .. "\0" .. stable(descriptor))
+
+    return descriptor
+end
+
+return reflection

@@ -1,0 +1,38 @@
+-- `@owned(cleanup)` says a result carries a cleanup obligation. An ordinary local is
+-- closed automatically on fallthrough, return, loop control, and errors unless its
+-- ownership moves elsewhere first.
+
+local function closeFile(file: LuaFile)
+    file:close()
+end
+
+--- Opens a file the caller must discharge.
+---
+--- @param path where to read from
+--- @return an owned handle
+--- @raises when the file cannot be opened
+@owned(closeFile)
+local function open(path: string): LuaFile
+    local file = io.open(path, "r")
+    if not file then
+        error("cannot open " .. path)
+    end
+
+    return file
+end
+
+local function lineCount(path: string): number
+    do
+        local file = open(path)
+        local count = 0
+        for _ in file:lines() do
+            count = count + 1
+        end
+        return count -- the handle closes here, and on any error
+    end
+end
+
+print(lineCount("README.md"))
+
+-- try returning `file` without an owning result contract; the checker rejects the
+-- ownership escape

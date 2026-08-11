@@ -1,0 +1,331 @@
+--[[
+The stylesheet, the script, and the icons the generated site ships.
+
+They are data, not code, and they are here so that the modules assembling a page
+read as the assembly rather than as one long string.
+]]
+
+local assets = {}
+local THEME = [[
+:root{color-scheme:light;--nuppdoc-light-accent:#087f8c;--nuppdoc-light-accent-hover:#086a75;--nuppdoc-light-accent-soft:#dff3f5;--nuppdoc-light-background:#fff;--nuppdoc-light-background-alt:#f6f6f7;--nuppdoc-light-border:#e2e2e3;--nuppdoc-light-code-background:#e9e7ec;--nuppdoc-light-text:#213547;--nuppdoc-light-muted:#67676c;--nuppdoc-dark-accent:#5ad9e0;--nuppdoc-dark-accent-hover:#7ce4e9;--nuppdoc-dark-accent-soft:#173a3f;--nuppdoc-dark-background:#1b1b1f;--nuppdoc-dark-background-alt:#161618;--nuppdoc-dark-border:#2e2e32;--nuppdoc-dark-code-background:#252330;--nuppdoc-dark-text:#dfdfd6;--nuppdoc-dark-muted:#a8a8a3;--nuppdoc-accent:var(--nuppdoc-light-accent);--nuppdoc-accent-hover:var(--nuppdoc-light-accent-hover);--nuppdoc-accent-soft:var(--nuppdoc-light-accent-soft);--nuppdoc-background:var(--nuppdoc-light-background);--nuppdoc-background-alt:var(--nuppdoc-light-background-alt);--nuppdoc-border:var(--nuppdoc-light-border);--nuppdoc-code-background:var(--nuppdoc-light-code-background);--nuppdoc-text:var(--nuppdoc-light-text);--nuppdoc-text-muted:var(--nuppdoc-light-muted);--nuppdoc-font:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--nuppdoc-font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;--nuppdoc-header-height:64px;--nuppdoc-layout-max-width:1480px;--nuppdoc-content-width:688px;--nuppdoc-sidebar-width:272px;--nuppdoc-outline-width:256px}
+:root{--nuppdoc-syntax-foreground:#3760bf;--nuppdoc-syntax-boolean:#b15c00;--nuppdoc-syntax-comment:#848cb5;--nuppdoc-syntax-function:#2e7de9;--nuppdoc-syntax-keyword:#9854f1;--nuppdoc-syntax-meta:#007197;--nuppdoc-syntax-number:#b15c00;--nuppdoc-syntax-operator:#006a83;--nuppdoc-syntax-property:#387068;--nuppdoc-syntax-punctuation:#6172b0;--nuppdoc-syntax-string:#587539;--nuppdoc-syntax-type:#007197;--nuppdoc-syntax-variable:#3760bf}
+@media(prefers-color-scheme:dark){:root{color-scheme:dark;--nuppdoc-accent:var(--nuppdoc-dark-accent);--nuppdoc-accent-hover:var(--nuppdoc-dark-accent-hover);--nuppdoc-accent-soft:var(--nuppdoc-dark-accent-soft);--nuppdoc-background:var(--nuppdoc-dark-background);--nuppdoc-background-alt:var(--nuppdoc-dark-background-alt);--nuppdoc-border:var(--nuppdoc-dark-border);--nuppdoc-code-background:var(--nuppdoc-dark-code-background);--nuppdoc-text:var(--nuppdoc-dark-text);--nuppdoc-text-muted:var(--nuppdoc-dark-muted)}}
+@media(prefers-color-scheme:dark){:root{--nuppdoc-syntax-foreground:#c0caf5;--nuppdoc-syntax-boolean:#ff9e64;--nuppdoc-syntax-comment:#565f89;--nuppdoc-syntax-function:#7aa2f7;--nuppdoc-syntax-keyword:#bb9af7;--nuppdoc-syntax-meta:#7dcfff;--nuppdoc-syntax-number:#ff9e64;--nuppdoc-syntax-operator:#89ddff;--nuppdoc-syntax-property:#73daca;--nuppdoc-syntax-punctuation:#a9b1d6;--nuppdoc-syntax-string:#9ece6a;--nuppdoc-syntax-type:#2ac3de;--nuppdoc-syntax-variable:#c0caf5}}
+:root[data-theme="dark"]{color-scheme:dark;--nuppdoc-accent:var(--nuppdoc-dark-accent);--nuppdoc-accent-hover:var(--nuppdoc-dark-accent-hover);--nuppdoc-accent-soft:var(--nuppdoc-dark-accent-soft);--nuppdoc-background:var(--nuppdoc-dark-background);--nuppdoc-background-alt:var(--nuppdoc-dark-background-alt);--nuppdoc-border:var(--nuppdoc-dark-border);--nuppdoc-code-background:var(--nuppdoc-dark-code-background);--nuppdoc-text:var(--nuppdoc-dark-text);--nuppdoc-text-muted:var(--nuppdoc-dark-muted)}
+:root[data-theme="dark"]{--nuppdoc-syntax-foreground:#c0caf5;--nuppdoc-syntax-boolean:#ff9e64;--nuppdoc-syntax-comment:#565f89;--nuppdoc-syntax-function:#7aa2f7;--nuppdoc-syntax-keyword:#bb9af7;--nuppdoc-syntax-meta:#7dcfff;--nuppdoc-syntax-number:#ff9e64;--nuppdoc-syntax-operator:#89ddff;--nuppdoc-syntax-property:#73daca;--nuppdoc-syntax-punctuation:#a9b1d6;--nuppdoc-syntax-string:#9ece6a;--nuppdoc-syntax-type:#2ac3de;--nuppdoc-syntax-variable:#c0caf5}
+:root[data-theme="light"]{color-scheme:light;--nuppdoc-accent:var(--nuppdoc-light-accent);--nuppdoc-accent-hover:var(--nuppdoc-light-accent-hover);--nuppdoc-accent-soft:var(--nuppdoc-light-accent-soft);--nuppdoc-background:var(--nuppdoc-light-background);--nuppdoc-background-alt:var(--nuppdoc-light-background-alt);--nuppdoc-border:var(--nuppdoc-light-border);--nuppdoc-code-background:var(--nuppdoc-light-code-background);--nuppdoc-text:var(--nuppdoc-light-text);--nuppdoc-text-muted:var(--nuppdoc-light-muted)}
+:root[data-theme="light"]{--nuppdoc-syntax-foreground:#3760bf;--nuppdoc-syntax-boolean:#b15c00;--nuppdoc-syntax-comment:#848cb5;--nuppdoc-syntax-function:#2e7de9;--nuppdoc-syntax-keyword:#9854f1;--nuppdoc-syntax-meta:#007197;--nuppdoc-syntax-number:#b15c00;--nuppdoc-syntax-operator:#006a83;--nuppdoc-syntax-property:#387068;--nuppdoc-syntax-punctuation:#6172b0;--nuppdoc-syntax-string:#587539;--nuppdoc-syntax-type:#007197;--nuppdoc-syntax-variable:#3760bf}
+*{box-sizing:border-box}html{font-size:16px}
+/* Every fragment destination clears the sticky header itself. Doing it here rather
+ * than with scroll-padding on the scrollport is what makes a link land in the same
+ * place in browsers that skip scroll-padding on a load-time fragment; the two would
+ * otherwise add up to twice the gap where both are honored. */
+.nuppdoc-api-item,.nuppdoc-api-member,.nuppdoc-content :is(h1,h2,h3,h4,h5,h6)[id]{scroll-margin-top:calc(var(--nuppdoc-header-height) + 1.4rem)}body{margin:0;color:var(--nuppdoc-text);background:var(--nuppdoc-background);font-family:var(--nuppdoc-font);line-height:1.6}a{color:var(--nuppdoc-accent);text-decoration-color:currentColor}a:hover{color:var(--nuppdoc-accent-hover)}button,input{font:inherit}.nuppdoc-header{position:sticky;z-index:30;top:0;height:var(--nuppdoc-header-height);border-bottom:1px solid var(--nuppdoc-border);background:color-mix(in srgb,var(--nuppdoc-background) 92%,transparent);backdrop-filter:blur(12px)}.nuppdoc-nav{display:flex;width:100%;max-width:var(--nuppdoc-layout-max-width);height:100%;align-items:center;gap:1rem;margin:auto;padding:0 1rem}.nuppdoc-brand{display:flex;align-items:center;gap:.55rem;color:var(--nuppdoc-text);font-weight:700;text-decoration:none}.nuppdoc-mark{display:grid;width:29px;height:29px;place-items:center;color:#fff;border-radius:7px;background:var(--nuppdoc-accent);font-family:var(--nuppdoc-font-mono);font-size:.7rem}.nuppdoc-top-nav{display:flex;flex:1;gap:.2rem}.nuppdoc-top-nav a{padding:.45rem .65rem;color:var(--nuppdoc-text-muted);border-radius:7px;font-size:.76rem;text-decoration:none}.nuppdoc-top-nav a:hover{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}.nuppdoc-top-nav a[aria-current="page"]{color:var(--nuppdoc-accent)}.nuppdoc-actions{display:flex;align-items:center;gap:.25rem}.nuppdoc-search{width:min(190px,18vw);height:32px;padding:.25rem .6rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:6px;background:var(--nuppdoc-background-alt);font-size:.75rem}.nuppdoc-theme{display:grid;width:34px;height:34px;place-items:center;padding:0;color:var(--nuppdoc-text-muted);border:0;border-radius:7px;background:transparent;cursor:pointer}.nuppdoc-theme:hover{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}
+.nuppdoc-shell{display:grid;width:100%;max-width:var(--nuppdoc-layout-max-width);min-height:calc(100vh - var(--nuppdoc-header-height));grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr) var(--nuppdoc-outline-width);margin:auto}.nuppdoc-sidebar,.nuppdoc-outline{position:sticky;top:var(--nuppdoc-header-height);overflow:auto;max-height:calc(100vh - var(--nuppdoc-header-height));padding:1.25rem 1rem 2rem}.nuppdoc-sidebar{border-right:1px solid var(--nuppdoc-border);background:var(--nuppdoc-background-alt);box-shadow:-100vw 0 0 100vw var(--nuppdoc-background-alt)}.nuppdoc-sidebar h2,.nuppdoc-outline h2{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.06em}.nuppdoc-sidebar ul,.nuppdoc-outline ol{margin:0;padding:0;list-style:none}.nuppdoc-sidebar a,.nuppdoc-outline a{display:block;overflow:hidden;padding:.24rem .55rem;color:var(--nuppdoc-text-muted);border-radius:6px;font-size:.7rem;font-weight:500;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}.nuppdoc-sidebar a:hover{color:var(--nuppdoc-text);background:color-mix(in srgb,var(--nuppdoc-accent-soft) 55%,transparent)}.nuppdoc-sidebar a[aria-current="page"],.nuppdoc-outline a:hover{color:var(--nuppdoc-accent);font-weight:650}.nuppdoc-outline{padding-left:1.25rem}.nuppdoc-outline ol{padding-left:1rem;border-left:1px solid var(--nuppdoc-border)}.nuppdoc-outline a{padding:.16rem 0;font-size:.66rem}
+.nuppdoc-content{width:min(100% - 10rem,var(--nuppdoc-content-width));margin:0 auto;padding:1.25rem 0 6rem;font-size:.88rem}.nuppdoc-content h1,.nuppdoc-content h2,.nuppdoc-content h3{font-weight:700;line-height:1.25;letter-spacing:-.02em}.nuppdoc-content h1{margin-top:0;font-size:1.8rem}.nuppdoc-content h2{margin-top:2.5rem;padding-top:2.5rem;border-top:1px solid var(--nuppdoc-border);font-size:1.575rem}.nuppdoc-content h3{margin-top:2.25rem;font-size:1.35rem}.nuppdoc-content h4{margin-top:1.5rem;font-size:1rem}.nuppdoc-breadcrumbs{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.75rem}.nuppdoc-breadcrumbs a{color:var(--nuppdoc-text-muted)}.nuppdoc-kind-badge{display:inline-flex;margin-left:.45rem;padding:.12rem .42rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:999px;background:var(--nuppdoc-background-alt);font-size:.62rem;font-weight:650;letter-spacing:.035em;text-transform:uppercase;vertical-align:middle}.nuppdoc-kind-function,.nuppdoc-kind-method{color:var(--nuppdoc-accent);border-color:color-mix(in srgb,var(--nuppdoc-accent) 35%,var(--nuppdoc-border));background:var(--nuppdoc-accent-soft)}.nuppdoc-header-anchor{margin-left:.4rem;opacity:0;text-decoration:none}.nuppdoc-content h2:hover .nuppdoc-header-anchor,.nuppdoc-content h3:hover .nuppdoc-header-anchor{opacity:1}.nuppdoc-code-block{position:relative}.nuppdoc-code-block[data-lang]::before{position:absolute;z-index:1;top:8px;right:10px;color:var(--nuppdoc-text-muted);content:attr(data-lang);font-family:var(--nuppdoc-font-mono);font-size:.66rem}.nuppdoc-content pre{overflow:auto;padding:.8rem .9rem;border:1px solid var(--nuppdoc-border);border-radius:8px;background:var(--nuppdoc-code-background);line-height:1.55}.nuppdoc-content pre code{padding:0;background:transparent;font-family:var(--nuppdoc-font-mono);font-size:14px}.nuppdoc-content :not(pre)>code{padding:.1em .35em;border-radius:4px;background:var(--nuppdoc-code-background);font-family:var(--nuppdoc-font-mono);font-size:.91em}.nuppdoc-content table{width:100%;margin:1rem 0;border-collapse:collapse;font-size:.76rem}.nuppdoc-content th,.nuppdoc-content td{padding:.55rem .65rem;border-bottom:1px solid var(--nuppdoc-border);text-align:left;vertical-align:top}.nuppdoc-content th{color:var(--nuppdoc-text-muted);font-size:.68rem;text-transform:uppercase}.nuppdoc-empty{padding:2rem;color:var(--nuppdoc-text-muted);border:1px dashed var(--nuppdoc-border);border-radius:8px;text-align:center}.nuppdoc-module-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin-top:1.5rem}.nuppdoc-module-card{display:block;padding:1rem;color:var(--nuppdoc-text);border:1px solid var(--nuppdoc-border);border-radius:10px;background:var(--nuppdoc-background-alt);text-decoration:none}.nuppdoc-module-card:hover{color:var(--nuppdoc-text);border-color:var(--nuppdoc-accent);transform:translateY(-1px)}.nuppdoc-module-card code{display:block;margin-bottom:.35rem;color:var(--nuppdoc-accent);font-size:.85rem}.nuppdoc-module-card span{color:var(--nuppdoc-text-muted);font-size:.72rem}.nuppdoc-footer{padding:1.25rem;color:var(--nuppdoc-text-muted);border-top:1px solid var(--nuppdoc-border);font-size:.68rem;text-align:center}
+.nuppdoc-token-comment{color:var(--nuppdoc-syntax-comment);font-style:italic}.nuppdoc-token-boolean{color:var(--nuppdoc-syntax-boolean)}.nuppdoc-token-keyword{color:var(--nuppdoc-syntax-keyword)}.nuppdoc-token-meta{color:var(--nuppdoc-syntax-meta)}.nuppdoc-token-number{color:var(--nuppdoc-syntax-number)}.nuppdoc-token-function{color:var(--nuppdoc-syntax-function)}.nuppdoc-token-operator{color:var(--nuppdoc-syntax-operator)}.nuppdoc-token-property{color:var(--nuppdoc-syntax-property)}.nuppdoc-token-punctuation{color:var(--nuppdoc-syntax-punctuation)}.nuppdoc-token-string{color:var(--nuppdoc-syntax-string)}.nuppdoc-token-type{color:var(--nuppdoc-syntax-type)}.nuppdoc-token-variable{color:var(--nuppdoc-syntax-variable)}.nuppdoc-code-link,.nuppdoc-code-link:visited,.nuppdoc-code-link:hover{border-bottom:1px dotted currentColor;text-decoration:none}.nuppdoc-code-link:hover{border-bottom-style:solid}.nuppdoc-code-link-type{color:var(--nuppdoc-syntax-type)}.nuppdoc-code-link-function{color:var(--nuppdoc-syntax-function)}.nuppdoc-code-link-property{color:var(--nuppdoc-syntax-property)}.nuppdoc-code-link-variable{color:var(--nuppdoc-syntax-variable)}
+@media(max-width:1100px){.nuppdoc-shell{grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr)}.nuppdoc-outline{display:none}.nuppdoc-content{width:min(100% - 5rem,var(--nuppdoc-content-width))}}@media(max-width:760px){.nuppdoc-top-nav{display:none}.nuppdoc-search{width:140px}.nuppdoc-shell{display:block}.nuppdoc-sidebar{position:static;max-height:none;padding:.7rem 1rem;border-right:0;border-bottom:1px solid var(--nuppdoc-border);box-shadow:none}.nuppdoc-sidebar h2{display:none}.nuppdoc-sidebar ul{display:flex;overflow:auto;gap:.25rem}.nuppdoc-content{width:auto;padding:1.5rem 1.25rem 4rem}}@media(max-width:480px){.nuppdoc-search{display:none}.nuppdoc-brand span:last-child{display:none}.nuppdoc-content table{display:block;overflow:auto}}
+/* The custom properties a site is meant to override. They are named and grouped
+ * deliberately: this is the part of the stylesheet a project stylesheet targets. */
+:root{--nuppdoc-text-faint:color-mix(in srgb,var(--nuppdoc-text-muted) 72%,transparent);--nuppdoc-sidebar-background:var(--nuppdoc-background-alt);--nuppdoc-accent-contrast:#fff;--nuppdoc-home-width:1152px;--nuppdoc-home-gutter:2rem;--nuppdoc-hero-glow-color:var(--nuppdoc-accent);--nuppdoc-hero-glow-size:520px;--nuppdoc-hero-glow-blur:24px;--nuppdoc-hero-glow-opacity:.68;--nuppdoc-code-block-radius:8px;--nuppdoc-playground-height:30rem;--nuppdoc-playground-border:color-mix(in srgb,var(--nuppdoc-border) 70%,var(--nuppdoc-text));--nuppdoc-code-tab-text:var(--nuppdoc-text-muted);--nuppdoc-code-tab-hover-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-bar:var(--nuppdoc-accent);--nuppdoc-code-tab-divider:var(--nuppdoc-border);--nuppdoc-code-tab-font-size:.72rem;--nuppdoc-code-tab-font-weight:600;--nuppdoc-code-tab-padding:.45rem .75rem;--nuppdoc-admonition-note:var(--nuppdoc-accent);--nuppdoc-admonition-info:#0969da;--nuppdoc-admonition-tip:#1a7f37;--nuppdoc-admonition-warning:#9a6700;--nuppdoc-admonition-danger:#cf222e}
+.nuppdoc-admonition{--nuppdoc-admonition-color:var(--nuppdoc-admonition-note);margin:1.25rem 0;padding:.85rem 1rem;border:1px solid color-mix(in srgb,var(--nuppdoc-admonition-color) 45%,var(--nuppdoc-border));border-left:4px solid var(--nuppdoc-admonition-color);border-radius:8px;background:color-mix(in srgb,var(--nuppdoc-admonition-color) 9%,var(--nuppdoc-background))}.nuppdoc-admonition-info{--nuppdoc-admonition-color:var(--nuppdoc-admonition-info)}.nuppdoc-admonition-tip{--nuppdoc-admonition-color:var(--nuppdoc-admonition-tip)}.nuppdoc-admonition-warning{--nuppdoc-admonition-color:var(--nuppdoc-admonition-warning)}.nuppdoc-admonition-danger{--nuppdoc-admonition-color:var(--nuppdoc-admonition-danger)}.nuppdoc-admonition-title{margin:0;color:var(--nuppdoc-admonition-color);font-size:.78rem;font-weight:750;text-transform:uppercase;letter-spacing:.04em}.nuppdoc-admonition-body>:first-child{margin-top:.35rem}.nuppdoc-admonition-body>:last-child{margin-bottom:0}
+.nuppdoc-code-group{position:relative;display:flex;overflow:hidden;flex-wrap:wrap;margin:1.25rem 0;border:1px solid var(--nuppdoc-border);border-radius:var(--nuppdoc-code-block-radius);background:var(--nuppdoc-code-background);box-shadow:none}.nuppdoc-code-tab-input{position:absolute;width:1px;height:1px;margin:0;padding:0;border:0;opacity:0;appearance:none;clip-path:inset(50%);pointer-events:none;-webkit-appearance:none}.nuppdoc-code-tab{order:-1;padding:var(--nuppdoc-code-tab-padding);border-bottom:2px solid transparent;color:var(--nuppdoc-code-tab-text);cursor:pointer;font-family:var(--nuppdoc-font);font-size:var(--nuppdoc-code-tab-font-size);font-weight:var(--nuppdoc-code-tab-font-weight)}.nuppdoc-code-tab:hover{color:var(--nuppdoc-code-tab-hover-text)}.nuppdoc-code-panel{display:none;width:100%;margin:0;border-top:1px solid var(--nuppdoc-code-tab-divider)}.nuppdoc-code-tab-input:checked+.nuppdoc-code-tab+.nuppdoc-code-panel{display:block}.nuppdoc-code-tab-input:checked+.nuppdoc-code-tab{border-bottom-color:var(--nuppdoc-code-tab-active-bar);color:var(--nuppdoc-code-tab-active-text)}.nuppdoc-code-tab-input:focus-visible+.nuppdoc-code-tab{outline:2px solid var(--nuppdoc-accent);outline-offset:-2px}.nuppdoc-code-group>.nuppdoc-code-block{width:100%}.nuppdoc-code-group>.nuppdoc-code-block pre,.nuppdoc-code-panel .nuppdoc-code-block pre{margin:0;border:0;border-radius:0}.nuppdoc-labeled-code{margin:1.25rem 0}.nuppdoc-code-group>.nuppdoc-labeled-code{margin:0}.nuppdoc-code-group>.nuppdoc-labeled-code+.nuppdoc-labeled-code{border-top:1px solid var(--nuppdoc-border)}.nuppdoc-labeled-code figcaption{padding:.45rem .6rem;color:var(--nuppdoc-text-muted);font-family:var(--nuppdoc-font);font-size:.72rem;font-weight:600}.nuppdoc-labeled-code pre{margin:0;border-radius:0}.nuppdoc-code-group>.nuppdoc-labeled-code pre{border:0}@media print{.nuppdoc-code-panel{display:block}}
+/* The gutter and the code are siblings sharing the pre's line box metrics, so the
+ * numbers stay level with their lines. The code scrolls inside itself, which keeps
+ * a long line from sliding out under the numbers. */
+.nuppdoc-code-block.has-line-numbers pre{display:flex;overflow:hidden;gap:.9rem}
+.nuppdoc-code-block.has-line-numbers pre>code{overflow:auto;flex:1;min-width:0}
+.nuppdoc-line-numbers{flex:none;padding-right:.9rem;border-right:1px solid var(--nuppdoc-border);color:var(--nuppdoc-text-faint);font-family:var(--nuppdoc-font-mono);font-size:14px;line-height:1.55;text-align:right;user-select:none;-webkit-user-select:none}
+.nuppdoc-line-numbers span{display:block}
+/* A ```playground fence. Given a height rather than sized to its contents: an
+ * iframe cannot measure a document it does not share an origin with, and the
+ * editor inside scrolls on its own anyway.
+ *
+ * Its own border property rather than the prose one. This frame is the outer
+ * edge of a stack of panes whose inner edges the playground draws for itself,
+ * and at the hairline a body of text wants it was the one line in the picture
+ * that disappeared -- most visibly down the left and right, where it stands
+ * alone rather than beside a rule the playground drew. The default carries the
+ * theme's own border toward its text so any palette gets a visible edge; a site
+ * that wants the frame to match the panes exactly sets the property. */
+.nuppdoc-playground{display:block;width:100%;height:var(--nuppdoc-playground-height);margin:1.25rem 0;border:1px solid var(--nuppdoc-playground-border);border-radius:var(--nuppdoc-code-block-radius);background:var(--nuppdoc-code-background);color-scheme:normal}
+.nuppdoc-logo{width:auto;height:28px;border-radius:5px}
+.nuppdoc-icon-link{display:grid;width:34px;height:34px;place-items:center;padding:0;color:var(--nuppdoc-text-muted);border:0;border-radius:7px;background:transparent;cursor:pointer;text-decoration:none}.nuppdoc-icon-link:hover,.nuppdoc-icon-link[aria-pressed="true"]{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}.nuppdoc-icon-link svg{width:18px;height:18px}.nuppdoc-panel-toggle-right svg{transform:scaleX(-1)}
+.nuppdoc-shell{transition:grid-template-columns 160ms ease}.nuppdoc-shell.is-sidebar-collapsed{grid-template-columns:0 minmax(0,1fr) var(--nuppdoc-outline-width)}.nuppdoc-shell.is-outline-collapsed{grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr) 0}.nuppdoc-shell.is-sidebar-collapsed.is-outline-collapsed{grid-template-columns:0 minmax(0,1fr) 0}.nuppdoc-shell.is-sidebar-collapsed>.nuppdoc-sidebar,.nuppdoc-shell.is-outline-collapsed>.nuppdoc-outline{overflow:hidden;padding-right:0;padding-left:0;border:0;opacity:0;pointer-events:none}
+.nuppdoc-sidebar{background:var(--nuppdoc-sidebar-background)}.nuppdoc-sidebar>ul{margin:0;padding:0;list-style:none}.nuppdoc-sidebar li{margin:0;padding:0}.nuppdoc-sidebar-section{margin-top:1.1rem!important;padding-top:1.1rem!important;border-top:1px solid var(--nuppdoc-border)}.nuppdoc-sidebar-section:first-child{margin-top:0!important;padding-top:0!important;border-top:0}.nuppdoc-sidebar-section details{margin:0;padding:0;border:0;background:transparent}.nuppdoc-sidebar-section summary{position:relative;margin:0;padding:.24rem 1.2rem .24rem .55rem;color:var(--nuppdoc-text);font-size:.7rem;font-weight:700;line-height:1.3;cursor:pointer;list-style:none}.nuppdoc-sidebar-section summary::after{position:absolute;top:50%;right:.5rem;width:.36rem;height:.36rem;border-right:1.5px solid var(--nuppdoc-text-faint);border-bottom:1.5px solid var(--nuppdoc-text-faint);content:"";transform:translateY(-50%) rotate(45deg)}.nuppdoc-sidebar-section details:not([open]) summary::after{transform:translateY(-50%) rotate(-45deg)}.nuppdoc-sidebar-section summary::-webkit-details-marker{display:none}.nuppdoc-sidebar-section summary::marker{content:""}.nuppdoc-sidebar-section ul{padding:4px 0 0 .5rem}
+.nuppdoc-module-tree{margin:0;padding:4px 0 0 .5rem;list-style:none}.nuppdoc-module-branch>details>summary{color:var(--nuppdoc-text-muted);font-weight:500}.nuppdoc-module-branch>details>summary.nuppdoc-module-branch-link{padding-top:0;padding-bottom:0;padding-left:0}.nuppdoc-module-branch>details>summary>a{padding-right:.2rem}.nuppdoc-module-branch .nuppdoc-module-tree{padding:2px 0 0 .7rem}
+.nuppdoc-outline-title{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.66rem;font-weight:600}.nuppdoc-outline a[aria-current]{color:var(--nuppdoc-accent)}
+.nuppdoc-outline-section details{margin:0;padding:0;border:0;background:transparent}.nuppdoc-outline-section summary{position:relative;margin:0;padding:0 1rem 0 0;cursor:pointer;list-style:none}.nuppdoc-outline-section summary::-webkit-details-marker{display:none}.nuppdoc-outline-section summary::marker{content:""}.nuppdoc-outline-section summary::after{position:absolute;top:50%;right:.15rem;width:.32rem;height:.32rem;border-right:1.5px solid var(--nuppdoc-text-muted);border-bottom:1.5px solid var(--nuppdoc-text-muted);content:"";transform:translateY(-65%) rotate(45deg);transition:transform 120ms ease}.nuppdoc-outline-section details:not([open])>summary::after{transform:translateY(-50%) rotate(-45deg)}.nuppdoc-outline-section details>ol{margin:0;padding:0 0 0 .65rem;border:0;list-style:none}
+.nuppdoc-breadcrumbs{margin:0 0 .75rem}.nuppdoc-breadcrumbs ol{display:flex;flex-wrap:wrap;align-items:center;gap:0;margin:0;padding:0;list-style:none}.nuppdoc-breadcrumbs li{display:inline-flex;align-items:center;margin:0;padding:0;color:var(--nuppdoc-text-faint);font-size:.82rem;line-height:1.2}.nuppdoc-breadcrumbs li+li::before{margin:0 .45rem;color:var(--nuppdoc-border);content:"/"}.nuppdoc-breadcrumbs a{color:var(--nuppdoc-text-faint);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.16em}.nuppdoc-breadcrumbs .nuppdoc-breadcrumb-home{font-size:.9rem;text-decoration:none}.nuppdoc-breadcrumbs [aria-current="page"]{color:var(--nuppdoc-text-muted)}
+.nuppdoc-module-summary h3{margin-top:1.65rem;font-size:1rem}.nuppdoc-module-summary table,.nuppdoc-module-modules table{table-layout:fixed}.nuppdoc-module-summary th:first-child{width:28%}.nuppdoc-module-summary th:nth-child(2):not(:last-child){width:19%}.nuppdoc-module-modules th:first-child{width:32%}.nuppdoc-module-summary .nuppdoc-kind-badge{margin-left:0}.nuppdoc-kind-record,.nuppdoc-kind-interface,.nuppdoc-kind-struct,.nuppdoc-kind-type{color:#8250df;border-color:color-mix(in srgb,#8250df 35%,var(--nuppdoc-border));background:color-mix(in srgb,#8250df 12%,var(--nuppdoc-background))}.nuppdoc-kind-variable{color:#9a6700;border-color:color-mix(in srgb,#9a6700 35%,var(--nuppdoc-border));background:color-mix(in srgb,#9a6700 12%,var(--nuppdoc-background))}
+.nuppdoc-home-shell{display:block;max-width:none}.nuppdoc-home-content{width:min(calc(100% - 2 * var(--nuppdoc-home-gutter)),var(--nuppdoc-home-width));padding-top:4.5rem}.nuppdoc-home-hero{margin:0 0 4rem}.nuppdoc-hero-main{display:grid;align-items:start;gap:3rem;grid-template-columns:minmax(0,1fr)}.nuppdoc-hero-main.has-image{grid-template-columns:minmax(0,1fr) minmax(280px,.8fr)}.nuppdoc-hero-copy{position:relative;z-index:1}.nuppdoc-hero-copy h1{max-width:720px;margin:0;color:var(--nuppdoc-accent);font-size:5.5rem;letter-spacing:-.04em;line-height:.95}.nuppdoc-hero-text{max-width:650px;margin:1.08rem 0 0;color:var(--nuppdoc-text-muted);font-size:1.6rem;line-height:1.35}.nuppdoc-hero-actions{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:2rem}.nuppdoc-hero-action{display:inline-flex;align-items:center;justify-content:center;padding:.52rem .95rem;border:1px solid transparent;border-radius:16px;font-size:.9rem;font-weight:650;line-height:1;text-decoration:none}.nuppdoc-hero-action.brand{color:var(--nuppdoc-accent-contrast);background:var(--nuppdoc-accent)}.nuppdoc-hero-action.alt{color:var(--nuppdoc-text);border-color:var(--nuppdoc-border);background:var(--nuppdoc-background-alt)}.nuppdoc-hero-image{position:relative;display:grid;align-self:center;place-items:center}.nuppdoc-hero-starburst{position:absolute;width:var(--nuppdoc-hero-glow-size);aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 38%,transparent) 0,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 20%,transparent) 34%,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 8%,transparent) 58%,transparent 76%);filter:blur(var(--nuppdoc-hero-glow-blur));opacity:var(--nuppdoc-hero-glow-opacity)}.nuppdoc-hero-image img{position:relative;z-index:1;width:min(100%,390px);max-height:330px;border-radius:20px;box-shadow:0 24px 70px rgb(0 0 0 / 22%);object-fit:contain}.nuppdoc-features{position:relative;z-index:2;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;margin-top:2rem}.nuppdoc-feature{margin:0;padding:1.4rem;border:1px solid var(--nuppdoc-border);border-radius:12px;background:var(--nuppdoc-background-alt)}.nuppdoc-feature-icon,.nuppdoc-feature-image{display:inline-grid;width:40px;height:40px;place-items:center;margin-bottom:1rem;border-radius:8px;background:var(--nuppdoc-accent-soft);font-size:1.25rem;object-fit:contain}.nuppdoc-feature h2{margin:0 0 .55rem;padding:0;border:0;font-size:1rem;letter-spacing:0}.nuppdoc-feature-details{margin:0;color:var(--nuppdoc-text-muted);font-size:.86rem;line-height:1.55}.nuppdoc-footer{display:flex;flex-wrap:wrap;justify-content:center;gap:.45rem}.nuppdoc-footer a{color:var(--nuppdoc-text-muted)}
+.nuppdoc-hero-starburst{overflow:hidden;clip-path:circle(50% at 50% 50%)}.nuppdoc-hero-image img{box-shadow:none;filter:drop-shadow(0 24px 35px rgb(0 0 0 / 22%))}
+@media(max-width:1100px){.nuppdoc-panel-toggle-right{display:none}.nuppdoc-shell.is-sidebar-collapsed{grid-template-columns:0 minmax(0,1fr)}.nuppdoc-features{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.nuppdoc-search-button{display:inline-flex;width:min(190px,18vw);min-width:0;min-height:32px;align-items:center;justify-content:flex-start;gap:.35rem;margin:0;padding:.25rem .5rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:6px;background:var(--nuppdoc-background-alt);box-shadow:none;font-size:.76rem;cursor:pointer}.nuppdoc-search-button:hover{color:var(--nuppdoc-text);border-color:var(--nuppdoc-text-muted)}.nuppdoc-search-button kbd{margin-left:auto;padding:.06rem .28rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:4px;background:transparent;font-size:.62rem}.nuppdoc-search-dialog{width:min(94vw,680px);max-width:none;padding:0;border:1px solid var(--nuppdoc-border);border-radius:12px;background:var(--nuppdoc-background);color:var(--nuppdoc-text);box-shadow:0 24px 80px rgb(0 0 0 / 28%)}.nuppdoc-search-dialog::backdrop{background:rgb(0 0 0 / 46%);backdrop-filter:blur(3px)}.nuppdoc-search-panel{margin:0;padding:0}.nuppdoc-search-panel>header{display:flex;align-items:center;gap:.65rem;margin:0;padding:.8rem;border-bottom:1px solid var(--nuppdoc-border);background:transparent}.nuppdoc-search-panel label{display:flex;flex:1;align-items:center;gap:.5rem;margin:0}.nuppdoc-search-panel input{width:100%;height:42px;margin:0;padding:0 .75rem;color:var(--nuppdoc-text);border:1px solid var(--nuppdoc-accent);border-radius:7px;background:var(--nuppdoc-background);box-shadow:0 0 0 3px var(--nuppdoc-accent-soft)}.nuppdoc-search-panel [data-nuppdoc-search-close]{width:auto;margin:0;padding:.32rem .5rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:5px;background:var(--nuppdoc-background-alt);box-shadow:none;font-size:.72rem;cursor:pointer}.nuppdoc-search-results{display:grid;overflow:auto;max-height:min(60vh,520px);gap:.35rem;padding:.65rem}.nuppdoc-search-results a{display:grid;gap:.15rem;padding:.7rem .8rem;color:var(--nuppdoc-text);border:1px solid transparent;border-radius:7px;text-decoration:none}.nuppdoc-search-results a:hover,.nuppdoc-search-results a:focus{border-color:var(--nuppdoc-border);background:var(--nuppdoc-accent-soft)}.nuppdoc-search-results strong{font-size:.9rem}.nuppdoc-search-results small{overflow:hidden;color:var(--nuppdoc-text-faint);font-size:.72rem;text-overflow:ellipsis;white-space:nowrap}.nuppdoc-search-empty{margin:0;padding:1.5rem;color:var(--nuppdoc-text-muted);text-align:center}
+.nuppdoc-mobile-nav-toggle,.nuppdoc-sidebar-backdrop{display:none}.nuppdoc-page-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--nuppdoc-border)}.nuppdoc-page-nav a{display:flex;flex-direction:column;padding:1rem;color:var(--nuppdoc-text);border:1px solid var(--nuppdoc-border);border-radius:10px;text-decoration:none}.nuppdoc-page-nav a:hover{border-color:var(--nuppdoc-accent);background:var(--nuppdoc-background-alt)}.nuppdoc-page-nav-next{grid-column:2;text-align:right}.nuppdoc-page-nav-label{color:var(--nuppdoc-text-faint);font-size:.68rem;font-weight:650;text-transform:uppercase;letter-spacing:.05em}.nuppdoc-page-nav-title{color:var(--nuppdoc-accent);font-size:.85rem;font-weight:650}
+@media(max-width:760px){.nuppdoc-panel-toggle{display:none}.nuppdoc-mobile-nav-toggle{display:grid}.nuppdoc-search-button span:nth-child(2),.nuppdoc-search-button kbd{display:none}.nuppdoc-search-button{width:34px;justify-content:center}.nuppdoc-home-content{width:auto;padding:3rem 1.25rem 4rem}.nuppdoc-hero-copy h1{font-size:4rem}.nuppdoc-hero-text{font-size:1.2rem}.nuppdoc-hero-main.has-image{grid-template-columns:1fr}.nuppdoc-hero-starburst{width:min(78vw,340px)}.nuppdoc-features{grid-template-columns:1fr}.nuppdoc-sidebar,.nuppdoc-shell.is-sidebar-collapsed>.nuppdoc-sidebar{position:fixed;z-index:42;top:var(--nuppdoc-header-height);bottom:0;left:0;width:min(86vw,var(--nuppdoc-sidebar-width));max-height:none;padding:1.25rem 1rem 2rem;border-right:1px solid var(--nuppdoc-border);border-bottom:0;box-shadow:0 10px 30px rgba(0,0,0,.2);opacity:1;pointer-events:auto;transform:translateX(-105%);transition:transform 180ms ease}.nuppdoc-sidebar>ul{display:block;overflow:visible}.nuppdoc-sidebar-section ul{display:block;overflow:visible}.is-mobile-nav-open .nuppdoc-sidebar{transform:translateX(0)}.nuppdoc-sidebar-backdrop{position:fixed;z-index:41;inset:var(--nuppdoc-header-height) 0 0;display:block;width:100%;height:auto;padding:0;border:0;background:rgba(0,0,0,.38);opacity:0;pointer-events:none;transition:opacity 180ms ease}.is-mobile-nav-open .nuppdoc-sidebar-backdrop{opacity:1;pointer-events:auto}.is-mobile-nav-open{overflow:hidden}.nuppdoc-page-nav{grid-template-columns:1fr}.nuppdoc-page-nav-next{grid-column:1}}
+]]
+
+local SCRIPT = [[
+(() => {
+    "use strict";
+    const root = document.documentElement;
+    const theme = document.querySelector("[data-theme-toggle]");
+    const storedTheme = localStorage.getItem("nupp-doc-theme");
+    if (storedTheme === "light" || storedTheme === "dark") {
+        root.dataset.theme = storedTheme;
+    }
+    theme?.addEventListener("click", () => {
+        const dark = root.dataset.theme === "dark" ||
+            (!root.dataset.theme && matchMedia("(prefers-color-scheme:dark)").matches);
+        root.dataset.theme = dark ? "light" : "dark";
+        localStorage.setItem("nupp-doc-theme", root.dataset.theme);
+    });
+
+    const shell = document.querySelector(".nuppdoc-shell");
+    for (const button of document.querySelectorAll("[data-panel-toggle]")) {
+        const panel = button.dataset.panelToggle;
+        const className = `is-${panel}-collapsed`;
+        const storageKey = `nupp-doc-${panel}-collapsed`;
+        const restore = localStorage.getItem(storageKey) === "true";
+        shell?.classList.toggle(className, restore);
+        button.setAttribute("aria-pressed", String(restore));
+        button.addEventListener("click", () => {
+            const collapsed = !shell?.classList.contains(className);
+            shell?.classList.toggle(className, collapsed);
+            button.setAttribute("aria-pressed", String(collapsed));
+            localStorage.setItem(storageKey, String(collapsed));
+        });
+    }
+
+    const sidebar = document.querySelector(".nuppdoc-sidebar");
+    const revealCurrentSidebarPage = () => {
+        const current = sidebar?.querySelector('a[aria-current="page"]');
+        if (!sidebar || !current) return;
+        const sidebarRect = sidebar.getBoundingClientRect();
+        const currentRect = current.getBoundingClientRect();
+        const inset = 16;
+        if (currentRect.top < sidebarRect.top + inset ||
+            currentRect.bottom > sidebarRect.bottom - inset) {
+            sidebar.scrollTop += currentRect.top - sidebarRect.top
+                - (sidebar.clientHeight - currentRect.height) / 2;
+        }
+    };
+    requestAnimationFrame(revealCurrentSidebarPage);
+
+    const mobileToggle = document.querySelector("[data-mobile-nav-toggle]");
+    const closeMobileNav = () => {
+        document.body.classList.remove("is-mobile-nav-open");
+        mobileToggle?.setAttribute("aria-expanded", "false");
+    };
+    mobileToggle?.addEventListener("click", () => {
+        const open = !document.body.classList.contains("is-mobile-nav-open");
+        document.body.classList.toggle("is-mobile-nav-open", open);
+        mobileToggle.setAttribute("aria-expanded", String(open));
+        if (open) requestAnimationFrame(revealCurrentSidebarPage);
+    });
+    document.querySelector("[data-mobile-nav-close]")
+        ?.addEventListener("click", closeMobileNav);
+    sidebar?.addEventListener("click", (event) => {
+        if (event.target.closest("a")) closeMobileNav();
+    });
+    addEventListener("keydown", (event) => {
+        if (event.key === "Escape") closeMobileNav();
+    });
+
+    const searchDialog = document.querySelector(".nuppdoc-search-dialog");
+    const searchInput = searchDialog?.querySelector("input");
+    const searchResults = searchDialog?.querySelector(".nuppdoc-search-results");
+    const searchButtons = document.querySelectorAll("[data-nuppdoc-search]");
+    const maxSearchResults = 50;
+    let searchIndex = Array.isArray(window.NUPP_SEARCH_INDEX)
+        ? window.NUPP_SEARCH_INDEX : null;
+    let searchIndexPromise = null;
+
+    const openSearch = () => {
+        if (!searchDialog) return;
+        if (typeof searchDialog.showModal === "function") searchDialog.showModal();
+        else searchDialog.setAttribute("open", "");
+        searchInput.value = "";
+        renderSearch("");
+        loadSearchIndex().catch(() => {});
+        requestAnimationFrame(() => searchInput.focus());
+    };
+
+    const closeSearch = () => {
+        if (!searchDialog) return;
+        if (typeof searchDialog.close === "function") searchDialog.close();
+        else searchDialog.removeAttribute("open");
+    };
+
+    const scoreEntry = (entry, terms) => {
+        const title = entry.title.toLowerCase();
+        const text = entry.text.toLowerCase();
+        let score = 0;
+        for (const term of terms) {
+            if (!title.includes(term) && !text.includes(term)) return -1;
+            if (title === term) score += 100;
+            else if (title.startsWith(term)) score += 40;
+            else if (title.includes(term)) score += 20;
+            else score += 2;
+        }
+        return score;
+    };
+
+    const loadSearchIndex = () => {
+        if (searchIndex) return Promise.resolve(searchIndex);
+        if (searchIndexPromise) return searchIndexPromise;
+        const source = searchDialog?.dataset.nuppdocSearchIndex;
+        if (!source) return Promise.reject(new Error("Search index URL is missing."));
+        searchIndexPromise = new Promise((resolve, reject) => {
+            const script = document.createElement("script");
+            script.src = source;
+            script.async = true;
+            script.addEventListener("load", () => {
+                script.remove();
+                if (!Array.isArray(window.NUPP_SEARCH_INDEX)) {
+                    reject(new Error("Search index did not define an array."));
+                    return;
+                }
+                searchIndex = window.NUPP_SEARCH_INDEX;
+                resolve(searchIndex);
+            });
+            script.addEventListener("error", () => {
+                script.remove();
+                reject(new Error(`Could not load search index from ${source}.`));
+            });
+            document.head.append(script);
+        }).catch((error) => {
+            searchIndexPromise = null;
+            throw error;
+        });
+        return searchIndexPromise;
+    };
+
+    const resultUrl = (entry) => {
+        const source = searchDialog?.dataset.nuppdocSearchIndex;
+        return source ? new URL(entry.url, new URL(source, document.baseURI)).href
+            : entry.url;
+    };
+
+    const renderSearch = async (query) => {
+        if (!searchResults) return;
+        searchResults.replaceChildren();
+        const terms = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+        if (!terms.length) {
+            const hint = document.createElement("p");
+            hint.className = "nuppdoc-search-empty";
+            hint.textContent = "Search pages, headings, functions, and types.";
+            searchResults.append(hint);
+            return;
+        }
+        const loading = document.createElement("p");
+        loading.className = "nuppdoc-search-empty";
+        loading.textContent = "Loading search index…";
+        searchResults.append(loading);
+        let entries;
+        try {
+            entries = await loadSearchIndex();
+        } catch {
+            if (searchInput?.value !== query) return;
+            loading.textContent = "Search index could not be loaded.";
+            return;
+        }
+        if (searchInput?.value !== query) return;
+        searchResults.replaceChildren();
+        const matches = entries
+            .map((entry) => ({entry, score: scoreEntry(entry, terms)}))
+            .filter((match) => match.score >= 0)
+            .sort((a, b) => b.score - a.score ||
+                a.entry.title.localeCompare(b.entry.title))
+            .slice(0, maxSearchResults);
+        if (!matches.length) {
+            const empty = document.createElement("p");
+            empty.className = "nuppdoc-search-empty";
+            empty.textContent = `No results for “${query}”.`;
+            searchResults.append(empty);
+            return;
+        }
+        for (const {entry} of matches) {
+            const link = document.createElement("a");
+            link.href = resultUrl(entry);
+            const title = document.createElement("strong");
+            title.textContent = entry.title;
+            const path = document.createElement("small");
+            path.textContent = entry.url.replace(/^\.\.\//, "");
+            link.append(title, path);
+            searchResults.append(link);
+        }
+    };
+
+    searchButtons.forEach((button) => button.addEventListener("click", openSearch));
+    searchInput?.addEventListener("input", () => renderSearch(searchInput.value));
+    searchDialog?.querySelector("[data-nuppdoc-search-close]")
+        ?.addEventListener("click", closeSearch);
+    searchDialog?.addEventListener("click", (event) => {
+        if (event.target === searchDialog) closeSearch();
+    });
+    addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && searchDialog?.hasAttribute("open")) {
+            event.preventDefault();
+            closeSearch();
+            return;
+        }
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+            event.preventDefault();
+            openSearch();
+        }
+    });
+
+    const outlineLinks = Array.from(document.querySelectorAll(
+        '.nuppdoc-outline a[href^="#"]'
+    ));
+    if (outlineLinks.length) {
+        const headings = outlineLinks.map((link) =>
+            document.getElementById(decodeURIComponent(link.hash.slice(1))))
+            .filter(Boolean);
+        const update = () => {
+            let current = headings[0];
+            const line = document.querySelector(".nuppdoc-header")
+                ?.getBoundingClientRect().bottom + 24;
+            for (const heading of headings) {
+                if (heading.getBoundingClientRect().top <= line) current = heading;
+                else break;
+            }
+            for (const link of outlineLinks) {
+                link.toggleAttribute("aria-current", link.hash === `#${current?.id}`);
+            }
+        };
+        addEventListener("scroll", update, {passive: true});
+        addEventListener("resize", update);
+        update();
+    }
+
+    const showcaseFeatures = document.querySelectorAll(".nuppdoc-showcase-feature");
+    if (showcaseFeatures.length && typeof IntersectionObserver === "function" &&
+        !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        root.classList.add("nuppdoc-motion-ready");
+        const reveal = new IntersectionObserver((entries, observer) => {
+            for (const entry of entries) {
+                if (!entry.isIntersecting) continue;
+                entry.target.classList.add("is-visible");
+                observer.unobserve(entry.target);
+            }
+        }, {threshold: 0.16});
+        showcaseFeatures.forEach((feature) => reveal.observe(feature));
+    }
+})();
+]]
+
+local ICONS = {
+    github = [[<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .7a11.5 11.5 0 0 0-3.64 22.4c.58.1.79-.25.79-.56v-2.23c-3.24.7-3.92-1.38-3.92-1.38-.53-1.35-1.29-1.71-1.29-1.71-1.06-.72.08-.71.08-.71 1.17.08 1.79 1.2 1.79 1.2 1.04 1.79 2.73 1.27 3.4.97.1-.76.41-1.27.74-1.56-2.58-.29-5.3-1.29-5.3-5.7 0-1.26.45-2.29 1.2-3.1-.12-.3-.52-1.48.11-3.07 0 0 .98-.31 3.16 1.18a10.9 10.9 0 0 1 5.76 0c2.18-1.49 3.15-1.18 3.15-1.18.64 1.59.24 2.77.12 3.07.74.81 1.19 1.84 1.19 3.1 0 4.42-2.72 5.4-5.31 5.69.42.36.79 1.07.79 2.16v3.2c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z"/></svg>]],
+    markdown = [[<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M2.5 5.25h19A2.5 2.5 0 0 1 24 7.75v8.5a2.5 2.5 0 0 1-2.5 2.5h-19A2.5 2.5 0 0 1 0 16.25v-8.5a2.5 2.5 0 0 1 2.5-2.5Zm.5 3v7.5h2v-4l2 2 2-2v4h2v-7.5H9l-2 2-2-2H3Zm11 3.75h2.5v3.75h2V12H21l-3.5-3.5L14 12Z"/></svg>]],
+    panel = [[<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" d="M4 4.5h16v15H4zM9 4.5v15"/></svg>]],
+    menu = [[<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M4 6.5h16M4 12h16M4 17.5h16"/></svg>]],
+}
+
+assets.THEME = THEME
+assets.SCRIPT = SCRIPT
+assets.ICONS = ICONS
+
+return assets

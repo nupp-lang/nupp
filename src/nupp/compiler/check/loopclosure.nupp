@@ -1,0 +1,158 @@
+--[[
+Whether a function written inside a loop had to be written there.
+
+A function that reads nothing from the iteration is the same function every time
+round, so the loop allocates one per pass to no end. Saying so is a lint rather
+than an optimization on purpose: caching it in the output would cost a stored
+slot, a branch on every evaluation, and the guarantee that two closures from one
+place are two objects, all to avoid moving one line. Lifting it out of the loop
+in the source costs nothing and reads better. See `docs/lints.md`.
+
+The judgement is a scope-depth comparison, which is exactly the question being
+asked rather than an approximation of it: a name bound at or inside the loop
+belongs to the iteration, a name bound before it is the same name every pass.
+Name resolution already reports through `captureWatches` for cleanup regions, so
+this rides along and costs one integer compare per lookup.
+
+Two shapes are excused because the function is built once whatever the loop
+does: it is the value of a `return`, or the loop leaves on its first pass. Both
+are cheap and easy to explain, and neither is a substitute for flow analysis —
+a `break` under a condition still reports, because that loop really can go round
+again.
+
+The walk reaches this through `c.loops`, and the three places that call it are
+the three places a function body is checked.
+]]
+
+local state = require("nupp.compiler.check.state")
+
+local loopclosure = {}
+
+--- What the walk calls into this judgement with: a loop is opened and closed around its
+--- body, and a function written inside one is watched from where its scope begins to
+--- where it ends.
+type loopclosure.Ops = {
+    --- Opens a loop for the duration of its body.
+    push: function(body: any),
+
+    --- Closes the innermost loop.
+    pop: function(),
+
+    --- Sets whether a `return`'s values are being checked, answering what it was.
+    setReturning: function(value: boolean): boolean,
+
+    --- Starts judging a function body written inside a loop, or answers nil.
+    begin: function(enclosing: integer): any,
+
+    --- Ends that judgement, reporting when nothing the body read came from the
+    --- iteration.
+    finish: function(watch: any, at: any)
+}
+
+-- Whether a loop body leaves on its first pass. `continue` is deliberately not one of
+-- these: it ends an iteration, not the loop.
+local function leavesFirstPass(body: any): boolean
+    local stats = body and body.kind == "block" and body.stats or {}
+    local last = stats[#stats]
+    if not last then
+        return false
+    end
+
+    return last.kind == "returnStmt" or last.kind == "breakStmt"
+end
+
+--- Installs the loop-closure judgement on one run.
+---
+--- @param c the run's state
+--- @return the operations the walk calls
+function loopclosure.install(c: state.Checker): loopclosure.Ops
+    local ops = {}
+
+    -- The loops open in the current function, innermost last. Each carries the scope
+    -- depth it binds at, so that anything at or below it belongs to one iteration.
+    local loops = {}
+
+    -- Set while a `return` statement's values are being checked.
+    local returning = false
+
+    --- Opens a loop for the duration of its body.
+    ---
+    --- @param body the loop's block, read to see whether it leaves on the first pass
+    function ops.push(body: any)
+        loops[#loops + 1] = {depth = c.scope.depth, functionDepth = c.functionDepth, once = leavesFirstPass(body),}
+    end
+
+    --- Closes the innermost loop.
+    function ops.pop()
+        loops[#loops] = nil
+    end
+
+    --- Sets whether a `return`'s values are being checked, answering what it was, so a
+    --- caller can put it back. A function body clears it: being returned excuses that
+    --- function, not a loop inside it.
+    ---
+    --- @param value whether the walk is inside a return's values
+    --- @return what the flag was
+    function ops.setReturning(value: boolean): boolean
+        local was = returning
+        returning = value
+        return was
+    end
+
+    --- Starts judging a function body written inside a loop. Answers nil when there is
+    --- no such loop, or when the function is built once whatever the loop does, which
+    --- is the common case and costs one comparison.
+    ---
+    --- Call once the body's scope is pushed and its parameters are bound, so that a
+    --- reference to a parameter resolves inside the watch rather than through it.
+    ---
+    --- @param enclosing the function depth the loop would have been seen at, which the
+    ---     caller knows and this cannot: a funcbody has already counted itself, a short
+    ---     function never does
+    --- @return the watch to hand back to `finish`, or nil
+    function ops.begin(enclosing: integer): any
+        if returning then
+            return nil
+        end
+        local loop = loops[#loops]
+        if not loop or loop.once or loop.functionDepth ~= enclosing then
+            return nil
+        end
+        local watch = {depth = c.scope.depth, floor = loop.depth, captured = false}
+        c.captureWatches[#c.captureWatches + 1] = watch
+
+        return watch
+    end
+
+    --- Ends that judgement, reporting `loop-invariant-closure` when nothing the body
+    --- read came from the iteration.
+    ---
+    --- @param watch what `begin` answered
+    --- @param at the node to point the report at
+    function ops.finish(watch: any, at: any)
+        if not watch then
+            return
+        end
+        for i = #c.captureWatches, 1, -1 do
+            if c.captureWatches[i] == watch then
+                table.remove(c.captureWatches, i)
+                break
+            end
+        end
+        if watch.captured then
+            return
+        end
+        c.diag(
+            "NUPP2505",
+            at,
+            "this function is built once per iteration but does not use the "
+            .. "iteration, so every one of them is the same function",
+            nil,
+            {help = "declare it once above the loop and pass the name"}
+        )
+    end
+
+    return ops
+end
+
+return loopclosure

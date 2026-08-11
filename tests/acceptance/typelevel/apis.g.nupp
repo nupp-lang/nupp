@@ -1,0 +1,35 @@
+-- Dependent APIs: field-derived events, unbounded literal routes, and recursively
+-- nested container normalization.
+
+local type Events<T> = {readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil}
+
+local type Segment<Part> = match Part
+    when `:${infer Name}` then {readonly [K in Name]: string}
+    else {readonly [K in never]: string}
+end
+
+local type RouteParameters<Path> = match Path
+    when `${infer Head}/${infer Tail}` then Segment<Head> & RouteParameters<Tail>
+    else Segment<Path>
+end
+
+local type DeepElement<T> = match T
+    when {infer Item} then DeepElement<Item>
+    else T
+end
+
+local events: Events<{
+    name: string,
+    age: integer
+}> = nil as any
+local onName: function(value: string): nil = events.nameChanged
+local onAge: function(value: integer): nil = events.ageChanged
+local element: DeepElement<{{{integer}}}> = 42
+
+local function handleRoute(params: RouteParameters<'users/:user/posts/:post'>): string
+    local user: string = params.user
+    local post: string = params.post
+    return user .. ":" .. post
+end
+
+print(onName, onAge, element, handleRoute({user = '42', post = '7',}))

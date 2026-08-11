@@ -1,0 +1,251 @@
+--[[
+Where everything lives in the built site, and how one page refers to another.
+
+Pages are written as `route/index.html`, so every link out of one is relative to
+its own depth. The symbol index is what lets a name inside a highlighted code
+block become a link to its declaration; a name that two modules both export is
+dropped rather than guessed at.
+]]
+
+local filesMod = require("nupp.compiler.doc.files")
+
+local normalize, join, dirname = filesMod.normalize, filesMod.join, filesMod.dirname
+
+local urls = {}
+
+--- A name to the page it is declared on, for every name a code block might mention.
+--- Reading a name the index does not hold answers nil, which is how a highlighted token
+--- decides whether it becomes a link.
+type urls.Links = {[string]: string}
+
+--- What a link rewrite needs to know about a configured page: the file its markdown was
+--- read from, and the route it was written to.
+type urls.Page = {
+    source: string?,
+    path: string
+}
+
+local function moduleFile(name: string): string
+    return "modules/" .. name:gsub("[^%w._-]", "-"):gsub("%.", "/") .. "/index.html"
+end
+
+local function relativePrefix(file: string): string
+    local _, count = file:gsub("/", "")
+    return string.rep("../", count)
+end
+
+local function addSymbolLink(links, ambiguous, name, url)
+    if not name or name == "" or ambiguous[name] then
+        return
+    end
+    if links[name] and links[name] ~= url then
+        links[name] = nil
+        ambiguous[name] = true
+    else
+        links[name] = url
+    end
+end
+
+--- Where documentation lives, for one module and optionally one declaration on it. The
+--- site answers with a page and a fragment; the single markdown document answers with a
+--- fragment alone, because everything it documents is on the one page.
+type urls.Target = function(string, string?): string
+
+local function defaultTarget(module: string, path: string?): string
+    return moduleFile(module) .. (path and "#" .. path or "")
+end
+
+local function symbolLinkIndex(modules: {nupp.compiler.doc.extract.Module}, target: urls.Target?): urls.Links
+    local target = target or defaultTarget
+    local links, ambiguous = {}, {}
+    for _, module in ipairs(modules) do
+        for _, item in ipairs(module.items) do
+            local url = target(module.name, item.path)
+            addSymbolLink(links, ambiguous, item.path, url)
+            addSymbolLink(links, ambiguous, item.name, url)
+            local tail = item.name:match("([^.]+)$")
+            addSymbolLink(links, ambiguous, tail, url)
+            for _, member in ipairs(item.members) do
+                local memberUrl = target(module.name, member.path)
+                addSymbolLink(links, ambiguous, member.path, memberUrl)
+                addSymbolLink(links, ambiguous, item.name .. "." .. member.name, memberUrl)
+            end
+        end
+    end
+    -- Modules are indexed after the declarations and never over one, so a name a
+    -- declaration already answers to keeps meaning the declaration. Only the full dotted
+    -- name is indexed: a module's last segment is an ordinary enough word that claiming
+    -- it would drop the declarations sharing it as ambiguous.
+    for _, module in ipairs(modules) do
+        if links[module.name] == nil and not ambiguous[module.name] then
+            links[module.name] = target(module.name)
+        end
+    end
+
+    return links
+end
+
+--- A markdown link whose target names something the documentation knows — a module, a
+--- declaration, or a member — is written as that name rather than as a path, and is
+--- resolved here against whatever `resolve` answers. A target that reads as a URL or as
+--- a path is left alone, and so is a name nothing answers to, so an ordinary link is
+--- never captured by accident.
+---
+--- Empty link text stands for the target itself, which is what makes a reference cheap
+--- enough to write in passing: `[](nupp.zone)` renders that name as code and links
+--- it. A name that resolves to nothing still renders, so a reference to something that
+--- moved reads as the name it used to have rather than as an empty link.
+---
+--- An empty URL means the name is documented but not reachable from here, which is what
+--- one module's markdown says about its neighbours. The reference keeps its text and
+--- loses its link rather than pointing somewhere that is not there.
+---
+--- @param markdown the text to rewrite
+--- @param resolve a name to the URL documenting it, "" when nothing here does, or nil
+---     when the name is not documented at all
+--- @return the same text with every resolved reference rewritten
+local function rewriteSymbolLinks(markdown: string, resolve: function(string): string?): string
+    local function rewrite(prose: string): string
+        return (prose:gsub("%[([^%[%]]*)%]%(([^%s%(%)]+)%)", function(text: string, target: string): string
+            if target:match("^[%w+.-]+:") or target:find("[/#]") then
+                return "[" .. text .. "](" .. target .. ")"
+            end
+            local url = resolve(target)
+            local named = text:match("^%s*$") ~= nil
+            if not url and not named then
+                -- Nothing answers to it and the author wrote their own text, so this is
+                -- an ordinary relative link that happens to have no slash in it.
+                return "[" .. text .. "](" .. target .. ")"
+            end
+            local label = named and "`" .. target .. "`" or text
+
+            return url and url ~= "" and "[" .. label .. "](" .. url .. ")" or label
+        end))
+    end
+
+    -- Backticked runs are handed through untouched: a reference inside one is a page
+    -- showing the syntax rather than using it, and the same match covers a fenced block
+    -- for the callers that have not already lifted their fences out.
+    local out, position = {}, 1
+    while position <= #markdown do
+        local opening, closing = markdown:find("(`+).-%1", position)
+        if not opening or not closing then
+            out[#out + 1] = rewrite(markdown:sub(position))
+            ;
+            break
+        end
+        out[#out + 1] = rewrite(markdown:sub(position, opening - 1))
+        out[#out + 1] = markdown:sub(opening, closing)
+        position = closing + 1
+    end
+
+    return table.concat(out)
+end
+
+local function symbolLinks(index: urls.Links, module: nupp.compiler.doc.extract.Module?, prefix: string): urls.Links
+    local links = {}
+    if module then
+        for _, item in ipairs(module.items) do
+            local url = prefix .. moduleFile(module.name) .. "#" .. item.path
+            links[item.name] = url
+            links[item.name:match("([^.]+)$") or item.name] = url
+            for _, member in ipairs(item.members) do
+                local memberUrl = prefix .. moduleFile(module.name) .. "#" .. member.path
+                links[member.path] = memberUrl
+                links[item.name .. "." .. member.name] = memberUrl
+            end
+        end
+    end
+
+    return setmetatable(links, {__index = function(_, name)
+        local url = index[name]
+        return url and prefix .. url or nil
+    end})
+end
+
+local function routeFile(route: string): string
+    return route == "" and "index.html" or route .. "/index.html"
+end
+
+local function cleanRoute(route: string?): string?
+    route = normalize(tostring(route or "")):gsub("^/", "")
+    route = route:gsub("/index%.html$", ""):gsub("%.html$", "")
+    if route == "." then
+        route = ""
+    end
+    for segment in route:gmatch("[^/]+") do
+        if segment == "." or segment == ".." then
+            return nil
+        end
+    end
+
+    return route
+end
+
+local function pageLink(prefix: string, route: string): string
+    return prefix .. routeFile(route)
+end
+
+-- `fs.normalize` leaves ".." alone, because a path it is handed may run through a
+-- symlink where resolving one lexically would name a different file. A markdown link is
+-- not a filesystem path: "../ownership.md" beside a page means the page one directory
+-- up, and resolving it here is what lets one link work both when the file is read where
+-- it sits and once the page is routed somewhere else.
+local function resolveDots(path)
+    local parts = {}
+    for segment in path:gmatch("[^/]+") do
+        if segment == ".." and #parts > 0 and parts[#parts] ~= ".." then
+            parts[#parts] = nil
+        elseif segment ~= "." then
+            parts[#parts + 1] = segment
+        end
+    end
+
+    return table.concat(parts, "/")
+end
+
+local function rewriteConfiguredPageLinks(
+    markdown: string,
+    candidate: urls.Page,
+    pages: {urls.Page},
+    file: string
+): string
+    if not candidate.source then
+        return markdown
+    end
+    local routes = {}
+    for _, page in ipairs(pages) do
+        if page.source then
+            routes[resolveDots(normalize(page.source))] = page.path
+        end
+    end
+    local sourceDirectory = dirname(normalize(candidate.source))
+
+    return (markdown:gsub("(%[[^%]]+%]%()([^%)]+)(%))", function(opening, target, closing)
+        if target:match("^[%w+.-]+:") or target:match("^[/#]") or target:find("%s") then
+            return opening .. target .. closing
+        end
+        local path, fragment = target:match("^([^#]+)(#.*)$")
+        path, fragment = path or target, fragment or ""
+        local route = routes[
+            resolveDots(normalize(join(sourceDirectory, path)))
+        ] or routes[resolveDots(normalize(path))]
+        if route == nil then
+            return opening .. target .. closing
+        end
+
+        return opening .. relativePrefix(file) .. routeFile(route) .. fragment .. closing
+    end))
+end
+
+urls.moduleFile = moduleFile
+urls.relativePrefix = relativePrefix
+urls.symbolLinkIndex = symbolLinkIndex
+urls.symbolLinks = symbolLinks
+urls.rewriteSymbolLinks = rewriteSymbolLinks
+urls.routeFile = routeFile
+urls.cleanRoute = cleanRoute
+urls.pageLink = pageLink
+urls.rewriteConfiguredPageLinks = rewriteConfiguredPageLinks
+
+return urls

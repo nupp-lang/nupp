@@ -1,0 +1,75 @@
+--[=[
+Runs the ported modules, so the port is judged by behaviour rather than by
+checking clean. Mirrors the assertions in tecs's own specs for these files.
+]=]
+
+-- A table literal never infers into a tuple type, so every FieldDef asserts the
+-- type it already has. See PORT.md.
+const schema = require("schema")
+const chunked = require("stablechunkedarray")
+
+local function expect(ok: boolean, what: string): nil
+    if not ok then
+        error("acceptance: " .. what)
+    end
+end
+
+local function raises(body: function(): nil): boolean
+    const ok = pcall(body)
+    return not ok
+end
+
+-- schema.validateFields
+expect(not raises(function(): nil
+    schema.validateFields({{"x", "float"} as schema.FieldDef, {"y", "float"} as schema.FieldDef})
+end), "a valid field list is accepted")
+
+expect(raises(function(): nil
+    schema.validateFields({{"", "float"} as schema.FieldDef})
+end), "an empty field name is refused")
+
+expect(raises(function(): nil
+    schema.validateFields({{"1bad", "float"} as schema.FieldDef})
+end), "a non-C identifier is refused")
+
+expect(raises(function(): nil
+    schema.validateFields({{"x", "float"} as schema.FieldDef, {"x", "float"} as schema.FieldDef})
+end), "a duplicate field name is refused")
+
+expect(raises(function(): nil
+    schema.validateFields({{"x", ""} as schema.FieldDef})
+end), "an empty field type is refused")
+
+expect(raises(function(): nil
+    schema.validateFields({{"id", "float"} as schema.FieldDef}, {id = true})
+end), "a reserved field name is refused")
+
+-- StableChunkedArray
+const arr = chunked.new("double", 4)
+const a = arr:alloc()
+const b = arr:alloc()
+expect(a == 1 and b == 2, "ids are handed out from one")
+expect(arr:get(a) ~= nil, "a live id has a slot")
+
+arr:free(a)
+expect(arr:get(a) == nil, "a freed id reads back nil")
+
+const c = arr:alloc()
+expect(c == a, "a freed id is recycled")
+expect(arr:get(c) ~= nil, "and is live again")
+
+-- Crossing a chunk boundary is the property the whole file exists for.
+local ids: {integer} = {}
+for i = 1, 10 do
+    ids[#ids + 1] = arr:alloc()
+end
+expect(#ids == 10, "allocation continues past the chunk size")
+for i = 1, #ids do
+    expect(arr:get(ids[i]) ~= nil, "every allocated id is live")
+end
+
+expect(raises(function(): nil
+    chunked.new("double", 0)
+end), "a non-positive chunk size is refused")
+
+print("acceptance: tecs ffi port ok")

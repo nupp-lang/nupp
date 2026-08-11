@@ -1,0 +1,40 @@
+--[[
+The audited policy for a blocked type-level term at compiler boundaries.
+
+This table is deliberately executable documentation.  A new consumer category must
+choose one of reduce, preserve, or reject here and in its implementation; the focused
+test keeps the inventory complete and prevents a neutral term from silently acquiring
+runtime meaning.
+]]
+
+local policy: {
+    [string]: any
+} = {
+    relations = "reduce at entry; relate identical blocked terms only",
+    substitution = "preserve under rebind; reduce after closed substitution",
+    rendering = "preserve as bounded source-like text",
+    fingerprints = "preserve canonical semantic structure",
+    ownership = "reject as an unclosed boundary type",
+    narrowing = "preserve until a relation requests reduction",
+    methodSlots = "reduce before member enumeration",
+    documentation = "show the written alias and shortened reduced form",
+    lsp = "reduce with the checker-revision memo before semantic answers",
+    optimization = "reject before runtime lowering",
+    codegen = "reject before runtime lowering",
+}
+
+policy.required = {
+    "relations",
+    "substitution",
+    "rendering",
+    "fingerprints",
+    "ownership",
+    "narrowing",
+    "methodSlots",
+    "documentation",
+    "lsp",
+    "optimization",
+    "codegen",
+}
+
+return policy

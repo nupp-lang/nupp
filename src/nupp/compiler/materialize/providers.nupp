@@ -1,0 +1,438 @@
+--[[
+The closed materializer-provider table.
+
+This module deliberately has no registration function. A provider is compiler language
+surface: evaluator intrinsics, a versioned finalizer, an expected-type relation, a
+payload validator, and an IR lowerer land together here. The small `compiler-test`
+provider exercises the common path before a public provider depends on it.
+]]
+
+local cst = require("nupp.compiler.cst")
+local hash = require("nupp.compiler.build.hash")
+local peg = require("nupp.compiler.materialize.peg") as {
+    installEvaluator: function(any, any, any, any),
+    method: function(any, any, string, any, any): (any, any),
+    operator: function(any, string, any, any, any): (any, any),
+    finalize: function(any, any): (any, any),
+    lower: function(any, any, any): (any, any, any, any)
+}
+local fieldcodec = require("nupp.compiler.materialize.fieldcodec") as {
+    installEvaluator: function(any, any, any, any),
+    finalize: function(any, any): (any, any),
+    lower: function(any, any, any): (any, any, any)
+}
+
+type providers.Failure = {
+    readonly code: string,
+    readonly message: string,
+    readonly help: string?
+}
+
+local record providers
+    ABI: integer
+    installEvaluator: function(any, any)
+    reflect: function(any, any, any): any
+    isOpaque: function(any, any): boolean
+    opaqueKind: function(any, any): string?
+    index: function(any, any, any, any): (any, providers.Failure?)
+    iterator: function(any, any, boolean): (any, providers.Failure?)
+    method: function(any, any, string, any, any): (any, providers.Failure?)
+    operator: function(any, string, any, any, any): (any, providers.Failure?)
+    finalize: function(any, any): (any, providers.Failure?)
+    lower: function(any, any, any): (any, providers.Failure?, any)
+end
+
+providers.ABI = 1
+
+local function provenance(node, operation)
+    local token = cst.firstToken(node)
+
+    return {
+        operation = operation,
+        line = token and token.line or 1,
+        column = token and token.col or 1,
+    }
+end
+
+local function opaque(state, provider, family, payload, at)
+    local handle = {}
+    state.opaque[handle] = {
+        provider = provider,
+        family = family,
+        payload = payload,
+        provenance = at,
+    }
+
+    return handle
+end
+
+local function installTest(state, env)
+    local library = {}
+    local nodeToken = function() end
+    state.intrinsics[nodeToken] = function(at, args)
+        local value = args[1]
+        if type(value) ~= "number" or value ~= math.floor(value) then
+            return nil, {
+                code = "NUPP2412",
+                message = "the materialization test node needs an integer",
+            }
+        end
+
+        return opaque(state, "compiler-test", "Graph", {value = value}, provenance(at, "node"))
+    end
+    library.node = nodeToken
+    local factoryToken = function() end
+    state.intrinsics[factoryToken] = function(at)
+        return opaque(state, "compiler-test", "Factory", {}, provenance(at, "factory"))
+    end
+    library.factory = factoryToken
+    env.nupp = env.nupp or {}
+    env.nupp.__materializationTest = library
+end
+
+function providers.installEvaluator(state: any, env: any)
+    state.opaque = {}
+    state.reflectionViews = {}
+    state.intrinsics = {}
+    installTest(state, env)
+    peg.installEvaluator(
+        state,
+        env,
+        function(provider, family, payload, at)
+            return opaque(state, provider, family, payload, at)
+        end,
+        provenance
+    )
+    fieldcodec.installEvaluator(
+        state,
+        env,
+        function(provider, family, payload, at)
+            return opaque(state, provider, family, payload, at)
+        end,
+        provenance
+    )
+end
+
+local function reflectionValue(state, value, at)
+    if type(value) ~= "table" then
+        return value
+    end
+    local prior = state.reflectionViews[value]
+    if prior then
+        return prior
+    end
+    local handle = opaque(state, "reflection", "TypeInfoView", value, provenance(at, "reflect-view"))
+    state.reflectionViews[value] = handle
+
+    return handle
+end
+
+function providers.reflect(state: any, descriptor: any, at: any): any
+    local handle = opaque(state, "reflection", "TypeInfo", descriptor, provenance(at, "reflect"))
+    state.reflectionViews[descriptor] = handle
+
+    return handle
+end
+
+function providers.isOpaque(state: any, value: any): boolean
+    return type(value) == "table" and state.opaque[value] ~= nil
+end
+
+function providers.opaqueKind(state: any, value: any): string?
+    local entry = state.opaque[value]
+    return entry and entry.provider == "reflection" and "table" or nil
+end
+
+function providers.index(state: any, handle: any, key: any, at: any): any, providers.Failure?
+    local entry = state.opaque[handle]
+    if not entry or entry.provider ~= "reflection" or type(entry.payload) ~= "table" then
+        return nil, {code = "NUPP2411", message = "this opaque comptime value cannot be indexed"}
+    end
+    if type(key) ~= "string" and type(key) ~= "number" then
+        return nil, {code = "NUPP2411", message = "reflection indices must be strings or numbers"}
+    end
+
+    return reflectionValue(state, entry.payload[key], at), nil
+end
+
+function providers.iterator(state: any, handle: any, array: boolean): any, providers.Failure?
+    local entry = state.opaque[handle]
+    if not entry or entry.provider ~= "reflection" or type(entry.payload) ~= "table" then
+        return nil, {code = "NUPP2411", message = "this opaque comptime value cannot be iterated"}
+    end
+    local payload = entry.payload
+    local keys = {}
+    if array then
+        for index = 1, #payload do keys[index] = index end
+    else
+        for key in pairs(payload) do keys[#keys + 1] = key end
+        table.sort(keys, function(left, right)
+            if type(left) ~= type(right) then return type(left) < type(right) end
+            return left < right
+        end)
+    end
+    local cursor = 0
+
+    return function()
+        cursor = cursor + 1
+        local key = keys[cursor]
+        if key == nil then return nil end
+        return key, reflectionValue(state, payload[key], nil)
+    end, nil
+end
+
+function providers.method(state: any, handle: any, name: string, args: any, at: any): any, providers.Failure?
+    local entry = state.opaque[handle]
+    if not entry then
+        return nil, {code = "NUPP2412", message = "the comptime value is not an opaque handle"}
+    end
+    if entry.provider == "compiler-test" and entry.family == "Graph" and name == "link" then
+        local child = args[1]
+        local childEntry = state.opaque[child]
+        if not childEntry or childEntry.provider ~= entry.provider or childEntry.family ~= entry.family then
+            return nil, {code = "NUPP2412", message = "link needs another materialization test node"}
+        end
+        entry.payload.next = child
+        entry.provenance = provenance(at, "link")
+
+        return handle, nil
+    end
+    if entry.provider == "peg" then
+        return peg.method(state, handle, name, args, at)
+    end
+
+    return nil, {
+        code = "NUPP2411",
+        message = ("opaque %s has no comptime method %q"):format(tostring(entry.family), name),
+    }
+end
+
+function providers.operator(state: any, op: string, left: any, right: any, at: any): any, providers.Failure?
+    local entry = state.opaque[left]
+    if (op == "==" or op == "~=") and not entry then
+        local rightEntry = state.opaque[right]
+        if rightEntry and rightEntry.provider == "reflection" then
+            return op == "~=", nil
+        end
+    end
+    if entry and entry.provider == "reflection" then
+        if op == "unary#" then
+            return #entry.payload, nil
+        elseif op == "==" or op == "~=" then
+            local other = state.opaque[right]
+            local equal = other and other.provider == "reflection" and other.payload == entry.payload or false
+            if op == "==" then
+                return equal, nil
+            else
+                return not equal, nil
+            end
+        end
+    end
+    if entry and entry.provider == "peg" then
+        return peg.operator(state, op, left, right, at)
+    end
+
+    return nil, {code = "NUPP2411", message = "this operator is unavailable for opaque comptime values"}
+end
+
+local function finalizeTest(state, root)
+    local indices, entries, cursor = {}, {}, root
+    while cursor do
+        local existing = indices[cursor]
+        if existing then
+            break
+        end
+        if #entries >= 1024 then
+            return nil, {
+                code = "NUPP2416",
+                message = "compiler-test blueprint exceeds its 1024-node limit",
+            }
+        end
+        local entry = state.opaque[cursor]
+        if not entry or entry.provider ~= "compiler-test" or entry.family ~= "Graph" then
+            return nil, {code = "NUPP2415", message = "compiler-test graph contains a foreign handle"}
+        end
+        indices[cursor] = #entries + 1
+        entries[#entries + 1] = entry
+        cursor = entry.payload.next
+    end
+
+    local values, nexts, origins = {}, {}, {}
+    for index, entry in ipairs(entries) do
+        values[index] = entry.payload.value
+        nexts[index] = entry.payload.next and indices[entry.payload.next] or 0
+        origins[index] = entry.provenance
+    end
+    local canonicalParts = {}
+    for index = 1, #values do
+        canonicalParts[#canonicalParts + 1] = tostring(values[index]) .. ":" .. tostring(nexts[index])
+    end
+    local canonical = table.concat(canonicalParts, ",")
+
+    return {
+        kind = "materialized",
+        provider = "compiler-test",
+        schema = 1,
+        family = "Graph",
+        payload = {values = values, nexts = nexts},
+        provenance = origins,
+        fingerprint = hash.sha256("compiler-test\0v1\0" .. canonical),
+        summary = ("%d-node test graph"):format(#values),
+    }, nil
+end
+
+function providers.finalize(state: any, value: any): any, providers.Failure?
+    local entry = state.opaque[value]
+    if not entry then
+        return nil, {code = "NUPP2414", message = "the value is not compiler-owned opaque data"}
+    end
+    if entry.provider == "compiler-test" then
+        if entry.family == "Factory" then
+            local fingerprint = hash.sha256("compiler-test\0factory-v1")
+            return {
+                kind = "materialized",
+                provider = "compiler-test",
+                schema = 1,
+                family = "Factory",
+                payload = {},
+                provenance = {entry.provenance},
+                fingerprint = fingerprint,
+                summary = "test input factory",
+            }, nil
+        end
+        return finalizeTest(state, value)
+    elseif entry.provider == "peg" then
+        return peg.finalize(state, value)
+    elseif entry.provider == "fieldcodec" then
+        return fieldcodec.finalize(state, value)
+    end
+
+    return nil, {code = "NUPP2415", message = "no finalizer owns this opaque value"}
+end
+
+local function validateTest(envelope)
+    if envelope.schema ~= 1 or envelope.family ~= "Graph" or type(envelope.payload) ~= "table" then
+        return nil, "compiler-test blueprint has the wrong schema"
+    end
+    local values, nexts = envelope.payload.values, envelope.payload.nexts
+    if type(values) ~= "table" or type(nexts) ~= "table" or #values ~= #nexts or #values > 1024 then
+        return nil, "compiler-test blueprint has invalid graph arrays"
+    end
+    local canonicalParts = {}
+    for index = 1, #values do
+        local value, nextIndex = values[index], nexts[index]
+        if type(value) ~= "number" or value ~= math.floor(value) then
+            return nil, "compiler-test blueprint has a non-integer value"
+        end
+        if type(nextIndex) ~= "number" or nextIndex ~= math.floor(nextIndex)
+            or nextIndex < 0 or nextIndex > #values then
+            return nil, "compiler-test blueprint has an invalid edge"
+        end
+        canonicalParts[#canonicalParts + 1] = tostring(value) .. ":" .. tostring(nextIndex)
+    end
+    local fingerprint = hash.sha256("compiler-test\0v1\0" .. table.concat(canonicalParts, ","))
+    if envelope.fingerprint ~= fingerprint then
+        return nil, "compiler-test blueprint fingerprint does not match its payload"
+    end
+
+    return true
+end
+
+local function testFactoryTarget(expected, env)
+    local input = env and env.globalTypes and env.globalTypes["nupp.__MaterializationTestInput"]
+    local output = env and env.globalTypes and env.globalTypes["nupp.__MaterializedTest"]
+
+    return expected and expected.tag == "func" and #expected.params == 1
+        and #expected.rets == 1 and expected.params[1] == input and expected.rets[1] == output
+end
+
+--- Validates the worker envelope, checks the provider's expected-type relation, and
+--- returns structured runtime-expression IR. A provider whose output type is fully
+--- determined by its blueprint may return that inferred target in the fourth slot;
+--- providers needing application types still require an explicit boundary.
+function providers.lower(envelope: any, expected: any, env: any): any, providers.Failure?, any, any
+    if type(envelope) ~= "table" or envelope.kind ~= "materialized"
+        or type(envelope.provider) ~= "string" or type(envelope.schema) ~= "number"
+        or type(envelope.fingerprint) ~= "string" then
+        return nil, {code = "NUPP2415", message = "the comptime worker returned a malformed blueprint envelope"}
+    end
+    if envelope.provider ~= "compiler-test" then
+        if envelope.provider == "peg" then
+            return peg.lower(envelope, expected, env)
+        elseif envelope.provider == "fieldcodec" then
+            return fieldcodec.lower(envelope, expected, env)
+        end
+        return nil, {code = "NUPP2415", message = "no materializer owns provider " .. envelope.provider}
+    end
+    if not expected then
+        return nil, {
+            code = "NUPP2414",
+            message = "an opaque comptime result needs a directly declared runtime type",
+            help = "write a type annotation on the declaration initialized by this comptime block",
+        }
+    end
+    local target = env and env.globalTypes and env.globalTypes["nupp.__MaterializedTest"]
+    if envelope.family == "Factory" then
+        if not testFactoryTarget(expected, env) then
+            return nil, {
+                code = "NUPP2415",
+                message = "compiler-test opaque Factory needs function(__MaterializationTestInput): __MaterializedTest",
+            }
+        end
+        if envelope.schema ~= 1 or envelope.fingerprint ~= hash.sha256("compiler-test\0factory-v1") then
+            return nil, {code = "NUPP2415", message = "compiler-test factory blueprint is malformed"}
+        end
+
+        return {
+            tag = "function",
+            params = {1},
+            body = {{
+                tag = "return",
+                value = {
+                    tag = "table",
+                    fields = {
+                        {name = "value", value = {
+                            tag = "field",
+                            object = {tag = "local", id = 1},
+                            name = "value",
+                        }},
+                        {name = "nodes", value = {tag = "literal", value = 1}},
+                    },
+                },
+            }},
+        }, nil, {
+            backend = "direct",
+            emitterAbi = 1,
+            helperAbi = 0,
+            runtimeFeatures = {},
+        }
+    elseif expected ~= target then
+        return nil, {
+            code = "NUPP2415",
+            message = ("compiler-test opaque Graph cannot materialize as %s"):format(tostring(expected.name or expected.tag)),
+        }
+    end
+    local valid, why = validateTest(envelope)
+    if not valid then
+        return nil, {code = "NUPP2415", message = why as string}
+    end
+    local sum = 0
+    for _, value in ipairs(envelope.payload.values) do
+        sum = sum + value
+    end
+
+    return {
+        tag = "table",
+        fields = {
+            {name = "value", value = {tag = "literal", value = sum}},
+            {name = "nodes", value = {tag = "literal", value = #envelope.payload.values}},
+        },
+    }, nil, {
+        backend = "direct",
+        emitterAbi = 1,
+        helperAbi = 0,
+        runtimeFeatures = {},
+    }
+end
+
+return providers

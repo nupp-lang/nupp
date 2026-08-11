@@ -1,0 +1,112 @@
+{
+  "name": "nupp",
+  "displayName": "Nupp",
+  "description": "Language support for Nupp",
+  "version": "0.0.4",
+  "publisher": "mtdowling",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nupp-lang/nupp.git"
+  },
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.91.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "keywords": [
+    "lua",
+    "luajit",
+    "nupp",
+    "language-server"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguage:nupp"
+  ],
+  "files": [
+    "icon.png",
+    "nupp.svg",
+    "dist/extension.js",
+    "language-configuration.json",
+    "syntaxes/nupp.tmLanguage.json",
+    "README.md"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "nupp",
+        "aliases": [
+          "Nupp",
+          "nupp"
+        ],
+        "extensions": [
+          ".nupp"
+        ],
+        "firstLine": "^#!.*\\bnupp\\b",
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./nupp.svg",
+          "dark": "./nupp.svg"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "nupp",
+        "scopeName": "source.nupp",
+        "path": "./syntaxes/nupp.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Nupp",
+      "properties": {
+        "nupp.serverPath": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "Executable used to launch the language server. Supports ${workspaceFolder} and ${env:NAME}; defaults to the repository launcher when developing here, then to nupp on PATH."
+        },
+        "nupp.serverArgs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["lsp", "serve", "${workspaceFolder}"],
+          "scope": "resource",
+          "description": "Arguments passed directly to the language-server executable. Supports ${workspaceFolder} and ${env:NAME}."
+        },
+        "nupp.serverCwd": {
+          "type": "string",
+          "default": "${workspaceFolder}",
+          "scope": "resource",
+          "description": "Working directory for the language-server process. Supports ${workspaceFolder} and ${env:NAME}."
+        },
+        "nupp.serverEnvironment": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": { "type": "string" },
+          "scope": "resource",
+          "description": "Environment variables added to the language-server process. Values support ${workspaceFolder} and ${env:NAME}."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node scripts/sync-icon.js && esbuild extension.js --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js",
+    "check": "npm run build && node scripts/check-extension.js",
+    "test": "npm run check && npm run test:grammar",
+    "test:grammar": "vscode-tmgrammar-test -c 'tests/**/*.test.nupp'",
+    "package": "vsce package --allow-missing-repository --skip-license --out nupp.vsix",
+    "vscode:prepublish": "npm run build"
+  },
+  "dependencies": {
+    "vscode-languageclient": "10.1.0"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "3.9.2",
+    "esbuild": "0.28.1",
+    "vscode-tmgrammar-test": "0.1.3"
+  }
+}

@@ -1,0 +1,7 @@
+# Cargo's output goes under the project's build directory, which is already
+# ignored and already what `nupp clean` removes. Here rather than beside the
+# crate so it applies however cargo is invoked: a config beside the crate is
+# only found when the crate is the working directory, which left builds run
+# from the project root writing somewhere else.
+[build]
+target-dir = "build/host"

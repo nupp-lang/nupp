@@ -1,0 +1,659 @@
+-- Compiler-owned declaration derives. Plans contain semantic data only; generation
+-- lowers the closed provider set without parsing or synthesizing source syntax.
+
+local T = require("nupp.compiler.types")
+local relations = require("nupp.compiler.relations")
+local generics = require("nupp.compiler.generics")
+local hash = require("nupp.compiler.build.hash")
+local fs = require("nupp.compiler.fs")
+local state = require("nupp.compiler.check.state")
+
+local derive = {}
+
+local PROVIDERS = {Debug = true, Default = true, From = true, JSON = true}
+local NUMERIC = {
+    number = true, integer = true, float = true,
+    int8 = true, int16 = true, int32 = true,
+    uint8 = true, uint16 = true, uint32 = true,
+}
+local INTEGER = {
+    integer = true, int8 = true, int16 = true, int32 = true,
+    uint8 = true, uint16 = true, uint32 = true,
+}
+local RANGES = {
+    int8 = {-128, 127}, int16 = {-32768, 32767}, int32 = {-2147483648, 2147483647},
+    uint8 = {0, 255}, uint16 = {0, 65535}, uint32 = {0, 4294967295},
+    integer = {-9007199254740991, 9007199254740991},
+}
+local MAX_FIELDS, MAX_PLAN_NODES = 2048, 16384
+
+local function canonical(value)
+    local kind = type(value)
+    if kind == "nil" then return "n"
+    elseif kind == "boolean" then return value and "t" or "f"
+    elseif kind == "number" then return "d" .. string.format("%.17g", value)
+    elseif kind == "string" then return "s" .. #value .. ":" .. value
+    elseif kind ~= "table" then return "x" .. tostring(value) end
+    local keys = {}
+    for key in pairs(value) do
+        if key ~= "key" and key ~= "fingerprint" then keys[#keys + 1] = key end
+    end
+    table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+    local out = {"{"}
+    for _, key in ipairs(keys) do
+        out[#out + 1] = canonical(key)
+        out[#out + 1] = canonical(value[key])
+    end
+    out[#out + 1] = "}"
+    return table.concat(out)
+end
+
+record derive.Ops
+    merge: function(stat: any, nominal: any): nil
+    finalize: function(): nil
+end
+
+local function argumentName(arg)
+    local expr = arg and arg.expr
+    if not expr then return nil end
+    if expr.kind == "name" then
+        return expr.token and expr.token.text or nil
+    elseif expr.kind == "string" then
+        local text = expr.token and expr.token.text or ""
+        return #text >= 2 and text:sub(2, -2) or nil
+    end
+    return nil
+end
+
+local function constant(expr)
+    if not expr then return nil, false end
+    if expr.kind == "nilExpr" then return nil, true end
+    if expr.kind == "trueExpr" then return true, true end
+    if expr.kind == "falseExpr" then return false, true end
+    if expr.kind == "number" or expr.kind == "string" then
+        local chunk = loadstring("return " .. (expr.token and expr.token.text or "nil"))
+        if chunk then
+            local ok, value = pcall(chunk)
+            if ok then return value, true end
+        end
+        return nil, false
+    end
+    if expr.kind == "tableExpr" then
+        local out, index = {}, 1
+        for _, field in ipairs(expr.fields or {}) do
+            local value, ok = constant(field.value)
+            if not ok then return nil, false end
+            if field.kind == "fieldItem" then
+                out[index], index = value, index + 1
+            elseif field.kind == "fieldNamed" then
+                out[field.name.text] = value
+            else
+                return nil, false
+            end
+        end
+        return out, true
+    end
+    return nil, false
+end
+
+local function annotation(annotations, name)
+    for _, item in ipairs(annotations or {}) do
+        if item.name == name then return item end
+    end
+    return nil
+end
+
+local function annotationArgument(item, name)
+    for _, arg in ipairs(item and item.arguments or {}) do
+        if arg.name == name then
+            return arg.value, arg.kind == "nil"
+        end
+    end
+    return nil, false
+end
+
+local function withoutNil(t)
+    if t.tag ~= "union" or not t.hasNil then return nil end
+    local rest = {}
+    for _, member in ipairs(t.members) do
+        if member ~= T.nil_ then rest[#rest + 1] = member end
+    end
+    if #rest == 1 then return rest[1] end
+    return #rest > 1 and T.union(rest) or nil
+end
+
+local function fieldNodes(stat)
+    local out = {}
+    for _, entry in ipairs(stat.entries or {}) do
+        if entry.kind == "fieldDecl" and entry.name then
+            out[entry.name.text] = entry
+        end
+    end
+    return out
+end
+
+local function shapeFields(t, make)
+    local fields = {}
+    for _, field in ipairs(t.fields or {}) do
+        local ft = field.read or field.type or field.write
+        if not ft then return nil end
+        local spec = make(ft)
+        if not spec then return nil end
+        fields[#fields + 1] = {name = field.name, type = spec}
+    end
+    return fields
+end
+
+--- Installs one run's derive merger and finalizer.
+function derive.install(c: state.Checker): derive.Ops
+    local pending = {}
+    local ops = new derive.Ops {}
+    local planNodes, planLimitAt, planLimitReported = 0, nil, false
+    local currentItem = nil
+
+    local function takePlanNode(at)
+        planNodes = planNodes + 1
+        if planNodes <= MAX_PLAN_NODES then return true end
+        if not planLimitReported then
+            planLimitReported = true
+            c.diag("NUPP2808", at or planLimitAt,
+                ("derive plan exceeds %d semantic nodes"):format(MAX_PLAN_NODES), nil,
+                {help = "split the record or replace part of the derive with a written implementation"})
+        end
+        return false
+    end
+
+    local function origin(item, provider)
+        return item.origins[provider] or item.stat.name
+    end
+
+    local function addDefinition(n, name, signature, tok, kind, provider, isStatic)
+        local reads = isStatic and n.staticByname or n.byname
+        local writes = isStatic and n.staticWriteByname or n.writeByname
+        local other = isStatic and n.byname or n.staticByname
+        if reads[name] or other[name] then
+            c.diag(
+                "NUPP2802", tok,
+                ("%s would generate %s member %q, but %s already declares it"):format(
+                    provider, isStatic and "static" or "instance", name, n.name
+                ), nil,
+                {help = ("remove @derive(%s) or remove the written member"):format(provider)}
+            )
+            return false
+        end
+        reads[name], writes[name] = signature, signature
+        local definition = c.definition(tok, kind)
+        definition.type = signature
+        definition.generatedBy = provider
+        definition.generatedOwner = n.name
+        if isStatic then
+            n.derivedStaticByname = n.derivedStaticByname or {}
+            n.derivedStaticByname[name] = signature
+            n.staticFieldDefs[name], n.staticWriteFieldDefs[name] = definition, definition
+        else
+            n.derivedByname = n.derivedByname or {}
+            n.derivedByname[name] = signature
+            n.fieldDefs[name], n.writeFieldDefs[name] = definition, definition
+        end
+        return true
+    end
+
+    local function addContract(n, name)
+        local contract = c.env and c.env.globalTypes and c.env.globalTypes[name]
+        if not contract then return end
+        for _, existing in ipairs(n.supertypes or {}) do
+            if existing == contract then return end
+        end
+        n.supertypes[#n.supertypes + 1] = contract
+    end
+
+    local function clearGeneratedMembers(n)
+        for name, generated in pairs(n.derivedByname or {}) do
+            if n.byname[name] == generated then n.byname[name] = nil end
+            if n.writeByname[name] == generated then n.writeByname[name] = nil end
+            local definition = n.fieldDefs and n.fieldDefs[name]
+            if definition and definition.generatedBy then n.fieldDefs[name] = nil end
+            definition = n.writeFieldDefs and n.writeFieldDefs[name]
+            if definition and definition.generatedBy then n.writeFieldDefs[name] = nil end
+        end
+        for name, generated in pairs(n.derivedStaticByname or {}) do
+            if n.staticByname[name] == generated then n.staticByname[name] = nil end
+            if n.staticWriteByname[name] == generated then n.staticWriteByname[name] = nil end
+            local definition = n.staticFieldDefs and n.staticFieldDefs[name]
+            if definition and definition.generatedBy then n.staticFieldDefs[name] = nil end
+            definition = n.staticWriteFieldDefs and n.staticWriteFieldDefs[name]
+            if definition and definition.generatedBy then n.staticWriteFieldDefs[name] = nil end
+        end
+        n.derivedByname, n.derivedStaticByname = {}, {}
+    end
+
+    function ops.merge(stat, n)
+        local applications = {}
+        for _, application in ipairs(stat.deriveApplications or {}) do
+            applications[#applications + 1] = application
+        end
+        for _, application in ipairs(stat.annotations or {}) do
+            if application.name and application.name.text == "derive" then
+                applications[#applications + 1] = application
+            end
+        end
+        if #applications == 0 then return end
+        clearGeneratedMembers(n)
+        local requested, origins, order = {}, {}, {}
+        for _, application in ipairs(applications) do
+            for _, arg in ipairs(application.annotationArgs or {}) do
+                local name = argumentName(arg)
+                local at = arg.expr or arg
+                if name and not PROVIDERS[name] then
+                    c.diag("NUPP2801", at, ("unknown derive provider %q"):format(name))
+                elseif name and requested[name] then
+                    c.diag("NUPP2801", at, ("derive provider %q was requested twice"):format(name))
+                elseif name then
+                    requested[name], origins[name] = true, at
+                    order[#order + 1] = name
+                end
+            end
+        end
+        if #order == 0 then return end
+
+        c.recordEffect("stdlib.derives")
+        if requested.JSON then c.recordEffect("native.cjson") end
+
+        n.deriveProviders = requested
+        local filename = c.filename and fs.normalize(c.filename) or "<source>"
+        n.deriveKey = filename .. ":" .. tostring(stat.name.line or 0) .. ":" .. n.name
+        local item = {stat = stat, nominal = n, requested = requested, origins = origins, order = order}
+        pending[#pending + 1] = item
+
+        if requested.Debug then
+            if addDefinition(n, "debug", T.func({n}, {T.string}), origin(item, "Debug"), "method", "Debug", false) then
+                addContract(n, "nupp.Debug")
+            end
+        end
+        if requested.Default then
+            addDefinition(n, "default", T.func({}, {n}), origin(item, "Default"), "function", "Default", true)
+        end
+        if requested.From then
+            local field = n.fieldOrder and n.fieldOrder[1]
+            local source = field and n.byname[field] or T.any
+            addDefinition(n, "from", T.func({source}, {n}), origin(item, "From"), "function", "From", true)
+        end
+        if requested.JSON then
+            if addDefinition(n, "toJSON", T.func({n}, {T.string}), origin(item, "JSON"), "method", "JSON", false) then
+                addContract(n, "nupp.JSONEncodable")
+            end
+            addDefinition(
+                n, "fromJSON",
+                T.func({T.string}, {T.union({n, T.nil_}), T.union({T.string, T.nil_})}),
+                origin(item, "JSON"), "function", "JSON", true
+            )
+            local namespace = c.env and c.env.globalTypes and c.env.globalTypes["nupp.FieldCodec"]
+            local codec = namespace and namespace.nestedTypes and namespace.nestedTypes.KeyedCodec
+            local codecType = codec and codec.typeParams and codec.typeParams[1]
+                and generics.instantiate(codec, {[codec.typeParams[1]] = n}) or T.any
+            addDefinition(n, "fieldCodec", T.func({}, {codecType}), origin(item, "JSON"), "function", "JSON", true)
+        end
+        relations.invalidate()
+    end
+
+    local function debugSpec(t, at, active)
+        if not takePlanNode(at) then return {kind = "unsupported"} end
+        active = active or {}
+        local optional = withoutNil(t)
+        if optional then return {kind = "optional", value = debugSpec(optional, at, active)} end
+        if t.tag == "literal" then return {kind = "literal", value = t.constant} end
+        if t == T.any then return {kind = "any"} end
+        if t.tag == "nil" or t.tag == "boolean" or t.tag == "string" or NUMERIC[t.tag] then
+            return {kind = t.tag}
+        elseif t.tag == "array" then
+            return {kind = "array", value = debugSpec(t.elem, at, active)}
+        elseif t.tag == "map" and t.readable then
+            return {kind = "map", key = debugSpec(t.key, at, active), value = debugSpec(t.value, at, active)}
+        elseif t.tag == "tuple" then
+            local items = {}
+            for _, member in ipairs(t.elems) do items[#items + 1] = debugSpec(member, at, active) end
+            return {kind = "tuple", items = items}
+        elseif t.tag == "shape" then
+            return {kind = "shape", fields = shapeFields(t, function(member) return debugSpec(member, at, active) end)}
+        elseif t.tag == "nominal" and t.declKind == "record" then
+            if t.deriveProviders and t.deriveProviders.Debug and t.deriveKey then
+                return {kind = "record", typeKey = t.deriveKey}
+            end
+            if t.byname and t.byname.debug then return {kind = "customDebug"} end
+        elseif t.tag == "typevar" and t.bound then
+            local debugContract = c.env and c.env.globalTypes and c.env.globalTypes["nupp.Debug"]
+            if debugContract and relations.isA(t.bound, debugContract) then return {kind = "customDebug"} end
+        end
+        c.diag("NUPP2803", at, ("%s cannot be formatted by Debug"):format(T.tostring(t)))
+        return {kind = "unsupported"}
+    end
+
+    local function defaultSpec(t, at)
+        if not takePlanNode(at) then return nil end
+        if t.tag == "union" and t.hasNil then return {kind = "nil"} end
+        if t.tag == "literal" then return {kind = "literal", value = t.constant} end
+        if t.tag == "boolean" then return {kind = "literal", value = false} end
+        if t.tag == "string" then return {kind = "literal", value = ""} end
+        if NUMERIC[t.tag] then return {kind = "literal", value = 0} end
+        if t.tag == "array" or t.tag == "map" then return {kind = "table"} end
+        if t.tag == "tuple" then
+            local items = {}
+            for _, member in ipairs(t.elems) do
+                local spec = defaultSpec(member, at)
+                if not spec then return nil end
+                items[#items + 1] = spec
+            end
+            return {kind = "tuple", items = items}
+        end
+        if t.tag == "shape" then
+            local fields = shapeFields(t, function(member) return defaultSpec(member, at) end)
+            return fields and {kind = "shape", fields = fields} or nil
+        end
+        if t.tag == "nominal" and t.declKind == "record" and t.deriveProviders
+            and t.deriveProviders.Default and t.deriveKey then
+            return {kind = "record", typeKey = t.deriveKey}
+        end
+        c.diag("NUPP2804", at, ("field type %s has no default"):format(T.tostring(t)), nil,
+            {help = "add @default(...), make the field optional, or derive Default for its record type"})
+        if currentItem then currentItem.defaultFailed = true end
+        return nil
+    end
+
+    local function jsonSpec(t, at)
+        if not takePlanNode(at) then return nil end
+        local optional = withoutNil(t)
+        if optional then
+            local value = jsonSpec(optional, at)
+            return value and {kind = "optional", value = value} or nil
+        end
+        if t.tag == "literal" then return {kind = "literal", value = t.constant} end
+        if t.tag == "nil" or t.tag == "boolean" or t.tag == "string" or NUMERIC[t.tag] then
+            local spec = {kind = INTEGER[t.tag] and "integer" or t.tag}
+            local range = RANGES[t.tag]
+            if range then spec.minimum, spec.maximum = range[1], range[2] end
+            return spec
+        end
+        if t.tag == "int64" or t.tag == "uint64" then
+            c.diag("NUPP2806", at, ("%s cannot round-trip through an exact JSON number"):format(t.tag))
+            if currentItem then currentItem.jsonFailed = true end
+            return nil
+        elseif t.tag == "array" then
+            local value = jsonSpec(t.elem, at)
+            return value and {kind = "array", value = value} or nil
+        elseif t.tag == "map" and t.readable and relations.isA(t.key, T.string) then
+            local value = jsonSpec(t.value, at)
+            return value and {kind = "map", value = value} or nil
+        elseif t.tag == "tuple" then
+            local items = {}
+            for _, member in ipairs(t.elems) do
+                local spec = jsonSpec(member, at)
+                if not spec then return nil end
+                items[#items + 1] = spec
+            end
+            return {kind = "tuple", items = items}
+        elseif t.tag == "shape" then
+            local fields = shapeFields(t, function(member) return jsonSpec(member, at) end)
+            return fields and {kind = "shape", fields = fields, unknown = "reject"} or nil
+        elseif t.tag == "union" then
+            local first = t.members and t.members[1]
+            if first and first.tag == "nominal" and first.declKind == "record" then
+                for _, fieldName in ipairs(first.fieldOrder or {}) do
+                    local choices, seen, jsonName, valid = {}, {}, nil, true
+                    for _, member in ipairs(t.members) do
+                        local tagType = member.tag == "nominal" and member.declKind == "record"
+                            and member.byname and member.byname[fieldName] or nil
+                        if not tagType or tagType.tag ~= "literal" or seen[tagType.constant]
+                            or not (member.deriveProviders and member.deriveProviders.JSON and member.deriveKey) then
+                            valid = false
+                            break
+                        end
+                        local definition = member.fieldDefs and member.fieldDefs[fieldName]
+                        local json = annotation(definition and definition.annotations, "json")
+                        local encoded = annotationArgument(json, "name") or fieldName
+                        if jsonName and jsonName ~= encoded then valid = false break end
+                        jsonName = encoded
+                        seen[tagType.constant] = true
+                        choices[tagType.constant] = {kind = "record", typeKey = member.deriveKey}
+                    end
+                    if valid then
+                        return {kind = "union", tagField = fieldName, jsonTag = jsonName, choices = choices}
+                    end
+                end
+            end
+            c.diag("NUPP2806", at,
+                "a JSON record union needs one common literal field with a distinct value in every arm")
+            if currentItem then currentItem.jsonFailed = true end
+            return nil
+        elseif t.tag == "nominal" and t.declKind == "record" and t.deriveProviders
+            and t.deriveProviders.JSON and t.deriveKey then
+            return {kind = "record", typeKey = t.deriveKey}
+        end
+        c.diag("NUPP2806", at, ("type %s is not supported by JSON"):format(T.tostring(t)))
+        if currentItem then currentItem.jsonFailed = true end
+        return nil
+    end
+
+    function ops.finalize()
+        local byKey = {}
+        for _, requested in ipairs(pending) do
+            byKey[requested.nominal.deriveKey] = requested
+        end
+        for _, item in ipairs(pending) do
+            local stat, n = item.stat, item.nominal
+            currentItem = item
+            planNodes, planLimitAt, planLimitReported = 0, origin(item, item.order[1]), false
+            local nodes = fieldNodes(stat)
+            item.fieldNodes = nodes
+            local plan = {key = n.deriveKey, name = n.name, providers = {}, fields = {}}
+            if #(n.fieldOrder or {}) > MAX_FIELDS then
+                c.diag("NUPP2808", planLimitAt,
+                    ("derive target has %d fields; the limit is %d"):format(#n.fieldOrder, MAX_FIELDS))
+            end
+            for _, provider in ipairs(item.order) do plan.providers[provider] = true end
+
+            if item.requested.From then
+                if #(n.fieldOrder or {}) ~= 1 or #(n.constructorEntries or {}) > 0 then
+                    c.diag("NUPP2805", origin(item, "From"), "From requires exactly one stored field and no constructor")
+                else
+                    plan.fromField = n.fieldOrder[1]
+                    local source = n.byname[plan.fromField] or n.writeByname[plan.fromField]
+                    if source and (source.tag == "owned" or source.tag == "borrowed" or source.tag == "pinned") then
+                        c.diag("NUPP2805", nodes[plan.fromField] or stat,
+                            "From does not infer an ownership transfer policy")
+                        plan.fromField = nil
+                    end
+                end
+            end
+            if item.requested.Default and #(n.constructorEntries or {}) > 0 then
+                c.diag("NUPP2804", origin(item, "Default"), "Default cannot bypass a written constructor")
+                item.defaultFailed = true
+            end
+            if item.requested.JSON and #(n.typeParams or {}) > 0 then
+                c.diag("NUPP2806", origin(item, "JSON"), "JSON cannot derive for an erased generic record")
+                item.jsonFailed = true
+            end
+
+            local recordJSON = annotation(n.annotations, "json")
+            local unknown = annotationArgument(recordJSON, "unknown") or "reject"
+            if recordJSON then
+                for _, arg in ipairs(recordJSON.arguments or {}) do
+                    if arg.name ~= "unknown" then
+                        c.diag("NUPP2806", origin(item, "JSON"), ("@json.%s is valid only on fields"):format(arg.name))
+                        item.jsonFailed = true
+                    end
+                end
+            end
+            plan.unknown = unknown
+
+            for _, name in ipairs(n.fieldOrder or {}) do
+                local node = nodes[name] or stat
+                local ft = n.byname[name] or n.writeByname[name]
+                local field = {name = name}
+                local definition = n.fieldDefs[name] or n.writeFieldDefs[name]
+                local annotations = definition and definition.annotations or {}
+                local debug = annotation(annotations, "debug")
+                local skip = annotationArgument(debug, "skip") == true
+                local redact = annotationArgument(debug, "redact") == true
+                if skip and redact then
+                    c.diag("NUPP2803", node, ("field %q cannot be both skipped and redacted"):format(name))
+                end
+                field.debugSkip, field.debugRedact = skip, redact
+                if item.requested.Debug and not skip and not redact then
+                    field.debugType = debugSpec(ft, node)
+                end
+
+                local explicit = nil
+                for _, application in ipairs(node.annotations or {}) do
+                    if application.name and application.name.text == "default" then explicit = application end
+                end
+                if explicit and (item.requested.Default or item.requested.JSON) then
+                    local arg = explicit.annotationValues and explicit.annotationValues.value
+                    local value, ok = constant(arg and arg.expr)
+                    if not ok then
+                        c.diag("NUPP2804", arg and arg.expr or explicit,
+                            ("default for %q must be a literal compile-time value"):format(name))
+                        item.defaultFailed = true
+                    else
+                        local actual = c.infer(arg.expr)
+                        local fits, why = relations.isA(actual, ft)
+                        if not fits then
+                            c.diag("NUPP2804", arg.expr, ("default for %q does not fit %s%s"):format(
+                                name, T.tostring(ft), why and (": " .. why) or ""))
+                            item.defaultFailed = true
+                        end
+                        field.default = {kind = "literal", value = value}
+                    end
+                elseif item.requested.Default then
+                    field.default = defaultSpec(ft, node)
+                end
+
+                if item.requested.JSON then
+                    local json = annotation(annotations, "json")
+                    local encoded = annotationArgument(json, "name") or name
+                    local omit = annotationArgument(json, "omit") == true
+                    local omitEmpty = annotationArgument(json, "omitEmpty") == true
+                    if json then
+                        for _, arg in ipairs(json.arguments or {}) do
+                            if arg.name == "unknown" then
+                                c.diag("NUPP2806", node, "@json.unknown is valid only on records")
+                                item.jsonFailed = true
+                            end
+                        end
+                    end
+                    field.jsonName, field.omit, field.omitEmpty = encoded, omit, omitEmpty
+                    field.jsonType = not omit and jsonSpec(ft, node) or nil
+                    if omit and not field.default then field.default = defaultSpec(ft, node) end
+                end
+                plan.fields[#plan.fields + 1] = field
+            end
+            if item.requested.JSON then
+                local seen = {}
+                for _, field in ipairs(plan.fields) do
+                    if not field.omit then
+                        if seen[field.jsonName] then
+                            c.diag("NUPP2806", nodes[field.name] or stat, ("JSON field name %q is duplicated"):format(field.jsonName))
+                            item.jsonFailed = true
+                        end
+                        seen[field.jsonName] = true
+                    end
+                end
+            end
+            plan.fingerprint = hash.sha256("nupp.derive\0v1\0" .. canonical(plan))
+            stat.derivePlan = plan
+            n.derivePlan = plan
+        end
+
+        -- A required Default edge has to reach a base case. Optional fields and
+        -- explicit literals do not produce record references, so cycles in this
+        -- reduced graph are precisely the constructions that recurse forever.
+        local complete, visiting = {}, {}
+        local function validateDefault(item, path)
+            local key = item.nominal.deriveKey
+            if complete[key] ~= nil then return complete[key] end
+            if visiting[key] then
+                c.diag("NUPP2807", origin(item, "Default"),
+                    ("Default has a required recursive cycle through %s"):format(table.concat(path, " -> ")),
+                    nil, {help = "make an edge optional or give it an explicit @default literal"})
+                item.defaultFailed = true
+                return false
+            end
+            visiting[key] = true
+            path[#path + 1] = item.nominal.name
+            local ok = true
+            for _, field in ipairs(item.nominal.derivePlan and item.nominal.derivePlan.fields or {}) do
+                local spec = field.default
+                if spec and spec.kind == "record" then
+                    local dependency = byKey[spec.typeKey]
+                    if dependency and dependency.requested.Default then
+                        ok = validateDefault(dependency, path) and ok
+                    end
+                end
+            end
+            path[#path], visiting[key] = nil, nil
+            complete[key] = ok
+            return ok
+        end
+        for _, item in ipairs(pending) do
+            if item.requested.Default then validateDefault(item, {}) end
+        end
+        currentItem = nil
+
+        local function recordDependencies(spec, out)
+            if not spec then return end
+            if spec.kind == "record" then out[#out + 1] = spec.typeKey
+            elseif spec.kind == "optional" then recordDependencies(spec.value, out)
+            elseif spec.kind == "array" or spec.kind == "map" then
+                recordDependencies(spec.value, out)
+            elseif spec.kind == "union" then
+                for _, choice in pairs(spec.choices or {}) do recordDependencies(choice, out) end
+            elseif spec.kind == "tuple" then
+                for _, value in ipairs(spec.items or {}) do recordDependencies(value, out) end
+            elseif spec.kind == "shape" then
+                for _, field in ipairs(spec.fields or {}) do recordDependencies(field.type, out) end
+            end
+        end
+        for _ = 1, #pending do
+            local changed = false
+            for _, item in ipairs(pending) do
+                item.dependencyFailures = item.dependencyFailures or {}
+                for _, field in ipairs(item.nominal.derivePlan and item.nominal.derivePlan.fields or {}) do
+                    local node = item.fieldNodes and item.fieldNodes[field.name] or item.stat
+                    if item.requested.Default and field.default and field.default.kind == "record" then
+                        local dependency = byKey[field.default.typeKey]
+                        local reportKey = "Default:" .. field.name
+                        if dependency and dependency.defaultFailed and not item.dependencyFailures[reportKey] then
+                            c.diag("NUPP2804", node,
+                                ("field %q depends on a Default derive that failed"):format(field.name), nil,
+                                {related = {c.related(origin(dependency, "Default"), "nested Default derive failed here")}})
+                            item.dependencyFailures[reportKey] = true
+                            if not item.defaultFailed then changed = true end
+                            item.defaultFailed = true
+                        end
+                    end
+                    if item.requested.JSON then
+                        local dependencies = {}
+                        recordDependencies(field.jsonType, dependencies)
+                        for _, key in ipairs(dependencies) do
+                            local dependency = byKey[key]
+                            local reportKey = "JSON:" .. field.name
+                            if dependency and dependency.jsonFailed and not item.dependencyFailures[reportKey] then
+                                c.diag("NUPP2806", node,
+                                    ("field %q depends on a JSON derive that failed"):format(field.name), nil,
+                                    {related = {c.related(origin(dependency, "JSON"), "nested JSON derive failed here")}})
+                                item.dependencyFailures[reportKey] = true
+                                if not item.jsonFailed then changed = true end
+                                item.jsonFailed = true
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+            if not changed then break end
+        end
+    end
+
+    return ops
+end
+
+return derive

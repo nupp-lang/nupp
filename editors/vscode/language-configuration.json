@@ -1,0 +1,31 @@
+{
+  "comments": {
+    "lineComment": "--"
+  },
+  "brackets": [
+    ["{", "}"],
+    ["[", "]"],
+    ["(", ")"]
+  ],
+  "autoClosingPairs": [
+    { "open": "{", "close": "}" },
+    { "open": "[", "close": "]" },
+    { "open": "(", "close": ")" },
+    { "open": "'", "close": "'", "notIn": ["string", "comment"] },
+    { "open": "\"", "close": "\"", "notIn": ["string", "comment"] },
+    { "open": "`", "close": "`", "notIn": ["string", "comment"] }
+  ],
+  "surroundingPairs": [
+    ["{", "}"],
+    ["[", "]"],
+    ["(", ")"],
+    ["'", "'"],
+    ["\"", "\""],
+    ["`", "`"]
+  ],
+  "wordPattern": "[A-Za-z_][A-Za-z0-9_]*|(?:0_*[xX]_*[0-9A-Fa-f][0-9A-Fa-f_]*(?:\\.(?!\\.)[0-9A-Fa-f_]*)?(?:[pP]_*(?:[+-]_*)?[0-9][0-9_]*)?|(?:[0-9][0-9_]*(?:\\.(?!\\.)[0-9_]*)?|\\.[0-9][0-9_]*)(?:[eE]_*(?:[+-]_*)?[0-9][0-9_]*)?)(?:(?:[uU]_*)?[lL]_*[lL]|[iI])?_?",
+  "indentationRules": {
+    "increaseIndentPattern": "^\\s*(?:(?:if|elseif|while|for)\\b.*\\b(?:then|do)|(?:(?:local|const)\\s+)?function\\b(?!.*\\bend\\b).*|(?:constructor|matches)\\b(?!.*\\bend\\b).*|repeat\\b(?!.*\\buntil\\b).*|(?:comptime|nosuspend|unsafe)\\b.*\\bdo\\b(?!.*\\bend\\b).*|handle\\s+suspension\\b.*\\bdo\\b(?!.*\\bend\\b).*|do\\b(?!.*\\bend\\b).*|(?:(?:local|global)\\s+)?(?:record|interface|struct)\\b(?!.*\\bend\\b).*|.*[({\\[])\\s*(?:--.*)?$",
+    "decreaseIndentPattern": "^\\s*(?:(?:end|else|elseif|until)\\b|[})\\]])"
+  }
+}

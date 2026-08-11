@@ -1,0 +1,24 @@
+name: Native process providers
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows process provider
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: runtime/native
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+      - name: Run the native process tests
+        run: cargo test --locked --no-default-features --features process

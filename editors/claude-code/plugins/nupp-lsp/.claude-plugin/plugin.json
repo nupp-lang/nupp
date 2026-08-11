@@ -1,0 +1,8 @@
+{
+  "name": "nupp-lsp",
+  "description": "Nupp language server, for code intelligence over .nupp files",
+  "version": "0.1.0",
+  "author": {
+    "name": "Nupp"
+  }
+}

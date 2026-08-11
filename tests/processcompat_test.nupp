@@ -1,0 +1,63 @@
+-- The tecs Process surface, with only its import changed.
+--
+-- This deliberately spells the caller-facing operations tecs publishes rather than
+-- reaching the nonblocking `poll` and `offer` operations the implementation uses for
+-- `communicate`.  If either public surface drifts, this module stops compiling before
+-- its one runtime assertion can run.
+local process = require("nupp.io.process")
+
+local M = {}
+
+local function tecsCallSites(options: process.Options, buffer: nupp.Buffer): nil
+    local child, spawnReason = process.new(options)
+    if child == nil then
+        error(spawnReason)
+    end
+
+    local pid: integer = child.pid
+    assert(pid >= 0)
+    assert(child:isRunning())
+
+    if child.stdin ~= nil then
+        child.stdin:setTimeout(1000)
+        local written, writeReason = child.stdin:write("request\n")
+        assert(written, writeReason)
+        local fromBuffer, bufferReason = child.stdin:writeFrom(buffer)
+        assert(fromBuffer, bufferReason)
+        local closed, closeReason = child.stdin:close()
+        assert(closed, closeReason)
+    end
+
+    if child.stdout ~= nil then
+        child.stdout:setTimeout(1000)
+        local reply, readReason = child.stdout:read(64)
+        if reply == nil then
+            error(readReason)
+        end
+        local count, intoReason = child.stdout:readInto(buffer)
+        assert(count, intoReason)
+        assert(child.stdout:isClosed() or child.stdout:isEOF() or #reply >= 0)
+    end
+
+    local result, communicateReason = child:communicate({input = "complete input", maxOutputBytes = 1024 * 1024})
+    if result == nil then
+        error(communicateReason)
+    end
+    assert(result:succeeded() == result.exit:succeeded())
+    assert(type(result.output) == "string" and type(result.errorOutput) == "string")
+
+    local killed, killReason = child:kill(true)
+    assert(killed, killReason)
+    local exit = child:wait()
+    assert(type(exit.exitCode) == "number")
+    local closed, closeReason = child:close()
+    assert(closed, closeReason)
+end
+
+function M.theTecsSurfaceCompilesWithOnlyTheImportChanged(): nil
+    -- The function above is the assertion: it is checked even though running every
+    -- branch would require a child protocol contrived solely for this fixture.
+    assert(tecsCallSites ~= nil)
+end
+
+return M

@@ -1,0 +1,596 @@
+--[[
+Source code as coloured HTML.
+
+Nupp is highlighted by the compiler's own parser and lexer, which agree about
+both tokens and contextual syntax and know enough to turn a name into a link.
+Every other language in a fenced block is handed to
+Scintillua, a rock the documentation target depends on; without it a block
+renders as plain escaped text.
+
+Scintillua's lexers find each other by path rather than by `require` — a lexer
+embeds another by reading its file out of the directory named in the
+`scintillua.lexers` property — so what is wanted here is the directory, not the
+module. It is found where `require` would look, which is what keeps it the same
+tree the rest of the toolchain is using.
+
+That property is allowed to name more than one directory, semicolon-separated,
+searched in order. A project's own `lexers` directory is put ahead of the
+installed rock's so it can add a lexer the rock does not carry — an ABNF lexer
+for the grammar reference, say — without vendoring the few hundred lexers the
+rock already ships to do it. `lexer.lua` itself still loads from the rock; only
+the search path a loaded lexer walks to find another gains the extra entry.
+
+A stamped binary has no rock tree and no directory to name, and carries the
+lexers it was built with as preloaded modules instead. The property then names
+a path no filesystem has, and the `loadfile` those lexers are found through is
+this module's rather than Lua's — which is all Scintillua's loader needs, since
+it looks a lexer up by asking `loadfile` for it and reading the answer.
+]]
+
+local lexer = require("nupp.compiler.lexer")
+local parser = require("nupp.compiler.parser")
+local semantic = require("nupp.compiler.lsp.semantic")
+local types = require("nupp.compiler.types")
+local stringsMod = require("nupp.compiler.doc.strings")
+local filesMod = require("nupp.compiler.doc.files")
+
+local htmlEscape = stringsMod.htmlEscape
+local join, dirname, exists = filesMod.join, filesMod.dirname, filesMod.exists
+
+local highlight = {}
+
+--- What the generator was configured with, of the parts that decide highlighting: where
+--- the bundled Scintillua lexers were unpacked to.
+type highlight.Settings = {
+    lexers: string?
+}
+
+local TYPE_NAMES = {borrowed = true, ctype = true, metatable = true, owned = true, pinned = true,}
+for name in pairs(types.builtins) do
+    TYPE_NAMES[name] = true
+end
+
+local CONTEXTUAL_KEYWORDS = {
+    ["as"] = true,
+    associated = true,
+    borrows = true,
+    cdef = true,
+    comptime = true,
+    constructor = true,
+    continue = true,
+    each = true,
+    exclusive = true,
+    expands = true,
+    from = true,
+    takes = true,
+    const = true,
+    global = true,
+    interface = true,
+    handle = true,
+    infer = true,
+    ["is"] = true,
+    keyof = true,
+    match = true,
+    matches = true,
+    ["new"] = true,
+    nosuspend = true,
+    out = true,
+    preserves = true,
+    record = true,
+    metamethod = true,
+    scoped = true,
+    suspension = true,
+    typeerror = true,
+    unpackof = true,
+    when = true,
+    where = true,
+    with = true,
+    writekeyof = true,
+    writeof = true,
+    readonly = true,
+    releases = true,
+    retains = true,
+    resumes = true,
+    struct = true,
+    type = true,
+    unsafe = true,
+    writeonly = true,
+    yields = true,
+}
+
+local LITERAL_KEYWORDS = {["false"] = true, ["nil"] = true, ["true"] = true}
+
+-- `comptime` and `nosuspend` change when code runs rather than what it does, so they
+-- get the directive colour used for annotations instead of blending into ordinary
+-- control keywords -- matching the Scintillua and VS Code grammars.
+local DIRECTIVE_KEYWORDS = {comptime = true, nosuspend = true}
+
+local PUNCTUATION = {
+    ["("] = true,
+    [")"] = true,
+    ["["] = true,
+    ["]"] = true,
+    ["{"] = true,
+    ["}"] = true,
+    [","] = true,
+    [";"] = true,
+    [":"] = true,
+    ["."] = true,
+    ["@"] = true,
+}
+
+local TYPE_DECLARATIONS = {interface = true, record = true, struct = true, type = true,}
+
+local function qualifiedName(tokens, index)
+    local name = tokens[index].text
+    local cursor = index - 1
+    while cursor > 1 and tokens[cursor].text == "." and tokens[cursor - 1].kind == "name" do
+        name = tokens[cursor - 1].text .. "." .. name
+        cursor = cursor - 2
+    end
+
+    return name
+end
+
+local SYNTAX_STYLES = {
+    decorator = "meta",
+    keyword = "keyword",
+    type = "type",
+    struct = "type",
+    interface = "type",
+    typeParameter = "type",
+    ["function"] = "function",
+    method = "function",
+    property = "property",
+    parameter = "variable",
+    variable = "variable",
+}
+
+local function tokenStyle(tokens, index, syntaxKinds)
+    local token = tokens[index]
+    local previous = tokens[index - 1]
+    local following = tokens[index + 1]
+    if token.kind == "name" then
+        local syntaxStyle = SYNTAX_STYLES[syntaxKinds[token]]
+        if syntaxStyle then
+            return syntaxStyle
+        end
+        if DIRECTIVE_KEYWORDS[token.text] then
+            return "meta"
+        end
+        if CONTEXTUAL_KEYWORDS[token.text] then
+            return "keyword"
+        end
+        if TYPE_NAMES[token.text] or token.text:match("^%u") then
+            return "type"
+        end
+        if previous and previous.text == "@" then
+            return "meta"
+        end
+        if previous and previous.kind == "function" then
+            return "function"
+        end
+        if previous and previous.text == "metamethod" then
+            return "function"
+        end
+        if previous and TYPE_DECLARATIONS[previous.text] then
+            return "type"
+        end
+        if following and following.text == "(" then
+            return "function"
+        end
+        if previous and (previous.text == "." or previous.text == ":") then
+            return "property"
+        end
+        return "variable"
+    elseif lexer.KEYWORDS[token.kind] then
+        return LITERAL_KEYWORDS[token.text] and "boolean" or "keyword"
+    elseif token.kind == "string"
+        or token.kind == "istringOpen"
+        or token.kind == "istringMid"
+        or token.kind == "istringClose"
+    then
+        return "string"
+    elseif token.kind == "number" then
+        return "number"
+    elseif PUNCTUATION[token.text] then
+        return token.text == "@" and "meta" or "punctuation"
+    end
+
+    return "operator"
+end
+
+local function tokenClasses(style, text)
+    if style == "type" then
+        return "token class-name nuppdoc-token-type"
+
+    elseif style == "meta" then
+        return "token directive nuppdoc-token-meta"
+
+    elseif style == "keyword" then
+        return "token keyword keyword-" .. text:gsub("[^%w%-]", "-") .. " nuppdoc-token-keyword"
+    end
+
+    return "token " .. style .. " nuppdoc-token-" .. style
+end
+
+local function declarationName(tokens, index)
+    local previous = tokens[index - 1]
+    return previous and (
+        previous.kind == "function" or previous.text == "metamethod" or TYPE_DECLARATIONS[previous.text]
+    )
+end
+
+--- Builds one valid HTML fragment per source line. Syntax tokens may cross a line
+--- boundary (notably Lua-style long comments), but a coverage report wraps each line in
+--- its own element, so the span must be closed and reopened at the boundary.
+local function lineWriter(source)
+    if source == "" then
+        return {lines = {}, append = function()
+        end}
+    end
+    local lines = {""}
+    local function append(text, class, href)
+        local start = 1
+        while true do
+            local finish = text:find("\n", start, true)
+            local piece = finish and text:sub(start, finish - 1) or text:sub(start)
+            local rendered = htmlEscape(piece)
+            if class and piece ~= "" then
+                rendered = '<span class="' .. class .. '">' .. rendered .. "</span>"
+                if href then
+                    rendered = '<a class="nuppdoc-code-link nuppdoc-code-link-'
+                        .. href.style
+                        .. '" href="'
+                        .. htmlEscape(
+                        href.url
+                    ) .. '">' .. rendered .. "</a>"
+                end
+            end
+            lines[#lines] = lines[#lines] .. rendered
+            if not finish then
+                break
+            end
+            lines[#lines + 1] = ""
+            start = finish + 1
+        end
+    end
+
+    return {lines = lines, append = append}
+end
+
+-- A complete record or interface signature is parsed as one top-level declaration.
+-- Its entry tokens are unambiguous even when their bare names are not: `length` here
+-- means this container's `length`, not every member with that common name elsewhere.
+local function containerMemberUrls(parsed, memberLinks)
+    local urls = {}
+    if not memberLinks then
+        return urls
+    end
+    for _, block in ipairs(parsed.root.blocks or {}) do
+        for _, outer in ipairs(block.stats or {}) do
+            local declaration = outer
+            while declaration.kind == "pragmaStmt" and declaration.stat do
+                declaration = declaration.stat
+            end
+            if declaration.kind == "recordDecl" then
+                for _, entry in ipairs(declaration.entries or {}) do
+                    local name = entry.name
+                    local url = name and memberLinks[name.text]
+                    if url then
+                        urls[name] = url
+                    end
+                end
+            end
+        end
+    end
+
+    return urls
+end
+
+local function highlightNuppLines(source, links, memberLinks)
+    local out = lineWriter(source)
+    local parsed = parser.parse(source, "documentation-code-block.nupp")
+    local tokens = parsed.tokens
+    local syntaxKinds = semantic.syntaxKinds(parsed)
+    local memberUrls = containerMemberUrls(parsed, memberLinks)
+    for index, token in ipairs(tokens) do
+        for _, trivia in ipairs(token.trivia) do
+            if trivia.kind == "comment" or trivia.kind == "hashbang" then
+                out.append(trivia.text, "token comment nuppdoc-token-comment")
+            else
+                out.append(trivia.text)
+            end
+        end
+        if token.kind ~= "eof" then
+            local style = tokenStyle(tokens, index, syntaxKinds)
+            local url = memberUrls[token]
+            if not url and links and token.kind == "name" and not declarationName(tokens, index) then
+                url = links[qualifiedName(tokens, index)] or links[token.text]
+            end
+            out.append(token.text, tokenClasses(style, token.text), url and {url = url, style = style} or nil)
+        end
+    end
+    if source:sub(-1) == "\n" then
+        out.lines[#out.lines] = nil
+    end
+
+    return out.lines
+end
+
+local function highlightNupp(
+    source: string,
+    links: nupp.compiler.doc.urls.Links?,
+    memberLinks: nupp.compiler.doc.urls.Links?
+): string
+    return table.concat(highlightNuppLines(source, links, memberLinks), "\n")
+end
+
+local SCINTILLUA_ALIASES = {
+    ["c++"] = "cpp",
+    html = "hypertext",
+    js = "javascript",
+    md = "markdown",
+    sh = "bash",
+    shell = "bash",
+    ts = "typescript",
+}
+local scintilluaDirectory, scintilluaSearchPath, scintilluaLibrary = nil, nil, nil
+local scintilluaBundled = false
+local scintilluaLexers = {}
+
+-- What a bundle carries a lexer as, and the directory that stands for "not on any
+-- disk". The path is deliberately one no filesystem can answer, so a lexer the binary
+-- was not built with fails the way an uninstalled one does rather than reaching
+-- whatever happens to sit at a real path of that name.
+local BUNDLED_MODULE = "scintillua.lexers."
+local BUNDLED_DIRECTORY = "@bundled/scintillua/lexers"
+
+local function bundledName(path)
+    if type(path) ~= "string" then
+        return nil
+    end
+    local prefix = BUNDLED_DIRECTORY .. "/"
+    if path:sub(1, #prefix) ~= prefix then
+        return nil
+    end
+
+    return path:sub(#prefix + 1):match("^([%w_+-]+)%.lua$")
+end
+
+-- Scintillua looks a lexer up by handing `loadfile` a path built from the property
+-- above and reading what comes back, so a binary answers those paths here and hands
+-- every other one to the real `loadfile` -- which is what keeps a project's own lexers
+-- directory working beside the carried ones. `mode` is accepted and ignored: Scintillua
+-- asks for "t" and everything on either side of this is text, so there is nothing for
+-- it to rule out.
+local function bundledLoadfile(path, mode, env)
+    local chunk, err
+    local name = bundledName(path)
+    if name then
+        chunk = package.preload[BUNDLED_MODULE .. name]
+        -- The words `searchpath` looks for: a lexer that is not carried is one it keeps
+        -- searching for, not one it reports as broken.
+        if not chunk then
+            return nil, "cannot open " .. path
+        end
+    else
+        chunk, err = loadfile(path)
+        if not chunk then
+            return nil, err
+        end
+    end
+    -- Applied here for both, since a preloaded chunk is already compiled and cannot be
+    -- handed an environment the way a compiler would take one.
+    if env then
+        setfenv(chunk, env)
+    end
+
+    return chunk
+end
+
+-- Where `require("scintillua.lexers.lexer")` would find its file, asked of the search
+-- path directly rather than through `package.searchpath`: what is wanted is the
+-- directory, and walking the templates is the same walk with the last step left off.
+-- The module's path carries no `%`, so it stands in for the `?` as a plain replacement.
+local LEXER_MODULE = "scintillua/lexers/lexer"
+
+local function installedLexers()
+    for template in package.path:gmatch("[^;]+") do
+        local candidate = template:gsub("%?", LEXER_MODULE)
+        if exists(candidate) then
+            return dirname(candidate)
+        end
+    end
+
+    return nil
+end
+
+local function configureScintillua(root: string?, settings: highlight.Settings?): nil
+    -- `lexer.lua` itself always loads from the installed rock, found the way `require`
+    -- would find it, or from the bundle when there is no rock; a project's
+    -- `settings.lexers` only extends the path a loaded lexer searches for another,
+    -- ahead of whichever of those is answering.
+    local installed = installedLexers()
+    if installed and not exists(join(installed, "lexer.lua")) then
+        installed = nil
+    end
+    local bundled = not installed and package.preload[BUNDLED_MODULE .. "lexer"] ~= nil
+    if not installed and not bundled then
+        scintilluaDirectory, scintilluaSearchPath, scintilluaLibrary, scintilluaLexers = nil, nil, nil, {}
+        scintilluaBundled = false
+        return
+    end
+    local base = installed or BUNDLED_DIRECTORY
+    local searchPath = base
+    local lexerDir = settings and settings.lexers
+    if lexerDir then
+        local custom = join(root, lexerDir)
+        if exists(custom) then
+            searchPath = custom .. ";" .. base
+        end
+    end
+    if scintilluaSearchPath ~= searchPath then
+        scintilluaDirectory, scintilluaSearchPath, scintilluaLibrary, scintilluaLexers = base, searchPath, nil, {}
+    end
+    scintilluaBundled = bundled
+end
+
+local function loadScintillua(language)
+    if not scintilluaDirectory then
+        return nil
+    end
+    language = tostring(language or ""):lower()
+    language = SCINTILLUA_ALIASES[language] or language
+    if not language:match("^[%w_+-]+$") then
+        return nil
+    end
+    if scintilluaLexers[language] ~= nil then
+        return scintilluaLexers[language] or nil
+    end
+    if not scintilluaLibrary then
+        local chunk
+        if scintilluaBundled then
+            chunk = package.preload[BUNDLED_MODULE .. "lexer"]
+            -- Every other lexer is found through the `loadfile` this one sees, so it is
+            -- given one that knows where a bundle keeps them. Reads fall through to the
+            -- real globals; what `lexer.lua` assigns -- `lpeg`, which it requires on
+            -- first use -- stays in here.
+            if chunk then
+                setfenv(chunk, setmetatable({loadfile = bundledLoadfile}, {__index = _G}))
+            end
+        else
+            chunk = loadfile(join(scintilluaDirectory, "lexer.lua"))
+        end
+        if not chunk then
+            return nil
+        end
+        local ok, library = pcall(chunk)
+        if not ok or type(library) ~= "table" then
+            return nil
+        end
+        library.property = setmetatable({["scintillua.lexers"] = scintilluaSearchPath,}, {__index = function()
+            return ""
+        end, __newindex = function(t, key, value)
+            rawset(t, key, tostring(value))
+        end,})
+        scintilluaLibrary = library
+    end
+    local ok, loaded = pcall(scintilluaLibrary.load, language)
+    scintilluaLexers[language] = ok and loaded or false
+
+    return ok and loaded or nil
+end
+
+local function scintilluaStyle(tag)
+    local base = tostring(tag or "default"):match("^[^%.]+")
+    if base == "whitespace" or base == "default" then
+        return nil
+    end
+    if base == "comment" then
+        return "comment"
+
+    elseif base == "keyword" then
+        return "keyword"
+    end
+    if base == "string" or base == "regex" then
+        return "string"
+    end
+    if base == "number" then
+        return "number"
+    end
+    if base == "function" or base == "label" then
+        return "function"
+    end
+    if base == "type" or base == "class" then
+        return "type"
+    end
+    if base == "preprocessor" or base == "annotation" then
+        return "meta"
+    end
+    if base == "operator" then
+        return "operator"
+
+    elseif base == "constant" then
+        return "boolean"
+
+    elseif base == "property" then
+        return "property"
+    end
+    if base == "identifier" or base == "variable" then
+        return "variable"
+    end
+
+    return nil
+end
+
+local function highlightScintilluaLines(source, language)
+    local loaded = loadScintillua(language)
+    if not loaded then
+        return nil
+    end
+    local ok, tags = pcall(loaded.lex, loaded, source)
+    if not ok or type(tags) ~= "table" then
+        return nil
+    end
+    local out, start = lineWriter(source), 1
+    for index = 1, #tags, 2 do
+        local finish = tonumber(tags[index + 1])
+        if not finish then
+            return nil
+        end
+        local text = source:sub(start, finish - 1)
+        local style = scintilluaStyle(tags[index])
+        if style then
+            out.append(text, tokenClasses(style, text))
+        else
+            out.append(text)
+        end
+        start = finish
+    end
+    if start <= #source then
+        out.append(source:sub(start))
+    end
+    if source:sub(-1) == "\n" then
+        out.lines[#out.lines] = nil
+    end
+
+    return out.lines
+end
+
+--- Highlights one source with Scintillua even when the language also has a native
+--- highlighter. This keeps custom lexer integration testable without changing the
+--- public `nupp` fence, whose parser-aware links and contextual colours are richer.
+local function highlightScintillua(source: string, language: string): string?
+    local lines = highlightScintilluaLines(source, language)
+    return lines and table.concat(lines, "\n") or nil
+end
+
+local function codeLines(source: string, language: string?, links: nupp.compiler.doc.urls.Links?): {string}
+    if language == "nupp" then
+        return highlightNuppLines(source, links)
+    end
+    local highlighted = highlightScintilluaLines(source, language)
+    if highlighted then
+        return highlighted
+    end
+    local out = lineWriter(source)
+    out.append(source)
+    if source:sub(-1) == "\n" then
+        out.lines[#out.lines] = nil
+    end
+
+    return out.lines
+end
+
+local function codeHtml(source: string, language: string?, links: nupp.compiler.doc.urls.Links?): string
+    return table.concat(codeLines(source, language, links), "\n")
+end
+
+highlight.nuppSource = highlightNupp
+highlight.scintilluaSource = highlightScintillua
+highlight.codeHtml = codeHtml
+highlight.codeLines = codeLines
+highlight.configureScintillua = configureScintillua
+
+return highlight

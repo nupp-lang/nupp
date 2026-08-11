@@ -1,0 +1,179 @@
+--[[
+Paths and the filesystem.
+
+One home for what three parts of the compiler were each carrying a copy of. A
+path here is normalized and forward-slashed whatever the platform wrote it as,
+so the same file compares equal however it was named, and a write is atomic:
+content goes to a temporary beside the destination and is renamed over it, which
+is the only way a build interrupted halfway leaves no half-written module behind.
+
+Listing a directory goes through [`nupp.io.files`](../../../docs/files.md), which
+is why the compiler is the first program that cannot be built without its native
+provider. It used to spawn `find` or `dir` per source tree, which was a process
+per listing and no answer at all on a platform without a shell.
+
+Reading and writing stay on `io.open`. A whole-file transfer settles on a worker
+thread, and a build reads thousands of small files, so the handoff would cost
+more than the read.
+]]
+
+local fs = {}
+
+local function normalize(path: string): string
+    path = path:gsub("\\", "/"):gsub("/+", "/")
+    path = path:gsub("^%./", ""):gsub("/%./", "/")
+    return (path:gsub("/$", ""))
+end
+
+local function join(left: string?, right: string): string
+    if not left or left == "" or left == "." then
+        return normalize(right)
+    end
+    if not right or right == "" then
+        return normalize(left)
+    end
+    if right:sub(1, 1) == "/" then
+        return normalize(right)
+    end
+
+    return normalize(left .. "/" .. right)
+end
+
+local function dirname(path: string): string
+    return normalize(path):match("^(.*)/[^/]+$") or "."
+end
+
+local function basename(path: string): string
+    return normalize(path):match("([^/]+)$") or path
+end
+
+local function readFile(path: string): string?, string?
+    local f, err = io.open(path, "rb")
+    if not f then
+        return nil, err
+    end
+    local text = f:read("*a")
+    f:close()
+
+    return text
+end
+
+local function exists(path: string): boolean
+    local f = io.open(path, "rb")
+    if not f then
+        return false
+    end
+    f:close()
+
+    return true
+end
+
+local function mkdir(path: string): boolean
+    if path == "" or path == "." then
+        return true
+    end
+
+    return (nupp.io.files.createDirectory(path))
+end
+
+local function writeFile(path: string, text: string): boolean?, string?
+    if not mkdir(dirname(path)) then
+        return nil, "cannot create " .. dirname(path)
+    end
+    local tmp = path .. ".tmp"
+    local f, err = io.open(tmp, "wb")
+    if not f then
+        return nil, err
+    end
+    f:write(text)
+    f:close()
+    local ok, renameErr = os.rename(tmp, path)
+    if not ok and exists(path) then
+        local backup = path .. ".old"
+        os.remove(backup)
+        local moved, moveErr = os.rename(path, backup)
+        if not moved then
+            os.remove(tmp)
+            ;
+            return nil, moveErr
+        end
+        ok, renameErr = os.rename(tmp, path)
+        if ok then
+            os.remove(backup)
+        else
+            os.rename(backup, path)
+        end
+    end
+    if not ok then
+        os.remove(tmp)
+        ;
+        return nil, renameErr
+    end
+
+    return true
+end
+
+local function copyFile(source: string, destination: string): boolean?, string?
+    local text, err = readFile(source)
+    if not text then
+        return nil, err
+    end
+
+    return writeFile(destination, text)
+end
+
+--- Every regular file at or under `path`, normalized and sorted.
+---
+--- A symbolic link is resolved rather than reported as one, so a source tree
+--- assembled out of links reads the same as one that was copied. That is what
+--- `find` did and what the callers were written against.
+---
+--- A directory that cannot be read contributes nothing rather than failing: a
+--- project may name an include root it has not created yet, and the shell-out
+--- this replaced answered the same way.
+local function listFiles(path: string): {string}
+    local files: {string} = {}
+    local pending = {path}
+    while #pending > 0 do
+        local directory = table.remove(pending) as string
+        for _, entry in ipairs(nupp.io.files.list(directory) or {}) do
+            local child = join(directory, entry.name)
+            local kind = entry.kind
+            if kind == "symlink" then
+                local resolved = nupp.io.files.info(child)
+                kind = resolved and resolved.kind or "other"
+            end
+            if kind == "directory" then
+                pending[#pending + 1] = child
+            elseif kind == "file" then
+                files[#files + 1] = normalize(child)
+            end
+        end
+    end
+    table.sort(files)
+
+    return files
+end
+
+--- Writes only when the contents would differ, so a file that did not change keeps its
+--- modification time and anything watching it stays quiet.
+local function writeFileIfChanged(path: string, text: string): boolean?, string?
+    if readFile(path) == text then
+        return true
+    end
+    return writeFile(path, text)
+end
+
+fs.normalize = normalize
+fs.join = join
+fs.dirname = dirname
+fs.basename = basename
+fs.readFile = readFile
+fs.exists = exists
+fs.mkdir = mkdir
+fs.writeFile = writeFile
+fs.writeFileIfChanged = writeFileIfChanged
+fs.copyFile = copyFile
+fs.listFiles = listFiles
+
+return fs

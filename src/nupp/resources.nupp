@@ -1,0 +1,76 @@
+--[[
+Owning wrappers for Lua's file handles.
+
+`io.open` hands back a borrowed handle, which means nothing has to close it and
+nothing complains when nobody does. These are the same calls annotated as owners,
+so the checker knows a handle must be discharged and lexical cleanup can do it —
+on fallthrough, on error, and on structured control flow alike.
+
+See `docs/ownership.md`.
+]]
+
+local resources = {}
+
+local function close_file(file: LuaFile)
+    local ok, reason = file:close()
+    if not ok then
+        error(reason or "file close failed")
+    end
+end
+
+--- Opens a file and transfers responsibility for closing it to the caller.
+---
+--- The returned handle closes automatically at its lexical boundary.
+---
+--- @export
+--- @param path the path of the file to open
+--- @param mode the Lua file mode; omitted uses the Lua default
+--- @return the open file handle, owned by the caller
+--- @raises when the file cannot be opened
+@owned(close_file)
+function resources.openFile(path: string, mode: string?): LuaFile
+    local file, reason = io.open(path, mode)
+    if not file then
+        error(reason or "file open failed")
+    end
+
+    return file
+end
+
+--- Starts a process and transfers responsibility for closing its pipe to the caller.
+---
+--- The returned handle closes automatically at its lexical boundary.
+---
+--- @export
+--- @param command the shell command to run
+--- @param mode the Lua pipe mode; omitted uses the Lua default
+--- @return the process pipe, owned by the caller
+--- @raises when the process pipe cannot be opened
+@owned(close_file)
+function resources.openProcess(command: string, mode: string?): LuaFile
+    local file, reason = io.popen(command, mode)
+    if not file then
+        error(reason or "process open failed")
+    end
+
+    return file
+end
+
+--- Creates a temporary file owned by the caller.
+---
+--- The returned handle closes automatically at its lexical boundary.
+---
+--- @export
+--- @return the open temporary file handle, owned by the caller
+--- @raises when the temporary file cannot be created
+@owned(close_file)
+function resources.temporaryFile(): LuaFile
+    local file = io.tmpfile()
+    if not file then
+        error("temporary file creation failed")
+    end
+
+    return file
+end
+
+return resources

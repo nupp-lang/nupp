@@ -1,0 +1,113 @@
+--[[
+`nupp check`: type-check without emitting anything.
+
+With files named, each is parsed and checked on its own. With none, the project
+is the subject and the manifest decides what that means. `--json` reports the
+same diagnostics in the form meant for a program; see `docs/diagnostics.md`.
+]]
+
+local spec = require("nupp.compiler.cli.spec")
+local optionsMod = require("nupp.compiler.cli.options")
+
+local command = spec.command{
+    name = "check",
+    summary = "Type-check source without emitting Lua",
+    usage = {"nupp check [--strict] [--target NAME] [--format text|json] [file...]"},
+    options = optionsMod.join(
+        optionsMod.strict,
+        {name = "--target", value = "NAME", help = "Check a named manifest target"},
+        optionsMod.format()
+    ),
+    schema = {
+        type = "object",
+        properties = {diagnostics = require("nupp.compiler.cli.report").DIAGNOSTICS},
+        required = {"diagnostics"},
+    },
+    detail = "With no files, checks the default target from nupp.lua.",
+}
+
+local function run(parsed: any): integer
+    local paths: {string} = parsed.positional
+    local values = parsed.values
+    local target = values.target
+    if target and #paths > 0 then
+        return command:usageError("--target cannot be combined with source files")
+    end
+    local asJson = values.format == "json"
+    local reportMod = require("nupp.compiler.cli.report")
+    local diagnostics: {any} = {}
+    if #paths == 0 then
+        local project = require("nupp.compiler.build.project")
+        local code = project.check(
+            ".",
+            {strict = values.strict, target = target, diagnostics = asJson and diagnostics or nil}
+        )
+        if asJson then
+            reportMod.json(diagnostics)
+        end
+        return code
+    end
+    local fs = require("nupp.compiler.fs")
+    local parser = require("nupp.compiler.parser")
+    local check = require("nupp.compiler.check")
+    local diagnosticMod = require("nupp.compiler.diagnostics")
+    local env = require("nupp.compiler.env").new(".")
+    local failed = false
+    for _, path in ipairs(paths) do
+        local source, err = fs.readFile(path)
+        if not source then
+            if asJson then
+                diagnostics[
+                    #diagnostics + 1
+                ] = {
+                    filename = path,
+                    line = 0,
+                    col = 0,
+                    offset = 0,
+                    length = 0,
+                    code = "NUPP0001",
+                    msg = err,
+                    help = "check that the path exists and is readable"
+                }
+            else
+                io.stderr:write("nupp: " .. tostring(err) .. "\n")
+            end
+            failed = true
+        else
+            local result = parser.parse(source, path)
+            if #result.errors > 0 then
+                if asJson then
+                    for _, diagnostic in ipairs(result.errors) do
+                        diagnostics[#diagnostics + 1] = diagnostic
+                    end
+                else
+                    diagnosticMod.report(result.errors)
+                end
+                failed = true
+            else
+                local diags = check.check(result, path, env as {[string]: any}, {strict = values.strict})
+                if asJson then
+                    for _, diagnostic in ipairs(diags) do
+                        diagnostics[#diagnostics + 1] = diagnostic
+                        if reportMod.fatal(diagnostic) then
+                            failed = true
+                        end
+                    end
+                elseif diagnosticMod.report(diags) then
+                    failed = true
+                end
+            end
+        end
+    end
+    -- Checking one named file still needs the project's declaration index, which is a
+    -- header for every file in the project. Whatever this run had to work out for
+    -- itself, the next one should not.
+    require("nupp.compiler.env").persist(env)
+    if asJson then
+        reportMod.json(diagnostics)
+    end
+
+    return failed and 1 or 0
+end
+
+return new spec.Handler {spec = command, run = run}

@@ -1,0 +1,311 @@
+--[[
+What a child process is, and what a platform has to provide to run one.
+
+Two vocabularies, kept apart on purpose.
+
+The first is the one callers use: options, streams, an exit. It is tecs's
+surface, deliberately, so that `tecs.io.Process`'s call sites compile against
+this module with the import changed and nothing else -- the API is good, it was
+learned from a real workload, and re-deriving it would be re-learning the same
+lessons more slowly.
+
+The second is `Backend`: the smallest set of operations a platform has to
+answer, expressed in bytes and opaque handles and nothing else. Everything above it
+-- the lifecycle, draining two pipes without deadlocking, deadlines, what
+`communicate` means -- is one platform-neutral state machine written once. A
+platform providers differ in how they spawn and how they read; they do not
+differ in what a process *is*, and a design that let them would end up with two
+of every bug.
+
+Nothing in the caller-facing half mentions a file descriptor, a HANDLE, errno,
+or a signal number. A caller that has to know which platform it is on has been
+handed a leak.
+
+See `plans/suspension.md`, S5.
+]]
+
+local processtypes = {}
+
+--- Where a stream goes: a pipe this process reads or writes, the parent's own
+--- descriptor, or nothing at all.
+type processtypes.StreamMode = "pipe" | "inherit" | "null"
+
+--- The same, plus stderr's option to join stdout.
+type processtypes.ErrorMode = "pipe" | "inherit" | "null" | "stdout"
+
+--- How a child was asked to be started.
+type processtypes.Options = {
+    --- The program in `args[1]`, then its arguments. A program with no separator in
+    --- it is resolved through `PATH` by the platform, not by this module.
+    args: {string},
+
+    --- The child's working directory, or nil to inherit this one.
+    cwd: (string | nupp.Path)?,
+
+    --- Variables overlaid on the inherited environment, or the whole environment
+    --- when `clearEnv` is set.
+    env: {[string]: string}?,
+
+    --- Whether to start from an empty environment rather than this process's.
+    clearEnv: boolean?,
+
+    --- Defaults to `"pipe"`.
+    stdin: processtypes.StreamMode?,
+
+    --- Defaults to `"pipe"`.
+    stdout: processtypes.StreamMode?,
+
+    --- Defaults to `"pipe"`.
+    stderr: processtypes.ErrorMode?,
+
+    --- Kill the child after this many milliseconds. The clock starts when it is
+    --- created, not when it is first waited on.
+    timeoutMs: integer?
+}
+
+--- Controls a complete duplex exchange.
+type processtypes.CommunicateOptions = {
+    --- Complete standard input. Omitted input sends EOF immediately.
+    input: (string | nupp.Buffer | nupp.ByteView)?,
+
+    --- Maximum stdout and stderr bytes together. Defaults to 256 MiB.
+    maxOutputBytes: integer?
+}
+
+--- How a child ended.
+record processtypes.Exit
+    --- The status it exited with. Zero conventionally means success, and
+    --- `succeeded` is the question worth asking instead.
+    exitCode: integer
+
+    --- Whether it was terminated rather than exiting on its own.
+    killed: boolean
+
+    --- Whether it was terminated because its deadline passed.
+    timedOut: boolean
+
+    --- Exited on its own with status zero. A killed child never succeeded, whatever
+    --- status the platform reported for it.
+    succeeded: function(processtypes.Exit): boolean
+end
+
+--- A completed duplex exchange.
+record processtypes.Result
+    --- How the child ended.
+    exit: processtypes.Exit
+
+    --- Captured standard output.
+    output: string
+
+    --- Captured standard error.
+    errorOutput: string
+
+    --- Whether the child exited normally with status zero.
+    function succeeded(self): boolean
+        return self.exit:succeeded()
+    end
+end
+
+--- What a wait is waiting for.
+---
+--- A child handle on its own does not say. "The child has exited", "its stdout has
+--- bytes" and "its stdin will take some" are three different questions, and a platform
+--- asked the wrong one answers immediately and forever rather than sleeping: stdout
+--- nobody is reading is *permanently* ready, so a wait-for-exit that also asked about
+--- it would spin at full speed until the child happened to finish.
+---
+--- So each wait says what would actually let its own caller continue. Draining
+--- everything at once asks about all three; waiting for the child to end asks only
+--- about the child, and accepts that a caller who does that without reading the output
+--- can fill a pipe and stall -- which is why `communicate` exists.
+record processtypes.Interest
+    --- The child, when its termination is one of the things being waited for, and nil
+    --- when this wait would not be advanced by it.
+    child: any?
+
+    --- Stream handles this wait wants bytes from.
+    read: {any}
+
+    --- Stream handles this wait wants to put bytes into.
+    write: {any}
+end
+
+--- What a platform must answer. Bytes and opaque handles; no policy.
+---
+--- Every operation is non-blocking except `waitReady`, and that one exists precisely so
+--- that the blocking case is a deliberate call rather than a loop. Waiting is otherwise
+--- the state machine's business: it suspends, so a caller inside a scheduler keeps its
+--- frame, which is only possible while the backend is not blocking on its behalf.
+record processtypes.Backend
+    --- Starts a child. Answers an opaque handle and the streams that were piped,
+    --- each an opaque stream handle or nil for a mode that made none.
+    spawn: function(processtypes.Backend, processtypes.Options): (any?, any?, any?, any?, integer, string?)
+
+    --- Whether the child has ended, and how. Answers nil while it is still running,
+    --- so a caller can tell "not yet" from "exited with 0".
+    poll: function(processtypes.Backend, any): (processtypes.Exit?)
+
+    --- Asks the child to end, or insists.
+    kill: function(processtypes.Backend, any, boolean): nil
+
+    --- Reads what is available without waiting, at most `limit` bytes. Answers the
+    --- bytes, or "" when nothing is ready, or nil at end of stream.
+    ---
+    --- `limit` is always one or more; the state machine normalises what its callers
+    --- ask for, so a backend never converts a zero or a negative into a buffer size.
+    ---
+    --- The limit is part of the seam rather than something above it, because the
+    --- contract above promises one: `nupp.Reader.read(count)` answers at most `count`
+    --- bytes, and a platform that always handed back whatever a pipe held would leave
+    --- the completion-oriented method holding a surplus buffer of its own -- a second
+    --- place where bytes wait, with its own emptiness to reason about, to work around a
+    --- limit the kernel accepts perfectly well.
+    read: function(processtypes.Backend, any, integer): (string?)
+
+    --- Writes what it can without waiting. Answers how many bytes went, and whether
+    --- the far end is gone.
+    ---
+    --- Zero bytes has two meanings and they are opposites: the pipe is full and will
+    --- take more later, or nobody is reading and it never will. A backend that reports
+    --- only the count leaves a writer unable to tell waiting from finished, so it waits
+    --- forever. The second result separates them -- `EPIPE` or `EAGAIN` on POSIX,
+    --- `ERROR_BROKEN_PIPE` or a zero-length overlapped write on Win32 -- and once it is
+    --- true the bytes reported alongside it are the last that will ever go.
+    ---
+    --- A POSIX backend has to earn the right to see `EPIPE` at all. Under the default
+    --- disposition the kernel raises `SIGPIPE` first and kills the whole Nupp host
+    --- before this call can return anything, so "the child closed its stdin early"
+    --- becomes "the program that spawned it died". The signal must therefore be
+    --- suppressed, and the obvious suppression is the wrong one. Ignoring `SIGPIPE`
+    --- process-wide is permanent and global, so a library that installs it silently
+    --- changes the behaviour of the host and of every other library in it. That is not
+    --- this module's policy to set.
+    ---
+    --- What it may do instead is scoped to what it owns. The per-descriptor route is
+    --- better where it exists, and it exists in fewer places than "the BSDs" suggests:
+    --- macOS and NetBSD have `F_SETNOSIGPIPE`; FreeBSD and OpenBSD do not, and neither
+    --- does Linux. So the fcntl is a capability to detect, not a family to assume, and
+    --- the mask is what every platform without it uses.
+    ---
+    --- - Where `F_SETNOSIGPIPE` is present: set it on the child's stdin as the pipe is
+    ---   created. Per descriptor, on a descriptor this module made, affecting nothing
+    ---   else in the process. Decide that from whether the build's headers define it,
+    ---   and from nothing else. Do not probe by issuing the number and reading the
+    ---   error: command numbers are per-platform, so the number that means this here
+    ---   may mean something real and quite different there, and a probe would perform
+    ---   that operation rather than report it missing.
+    --- - Everywhere else, in this order:
+    ---
+    ---   1. Block `SIGPIPE` on this thread with `pthread_sigmask`, keeping the old
+    ---      mask.
+    ---   2. Read `sigpending`. After the block, not before: an unblocked signal is
+    ---      delivered rather than left pending, so a check taken first answers "not
+    ---      pending" for a signal that is about to arrive, and the block is what makes
+    ---      the answer stable.
+    ---   3. Write.
+    ---   4. If the write reported `EPIPE` and `SIGPIPE` was not already pending at step
+    ---      2, consume the one it raised with `sigtimedwait` and a zero timeout,
+    ---      retrying while it fails with `EINTR`. A consume abandoned on `EINTR` leaves
+    ---      the signal pending, and step 5 then delivers it -- the default disposition
+    ---      kills the host, which is the exact outcome all of this exists to avoid.
+    ---   5. Restore the mask, on every path out including the failing ones. A `write`
+    ---      that raised, an unexpected errno, a consume that could not be completed:
+    ---      each still owes the caller the mask it arrived with, because leaving
+    ---      `SIGPIPE` blocked changes the behaviour of every later write in the host
+    ---      just as surely as `SIG_IGN` would.
+    ---
+    ---   Step 4's condition is the careful part. Standard signals are not queued, so a
+    ---   `SIGPIPE` already pending when the write began is indistinguishable from the
+    ---   one the write raised, and consuming it steals a signal the host was going to
+    ---   handle. When it was already there, leave it: `EPIPE` still comes back, which
+    ---   is all this call needs, and the host keeps the signal it was already owed.
+    ---
+    --- A backend that can do neither must say so rather than quietly installing
+    --- `SIG_IGN`: process-wide policy is the host's to choose, and a caller that wants
+    --- it can set it themselves before spawning anything.
+    ---
+    --- Both routes are exercised. macOS proves the descriptor route by surviving a
+    --- child that closes stdin and surfacing `gone`; Linux proves the masking route
+    --- and that a `SIGPIPE` pending before the write remains pending afterwards. The
+    --- failure mode in either case is not a wrong answer but no host left to read one.
+    write: function(processtypes.Backend, any, string): (integer, boolean)
+
+    --- Closes one stream. Idempotent.
+    ---
+    --- Answers whether the descriptor is *released*, and separately why the attempt
+    --- complained. Two answers because they are two facts and POSIX produces every
+    --- combination of them: `close(2)` can report `EIO` having already given the
+    --- descriptor up, and it can fail with the descriptor still ours.
+    ---
+    --- Which matters because of what a caller does next. A descriptor still held may
+    --- be closed again; one already released must never be, since the number is free
+    --- for the next `open` in the process to take, and a retry would then close a
+    --- descriptor belonging to something else entirely. Conflating the two makes that
+    --- bug reachable from an ordinary error path.
+    ---
+    --- So: `(true, nil)` closed cleanly, `(true, reason)` released but the platform
+    --- complained -- report it, never retry -- and `(false, reason)` still ours and
+    --- worth another attempt.
+    ---
+    --- A backend over a handle layer that cannot tell these apart must say released,
+    --- since leaking a descriptor costs one descriptor and closing a stranger's costs
+    --- whatever they were doing with it.
+    ---
+    --- **Never raises.** This and `reap` are return-only, and that is a contract rather
+    --- than a preference: an error carries no release state, so a caller that catches
+    --- one knows something went wrong and nothing about whether the descriptor is still
+    --- theirs -- which is exactly the fact it needs in order to decide whether trying
+    --- again is safe or catastrophic. Every outcome, including a failure the backend
+    --- did not expect, comes back as `(released, reason)`.
+    ---
+    --- A backend that raises anyway has broken this, and the state machine assumes the
+    --- descriptor was released, because between leaking one and closing someone else's
+    --- there is no contest.
+    closeStream: function(processtypes.Backend, any): (boolean, string?)
+
+    --- Releases the child's own resources once it has ended.
+    ---
+    --- Answers released and reason, on exactly the terms `closeStream` does, and for
+    --- the same reason: a pid is reused as readily as a descriptor, so a caller has to
+    --- know whether this one is still theirs to ask about.
+    ---
+    --- `waitpid` alone does not produce all three answers -- it reports the pid on
+    --- success and an error separately -- and the mapping is the backend's to make.
+    --- `ECHILD` says the child is already gone: released, do not retry. `EINTR` says
+    --- nothing was consumed: still ours, ask again. The third, released with something
+    --- to report, is what a handle layer answers when it gives ownership up and the
+    --- cleanup around that had trouble worth passing on.
+    ---
+    --- **Never raises**, on exactly the terms `closeStream` does not, and a backend
+    --- that does is read as having released the child.
+    reap: function(processtypes.Backend, any): (boolean, string?)
+
+    --- Milliseconds on a monotonic clock, for deadlines. The backend owns this
+    --- because a platform's monotonic clock is a platform's business.
+    now: function(processtypes.Backend): number
+
+    --- Blocks until something in `interest` could have changed, or `timeoutMs` passes.
+    --- Answers how many things became ready, which may be zero.
+    ---
+    --- The one operation here that is allowed to block, and it exists so that a caller
+    --- with no scheduler does not spin. Every other operation is non-blocking because
+    --- waiting belongs to the state machine; *this* is the state machine asking the
+    --- platform to wait efficiently on its behalf -- `poll(2)` on POSIX,
+    --- `WaitForMultipleObjects` on Win32 -- rather than polling in a loop.
+    ---
+    --- Never called while a suspension handler is installed. Under a scheduler the
+    --- frame must keep running, so the state machine parks instead and the handler
+    --- decides when to come back.
+    ---
+    --- `timeoutMs` is a Nupp number and reaches a platform as a fixed-width integer, so
+    --- a backend converts it. Clamp before converting, not after: a negative can be
+    --- repaired on the far side -- it is a deadline already passed, and means no wait
+    --- --
+    --- but a number too large to fit has already wrapped or truncated by the time
+    --- anything over there sees it, and what arrives may be a short wait, or a long
+    --- one,
+    --- or a negative meaning forever. Nothing downstream can tell which.
+    waitReady: function(processtypes.Backend, processtypes.Interest, number): integer
+end
+
+return processtypes

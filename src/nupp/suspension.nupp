@@ -1,0 +1,926 @@
+--[[
+Waiting, as an operation with an installable handler.
+
+A library that must wait performs `suspend`, and does not decide how waiting
+happens. Where a handler is installed -- a scheduler, a game frame -- the handler
+answers; where none is, the built-in one drives the registered sources. One call
+site, no `async` colouring, and no policy parameter threaded through an API that
+did not want one.
+
+The shape is tecs's, whose `taskruntime` has done this by hand inside one library
+for years: subscribe for a resumption, be resumed once, be cancellable. What is
+different is that the seam is the language's, so every library gets it rather
+than each re-implementing the dispatch or being unusable inside a frame.
+
+Three properties the protocol is built to keep, each because losing it is a
+silent bug rather than a loud one:
+
+- **Resumption has one path.** A handler is given no writable state. It parks,
+  it is woken, and it returns; the value only ever arrives through the one-shot
+  `resume` the runtime made, so the guard against a second resumption cannot be
+  walked around.
+- **A park is always cancellable.** A subscription that did not resume during
+  the call must answer a cancellation, because a handler that has to abandon a
+  wait -- a cancelled task, a shutdown -- otherwise has no way to tell the
+  library. Only a subscription that already completed may answer nil, having
+  nothing left to cancel.
+- **The context is available before subscribing.** A library registers its
+  readiness pump with whoever is handling suspensions, which means it has to
+  know who that is at subscription time rather than after.
+
+Measured against tecs's own numbers (`bench/suspension-baseline.lua`), the row
+that matters is the *ready* path -- an await whose subscription completes during
+the call, which is most of the cost of waiting even when waiting really happens.
+That path allocates no park and never wakes a handler.
+
+See `plans/suspension.md`.
+]]
+
+local suspension = {}
+
+--- How many times a release drives the readiness pumps waiting for an abandoned park to
+--- finish unwinding. A handler that has not finished by then is not going to: the point
+--- is to give a scheduler its chance, not to spin.
+local MAX_DRAIN_PASSES = 64
+
+--- A readiness pump, and the handle that owns its lifetime.
+---
+--- Returned rather than named, so two libraries registering "io" do not collide and
+--- neither has to invent a unique string. Releasing is idempotent.
+record suspension.Source
+    --- Stops the pump being polled. Idempotent.
+    release: function(suspension.Source): nil
+
+    --- What this is, for diagnostics and for ordering ties.
+    name: string
+
+    --- Where in a pass it runs, lowest first.
+    priority: integer
+end
+
+--- What a library is handed while it subscribes: who is handling suspensions here, and
+--- how to give them a readiness pump.
+---
+--- Available *before* the subscription runs, because registering a pump is part of
+--- subscribing rather than something to do afterwards.
+record suspension.Context
+    --- Registers a pump this wait needs driven. Answers the handle that stops it.
+    source: function(suspension.Context, string, integer, function(): integer): suspension.Source
+
+    --- Whether a suspension may happen here at all. A host with regions of its own --
+    --- tecs's barriers -- answers false inside them.
+    canPark: function(suspension.Context): boolean
+end
+
+--- What a park exposes to the handler driving it.
+---
+--- Deliberately no writable fields. A handler waits and is woken; it never supplies the
+--- value, because the value has exactly one path and that path is guarded.
+record suspension.Waiting
+    --- Whether the subscription has resumed.
+    ready: function(suspension.Waiting): boolean
+
+    --- Registers what to run when it does. One waker; the handler installing a second
+    --- replaces the first, which is what re-parking means.
+    onResume: function(suspension.Waiting, function(): nil): nil
+
+    --- What is being waited for, which is what a stuck host reports.
+    operation: string
+end
+
+--- What a host installs to answer suspensions.
+record suspension.Handler
+    --- Waits until `waiting:ready()`. Returning before that is a broken handler and
+    --- `suspend` reports it rather than handing back a value nobody produced.
+    ---
+    --- `cancel` abandons the subscription. A handler that gives up on a park -- a
+    --- cancelled task, a shutdown -- must call it, and must then raise rather than
+    --- return.
+    park: function(suspension.Handler, suspension.Waiting, function(): nil): nil
+
+    --- Whether a suspension may happen here. False inside a host's own barrier, which
+    --- is the run-time backstop for what `nosuspend` checks while compiling.
+    canPark: function(suspension.Handler): boolean
+
+    --- Told when a handled extent ends, so a handler owning parks or pumps can abandon
+    --- them deterministically rather than at collection.
+    shutdown: function(suspension.Handler): nil
+end
+
+-- The installation in force, per coroutine, and the parks each one has accepted.
+--
+-- Keyed by *installation* rather than by handler. One handler may be installed twice --
+-- nested extents, or a scheduler reused across frames -- and keying on it would let the
+-- inner extent cancel the outer's parks on its way out, and discard the bookkeeping the
+-- outer still needed.
+--
+-- Weak-keyed so a finished coroutine's entry goes with it. The main thread has no
+-- coroutine object in LuaJIT, so it gets its own slot rather than a sentinel key.
+local installed = setmetatable({}, {__mode = "k"})
+local mainInstalled = nil
+
+local running = coroutine.running
+
+-- The installation in force here, or nil. What is stored per coroutine is the
+-- installation rather than the handler, because a park belongs to the extent that
+-- accepted it and two extents may share one handler.
+local function effectiveInstallation()
+    local co = running()
+    local current = co == nil and mainInstalled or installed[co]
+    -- A coroutine created under an extent may not start until after that extent has
+    -- ended. Using its handler then would add parks to bookkeeping nobody will ever
+    -- release, so a closed installation is stepped over in favour of whatever it
+    -- restored -- which is what the coroutine would have inherited had it been made a
+    -- moment later.
+    --
+    -- The test is `restored`, not `released`: an extent whose drain failed is still
+    -- retryable and its parks still outstanding, but its scope has ended and it is not
+    -- in force for anything starting now.
+    while current ~= nil and current.restored do
+        current = current.previous
+    end
+
+    return current
+end
+
+local function effective()
+    local current = effectiveInstallation()
+
+    return current and current.handler or nil
+end
+
+-- Sources, held by identity rather than by name: two libraries may both call theirs
+-- "io", and neither should be able to unregister the other's.
+local sources: {any} = {}
+
+local function sortSources()
+    table.sort(sources, function(a, b)
+        if a.priority == b.priority then
+            return a.name < b.name
+        end
+
+        return a.priority < b.priority
+    end)
+end
+
+local SourceMT = {}
+SourceMT.__index = SourceMT
+
+function SourceMT.release(self: any): nil
+    if self.released then
+        return
+    end
+    self.released = true
+    for index = 1, #sources do
+        if sources[index] == self then
+            table.remove(sources, index)
+            break
+        end
+    end
+end
+
+local function addSource(name: string, priority: integer, poll: function(): integer): any
+    local source = setmetatable({name = name, priority = priority, poll = poll, released = false}, SourceMT)
+    sources[#sources + 1] = source
+    sortSources()
+
+    return source
+end
+
+--- Registers a readiness pump outside any subscription.
+---
+--- Inside one, prefer the context's `source`: a pump registered there belongs to the
+--- handler answering that wait, and a handler that owns its pumps can shut them down.
+---
+--- @param name what this is, for diagnostics and ordering ties
+--- @param priority where in a pass it runs, lowest first
+--- @param poll answers how many things it settled
+--- @return the handle that stops it
+function suspension.source(name: string, priority: integer, poll: function(): integer): suspension.Source
+    return addSource(name, priority, poll) as suspension.Source
+end
+
+--- Drives every registered pump once. Answers how many things settled.
+---
+--- Public because a host with its own loop drives the same pumps rather than a private
+--- copy of them.
+function suspension.poll(): integer
+    local settled = 0
+    -- Copied, because a pump may register or release one while it runs.
+    local pass = {}
+    for index = 1, #sources do
+        pass[index] = sources[index]
+    end
+    for index = 1, #pass do
+        local source = pass[index]
+        if not source.released then
+            settled = settled + (source.poll() or 0)
+        end
+    end
+
+    return settled as integer
+end
+
+-- The built-in handler: drives the sources until the wait completes.
+--
+-- A pump answering zero means "not ready yet", not "never will be", so a quiet pass is
+-- no reason to stop. What is a reason is having nothing to drive at all: with no pump
+-- registered and no synchronous resumption, nothing in this process can complete the
+-- wait, and saying so beats hanging.
+local function blockingPark(waiting: any): nil
+    while not waiting:ready() do
+        if #sources == 0 then
+            error(("nupp: %s cannot complete: no readiness source is registered"):format(waiting.operation), 0)
+        end
+        suspension.poll()
+    end
+end
+
+local WaitingMT = {}
+WaitingMT.__index = WaitingMT
+
+function WaitingMT.ready(self: any): boolean
+    return self.isReady()
+end
+
+function WaitingMT.onResume(self: any, waker: function(): nil): nil
+    self.setWaker(waker)
+end
+
+local ContextMT = {}
+ContextMT.__index = ContextMT
+
+function ContextMT.source(self: any, name: string, priority: integer, poll: function(): integer): any
+    local source = addSource(name, priority, poll)
+    -- Built on first use. Most waits register no pump at all, and a list allocated for
+    -- every one of them would be paid on the path this design exists to keep cheap.
+    local owned = self.owned
+    if owned == nil then
+        owned = {}
+        self.owned = owned
+    end
+    owned[#owned + 1] = source
+
+    return source
+end
+
+function ContextMT.canPark(self: any): boolean
+    local handler = self.handler
+    if handler == nil then
+        return true
+    end
+    if handler.canPark == nil then
+        return true
+    end
+
+    return handler.canPark(handler) ~= false
+end
+
+-- Releases the pumps a subscription registered through its context. They belonged to
+-- this wait; a wait that is over, cancelled or refused has no business being polled.
+local function releaseOwned(context: any): nil
+    local owned = context and context.owned
+    if owned == nil then
+        return
+    end
+    context.owned = nil
+    for index = 1, #owned do
+        pcall(owned[index].release, owned[index])
+    end
+end
+
+--- Performs a suspension.
+---
+--- `subscribe` is handed a one-shot `resume` and the context of whoever is handling
+--- suspensions here, and answers a cancellation. It may answer nil only when it resumed
+--- during the call, having nothing left to cancel; otherwise a cancellation is
+--- required,
+--- because a handler that has to abandon the wait needs a way to say so.
+---
+--- @param operation what is being waited for, which is what a stuck host reports
+--- @param subscribe hands over the resumption and the context, answers a cancellation
+--- @return whatever `resume` was given
+--- @raises when the subscription resumes twice, answers no cancellation for a real
+---   park, suspends where the handler forbids it, or is handled by one that returns
+---   without resuming
+function suspension.suspend<
+    T
+    >(operation: string, subscribe: function(function(T), suspension.Context): (function()?)): T
+    local current = effectiveInstallation()
+    local handler = current and current.handler or nil
+    -- The ready path's cost: one table for the state a cancellation also has to reach,
+    -- one closure, and the context the subscription is entitled to see. No waiting
+    -- view, no owned list, no park.
+    local state = {resumed = false, value = nil, cancelled = false, reason = nil, waker = nil}
+
+    local function resume(answer: T): nil
+        if state.resumed or state.cancelled then
+            error(("nupp: %s was resumed twice"):format(operation), 0)
+        end
+        state.resumed, state.value = true, answer
+        local wake = state.waker
+        if wake then
+            state.waker = nil
+            wake()
+        end
+    end
+
+    local context = setmetatable({handler = handler, owned = nil}, ContextMT)
+    -- Protected, because a subscription that registers a pump and *then* raises would
+    -- otherwise leave that pump polling for a wait nobody is doing.
+    local subscribed, cancel = pcall(subscribe, resume, context as suspension.Context)
+    if not subscribed then
+        releaseOwned(context)
+        error(cancel, 0)
+    end
+    if state.resumed then
+        -- The subscription answered during the call. Nothing was parked and no handler
+        -- was woken; any pump it registered has served its purpose.
+        releaseOwned(context)
+
+        return state.value as T
+    end
+
+    if not cancel then
+        releaseOwned(context)
+        error(
+            ("nupp: %s did not resume and answered no cancellation, so it could never be abandoned"):format(operation),
+            0
+        )
+    end
+    if not ContextMT.canPark(context) then
+        pcall(cancel)
+        releaseOwned(context)
+        error(("nupp: %s cannot suspend here"):format(operation), 0)
+    end
+
+    -- Registered against the *installation* that accepted it, so an extent ending with
+    -- this park outstanding can find it -- and so a nested extent sharing the handler
+    -- cannot.
+    local ticket = nil
+    if current ~= nil then
+        ticket = {operation = operation, unsubscribeAttempted = false}
+        function ticket.abandon(reason: string): nil
+            -- Retryable, because a release that could not finish is called again. Each
+            -- half of abandoning tracks its own progress: unsubscribing happens at most
+            -- once whatever it did, and a wake that failed is put back so the next
+            -- attempt can deliver it.
+            local unsubscribeError = nil
+            if not ticket.unsubscribeAttempted then
+                ticket.unsubscribeAttempted = true
+                -- Under protection, with the failure held rather than raised. A
+                -- cancellation that threw used to abandon the abandonment: the park was
+                -- never marked cancelled and never woken, so the coroutine stayed
+                -- suspended forever with its cleanup unrun.
+                local ok, err = pcall(cancel)
+                if not ok then
+                    unsubscribeError = err
+                end
+            end
+            state.cancelled, state.reason = true, reason
+            local wakeError = nil
+            local wake = state.waker
+            if wake then
+                -- Cleared only once it has been delivered. Clearing first and then
+                -- failing would lose the only way to wake this park, and a retry would
+                -- have nothing left to call.
+                local ok, err = pcall(wake)
+                if ok then
+                    state.waker = nil
+                else
+                    wakeError = err
+                end
+            end
+            -- Both attempted, then the first failure reported.
+            if unsubscribeError ~= nil then
+                error(unsubscribeError, 0)
+            end
+            if wakeError ~= nil then
+                error(wakeError, 0)
+            end
+        end
+
+        current.parks[ticket] = true
+    end
+
+    local waiting = setmetatable({operation = operation, isReady = function()
+        return state.resumed or state.cancelled
+    end, setWaker = function(wake)
+        state.waker = wake
+    end,}, WaitingMT)
+
+    -- A park suspends, and suspending fails when non-yieldable C code is on the stack:
+    -- an FFI callback, a comparator, a pattern replacement. Most of those positions are
+    -- refused while compiling (NUPP2702); the ones reached through an unknown C API are
+    -- not, so the failure is caught here and told what it was doing.
+    local ok, err
+    if handler then
+        ok, err = pcall(handler.park, handler, waiting as suspension.Waiting, cancel as function(): nil)
+    else
+        ok, err = pcall(blockingPark, waiting)
+    end
+    -- The acknowledgement. Reaching here is what "this park finished" means, whether it
+    -- resumed, was cancelled, or failed; until then the ticket stays registered so a
+    -- releasing extent can see it is still outstanding.
+    if ticket and current then
+        current.parks[ticket] = nil
+    end
+    releaseOwned(context)
+    if state.cancelled then
+        error(("nupp: %s was cancelled: %s"):format(operation, state.reason or "the extent ended"), 0)
+    end
+    if not ok then
+        -- Every failed park unsubscribes. A park that raised left the subscription live
+        -- and nobody else is going to take it down.
+        pcall(cancel)
+        local text = tostring(err)
+        if text:find("C%-call boundary") or text:find("attempt to yield across") then
+            error(("nupp: %s cannot suspend: non-yieldable C code is on the stack"):format(operation), 0)
+        end
+        error(err, 0)
+    end
+    if not state.resumed then
+        pcall(cancel)
+        error(("nupp: %s: the handler returned without resuming it"):format(operation), 0)
+    end
+
+    return state.value as T
+end
+
+--- An installed handler, and the obligation to put back what it displaced.
+record suspension.Installed
+    co: any
+    previous: any
+    handler: suspension.Handler
+
+    --- Whether the slot this displaced has been put back. Separate from `released`,
+    --- which additionally means every park it accepted has finished: a release that
+    --- could not drain its parks has restored the slot and is still retryable.
+    restored: boolean
+
+    released: boolean
+
+    --- Parks this extent accepted and has not seen finish. Held per installation, not
+    --- per handler: one handler may be installed twice, and keying on it would let a
+    --- nested extent cancel the enclosing one's parks on its way out.
+    parks: any
+
+    --- Restores the previous handler, unwinds what it left parked, and shuts it down.
+    --- Idempotent, because a scope that ended twice is a scope that ended.
+    @drop
+
+    function release(self: suspension.Installed): nil
+        if self.released then
+            return
+        end
+        -- Restoring the slot happens once and is not undone by a failed drain: the
+        -- handler is no longer in force whatever else went wrong. Only `released` --
+        -- "this extent is finished with" -- waits for the parks to be, so a release
+        -- that could not finish can be called again rather than leaving its
+        -- continuations owned by nobody.
+        if not self.restored then
+            self.restored = true
+            if self.co == nil then
+                mainInstalled = self.previous
+            else
+                installed[self.co] = self.previous
+            end
+        end
+
+        -- Every step is attempted and the first failure reported at the end. Stopping
+        -- at the first would leave the remaining parks abandoned in the literal sense,
+        -- which is what this exists to prevent; swallowing them all would close the
+        -- scope on a lie.
+        local firstError = nil
+        local function attempt(fn: any, argument: any): nil
+            local ok, err = pcall(fn, argument)
+            if not ok and firstError == nil then
+                firstError = err
+            end
+        end
+
+        -- Cancellation before shutdown, and outside its failure: a handler whose
+        -- shutdown raises would otherwise strand every park it accepted.
+        --
+        -- Abandoning unsubscribes *and* wakes the park with a cancellation, so the
+        -- suspended stack resumes, `suspend` raises, and every cleanup region between there and
+        -- the park runs its cleanup.
+        for ticket in pairs(self.parks or {}) do
+            attempt(ticket.abandon, "the handled extent ended")
+        end
+        -- Shutdown is also how a handler *drives* what it only enqueued. A scheduler
+        -- that answers a wake by queueing the coroutine has not unwound anything yet;
+        -- this is its opportunity to run the queue down.
+        if self.handler.shutdown then
+            attempt(self.handler.shutdown, self.handler)
+        end
+        -- And the pumps, in case unwinding is waiting on one.
+        local remaining = next(self.parks or {})
+        local passes = 0
+        while remaining ~= nil and passes < MAX_DRAIN_PASSES do
+            passes = passes + 1
+            attempt(suspension.poll, nil)
+            remaining = next(self.parks or {})
+        end
+
+        -- The first failure wins, whatever it was: an unfinished-park report raised
+        -- ahead of it would hide the cancellation or shutdown error that is very likely
+        -- why the park is unfinished.
+        if firstError ~= nil then
+            -- The tickets stay: they are still outstanding, and `released` stays false
+            -- so this can be tried again once whatever failed is dealt with.
+            error(firstError, 0)
+        end
+        -- A ticket comes off when its `suspend` returns, so anything still here is a
+        -- park told to abandon that has not finished. Returning successfully would
+        -- report a scope closed while a coroutine is still suspended inside it with its
+        -- obligations undischarged -- and clearing the tickets would leave those
+        -- continuations owned by nobody, with no way to try again.
+        if remaining ~= nil then
+            local names = {}
+            for ticket in pairs(self.parks or {}) do
+                names[#names + 1] = ticket.operation
+            end
+            table.sort(names)
+            error(
+                (
+                    "nupp: the handled extent ended with %d park(s) unfinished: %s"
+                ):format(#names, table.concat(names, ", ")),
+                0
+            )
+        end
+        self.released = true
+    end
+end
+
+--- Installs `handler` for suspensions performed on this coroutine.
+---
+--- A scope rather than a callback, deliberately. Wrapping a body would make the extent
+--- a
+--- closure boundary -- which costs the caller its multi-value results and puts the
+--- resource model's closure rules in the way of something that has nothing to do with
+--- them -- so this hands back the obligation and lexical cleanup discharges it:
+---
+---     do
+---         local handling = suspension.install(scheduler)
+---         runFrame()
+---     end
+---
+--- The extent is dynamic and per-coroutine: a suspension at any depth, through any
+--- library, reaches the innermost handler installed on the coroutine performing it.
+---
+--- @param handler what answers suspensions inside the scope
+--- @return the installation, which must be released
+@owned
+function suspension.install(handler: suspension.Handler): suspension.Installed
+    local co = running()
+    local previous
+    if co == nil then
+        previous = mainInstalled
+    else
+        previous = installed[co]
+    end
+    -- What is stored is the installation, not the handler: a park belongs to the extent
+    -- that accepted it, and one handler may be installed by two of them.
+    local installation = new suspension.Installed {
+        co = co,
+        previous = previous,
+        handler = handler,
+        restored = false,
+        released = false,
+        parks = {},
+    }
+    if co == nil then
+        mainInstalled = installation
+    else
+        installed[co] = installation
+    end
+
+    return installation
+end
+
+--- Creates a coroutine that inherits the handler installed where it was created.
+---
+--- Stock `coroutine.create` gives the new thread no handler, so a library that spawns
+--- one -- a worker, a pipeline stage -- would find itself blocking inside a frame that
+--- was handling suspensions perfectly well. Inheritance is what makes a handled extent
+--- mean the work started inside it rather than only the frames literally below it.
+---
+--- Inherited at creation rather than at resumption. What answers is the handler that
+--- was in force where the coroutine was made, which is the lexical reading and the one
+--- a reader can point at; a resumption-time rule would make a coroutine's behaviour
+--- depend on who happened to resume it.
+---
+--- @param body what the coroutine runs
+--- @return the coroutine
+function suspension.create<A..., R...>(body: function(A...): R...): thread
+    local co = coroutine.create(body)
+    -- The installation, not just its handler: a park the new coroutine accepts belongs
+    -- to the extent that was in force where it was created, and has to be cancelled
+    -- when that extent ends.
+    local inherited = effectiveInstallation()
+    if inherited ~= nil then
+        installed[co] = inherited
+    end
+
+    return co
+end
+
+-- There is deliberately no `resume` or `wrap` here, and their absence is the design
+-- rather than a gap.
+--
+-- Inheriting at *creation* is what makes resumption free. The plan expected a
+-- save/switch/restore around every `coroutine.resume` while a handler was active, and
+-- budgeted for it; a coroutine that carries the handler it was made under needs none of
+-- that, so `coroutine.resume` is used unwrapped and costs exactly what it always did.
+--
+-- It is also the better reading. What answers a suspension is the handler in force
+-- where the work was started, which a reader can point at; a resumption-time rule would
+-- make a coroutine's behaviour depend on whoever happened to resume it, which nobody
+-- can see from the coroutine.
+
+--- Whether a handler is installed here, which is what `blocking` against `cooperative`
+--- means to a caller deciding before it commits to waiting.
+function suspension.handled(): boolean
+    return effective() ~= nil
+end
+
+--- Whether a suspension performed here would be permitted, handler barriers included.
+---
+--- The run-time backstop for what `nosuspend` checks while compiling, for the calls
+--- static analysis could not see.
+function suspension.canSuspend(): boolean
+    local handler = effective()
+    if handler == nil or handler.canPark == nil then
+        return true
+    end
+
+    return handler.canPark(handler) ~= false
+end
+
+----------------------------------------------------------------------------
+-- Running several things at once
+----------------------------------------------------------------------------
+
+--[[
+One driver wearing four faces.
+
+`create` hands out a coroutine that inherits a handler, which is what a caller
+needs to *start* concurrent work; nothing here said what to do next. Driving it
+was left to each caller, so everyone waiting on several things wrote the same
+resume loop, and wrote it slightly differently.
+
+Two parts of that loop are why this is a library function rather than an example
+in a doc comment:
+
+**A branch parks on this driver; the driver parks on whoever is above it.** The
+handler is installed inside each branch rather than around the driver, so a
+branch that waits yields here and its siblings run. When nothing can run, the
+driver performs an ordinary `suspend`, which reaches the outer handler under a
+scheduler and the built-in one otherwise. Installing around the driver instead
+would send the driver's own wait to itself, and a combinator that deadlocks when
+nested in a frame is worse than no combinator.
+
+**Abandoning a branch is not forgetting it.** `race` stops caring about the
+losers, but each holds a subscription the protocol says must be cancelled. So a
+loser is resumed once more with its abandonment flag set: the park cancels, then
+raises, and the branch unwinds through whatever cleanup it had. Dropping the
+coroutine instead would leave a pump polling for a wait nobody is doing.
+]]
+
+--- Raised inside a branch being abandoned. It never escapes: the driver recognises this
+--- one and reports the winner instead.
+local ABANDONED = {}
+
+--- Runs `bodies` concurrently, at most `limit` at a time, and reports what each did.
+---
+--- The shared machinery. `stopEarly` is asked after each branch settles whether the rest
+--- are still wanted; the four public forms differ only in that and in what they return.
+---
+--- @param bodies what to run
+--- @param limit how many may be in flight, or nil for all of them
+--- @param stopEarly asked after each branch settles; true abandons the remainder
+--- @return per-branch values, per-branch errors, and which branch settled first
+local function drive<T>(
+    bodies: {function(): T},
+    limit: integer?,
+    stopEarly: (function(): boolean)?
+): {T?}, {any}, integer?
+    local count = #bodies
+    local values: {T?} = {}
+    local errors: {any} = {}
+    local threads: {[integer]: thread} = {}
+    local indexOf: any = setmetatable({}, {__mode = "k"})
+    local runnable: {[integer]: boolean} = {}
+    local abandoned: {[integer]: boolean} = {}
+    local started: integer = 0
+    local finished: integer = 0
+    local first: integer? = nil
+    local wakeDriver: any = nil
+    local inFlight: integer = limit and (limit > 1 and limit or 1) or count
+
+    -- A branch becoming runnable while the driver waits is the only thing that ends
+    -- that wait.
+    local function nudge()
+        local wake = wakeDriver
+        if wake then
+            wakeDriver = nil
+            wake()
+        end
+    end
+
+    local branchHandler = new suspension.Handler {
+        park = function(_: suspension.Handler, waiting: suspension.Waiting, cancel: function(): nil): nil
+            local index = indexOf[running()] as integer
+            local function markRunnable(): nil
+                runnable[index] = true
+                nudge()
+            end
+            while not waiting:ready() do
+                waiting:onResume(markRunnable)
+                -- It may have completed between subscribing and yielding, and yielding
+                -- then would wait for a wake that has already been and gone.
+                if waiting:ready() then
+                    break
+                end
+                coroutine.yield()
+                if abandoned[index] then
+                    cancel()
+                    error(ABANDONED, 0)
+                end
+            end
+        end,
+        canPark = function(_: suspension.Handler): boolean
+            return true
+        end,
+        shutdown = function(_: suspension.Handler): nil
+        end,
+    }
+
+    --- Starts the next body that has not been started. Counting inside is what keeps the
+    --- index an integer rather than one arithmetic step away from being one.
+    local function startNext()
+        started = started + 1
+        local index = started
+        local body = bodies[index]
+        local co = suspension.create(function(): T
+            local produced: T
+            do
+                local handling = suspension.install(branchHandler)
+                produced = body()
+            end
+
+            return produced
+        end)
+        threads[index] = co
+        indexOf[co] = index
+        runnable[index] = true
+    end
+
+    local ceiling = inFlight < count and inFlight or count
+    for _ = 1, ceiling do
+        startNext()
+    end
+
+    --- Subscribes the driver's own wait. Named rather than written at the call site so
+    --- it is built once instead of on every pass that finds nothing to run.
+    local function parkDriver(resume: function(any), _: suspension.Context): (function()?)
+        wakeDriver = function(): nil
+            resume(true)
+        end
+
+        return function(): nil
+            wakeDriver = nil
+        end
+    end
+
+    while finished < count do
+        local ran = false
+        for index = 1, count do
+            local co = threads[index]
+            if co ~= nil and runnable[index] then
+                runnable[index] = nil
+                ran = true
+                local ok, answer = coroutine.resume(co)
+                if coroutine.status(co) == "dead" then
+                    threads[index] = nil
+                    finished = finished + 1
+                    if ok then
+                        values[index] = answer as T
+                    elseif answer ~= ABANDONED then
+                        errors[index] = answer
+                    end
+                    if first == nil and answer ~= ABANDONED then
+                        first = index
+                    end
+                    if stopEarly ~= nil and stopEarly() then
+                        -- Every branch still going is resumed once so its park can
+                        -- cancel and unwind. One that never started simply never does.
+                        for other = 1, count do
+                            local victim = threads[other]
+                            if victim ~= nil then
+                                abandoned[other] = true
+                                coroutine.resume(victim)
+                                threads[other] = nil
+                                finished = finished + 1
+                            end
+                        end
+                        finished = finished + (count - started)
+                        started = count
+                    elseif started < count then
+                        startNext()
+                    end
+                end
+            end
+        end
+        if finished >= count then
+            break
+        end
+        if not ran then
+            -- Nothing can run and something is still waiting, so the driver waits too --
+            -- on the handler above it, which is what lets this nest inside a frame.
+            suspension.suspend("suspension.all", parkDriver)
+        end
+    end
+
+    return values, errors, first
+end
+
+--- Runs every body concurrently and answers their values in order.
+---
+--- A branch that fails decides the whole call, but not until every branch has settled:
+--- unwinding while siblings are still parked would strand their subscriptions, and a
+--- caller who asked for all of them has no use for some of them.
+---
+--- @param bodies what to run
+--- @return each body's value, indexed as `bodies` was
+--- @raises the first error any branch raised
+function suspension.all<T>(bodies: {function(): T}): {T}
+    local values, errors = drive(bodies, nil, nil)
+    for index = 1, #bodies do
+        if errors[index] ~= nil then
+            error(errors[index], 0)
+        end
+    end
+
+    return values as {T}
+end
+
+--- Runs every body concurrently and answers what each of them did, failures included.
+---
+--- `all` for a caller who wants the failures rather than the first of them. Both arrays
+--- are indexed as `bodies` was, and exactly one of them holds an entry per branch.
+---
+--- @param bodies what to run
+--- @return each body's value where it returned, and each body's error where it raised
+function suspension.gather<T>(bodies: {function(): T}): {T?}, {any}
+    local values, errors = drive(bodies, nil, nil)
+
+    return values, errors
+end
+
+--- Runs every body concurrently and answers the first one to settle.
+---
+--- The losers are abandoned rather than forgotten: each is resumed once so its park
+--- cancels and its branch unwinds. A loser that had not started never starts.
+---
+--- @param bodies what to run
+--- @return the winner's value, and which body won
+--- @raises the winner's error, when the first to settle settled by failing
+function suspension.race<T>(bodies: {function(): T}): T?, integer?
+    if #bodies == 0 then
+        return nil, nil
+    end
+    local values, errors, first = drive(bodies, nil, function(): boolean
+        return true
+    end)
+    if first ~= nil and errors[first] ~= nil then
+        error(errors[first], 0)
+    end
+
+    return first ~= nil and values[first] or nil, first
+end
+
+--- Runs every body concurrently with at most `limit` in flight, and answers their values
+--- in order.
+---
+--- `all` with a ceiling, for fanning out over more work than the thing underneath will
+--- take at once -- child processes against cores, requests against a pool. A branch
+--- finishing is what lets the next one start.
+---
+--- @param bodies what to run
+--- @param limit how many may be in flight at once; below one is treated as one
+--- @return each body's value, indexed as `bodies` was
+--- @raises the first error any branch raised
+function suspension.batch<T>(bodies: {function(): T}, limit: integer): {T}
+    local values, errors = drive(bodies, limit, nil)
+    for index = 1, #bodies do
+        if errors[index] ~= nil then
+            error(errors[index], 0)
+        end
+    end
+
+    return values as {T}
+end
+
+return suspension

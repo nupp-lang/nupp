@@ -1,0 +1,10 @@
+@!internal
+--[[
+Nupp's self-hosted compiler implementation.
+
+This namespace is not part of the language's public library surface. The leading
+inner annotation keeps this module and every `nupp.compiler.*` descendant out of public
+API documentation while still allowing private documentation builds to inspect it.
+]]
+
+return {}

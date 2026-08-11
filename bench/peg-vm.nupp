@@ -1,0 +1,145 @@
+-- Compare the general PEG backend across recognition, captures, actions, and recursion.
+-- Run with: ./bin/nupp run -O2 bench/peg-vm.nupp
+
+local Identifier: nupp.peg.Peg<integer> = comptime do
+    return nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.", {backend = "vm"})
+end
+
+local Date: nupp.peg.Peg<integer> = comptime do
+    return nupp.peg.compile("[0-9]^4 '-' [0-9]^2 '-' [0-9]^2 !.", {backend = "vm"})
+end
+
+local Route: nupp.peg.Peg<integer> = comptime do
+    return nupp.peg.compile([[
+        ('GET' / 'POST' / 'PUT' / 'PATCH' / 'DELETE') ' '
+        [a-z0-9/_-]+ ' HTTP/1.' ('0' / '1') !.
+    ]], {backend = "vm"})
+end
+
+local Word: nupp.peg.Peg<string> = comptime do
+    return nupp.peg.compile("{ [a-z]+ } !.", {backend = "vm"})
+end
+
+local Words: nupp.peg.Peg<{string}> = comptime do
+    return nupp.peg.compile("{| { [a-z]+ } (',' { [a-z]+ })* |} !.", {backend = "vm"})
+end
+
+local Nested: nupp.peg.Peg<integer> = comptime do
+    return nupp.peg.compile("start <- value !. value <- 'x' / '(' value ')'", {backend = "vm"})
+end
+
+local record Actions
+    number: function(string): integer
+end
+
+local NumberFactory: function(Actions): nupp.peg.Peg<integer> = comptime do
+    return nupp.peg.compile("[0-9]+ -> number !.", {backend = "vm"})
+end
+local Number = NumberFactory(new Actions {number = function(text: string): integer
+    return tonumber(text) as integer
+end,})
+
+local record Workload
+    name: string
+    run: function(string): boolean
+    subjects: {string}
+end
+
+local workloads = {new Workload {name = "identifier", run = function(s: string): boolean
+    return Identifier(s) ~= nil
+end, subjects = {
+    "alpha_123",
+    "_name9",
+    "A0",
+    "9bad",
+    "bad-name",
+    "",
+    "x",
+    "long_identifier_1234567890"
+}}, new Workload {name = "fixed-date", run = function(s: string): boolean
+    return Date(s) ~= nil
+end, subjects = {
+    "2026-08-10",
+    "1999-12-31",
+    "0000-00-00",
+    "2026/08/10",
+    "2026-8-10",
+    "x026-08-10",
+    "2026-08-100",
+    ""
+}}, new Workload {name = "http-route", run = function(s: string): boolean
+    return Route(s) ~= nil
+end, subjects = {
+    "GET /users/42 HTTP/1.1",
+    "POST /items HTTP/1.0",
+    "DELETE /x HTTP/1.1",
+    "PATCH /a-b_9 HTTP/1.1",
+    "HEAD / HTTP/1.1",
+    "GET  HTTP/1.1",
+    "GET /x HTTP/2.0",
+    "GET /X HTTP/1.1"
+}}, new Workload {name = "substring-capture", run = function(s: string): boolean
+    return Word(s) ~= nil
+end, subjects = {
+    "alpha",
+    "word",
+    "z",
+    "letters",
+    "UPPER",
+    "abc1",
+    "",
+    "a-b"
+}}, new Workload {name = "capture-list", run = function(s: string): boolean
+    return Words(s) ~= nil
+end, subjects = {
+    "one,two,three",
+    "a,b,c,d",
+    "single",
+    "many,small,words,here",
+    "one,",
+    ",two",
+    "UPPER",
+    ""
+}}, new Workload {name = "recursive", run = function(s: string): boolean
+    return Nested(s) ~= nil
+end, subjects = {
+    "x",
+    "(x)",
+    "((x))",
+    "((((x))))",
+    "((x)",
+    "(x))",
+    "y",
+    ""
+}}, new Workload {name = "action", run = function(s: string): boolean
+    return Number(s) ~= nil
+end, subjects = {"1", "42", "1234", "99999999", "12x", "x12", "", "1.0"}},}
+
+local iterations = 250000
+local rounds = 7
+
+local function median(values: {number}): number
+    table.sort(values)
+    return values[math.floor(#values / 2) + 1]
+end
+
+print(string.format("PEG general backend, %d rounds x %d matches", rounds, iterations))
+print("workload                   matches/s")
+for _, workload in ipairs(workloads) do
+    local rates = {}
+    local count = #workload.subjects
+    for round = 1, rounds do
+        local passed = 0
+        local started = os.clock()
+        for index = 1, iterations do
+            local subjectIndex = ((index - 1) % count + 1) as integer
+            if workload.run(workload.subjects[subjectIndex]) then
+                passed = passed + 1
+            end
+        end
+        local elapsed = os.clock() - started
+        assert(passed >= 0)
+        rates[round] = iterations / elapsed
+    end
+    print(string.format("%-24s %12.0f", workload.name, median(rates)))
+end

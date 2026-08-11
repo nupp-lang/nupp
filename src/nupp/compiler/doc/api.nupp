@@ -1,0 +1,339 @@
+--[[
+One documented declaration, as HTML: its signature, its type parameters, its
+arguments and results, its members. The module summary above them is the same
+information as a table, for a reader deciding which declaration to scroll to.
+]]
+
+local stringsMod = require("nupp.compiler.doc.strings")
+local htmlMod = require("nupp.compiler.doc.html")
+local highlightMod = require("nupp.compiler.doc.highlight")
+local extractMod = require("nupp.compiler.doc.extract")
+local urlsMod = require("nupp.compiler.doc.urls")
+
+local htmlEscape = stringsMod.htmlEscape
+local summaryText = stringsMod.summaryText
+local markdownHtml, tableHtml = htmlMod.markdownHtml, htmlMod.tableHtml
+local inlineHtml = htmlMod.inlineHtml
+local highlightNupp = highlightMod.nuppSource
+local splitMembers = extractMod.splitMembers
+local childModules = extractMod.children
+local moduleFile = urlsMod.moduleFile
+
+local api = {}
+
+type api.ItemGroup = {
+    title: string,
+    path: string,
+    kinds: boolean,
+    items: {extractMod.Item}
+}
+
+-- The default a manifest that names no `constructorPattern` gets, matched against the
+-- last dotted segment of a name.
+local DEFAULT_CONSTRUCTOR_PATTERN = "^new"
+
+local function kindBadge(kind)
+    return '<span class="nuppdoc-kind-badge nuppdoc-kind-' .. htmlEscape(kind) .. '">' .. htmlEscape(kind) .. '</span>'
+end
+
+-- A constructor is a plain function whose name says it is one. Deciding by result type
+-- instead — a function returning a type this module declares — files every accessor and
+-- every query under Constructors as well, which is why the name is what answers.
+local function isConstructor(item, pattern)
+    if pattern == "" or item.kind ~= "function" then
+        return false
+    end
+
+    return (item.name:match("([^.]+)$") or item.name):match(pattern) ~= nil
+end
+
+-- The parser quite rightly extracts a constructor as a function: that is its Nupp
+-- type. The documentation kind is semantic, though, and should agree with the group
+-- the reader found it under rather than exposing that implementation detail.
+local function displayKind(item: extractMod.Item, constructorPattern: string?): string
+    if isConstructor(item, constructorPattern or DEFAULT_CONSTRUCTOR_PATTERN) then
+        return "constructor"
+    end
+
+    return item.kind
+end
+
+local function byName(left: extractMod.Item, right: extractMod.Item): boolean
+    local leftName, rightName = left.name:lower(), right.name:lower()
+    if leftName == rightName then
+        return left.path < right.path
+    end
+
+    return leftName < rightName
+end
+
+-- Tealdoc's module pages use the same four semantic groups in the contents table and
+-- in the detailed API below it. Keeping that decision here prevents the summary, the
+-- page outline, the HTML details and the companion Markdown from each inventing a
+-- slightly different hierarchy (records versus interfaces, or variables versus
+-- values). Items are alphabetized inside a group just as they are on a Tealdoc page.
+local function itemGroups(items: {extractMod.Item}, constructorPattern: string?): {api.ItemGroup}
+    local pattern = constructorPattern or DEFAULT_CONSTRUCTOR_PATTERN
+    local groups = {
+        {title = "Constructors", path = "constructors", kinds = false, items = {}},
+        {title = "Types", path = "types", kinds = true, items = {}},
+        {title = "Functions", path = "functions", kinds = true, items = {}},
+        {title = "Values", path = "values", kinds = true, items = {}},
+    }
+    for _, item in ipairs(items) do
+        local group = groups[2]
+        if isConstructor(item, pattern) then
+            group = groups[1]
+        elseif item.kind == "function" or item.kind == "method" then
+            group = groups[3]
+        elseif item.kind == "variable" then
+            group = groups[4]
+        end
+        group.items[#group.items + 1] = item
+    end
+    for _, group in ipairs(groups) do
+        table.sort(group.items, byName)
+    end
+
+    return groups
+end
+
+-- A function is written `function profile.sample(...)`, so its name carries the table
+-- it
+-- was assigned into. A record or a local is declared with one identifier and never
+-- does.
+-- Stripping that one prefix, when the module's own tail spells it, leaves every row of
+-- a
+-- module's own page as bare as the type and value rows already are.
+local function unqualifiedName(moduleName, name)
+    local tail = moduleName:match("([^.]+)$") or moduleName
+    local prefix = tail .. "."
+    if name:sub(1, #prefix) == prefix then
+        return name:sub(#prefix + 1)
+    end
+
+    return name
+end
+
+--- A name with no module behind it has no blurb to summarize, so it is described by
+--- what it holds. Left to the ordinary path it would be the one row saying nothing.
+local function namespaceSummary(modules: {extractMod.Module}, name: string): string
+    local held = #childModules(modules, name)
+
+    return held .. " module" .. (held == 1 and "" or "s")
+end
+
+-- The modules nested under this one. A namespace has this table and nothing else, and a
+-- reader who arrived at one has nowhere else to go.
+local function nestedModules(children: {extractMod.Module}, prefix: string, modules: {extractMod.Module}): string
+    if #children == 0 then
+        return ""
+    end
+    local rows = {}
+    for _, child in ipairs(children) do
+        rows[
+            #rows + 1
+        ] = {
+            '<a href="' .. htmlEscape(
+                prefix .. moduleFile(child.name)
+            ) .. '"><code>' .. htmlEscape(child.name) .. '</code></a>',
+            child.namespace and namespaceSummary(modules, child.name) or inlineHtml(summaryText(child.text)),
+        }
+    end
+
+    return '<section class="nuppdoc-module-modules"><h2 id="modules">Submodules</h2>' .. tableHtml(
+        {"Module", "Description"},
+        rows
+    ) .. "</section>"
+end
+
+local function moduleSummary(module: extractMod.Module, constructorPattern: string?): string
+    local groups = itemGroups(module.items, constructorPattern)
+    local out = {'<section class="nuppdoc-module-summary"><h2 id="module-contents">Module contents</h2>'}
+    for _, group in ipairs(groups) do
+        if #group.items > 0 then
+            local rows = {}
+            for _, item in ipairs(group.items) do
+                local row = {
+                    '<a href="#' .. htmlEscape(
+                        item.path
+                    ) .. '"><code>' .. htmlEscape(unqualifiedName(module.name, item.name)) .. '</code></a>'
+                }
+                -- A constructor's kind is the word "function" on every row of the
+                -- table, which says nothing the heading has not said already.
+                if group.kinds then
+                    row[#row + 1] = kindBadge(item.kind)
+                end
+                row[#row + 1] = inlineHtml(summaryText(item.doc.text))
+                rows[#rows + 1] = row
+            end
+            local headers = group.kinds and {
+                group.title:sub(1, -2),
+                "Kind",
+                "Description"
+            } or {group.title:sub(1, -2), "Description"}
+            out[#out + 1] = '<h3>' .. group.title .. '</h3>' .. tableHtml(headers, rows)
+        end
+    end
+    out[#out + 1] = "</section>"
+
+    return table.concat(out)
+end
+
+local function inlineNupp(source, links)
+    return "<code>" .. highlightNupp(source, links) .. "</code>"
+end
+
+-- A raise is a condition and nothing else. There is no type to put beside it, so this
+-- lists where an argument or a result tabulates.
+local function raisesHtml(raises, heading, links)
+    if #raises == 0 then
+        return ""
+    end
+    local entries = {}
+    for _, condition in ipairs(raises) do
+        entries[#entries + 1] = "<li>" .. markdownHtml(condition, links) .. "</li>"
+    end
+
+    return "<" .. heading .. ">Raises</" .. heading .. "><ul>" .. table.concat(entries) .. "</ul>"
+end
+
+-- Bare member names are deliberately absent from the site-wide link index because
+-- they collide across containers. Inside one complete structure declaration the owner
+-- is known, so give the highlighter the exact target for each entry token.
+local function structureMemberLinks(item, links)
+    if not links or #item.members == 0 then
+        return nil
+    end
+    local members = {}
+    for _, member in ipairs(item.members) do
+        local url = links[item.name .. "." .. member.name] or links[member.path]
+        if url then
+            members[member.name] = url
+        end
+    end
+
+    return next(members) and members or nil
+end
+
+local function renderHtmlItem(
+    out: {string},
+    item: extractMod.Item,
+    links: nupp.compiler.doc.urls.Links?,
+    constructorPattern: string?
+): nil
+    local kind = displayKind(item, constructorPattern)
+    out[
+        #out + 1
+    ] = '<section class="nuppdoc-api-item" id="' .. htmlEscape(
+        item.path
+    ) .. '"><h3><code>' .. htmlEscape(
+        item.name
+    ) .. '</code><span class="nuppdoc-kind-badge nuppdoc-kind-' .. htmlEscape(
+        kind
+    ) .. '">' .. htmlEscape(
+        kind
+    ) .. '</span><a class="nuppdoc-header-anchor" href="#' .. htmlEscape(
+        item.path
+    ) .. '" aria-label="Link to ' .. htmlEscape(item.name) .. '">#</a></h3>'
+    out[#out + 1] = markdownHtml(item.doc.text, links)
+    out[
+        #out + 1
+    ] = '<div class="nuppdoc-code-block" data-lang="nupp"><pre>' .. '<code class="language-nupp">' .. highlightNupp(
+        item.signature,
+        links,
+        structureMemberLinks(item, links)
+    ) .. "</code></pre></div>"
+    if #item.typeargs > 0 then
+        local rows = {}
+        for _, typearg in ipairs(item.typeargs) do
+            rows[#rows + 1] = {"<code>" .. htmlEscape(typearg.name) .. "</code>", markdownHtml(typearg.text, links)}
+        end
+        out[#out + 1] = "<h4>Type parameters</h4>" .. tableHtml({"Name", "Description"}, rows)
+    end
+    if #item.params > 0 then
+        local rows = {}
+        for _, param in ipairs(item.params) do
+            rows[
+                #rows + 1
+            ] = {
+                "<code>" .. htmlEscape(param.name) .. "</code>",
+                inlineNupp(param.type, links),
+                markdownHtml(param.text, links)
+            }
+        end
+        out[#out + 1] = "<h4>Arguments</h4>" .. tableHtml({"Name", "Type", "Description"}, rows)
+    end
+    if #item.returns > 0 then
+        local rows = {}
+        for _, value in ipairs(item.returns) do
+            rows[#rows + 1] = {inlineNupp(value.type, links), markdownHtml(value.text, links)}
+        end
+        out[#out + 1] = "<h4>Returns</h4>" .. tableHtml({"Type", "Description"}, rows)
+    end
+    out[#out + 1] = raisesHtml(item.raises, "h4", links)
+    local fields, methods = splitMembers(item.members)
+    if #methods > 0 then
+        out[#out + 1] = "<h4>Methods</h4>"
+        for _, method in ipairs(methods) do
+            out[
+                #out + 1
+            ] = '<div class="nuppdoc-api-member" id="' .. htmlEscape(
+                method.path
+            ) .. '"><h5><code>' .. htmlEscape(method.name) .. "</code></h5>"
+            out[#out + 1] = markdownHtml(method.text, links)
+            out[
+                #out + 1
+            ] = '<div class="nuppdoc-code-block" data-lang="nupp"><pre>'
+                .. '<code class="language-nupp">'
+                .. highlightNupp(
+                method.name .. ": " .. method.type,
+                links
+            ) .. "</code></pre></div>"
+            if #method.params > 0 then
+                local rows = {}
+                for _, param in ipairs(method.params) do
+                    rows[
+                        #rows + 1
+                    ] = {
+                        "<code>" .. htmlEscape(param.name) .. "</code>",
+                        inlineNupp(param.type, links),
+                        markdownHtml(param.text, links)
+                    }
+                end
+                out[#out + 1] = "<h6>Arguments</h6>" .. tableHtml({"Name", "Type", "Description"}, rows)
+            end
+            if #method.returns > 0 then
+                local rows = {}
+                for _, value in ipairs(method.returns) do
+                    rows[#rows + 1] = {inlineNupp(value.type, links), markdownHtml(value.text, links)}
+                end
+                out[#out + 1] = "<h6>Returns</h6>" .. tableHtml({"Type", "Description"}, rows)
+            end
+            out[#out + 1] = raisesHtml(method.raises, "h6", links)
+            out[#out + 1] = "</div>"
+        end
+    end
+    if #fields > 0 then
+        local rows = {}
+        for _, field in ipairs(fields) do
+            rows[
+                #rows + 1
+            ] = {
+                "<code>" .. htmlEscape(field.name) .. "</code>",
+                inlineNupp(field.type, links),
+                markdownHtml(field.text, links)
+            }
+        end
+        out[#out + 1] = "<h4>Fields</h4>" .. tableHtml({"Name", "Type", "Description"}, rows)
+    end
+    out[#out + 1] = "</section>"
+end
+
+api.moduleSummary = moduleSummary
+api.itemGroups = itemGroups
+api.nestedModules = nestedModules
+api.renderHtmlItem = renderHtmlItem
+api.displayKind = displayKind
+
+return api

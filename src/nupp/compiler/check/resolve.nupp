@@ -1,0 +1,1355 @@
+--[[
+The type an annotation names.
+
+An annotation is syntax; this is the type it means. Names are looked up through
+the scopes and then the project, generic applications are instantiated, and the
+shorthands — optionals, pointers, arrays, unions, shapes — are built out of what
+they contain.
+
+It is also where the advice for a name that resolves to nothing is composed,
+because the useful thing to say is rarely "unknown type": it is that the name
+belongs to a module this file has not required, or that a declaration of it
+exists but is not visible here.
+]]
+
+local T = require("nupp.compiler.types")
+local generics = require("nupp.compiler.generics")
+local consteval = require("nupp.compiler.consteval")
+local relations = require("nupp.compiler.relations")
+local cst = require("nupp.compiler.cst")
+local state = require("nupp.compiler.check.state")
+
+local resolve = {}
+
+local instantiateNominal = generics.instantiate
+
+--- A type, as nupp.compiler.types builds them.
+local type Type = T.Type
+
+--- A node of the tree being checked.
+local type Node = cst.Node
+
+--- Installs type-annotation resolution on one run. It answers through the run rather
+--- than through a table of its own, because everything that resolves an annotation
+--- already has the run in hand.
+---
+--- @param c the run's state
+function resolve.install(c: state.Checker): nil
+    local edits = c.edits
+    local fix, insertBefore = edits.fix, edits.insertBefore
+    local requiredAs, requireBindsName = edits.requiredAs, edits.requireBindsName
+    local requireEdit = edits.requireEdit
+    local pointerShaped = c.pointerShaped
+    local recursiveArmDepth = 0
+    local recursiveBlockedDepth = 0
+
+    local function constBinding(name: string): T.ConstTerm?
+        local found = c.lookupType(name)
+        return found and consteval.fromType(found) or nil
+    end
+
+    --- Fixes for an unqualified type name that a project module exports: spell it
+    --- through the module. When this file already requires that module, qualifying is
+    --- the whole edit; otherwise the require comes with it, bound to the module's last
+    --- segment — and only when that name is free, since binding over something already
+    --- in scope would fix a type name by breaking a value one.
+    local function exportingModuleFixes(name: string, base: any): {any}
+        if not c.env or not c.env.modulesExporting or not base then
+            return {}
+        end
+        local fixes = {}
+        for _, moduleName in ipairs(c.env.modulesExporting(c.env, name) or {}) do
+            if moduleName ~= c.result.moduleName then
+                local bound = requiredAs(moduleName)
+                if bound then
+                    fixes[#fixes + 1] = fix(("use %s.%s"):format(bound, name), insertBefore(base, bound .. "."))
+                else
+                    local short = moduleName:match("([^.]+)$")
+                    local edit = short and not c.lookupEntry(
+                        short
+                    ) and not requireBindsName(short) and requireEdit(short, moduleName)
+                    if edit then
+                        fixes[
+                            #fixes + 1
+                        ] = fix(
+                            ("require(%q) and use %s.%s"):format(moduleName, short, name),
+                            edit,
+                            insertBefore(base, short .. ".")
+                        )
+                    end
+                end
+            end
+        end
+
+        return fixes
+    end
+
+    local function visibleTypeNames(): {[string]: boolean}
+        local names = {}
+        for name in pairs(T.builtins) do
+            names[name] = true
+        end
+        local scope = c.scope
+        while scope do
+            for name in pairs(scope.types or {}) do
+                names[name] = true
+            end
+            scope = scope.parent
+        end
+
+        return names
+    end
+
+    local function constArgument(arg, parameter, at)
+        if not arg then
+            c.diag("NUPP2131", at, ("const parameter %s is unbound"):format(parameter.name))
+            return nil
+        end
+        local term = consteval.fromType(c.resolveType(arg))
+        if not term then
+            c.diag(
+                "NUPP2131",
+                arg,
+                ("argument for const parameter %s is not compile-time-known"):format(parameter.name)
+            )
+            return nil
+        end
+        local reduced, constError = consteval.reduce(term)
+        if constError then
+            c.diag("NUPP2131", arg, constError)
+        end
+        local domain = reduced.tag == "constLiteral"
+            and reduced.domain
+            or reduced.tag == "constVar"
+            and reduced.domain
+            or nil
+        if domain and domain ~= parameter.domain then
+            c.diag(
+                "NUPP2131",
+                arg,
+                ("const parameter %s requires %s, got %s"):format(parameter.name, parameter.domain, domain)
+            )
+        end
+
+        return reduced
+    end
+
+    local function aliasArgumentMap(alias, node)
+        local map, ordinaryAt, packAt, constAt = {}, 1, 1, 1
+        for position, arg in ipairs(node.typeArgs or {}) do
+            local kind = alias.paramKinds and alias.paramKinds[position]
+            if kind == "const" then
+                local cv = alias.constParams[constAt]
+                if cv then
+                    map[cv] = constArgument(arg, cv, node)
+                end
+                constAt = constAt + 1
+            elseif kind == "pack" or not kind and (
+                arg.kind == "tpack"
+                or arg.kind == "tpackUnion"
+                or arg.kind == "tparen"
+                and packAt <= #alias.packParams
+                and ordinaryAt > #alias.typeParams
+            ) then
+                local pack = arg.kind == "tparen" and T.pack({c.resolveType(arg.inner)}) or c.resolvePack(arg)
+                local pv = alias.packParams[packAt]
+                if pv then
+                    map[pv], packAt = pack, packAt + 1
+                end
+            else
+                local tv = alias.typeParams[ordinaryAt]
+                if tv then
+                    map[tv], ordinaryAt = c.resolveType(arg), ordinaryAt + 1
+                else
+                    c.diag("NUPP2121", arg, "ambiguous or surplus generic alias argument")
+                end
+            end
+        end
+        for j = constAt, #alias.constParams do
+            constArgument(nil, alias.constParams[j], node)
+        end
+        c.validateTypeBounds(alias.typeParams, alias.typeBounds, map, node)
+        return map
+    end
+
+    local function recursiveAliasCall(header: T.AliasHeader, node): Type
+        local map = aliasArgumentMap(header, node)
+        local typeArgs, packArgs, constArgs = {}, {}, {}
+        for j, parameter in ipairs(header.typeParams) do
+            typeArgs[j] = map[parameter] or T.any
+        end
+        for j, parameter in ipairs(header.packParams) do
+            packArgs[j] = map[parameter] or T.pack({}, {kind = "unknown", type = T.any})
+        end
+        for j, parameter in ipairs(header.constParams) do
+            constArgs[j] = map[parameter] or parameter
+        end
+        return T.aliasCall(header, typeArgs, packArgs, constArgs)
+    end
+
+    -- A generic application means the same thing however the name was reached, so every
+    -- way of resolving a type name ends here rather than only the unqualified one.
+    local function applyTypeArgs(t, node)
+
+        -- A refinement is what `is` compiles to, and every path that resolves a
+        -- declared name arrives here, so this is the one place it has to be attached
+        -- from. It travels as data, so nothing is resolved twice.
+        if t and t.tag == "nominal" and t.predicate then
+            node.wherePredicate = t.predicate
+        end
+        if t and t.tag == "genericAlias" then
+            local map = aliasArgumentMap(t, node)
+            local rebound = generics.materialize(t.body, map)
+            local reduced, reductionError = generics.reduce(rebound, {}, c.reducerMemo)
+            if reductionError then
+                c.diag(
+                    reductionError:find("recursive alias", 1, true) and "NUPP2133" or "NUPP2130",
+                    node,
+                    reductionError
+                )
+            end
+            return reduced
+        end
+        if not (t and t.tag == "nominal" and t.typeParams and node.typeArgs) then
+            return t
+        end
+        local map = {}
+        local typeAt, packAt, constAt = 1, 1, 1
+        for position, kind in ipairs(t.paramKinds or {}) do
+            local arg = node.typeArgs[position]
+            if kind == "const" then
+                local cv = t.constParams and t.constParams[constAt]
+                if cv then
+                    map[cv] = constArgument(arg, cv, node)
+                end
+                constAt = constAt + 1
+            elseif kind == "type" then
+                local tv = t.typeParams[typeAt]
+                if tv then
+                    map[tv] = arg and c.resolveType(arg) or T.any
+                end
+                typeAt = typeAt + 1
+            elseif kind == "pack" then
+                local pv = t.packParams and t.packParams[packAt]
+                if pv then
+                    map[pv] = arg and c.resolvePack(arg)
+                        or T.pack({}, {kind = "unknown", type = T.any})
+                end
+                packAt = packAt + 1
+            end
+        end
+        if #(t.paramKinds or {}) == 0 then
+            for j, tv in ipairs(t.typeParams) do
+                map[tv] = node.typeArgs[j] and c.resolveType(node.typeArgs[j]) or T.any
+            end
+        end
+        c.validateTypeBounds(t.typeParams, t.typeBounds, map, node)
+
+        return instantiateNominal(t, map)
+    end
+
+    local compilePattern
+    compilePattern = function(node: Node?, binders: {[string]: any}): T.MatchPattern
+        if not node then
+            return T.matchPattern("ordinary", nil, T.any)
+        end
+        local kind = node.kind
+        if kind == "tinfer" then
+            local token = node.name
+            local name = token and token.text or "_"
+            if node.pack then
+                c.diag("NUPP2132", node, "pack inference is only valid in a function pattern")
+            end
+            if name == "_" then
+                return T.matchPattern("infer")
+            end
+            local binder = binders[name]
+            if binder and binder.tag ~= "typevar" then
+                c.diag("NUPP2132", token or node, "an inferred name cannot bind both a type and a pack")
+                return T.matchPattern("infer")
+            end
+            if not binder then
+                binder = c.typevarAt(token, "match") as T.TypeVar
+                binders[name] = binder
+                c.bindType(name, binder, token)
+            end
+            return T.matchPattern("infer", binder)
+        elseif kind == "tparen" then
+            return compilePattern(node.inner, binders)
+        elseif kind == "tarray" then
+            return T.matchPattern("array", nil, nil, {compilePattern(node.element, binders)})
+        elseif kind == "ttuple" then
+            local children = {}
+            for j, child in ipairs(node.types) do
+                children[j] = compilePattern(child, binders)
+            end
+            local tail = node.tail and compilePattern(node.tail, binders) or nil
+            return T.matchPattern("tuple", nil, nil, children, nil, nil, nil, nil, nil, tail)
+        elseif kind == "tmap" then
+            return T.matchPattern(
+                "map",
+                nil,
+                nil,
+                {compilePattern(node.key, binders), compilePattern(node.value, binders)}
+            )
+        elseif kind == "tptr" then
+            return T.matchPattern("ptr", nil, nil, {compilePattern(node.inner, binders)})
+        elseif kind == "tcarray" then
+            local countTerm = nil
+            if node.count then
+                local countError
+                countTerm, countError = consteval.parse(node.count, constBinding)
+                if countError then
+                    c.diag("NUPP2132", node.count, countError)
+                end
+            end
+            return T.matchPattern("carray", nil, nil, {compilePattern(node.element, binders)}, nil, countTerm)
+        elseif kind == "tconst" then
+            return T.matchPattern("const", nil, nil, {compilePattern(node.inner, binders)})
+        elseif kind == "tname" and node.typeArgs and #node.typeArgs > 0 then
+            local name = node.base and node.base.text or ""
+            local expected = T.builtins[name] or c.lookupType(name)
+            if not expected or expected.tag ~= "nominal" then
+                c.diag("NUPP2132", node, "generic type patterns require a nominal type constructor")
+                return T.matchPattern("ordinary", nil, T.any)
+            end
+            local children = {}
+            local nominalPackBinders = {}
+            local typeAt, packAt = 1, 1
+            for position, parameterKind in ipairs(expected.paramKinds or {}) do
+                local child = node.typeArgs[position]
+                if parameterKind == "type" then
+                    children[typeAt] = compilePattern(child, binders)
+                    typeAt = typeAt + 1
+                elseif parameterKind == "pack" then
+                    if not child or child.kind ~= "tinfer" or not child.pack then
+                        c.diag("NUPP2132", child or node, "a nominal pack pattern must use infer R...")
+                        nominalPackBinders[packAt] = c.packvarAt(nil, "match-nominal-pack-invalid")
+                    else
+                        local token = child.name
+                        local binderName = token and token.text or "_"
+                        local binder = binderName ~= "_" and binders[binderName] or nil
+                        if binderName == "_" then
+                            binder = c.packvarAt(token, "match-nominal-pack-anonymous")
+                        elseif binder and binder.tag ~= "packvar" then
+                            c.diag("NUPP2132", token or child, "an inferred name cannot bind both a type and a pack")
+                            binder = c.packvarAt(token, "match-nominal-pack-conflict")
+                        elseif not binder then
+                            binder = c.packvarAt(token, "match-nominal-pack")
+                            binders[binderName] = binder
+                            c.bindPack(binderName, binder, token)
+                        end
+                        nominalPackBinders[packAt] = binder as T.PackVar
+                    end
+                    packAt = packAt + 1
+                elseif parameterKind == "const" then
+                    c.diag("NUPP2132", child or node, "const nominal arguments are not type-match patterns")
+                end
+            end
+            if #(expected.paramKinds or {}) == 0 then
+                for j, child in ipairs(node.typeArgs) do
+                    children[j] = compilePattern(child, binders)
+                end
+            end
+            return T.matchPattern(
+                "nominal", nil, expected, children, nil, nil, nil, nil, nil, nil,
+                nominalPackBinders
+            )
+        elseif kind == "tfunc" then
+            local children = {}
+            local paramPackBinder, retPackBinder
+            local function bindPackInfer(inferred): T.PackVar
+                local token = inferred.name
+                local name = token and token.text or "_"
+                if name == "_" then
+                    return c.packvarAt(token, "match-pack-anonymous")
+                end
+                local binder = binders[name]
+                if binder and binder.tag ~= "packvar" then
+                    c.diag("NUPP2132", token or inferred, "an inferred name cannot bind both a type and a pack")
+                    return c.packvarAt(token, "match-pack-conflict")
+                end
+                if not binder then
+                    binder = c.packvarAt(token, "match-pack")
+                    binders[name] = binder
+                    c.bindPack(name, binder, token)
+                end
+
+                return binder as T.PackVar
+            end
+
+            for j, param in ipairs(node.params or {}) do
+                if param.kind == "tfuncParam" then
+                    local inferred = param.type
+                    if inferred and inferred.kind == "tinfer" and inferred.pack then
+                        if j ~= #(node.params or {}) then
+                            c.diag("NUPP2132", inferred, "an inferred parameter pack must be last")
+                        end
+                        paramPackBinder = bindPackInfer(inferred)
+                    elseif param.pack then
+                        c.diag("NUPP2132", param, "a function pattern pack must use infer")
+                    else
+                        children[#children + 1] = compilePattern(param.type, binders)
+                    end
+                end
+            end
+            local paramCount = #children
+            for j, result in ipairs(node.rets or {}) do
+                if result.kind == "tinfer" and result.pack then
+                    if j ~= #(node.rets or {}) then
+                        c.diag("NUPP2132", result, "an inferred result pack must be last")
+                    end
+                    retPackBinder = bindPackInfer(result)
+                else
+                    children[#children + 1] = compilePattern(result, binders)
+                end
+            end
+            return T.matchPattern("func", nil, nil, children, nil, nil, paramCount, paramPackBinder, retPackBinder)
+        elseif kind == "istring" then
+            local parts = {}
+            local previousHole = false
+            for _, child in ipairs(node) do
+                if cst.isToken(child) then
+                    if child.kind == "istringOpen" or child.kind == "istringMid" then
+                        local literal = child.text:sub(2, -3)
+                        parts[#parts + 1] = literal
+                        if literal ~= "" then
+                            previousHole = false
+                        end
+                    elseif child.kind == "istringClose" then
+                        parts[#parts + 1] = child.text:sub(2, -2)
+                    end
+                else
+                    local hole = compilePattern(child, binders)
+                    if hole.kind ~= "infer" then
+                        c.diag("NUPP2132", child, "template pattern holes must use infer")
+                    end
+                    if previousHole then
+                        c.diag("NUPP2132", child, "adjacent inferred template segments are ambiguous")
+                    end
+                    parts[#parts + 1] = hole
+                    previousHole = true
+                end
+            end
+            return T.matchPattern("template", nil, nil, nil, parts)
+        end
+
+        return T.matchPattern("ordinary", nil, c.resolveType(node))
+    end
+
+    --- Where a projection was decided: the answer that settled it, or the requirements
+    --- that state it when nothing has.
+    ---
+    --- An answer carries the site it was written at, and a default copied to an
+    --- implementor carries the interface's -- which is the one a reader wants, since
+    --- that is where the behaviour is written. An opaque projection has no answer, so
+    --- the requirement is the declaration to land on.
+    ---
+    --- @param head what the projection is reached through
+    --- @param name the associated member
+    c.associatedDefinitions = function(head: Type, name: string): {any}
+        local associated = require("nupp.compiler.associated")
+        local found = associated.lookup(head, name)
+        local out: {any} = {}
+        local seen: {[any]: boolean} = {}
+        local function take(definition: any)
+            if definition and not seen[definition] then
+                seen[definition] = true
+                out[#out + 1] = definition
+            end
+        end
+        -- Several contracts may fix one name compatibly, and none of them is the
+        -- deciding one -- each is a place the reader may want to be.
+        for _, promise in ipairs(found.fixed) do
+            take(promise.definition)
+        end
+        if #out == 0 and found.answer then
+            take(found.answer.definition)
+        end
+        if #out == 0 then
+            -- Opaque: the requirements are where it is stated, and two independent
+            -- contracts that chose one name are two places. A diamond is one, because
+            -- the requirements deduplicate by identity before they get here.
+            for _, reached in ipairs(found.requirements) do
+                take(reached.requirement.definition)
+            end
+        end
+
+        return out
+    end
+
+    --- Reports a projection that names nothing, with the reason the query gave.
+    ---
+    --- The closed set of reasons maps to one message each, so the diagnostic says what
+    --- is wrong rather than that something is, and every caller of the query reports
+    --- the same way.
+    ---
+    --- @param at the token the member was written at
+    --- @param head what it was projected through
+    --- @param name the member
+    --- @param found what the query answered
+    c.projectionFailed = function(at: any, head: Type, name: string, found: T.AssociatedLookup): nil
+        local shown = T.tostring(head)
+        local message, help = nil, nil
+        if found.reason == "unknown" then
+            message = ("%s states no associated type %q"):format(shown, name)
+            help = "check the spelling, or state it on the contract"
+        elseif found.reason == "incomplete" then
+            message = ("not every alternative of %s states %q"):format(shown, name)
+            help = "a value of a union is one of its alternatives, so each has to state it"
+        else
+            message = ("%s has no contract to project %q through"):format(shown, name)
+            help = "only a declaration, or a binder bounded by one, states associated types"
+        end
+        c.diag("NUPP2134", at, message, nil, {help = help})
+    end
+
+    --- The type an annotation node names.
+    ---
+    --- @param node the type node, when there is one
+    c.resolveType = function(node: Node?): Type
+        if not node then
+            return T.any
+        end
+        local kind = node.kind
+        if kind == "tmatch" then
+            recursiveBlockedDepth = recursiveBlockedDepth + 1
+            local scrutinee = c.resolveType(node.scrutinee)
+            recursiveBlockedDepth = recursiveBlockedDepth - 1
+            local arms = {}
+            for _, child in ipairs(node.arms or {}) do
+                if child.kind == "tmatchArm" then
+                    c.pushScope()
+                    recursiveBlockedDepth = recursiveBlockedDepth + 1
+                    local pattern = compilePattern(child.pattern, {})
+                    recursiveBlockedDepth = recursiveBlockedDepth - 1
+                    recursiveArmDepth = recursiveArmDepth + 1
+                    local result = c.resolveType(child.result)
+                    recursiveArmDepth = recursiveArmDepth - 1
+                    c.popScope()
+                    arms[#arms + 1] = T.matchArm(pattern, result)
+                end
+            end
+            recursiveArmDepth = recursiveArmDepth + 1
+            local fallback = node.fallback and c.resolveType(node.fallback) or T.never
+            recursiveArmDepth = recursiveArmDepth - 1
+            arms[#arms + 1] = T.matchArm(T.matchPattern("default"), fallback)
+            local term = T.neutral("match", scrutinee, nil, nil, nil, nil, nil, nil, nil, nil, node.each, arms)
+            local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo)
+            if reductionError then
+                c.diag("NUPP2132", node, reductionError)
+            end
+            return reduced
+        elseif kind == "tinfer" then
+            c.diag("NUPP2132", node, "infer is only valid inside a type-match pattern")
+            return T.any
+        elseif kind == "tname" then
+            local base = node.base
+            if not base then
+                return T.any
+            end
+            if base.kind == "nil" then
+                return T.nil_
+            end
+            if #node > 1 and node[2] and node[2].kind == "." then
+                local names, lastTok = {}, nil
+                for _, child in ipairs(node) do
+                    if cst.isToken(child) and child.kind == "name" then
+                        names[#names + 1] = child.text
+                        lastTok = child
+                    end
+                end
+                local typeName = table.remove(names)
+                local moduleName = table.concat(names, ".")
+                -- Declarations qualified by a table in this file bind under their whole
+                -- path, so `M.Point` resolves here before the prefix is read as a
+                -- module name.
+                if #names == 1 then
+                    local key = moduleName .. "." .. typeName
+                    local declared, declaredDef = c.lookupType(key)
+                    if declared then
+                        c.markToken(lastTok, declaredDef, declared, declaredDef and declaredDef.kind or "type")
+                        if declared.tag == "nominal" and declared.declKind == "struct" then
+                            node.reified = declared.runtimePath or key
+                        elseif declared.tag == "nominal" and declared.declKind == "record" then
+                            node.recordName = declared.runtimePath or key
+                        elseif declared.tag == "nominal" and declared.declKind == "interface" then
+                            node.interfaceName = declared.runtimePath or key
+                        end
+                        return applyTypeArgs(declared, node)
+                    end
+                end
+                -- A binder is a namespace too, but only when something says what it
+                -- stands for. `T.Item` is the associated type `Item` as whatever T
+                -- answers it with, and it is a type at all only if some contract T is
+                -- bounded by states that name -- which is the authoritative query's
+                -- to answer, not something to assume from the head being a binder.
+                local head = names[1] and c.lookupType(names[1]) or nil
+                if head and (head.tag == "typevar" or head.tag == "projection") then
+                    local associated = require("nupp.compiler.associated")
+                    local step = head
+                    local reported = false
+                    for j = 2, #names do
+                        local found = associated.lookup(step, names[j])
+                        if not (found.gradual or #found.requirements > 0) then
+                            reported = true
+                            c.projectionFailed(lastTok, step, names[j], found)
+                            break
+                        end
+                        step = T.projection(step, names[j])
+                    end
+                    if reported then
+                        return T.any
+                    end
+                    local found = associated.lookup(step, typeName)
+                    if not (found.gradual or #found.requirements > 0) then
+                        c.projectionFailed(lastTok, step, typeName, found)
+
+                        return T.any
+                    end
+                    if node.typeArgs then
+                        c.diag(
+                            "NUPP2134",
+                            node,
+                            ("%s.%s takes no type arguments"):format(T.tostring(step), typeName),
+                            nil,
+                            {help = "an associated type is named, not applied; a generic one is not implemented"}
+                        )
+                    end
+                    -- Two answers, deliberately. The checker gets the reduced type,
+                    -- because that is what the program means. Tooling gets the written
+                    -- projection and the definition behind it, because reducing away
+                    -- the spelling would throw away which declaration the reader asked
+                    -- about -- and `Lines.Item` and `string` are not the same question.
+                    local written = T.projection(step, typeName)
+                    local projected = require("nupp.compiler.generics").normalize(written).type
+                    local sites = c.associatedDefinitions(step, typeName)
+                    c.markToken(lastTok, sites[1], written, "type")
+                    lastTok.additionalDefinitions = #sites > 1 and sites or nil
+
+                    return projected
+                end
+                -- A record/interface is also a type namespace for declarations nested
+                -- in its body (`builtins.Transform2D`). Prefer that lexical path before
+                -- treating the prefix as a module name. A declaration attached to a
+                -- table binds under its whole path, so `m.Shapes.Point` starts from the
+                -- `m.Shapes` it declared rather than from a lexical `m`.
+                local lexical, walkFrom = nil, 2
+                if #names >= 2 then
+                    lexical = c.lookupType(names[1] .. "." .. names[2])
+                    if lexical then
+                        walkFrom = 3
+                    end
+                end
+                if not lexical then
+                    lexical = names[1] and c.lookupType(names[1]) or nil
+                end
+                if lexical then
+                    for j = walkFrom, #names do
+                        lexical = lexical.tag == "nominal" and lexical.nestedTypes and lexical.nestedTypes[
+                            names[j]
+                        ] or nil
+                        if not lexical then
+                            break
+                        end
+                    end
+                    lexical = lexical and lexical.tag == "nominal" and lexical.nestedTypes and lexical.nestedTypes[
+                        typeName
+                    ] or nil
+                    if lexical then
+                        c.markToken(lastTok, nil, lexical, "type")
+                        if lexical.runtimePath then
+                            if lexical.declKind == "struct" then
+                                node.reified = lexical.runtimePath
+                            elseif lexical.declKind == "record" then
+                                node.recordName = lexical.runtimePath
+                            end
+                        end
+                        return applyTypeArgs(lexical, node)
+                    end
+                end
+                -- A declaration answers its associated types through `associatedAnswers`
+                -- and never through `nestedTypes`: a private nested alias sharing a name
+                -- with somebody's associated type answers nothing. Asked after the
+                -- lexical walk, so an ordinary nested declaration still wins.
+                if lexical == nil and #names >= 1 then
+                    local owner = c.lookupType(table.concat(names, "."))
+                    if owner and owner.tag == "nominal" then
+                        local associated = require("nupp.compiler.associated")
+                        local found = associated.lookup(owner, typeName)
+                        if #found.requirements > 0 then
+                            -- Same two answers as the binder path: the reduced type to
+                            -- the checker, the written projection and its deciding
+                            -- declaration to tooling.
+                            local written = T.projection(owner, typeName)
+                            local projected = require("nupp.compiler.generics").normalize(written).type
+                            local sites = c.associatedDefinitions(owner, typeName)
+                            c.markToken(lastTok, sites[1], written, "type")
+                            lastTok.additionalDefinitions = #sites > 1 and sites or nil
+
+                            return projected
+                        end
+                    end
+                end
+                -- `local T = require("nupp.compiler.types")` makes T.Type mean a type
+                -- from
+                -- nupp.compiler.types, so resolve through what the name holds rather
+                -- than
+                -- assuming the local was named for its module.
+                if #names == 1 then
+                    local holder = c.lookupEntry(names[1])
+                    if holder and holder.requiredModule then
+                        moduleName = holder.requiredModule
+                    end
+                end
+                local t, def, resolvedModule = nil, nil, nil
+                if c.env and c.env.resolveQualifiedType then
+                    t, def, resolvedModule = c.env.resolveQualifiedType(c.env, c.filename, moduleName, typeName)
+                end
+                c.markToken(lastTok, def, t, def and def.kind or "type")
+                if t then
+                    if t.tag == "nominal" and t.declKind == "struct" then
+                        node.reified = ("require(%q).%s"):format(resolvedModule, typeName)
+                    elseif t.tag == "nominal" and t.declKind == "record" then
+                        node.recordName = ("require(%q).%s"):format(resolvedModule, typeName)
+                    elseif t.tag == "nominal" and t.declKind == "interface" then
+                        node.interfaceName = ("require(%q).%s"):format(resolvedModule, typeName)
+                    end
+                    return applyTypeArgs(t, node)
+                end
+                c.diag("NUPP2101", node, ("unknown exported type %q in module %q"):format(typeName, moduleName))
+                return T.any
+            end
+            local name = base.text
+            if name == "ctype" and node.typeArgs and node.typeArgs[1] then
+                return T.ctype(c.resolveType(node.typeArgs[1]))
+            end
+            if name == "metatable" and node.typeArgs and node.typeArgs[1] then
+                return T.metatable(c.resolveType(node.typeArgs[1]))
+            end
+            if name == "thread" and node.typeArgs then
+                if #node.typeArgs ~= 4 then
+                    c.diag("NUPP2121", node, "thread protocol needs start, resume, yield, and return packs")
+                end
+                return T.protocolThread(
+                    c.resolvePack(node.typeArgs[1]),
+                    c.resolvePack(node.typeArgs[2]),
+                    c.resolvePack(node.typeArgs[3]),
+                    c.resolvePack(node.typeArgs[4])
+                )
+            end
+            if (
+                name == "owned" or name == "borrowed" or name == "pinned"
+            ) and node.typeArgs and node.typeArgs[1] and not c.lookupType(name) then
+                local inner = c.resolveType(node.typeArgs[1])
+                if name == "pinned" and not pointerShaped(inner) then
+                    c.diag("NUPP2602", node, "pinned<T> requires a pointer-shaped T")
+                end
+                if name == "owned" then
+                    return T.owned(inner)
+
+                elseif name == "borrowed" then
+                    return T.borrowed(inner)
+                end
+                return T.pinned(inner)
+            end
+
+            local resolving = c.resolvingAlias[name]
+            if resolving then
+                if c.activeAlias ~= resolving then
+                    c.diag(
+                        "NUPP2133",
+                        node,
+                        ("mutually recursive aliases are not supported: %s refers to %s"):format(
+                            c.activeAlias and c.activeAlias.name or "an alias",
+                            name
+                        )
+                    )
+                    return T.any
+                elseif recursiveArmDepth == 0 or recursiveBlockedDepth > 0 then
+                    c.diag(
+                        "NUPP2133",
+                        node,
+                        ("recursive reference to %q must appear beneath a match arm"):format(name)
+                    )
+                    return T.any
+                end
+                c.markToken(base, resolving.definition, nil, "type")
+                return recursiveAliasCall(resolving.header, node)
+            end
+
+            local t, def, lookupErr, moduleName, visibility, conflicts = T.builtins[name], nil
+            if not t then
+                t, def, lookupErr, moduleName, visibility, conflicts = c.lookupType(name)
+            end
+            c.markToken(base, def, t, def and def.kind or "type")
+            t = applyTypeArgs(t, node)
+            if t then
+                -- hint for the code generator: this name is a reified struct whose
+                -- runtime ctype is local, global, or project-exported
+                if t.tag == "nominal" and t.declKind == "struct" then
+                    if moduleName and visibility ~= "global" then
+                        node.reified = ("require(%q).%s"):format(moduleName, name)
+                    else
+                        node.reified = name
+                    end
+                    if t.cdefName then
+                        node.cdefName = t.cdefName
+                    end
+                elseif t.tag == "nominal" and t.declKind == "record" then
+                    -- a record's runtime table is its identity, which is what `is`
+                    -- compares against. An interface has none: it is conformance, not
+                    -- provenance, so it stays uncompilable.
+                    if moduleName and visibility ~= "global" then
+                        node.recordName = ("require(%q).%s"):format(moduleName, name)
+                    else
+                        node.recordName = name
+                    end
+                elseif t.tag == "nominal" and t.declKind == "interface" then
+                    -- An interface has a table only when it carries defaults, and then
+                    -- only so a declaration taking one can reach the body.
+                    if moduleName and visibility ~= "global" then
+                        node.interfaceName = ("require(%q).%s"):format(moduleName, name)
+                    else
+                        node.interfaceName = name
+                    end
+                end
+                return t
+            end
+            if lookupErr then
+                local related, seen = {}, {}
+                for _, entry in ipairs(conflicts or {}) do
+                    local definition = entry.definition
+                    local key = definition and (
+                        tostring(definition.filename) .. ":" .. tostring(definition.token and definition.token.offset)
+                    ) or tostring(entry)
+                    if not seen[key] then
+                        seen[key] = true
+                        local item = c.related(definition, "conflicting global type declared here")
+                        if item then
+                            related[#related + 1] = item
+                        end
+                    end
+                end
+                c.diag(
+                    "NUPP2102",
+                    node,
+                    ("ambiguous global type %q; a project global must be unique"):format(name),
+                    nil,
+                    {
+                        related = related,
+                        help = "make all but one declaration local or attach them " .. "to their module tables"
+                    }
+                )
+                return T.any
+            end
+            local fixes = exportingModuleFixes(name, base)
+            local spelling = c.edits.nameSpellingFix(base, visibleTypeNames())
+            for _, candidate in ipairs(spelling or {}) do
+                fixes[#fixes + 1] = candidate
+            end
+            c.diag(
+                "NUPP2101",
+                base,
+                ("unknown type name %q"):format(name),
+                fixes,
+                {
+                    help = #fixes > 0
+                    and "use one of the suggested type names"
+                    or "declare the type, qualify its module, or correct the spelling"
+                }
+            )
+            return T.any
+        elseif kind == "tliteral" then
+            local literal = node.token
+            if not literal then
+                return T.any
+            end
+            local text = literal.text
+            if literal.kind == "number" then
+                local value = tonumber(text)
+                if not value or value ~= math.floor(value) or math.abs(value) > 9007199254740991 then
+                    c.diag("NUPP2131", literal, "numeric literal type must be an exactly representable integer")
+                    return T.any
+                end
+                return T.literal(value, T.integer)
+            end
+            if text == "true" then
+                return T.literal(true, T.boolean)
+
+            elseif text == "false" then
+                return T.literal(false, T.boolean)
+            end
+            return T.literal(text:sub(2, -2), T.string)
+        elseif kind == "tkeyof" then
+            local subject = c.resolveType(node.inner)
+            local term = T.neutral("keyof", subject, nil, node.capability)
+            local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo)
+            if reductionError then
+                c.diag("NUPP2130", node, reductionError)
+            end
+            return reduced
+        elseif kind == "ttypeerror" then
+            return T.neutral("typeError", c.resolveType(node.message))
+        elseif kind == "tmember" then
+            local subject, key = c.resolveType(node.object), c.resolveType(node.key)
+            local term = T.neutral("member", subject, key, "read")
+            local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo)
+            if reductionError then
+                c.diag("NUPP2130", node, reductionError)
+            end
+            return reduced
+        elseif kind == "twriteof" then
+            local indexed = node.inner
+            if not indexed or indexed.kind ~= "tmember" then
+                c.diag("NUPP2130", node, "writeof requires an indexed member type such as T.[K]")
+                return T.any
+            end
+            local subject, key = c.resolveType(indexed.object), c.resolveType(indexed.key)
+            local term = T.neutral("member", subject, key, "write")
+            local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo)
+            if reductionError then
+                c.diag("NUPP2130", node, reductionError)
+            end
+            return reduced
+        elseif kind == "tconst" then
+            return T.constOf(c.resolveType(node.inner))
+        elseif kind == "tcarray" then
+            local elem = c.resolveType(node.element)
+            local countNode = node.count
+            if not countNode then
+                return T.carray(elem, nil)
+            end
+            local term, constError = consteval.parse(countNode, constBinding)
+            if not term then
+                c.diag("NUPP2131", countNode, constError or "invalid C array const expression")
+                return T.carray(elem, nil)
+            end
+            local reduced, reductionError = consteval.reduce(term)
+            if reductionError then
+                c.diag("NUPP2131", countNode, reductionError)
+            end
+            local count = reduced.tag == "constLiteral"
+                and reduced.domain == "integer"
+                and reduced.value as integer
+                or nil
+            return T.carray(elem, count, reduced)
+        elseif kind == "tpredicate" then
+            -- the value it returns is a boolean; the narrowing it licenses is recorded
+            -- on the function type, not on this one
+            c.resolveType(node.type)
+            return T.boolean
+        elseif kind == "tborrows" then
+            -- the body returns the plain value; the borrow wrapper and the argument it
+            -- is tied to are applied to the function type, the same way @owned wraps an
+            -- annotated return
+            return c.resolveType(node.type)
+        elseif kind == "tpreserves" then
+            -- The callable records the relation; this node contributes its payload.
+            return c.resolveType(node.type)
+        elseif kind == "topt" then
+            return T.optional(c.resolveType(node.inner))
+        elseif kind == "tptr" then
+            return T.ptr(c.resolveType(node.inner))
+        elseif kind == "tunion" then
+            local members = {}
+            for j, m in ipairs(node.types) do
+                members[j] = c.resolveType(m)
+            end
+            return T.union(members)
+        elseif kind == "tintersection" then
+            local members = {}
+            for j, m in ipairs(node.types) do
+                members[j] = c.resolveType(m)
+            end
+            for j = 1, #members do
+                for k = j + 1, #members do
+                    local why = relations.disjoint(members[j], members[k])
+                    if why then
+                        local at = node
+                        for _, child in ipairs(node) do
+                            if cst.isToken(child) and child.kind == "&" then
+                                at = child
+                                break
+                            end
+                        end
+                        c.diag(
+                            "NUPP2124",
+                            at,
+                            (
+                                "intersection of %s and %s is uninhabited: %s"
+                            ):format(T.tostring(members[j]), T.tostring(members[k]), why)
+                        )
+                        return T.never
+                    end
+                end
+            end
+            return T.intersection(members)
+        elseif kind == "tarray" then
+            return T.array(c.resolveType(node.element))
+        elseif kind == "tmap" then
+            local key = c.resolveType(node.key)
+            local value = c.resolveType(node.value)
+            local capability = node.capability and node.capability.propertyCapability or nil
+            if capability == "read" then
+                return T.indexer(key, value, nil, nil)
+            elseif capability == "write" then
+                return T.indexer(nil, nil, key, value)
+            end
+            return T.map(key, value)
+        elseif kind == "tmapped" then
+            recursiveBlockedDepth = recursiveBlockedDepth + 1
+            local keys = c.resolveType(node.keys)
+            recursiveBlockedDepth = recursiveBlockedDepth - 1
+            local binderToken = node.binder
+            if not binderToken then
+                return T.any
+            end
+            c.pushScope()
+            local binder = c.typevarAt(binderToken, "mapped") as T.TypeVar
+            c.bindType(binderToken.text, binder, binderToken)
+            local value = c.resolveType(node.value)
+            recursiveBlockedDepth = recursiveBlockedDepth + 1
+            local remap = node.remap and c.resolveType(node.remap) or nil
+            recursiveBlockedDepth = recursiveBlockedDepth - 1
+            c.popScope()
+            local capability = node.capability and node.capability.propertyCapability or "read"
+            local term = T.neutral("mapped", nil, nil, capability, binder, keys, value, remap)
+            local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo)
+            if reductionError then
+                c.diag("NUPP2130", node, reductionError)
+            end
+            return reduced
+        elseif kind == "istring" then
+            local parts = {}
+            for _, child in ipairs(node) do
+                if cst.isToken(child) then
+                    if child.kind == "istringOpen" or child.kind == "istringMid" then
+                        parts[#parts + 1] = child.text:sub(2, -3)
+                    elseif child.kind == "istringClose" then
+                        parts[#parts + 1] = child.text:sub(2, -2)
+                    end
+                else
+                    local hole = nil
+                    if child.kind == "name" and child.token then
+                        hole = c.lookupType(child.token.text)
+                    end
+                    if not hole then
+                        local term, constError = consteval.parse(child, constBinding)
+                        if term then
+                            hole = consteval.singleton(term)
+                        else
+                            c.diag("NUPP2132", child, constError or "invalid template type hole")
+                            hole = T.any
+                        end
+                    end
+                    parts[#parts + 1] = hole
+                end
+            end
+            local term = T.neutral("template", nil, nil, nil, nil, nil, nil, nil, nil, parts)
+            local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo)
+            if reductionError then
+                c.diag("NUPP2132", node, reductionError)
+            end
+            return reduced
+        elseif kind == "ttuple" then
+            local elems = {}
+            for j, e in ipairs(node.types) do
+                elems[j] = c.resolveType(e)
+            end
+            local prefix = T.tuple(elems)
+            if not node.tail then
+                return prefix
+            end
+            local term = T.neutral("tupleConcat", prefix, c.resolveType(node.tail))
+            if T.hasTypevar(term) then
+                return term
+            end
+            local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo)
+            if reductionError then
+                c.diag("NUPP2132", node.tail, reductionError)
+            end
+            return reduced
+        elseif kind == "tpack" or kind == "tpackUnion" then
+            c.diag("NUPP2121", node, "a type pack may only appear in a value-sequence position")
+            return T.any
+        elseif kind == "tshape" then
+            local fields, order, byname = {}, {}, {}
+            local indexer = {}
+            for _, f in ipairs(node.fields) do
+                if f.kind == "tshapeField" then
+                    local fieldName = f.name
+                    if fieldName then
+                        local name = fieldName.text
+                        local entry = byname[name]
+                        if not entry then
+                            entry = {name = name}
+                            byname[name] = entry
+                            order[#order + 1] = name
+                        end
+                        local ft = c.resolveType(f.type)
+                        local capability = f.capability and f.capability.propertyCapability or nil
+                        if capability == "read" then
+                            if entry.read then
+                                c.diag(
+                                    "NUPP2118",
+                                    fieldName,
+                                    ("duplicate readonly capability for property %q"):format(name)
+                                )
+                            else
+                                entry.read = ft
+                            end
+                        elseif capability == "write" then
+                            if entry.write then
+                                c.diag(
+                                    "NUPP2118",
+                                    fieldName,
+                                    ("duplicate writeonly capability for property %q"):format(name)
+                                )
+                            else
+                                entry.write = ft
+                            end
+                        elseif entry.read or entry.write then
+                            c.diag(
+                                "NUPP2118",
+                                fieldName,
+                                ("ordinary property %q already has a capability"):format(name)
+                            )
+                        else
+                            entry.read, entry.write = ft, ft
+                        end
+                    end
+                elseif f.kind == "tmap" then
+                    local key, value = c.resolveType(f.key), c.resolveType(f.value)
+                    local capability = f.capability and f.capability.propertyCapability or nil
+                    local function setIndexer(which)
+                        local keyName = which .. "Key"
+                        local valueName = which .. "Value"
+                        if indexer[valueName] then
+                            local spelling = which == "read" and "readonly" or "writeonly"
+                            c.diag("NUPP2118", f, "duplicate " .. spelling .. " indexer capability")
+                        else
+                            indexer[keyName], indexer[valueName] = key, value
+                        end
+                    end
+
+                    if capability == "read" then
+                        setIndexer("read")
+                    elseif capability == "write" then
+                        setIndexer("write")
+                    else
+                        setIndexer("read")
+                        setIndexer("write")
+                    end
+                end
+            end
+            for _, name in ipairs(order) do
+                fields[#fields + 1] = byname[name]
+            end
+            if #fields == 0 and (indexer.readValue or indexer.writeValue) then
+                return T.indexer(indexer.readKey, indexer.readValue, indexer.writeKey, indexer.writeValue)
+            end
+            return T.shape(fields, indexer)
+        elseif kind == "tfunc" then
+            local params, rets, paramModes, paramNames = {}, {}, {}, {}
+            local vararg = false
+            local varargType = nil
+            local typeParams, typeBounds, packParams, constParams, paramKinds
+            if node.generics then
+                c.pushScope()
+                typeParams, typeBounds, packParams, constParams, paramKinds = c.bindGenerics(
+                    node.generics,
+                    "type-function"
+                )
+            end
+            local paramPackTail = nil
+            for _, p in ipairs(node.params) do
+                if p.kind == "tfuncParam" then
+                    local first = p[1]
+                    if p.pack then
+                        local pp = c.resolvePack(p.type)
+                        paramPackTail = pp.tail
+                        vararg = true
+                    elseif first and cst.isToken(first) and first.kind == "..." then
+                        vararg = true
+                        if p.type then
+                            varargType = c.resolveType(p.type)
+                        end
+                    else
+                        params[#params + 1] = p.type and c.resolveType(p.type) or T.any
+                        local mode = p.modeTok
+                        paramModes[#params] = mode and mode.text or "plain"
+                        paramNames[#params] = p.name and p.name.text or ""
+                    end
+                end
+            end
+            local paramPack = T.pack(
+                params,
+                paramPackTail or (
+                    vararg and {kind = varargType and "homogeneous" or "unknown", type = varargType or T.any} or nil
+                ),
+                paramModes
+            )
+            local retPack = node.returnPack and c.resolvePack(node.returnPack) or T.pack({})
+            -- Packs are interned. A result relation adjusts the callable's view of a
+            -- slot, so never write through the canonical pack's `head` array: doing
+            -- that would change every unrelated signature that shares the same pack.
+            rets = {}
+            for j, result in ipairs(retPack.head) do
+                rets[j] = result
+            end
+            local yieldPack = node.yieldPack and c.resolvePack(node.yieldPack) or nil
+            local resumePack = node.resumePack and c.resolvePack(node.resumePack) or nil
+            local preservesResults = {}
+            local byname = {}
+            for j, name in ipairs(paramNames) do
+                if name ~= "" then
+                    byname[name] = j
+                end
+            end
+            for result, ret in ipairs(node.rets or {}) do
+                if ret.kind == "tpreserves" and ret.param then
+                    local source = byname[ret.param.text]
+                    if source then
+                        preservesResults[result] = source
+                    else
+                        c.diag("NUPP2109", ret.param, ("%s names no parameter of this function"):format(ret.param.text))
+                    end
+                end
+            end
+            local borrowsParam, borrowsSelf, borrowsParams
+            local firstResult = node.rets and node.rets[1]
+            if firstResult and firstResult.kind == "tborrows" then
+                borrowsParams = {}
+                for _, source in ipairs(firstResult.params or {firstResult.param}) do
+                    if source and source.text == "self" and byname.self then
+                        borrowsSelf = true
+                    elseif source and byname[source.text] then
+                        borrowsParams[#borrowsParams + 1] = byname[source.text]
+                    elseif source then
+                        c.diag("NUPP2109", source, ("%s names no function-type parameter"):format(source.text))
+                    end
+                end
+                if #borrowsParams == 1 then
+                    borrowsParam, borrowsParams = borrowsParams[1], nil
+                end
+                if rets[1] then
+                    rets[1] = T.borrowed(T.unwrapOwnership(rets[1]))
+                    retPack = T.pack(rets, retPack.tail, retPack.modes)
+                end
+            end
+            if node.generics then
+                c.popScope()
+            end
+            return T.func(params, rets, vararg, paramModes, nil, typeParams, typeBounds, borrowsParam, borrowsSelf, borrowsParams, nil, varargType, nil, paramPack, retPack, packParams, yieldPack, resumePack,
+                -- `nosuspend function(...)`: the one way to state the guarantee about
+                -- something whose body is never seen here.
+                node.noSuspend, paramNames, next(preservesResults) and preservesResults or nil, nil,
+                constParams, paramKinds)
+        elseif kind == "tparen" then
+            return c.resolveType(node.inner)
+        end
+
+        return T.any
+    end
+
+    c.resolvePack = function(node)
+        if not node then
+            return T.pack({})
+        end
+        if node.kind == "tpackUnion" then
+            local arms = {}
+            for j, arm in ipairs(node.packs or {}) do
+                arms[j] = c.resolvePack(arm)
+            end
+            return T.packUnion(arms)
+        end
+        if node.kind ~= "tpack" then
+            return T.pack({c.resolveType(node)})
+        end
+        local head = {}
+        for j, item in ipairs(node.types or {}) do
+            if item.kind == "tpack" or item.kind == "tpackUnion" then
+                c.diag("NUPP2121", item, "a pack cannot be nested as one value")
+                head[j] = T.any
+            else
+                head[j] = c.resolveType(item)
+            end
+        end
+        local tail = nil
+        if node.tailKind == "homogeneous" then
+            tail = {kind = "homogeneous", type = c.resolveType(node.tail)}
+        elseif node.tailKind == "computed" then
+            tail = {kind = "computed", type = c.resolveType(node.tail)}
+        elseif node.tailKind == "generic" then
+            local base = node.tail and node.tail.base
+            local pv, def
+            if base then
+                pv, def = c.lookupPack(base.text)
+            end
+            if not pv then
+                c.diag(
+                    "NUPP2121",
+                    node.tail or node,
+                    "unknown generic pack " .. string.format("%q", base and base.text or "")
+                )
+                tail = {kind = "unknown", type = T.any}
+            else
+                c.markToken(base, def, nil, "typeParameter")
+                tail = {kind = "generic", var = pv}
+            end
+        end
+
+        return T.pack(head, tail)
+    end
+
+    -- Resolves an alias that was hoisted to the top of its block, the first time
+    -- anything names it. `type Type = A | B` and the records A and B name each other by
+    -- construction, so neither can be written first; hoisting binds every declaration
+    -- in a block before any body is checked, and an alias's value waits here until it
+    -- is wanted.
+    c.resolvePendingAlias = function(name, waiting, owner)
+        if c.resolvingAlias[name] then
+            c.diag("NUPP2133", waiting.tok, ("type %q has unsupported recursive resolution"):format(name))
+            owner.pending[name] = nil
+            owner.types[name] = T.any
+            return T.any
+        end
+        local saved = c.scope
+        c.scope = owner
+        local t
+        local decl = waiting.decl
+        local typeParams, typeBounds, packParams, constParams, paramKinds = {}, {}, {}, {}, {}
+        if decl and decl.generics then
+            c.pushScope()
+            typeParams, typeBounds, packParams, constParams, paramKinds = c.bindGenerics(
+                decl.generics,
+                "type-alias"
+            )
+        end
+        local identity = (c.filename or "<source>") .. ":" .. tostring(waiting.tok.offset) .. ":" .. name
+        local header = T.aliasHeader(identity, name, typeParams, typeBounds, packParams, constParams, paramKinds)
+        local context = {name = name, header = header, definition = c.scope.typeDefs[name] or owner.typeDefs[name]}
+        local previousActive = c.activeAlias
+        c.resolvingAlias[name] = context
+        c.activeAlias = context
+        local body = c.resolveType(waiting.node)
+        header.body = body
+        c.activeAlias = previousActive
+        c.resolvingAlias[name] = nil
+        if decl and decl.generics then
+            c.popScope()
+            t = T.genericAlias(name, body, typeParams, typeBounds, packParams, constParams, paramKinds, header)
+        else
+            t = body
+        end
+        c.scope = saved
+        owner.pending[name] = nil
+        owner.types[name] = t
+        waiting.resolved = t
+
+        return t
+    end
+end
+
+return resolve

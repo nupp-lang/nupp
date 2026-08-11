@@ -1,0 +1,230 @@
+--[[
+Checking what a metatable literal puts under its keys.
+
+A declaration may contract for an operator, and a metatable literal is where the
+value fulfilling it is written. The contract says what that value has to be, so
+it is held there rather than trusted; a contract nothing enforces is a
+declaration that renders and is never read.
+
+Where no contract says, LuaJIT still does. `__mode` is read as a string,
+`__index` is a table to defer to or a function to run, and everything else it
+knows is called. A `__` name it does not know is a broken contract rather than
+an ordinary field, so it keeps its spelling repair.
+
+Only literals. What a function returns cannot be seen from here, so a computed
+metatable stays gradual, which is what the documentation has always said.
+]]
+
+local T = require("nupp.compiler.types")
+local relations = require("nupp.compiler.relations")
+local cst = require("nupp.compiler.cst")
+local operators = require("nupp.compiler.check.operators")
+local state = require("nupp.compiler.check.state")
+
+local isA = relations.isA
+local rawType = T.unwrapOwnership
+
+local metatable = {}
+
+--- A type, as nupp.compiler.types builds them.
+local type Type = T.Type
+
+--- A node of the tree being checked.
+local type Node = cst.Node
+
+--- What the other passes call into the metatable checks with. Both are also promoted
+--- onto the run, since a metatable is written in more places than one pass reaches.
+type metatable.Ops = {
+    --- Checks one metamethod value against the contract its receiver declares.
+    checkContract: function(at: any, name: string, valueT: Type, contract: Type, of: Type?),
+
+    --- Checks a table literal standing where a metatable is expected.
+    checkLiteral: function(node: Node?, literalType: Type?, target: Type?)
+}
+
+--- Installs the metatable literal checks on one run.
+---
+--- @param c the run's state
+--- @return the operations the other passes call
+function metatable.install(c: state.Checker): metatable.Ops
+    local ops = {}
+
+    --- The receiver a `metatable<T>` describes, through whatever the annotation wrapped
+    --- it in: `metatable<T>?` is the shape `setmetatable` declares.
+    local function receiverOf(t: Type?): Type?
+        if not t then
+            return nil
+        end
+        local bare = rawType(t)
+        if bare.tag == "metatable" then
+            return bare.of
+        end
+        if bare.tag == "union" or bare.tag == "intersection" then
+            for _, member in ipairs(bare.members) do
+                local of = receiverOf(member)
+                if of then
+                    return of
+                end
+            end
+        end
+
+        return nil
+    end
+
+    --- What inference made of one named field, or nil when the literal was not shaped
+    --- enough to say -- a computed key answers `table` for the whole of it, and there
+    --- is nothing here to check against.
+    local function fieldOf(literalType: Type?, name: string): Type?
+        local bare = literalType and rawType(literalType) or nil
+        if bare and bare.tag == "shape" then
+            return bare.byname[name]
+        end
+
+        return nil
+    end
+
+    --- Whether a value can stand where LuaJIT will call one. `any` is what an untyped
+    --- boundary gives back and says nothing either way.
+    local function callable(t: Type): boolean
+        local bare = rawType(t)
+        if t == T.any or bare.tag == "func" then
+            return true
+        end
+        if bare.tag == "intersection" then
+            for _, member in ipairs(bare.members) do
+                if rawType(member).tag ~= "func" then
+                    return false
+                end
+            end
+            return #bare.members > 0
+        end
+
+        return false
+    end
+
+    function ops.checkContract(at: any, name: string, valueT: Type, contract: Type, of: Type?)
+        local ok, why = isA(valueT, contract)
+        if ok then
+            return
+        end
+        c.diag(
+            "NUPP2123",
+            at,
+            (
+                "%s does not fulfil the contract %s declares: %s"
+            ):format(name, of and T.tostring(of) or "the receiver", why),
+            nil,
+            {help = ("the contract is %s"):format(T.tostring(contract))}
+        )
+    end
+
+    --- Checks an `__index` table against the receiver its instances will read through.
+    --- An entry naming nothing the declaration has is an ordinary helper, and a member
+    --- the table leaves out may still be assigned afterwards, so only the names written
+    --- on both sides are compared. What that catches is a member given the wrong shape,
+    --- which the declaration is the authority on.
+    local function checkIndexTable(value: cst.TableExpr, valueT: Type?, of: Type)
+        for _, field in ipairs(value.fields or {}) do
+            if field.kind == "fieldNamed" and field.name then
+                local name = field.name.text
+                local declared = c.fieldType(of, name)
+                local written = fieldOf(valueT, name)
+                if declared and written then
+                    local ok, why = isA(written, declared)
+                    if not ok then
+                        c.diag(
+                            "NUPP2123",
+                            field.value or field,
+                            ("__index %s: %s"):format(name, why),
+                            nil,
+                            {help = ("%s declares it as %s"):format(T.tostring(of), T.tostring(declared))}
+                        )
+                    end
+                end
+            end
+        end
+    end
+
+    local function checkField(field: cst.FieldNamed, of: Type, literalType: Type?)
+        local key = field.name
+        if not key then
+            return
+        end
+        local name = key.text
+        if name:sub(1, 2) ~= "__" then
+            return
+        end
+        local value = field.value
+        local at = value or field
+        local contract = c.metamethodOf(of, name)
+        local valueT = fieldOf(literalType, name)
+        if contract then
+            if valueT then
+                ops.checkContract(at, name, valueT, contract, of)
+            end
+            return
+        end
+        if not operators.runtimeMetamethod[name] then
+            c.diag(
+                "NUPP2118",
+                key,
+                ("unknown metatable key %q"):format(name),
+                c.edits.spellingFix(key, operators.runtimeMetamethod)
+            )
+            return
+        end
+        if not valueT then
+            return
+        end
+        if name == "__metatable" then
+        -- Whatever the program wants handed out in place of the real one.
+        elseif name == "__mode" then
+            if not isA(valueT, T.string) then
+                c.diag("NUPP2123", at, ("__mode is read as a string, not %s"):format(T.tostring(valueT)))
+            end
+        elseif name == "__index" or name == "__newindex" then
+            if not callable(valueT) and not isA(valueT, T.table_) then
+                c.diag(
+                    "NUPP2123",
+                    at,
+                    ("%s is a table to defer to or a function to run, not %s"):format(name, T.tostring(valueT))
+                )
+            elseif name == "__index" and value and value.kind == "tableExpr" then
+                checkIndexTable(value, valueT, of)
+            end
+        elseif not callable(valueT) then
+            c.diag(
+                "NUPP2123",
+                at,
+                ("%s is called, so it holds a function, " .. "not %s"):format(name, T.tostring(valueT))
+            )
+        end
+    end
+
+    --- Checks a table literal standing where a metatable is expected.
+    ---
+    --- @param node the expression written there, of whatever kind
+    --- @param literalType what inference made of it
+    --- @param target the type it has to fit, which says whose metatable it is
+    function ops.checkLiteral(node: Node?, literalType: Type?, target: Type?)
+        if not node or node.kind ~= "tableExpr" then
+            return
+        end
+        local of = receiverOf(target)
+        if not of then
+            return
+        end
+        for _, field in ipairs(node.fields or {}) do
+            if field.kind == "fieldNamed" then
+                checkField(field, of, literalType)
+            end
+        end
+    end
+
+    c.checkMetatableLiteral = ops.checkLiteral
+    c.checkMetamethodValue = ops.checkContract
+
+    return ops
+end
+
+return metatable

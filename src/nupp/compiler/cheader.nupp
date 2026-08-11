@@ -1,0 +1,348 @@
+--[[
+Typing a C header at compile time, with no import step.
+
+The header is handed to the compiler's own `ffi.cdef`, and the resulting
+declarations are read back out through `ffi.typeinfo`. LuaJIT's C parser is
+therefore the source of truth for what a header declares, rather than a pattern
+matcher of ours, and the sizes it reports are the ones that hold on the machine
+doing the build — so `long` and `size_t` come out right on every platform
+instead of being baked in by whoever generated a bindings file.
+
+Most headers a project owns need no preprocessing at all: dropping the
+directives is enough for LuaJIT. Headers that pull in a system include closure
+need `cc -E` first, which the caller asks for explicitly.
+]]
+
+local T = require("nupp.compiler.types")
+local cdecl = require("nupp.compiler.cdecl")
+
+local cheader = {}
+
+--- What a struct tag already stands for in the program being checked, so a header met
+--- twice keeps one identity. Nil when nothing has declared it yet.
+type cheader.Resolver = function(tag: string): T.Type?
+
+--- How a header is read. `preprocess` runs the system compiler first, for headers whose
+--- declarations are written in a vocabulary their includes define.
+type cheader.Options = {
+    readonly preprocess: boolean?,
+    readonly cc: string?
+}
+
+--- A header as the checker takes it: what it declares, and the text to hand the
+--- program's own FFI so the declarations exist at run time too.
+type cheader.Header = {
+    exports: {[string]: T.Type},
+    cdef: string
+}
+
+local INT_BY_BITS = {
+    [8] = {T.int8, T.uint8},
+    [16] = {T.int16, T.uint16},
+    [32] = {T.int32, T.uint32},
+    [64] = {T.int64, T.uint64},
+}
+
+local modelFunction -- defined below; a pointer may be to a function
+
+-- A neutral C declaration type, as the Nupp type that stands for it.
+local function nuppType(model, structs, resolver)
+    local kind = model and model.kind or "unknown"
+    if kind == "void" then
+        return nil -- no value
+    elseif kind == "boolean" then
+        return T.boolean
+    elseif kind == "float" then
+        return model.bits == 32 and T.float or T.number
+    elseif kind == "integer" then
+        local pair = INT_BY_BITS[model.bits]
+        if not pair then
+            return T.number
+        end
+        return model.unsigned and pair[2] or pair[1]
+    elseif kind == "pointer" then
+        local pointee = model.to
+        local readOnly = model.const
+        if pointee and pointee.kind == "integer" and pointee.bits == 8 then
+            -- a byte pointer is how C spells text, and LuaJIT fills one straight from a
+            -- Lua string
+            return T.optional(T.cstring)
+        end
+        -- Every C pointer may be NULL, and the header does not say which ones are, so
+        -- an imported pointer is nullable. A cdef written by hand keeps whatever it
+        -- says.
+        if pointee and pointee.kind == "function" then
+            -- a C function pointer: the shape a callback must match
+            return T.optional(modelFunction(pointee, structs, resolver))
+        end
+        if pointee and pointee.kind == "struct" then
+            local named = structs and structs[pointee.id]
+            if not named and resolver and pointee.name then
+                named = resolver(pointee.name)
+            end
+            if named then
+                -- the header said whether it writes through this pointer
+                if readOnly then
+                    named = T.constOf(named)
+                end
+                return T.optional(T.ptr(named))
+            end
+        end
+        if readOnly then
+            return T.optional(T.constOf(T.voidptr))
+        end
+        return T.optional(T.voidptr)
+    elseif kind == "struct" then
+        local named = structs and structs[model.id]
+        if not named and resolver and model.name then
+            named = resolver(model.name)
+        end
+        if named then
+            return named
+        end
+        return T.voidptr
+    elseif kind == "enum" then
+        return T.int32
+    elseif kind == "array" then
+        return T.voidptr
+    end
+
+    return T.any
+end
+
+modelFunction = function(fn, structs, resolver)
+    local params = {}
+    for _, param in ipairs(fn.params or {}) do
+        params[#params + 1] = nuppType(param.type, structs, resolver) or T.any
+    end
+    local rets = {}
+    local ret = nuppType(fn.returns, structs, resolver)
+    if ret then
+        rets[1] = ret
+    end
+
+    return T.func(params, rets, fn.vararg, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, true)
+end
+
+-- Strips directives and comments; enough for a header that does not need a
+-- preprocessor, and harmless for one that has already been through it.
+local function stripDirectives(text)
+    text = text:gsub("/%*.-%*/", " ")
+    local out = {}
+    for line in (text .. "\n"):gmatch("(.-)\n") do
+        if not line:match("^%s*#") then
+            out[#out + 1] = (line:gsub("//.*$", ""))
+        end
+    end
+
+    return table.concat(out, "\n")
+end
+
+local function capture(cmd)
+    local p = io.popen(cmd .. " 2>/dev/null")
+    if not p then
+        return nil
+    end
+    local out = p:read("*a")
+    p:close()
+
+    return out
+end
+
+local function readFile(path)
+    local f = io.open(path, "rb")
+    if not f then
+        return nil
+    end
+    local text = f:read("*a")
+    f:close()
+
+    return text
+end
+
+-- Only meaningful when the preprocessor runs, but cheap to record always.
+local toolchainCache = {}
+local function toolchainTag(opts)
+    if not opts.preprocess then
+        return "-"
+    end
+    local cc = opts.cc or "cc"
+    local hit = toolchainCache[cc]
+    if hit then
+        return hit
+    end
+    local p = io.popen(cc .. " --version 2>/dev/null")
+    local version = p and p:read("*l") or "unknown"
+    if p then
+        p:close()
+    end
+    toolchainCache[cc] = version
+
+    return version
+end
+
+local cache = {}
+
+-- Declarations a program makes with a literal ffi.cdef block are given to the
+-- compiler's own FFI as well, so the type strings that follow mean something here too.
+-- Keyed by content: declaring the same block twice is an error in the FFI rather than a
+-- no-op.
+local declaredBlocks = {}
+local declaredNames: {[string]: {[string]: boolean}} = {}
+--- Declares a block once per process and answers what it named.
+---
+--- The names are cached with the verdict because a repeated block introduces
+--- nothing the second time: LuaJIT already holds it, so the id diff underneath
+--- would be empty and a second checker run over the same source would see an
+--- `ffi.C` missing everything that source declared.
+function cheader.declare(text: string): boolean, string?, {[string]: boolean}?
+    if declaredBlocks[text] ~= nil then
+        return declaredBlocks[text], nil, declaredNames[text]
+    end
+    local ok, err, names = cdecl.declare(text)
+    declaredBlocks[text] = ok
+    declaredNames[text] = names or {}
+    if not ok then
+        return false, err
+    end
+
+    return true, nil, declaredNames[text]
+end
+
+-- The nupp type a literal C type string stands for, e.g. "struct Point" or "uint8_t *".
+-- `resolver` maps a struct tag to a type the program has already declared, so a cdef
+-- struct keeps its identity here. Structs met through a type string rather than a
+-- declaration: built once and shared, so two mentions of the same tag are the same
+-- type.
+local adopted = {}
+local adoptStruct
+
+local function adoptingResolver(resolver)
+    return function(tag)
+        if resolver then
+            local known = resolver(tag)
+            if known then
+                return known
+            end
+        end
+
+        return adoptStruct(tag)
+    end
+end
+
+adoptStruct = function(tag)
+    local hit = adopted[tag]
+    if hit then
+        return hit
+    end
+    local model = cdecl.typeFromString("struct " .. tag)
+    if not model or model.kind ~= "struct" then
+        return nil
+    end
+    local declaration = cdecl.structById(model.id)
+    if not declaration then
+        return nil
+    end
+    local nominal = T.nominal(tag, "struct")
+    nominal.cdefName = tag
+    nominal.fieldOrder = {}
+    adopted[tag] = nominal -- before decoding, so a self-reference terminates
+    for _, field in ipairs(declaration.fields) do
+        local fieldType = nuppType(field.type, nil, adoptingResolver(nil)) or T.any
+        nominal.byname[field.name] = fieldType
+        nominal.writeByname[field.name] = fieldType
+        nominal.fieldOrder[#nominal.fieldOrder + 1] = field.name
+    end
+
+    return nominal
+end
+
+function cheader.typeFromString(spec: string, resolver: cheader.Resolver?): T.Type?, string?
+    local model, err = cdecl.typeFromString(spec)
+    if not model then
+        return nil, err
+    end
+
+    return nuppType(model, nil, adoptingResolver(resolver))
+end
+
+-- The functions named by `only`, modelled as nupp types. This is what ffi.C and
+-- ffi.load hold. `only` is the set the checked program declared; without it the
+-- answer would be the whole process, which is every other program the compiler
+-- happened to check and the compiler's own bindings besides.
+function cheader.declaredFunctions(
+    resolver: cheader.Resolver?, only: {[string]: boolean}?
+): {[string]: T.Type}
+    local out = {}
+    local r = adoptingResolver(resolver)
+    for name, fn in pairs(cdecl.declaredFunctions(only)) do
+        out[name] = modelFunction(fn, nil, r)
+    end
+
+    return out
+end
+
+-- Returns { exports = {name -> type}, cdef = string } or nil plus a reason.
+-- `opts.preprocess` runs the system compiler first, for headers whose declarations are
+-- written in a vocabulary their includes define.
+function cheader.load(path: string, opts: cheader.Options?): cheader.Header?, string?
+    opts = opts or {} as cheader.Options
+    local source = readFile(path)
+    if not source then
+        return nil, "cannot read " .. path
+    end
+    -- Keyed by content, not by path: the same header reached two ways is one set of
+    -- declarations, and declaring it twice is an error in the FFI rather than a no-op.
+    local preprocess = opts.preprocess and true or false
+    -- The same bytes mean different types under a different ABI or a different
+    -- toolchain, so both belong in the key alongside the source.
+    local key = table.concat({tostring(preprocess), cdecl.abiTag(), toolchainTag(opts), source,}, "\0")
+    local hit = cache[key]
+    if hit then
+        return hit
+    end
+
+    local text = source
+    if preprocess then
+        local cc = opts.cc or "cc"
+        local expanded = capture(("%s -E -xc '%s'"):format(cc, path))
+        if not expanded or #expanded == 0 then
+            return nil, "cc -E produced no output for " .. path
+        end
+        text = expanded
+    end
+    text = stripDirectives(text)
+
+    local parsed, err = cdecl.inspect(text)
+    if not parsed then
+        return nil, ("LuaJIT could not parse %s: %s"):format(path, tostring(err))
+    end
+
+    -- Structs first, so a function mentioning one can refer to it.
+    local structs, exports = {}, {}
+    for _, declaration in ipairs(parsed.structs) do
+        local nominal = T.nominal(declaration.name, "struct")
+        nominal.cdefName = declaration.name
+        nominal.fieldOrder = {}
+        structs[declaration.id] = nominal
+    end
+    for _, declaration in ipairs(parsed.structs) do
+        local nominal = structs[declaration.id]
+        for _, field in ipairs(declaration.fields) do
+            local fieldType = nuppType(field.type, structs) or T.any
+            nominal.byname[field.name] = fieldType
+            nominal.writeByname[field.name] = fieldType
+            nominal.fieldOrder[#nominal.fieldOrder + 1] = field.name
+        end
+    end
+    for _, fn in ipairs(parsed.functions) do
+        exports[fn.name] = modelFunction(fn, structs)
+    end
+
+    local result = {exports = exports, cdef = text}
+    cache[key] = result
+
+    return result
+end
+
+return cheader

@@ -1,0 +1,810 @@
+--[[
+The CST of one file, read as its documented declarations.
+
+Every question this asks — what a declaration is called, what it is spelled like,
+which `---` run belongs to it — is answered by the parse alone, which is why
+documentation never invokes the checker.
+]]
+
+local cst = require("nupp.compiler.cst")
+local parser = require("nupp.compiler.parser")
+local docblock = require("nupp.compiler.docblock")
+local formatter = require("nupp.compiler.fmt")
+local stringsMod = require("nupp.compiler.doc.strings")
+local filesMod = require("nupp.compiler.doc.files")
+
+local trim = stringsMod.trim
+local normalize, join = filesMod.normalize, filesMod.join
+
+local extract = {}
+
+--- One argument: its name and type as the source spelled them, and what `@param` said.
+type extract.Param = {
+    name: string,
+    type: string,
+    mode: string?,
+    text: string
+}
+
+--- One result: a type and a description, with no name to hang them on.
+type extract.Result = {
+    type: string,
+    text: string
+}
+
+--- One type parameter, and what `@typearg` said about it.
+type extract.TypeArg = {
+    name: string,
+    text: string
+}
+
+--- A field, method, or metamethod of a record, interface, or struct. A function-typed
+--- one carries its own arguments and results, which is what tells the two apart.
+type extract.Member = {
+    name: string,
+    type: string,
+    text: string,
+    path: string,
+    params: {extract.Param},
+    returns: {extract.Result},
+    raises: {string},
+    isFunction: boolean?,
+    isMetamethod: boolean?
+}
+
+--- One documented declaration: what it is called, how it is spelled, and everything its
+--- `---` run said about it.
+type extract.Item = {
+    name: string,
+    kind: string,
+    signature: string,
+    doc: docblock.Doc,
+    path: string,
+    module: string?,
+    line: integer,
+    members: {extract.Member},
+    params: {extract.Param},
+    returns: {extract.Result},
+    raises: {string},
+    typeargs: {extract.TypeArg}
+}
+
+--- One source file, read as its documented declarations.
+type extract.Module = {
+    name: string,
+    path: string?,
+    text: string,
+    items: {extract.Item},
+    documentationInternal: boolean?,
+
+    --- Set on a name that only holds other modules. There is no file behind one and
+    --- nothing to require by that name, so it has no source and no declarations.
+    namespace: boolean?
+}
+
+--- What a caller wants included beyond the public surface a module hands out.
+type extract.Options = {
+    includeAll: boolean?,
+    includePrivate: boolean?
+}
+
+local function firstToken(node)
+    if not node then
+        return nil
+    end
+    if cst.isToken(node) then
+        return node
+    end
+    for _, child in ipairs(node) do
+        local token = firstToken(child)
+        if token then
+            return token
+        end
+    end
+
+    return nil
+end
+
+local function syntax(node)
+    return trim(cst.textOf(node))
+end
+
+-- A structure's signature is its complete declaration, not only its opening line.
+-- Documentation is rendered beside the code block, so omit `---` trivia while
+-- preserving ordinary comments and every syntax token, then let the language's own
+-- formatter decide indentation and line breaks.
+local function structureSignature(node, includePrivate)
+    local parts: {string} = {}
+    local function walk(child)
+        if cst.isToken(child) then
+            local triviaParts: {string} = {}
+            local removedDocumentation = false
+            for _, trivia in ipairs(child.trivia) do
+                if trivia.kind == "comment" and trivia.text:match("^%-%-%-") then
+                    removedDocumentation = true
+                else
+                    triviaParts[#triviaParts + 1] = trivia.text
+                end
+            end
+            local triviaText = table.concat(triviaParts)
+            if removedDocumentation then
+                if triviaText:match("^%s*$") then
+                    triviaText = "\n"
+                else
+                    repeat
+                        local collapsed, count = triviaText:gsub("\n[ \t]*\n[ \t]*", "\n")
+                        triviaText = collapsed
+                    until count == 0
+                end
+            end
+            parts[#parts + 1] = triviaText
+            parts[#parts + 1] = child.text
+        else
+            if child ~= node and child.kind == "recordDecl" and not includePrivate then
+                local info = docblock.parse(docblock.linesOf(child))
+                if info.tags.internal then
+                    return
+                end
+            end
+            for _, nested in ipairs(child) do
+                walk(nested)
+            end
+        end
+    end
+
+    walk(node)
+    local source = trim(table.concat(parts))
+    local formatted, errors = formatter.format(source, "documentation-signature.nupp")
+    if #errors > 0 then
+        return source
+    end
+
+    return trim(formatted)
+end
+
+-- The `---` run and its tags are read by nupp.compiler.docblock, because the checker
+-- reads
+-- the
+-- same run to ask whether a function that raises documented it.
+local docLines, parseDoc = docblock.linesOf, docblock.parse
+
+-- A declaration's name as it was written, table and all. Readers reach a member as
+-- `cst.Node`, so that is what the signature has to show.
+local function declaredName(stat)
+    local name = stat.name.text
+    if not stat.qualifiers then
+        return name
+    end
+    local parts = {}
+    for j, token in ipairs(stat.qualifiers) do
+        parts[j] = token.text
+    end
+    parts[#parts + 1] = name
+
+    return table.concat(parts, ".")
+end
+
+local function genericText(node)
+    return node and node.generics and syntax(node.generics) or ""
+end
+
+local function functionSignature(stat, name)
+    local body = stat.body
+    local params = {}
+    for _, param in ipairs(body and body.params or {}) do
+        local piece
+        if param[1] and param[1].kind == "..." then
+            piece = "..." .. (param.name and param.name.text or "")
+        else
+            piece = (param.modeTok and (param.modeTok.text .. " ") or "") .. (param.name and param.name.text or "?")
+        end
+        if param.type then
+            piece = piece .. ": " .. syntax(param.type)
+        end
+        params[#params + 1] = piece
+    end
+    local returns = {}
+    for _, value in ipairs(body and body.rets or {}) do
+        returns[#returns + 1] = syntax(value)
+    end
+    local prefix = stat.kind == "localFuncStmt" and "local function " or "function "
+    local result = prefix .. name .. genericText(body) .. "(" .. table.concat(params, ", ") .. ")"
+    if #returns > 0 then
+        result = result .. ": " .. table.concat(returns, ", ")
+    end
+
+    return result
+end
+
+local function cdefSignature(stat)
+    local params = {}
+    for _, param in ipairs(stat.params or {}) do
+        if param[1] and param[1].kind == "..." then
+            params[#params + 1] = "..."
+        else
+            local value = (
+                param.modeTok and (param.modeTok.text .. " ") or ""
+            ) .. (param.name and param.name.text or "?") .. ": " .. (param.type and syntax(param.type) or "any")
+            params[#params + 1] = value
+        end
+    end
+    local result = "cdef function " .. stat.name.text .. "(" .. table.concat(params, ", ") .. ")"
+    if stat.ret then
+        result = result .. ": " .. (stat.ownTok and "own " or "") .. syntax(stat.ret)
+    end
+    if stat.fromLib then
+        result = result .. " from " .. stat.fromLib.text
+    end
+
+    return result
+end
+
+local function functionDetails(stat, info)
+    local details = {params = {}, returns = {}}
+    for _, param in ipairs(stat.body and stat.body.params or stat.params or {}) do
+        local name = param.name and param.name.text or "..."
+        details.params[
+            #details.params + 1
+        ] = {
+            name = name,
+            type = param.type and syntax(param.type) or "any",
+            mode = param.modeTok and param.modeTok.text or nil,
+            text = info.params[name] or "",
+        }
+    end
+    local returns = stat.body and stat.body.rets or (stat.ret and {stat.ret} or {})
+    for index, value in ipairs(returns or {}) do
+        details.returns[#details.returns + 1] = {type = syntax(value), text = info.returns[index] or "",}
+    end
+
+    return details
+end
+
+-- A declaration file writes its functions as typed bindings — `local ipairs:
+-- function<V>(t: {V}): ...` — and a record writes its methods as fields, so the
+-- parameters and results live in a `tfunc` type node instead of a function body. They
+-- carry the same annotations and document the same way.
+local function typeFunction(node)
+    return node and node.kind == "tfunc" and node or nil
+end
+
+local function typeFunctionDetails(node, info)
+    local details = {params = {}, returns = {}}
+    for _, param in ipairs(node.params or {}) do
+        local name = param.name and param.name.text or (param[1] and param[1].kind == "..." and "...") or "?"
+        details.params[
+            #details.params + 1
+        ] = {
+            name = name,
+            type = param.type and syntax(param.type) or "any",
+            mode = param.modeTok and param.modeTok.text or nil,
+            text = info.params[name] or "",
+        }
+    end
+    for index, value in ipairs(node.rets or {}) do
+        details.returns[#details.returns + 1] = {type = syntax(value), text = info.returns[index] or "",}
+    end
+
+    return details
+end
+
+-- A declaration file is public by construction: it has no implementation to hide, and
+-- `local` there does not mean private. The prelude's bindings are checked with
+-- declare_globals and become every program's globals, and a bundled module's locals are
+-- what its `return` hands out. Documentation stops after parsing, so it cannot see
+-- either and would otherwise drop the one kind of file that is nothing but public
+-- surface. `@local` still opts a declaration out.
+local function privateName(name)
+    local tail = tostring(name or ""):match("([^%.:]+)$") or ""
+    tail = tail:gsub("^[\"']", "")
+    return tail:sub(1, 1) == "_"
+end
+
+-- One field of a shape type or a record, read as the top-level item a synthesized
+-- namespace module holds it as. Shares its shape with `declarationItem`'s own field and
+-- record-entry handling, but produces a full `extract.Item` rather than a lighter
+-- `extract.Member`: a synthesized module's fields are what a reader scrolls to, the
+-- same
+-- as an ordinary module's functions and values.
+local function fieldItem(field, childModuleName, includePrivate)
+    local name = field.name.text
+    local info = parseDoc(docLines(field))
+    if not (includePrivate or (not privateName(name) and not info.tags.internal)) then
+        return nil
+    end
+    local item = {
+        name = name,
+        kind = "variable",
+        signature = "local " .. name .. ": " .. syntax(field.type),
+        doc = info,
+        path = childModuleName .. "." .. name,
+        line = firstToken(field) and firstToken(field).line or 1,
+        members = {},
+        params = {},
+        returns = {},
+        raises = info.raises,
+        typeargs = {},
+    }
+    local fn = typeFunction(field.type)
+    if fn then
+        item.kind = "function"
+        local details = typeFunctionDetails(fn, info)
+        item.params, item.returns = details.params, details.returns
+        for _, generic in ipairs(fn.generics and fn.generics.names or {}) do
+            item.typeargs[#item.typeargs + 1] = {name = generic.text, text = info.typeargs[generic.text] or "",}
+        end
+    end
+
+    return item
+end
+
+-- A named type this file also declares, for a field spelled by reference rather than
+-- inline — `math: nupp.MathLibrary` beside `record nupp.MathLibrary ... end`.
+-- Documenting
+-- never resolves a type the way the checker does, so the only reference this can follow
+-- is one this same file answers itself.
+local function recordNamed(blocks, targetName)
+    local function find(stat, prefix)
+        if stat.kind ~= "recordDecl" then
+            return nil
+        end
+        local name = prefix and prefix .. "." .. stat.name.text or declaredName(stat)
+        if name == targetName then
+            return stat
+        end
+        if targetName:sub(1, #name + 1) == name .. "." then
+            for _, entry in ipairs(stat.entries or {}) do
+                local found = find(entry, name)
+                if found then
+                    return found
+                end
+            end
+        end
+
+        return nil
+    end
+
+    for _, block in ipairs(blocks or {}) do
+        for _, stat in ipairs(block.stats or {}) do
+            local found = find(stat, nil)
+            if found then
+                return found
+            end
+        end
+    end
+
+    return nil
+end
+
+-- The modules `@namespace` implies: one per field of the tagged shape, named `prefix.
+-- field`, holding that field's own fields as top-level items. A field inside one of
+-- those modules may carry `@namespace` itself, which moves it from the parent's values
+-- into a child module by the same rule. An inline shape reads its fields directly; a
+-- field spelled as a name is followed to the record of that name in the same file, when
+-- there is one. A field answering to neither is left out rather than guessed at.
+local function byKindThenName(left, right)
+    if left.kind == right.kind then
+        return left.name < right.name
+    end
+    return left.kind < right.kind
+end
+
+local declarationItem: function(any, string, boolean, boolean, boolean): extract.Item?
+
+local function namespaceChildren(shape, prefix, path, blocks, includePrivate)
+    local modules = {}
+    local expanding: {[any]: boolean} = {}
+    local function entriesOf(field)
+        if field.type and field.type.kind == "tshape" then
+            return field.type.fields
+        elseif field.type and field.type.kind == "tname" then
+            local record = recordNamed(blocks, syntax(field.type))
+            return record and record.entries
+        end
+
+        return nil
+    end
+
+    local function addModule(field, parentName)
+        local entries = entriesOf(field)
+        if not entries or expanding[entries] then
+            return
+        end
+        expanding[entries] = true
+        local childName = parentName .. "." .. field.name.text
+        local items = {}
+        for _, entry in ipairs(entries) do
+            if entry.kind == "fieldDecl" or entry.kind == "tshapeField" then
+                local info = parseDoc(docLines(entry))
+                if info.tags.namespace and entriesOf(entry) then
+                    addModule(entry, childName)
+                else
+                    local item = fieldItem(entry, childName, includePrivate)
+                    if item then
+                        items[#items + 1] = item
+                    end
+                end
+            elseif entry.kind == "typeAlias" or entry.kind == "recordDecl" then
+                local item = declarationItem(entry, childName, true, true, includePrivate)
+                if item then
+                    -- This declaration is an item of the namespace module, not an
+                    -- independently qualified module declaration to route again.
+                    item.module = nil
+                    item.path = childName .. "." .. item.name
+                    for _, member in ipairs(item.members) do
+                        member.path = item.path .. "." .. member.name
+                    end
+                    items[#items + 1] = item
+                end
+            end
+        end
+        table.sort(items, byKindThenName)
+        modules[#modules + 1] = {
+            name = childName,
+            path = path,
+            text = parseDoc(docLines(field)).text,
+            items = items,
+        }
+        expanding[entries] = nil
+    end
+
+    for _, field in ipairs(shape.fields or {}) do
+        local info = parseDoc(docLines(field))
+        if field.kind == "tshapeField"
+            and (includePrivate or (not privateName(field.name.text) and not info.tags.internal)) then
+            addModule(field, prefix)
+        end
+    end
+
+    return modules
+end
+
+-- Statement annotations wrap the declaration they modify in `pragmaStmt` nodes. The
+-- wrapper owns the leading trivia, so documentation comes from the outside while the
+-- name, signature and visibility come from the declaration at the centre. Following
+-- every wrapper also handles stacked annotations.
+declarationItem = function(stat, moduleName, includeAll, declarationFile, includePrivate)
+    local documented = stat
+    while stat.kind == "pragmaStmt" and stat.stat do
+        stat = stat.stat
+    end
+    local lines = docLines(documented)
+    local info = parseDoc(lines)
+    local public = includeAll or declarationFile or info.tags.export or info.tags.public
+    local kind, name, signature
+    if stat.kind == "funcStmt" or stat.kind == "localFuncStmt" then
+        name = stat.kind == "funcStmt" and syntax(stat.name) or stat.name.text
+        public = public or stat.kind == "funcStmt"
+        kind = stat.name and stat.name.method and "method" or "function"
+        signature = functionSignature(stat, name)
+    elseif stat.kind == "cdefFunc" then
+        name, kind, public = stat.name.text, "function", true
+        signature = cdefSignature(stat)
+    elseif stat.kind == "typeAlias" then
+        name, kind = stat.name.text, "type"
+        public = public or stat.visibility == "module" or stat.visibility == "global"
+        signature = (
+            stat.visibility == "global" and "global " or stat.visibility == "local" and "local " or ""
+        ) .. "type " .. declaredName(stat) .. genericText(stat) .. " = " .. syntax(stat.value)
+    elseif stat.kind == "recordDecl" then
+        name, kind = stat.name.text, stat.declKind
+        public = public or stat.visibility == "module" or stat.visibility == "global"
+        signature = structureSignature(stat, includePrivate)
+    elseif stat.kind == "cdefStruct" then
+        name, kind, public = stat.name.text, "struct", true
+        signature = "cdef struct " .. name
+    elseif stat.kind == "localStmt" then
+        if #(stat.names or {}) ~= 1 then
+            return nil
+        end
+        name, kind = stat.names[1].text, "variable"
+        signature = (stat.isConst and "const " or "local ") .. name
+        if stat.types[1] then
+            signature = signature .. ": " .. syntax(stat.types[1])
+        end
+        if typeFunction(stat.types[1]) then
+            kind = "function"
+        end
+    else
+        return nil
+    end
+    if info.tags["local"] then
+        public = includeAll
+    end
+    if info.tags.internal and not includePrivate then
+        public = false
+    end
+    if kind == "method" and privateName(name) and not includePrivate then
+        public = false
+    end
+    if not public then
+        return nil
+    end
+    local itemPath = moduleName .. "." .. name
+    local itemModule = nil
+    if stat.kind == "typeAlias" or stat.kind == "recordDecl" then
+        local qualified = declaredName(stat)
+        itemModule = qualified:match("^(.*)%.[^.]+$")
+    end
+    local moduleTail = moduleName:match("([^.]+)$") or moduleName
+    if not itemModule and name:sub(1, #moduleTail + 1) == moduleTail .. "." then
+        itemPath = moduleName .. name:sub(#moduleTail + 1)
+    end
+    local item = {
+        name = name,
+        kind = kind,
+        signature = signature,
+        doc = info,
+        path = itemPath,
+        module = itemModule,
+        line = firstToken(stat) and firstToken(stat).line or 1,
+        members = {},
+        params = {},
+        returns = {},
+        raises = info.raises,
+        typeargs = {},
+    }
+    local declaredFunction = stat.kind == "localStmt" and typeFunction(stat.types and stat.types[1]) or nil
+    local generics = stat.generics or (
+        stat.body and stat.body.generics
+    ) or (declaredFunction and declaredFunction.generics)
+    for _, generic in ipairs(generics and generics.names or {}) do
+        item.typeargs[#item.typeargs + 1] = {name = generic.text, text = info.typeargs[generic.text] or "",}
+    end
+    if stat.kind == "funcStmt" or stat.kind == "localFuncStmt" or stat.kind == "cdefFunc" then
+        local details = functionDetails(stat, info)
+        item.params, item.returns = details.params, details.returns
+    elseif declaredFunction then
+        local details = typeFunctionDetails(declaredFunction, info)
+        item.params, item.returns = details.params, details.returns
+    elseif stat.kind == "recordDecl" or stat.kind == "cdefStruct" then
+        for _, entry in ipairs(stat.entries or {}) do
+            local entryInfo = parseDoc(docLines(entry))
+            local entryName = entry.name and entry.name.text or ""
+            local entryVisible = includePrivate or (not privateName(entryName) and not entryInfo.tags.internal)
+            if (entry.kind == "fieldDecl" or entry.kind == "metamethodDecl") and entryVisible then
+                local fieldInfo = entryInfo
+                local member = {
+                    name = entry.name.text,
+                    type = syntax(entry.type),
+                    text = fieldInfo.text ~= "" and fieldInfo.text or info.fields[entry.name.text] or "",
+                    path = item.path .. "." .. entry.name.text,
+                    params = {},
+                    returns = {},
+                    raises = fieldInfo.raises,
+                }
+                local fieldFunction = typeFunction(entry.type)
+                if fieldFunction then
+                    local details = typeFunctionDetails(fieldFunction, fieldInfo)
+                    member.params, member.returns = details.params, details.returns
+                    member.isFunction = true
+                end
+                if entry.kind == "metamethodDecl" then
+                    member.isMetamethod = true
+                end
+                item.members[#item.members + 1] = member
+            elseif entry.kind == "inlineMethod" and entryVisible then
+                local methodInfo = entryInfo
+                local details = functionDetails(entry, methodInfo)
+                item.members[
+                    #item.members + 1
+                ] = {
+                    name = entry.name.text,
+                    type = functionSignature(entry, entry.name.text),
+                    text = methodInfo.text,
+                    path = item.path .. "." .. entry.name.text,
+                    params = details.params,
+                    returns = details.returns,
+                    raises = methodInfo.raises,
+                    isFunction = true,
+                }
+            elseif entry.name and entryVisible then
+                item.members[
+                    #item.members + 1
+                ] = {
+                    name = entry.name.text,
+                    type = entry.kind,
+                    text = entryInfo.text,
+                    path = item.path .. "." .. entry.name.text,
+                    params = {},
+                    returns = {},
+                    raises = {},
+                }
+            end
+        end
+    end
+
+    return item
+end
+
+local function moduleName(path: string, root: string, includes: {string}?): string
+    path, root = normalize(path), normalize(root)
+    local relative = path
+    if root ~= "." and path:sub(1, #root + 1) == root .. "/" then
+        relative = path:sub(#root + 2)
+    end
+    local best = relative
+    for _, include in ipairs(includes or {}) do
+        local prefix = normalize(join(root, include))
+        if path:sub(1, #prefix + 1) == prefix .. "/" then
+            local candidate = path:sub(#prefix + 2)
+            if #candidate < #best then
+                best = candidate
+            end
+        end
+    end
+    best = best:gsub("%.d%.nupp$", ""):gsub("%.g%.nupp$", ""):gsub("%.nupp$", "")
+    best = best:gsub("/init$", ""):gsub("/", ".")
+
+    return best
+end
+
+-- A long comment at the very top of a file is its module documentation: it is the one
+-- comment that belongs to the file rather than to whatever declaration happens to
+-- follow, and it survives as markdown untouched. An ordinary `--` header stays a plain
+-- implementation note, and an explicit `@module` docblock still wins over both.
+local function headerDoc(root)
+    local token = firstToken(root)
+    for _, trivia in ipairs(token and token.trivia or {}) do
+        if trivia.kind ~= "comment" then
+        -- keep looking: only whitespace may precede the header
+        elseif trivia.text:match("^%-%-%[=*%[") then
+            local text = trivia.text:gsub("^%-%-%[=*%[", ""):gsub("%]=*%]$", "")
+            return trim(text)
+        else
+            return nil
+        end
+    end
+
+    return nil
+end
+
+function extract.extract(
+    source: string,
+    path: string?,
+    name: string,
+    opts: extract.Options?
+): extract.Module?, {nupp.compiler.lexer.LexError}, {extract.Module}?
+    opts = opts or {} as extract.Options
+    local parsed = parser.parse(source, path)
+    if #parsed.errors > 0 then
+        return nil, parsed.errors
+    end
+    local result = {
+        name = name,
+        path = path,
+        text = "",
+        items = {},
+        documentationInternal = parsed.root.documentationInternal,
+    }
+    result.text = headerDoc(parsed.root) or ""
+    local declarationFile = path ~= nil and path:match("%.d%.nupp$") ~= nil
+    local extraModules = {}
+    for _, block in ipairs(parsed.root.blocks or {}) do
+        for _, stat in ipairs(block.stats or {}) do
+            local info = parseDoc(docLines(stat))
+            if info.tags.module then
+                result.text = type(info.tags.module) == "string" and info.tags.module or info.text
+            end
+            -- `@namespace` replaces one declaration with the modules its own fields
+            -- imply, for a shape with no file of its own to be documented from — the
+            -- prelude's ambient globals, not an ordinary declaration. Public by the
+            -- same
+            -- rule as any other declaration, so a private `local` stays out unless
+            -- `--all` asks for it too.
+            local shape = stat.kind == "localStmt" and #(
+                stat.names or {}
+            ) == 1 and stat.types[1] and stat.types[1].kind == "tshape" and stat.types[1] or nil
+            local shapePublic = opts.includeAll or declarationFile or info.tags.export or info.tags.public
+            if info.tags["local"] then
+                shapePublic = opts.includeAll
+            end
+            if info.tags.internal and not opts.includePrivate then
+                shapePublic = false
+            end
+            if shape and info.tags.namespace and shapePublic then
+                local prefix = info.tags.namespace == true and name or info.tags.namespace
+                for _, module in ipairs(
+                    namespaceChildren(shape, prefix, path, parsed.root.blocks, opts.includePrivate)
+                ) do
+                    extraModules[#extraModules + 1] = module
+                end
+            else
+                local item = declarationItem(stat, name, opts.includeAll, declarationFile, opts.includePrivate)
+                if item then
+                    result.items[#result.items + 1] = item
+                end
+            end
+        end
+    end
+    table.sort(result.items, byKindThenName)
+
+    return result, {}, extraModules
+end
+
+-- Function-typed members document like the functions they are, with their own arguments
+-- and results, so they are listed apart from the data fields rather than flattened into
+-- one table that has nowhere to put an annotation.
+local function splitMembers(members: {extract.Member}?): {extract.Member}, {extract.Member}
+    local fields, methods = {}, {}
+    for _, member in ipairs(members or {}) do
+        local into = member.isFunction and methods or fields
+        into[#into + 1] = member
+    end
+
+    return fields, methods
+end
+
+--- The modules one module's page is responsible for listing: every module nested under
+--- its name whose nearest documented ancestor is that module.
+---
+--- The nearest ancestor decides, rather than the immediate one, so that no module goes
+--- unlisted when a name between it and the root documents nothing. A site fills those
+--- names in with [](nupp.compiler.doc.extract.namespaces) and the two rules agree, but
+--- a
+--- caller reaching this directly with the modules it happens to hold gets the same
+--- guarantee without having to.
+---
+--- @param modules every module the run documented, which is what says who is documented
+--- @param name the module whose children are wanted
+--- @return the children, in the order they were given
+function extract.children(modules: {extract.Module}, name: string): {extract.Module}
+    local documented = {}
+    for _, module in ipairs(modules) do
+        documented[module.name] = true
+    end
+    local prefix, children = name .. ".", {}
+    for _, module in ipairs(modules) do
+        if module.name:sub(1, #prefix) == prefix then
+            local nearest, walked = name, name
+            for segment in module.name:sub(#prefix + 1):gmatch("[^.]+") do
+                walked = walked .. "." .. segment
+                if walked ~= module.name and documented[walked] then
+                    nearest = walked
+                end
+            end
+            if nearest == name then
+                children[#children + 1] = module
+            end
+        end
+    end
+
+    return children
+end
+
+--- The namespaces a set of modules implies: every dotted prefix that holds modules but
+--- is not one itself, as a module with no declarations.
+---
+--- A directory with no `init.nupp` is still a name a reader meets — in a require path,
+--- in the sidebar, in the name of every module under it — and without this it is the
+--- one name that leads nowhere. `nupp.compiler.build` is that name in this project's
+--- own documentation. Answering with a module rather than a special case is what lets
+--- the page, the navigation, the search index, and the markdown treat it like any
+--- other.
+---
+--- @param modules the documented modules, which is what says which names are taken
+--- @return the implied namespaces, outermost first
+function extract.namespaces(modules: {extract.Module}): {extract.Module}
+    local taken = {}
+    for _, module in ipairs(modules) do
+        taken[module.name] = true
+    end
+    local namespaces = {}
+    for _, module in ipairs(modules) do
+        local walked = nil
+        for segment in module.name:gmatch("[^.]+") do
+            walked = walked and walked .. "." .. segment or segment
+            if walked ~= module.name and not taken[walked] then
+                taken[walked] = true
+                namespaces[#namespaces + 1] = {name = walked, text = "", items = {}, namespace = true}
+            end
+        end
+    end
+
+    return namespaces
+end
+
+extract.moduleName = moduleName
+extract.splitMembers = splitMembers
+
+return extract

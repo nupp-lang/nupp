@@ -1,0 +1,9 @@
+#!/bin/sh
+# The project's rock tree, the same one bin/nupp puts on the path, so a test
+# runs against what a build runs against.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROCKS="$ROOT/.rocks"
+LUA_PATH="$ROCKS/share/lua/5.1/?.lua;$ROCKS/share/lua/5.1/?/init.lua;${LUA_PATH:-;}"
+LUA_CPATH="$ROCKS/lib/lua/5.1/?.so;${LUA_CPATH:-;}"
+export LUA_PATH LUA_CPATH
+exec luajit "$ROOT/tests/run.lua" "$@"

@@ -1,0 +1,451 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Nupp",
+  "scopeName": "source.nupp",
+  "patterns": [
+    { "include": "#hashbang" },
+    { "include": "#comments" },
+    { "include": "#interpolatedString" },
+    { "include": "#strings" },
+    { "include": "#typeDeclarations" },
+    { "include": "#functionDeclarations" },
+    { "include": "#constDeclarations" },
+    { "include": "#labelsAndPragmas" },
+    { "include": "#contextualKeywords" },
+    { "include": "#keywords" },
+    { "include": "#builtinTypes" },
+    { "include": "#typeNames" },
+    { "include": "#numbers" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "hashbang": {
+      "patterns": [
+        {
+          "match": "\\A(?:\\uFEFF)?#!.*$",
+          "name": "comment.line.shebang.nupp"
+        }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        {
+          "name": "markup.fenced_code.block.nupp",
+          "begin": "^([ \\t]*)(---)([ \\t]*)(```)([ \\t]*)(nupp)[ \\t]*$",
+          "end": "^([ \\t]*)(---)([ \\t]*)(```)[ \\t]*$",
+          "beginCaptures": {
+            "2": { "name": "punctuation.definition.comment.nupp" },
+            "4": { "name": "punctuation.definition.markdown.nupp" },
+            "6": { "name": "fenced_code.block.language.nupp" }
+          },
+          "endCaptures": {
+            "2": { "name": "punctuation.definition.comment.nupp" },
+            "4": { "name": "punctuation.definition.markdown.nupp" }
+          },
+          "patterns": [
+            {
+              "begin": "^([ \\t]*)(---)([ \\t]?)",
+              "end": "$",
+              "beginCaptures": {
+                "2": { "name": "punctuation.definition.comment.nupp" }
+              },
+              "contentName": "source.nupp.embedded",
+              "patterns": [{ "include": "$self" }]
+            }
+          ]
+        },
+        {
+          "name": "comment.line.documentation.nupp",
+          "begin": "^([ \\t]*)(---)(?!-)",
+          "end": "$",
+          "beginCaptures": {
+            "2": { "name": "punctuation.definition.comment.nupp" }
+          }
+        },
+        {
+          "name": "comment.line.double-dash.nupp",
+          "match": "--(?!\\[=*\\[).*$"
+        },
+        {
+          "name": "comment.block.nupp",
+          "begin": "--\\[(=*)\\[",
+          "end": "\\]\\1\\]",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.comment.begin.nupp" }
+          },
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.comment.end.nupp" }
+          }
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.nupp",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [{ "include": "#escapes" }]
+        },
+        {
+          "name": "string.quoted.single.nupp",
+          "begin": "'",
+          "end": "'",
+          "patterns": [{ "include": "#escapes" }]
+        },
+        {
+          "name": "string.quoted.other.long.nupp",
+          "begin": "\\[(=*)\\[",
+          "end": "\\]\\1\\]"
+        }
+      ]
+    },
+    "escapes": {
+      "patterns": [
+        {
+          "name": "constant.character.escape.nupp",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "interpolatedString": {
+      "name": "string.quoted.other.interpolated.nupp",
+      "begin": "`",
+      "end": "`",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.nupp" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.nupp" }
+      },
+      "patterns": [
+        { "include": "#escapes" },
+        { "include": "#interpolation" }
+      ]
+    },
+    "interpolation": {
+      "name": "meta.interpolation.nupp",
+      "contentName": "source.nupp.embedded",
+      "begin": "\\$\\{",
+      "end": "\\}",
+      "beginCaptures": {
+        "0": { "name": "punctuation.section.interpolation.begin.nupp" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.section.interpolation.end.nupp" }
+      },
+      "patterns": [
+        { "include": "#interpolationBraces" },
+        { "include": "$self" }
+      ]
+    },
+    "interpolationBraces": {
+      "begin": "\\{",
+      "end": "\\}",
+      "patterns": [
+        { "include": "#interpolationBraces" },
+        { "include": "$self" }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.nupp",
+          "match": "(?<![A-Za-z0-9_])0_*[xX]_*[0-9A-Fa-f][0-9A-Fa-f_]*(?:\\.(?!\\.)[0-9A-Fa-f_]*)?(?:[pP]_*(?:[+-]_*)?[0-9][0-9_]*)?(?:(?:[uU]_*)?[lL]_*[lL]|[iI])?_*(?![A-Za-z0-9_])"
+        },
+        {
+          "name": "constant.numeric.decimal.nupp",
+          "match": "(?<![A-Za-z0-9_])(?:[0-9][0-9_]*(?:\\.(?!\\.)[0-9_]*)?|\\.[0-9][0-9_]*)(?:[eE]_*(?:[+-]_*)?[0-9][0-9_]*)?(?:(?:[uU]_*)?[lL]_*[lL]|[iI])?_*(?![A-Za-z0-9_])"
+        }
+      ]
+    },
+    "typeDeclarations": {
+      "patterns": [
+        {
+          "comment": "`associated type Name` only means something inside a record or interface body; `is Bound` and `= Answer` are matched separately as ordinary keywords/operators.",
+          "match": "\\b(associated)([ \\t]+)(type)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.control.nupp" },
+            "3": { "name": "storage.type.declaration.nupp" },
+            "5": { "name": "entity.name.type.nupp" }
+          }
+        },
+        {
+          "match": "\\b(cdef)([ \\t]+)(struct)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.modifier.cdef.nupp" },
+            "3": { "name": "storage.type.declaration.nupp" },
+            "5": { "name": "entity.name.type.nupp" }
+          }
+        },
+        {
+          "match": "\\b(local)([ \\t]+)(type|record|interface|struct)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.modifier.local.nupp" },
+            "3": { "name": "storage.type.declaration.nupp" },
+            "5": { "name": "entity.name.type.nupp" }
+          }
+        },
+        {
+          "match": "\\b(global)([ \\t]+)(type|record|interface|struct)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.modifier.global.nupp" },
+            "3": { "name": "storage.type.declaration.nupp" },
+            "5": { "name": "entity.name.type.nupp" }
+          }
+        },
+        {
+          "comment": "A qualified name attaches the declaration to that table, so the table reads as a namespace and the last segment is the type.",
+          "match": "\\b(type|record|interface|struct)([ \\t]+)((?:[A-Za-z_][A-Za-z0-9_]*\\.)+)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.declaration.nupp" },
+            "3": { "name": "entity.name.namespace.nupp" },
+            "4": { "name": "entity.name.type.nupp" }
+          }
+        },
+        {
+          "match": "\\b(type|record|interface|struct)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.declaration.nupp" },
+            "3": { "name": "entity.name.type.nupp" }
+          }
+        }
+      ]
+    },
+    "functionDeclarations": {
+      "patterns": [
+        {
+          "name": "storage.type.function.nupp",
+          "match": "\\bconstructor\\b(?=\\s*\\()"
+        },
+        {
+          "match": "\\b(metamethod)([ \\t]+)(__[A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.function.nupp" },
+            "3": { "name": "entity.name.function.nupp" }
+          }
+        },
+        {
+          "begin": "\\b(cdef)([ \\t]+)(function)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)",
+          "end": "$",
+          "beginCaptures": {
+            "1": { "name": "storage.modifier.cdef.nupp" },
+            "3": { "name": "storage.type.function.nupp" },
+            "5": { "name": "entity.name.function.nupp" }
+          },
+          "patterns": [
+            {
+              "name": "storage.modifier.cdef.nupp",
+              "match": "\\bown\\b"
+            },
+            { "include": "$self" }
+          ]
+        },
+        {
+          "match": "\\b(const)([ \\t]+)(function)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.modifier.const.nupp" },
+            "3": { "name": "storage.type.function.nupp" },
+            "5": { "name": "entity.name.function.nupp" }
+          }
+        },
+        {
+          "match": "\\b(local)([ \\t]+)(function)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.modifier.local.nupp" },
+            "3": { "name": "storage.type.function.nupp" },
+            "5": { "name": "entity.name.function.nupp" }
+          }
+        },
+        {
+          "match": "\\b(function)([ \\t]+)([A-Za-z_][A-Za-z0-9_.:]*)",
+          "captures": {
+            "1": { "name": "storage.type.function.nupp" },
+            "3": { "name": "entity.name.function.nupp" }
+          }
+        }
+      ]
+    },
+    "constDeclarations": {
+      "patterns": [
+        {
+          "match": "\\b(const)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*(?::|,|=|(?:--.*)?$))",
+          "captures": {
+            "1": { "name": "storage.modifier.const.nupp" },
+            "3": { "name": "variable.other.constant.nupp" }
+          }
+        }
+      ]
+    },
+    "labelsAndPragmas": {
+      "patterns": [
+        {
+          "match": "(::)([A-Za-z_][A-Za-z0-9_]*)(::)",
+          "captures": {
+            "1": { "name": "punctuation.definition.label.begin.nupp" },
+            "2": { "name": "entity.name.label.nupp" },
+            "3": { "name": "punctuation.definition.label.end.nupp" }
+          }
+        },
+        {
+          "comment": "File-level annotations use @! and are only valid at the beginning of a source file.",
+          "match": "(@)(!)(internal|nofmt)\\b",
+          "captures": {
+            "1": { "name": "punctuation.definition.annotation.nupp" },
+            "2": { "name": "punctuation.definition.annotation.nupp" },
+            "3": { "name": "entity.name.tag.nupp" }
+          }
+        },
+        {
+          "match": "(@)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "punctuation.definition.annotation.nupp" },
+            "2": { "name": "entity.name.tag.nupp" }
+          }
+        }
+      ]
+    },
+    "contextualKeywords": {
+      "patterns": [
+        {
+          "comment": "These words remain identifiers outside the exact forms below.",
+          "match": "\\b(handle)([ \\t]+)(suspension)([ \\t]+)(with)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.nupp" },
+            "3": { "name": "keyword.control.nupp" },
+            "5": { "name": "keyword.control.nupp" }
+          }
+        },
+        {
+          "comment": "comptime/nosuspend change when code runs rather than what it does, so they get their own colour instead of blending into ordinary control keywords.",
+          "name": "storage.modifier.directive.nupp",
+          "match": "\\b(?:comptime|nosuspend)\\b(?=[ \\t]+(?:do|function)\\b)"
+        },
+        {
+          "name": "keyword.control.nupp",
+          "match": "\\bexpands\\b(?=[ \\t]*\\()"
+        },
+        {
+          "name": "keyword.control.nupp",
+          "match": "\\bmatches\\b(?![ \\t]*:)"
+        },
+        {
+          "name": "storage.modifier.ownership.nupp",
+          "match": "\\b(?:scoped|preserves)\\b(?=[ \\t]+[A-Za-z_][A-Za-z0-9_]*)"
+        },
+        {
+          "name": "keyword.operator.nupp",
+          "match": "\\b(?:keyof|writekeyof|writeof|unpackof)\\b(?=[ \\t]+[A-Za-z_{(])"
+        },
+        {
+          "name": "keyword.operator.nupp",
+          "match": "\\btypeerror\\b(?=[ \\t]*<)"
+        },
+        {
+          "name": "keyword.control.nupp",
+          "match": "\\bmatch\\b(?=[ \\t]+(?:each[ \\t]+)?[A-Za-z_{(])"
+        },
+        {
+          "name": "keyword.control.nupp",
+          "match": "\\b(?:each|when|infer)\\b(?=[ \\t]+[A-Za-z_{(])"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.nupp",
+          "match": "\\bcontinue\\b(?=\\s*(?:(?:end|else|elseif|until)\\b|(?:--.*)?$))"
+        },
+        {
+          "name": "keyword.control.nupp",
+          "match": "\\bnew\\b(?=\\s+[A-Za-z_][A-Za-z0-9_.]*\\s*(?:\\(|\\{|\"|'))"
+        },
+        {
+          "name": "keyword.control.nupp",
+          "match": "\\bmatches\\b(?!\\s*:)"
+        },
+        {
+          "name": "keyword.control.nupp",
+          "match": "\\b(?:where|yields|resumes)\\b"
+        },
+        {
+          "name": "storage.modifier.cdef.nupp",
+          "match": "\\bfrom\\b(?=\\s*(?:\"|'))"
+        },
+        {
+          "comment": "const is also a contextual type modifier; declaration const is captured earlier.",
+          "name": "storage.modifier.const.nupp",
+          "match": "\\bconst\\b(?=\\s+(?:[A-Za-z_'\"{(]|function\\b))"
+        },
+        {
+          "name": "keyword.control.nupp",
+          "match": "\\b(?:break|do|else|elseif|end|for|goto|if|in|repeat|return|then|unsafe|until|while)\\b"
+        },
+        {
+          "name": "storage.modifier.ownership.nupp",
+          "match": "\\b(?:borrows|exclusive|out|scoped|takes|releases|retains)\\b(?=\\s+[A-Za-z_][A-Za-z0-9_]*\\s*:)"
+        },
+        {
+          "name": "keyword.other.property.nupp",
+          "match": "\\b(?:readonly|writeonly)\\b(?=\\s*(?:[A-Za-z_][A-Za-z0-9_]*|\\[))"
+        },
+        {
+          "comment": "borrows after a return type names the parameter the result borrows from",
+          "name": "storage.modifier.ownership.nupp",
+          "match": "\\bborrows\\b(?=[ \\t]+[A-Za-z_][A-Za-z0-9_]*[ \\t]*$)"
+        },
+        {
+          "match": "(\\))([ \\t]*)(:)([ \\t]*)([A-Za-z_][A-Za-z0-9_]*)([ \\t]+)(is)\\b",
+          "captures": {
+            "7": { "name": "keyword.control.nupp" }
+          }
+        },
+        {
+          "name": "keyword.operator.word.nupp",
+          "match": "\\b(?:and|as|is|not|or)\\b"
+        },
+        {
+          "name": "constant.language.nupp",
+          "match": "\\b(?:false|nil|true)\\b"
+        },
+        {
+          "name": "storage.type.function.nupp",
+          "match": "\\bfunction\\b"
+        },
+        {
+          "name": "storage.modifier.local.nupp",
+          "match": "\\blocal\\b"
+        }
+      ]
+    },
+    "builtinTypes": {
+      "patterns": [
+        {
+          "name": "support.type.builtin.nupp",
+          "match": "\\b(?:any|boolean|borrowed|cdata|cstring|ctype|float|int8|int16|int32|int64|integer|metatable|never|number|owned|pinned|string|table|thread|unknown|userdata|uint8|uint16|uint32|uint64|voidptr)\\b"
+        }
+      ]
+    },
+    "typeNames": {
+      "patterns": [
+        {
+          "name": "entity.name.type.nupp",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.nupp",
+          "match": "~>>=|\\.\\.\\.|<<=|>>=|//=|\\.\\.=|\\?\\?=|~>>|<<|>>|==|~=|<=|>=|!=|&&|\\|\\||\\?\\?|\\?\\.|::|//|\\.\\.|->|\\+=|-=|\\*=|/=|%=|&=|\\|=|[+\\-*/%^#&~|<>=?:@!]"
+        },
+        {
+          "name": "punctuation.separator.nupp",
+          "match": "[{}()\\[\\],.;]"
+        }
+      ]
+    }
+  }
+}
