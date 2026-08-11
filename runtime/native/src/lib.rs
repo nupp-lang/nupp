@@ -1690,7 +1690,8 @@ mod tests {
         let output =
             unsafe { slice::from_raw_parts(nuppBytesData(bytes), nuppBytesLength(bytes)).to_vec() };
         unsafe { nuppBytesDestroy(bytes) };
-        assert_eq!(output, b"alpha/file.txt");
+        let expected = format!("alpha{}file.txt", std::path::MAIN_SEPARATOR);
+        assert_eq!(output, expected.as_bytes());
     }
 
     #[cfg(feature = "uri")]
