@@ -670,6 +670,65 @@ return {
    remove(dir)
 end
 
+function M.warmBuildInvalidatesOnlyReadersOfAChangedProjectType()
+   local model = table.concat({
+      "global record ReflectedModel",
+      "   name: string",
+      "end",
+      "return {}",
+   }, "\n")
+   local unrelated = table.concat({
+      "global record UnrelatedModel",
+      "   value: number",
+      "end",
+      "return {}",
+   }, "\n")
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   build = {outDir = "out", entries = {"main"}},
+}
+]],
+      ["src/model.nupp"] = model,
+      ["src/unrelated.nupp"] = unrelated,
+      ["src/main.nupp"] = table.concat({
+         "const SUMMARY = comptime do",
+         "   local info = reflect(ReflectedModel)",
+         "   return info.fields[1].name",
+         "end",
+         "return SUMMARY",
+      }, "\n"),
+   })
+
+   local cold = {}
+   assertEq(project.build(dir, {stats = cold}), 0)
+   assertEq(cold.checkedModules, 3, "cold build checks every project module")
+
+   local warm = {}
+   assertEq(project.build(dir, {stats = warm}), 0)
+   assertEq(warm.checkedModules, 0, "unchanged project is warm")
+
+   write(dir .. "/src/unrelated.nupp",
+      unrelated:gsub("value: number", "value: string"))
+   local unrelatedEdit = {}
+   assertEq(project.build(dir, {stats = unrelatedEdit}), 0)
+   assertEq(unrelatedEdit.checkedModules, 1,
+      "unrelated export edit checks only its declaring module")
+   assertEq(unrelatedEdit.reusedModules, 2,
+      "the reflecting module remains reusable")
+
+   write(dir .. "/src/model.nupp",
+      model:gsub("name: string", "name: string\n   count: integer"))
+   local reflectedEdit = {}
+   assertEq(project.build(dir, {stats = reflectedEdit}), 0)
+   assertEq(reflectedEdit.checkedModules, 2,
+      "reflected field edit checks its declaration and reader")
+   assertEq(reflectedEdit.reusedModules, 1,
+      "unrelated module remains reusable")
+   remove(dir)
+end
+
 function M.buildPropagatesOnlyCompleteConstModulePaths()
    local lib = table.concat({
       "local M = {}",

@@ -176,12 +176,22 @@ function query.Q:get(name: string, key: any): any
     end
 
     if entry then
-        local clean = true
-        for _, d in ipairs(entry.deps) do
-            if depChangedAt(self, d.name, d.key) > entry.verifiedAt then
-                clean = false
-                break
+        -- Validation is an implementation detail of the query being read, not a set
+        -- of dependencies its caller read directly. A discard frame keeps validation
+        -- reads from leaking into an outer computation while preserving the real
+        -- dependency frames of any query that has to recompute underneath it.
+        self.stack[#self.stack + 1] = {deps = {}}
+        local validated, clean = pcall(function(): boolean
+            for _, d in ipairs(entry.deps) do
+                if depChangedAt(self, d.name, d.key) > entry.verifiedAt then
+                    return false
+                end
             end
+            return true
+        end)
+        self.stack[#self.stack] = nil
+        if not validated then
+            error(clean, 0)
         end
         if clean then
             entry.verifiedAt = self.revision

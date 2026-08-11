@@ -556,14 +556,13 @@ limits are documented toolchain constants in the initial version rather than
 source-level knobs. A limit failure is deterministic and reports which budget
 was exhausted.
 
-The evaluator should ultimately run in a worker process invoked through a
-private toolchain mode. That wants [suspension.md](suspension.md) and a process
-library under it: a worker the language server waits on must not block its
-loop, and killing a hung one needs process control `os.execute` cannot give.
-The worker accepts a serialized request and returns a serialized value or
-diagnostic. This prevents an infinite loop, evaluator crash, or excessive
-allocation from taking down the LSP. A limited Lua global environment by
-itself is not treated as a security boundary for hostile code.
+The evaluator runs in a worker process invoked through a private toolchain
+mode. The worker accepts a serialized request and returns a serialized value or
+diagnostic. The portable process provider enforces the deadline and lets the
+language server pump relayed input or cancel the child while it waits. This
+prevents an infinite loop, evaluator crash, or excessive allocation from taking
+down the LSP. A limited Lua global environment by itself is not treated as a
+security boundary for hostile code.
 
 ## Compiler pipeline
 
@@ -754,9 +753,8 @@ one — see §Layout intrinsics, and the model they need.
 - Add an in-memory `evalComptime` query and compute counters.
 - **Minimum worker isolation, if comptime is reachable from the LSP at all**:
   evaluation out of process, an instruction budget, a wall-clock timeout, and
-  crash recovery. This did not land with the otherwise complete C1 evaluator
-  and is now the first part of C4 rather than an invariant the implementation
-  falsely claims today.
+  crash recovery. Landed under C4, together with portable cancellation and
+  nonblocking protocol input.
 
 Exit test: scalar and table blocks execute, forbidden APIs fail, unchanged
 results cut off invalidation, generated code runs on plain LuaJIT, the
@@ -764,6 +762,10 @@ self-hosting fixpoint remains byte-identical, and a non-terminating block fails
 the one request rather than the server.
 
 ### C2a: semantic reflection
+
+Landed. Reflection descriptors and fingerprints are shared compiler assets;
+editor hover/completion consumes them, and keyed project-declaration dependencies
+cut off both in-process and persisted build invalidation.
 
 Target-independent, and not blocked on anything. Everything here is a fact the
 checker established while checking the declaration.
@@ -818,10 +820,9 @@ values, and failures retain definition and call-site locations.
 
 ### C4: isolation and build integration
 
-The landed C1 evaluator runs directly. C4 first supplies the floor C1 specified
-but did not ship — out-of-process evaluation, a timeout and crash recovery —
-then hardens and integrates it. Closed materialization does not expose a public
-opaque provider before that floor exists.
+Landed. Evaluation uses an isolated worker with bounded resources and crash
+recovery. The LSP relays input through a separately blocked reader so the server
+can poll and cancel the portable process host while the worker is in flight.
 
 - Move evaluation behind an isolated worker for CLI and LSP.
 - Generalize the worker protocol across CLI and LSP.

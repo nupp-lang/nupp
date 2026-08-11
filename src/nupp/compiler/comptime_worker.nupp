@@ -18,7 +18,7 @@ type worker.Failure = {
 
 local record worker
     main: function({string}): integer
-    evaluate: function(string, string, any, any): (string?, worker.Failure?, any)
+    evaluate: function(string, string, any, any, any?): (string?, worker.Failure?, any)
 end
 
 cjson.encode_empty_table_as_object(false)
@@ -174,9 +174,10 @@ end
 --- output, a non-JSON crash message and a killed worker are all local failures.
 function worker.evaluate(
     source: string,
-    root: string,
+    executable: string,
     reflections: any,
-    helpers: any
+    helpers: any,
+    host: any?
 ): string?, worker.Failure?, any
     local requestPath = os.tmpname()
     local serializedHelpers = {}
@@ -209,8 +210,14 @@ function worker.evaluate(
         return nil, {code = "NUPP2412", message = "cannot create comptime worker request: " .. tostring(writeErr)}
     end
     local code, output = process.captureIsolated(
-        {root .. "/bin/nupp", "__comptime-worker", requestPath},
-        {env = {NUPP_COMPTIME_WORKER_CHILD = "1"}, timeoutMs = 2000, memoryMb = 256}
+        {executable, "__comptime-worker", requestPath},
+        {
+            env = {NUPP_COMPTIME_WORKER_CHILD = "1"},
+            timeoutMs = 2000,
+            memoryMb = 256,
+            pump = host and host.pump or nil,
+            cancelled = host and host.cancelled or nil,
+        }
     )
     os.remove(requestPath)
     if code == 124 then
@@ -219,6 +226,8 @@ function worker.evaluate(
             message = "comptime evaluation exceeded the 2000 ms worker timeout",
             help = "make the computation smaller or move the unbounded work to run time",
         }
+    elseif code == 125 then
+        return nil, {code = "NUPP2412", message = "comptime evaluation was cancelled"}
     end
     if #output > MAX_PROTOCOL_BYTES then
         return nil, {

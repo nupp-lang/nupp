@@ -39,6 +39,10 @@ type cache.ModuleRecord = {
     artifactHash: string?,
     dependencies: {string}?,
 
+    --- Keyed project declaration lookups made while checking this module. Their
+    --- semantic fingerprints permit reuse across unrelated project-index edits.
+    projectDependencies: {{name: string?, key: string?, fingerprint: string?}}?,
+
     --- The compiler-recognized runtime features this module needs staging for.
     effects: {[string]: any}?,
 

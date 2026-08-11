@@ -155,9 +155,8 @@ typeFingerprint = function(
         --
         -- Expanding them is not merely redundant, it does not terminate usefully: a
         -- member's type reaches other nominals, whose members reach further, and
-        -- fingerprinting this compiler that way runs out of memory. What catches a
-        -- changed record is the project index digest, which covers every exported
-        -- declaration's source text and disables reuse wholesale when any of it moves.
+        -- fingerprinting this compiler that way runs out of memory. A changed record
+        -- is caught by the keyed project-index dependency of each module that read it.
         --
         -- This loop used to read `t.fields`, which nominals stopped having when the
         -- member map was renamed to `byname`, so it had been contributing nothing for
@@ -479,12 +478,21 @@ local function copyModuleRecord(record)
     for _, effect in ipairs(record.effects or {}) do
         effects[#effects + 1] = effect
     end
+    local projectDependencies = jsonArray({})
+    for _, dependency in ipairs(record.projectDependencies or {}) do
+        projectDependencies[#projectDependencies + 1] = {
+            name = dependency.name,
+            key = dependency.key,
+            fingerprint = dependency.fingerprint,
+        }
+    end
 
     return {
         sourceHash = record.sourceHash,
         interfaceHash = record.interfaceHash,
         artifactHash = record.artifactHash,
         dependencies = dependencies,
+        projectDependencies = projectDependencies,
         effects = effects,
         output = record.output,
         external = record.external,
@@ -528,7 +536,6 @@ local function buildModules(
     -- had to say, so replaying it says the same thing the check would have.
     local cacheCompatible = oldState.compilerHash == newState.compilerHash
         and oldState.configHash == newState.configHash
-        and oldState.projectIndexHash == newState.projectIndexHash
     -- Everything the project is written in, not the closure of its entries.
     --
     -- A compiler compiles its source set. Deciding what to compile by walking require
@@ -671,13 +678,14 @@ local function buildModules(
         end
         said[name] = mine
         local materializations = materializeObserve.collect(result.result and result.result.root, path)
+        local projectDependencies = inc.projectDependencies(path)
         records[
             name
         ] = {sourceHash = sourceHash, interfaceHash = hash.digest(
             typeFingerprint(result.moduleType) .. (external and ("\0" .. sourceHash) or "")
         ), artifactHash = artifactHash, dependencies = jsonArray(
             depNames
-        ), effects = jsonArray(effectNames), output = output, external = external or nil,
+        ), projectDependencies = jsonArray(projectDependencies), effects = jsonArray(effectNames), output = output, external = external or nil,
             -- Only what checking found. Generation runs once per artifact and a reused
             -- module does not run it again, so its remarks belong to the run that
             -- produced them and not to the record.
@@ -712,8 +720,35 @@ local function buildModules(
                     and previous.interfaceHash
                     and type(
                     previous.dependencies
-                ) == "table" and type(previous.effects) == "table" and type(previous.diags) == "table"
+                ) == "table" and type(previous.projectDependencies) == "table" and type(previous.effects) == "table" and type(previous.diags) == "table"
                     and type(previous.materializations) == "table"
+                if usable and previous then
+                    for _, dependency in ipairs(previous.projectDependencies or {}) do
+                        if type(dependency) ~= "table" then
+                            usable = false
+                            break
+                        end
+                        local dependencyName = dependency.name
+                        local dependencyKey = dependency.key
+                        local dependencyFingerprint = dependency.fingerprint
+                        if type(dependencyName) ~= "string"
+                            or type(dependencyKey) ~= "string"
+                            or type(dependencyFingerprint) ~= "string"
+                        then
+                            usable = false
+                            break
+                        end
+                        if inc.projectDependencyFingerprint(
+                            dependencyName as string,
+                            dependencyKey as string
+                        )
+                            ~= dependencyFingerprint
+                        then
+                            usable = false
+                            break
+                        end
+                    end
+                end
                 if usable and previous and not checkOnly and not external then
                     usable = previous.artifactHash and hashFile(output) == previous.artifactHash
                 end

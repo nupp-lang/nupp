@@ -233,6 +233,32 @@ function tree.nodeBounds(node: cst.Child): integer?, integer?
     return first, last
 end
 
+--- The checked comptime expression enclosing a position, plus its body span. The
+--- expression span serves hover; the body span tells completion where evaluator-only
+--- bindings apply.
+function tree.comptimeAt(result: tree.Parse?, offset: integer): (cst.ComptimeExpr?, integer?, integer?)
+    local found: cst.ComptimeExpr? = nil
+    local bodyFrom: integer? = nil
+    local bodyTo: integer? = nil
+    if not result then
+        return nil
+    end
+    tree.walkNodes(result.root, function(node)
+        if node.kind == "comptimeExpr" then
+            local from, to = tree.nodeBounds(node)
+            if from and to and offset >= from and offset <= to then
+                found = node as cst.ComptimeExpr
+                local body = (node as cst.ComptimeExpr).body
+                if body then
+                    bodyFrom, bodyTo = tree.nodeBounds(body)
+                end
+            end
+        end
+    end)
+
+    return found, bodyFrom, bodyTo
+end
+
 -- Plain module members ------------------------------------------------------
 --
 -- `function m.f` puts a value on the table a file returns. Nothing types that table —

@@ -7,24 +7,24 @@ work makes sense in.
 ## Type system
 
 - [ ] **Comptime** ([design](comptime.md)): deterministic value evaluation,
-      deliberately not a macro or declaration-generation system. C1 has landed;
-      C3, most of C2a and C4, and closed materialization's core have landed too.
-      The remaining work is below. Reach for it for a program that needs a
-      generated table, not for one that wants a constant: those keep turning
-      out to have cheaper answers, `OPT-3` having since taken `//` and the bit
-      operators.
+      deliberately not a macro or declaration-generation system. C1, C2a, C3,
+      C4, and closed materialization's core have landed. Only the separately
+      scoped target-layout project C2b remains. Reach for comptime for a program
+      that needs a generated table, not for one that wants a constant: those
+      keep turning out to have cheaper answers, `OPT-3` having since taken `//`
+      and the bit operators.
   - [x] Materialization M0: run the standalone handwritten specialized PEG and
         pure-Lua reference-machine benchmark now. It has no comptime milestone
         prerequisite. Record workloads and numeric margins before measuring;
         delete the specialized-backend milestone if it misses that margin.
-  - [ ] C2a: immutable `reflect(T)` descriptors over the checker's full
+  - [x] C2a: immutable `reflect(T)` descriptors over the checker's full
         structural vocabulary; semantic type fingerprints and module interface
         dependencies. Target-independent and blocked on nothing. Shared with a
         future derive phase, so it is not shaped around comptime's convenience.
         The versioned indexed graph, immutable user-code views, recursive type
-        handling, structural vocabulary, semantic fingerprints, and checked
-        declaration/field annotations have landed; reflection-aware editor
-        features and precise cross-module invalidation remain.
+        handling, structural vocabulary, semantic fingerprints, checked
+        declaration/field annotations, reflection hover/completion, and keyed
+        cross-process invalidation have landed.
   - [ ] C2b: target-aware `sizeof`/`alignof`/`offsetof`. Blocked on a
         compile-time layout model, which nupp has deliberately not built:
         `layoutof` answers the same question at run time through the FFI,
@@ -34,18 +34,12 @@ work makes sense in.
         output, bounded recursion, and comptime call stacks. File-private at
         first, but cross-module helpers are an expected extension; helpers
         taking a `TypeInfo` need nothing from the generic system.
-  - [ ] C4: the evaluator now runs behind an isolated worker with step, call,
+  - [x] C4: the evaluator runs behind an isolated worker with step, call,
         wall-clock, result, protocol and best-effort process-memory limits;
         crashes are recovered and canonical materialization products persist in
-        manifest build records. True request cancellation and a non-blocking LSP
-        process host remain. The suspension and process prerequisites have
-        landed, but the LSP host does not use them yet.
-        Originally: move the landed direct evaluator behind an isolated worker, then
-        add the remaining resource limits, cancellation, LSP hardening, and
-        eventual manifest build-cache persistence. Wants
-        [suspension](suspension.md) and a real process library under it have
-        landed; adopting them in the LSP host remains. A worker the language
-        server waits on must not block its loop.
+        manifest build records. The portable process host now services relayed
+        protocol input while a worker is in flight, kills cancelled workers, and
+        answers cancelled queued requests without dispatching them.
   - [x] **Closed materialization**
         ([design](materialization.md)): an explicitly typed comptime block may
         return a compiler-owned opaque value that a sealed provider serializes

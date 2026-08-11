@@ -21,7 +21,7 @@ local index = require("nupp.compiler.check.index")
 local callexpr = require("nupp.compiler.check.callexpr")
 local state = require("nupp.compiler.check.state")
 local comptime = require("nupp.compiler.comptime") as {
-    evaluate: function(any, any, any, any): (string?, any, any, any)
+    evaluate: function(any, any, any, any, any?): (string?, any, any, any)
 }
 local materializeProviders = require("nupp.compiler.materialize.providers") as {
     ABI: integer,
@@ -198,7 +198,8 @@ function expr.install(c: state.Checker): nil
             untypedNode,
             node.body,
             reflections,
-            c.comptimeFunctions
+            c.comptimeFunctions,
+            c.env and c.env.comptimeHost or nil
         )
         if failure then
             c.diag(
@@ -254,13 +255,16 @@ function expr.install(c: state.Checker): nil
             }
 
             if node.materializationExpected then
+                node.comptimeResultType = node.materializationExpected
                 return node.materializationExpected
             end
-            return inferredTarget or T.any
+            node.comptimeResultType = inferredTarget or T.any
+            return node.comptimeResultType
         end
         node.comptimeValue = quoted
+        node.comptimeResultType = resultType or T.any
 
-        return resultType or T.any
+        return node.comptimeResultType
     end
 
     -- Each expression family is its own module, installed here and reached through one

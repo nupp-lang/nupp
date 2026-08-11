@@ -243,6 +243,78 @@ function M.hoverShowsDocsDeclaredInAnotherFile()
       "cross-file docs")
 end
 
+function M.comptimeHoverAndCompletionExposeOnlyEvaluatorState()
+   local projectDir = makeDir()
+   local path = projectDir .. "/main.nupp"
+   local uri = "file://" .. path
+   local source = table.concat({
+      "local runtimeOnly = {secret = 1}",
+      "@comptime local function helper(value: integer): integer",
+      "   return value + 1",
+      "end",
+      "const RESULT = comptime do",
+      "   local inside = 3",
+      "   local rendered = table.concat({tostring(helper(inside))}, '')",
+      "   return rendered",
+      "end",
+      "return RESULT",
+      "",
+   }, "\n")
+   local out = runSession({
+      { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
+      { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = { uri = uri, languageId = "nupp", version = 1,
+            text = source } } },
+      { jsonrpc = "2.0", id = 10, method = "textDocument/hover",
+        params = { textDocument = { uri = uri },
+           position = { line = 4, character = 18 } } },
+      { jsonrpc = "2.0", id = 11, method = "textDocument/completion",
+        params = { textDocument = { uri = uri },
+           position = { line = 6, character = 3 } } },
+      { jsonrpc = "2.0", id = 12, method = "textDocument/completion",
+        params = { textDocument = { uri = uri },
+           position = { line = 6, character = 26 } } },
+      { jsonrpc = "2.0", id = 2, method = "shutdown" },
+      { jsonrpc = "2.0", method = "exit" },
+   }, projectDir)
+   os.execute("rm -rf '" .. projectDir .. "'")
+
+   local hover = responseWithId(out, 10).result
+   assertContains(hover.contents.value, "comptime: \"4\"", "comptime result type")
+   assertContains(hover.contents.value, "Canonical value", "comptime value summary")
+   local labels = {}
+   for _, item in ipairs(responseWithId(out, 11).result) do labels[item.label] = true end
+   assert(labels.helper and labels.inside and labels.table,
+      "comptime helpers, locals, and libraries are completed")
+   assert(not labels.runtimeOnly and not labels.print and not labels.require,
+      "runtime-only bindings are omitted")
+   local members = {}
+   for _, item in ipairs(responseWithId(out, 12).result) do members[item.label] = true end
+   assert(members.concat, "allowlisted library members remain available")
+end
+
+function M.queuedRequestsCanBeCancelledWhileComptimeIsInFlight()
+   local projectDir = makeDir()
+   local path = projectDir .. "/main.nupp"
+   local uri = "file://" .. path
+   local source = "return comptime do while true do end end\n"
+   local out = runSession({
+      { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
+      { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = { uri = uri, languageId = "nupp", version = 1,
+            text = source } } },
+      { jsonrpc = "2.0", id = 10, method = "textDocument/hover",
+        params = { textDocument = { uri = uri },
+           position = { line = 0, character = 8 } } },
+      { jsonrpc = "2.0", method = "$/cancelRequest", params = { id = 10 } },
+      { jsonrpc = "2.0", id = 2, method = "shutdown" },
+      { jsonrpc = "2.0", method = "exit" },
+   }, projectDir)
+   os.execute("rm -rf '" .. projectDir .. "'")
+   assert(responseWithId(out, 10).error.code == -32800,
+      "queued request is answered as cancelled")
+end
+
 function M.hoverAndInspectExposeAutomaticCleanup()
    local projectDir = makeDir()
    local path = projectDir .. "/owner.nupp"
@@ -2278,9 +2350,8 @@ function M.selectionRangesExpandOutward()
    assert(depth >= 2, "and the chain reaches out to the file: " .. depth)
 end
 
--- A cancellation names a request this server has already answered, because it
--- answers in the order it reads. It is understood rather than replied to.
-function M.cancellationIsUnderstoodRatherThanAnswered()
+-- The input relay may observe cancellation before the queued request reaches dispatch.
+function M.cancellationBeforeAQueuedRequestPreventsItsWork()
    local out = outlineSession(function(uri)
       return {
          { jsonrpc = "2.0", method = "$/cancelRequest", params = { id = 10 } },
@@ -2293,8 +2364,8 @@ function M.cancellationIsUnderstoodRatherThanAnswered()
          "a notification the protocol defines is not answered with "
          .. "MethodNotFound")
    end
-   assert(#responseWithId(out, 10).result > 0,
-      "and the request it named is still answered")
+   assert(responseWithId(out, 10).error.code == -32800,
+      "the queued request is answered as cancelled")
 end
 
 -- Code actions ---------------------------------------------------------------

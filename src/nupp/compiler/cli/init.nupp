@@ -193,6 +193,12 @@ function cli.main(argv: {string}): integer
         }
 
         return worker.main(rest)
+    elseif name == "__lsp-reader" then
+        local server = require("nupp.compiler.lsp.init") as {
+            readerMain: function(): integer
+        }
+
+        return server.readerMain()
     end
     local rest: {string} = {}
     for index = 2, #argv do

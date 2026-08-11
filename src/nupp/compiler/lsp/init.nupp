@@ -57,13 +57,22 @@ type lsp.Session = {
     running: function(): boolean
 }
 
+type lsp.Host = {
+    pump: function(): nil,
+    cancelled: function(): boolean,
+    cancel: function(any): nil,
+    isCancelled: function(any): boolean,
+    clearCancelled: function(any): nil,
+    currentId: any
+}
+
 -- The codec and its array marker are configured once, on the wire.
 local json = wire.json
 
 --- Creates one language-server session whose outgoing protocol messages are handed to
 --- `emit`. The stdio server and the command-line language operations share this session
 --- so there is only one implementation of semantic behavior.
-function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
+function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?): lsp.Session
     rootDir = rootDir or "."
     -- One session's whole state, so the handlers below reach it through `s` rather than
     -- by being lexically inside this function. `inc` and `folders` are rebound when a
@@ -79,12 +88,18 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
         -- reparse.
         lexed = {},}
     s.inc = incremental.new(rootDir, {folders = s.folders})
+    s.inc.env.comptimeHost = host
 
     local running = true
 
     local send = emit
 
     local function respond(id, result)
+        if host and host.isCancelled(id) then
+            host.clearCancelled(id)
+            send({jsonrpc = "2.0", id = id, error = {code = -32800, message = "request cancelled"}})
+            return
+        end
         send({jsonrpc = "2.0", id = id, result = result})
     end
 
@@ -134,6 +149,7 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
     local function reroot(nextFolders)
         s.folders = nextFolders
         s.inc = incremental.new(rootDir, {folders = s.folders})
+        s.inc.env.comptimeHost = host
         local uris = {}
         for uri, doc in pairs(s.documents) do
             uris[#uris + 1] = uri
@@ -296,6 +312,31 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
 
     handlers["textDocument/hover"] = function(id, params)
         local _, doc, tok, offset = symbolAt(params)
+        local comptimeNode = doc and offset and tree.comptimeAt(doc.result, offset) or nil
+        if comptimeNode and comptimeNode.comptimeResultType then
+            local hoverOffset = offset as integer
+            local from, to = tree.nodeBounds(comptimeNode)
+            local value = "```nupp\ncomptime: " .. T.tostring(comptimeNode.comptimeResultType) .. "\n```"
+            local literal = comptimeNode.comptimeValue
+            if literal then
+                if #literal > 160 then
+                    literal = literal:sub(1, 157) .. "..."
+                end
+                value = value .. "\n\nCanonical value: `" .. literal:gsub("`", "\\`") .. "`"
+            elseif comptimeNode.materializationObservation then
+                local observation = comptimeNode.materializationObservation
+                value = value .. ("\n\nMaterialized by `%s` (`%s`, %d-byte blueprint)."):format(
+                    tostring(observation.provider),
+                    tostring(observation.backend),
+                    observation.blueprintSize or 0
+                )
+            end
+            respond(id, {contents = {kind = "markdown", value = value}, range = {
+                start = positionAtOffset(doc.text, from or hoverOffset),
+                ["end"] = positionAtOffset(doc.text, to or hoverOffset),
+            },})
+            return
+        end
         local def = tok and tok.definition
         local t = tok and (tok.inferredType or def and def.type)
         -- A plain module member has a type now that a module's surface is published,
@@ -919,7 +960,10 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
     -- so it is understood rather than merely ignored; cancelling work actually in
     -- flight needs input that can be read without blocking, which this loop does not
     -- have.
-    handlers["$/cancelRequest"] = function()
+    handlers["$/cancelRequest"] = function(_, params)
+        if host and params then
+            host.cancel(params.id)
+        end
     end
     handlers["$/setTrace"] = function()
     end
@@ -952,6 +996,11 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
 
     local function dispatch(msg)
         if type(msg) == "table" and msg.method then
+            if msg.id and host and host.isCancelled(msg.id) then
+                host.clearCancelled(msg.id)
+                send({jsonrpc = "2.0", id = msg.id, error = {code = -32800, message = "request cancelled"}})
+                return
+            end
             local handler = handlers[msg.method]
             if handler then
                 local hOk, err = pcall(handler, msg.id, msg.params)
@@ -973,29 +1022,24 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
     end,}
 end
 
-function lsp.run(rootDir: string?): integer
+--- Blocking input half of the stdio transport. The server starts this as a child so
+--- its own process can poll complete frames while a comptime worker is in flight.
+function lsp.readerMain(): integer
     io.stdout:setvbuf("no")
-    local function send(msg)
-        local body = json.encode(msg)
-        io.stdout:write("Content-Length: " .. #body .. "\r\n\r\n" .. body)
-    end
-
-    local session = lsp.newSession(rootDir, send)
-    while session.running() do
-        -- read framing headers
+    while true do
         local contentLength = nil
         while true do
             local line = io.stdin:read("*l")
             if line == nil then
                 return 0
-            end -- client hung up
+            end
             line = line:gsub("\r$", "")
             if line == "" then
                 break
             end
-            local len = line:match("^[Cc]ontent%-[Ll]ength:%s*(%d+)")
-            if len then
-                contentLength = tonumber(len)
+            local length = line:match("^[Cc]ontent%-[Ll]ength:%s*(%d+)")
+            if length then
+                contentLength = tonumber(length)
             end
         end
         if not contentLength then
@@ -1005,12 +1049,123 @@ function lsp.run(rootDir: string?): integer
         if body == nil then
             return 0
         end
+        io.stdout:write("Content-Length: " .. #body .. "\r\n\r\n" .. body)
+    end
+end
 
-        local ok, msg = pcall(json.decode, body)
-        if ok then
-            session.dispatch(msg)
+function lsp.run(rootDir: string?): integer
+    io.stdout:setvbuf("no")
+    local function send(msg)
+        local body = json.encode(msg)
+        io.stdout:write("Content-Length: " .. #body .. "\r\n\r\n" .. body)
+    end
+
+    local process = require("nupp.io.process")
+    local compilerRoot = os.getenv("NUPP_COMPILER_ROOT")
+    local executable = compilerRoot and compilerRoot .. "/bin/nupp"
+        or type(arg) == "table" and type(arg[0]) == "string" and arg[0]
+        or nil
+    if not executable then
+        io.stderr:write("nupp-lsp: cannot identify the current executable\n")
+        return 1
+    end
+    local relay, problem = process.new({
+        args = {executable, "__lsp-reader"},
+        stdin = "inherit",
+        stdout = "pipe",
+        stderr = "inherit",
+    })
+    if not relay then
+        io.stderr:write("nupp-lsp: cannot start input reader: " .. tostring(problem) .. "\n")
+        return 1
+    end
+    local reader = assert(relay.stdout)
+    local buffered = ""
+    local queued = {}
+    local cancelled = {}
+    local host: lsp.Host
+
+    local function takeMessage(): any
+        local headerEnd = buffered:find("\r\n\r\n", 1, true)
+        if not headerEnd then
+            return nil
+        end
+        local header = buffered:sub(1, headerEnd - 1)
+        local length = tonumber(header:match("[Cc]ontent%-[Ll]ength:%s*(%d+)"))
+        if not length then
+            buffered = ""
+            return nil
+        end
+        local bodyAt = headerEnd + 4
+        if #buffered < bodyAt + length - 1 then
+            return nil
+        end
+        local body = buffered:sub(bodyAt, bodyAt + length - 1)
+        buffered = buffered:sub(bodyAt + length)
+        local ok, message = pcall(json.decode, body)
+        return ok and message or nil
+    end
+
+    local function harvest(): nil
+        while true do
+            local message = takeMessage()
+            if not message then
+                break
+            end
+            if message.method == "$/cancelRequest" and message.params then
+                cancelled[message.params.id] = true
+            else
+                queued[#queued + 1] = message
+            end
         end
     end
+
+    local function pump(): nil
+        while true do
+            local chunk = reader:poll()
+            if chunk == nil or #chunk == 0 then
+                break
+            end
+            buffered = buffered .. chunk
+        end
+        harvest()
+    end
+
+    host = {
+        currentId = nil,
+        pump = pump,
+        cancelled = function(): boolean
+            return host.currentId ~= nil and cancelled[host.currentId] == true
+        end,
+        cancel = function(id): nil
+            cancelled[id] = true
+        end,
+        isCancelled = function(id): boolean
+            return cancelled[id] == true
+        end,
+        clearCancelled = function(id): nil
+            cancelled[id] = nil
+        end,
+    }
+
+    local session = lsp.newSession(rootDir, send, host)
+    while session.running() do
+        pump()
+        while #queued == 0 do
+            local chunk = reader:next()
+            if chunk == nil then
+                relay:close()
+                return 0
+            end
+            buffered = buffered .. chunk
+            harvest()
+        end
+        local msg = table.remove(queued, 1)
+        host.currentId = msg.id
+        session.dispatch(msg)
+        host.currentId = nil
+    end
+    relay:close()
 
     return 0
 end

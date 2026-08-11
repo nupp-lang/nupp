@@ -25,7 +25,7 @@ local materializeProviders = require("nupp.compiler.materialize.providers")
 
 local record comptime
     evaluateDirect: function(cst.Node, cst.Node?, any, any): (string?, T.Type?, any, any)
-    evaluate: function(cst.Node, cst.Node?, any, any): (string?, T.Type?, any, any)
+    evaluate: function(cst.Node, cst.Node?, any, any, any?): (string?, T.Type?, any, any)
 end
 
 local isToken = cst.isToken
@@ -1394,14 +1394,24 @@ function comptime.evaluate(
     node: cst.Node,
     block: cst.Node?,
     reflections: any,
-    helpers: any
+    helpers: any,
+    host: any?
 ): string?, T.Type?, comptime.Failure?, any
     local root = os.getenv("NUPP_COMPILER_ROOT")
-    if root and not os.getenv("NUPP_COMPTIME_WORKER_CHILD") then
+    local executable = root and root .. "/bin/nupp"
+        or type(arg) == "table" and type(arg[0]) == "string" and arg[0]
+        or nil
+    if executable and not os.getenv("NUPP_COMPTIME_WORKER_CHILD") then
         local worker = require("nupp.compiler.comptime_worker") as {
-            evaluate: function(string, string, any, any): (string?, any, any)
+            evaluate: function(string, string, any, any, any?): (string?, any, any)
         }
-        local quoted, failure, envelope = worker.evaluate(cst.textOf(node), root, reflections, helpers)
+        local quoted, failure, envelope = worker.evaluate(
+            cst.textOf(node),
+            executable,
+            reflections,
+            helpers,
+            host
+        )
         if failure then
             return nil, nil, {
                 code = failure.code,

@@ -304,10 +304,28 @@ function M.recoversWhenTheWorkerCrashes()
    launcher:close()
    assertEq(os.execute(("chmod +x %q/bin/nupp"):format(root)), 0)
    local worker = require("nupp.compiler.comptime_worker")
-   local _, failure = worker.evaluate("comptime do return 1 end", root)
+   local _, failure = worker.evaluate("comptime do return 1 end", root .. "/bin/nupp")
    os.execute(("rm -rf %q"):format(root))
    assertTrue(failure and failure.message:find("crashed", 1, true),
       "the parent converts a worker crash into one failure")
+end
+
+function M.workerCancellationStopsIsolatedEvaluation()
+   local worker = require("nupp.compiler.comptime_worker")
+   local pumped = 0
+   local _, failure = worker.evaluate(
+      "comptime do while true do end end",
+      HERE .. "/../bin/nupp",
+      {},
+      {},
+      {
+         pump = function() pumped = pumped + 1 end,
+         cancelled = function() return true end,
+      }
+   )
+   assertTrue(failure and failure.message:find("cancelled", 1, true),
+      "cancelled worker reports a cancellation failure")
+   assertTrue(pumped > 0, "the host is serviced while the worker is in flight")
 end
 
 function M.boundsAComptimeStringSizeBomb()
@@ -468,7 +486,7 @@ end
 
 function M.fingerprintsEquivalentOpaqueGraphsIdentically()
    local worker = require("nupp.compiler.comptime_worker")
-   local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
+   local executable = assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/bin/nupp"
    local first = [[comptime do
        const a = nupp.__materializationTest.node(1)
        const b = nupp.__materializationTest.node(2)
@@ -483,8 +501,8 @@ function M.fingerprintsEquivalentOpaqueGraphsIdentically()
        a:link(b)
        return a
    end]]
-   local _, failureA, envelopeA = worker.evaluate(first, root)
-   local _, failureB, envelopeB = worker.evaluate(second, root)
+   local _, failureA, envelopeA = worker.evaluate(first, executable)
+   local _, failureB, envelopeB = worker.evaluate(second, executable)
    assertEq(failureA, nil, "first graph finalizes")
    assertEq(failureB, nil, "second graph finalizes")
    assertEq(envelopeA.fingerprint, envelopeB.fingerprint,

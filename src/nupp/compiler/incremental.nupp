@@ -119,6 +119,13 @@ record incremental.Inc
     --- so the build planner need not know how memos are laid out.
     moduleDependencies: function(path: string): {string}
 
+    --- Keyed project-index reads made while checking this module. Persisted by the
+    --- build so a later process can reuse the module when unrelated declarations move.
+    projectDependencies: function(path: string): {any}
+
+    --- The current semantic digest of one keyed project-index answer.
+    projectDependencyFingerprint: function(name: string, key: string): string?
+
     --- Writes back what this run worked out that the next one can reuse.
     ---
     --- Nothing depends on it being called: skipping it costs the next command the work
@@ -265,6 +272,58 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return envMod.buildProjectIndex(headers, projectNominals)
     end)
 
+    local hash = require("nupp.compiler.build.hash")
+    local stable = require("nupp.compiler.build.cache").stable
+
+    local function entrySurface(entry)
+        return {
+            name = entry.name,
+            path = entry.path,
+            moduleName = entry.moduleName,
+            visibility = entry.visibility,
+            kind = entry.kind,
+            signature = entry.signature,
+            isAnnotation = entry.isAnnotation,
+            offset = entry.definition and entry.definition.token and entry.definition.token.offset or nil,
+        }
+    end
+
+    local function entryListSurface(entries)
+        local out = {}
+        for _, entry in ipairs(entries or {}) do
+            out[#out + 1] = entrySurface(entry)
+        end
+        return out
+    end
+
+    local function sameStable(a, b)
+        return stable(a) == stable(b)
+    end
+
+    local function sameEntryLists(a, b)
+        return sameStable(entryListSurface(a), entryListSurface(b))
+    end
+
+    q:define("projectEntries", function(self, name)
+        return self:get("projectIndex", "root").byName[name] or {}
+    end, sameEntryLists)
+
+    q:define("projectPathEntries", function(self, path)
+        return self:get("projectIndex", "root").byPath[path] or {}
+    end, sameEntryLists)
+
+    q:define("projectModulePath", function(self, name)
+        return self:get("projectIndex", "root").modules[name]
+    end)
+
+    q:define("projectModuleBasenames", function(self, short)
+        return self:get("projectIndex", "root").moduleBasenames[short]
+    end, sameStable)
+
+    q:define("projectAnnotations", function(self, name)
+        return self:get("projectIndex", "root").annotationsByName[name]
+    end, sameEntryLists)
+
     -- Environment lookup helpers call this function, including from inside a check
     -- query. q:get records the project-index dependency in that case.
     env.ensureProjectIndex = function()
@@ -273,8 +332,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
 
     --- Where a module name resolves to, preferring project files.
     local function modulePath(self: any, name: string): string?
-        local index = self:get("projectIndex", "root")
-        return index.modules[name] or envMod.findModulePath(env, name)
+        return self:get("projectModulePath", name) or envMod.findModulePath(env, name)
     end
 
     q:define("checkModule", function(self: any, path: any): incremental.CheckResult
@@ -285,14 +343,21 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         if #result.errors > 0 then
             return {diags = result.errors, moduleType = nil, syntax = true, result = result}
         end
-        -- Every checked project file observes declaration additions/removals, including
-        -- globals that may already exist in the shared prelude map.
-        self:get("projectIndex", "root")
         -- route require() through the query graph so dependencies record
         local qenv = setmetatable({resolveModule = function(_, name)
             return self:get("moduleInterface", name)
         end, resolveModuleExports = function(_, name)
             return self:get("moduleExports", name)
+        end, projectEntries = function(_, name)
+            return self:get("projectEntries", name)
+        end, projectPathEntries = function(_, requestedPath)
+            return self:get("projectPathEntries", requestedPath)
+        end, projectModulePath = function(_, name)
+            return self:get("projectModulePath", name)
+        end, projectModuleBasenames = function(_, short)
+            return self:get("projectModuleBasenames", short)
+        end, projectAnnotations = function(_, name)
+            return self:get("projectAnnotations", name)
         end,}, {__index = env})
         local external = envMod.isDependencyTypePath(env, path)
         local diags, moduleType, exports = check.check(result, path, qenv, {moduleName = envMod.moduleNameForPath(
@@ -320,6 +385,28 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return r and r.moduleType or nil
     end) -- default eq: interned identity IS the interface hash
 
+    local function sameTypeMap(left, right)
+        left, right = left or {}, right or {}
+        for name, value in pairs(left) do
+            if right[name] ~= value then
+                return false
+            end
+        end
+        for name, value in pairs(right) do
+            if left[name] ~= value then
+                return false
+            end
+        end
+        return true
+    end
+
+    local function sameExports(left, right)
+        if left == nil or right == nil then
+            return left == right
+        end
+        return sameTypeMap(left.types, right.types) and sameTypeMap(left.values, right.values)
+    end
+
     q:define("moduleExports", function(self, name)
         local path = modulePath(self, name)
         if not path then
@@ -332,7 +419,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         local r = self:get("checkModule", path)
 
         return r and r.exports or nil
-    end)
+    end, sameExports)
 
     -- Editor overlay management.
     function inc.openDocument(path: string, text: string)
@@ -422,6 +509,53 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         table.sort(names)
 
         return names
+    end
+
+    local PROJECT_QUERY = {
+        projectEntries = true,
+        projectPathEntries = true,
+        projectModulePath = true,
+        projectModuleBasenames = true,
+        projectAnnotations = true,
+    }
+
+    local function projectFingerprint(name, key)
+        local value = q:get(name, key)
+        if name == "projectEntries" or name == "projectPathEntries" or name == "projectAnnotations" then
+            value = entryListSurface(value)
+        end
+        return hash.digest(stable(value))
+    end
+
+    function inc.projectDependencies(path: string): {any}
+        q:get("checkModule", path)
+        local byPath = q.memo.checkModule
+        local memo = byPath and byPath[path]
+        local dependencies, seen = {}, {}
+        for _, dep in ipairs(memo and memo.deps or {}) do
+            if PROJECT_QUERY[dep.name] then
+                local identity = dep.name .. "\0" .. tostring(dep.key)
+                if not seen[identity] then
+                    seen[identity] = true
+                    dependencies[#dependencies + 1] = {
+                        name = dep.name,
+                        key = dep.key,
+                        fingerprint = projectFingerprint(dep.name, dep.key),
+                    }
+                end
+            end
+        end
+        table.sort(dependencies, function(a, b)
+            return a.name < b.name or (a.name == b.name and tostring(a.key) < tostring(b.key))
+        end)
+        return dependencies
+    end
+
+    function inc.projectDependencyFingerprint(name: string, key: string): string?
+        if not PROJECT_QUERY[name] then
+            return nil
+        end
+        return projectFingerprint(name, key)
     end
 
     function inc.persist()

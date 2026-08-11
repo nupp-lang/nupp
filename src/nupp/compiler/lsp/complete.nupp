@@ -12,6 +12,23 @@ local semantic = require("nupp.compiler.lsp.semantic")
 
 local complete = {}
 
+local COMPTIME_GLOBALS = {
+    assert = true,
+    error = true,
+    ipairs = true,
+    pairs = true,
+    select = true,
+    tonumber = true,
+    tostring = true,
+    type = true,
+    math = true,
+    string = true,
+    table = true,
+    bit = true,
+    nupp = true,
+    reflect = true,
+}
+
 --- What the cursor is completing: the dotted receiver in front of it, whether it was
 --- reached by `.` or `:`, whether it stands in a type annotation, and how much of the
 --- name has been typed.
@@ -415,6 +432,27 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
         local items = wire.array({})
         local seen = {}
         local context = (completionContext(doc.result, offset) or {}) as complete.Context
+        local comptimeNode, comptimeFrom, comptimeTo = tree.comptimeAt(doc.result, offset)
+        local inComptime = comptimeNode ~= nil and comptimeFrom ~= nil and comptimeTo ~= nil
+            and offset >= comptimeFrom and offset <= comptimeTo
+        local comptimeBindings = {}
+        local scopeFrom = comptimeFrom or 1
+        local scopeTo = comptimeTo or 0
+        local function inComptimeScope(def): boolean
+            local at = def.token and def.token.offset
+            return def.comptimeFunction == true
+                or at ~= nil and at >= scopeFrom and at <= scopeTo
+        end
+        if inComptime then
+            for _, def in ipairs(doc.result.symbols or {}) do
+                if inComptimeScope(def) then
+                    comptimeBindings[def.name] = true
+                    if def.qualifiedName then
+                        comptimeBindings[def.qualifiedName] = true
+                    end
+                end
+            end
+        end
         local function add(label, kind, t, def, priority)
             if not label or seen[label] then
                 return
@@ -444,7 +482,23 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
         -- ambient names as well would be offering names that do not resolve there,
         -- which is what makes the broad list useless once it matters.
         if context.path then
+            if inComptime and not COMPTIME_GLOBALS[context.path[1]]
+                and not comptimeBindings[context.path[1]]
+            then
+                return items
+            end
             local t, moduleName = resolveReceiver(doc.checked, context.path)
+            if inComptime and not t and not moduleName then
+                local global = s.inc.env.globals and s.inc.env.globals[context.path[1]]
+                t = global and global.t or nil
+                for index = 2, #context.path do
+                    local member = membersOf(t)[context.path[index]]
+                    t = member and member.type or nil
+                    if not t then
+                        break
+                    end
+                end
+            end
             if moduleName then
                 moduleCompletions(moduleName, add)
             else
@@ -468,18 +522,22 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
         end
 
         for _, def in ipairs(doc.result.symbols or {}) do
-            if not def.token or def.token.offset <= offset then
+            if (not inComptime or inComptimeScope(def))
+                and (not def.token or def.token.offset <= offset)
+            then
                 -- a member is written as the path it was declared under
                 add(def.qualifiedName or def.name, def.kind, def.type, def, 1)
             end
         end
         for name, entry in pairs(s.inc.env.globals or {}) do
-            add(name, entry.definition and entry.definition.kind or "variable", entry.t, entry.definition, 2)
+            if not inComptime or COMPTIME_GLOBALS[name] then
+                add(name, entry.definition and entry.definition.kind or "variable", entry.t, entry.definition, 2)
+            end
         end
         for name, t in pairs(s.inc.env.globalTypes or {}) do
             add(name, "type", t, s.inc.env.globalTypeDefs and s.inc.env.globalTypeDefs[name], 2)
         end
-        if s.inc.env.ensureProjectIndex then
+        if not inComptime and s.inc.env.ensureProjectIndex then
             -- Only a global can be written as it stands. A module member is reached
             -- through the table it was declared on, so offering its bare name would
             -- complete to something that does not resolve.

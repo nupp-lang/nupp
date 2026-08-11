@@ -126,6 +126,9 @@ interface cst.Hints
     --- tokens still reprint and only `gen` reads the result.
     comptimeValue: string?
 
+    --- The checked type of a completed block, retained for editor presentation.
+    comptimeResultType: any
+
     --- Structured runtime-expression IR selected for an opaque comptime result.
     materializedIR: any
 

@@ -21,7 +21,12 @@ type process.Options = {
 
     --- POSIX child address-space ceiling. Used for compiler workers whose inputs may
     --- ask for large allocations; absent for ordinary subprocesses.
-    memoryMb: integer?
+    memoryMb: integer?,
+
+    --- Work the host may service while an isolated child is quiet, and a request
+    --- cancellation predicate checked after each service pass.
+    pump: (function(): nil)?,
+    cancelled: (function(): boolean)?
 }
 
 local windows = package.config:sub(1, 1) == "\\"
@@ -119,94 +124,82 @@ function process.capture(argv: {string}, opts: process.Options?): integer, strin
     return code, output
 end
 
---- Runs one command in its own process and bounds how long the caller waits.
----
---- This is the minimum process primitive the comptime worker needs. The command writes
---- only to its private output file, so a crash cannot corrupt a protocol stream. On
---- POSIX the asynchronous command's pid is killed when the wall-clock limit expires.
---- Windows retains the synchronous fallback until the native process host supplies the
---- same primitive there; the evaluator's deterministic step budget still bounds Nupp
---- execution on that path.
+--- Runs one command in its own process and bounds how long the caller waits. Output is
+--- drained through the portable process provider, leaving the caller free to service
+--- protocol input and cancel the child on every quiet wait.
 function process.captureIsolated(argv: {string}, opts: process.Options?): integer, string
     opts = (opts or {}) as process.Options
-    if windows or not opts.timeoutMs then
-        return process.capture(argv, opts)
-    end
-
-    local ffi = require("ffi")
-    local hasTimeval = pcall(ffi.typeof, "struct nupp_timeval[1]")
-    if not hasTimeval then
-        local micros = ffi.os == "Linux" and "long" or "int"
-        assert(loadstring(([=[local ffi = require("ffi"); ffi.cdef[[
-            struct nupp_timeval { long tv_sec; %s tv_usec; };
-            int gettimeofday(struct nupp_timeval *timeval, void *timezone);
-        ]]]=]):format(micros), "=nupp-process-cdef"))()
-    end
-    assert(loadstring([=[local ffi = require("ffi"); ffi.cdef[[
-        int kill(int pid, int signal);
-        int usleep(unsigned int microseconds);
-    ]]]=], "=nupp-process-control-cdef"))()
-    local C: any = ffi.C
-    local timevalType: any = "struct nupp_timeval[1]"
-    local function now(): number
-        local value: any = ffi.new(timevalType)
-        C.gettimeofday(value, nil)
-        return assert(tonumber(value[0].tv_sec)) + assert(tonumber(value[0].tv_usec)) / 1000000
-    end
-
-    local outputPath, pidPath = os.tmpname(), os.tmpname()
-    os.remove(pidPath)
-    local command = process.command(argv, opts)
-    if opts.memoryMb then
+    local args = argv
+    if opts.memoryMb and not windows then
         local kilobytes = math.max(1, math.floor(opts.memoryMb * 1024))
-        command = "(ulimit -v " .. tostring(kilobytes)
-            .. " 2>/dev/null || true; " .. command .. ")"
+        args = {
+            "/bin/sh",
+            "-c",
+            "ulimit -v " .. tostring(kilobytes) .. " 2>/dev/null || true; exec "
+                .. process.command(argv),
+        }
     end
-    command = command .. " >" .. quote(outputPath) .. " 2>&1 & echo $! >" .. quote(pidPath)
-    local launched = exitCode(os.execute(command))
-    if launched ~= 0 then
-        os.remove(outputPath)
-        os.remove(pidPath)
-        return launched, ""
+    local native = require("nupp.io.process")
+    local child, problem = native.new({
+        args = args,
+        cwd = opts.cwd,
+        env = opts.env,
+        stdin = "null",
+        stdout = "pipe",
+        stderr = "stdout",
+        timeoutMs = opts.timeoutMs,
+    })
+    if not child then
+        return 1, tostring(problem or "the worker could not be started")
     end
-
-    local pid
-    for _ = 1, 100 do
-        local file = io.open(pidPath, "rb")
-        if file then
-            pid = tonumber(file:read("*a"))
-            file:close()
-            if pid then
+    local reader = assert(child.stdout)
+    reader:setTimeout(5)
+    local chunks = {}
+    local cancelled = false
+    while true do
+        local moved = false
+        while true do
+            local chunk = reader:poll()
+            if chunk == nil then
                 break
             end
+            if #chunk == 0 then
+                break
+            end
+            chunks[#chunks + 1] = chunk
+            moved = true
         end
-        C.usleep(1000)
-    end
-    if not pid then
-        os.remove(outputPath)
-        os.remove(pidPath)
-        return 1, "the worker did not publish its process id"
-    end
-
-    local deadline = now() + opts.timeoutMs / 1000
-    local timedOut = false
-    while C.kill(pid, 0) == 0 do
-        if now() >= deadline then
-            timedOut = true
-            C.kill(pid, 9)
+        if opts.pump then
+            opts.pump()
+        end
+        if not cancelled and opts.cancelled and opts.cancelled() then
+            cancelled = true
+            child:kill(true)
+        end
+        local running = child:isRunning()
+        if not running and reader:isEOF() then
             break
         end
-        C.usleep(5000)
+        if not moved and not reader:isEOF() then
+            local chunk, reason = reader:read(65536)
+            if chunk and #chunk > 0 then
+                chunks[#chunks + 1] = chunk
+            elseif reason and not reason:find("timed out", 1, true) then
+                child:kill(true)
+                chunks[#chunks + 1] = reason
+            end
+        end
     end
-    local file = io.open(outputPath, "rb")
-    local output = file and file:read("*a") or ""
-    if file then
-        file:close()
+    local exit = child:wait()
+    child:close()
+    if cancelled then
+        return 125, table.concat(chunks)
     end
-    os.remove(outputPath)
-    os.remove(pidPath)
+    if exit.timedOut then
+        return 124, table.concat(chunks)
+    end
 
-    return timedOut and 124 or 0, output
+    return exit.exitCode, table.concat(chunks)
 end
 
 return process

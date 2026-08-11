@@ -45,6 +45,39 @@ function M.earlyCutoff()
    assertEq(q.stats.report, 2)
 end
 
+function M.validationDoesNotLeakTransitiveDependenciesIntoCallers()
+   local q = query.new()
+   q:setInput("source", "trigger", 1)
+   q:setInput("source", "wanted", 10)
+   q:setInput("source", "unrelated", 20)
+   q:define("aggregate", function(self)
+      return {
+         wanted = self:get("source", "wanted"),
+         unrelated = self:get("source", "unrelated"),
+      }
+   end)
+   q:define("wanted", function(self)
+      return self:get("aggregate", "root").wanted
+   end)
+   q:define("nested", function(self)
+      return self:get("wanted", "root")
+   end)
+   q:define("outer", function(self)
+      return self:get("source", "trigger") + self:get("nested", "root")
+   end)
+
+   assertEq(q:get("outer", "root"), 11)
+   q:setInput("source", "trigger", 2)
+   q:setInput("source", "unrelated", 21)
+   assertEq(q:get("outer", "root"), 12)
+   assertEq(q.stats.outer, 2, "the direct trigger recomputes the caller")
+
+   q:setInput("source", "unrelated", 22)
+   assertEq(q:get("outer", "root"), 12)
+   assertEq(q.stats.outer, 2,
+      "validation of a nested query does not make its aggregate a direct dependency")
+end
+
 -- The compiler-level behavior: editing a dependency's BODY must not
 -- recheck the dependent; editing its INTERFACE must.
 function M.interfaceCutoffAcrossModules()
@@ -265,6 +298,65 @@ function M.newOverlayFilesJoinProjectIndex()
    inc.closeDocument(addedPath)
    assertEq(inc.checkFile(mainPath).diags[1].code, "NUPP2101",
       "closing new unsaved file removes it from project index")
+
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.reflectionDependsOnlyOnTheExportedTypeItReads()
+   local dir = os.tmpname()
+   os.remove(dir)
+   os.execute("mkdir -p '" .. dir .. "'")
+   local reflectedPath = dir .. "/reflected.nupp"
+   local unrelatedPath = dir .. "/unrelated.nupp"
+   local mainPath = dir .. "/main.nupp"
+   local function write(path, source)
+      local file = assert(io.open(path, "wb"))
+      file:write(source)
+      file:close()
+   end
+   local reflected = table.concat({
+      "global record Reflected",
+      "   name: string",
+      "end",
+      "return {}",
+   }, "\n")
+   local unrelated = table.concat({
+      "global record Unrelated",
+      "   value: number",
+      "end",
+      "return {}",
+   }, "\n")
+   write(reflectedPath, reflected)
+   write(unrelatedPath, unrelated)
+   write(mainPath, table.concat({
+      "const SUMMARY = comptime do",
+      "   local info = reflect(Reflected)",
+      "   return info.fields[1].name",
+      "end",
+      "return SUMMARY",
+   }, "\n"))
+
+   local inc = incremental.new(dir, {cache = false})
+   assertEq(#inc.checkFile(mainPath).diags, 0, "reflected type checks")
+   local coldChecks = inc.q.stats.checkModule
+
+   inc.changeDocument(reflectedPath,
+      reflected:gsub("return {}", "local bodyOnly = 1\nreturn {}"))
+   assertEq(#inc.checkFile(mainPath).diags, 0)
+   assertEq(inc.q.stats.checkModule, coldChecks + 1,
+      "a body edit rechecks the declaration but not its reflecting module")
+
+   inc.changeDocument(unrelatedPath,
+      unrelated:gsub("value: number", "value: string"))
+   assertEq(#inc.checkFile(mainPath).diags, 0)
+   assertEq(inc.q.stats.checkModule, coldChecks + 1,
+      "an unrelated exported field does not recheck the reflecting module")
+
+   inc.changeDocument(reflectedPath,
+      reflected:gsub("name: string", "name: string\n   count: integer"))
+   assertEq(#inc.checkFile(mainPath).diags, 0)
+   assertEq(inc.q.stats.checkModule, coldChecks + 3,
+      "the declaring and reflecting modules recheck after a reflected field changes")
 
    os.execute("rm -rf '" .. dir .. "'")
 end
