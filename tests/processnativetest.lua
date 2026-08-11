@@ -1,8 +1,9 @@
 -- The public process state machine joined to the real native provider.
 --
--- The fake-backed suite proves policy. This suite builds the provider once and reaches
--- it through the same generated bootstrap a program receives, so it proves the private
--- binding, the ABI, blocking readiness and real child lifecycle together.
+-- The fake-backed suite proves policy. This suite reaches the launcher's provider (or
+-- builds one when run outside the launcher) through the same generated bootstrap a
+-- program receives, so it proves the private binding, ABI, blocking readiness and real
+-- child lifecycle together.
 local test = require("assert")
 local native = require("nupp.compiler.native")
 local stdlib = require("nupp.compiler.stdlib")
@@ -27,17 +28,21 @@ end
 
 function M.beforeAll()
    math.randomseed(os.time())
-   root = temporaryRoot()
-   os.execute("mkdir -p '" .. root .. "'")
-   local staged, problem = nativeStage.build(root, "out", {[
-      "native.process"
-   ] = true})
-   if not staged then
-      unavailable = tostring(problem)
-      return
+   local libraryPath = os.getenv("NUPP_NATIVE_LIBRARY")
+   if not libraryPath then
+      root = temporaryRoot()
+      os.execute("mkdir -p '" .. root .. "'")
+      local staged, problem = nativeStage.build(root, "out", {[
+         "native.process"
+      ] = true})
+      if not staged then
+         unavailable = tostring(problem)
+         return
+      end
+      libraryPath = root .. "/out/lib/nupp_native"
    end
 
-   local library = ("%q"):format(root .. "/out/lib/nupp_native")
+   local library = ("%q"):format(libraryPath)
    local source = stdlib.bootstrap({
       ["native.process"] = true,
       ["stdlib.io"] = true,

@@ -1816,6 +1816,25 @@ pub mod process {
         Ok(())
     }
 
+    /// A writable pipe whose read end is known to be closed. The SIGPIPE tests use
+    /// this instead of depending on when a concurrently spawned child releases its
+    /// descriptors.
+    #[cfg(test)]
+    pub(crate) unsafe fn broken_input_for_test() -> *mut NuppStream {
+        let mut ends = [0 as libc::c_int; 2];
+        assert_eq!(libc::pipe(ends.as_mut_ptr()), 0);
+        assert_eq!(libc::close(ends[0]), 0);
+        prepare(ends[1]).expect("the parent end is nonblocking and quiet");
+        let writer = std::fs::File::from_raw_fd(ends[1]);
+
+        Box::into_raw(Box::new(NuppStream {
+            fd: ends[1],
+            reader: None,
+            writer: Some(Box::new(writer)),
+            released: false,
+        }))
+    }
+
     /// Writes without letting a broken pipe reach the host.
     ///
     /// On a platform with `F_SETNOSIGPIPE` the descriptor was quieted when it was
@@ -2871,8 +2890,8 @@ mod tests {
         };
         unsafe { nuppBytesDestroy(handle) };
         let expected = [
-            root.join("nested/child.nupp"),
-            root.join("nested/deep/leaf.nupp"),
+            root.join("nested").join("child.nupp"),
+            root.join("nested").join("deep").join("leaf.nupp"),
             root.join("root.nupp"),
         ]
         .into_iter()
@@ -3400,19 +3419,10 @@ mod process_tests {
                     "the host's own signal is waiting before the write"
                 );
 
-                let child = spawn("exit 0", &[]);
-                let input = nuppProcessTakeStream(child, 0);
-                settle(child);
+                let input = broken_input_for_test();
                 let payload = vec![b'x'; 4096];
-                let mut saw_gone = false;
-                for _ in 0..64 {
-                    if nuppProcessTryWrite(input, payload.as_ptr(), payload.len()) == GONE {
-                        saw_gone = true;
-                        break;
-                    }
-                }
                 assert!(
-                    saw_gone,
+                    nuppProcessTryWrite(input, payload.as_ptr(), payload.len()) == GONE,
                     "the write really did break a pipe -- without that this proves only
                      that a signal nobody touched stayed put"
                 );
@@ -3426,9 +3436,7 @@ mod process_tests {
                 );
 
                 nuppProcessCloseStream(input);
-                nuppProcessReap(child);
                 nuppProcessStreamDestroy(input);
-                nuppProcessDestroy(child);
 
                 // Consume the one this test raised, so it does not outlive the test.
                 let timeout = libc::timespec { tv_sec: 0, tv_nsec: 0 };
@@ -3663,31 +3671,14 @@ mod process_tests {
 
         #[test]
         fn a_write_to_a_child_that_stopped_reading_reports_gone() {
-            // The case that kills the host when SIGPIPE is not contained: the child
-            // reads nothing and exits, and this process keeps writing. Reaching the
+            // The case that kills the host when SIGPIPE is not contained. Reaching the
             // assertion at all is most of the test.
-            let child = spawn("exit 0", &[]);
-            let input = unsafe { nuppProcessTakeStream(child, 0) };
-            assert!(!input.is_null());
-            settle(child);
-
+            let input = unsafe { broken_input_for_test() };
             let payload = vec![b'x'; 4096];
-            let mut saw_gone = false;
-            for _ in 0..64 {
-                let sent = unsafe {
-                    nuppProcessTryWrite(input, payload.as_ptr(), payload.len())
-                };
-                if sent == GONE {
-                    saw_gone = true;
-                    break;
-                }
-                assert!(sent >= 0 || sent == WOULD_BLOCK, "unexpected write answer {sent}");
-            }
-            assert!(saw_gone, "the far end going was reported, and the host survived");
+            let sent = unsafe { nuppProcessTryWrite(input, payload.as_ptr(), payload.len()) };
+            assert_eq!(sent, GONE, "the far end going was reported, and the host survived");
             unsafe { nuppProcessCloseStream(input) };
-            unsafe { nuppProcessReap(child) };
             unsafe { nuppProcessStreamDestroy(input) };
-            unsafe { nuppProcessDestroy(child) };
         }
 
         #[test]

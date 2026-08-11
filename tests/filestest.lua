@@ -1,9 +1,9 @@
 -- `nupp.io.files` against a real filesystem, through the real Rust provider.
 --
--- The provider is built once for the suite and reached the way a generated
--- program reaches it, so what is proved here is the binding and the ABI rather
--- than a mock of either. Cargo is the one prerequisite; without it the suite
--- skips rather than failing for a reason that is not about files.
+-- The launcher's provider is reused when available, and otherwise one is built for
+-- the suite. It is reached the way a generated program reaches it, so what is proved
+-- here is the binding and ABI rather than a mock of either. Cargo is the one
+-- prerequisite; without it the fallback skips rather than failing for another reason.
 local test = require("assert")
 local native = require("nupp.compiler.native")
 local stdlib = require("nupp.compiler.stdlib")
@@ -25,15 +25,19 @@ function M.beforeAll()
    math.randomseed(os.time())
    root = temporaryRoot()
    os.execute("mkdir -p '" .. root .. "'")
-   local staged, problem = nativeStage.build(root, "out", {["native.files"] = true})
-   if not staged then
-      unavailable = tostring(problem)
-      return
+   local libraryPath = os.getenv("NUPP_NATIVE_LIBRARY")
+   if not libraryPath then
+      local staged, problem = nativeStage.build(root, "out", {["native.files"] = true})
+      if not staged then
+         unavailable = tostring(problem)
+         return
+      end
+      libraryPath = root .. "/out/lib/nupp_native"
    end
    -- A generated program finds the library beside itself. This chunk is loaded
    -- from a string, so it has no beside; name the staged library outright, which
    -- is the same substitution the NUPP_NATIVE_LIBRARY override performs.
-   local library = ("%q"):format(root .. "/out/lib/nupp_native")
+   local library = ("%q"):format(libraryPath)
    local source = stdlib.bootstrap({
       ["native.files"] = true, ["stdlib.io"] = true,
    }):gsub('os%.getenv%("NUPP_NATIVE_LIBRARY"%)', function() return library end)

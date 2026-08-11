@@ -53,19 +53,49 @@ local function quote(arg)
     return "'" .. arg:gsub("'", "'\\''") .. "'"
 end
 
-function process.command(argv: {string}, opts: process.Options?): string
-    assert(type(argv) == "table" and #argv > 0, "argv must not be empty")
-    opts = (opts or {}) as process.Options
+local function launchArgs(argv: {string}): {string}
     local testBash = windows and (
         rawget(_G, "__NUPP_TEST_BASH") or os.getenv("NUPP_TEST_BASH")
     ) or nil
-    if testBash and tostring(argv[1]):gsub("\\", "/"):match("/bin/nupp$") then
-        local launched = {testBash}
-        for _, arg in ipairs(argv) do
-            launched[#launched + 1] = arg
-        end
-        argv = launched
+    if not testBash or not tostring(argv[1]):gsub("\\", "/"):match("/bin/nupp$") then
+        return argv
     end
+
+    local launched = {testBash}
+    for _, arg in ipairs(argv) do
+        launched[#launched + 1] = arg
+    end
+    return launched
+end
+
+-- MSYS cannot replace itself with a native executable, so killing a Bash-wrapped
+-- worker leaves its LuaJIT child alive with the capture pipe open. The launcher has
+-- already built this entry before the compiler can reach here; start it directly so
+-- the handle being timed out or cancelled is the worker itself.
+local function isolatedArgs(argv: {string}): {string}
+    if windows then
+        local executable = tostring(argv[1]):gsub("\\", "/")
+        local root = executable:match("^(.*)/bin/nupp$")
+        if root then
+            local path = ("package.path=%q .. package.path")
+                :format(root .. "/build/?.lua;")
+            local launched = {
+                "luajit", "-e", path, root .. "/build/nupp/compiler/main.lua"
+            }
+            for index = 2, #argv do
+                launched[#launched + 1] = argv[index]
+            end
+            return launched
+        end
+    end
+
+    return launchArgs(argv)
+end
+
+function process.command(argv: {string}, opts: process.Options?): string
+    assert(type(argv) == "table" and #argv > 0, "argv must not be empty")
+    opts = (opts or {}) as process.Options
+    argv = launchArgs(argv)
     local parts = {}
     if opts.env then
         local names = {}
@@ -156,7 +186,7 @@ end
 --- protocol input and cancel the child on every quiet wait.
 function process.captureIsolated(argv: {string}, opts: process.Options?): integer, string
     opts = (opts or {}) as process.Options
-    local args = argv
+    local args = isolatedArgs(argv)
     if opts.memoryMb and not windows then
         local kilobytes = math.max(1, math.floor(opts.memoryMb * 1024))
         args = {

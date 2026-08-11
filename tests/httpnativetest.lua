@@ -10,8 +10,8 @@ local suspension = require("nupp.suspension")
 local M = {}
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
-local root, http, buffers, port, serverPid
-local priorPreload, priorLoaded, unavailable
+local root, http, buffers, process, port, server
+local priorPreload, priorLoaded, priorProcessPreload, priorProcessLoaded, unavailable
 
 local function temporaryRoot()
    local base = os.getenv("TMPDIR") or "/tmp"
@@ -21,21 +21,20 @@ end
 
 local function startServer()
    local portFile = root .. "/port"
-   local command = ("python3 %q %q >/dev/null 2>&1 & echo $!"):format(
-      HERE .. "/fixtures/http_server.py", portFile)
-   local process = io.popen(command)
-   if not process then return nil, "cannot start python3" end
-   serverPid = tonumber(process:read("*l"))
-   process:close()
-   if not serverPid then return nil, "python3 did not start the loopback server" end
-   for _ = 1, 200 do
+   local problem
+   server, problem = process.new({
+      args = {"python3", HERE .. "/fixtures/http_server.py", portFile},
+      stdin = "null", stdout = "null", stderr = "null",
+   })
+   if not server then return nil, "cannot start python3: " .. tostring(problem) end
+   local started = os.clock()
+   while os.clock() - started < 5 do
       local file = io.open(portFile, "rb")
       if file then
          local value = tonumber(file:read("*a"))
          file:close()
          if value then return value end
       end
-      os.execute("sleep 0.01")
    end
    return nil, "the loopback server did not become ready"
 end
@@ -44,34 +43,47 @@ function M.beforeAll()
    math.randomseed(os.time())
    root = temporaryRoot()
    os.execute("mkdir -p '" .. root .. "'")
-   port, unavailable = startServer()
-   if not port then return end
 
-   local staged, problem = nativeStage.build(root, "out", {
-      ["native.http"] = true,
-      ["native.uri"] = true,
-   })
-   if not staged then
-      unavailable = tostring(problem)
-      return
+   local libraryPath = os.getenv("NUPP_NATIVE_LIBRARY")
+   if not libraryPath then
+      local staged, problem = nativeStage.build(root, "out", {
+         ["native.http"] = true,
+         ["native.process"] = true,
+         ["native.uri"] = true,
+      })
+      if not staged then
+         unavailable = tostring(problem)
+         return
+      end
+      libraryPath = root .. "/out/lib/nupp_native"
    end
 
-   local effects = native.expand({["native.http"] = true})
-   local library = ("%q"):format(root .. "/out/lib/nupp_native")
+   local effects = native.expand({
+      ["native.http"] = true,
+      ["native.process"] = true,
+   })
+   local library = ("%q"):format(libraryPath)
    local source = stdlib.bootstrap(effects):gsub(
       'os%.getenv%("NUPP_NATIVE_LIBRARY"%)', function() return library end)
    priorPreload = package.preload["nupp.io.httpnative"]
    priorLoaded = package.loaded["nupp.io.httpnative"]
+   priorProcessPreload = package.preload["nupp.io.processnative"]
+   priorProcessLoaded = package.loaded["nupp.io.processnative"]
    package.loaded["nupp.io.httpnative"] = nil
+   package.loaded["nupp.io.processnative"] = nil
    assert(loadstring(source))()
+   process = require("nupp.io.process")
    http = require("nupp.io.http")
    buffers = _G.nupp.io
+   port, unavailable = startServer()
 end
 
 function M.afterAll()
+   if server then server:close() end
    package.preload["nupp.io.httpnative"] = priorPreload
    package.loaded["nupp.io.httpnative"] = priorLoaded
-   if serverPid then os.execute("kill " .. serverPid .. " 2>/dev/null") end
+   package.preload["nupp.io.processnative"] = priorProcessPreload
+   package.loaded["nupp.io.processnative"] = priorProcessLoaded
    if root then
       os.execute("chmod -R u+w '" .. root .. "' 2>/dev/null")
       os.execute("rm -rf '" .. root .. "'")
@@ -237,7 +249,9 @@ end
 
 function M.anEarlyResponseStopsReadingTheRequestBody()
    local client = ready()
-   local total, calls = 4 * 1024 * 1024, 0
+   -- Larger than a loopback socket can buffer, so even a server scheduled late must
+   -- answer before the reader can be consumed in full.
+   local total, calls = 64 * 1024 * 1024, 0
    local reader = {
       readInto = function(_self, destination, offset, count)
          calls = calls + 1
