@@ -209,48 +209,47 @@ return m
     ),
 
     new reference.Section(
-        title = "Named arguments and value expansion",
-        codes = {"NUPP2006", "NUPP2118", "NUPP2125", "NUPP2126"},
+        title = "Named and plucked arguments",
+        codes = {"NUPP2004", "NUPP2006", "NUPP2125"},
         body = [=[
 Inside a parenthesized call, `name = value` fills that parameter directly.
 Named arguments follow every positional argument and appear in parameter order.
 They erase to ordinary positional Lua arguments; an omitted optional slot before
 a later named argument is emitted as `nil`.
 
-A record, interface, or struct may declare ordered readable-field projections
-with `expands (field, ...)`. `...value` explicitly contributes one of those
-projections to a call's positional prefix. A plain `value` remains one argument.
-The named suffix reserves its parameter slots, and the checker selects the one
-expansion arity that makes the complete call fit. No match is **NUPP2125** and
-more than one is **NUPP2126**.
+`name = *value` fills that parameter from the field of `value` the parameter
+names: it means `name = value.name` and nothing more. `(a, b) = *value` fills
+several parameters from one operand. Nothing is declared on the operand's type,
+so a plucked name reaches any record with a field of that name, including one
+the caller does not own. A name that is not a field of the operand is
+**NUPP2004**; the resulting binding is checked like any other named argument, so
+a field whose type does not fit its parameter is an ordinary rejected call.
 
-Interfaces pass expansions to declarations that take their contract. A bounded
-type parameter sees its interface bound's projections, so generic adapters use
-the same syntax. An expansion operand is a name or dotted field path, such as
-`...entity.position`. Bind calls, computed indexes, and other producing
-expressions to a local before expanding them. A statement-level call evaluates
-each dotted operand path and common prefix once, while projected leaves remain
-direct positional arguments. A nested expression instead repeats prefixes when
-needed; expansion never introduces a closure or upvalue. A trailing call can
-still fill the remaining positional slots with its multiple results. This
-applies to functions, callable records, methods, constructors, and specialized
-calls with a statically known positional pack. Safe statements and returns guard
-the optional callee, receiver, and method before binding paths; nested safe calls
-retain the native safe operator and its lazy argument evaluation.
+A group's names are a set rather than a sequence. Every read is a field of one
+path, so no order among them is observable and `(y, x)` binds exactly what
+`(x, y)` does. Ordering is enforced between arguments, not inside a group.
+
+A plucked operand is a name or dotted field path, such as `*entity.position`.
+Bind calls, computed indexes, and other producing expressions to a local first;
+that restriction is what lets the reads be unordered and evaluated once. A
+statement-level call evaluates each dotted operand path and common prefix once,
+while the projected fields remain direct positional arguments. A nested
+expression instead repeats prefixes when needed; plucking never introduces a
+closure or upvalue. Plucking is a named binding, so positional arguments cannot
+follow it; a call keeps its several results only as the last argument, and so
+fills the remaining positional slots only when nothing is plucked after it.
+This applies to functions, callable
+records, methods, constructors, and specialized calls with a statically known
+positional pack. A bounded type parameter plucks through its bound, since the
+read is an ordinary field access. Safe statements and returns guard the optional
+callee, receiver, and method before binding paths; nested safe calls retain the
+native safe operator and its lazy argument evaluation.
 ]=],
         example = [=[
-local interface XY
-    readonly x: number
-    readonly y: number
-    expands (x, y)
-end
-
-local record Vec3 is XY
+local record Vec3
     x: number
     y: number
     z: number
-
-    expands (x, y, z)
 end
 
 local record Entity
@@ -263,8 +262,9 @@ end
 
 local position = new Vec3(x = 1, y = 2, z = 3)
 local entity = new Entity(position = position)
-draw(...entity.position, color = "blue")
-draw(x = position.x, y = position.y)
+draw(x = *position, y = *position, color = "blue")
+draw((x, y) = *entity.position, color = "blue")
+draw(10, y = *position)
 
 return position
 ]=]

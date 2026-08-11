@@ -524,12 +524,12 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local severity = logIntrinsic(c, callee)
         if severity and not argTable and not argStr then
             local format = argExprs[1]
-            -- A named argument or a field expansion is positional only after the
-            -- adjustment the ordinary call path performs, and lowering goes around
-            -- that path. Rather than repeat it here, those spellings keep their call.
+            -- A named or plucked argument is positional only after the adjustment the
+            -- ordinary call path performs, and lowering goes around that path. Rather
+            -- than repeat it here, those spellings keep their call.
             local positional = true
             for _, argument in ipairs(argExprs) do
-                if argument.kind == "namedArg" or argument.kind == "expandArg" then
+                if argument.kind == "namedArg" or argument.kind == "pluckArg" then
                     positional = false
                 end
             end
@@ -543,7 +543,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         if zoneOp and not argTable and not argStr then
             local positional = true
             for _, argument in ipairs(argExprs) do
-                if argument.kind == "namedArg" or argument.kind == "expandArg" then
+                if argument.kind == "namedArg" or argument.kind == "pluckArg" then
                     positional = false
                 end
             end

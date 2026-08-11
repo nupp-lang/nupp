@@ -81,10 +81,9 @@ Each entry is tagged with where its win lands:
 - `cold` **Field-read CSE.** Repeated reads of the same path collapse
   within a region containing no call, no assignment reaching the path,
   and no yield.
-- `core` **Declaration-directed call projection.** Implemented as
-  always-on lowering rather than an `OPT-n` pass. A declaration's
-  `expands` contract and the call's `...value` signal make the intended
-  field set and arity static. Statement-level calls bind reusable dotted
+- `core` **Plucked call projection.** Implemented as always-on lowering
+  rather than an `OPT-n` pass. A call's `name = *path` and `(a, b) = *path`
+  arguments make the intended field set and arity static. Statement-level calls bind reusable dotted
   prefixes once and leave one-use leaves in the flat positional call,
   replacing the locals a performance-conscious Lua author would otherwise
   write by hand. Nested expressions repeat prefixes rather than creating an

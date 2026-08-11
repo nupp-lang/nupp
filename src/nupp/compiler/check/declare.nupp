@@ -1090,7 +1090,6 @@ function declare.install(
             n.staticEntries = {}
             n.overloadedStatics = {}
             n.defaultEntries = {}
-            n.expansions = {}
             n.annotations = stat.semanticAnnotations or {}
             -- bind the name first so fields may reference the type recursively
             c.bindDeclaredType(stat, n)
@@ -1217,33 +1216,6 @@ function declare.install(
                     for name, inherited in pairs(super.metamethods or {}) do
                         if not n.metamethods[name] then
                             n.metamethods[name] = substType(inherited, selfMap)
-                        end
-                    end
-                    for arity, inherited in pairs(super.expansions or {}) do
-                        local prior = n.expansions[arity]
-                        local same = prior and #prior == #inherited
-                        if same then
-                            for j, field in ipairs(inherited) do
-                                if prior[j] ~= field then
-                                    same = false
-                                    break
-                                end
-                            end
-                        end
-                        if prior and not same then
-                            c.diag(
-                                "NUPP2118",
-                                superNode,
-                                ("inherited expansions of arity %d disagree"):format(arity),
-                                nil,
-                                {help = "interfaces inherited together must project the same ordered fields"}
-                            )
-                        elseif not prior then
-                            local copied = {}
-                            for j, field in ipairs(inherited) do
-                                copied[j] = field
-                            end
-                            n.expansions[arity] = copied
                         end
                     end
                 end
@@ -1815,55 +1787,6 @@ function declare.install(
                 n.writeByname[source] = nil
                 n.writeFieldDefs[field] = nil
                 n.writeFieldDefs[source] = nil
-            end
-            -- Expansion declarations are read after fields regardless of where they
-            -- appeared in the body. They are compile-time projections and emit no
-            -- runtime member.
-            for _, e in ipairs(stat.entries) do
-                if e.kind == "expansionDecl" then
-                    local names, seen = {}, {}
-                    for j, token in ipairs(e.names or {}) do
-                        names[j] = token.text
-                        if seen[token.text] then
-                            c.diag("NUPP2118", token, ("expansion repeats field %q"):format(token.text))
-                        else
-                            seen[token.text] = true
-                        end
-                        local fieldType, definition = c.fieldType(n, token.text)
-                        if not fieldType then
-                            c.diag(
-                                "NUPP2118",
-                                token,
-                                ("expansion field %q is not readable on %s"):format(token.text, n.name)
-                            )
-                        elseif c.ownershipKind(fieldType) then
-                            c.diag(
-                                "NUPP2118",
-                                token,
-                                ("expansion field %q is affine and cannot be projected"):format(token.text),
-                                nil,
-                                {help = "pass the container explicitly so ownership remains visible"}
-                            )
-                        else
-                            c.markToken(token, definition, fieldType, "property")
-                        end
-                    end
-                    local arity = #names
-                    if arity > 0 then
-                        local inherited = n.expansions[arity]
-                        if inherited then
-                            c.diag(
-                                "NUPP2118",
-                                e,
-                                ("%s already has an expansion of arity %d"):format(n.name, arity),
-                                nil,
-                                {help = "remove the duplicate, or choose a different number of fields"}
-                            )
-                        else
-                            n.expansions[arity] = names
-                        end
-                    end
-                end
             end
             -- Only a group needs hidden runtime members. A single method keeps the
             -- ordinary Lua spelling and remains extractable like any other field.

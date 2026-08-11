@@ -322,11 +322,6 @@ handle suspension with cancel do
    cancel()
 end
 
-local interface Pair
-   expands (left, right)
--- ^^^^^^^ keyword.control.nupp
-end
-
 local interface Matcher
    associated type Result = R
 -- ^^^^^^^^^^ keyword.control.nupp

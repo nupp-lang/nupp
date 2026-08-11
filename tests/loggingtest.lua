@@ -154,17 +154,15 @@ function M.aNamedArgumentKeepsTheOrdinaryCall()
       "a named argument keeps its call")
 end
 
-function M.anExpandedArgumentKeepsTheOrdinaryCall()
+function M.aPluckedArgumentKeepsTheOrdinaryCall()
    local code = compile(table.concat({
-      "local record Pair",
-      "    a: number",
-      "    b: number",
-      "    expands (a, b)",
+      "local record Message",
+      "    fmt: string",
       "end",
-      "local p = new Pair(a = 1, b = 2)",
-      "nupp.log.error('%d %d', ...p)",
+      "local message = new Message(fmt = 'plain')",
+      "nupp.log.error(fmt = *message)",
    }, "\n"), "amb")
-   assertTrue(not isLowered(code), "a field expansion keeps its call")
+   assertTrue(not isLowered(code), "a plucked argument keeps its call")
 end
 
 function M.aLoweredSiteDoesNotEvaluateAFilteredArgument()

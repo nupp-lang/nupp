@@ -1977,7 +1977,6 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     end
     inst.paramKinds = n.paramKinds
     inst.fieldOrder = n.fieldOrder
-    inst.expansions = n.expansions
     inst.arrayOf = n.arrayOf and substWith(n.arrayOf, map, PRESERVE) or nil
     inst.fieldDefs = n.fieldDefs
     inst.writeFieldDefs = n.writeFieldDefs

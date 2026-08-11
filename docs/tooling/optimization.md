@@ -33,24 +33,24 @@ Generated temporary names are illustrative.
 
 ### Always-on typed call projection
 
-Declaration-directed argument expansion is language lowering rather than an
-`OPT-n` pass, so it produces the same flat call at `-O0` and `-O1`. A record or
-interface declares its ordered projections with `expands`; a call opts in with
-`...value`. That explicit type-and-use-site signal lets Nupp do the table-path
-sharing ordinary Lua leaves to hand-written locals or to the trace compiler.
+Argument plucking is language lowering rather than an `OPT-n` pass, so it
+produces the same flat call at `-O0` and `-O1`. `name = *path` fills a parameter
+from the field of `path` that the parameter names, and `(a, b) = *path` fills
+several from one operand. Because the operand is confined to a name or dotted
+path, the reads are unordered and Nupp can do the table-path sharing ordinary
+Lua leaves to hand-written locals or to the trace compiler.
 
 ::: code-group
 ```nupp [Readable Nupp]
 local record Vec2
     x: number
     y: number
-    expands (x, y)
 end
 
 update(
-    ...entity.body.position,
-    ...entity.body.velocity,
-    delta
+    delta,
+    (x, y) = *entity.body.position,
+    (dx, dy) = *entity.body.velocity
 )
 ```
 
@@ -59,11 +59,11 @@ const __nupp_body = entity.body
 const __nupp_position = __nupp_body.position
 const __nupp_velocity = __nupp_body.velocity
 update(
+    delta,
     __nupp_position.x,
     __nupp_position.y,
     __nupp_velocity.x,
-    __nupp_velocity.y,
-    delta
+    __nupp_velocity.y
 )
 ```
 :::
@@ -72,21 +72,21 @@ Only reusable path nodes receive locals. One-use projected leaves stay directly
 in the positional call. There is no argument table, reflection, varargs pack,
 runtime arity choice, generated function, closure, or upvalue. The taken branch
 of a safe function or method call has the same flat signature; statement calls
-use staged nil guards and returned calls use early returns so expanded paths are
+use staged nil guards and returned calls use early returns so plucked paths are
 not evaluated when the call is suppressed.
 
 The no-closure rule is deliberate. A call nested where Lua cannot host local
 bindings emits repeated direct projections instead:
 
 ```nupp
-local moved = enabled and update(...entity.body.position, delta)
+local moved = enabled and update(delta, (x, y) = *entity.body.position)
 ```
 
 ```lua
 local moved = enabled and update(
+    delta,
     entity.body.position.x,
-    entity.body.position.y,
-    delta
+    entity.body.position.y
 )
 ```
 

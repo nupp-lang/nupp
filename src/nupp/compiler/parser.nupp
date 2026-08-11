@@ -1056,6 +1056,27 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return exprs
     end
 
+    --- Whether the `(` at the cursor opens a pluck group, `(x, y) = *path`. An
+    --- ordinary parenthesized argument starts the same way, so nothing can be
+    --- decided until the head, its close, and the `= *` behind it are all in view.
+    local function pluckGroupAhead(): boolean
+        local j = i + 1
+        if not tokens[j] or tokens[j].kind ~= "name" then
+            return false
+        end
+        j = j + 1
+        while tokens[j] and tokens[j].kind == "," do
+            if not tokens[j + 1] or tokens[j + 1].kind ~= "name" then
+                return false
+            end
+            j = j + 2
+        end
+
+        return tokens[j] ~= nil and tokens[j].kind == ")" and tokens[
+            j + 1
+        ] ~= nil and tokens[j + 1].kind == "=" and tokens[j + 2] ~= nil and tokens[j + 2].kind == "*"
+    end
+
     --- A call's arguments: parenthesized, a string, or a table.
     local function parseCallargs(typeFirst: boolean?): Node?
         local kind = cur().kind
@@ -1069,19 +1090,37 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     if typeFirst and #n.exprs == 0 then
                         argument = parseType()
                         n.typeArg = argument
+                    elseif (cur().kind == "name" and tokens[i + 1] and tokens[
+                        i + 1
+                    ].kind == "=" and tokens[i + 2] and tokens[
+                        i + 2
+                    ].kind == "*") or (cur().kind == "(" and pluckGroupAhead()) then
+                        local pluck = new cst.PluckArg(kind = "pluckArg", names = {})
+                        if cur().kind == "(" then
+                            pluck.grouped = true
+                            add(pluck, advance())
+                            pluck.names[1] = add(pluck, advance())
+                            while cur().kind == "," do
+                                add(pluck, advance())
+                                pluck.names[#pluck.names + 1] = add(pluck, advance())
+                            end
+                            add(pluck, expect(")", "to close a plucked parameter group"))
+                        else
+                            pluck.names[1] = add(pluck, advance())
+                        end
+                        add(pluck, advance()) -- '='
+                        add(pluck, advance()).pluck = true
+                        -- The operand is parsed as an ordinary expression and held to
+                        -- being a name or dotted path by the checker, which can say
+                        -- what to do about a producing one instead of failing to parse.
+                        pluck.value = add(pluck, resetNoMethod(parseExp))
+                        argument = pluck
                     elseif cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "=" then
                         local named = new cst.NamedArg(kind = "namedArg")
                         named.name = add(named, advance())
                         add(named, advance()) -- '='
                         named.value = add(named, resetNoMethod(parseExp))
                         argument = named
-                    elseif cur().kind == "..." and tokens[
-                        i + 1
-                    ] and tokens[i + 1].kind ~= "," and tokens[i + 1].kind ~= ")" then
-                        local expanded = new cst.ExpandArg(kind = "expandArg")
-                        add(expanded, advance()).valueExpansion = true
-                        expanded.value = add(expanded, resetNoMethod(parseExp))
-                        argument = expanded
                     else
                         argument = resetNoMethod(parseExp)
                     end
@@ -1859,24 +1898,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 else
                     e.body = add(e, parseFuncbody())
                 end
-            elseif cur().kind == "name" and cur().text == "expands" and tokens[i + 1] and tokens[i + 1].kind == "(" then
-                -- Contextual: a field named `expands` is followed by a colon. The
-                -- declaration form is an ordered list of readable field names.
-                e = new cst.ExpansionDecl(kind = "expansionDecl", names = {})
-                add(e, advance()).expansionKeyword = true
-                add(e, advance()) -- '('
-                if cur().kind == ")" then
-                    errAt(cur(), "an expansion needs at least one field")
-                else
-                    repeat
-                        e.names[#e.names + 1] = add(e, expectName("in expansion declaration"))
-                        if cur().kind ~= "," then
-                            break
-                        end
-                        add(e, advance())
-                    until false
-                end
-                add(e, expect(")", "to close expansion declaration"))
             elseif cur().kind == "name" and cur().text == "metamethod" and tokens[
                 i + 1
             ] and tokens[i + 1].kind == "name" then

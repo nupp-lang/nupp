@@ -323,10 +323,6 @@
         },
         {
           "name": "keyword.control.nupp",
-          "match": "\\bexpands\\b(?=[ \\t]*\\()"
-        },
-        {
-          "name": "keyword.control.nupp",
           "match": "\\bmatches\\b(?![ \\t]*:)"
         },
         {

@@ -682,9 +682,6 @@ record types.Nominal
     --- The capture-carrying pattern declaration exported by that module.
     lpegPatternOrigin: types.Nominal?
 
-    --- Ordered readable-field projections, keyed by their result arity.
-    expansions: {[integer]: {string}}?
-
     --- Element type of a record's array part, when it declared one.
     arrayOf: types.Type?
 

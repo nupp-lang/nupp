@@ -60,7 +60,6 @@ local CONTEXTUAL_KEYWORDS = {
     continue = true,
     each = true,
     exclusive = true,
-    expands = true,
     from = true,
     takes = true,
     const = true,

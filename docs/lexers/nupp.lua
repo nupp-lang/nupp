@@ -56,7 +56,7 @@ lex:modify_rule("operator", lex:tag(lexer.OPERATOR, operator))
 
 lex:set_word_list(lexer.KEYWORD, {
    "and", "as", "break", "borrows", "cdef", "const", "constructor", "continue",
-   "do", "each", "else", "elseif", "end", "exclusive", "expands", "false",
+   "do", "each", "else", "elseif", "end", "exclusive", "false",
    "for", "from", "function", "global", "goto", "handle", "if", "in", "infer",
    "interface", "is", "keyof", "local", "match", "matches", "metamethod", "new", "nil",
    "not", "or", "out", "preserves", "readonly", "record", "releases",

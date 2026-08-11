@@ -94,11 +94,8 @@ type lexer.Token = {
     --- The name of a named vararg parameter, `...rest`.
     namedVararg: boolean?,
 
-    --- `...` explicitly expanding a declaration-directed value projection.
-    valueExpansion: boolean?,
-
-    --- The contextual `expands` declaration keyword, spaced from its field list.
-    expansionKeyword: boolean?,
+    --- The `*` of a plucked argument, kept tight to the path it reads.
+    pluck: boolean?,
 
     --- A contextual operator lexed as a name: the `as` of a cast, the `is` of a type
     --- test. It takes a type on its right, so it is not the callee its spelling makes

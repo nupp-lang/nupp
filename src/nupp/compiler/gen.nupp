@@ -679,16 +679,16 @@ function gen.generate(
         return nil
     end
 
-    -- Value expansion promises that a dotted operand is evaluated once. Calls in
+    -- Plucking promises that a dotted operand is evaluated once. Calls in
     -- statement-root position receive reusable path bindings as ordinary generated
     -- locals; calls nested in another expression use a local wrapper at their exact
     -- evaluation point. Projected leaves remain in the call because each is read once.
-    -- Keep the emitter's expansion dependencies behind one upvalue. LuaJIT caps a
+    -- Keep the emitter's plucking dependencies behind one upvalue. LuaJIT caps a
     -- function at 60 upvalues, and this generator deliberately sits close to that
     -- boundary because emit handles every syntax kind.
-    local expansion = {plans = {}, statementActive = {},}
+    local pluck = {plans = {}, statementActive = {},}
 
-    local function dottedExpansionParts(node): string?, {string}?
+    local function dottedPathParts(node): string?, {string}?
         if not node or cst.isToken(node) then
             return nil, nil
         end
@@ -698,7 +698,7 @@ function gen.generate(
         if node.kind ~= "dotIndex" or not node.name then
             return nil, nil
         end
-        local root, parts = dottedExpansionParts(node.obj)
+        local root, parts = dottedPathParts(node.obj)
         if not root or not parts then
             return nil, nil
         end
@@ -707,7 +707,7 @@ function gen.generate(
         return root, parts
     end
 
-    local function expansionCall(call): boolean
+    local function pluckableCall(call): boolean
         if call.kind == "methodCall" then
             return call.obj ~= nil and call.name ~= nil
         end
@@ -737,8 +737,8 @@ function gen.generate(
             and not call.passPinnedPointer
     end
 
-    function expansion.callPlan(call): any
-        if not expansionCall(call) or not call.obj or not call.args or not call.args.loweredArgs then
+    function pluck.callPlan(call): any
+        if not pluckableCall(call) or not call.obj or not call.args or not call.args.loweredArgs then
             return nil
         end
         local hasDotted = false
@@ -801,7 +801,7 @@ function gen.generate(
         end
 
         local function bindPath(source): string?
-            local root, parts = dottedExpansionParts(source)
+            local root, parts = dottedPathParts(source)
             if not root or not parts then
                 return nil
             end
@@ -853,7 +853,7 @@ function gen.generate(
         return plan
     end
 
-    function expansion.emitSteps(steps)
+    function pluck.emitSteps(steps)
         for _, step in ipairs(steps) do
             e("const " .. step.name .. "=", sourceLine(step.at))
             if step.kind == "field" then
@@ -865,7 +865,7 @@ function gen.generate(
         end
     end
 
-    function expansion.directCall(statement)
+    function pluck.directCall(statement)
         local kind = statement.kind
         local direct
         if kind == "callStmt" then
@@ -885,9 +885,9 @@ function gen.generate(
         return direct
     end
 
-    function expansion.emitArgument(argument, owner)
-        local alias = expansion.argumentAliases and expansion.argumentAliases[argument]
-        local field = expansion.argumentFields and expansion.argumentFields[argument]
+    function pluck.emitArgument(argument, owner)
+        local alias = pluck.argumentAliases and pluck.argumentAliases[argument]
+        local field = pluck.argumentFields and pluck.argumentFields[argument]
         if alias then
             e(alias, sourceLine(argument.expr or argument.source or owner))
         elseif field then
@@ -902,36 +902,36 @@ function gen.generate(
         end
     end
 
-    function expansion.emitArgs(args)
+    function pluck.emitArgs(args)
         for j, argument in ipairs(args.loweredArgs or {}) do
             if j > 1 then
                 e(",")
             end
-            expansion.emitArgument(argument, args)
+            pluck.emitArgument(argument, args)
         end
     end
 
-    function expansion.activate(plan): any
-        local prior = {aliases = expansion.argumentAliases, fields = expansion.argumentFields,}
-        expansion.argumentAliases = plan.argAliases
-        expansion.argumentFields = plan.argFields
-        expansion.plans[plan.call] = plan
+    function pluck.activate(plan): any
+        local prior = {aliases = pluck.argumentAliases, fields = pluck.argumentFields,}
+        pluck.argumentAliases = plan.argAliases
+        pluck.argumentFields = plan.argFields
+        pluck.plans[plan.call] = plan
 
         return prior
     end
 
-    function expansion.restore(plan, prior)
-        expansion.plans[plan.call] = nil
-        expansion.argumentAliases = prior.aliases
-        expansion.argumentFields = prior.fields
+    function pluck.restore(plan, prior)
+        pluck.plans[plan.call] = nil
+        pluck.argumentAliases = prior.aliases
+        pluck.argumentFields = prior.fields
     end
 
-    function expansion.emitCall(call, plan)
+    function pluck.emitCall(call, plan)
         if plan.methodAlias then
             e(plan.methodAlias .. "(" .. plan.receiverAlias, sourceLine(call))
             if call.args and #(call.args.loweredArgs or {}) > 0 then
                 e(",")
-                expansion.emitArgs(call.args)
+                pluck.emitArgs(call.args)
             end
             e(")")
         elseif plan.receiverAlias then
@@ -947,14 +947,14 @@ function gen.generate(
         end
     end
 
-    function expansion.emitStatement(statement, call, plan)
-        expansion.emitSteps(plan.setupSteps)
+    function pluck.emitStatement(statement, call, plan)
+        pluck.emitSteps(plan.setupSteps)
         local guards = 0
         if plan.safeReceiver then
             e("if " .. plan.receiverAlias .. "~=nil then")
             guards = guards + 1
         end
-        expansion.emitSteps(plan.afterReceiverSteps)
+        pluck.emitSteps(plan.afterReceiverSteps)
         if plan.safeCallee then
             e("if " .. plan.calleeAlias .. "~=nil then")
             guards = guards + 1
@@ -963,31 +963,31 @@ function gen.generate(
             e("if " .. plan.methodAlias .. "~=nil then")
             guards = guards + 1
         end
-        expansion.emitSteps(plan.steps)
-        local prior = expansion.activate(plan)
+        pluck.emitSteps(plan.steps)
+        local prior = pluck.activate(plan)
         emit(statement)
-        expansion.restore(plan, prior)
+        pluck.restore(plan, prior)
         for _ = 1, guards do
             e("end")
         end
     end
 
-    function expansion.emitReturn(statement, plan)
-        expansion.emitSteps(plan.setupSteps)
+    function pluck.emitReturn(statement, plan)
+        pluck.emitSteps(plan.setupSteps)
         if plan.safeReceiver then
             e("if " .. plan.receiverAlias .. "==nil then return nil end;")
         end
-        expansion.emitSteps(plan.afterReceiverSteps)
+        pluck.emitSteps(plan.afterReceiverSteps)
         if plan.safeCallee then
             e("if " .. plan.calleeAlias .. "==nil then return nil end;")
         end
         if plan.safeMethod then
             e("if " .. plan.methodAlias .. "==nil then return nil end;")
         end
-        expansion.emitSteps(plan.steps)
-        local prior = expansion.activate(plan)
+        pluck.emitSteps(plan.steps)
+        local prior = pluck.activate(plan)
         emit(statement)
-        expansion.restore(plan, prior)
+        pluck.restore(plan, prior)
     end
 
     local function coverageRuntime()
@@ -1375,34 +1375,30 @@ function gen.generate(
             -- their own.
             return
         end
-        if kind == "expansionDecl" then
-            -- A declaration-directed field projection is type metadata only.
-            return
-        end
-        if not expansion.statementActive[x] then
-            local direct = expansion.directCall(x)
-            local plan = direct and expansion.callPlan(direct) or nil
+        if not pluck.statementActive[x] then
+            local direct = pluck.directCall(x)
+            local plan = direct and pluck.callPlan(direct) or nil
             if plan and (not plan.isSafe or kind == "callStmt" or kind == "returnStmt") then
-                expansion.statementActive[x] = true
+                pluck.statementActive[x] = true
                 if plan.isSafe and kind == "returnStmt" then
-                    expansion.emitReturn(x, plan)
+                    pluck.emitReturn(x, plan)
                 else
-                    expansion.emitStatement(x, direct, plan)
+                    pluck.emitStatement(x, direct, plan)
                 end
-                expansion.statementActive[x] = nil
+                pluck.statementActive[x] = nil
                 return
             end
         end
         if kind == "call" or kind == "safeCall" or kind == "methodCall" then
-            local activePlan = expansion.plans[x]
+            local activePlan = pluck.plans[x]
             if activePlan and not activePlan.delegate then
-                expansion.emitCall(x, activePlan)
+                pluck.emitCall(x, activePlan)
                 return
             end
         end
         if kind == "args" and x.loweredArgs then
             e("(", sourceLine(x))
-            expansion.emitArgs(x)
+            pluck.emitArgs(x)
             e(")")
             return
         end
@@ -2191,7 +2187,7 @@ function gen.generate(
                     e(outputAt[cIndex])
                 else
                     if loweredArgs then
-                        expansion.emitArgument(args[argumentIndex], x.args)
+                        pluck.emitArgument(args[argumentIndex], x.args)
                     else
                         emit(args[argumentIndex])
                     end
@@ -2420,7 +2416,7 @@ function gen.generate(
             if args and args.loweredArgs then
                 if #args.loweredArgs > 0 then
                     e(",")
-                    expansion.emitArgs(args)
+                    pluck.emitArgs(args)
                 end
             else
                 for _, value in ipairs(values) do

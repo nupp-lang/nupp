@@ -390,11 +390,12 @@ local function sep(prev, tok)
     if prev._shortfnOpen or tok._shortfnClose then
         return ""
     end
-    if prev.kind == "..." and (tok.namedVararg or prev.valueExpansion) then
+    if prev.kind == "..." and tok.namedVararg then
         return ""
     end
-    if prev.expansionKeyword and tok.kind == "(" then
-        return " "
+    -- A plucked argument's `*` hugs the path it reads: `x = *entity.position`.
+    if prev.pluck then
+        return ""
     end
     -- Typed-layer refinements: annotation colons read "x: T"; postfix type markers and
     -- generic brackets are tight (T?, S*, List<T>).
