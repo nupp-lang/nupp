@@ -12,6 +12,7 @@
   --pg-background: #faf7e8;
   --pg-background-alt: #f2eed8;
   --pg-border: #d4cda8;
+  --pg-code-block-radius: 8px;
   --pg-code-background: #ded7b9;
   --pg-text: #173333;
   --pg-muted: #626956;
@@ -20,6 +21,7 @@
   --pg-warning: #8c5f22;
   --pg-info: #1b5670;
   --pg-syntax-keyword: #765128;
+  --pg-syntax-boolean: #8c5f22;
   --pg-syntax-string: #607331;
   --pg-syntax-comment: #7b806a;
   --pg-syntax-number: #8c5f22;
@@ -27,6 +29,8 @@
   --pg-syntax-meta: #315f58;
   --pg-syntax-type: #315f58;
   --pg-syntax-operator: #315f58;
+  --pg-syntax-property: #506942;
+  --pg-syntax-punctuation: #66725d;
   --pg-syntax-variable: #173333;
   --pg-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --pg-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -50,6 +54,7 @@
     --pg-warning: #d7a45a;
     --pg-info: #79aabe;
     --pg-syntax-keyword: #d7bd72;
+    --pg-syntax-boolean: #d7a45a;
     --pg-syntax-string: #bec98c;
     --pg-syntax-comment: #718c87;
     --pg-syntax-number: #d7a45a;
@@ -57,6 +62,8 @@
     --pg-syntax-meta: #9fba83;
     --pg-syntax-type: #9fba83;
     --pg-syntax-operator: #93b7ac;
+    --pg-syntax-property: #a5bc7b;
+    --pg-syntax-punctuation: #9eaa91;
     --pg-syntax-variable: #e5dfb7;
   }
 }
@@ -276,7 +283,7 @@ body {
 .is-embed #source-editor {
   overflow: hidden;
   border: 1px solid var(--pg-border);
-  border-radius: 2px;
+  border-radius: var(--pg-code-block-radius);
 }
 
 .head-bar {
@@ -460,11 +467,14 @@ body {
 /* Generated Lua reads as code; a diagnostic run reads as a report. */
 .output-main:not(.is-code) { color: var(--pg-muted); }
 .output-main .lua-keyword { color: var(--pg-syntax-keyword); }
+.output-main .lua-boolean { color: var(--pg-syntax-boolean); }
 .output-main .lua-string { color: var(--pg-syntax-string); }
 .output-main .lua-comment { color: var(--pg-syntax-comment); font-style: italic; }
 .output-main .lua-number { color: var(--pg-syntax-number); }
 .output-main .lua-type { color: var(--pg-syntax-type); }
 .output-main .lua-operator { color: var(--pg-syntax-operator); }
+.output-main .lua-property { color: var(--pg-syntax-property); }
+.output-main .lua-punctuation { color: var(--pg-syntax-punctuation); }
 .output-main .lua-variable { color: var(--pg-syntax-variable); }
 .output-main .lua-builtin { color: var(--pg-syntax-function); }
 .output-main .lua-meta { color: var(--pg-syntax-meta); }

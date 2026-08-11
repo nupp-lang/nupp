@@ -3,11 +3,14 @@ import { nuppLanguage } from "./nupp-lang.js";
 
 const luaHighlighter = tagHighlighter([
   { tag: tags.keyword, class: "lua-keyword" },
+  { tag: tags.bool, class: "lua-boolean" },
   { tag: tags.string, class: "lua-string" },
   { tag: tags.comment, class: "lua-comment" },
   { tag: tags.number, class: "lua-number" },
   { tag: tags.typeName, class: "lua-type" },
   { tag: tags.operator, class: "lua-operator" },
+  { tag: tags.propertyName, class: "lua-property" },
+  { tag: tags.punctuation, class: "lua-punctuation" },
   { tag: tags.variableName, class: "lua-variable" },
   { tag: tags.standard(tags.variableName), class: "lua-builtin" },
   { tag: tags.meta, class: "lua-meta" },

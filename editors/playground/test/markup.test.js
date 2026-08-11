@@ -26,7 +26,7 @@ test("condensed controls sit above the rounded editor border", () => {
   assert.match(theme, /"\.cm-gutters": \{[\s\S]*?backgroundColor: "var\(--pg-code-background, var\(--pg-background\)\)"[\s\S]*?borderRight: "0"/);
   assert.match(theme, /"\.cm-lineNumbers \.cm-gutterElement": \{[\s\S]*?paddingLeft: "\.65rem"[\s\S]*?var\(--pg-faint/);
   assert.match(style, /\.is-embed \.editor-host \.cm-content \{ padding: \.5rem 0; \}/);
-  assert.match(style, /\.is-embed #source-editor \{[\s\S]*?border: 1px solid var\(--pg-border\);[\s\S]*?border-radius: 2px;/);
+  assert.match(style, /\.is-embed #source-editor \{[\s\S]*?border: 1px solid var\(--pg-border\);[\s\S]*?border-radius: var\(--pg-code-block-radius\);/);
   assert.match(style, /\.head-bar \{[\s\S]*?justify-content: flex-end;[\s\S]*?border: 0;[\s\S]*?background: transparent;/);
   assert.match(style, /\.head-actions \{[\s\S]*?margin-left: auto;/);
   assert.match(index, /id="options-button"/);
@@ -39,6 +39,8 @@ test("documentation playgrounds are inline and have dismissible output", () => {
   assert.match(docApp, /:host \{[\s\S]*?position: relative;[\s\S]*?margin: 1\.75rem 0 \.75rem;/);
   assert.match(docApp, /\.toolbar \{[\s\S]*?position: absolute;[\s\S]*?top: -1\.75rem;/);
   assert.match(docApp, /:host\(\[data-grouped\]\) \.toolbar \{[\s\S]*?position: static;/);
+  assert.match(docApp, /:host\(\[data-grouped\]\) \.editor \{[\s\S]*?border: 0;[\s\S]*?border-radius: 0;/);
+  assert.match(docApp, /\.editor \{[\s\S]*?border: 1px solid var\(--pg-border\);[\s\S]*?border-radius: var\(--pg-code-block-radius\);/);
   assert.match(docApp, /\.editor \.cm-content \{ padding: \.75rem 0 !important; \}/);
   assert.match(docApp, /class="icon-button output-close"[^>]+aria-label="Close output">×<\/button>/);
   assert.match(docApp, /root\.querySelector\("\.output-close"\)\.addEventListener\("click"/);
@@ -50,7 +52,7 @@ test("documentation playgrounds inherit normal code-block colors", () => {
   assert.match(docApp, /--pg-background: var\(--nuppdoc-code-background/);
   assert.match(docApp, /--pg-border: var\(--nuppdoc-border/);
   assert.doesNotMatch(docApp, /--nuppdoc-playground-border/);
-  for (const token of ["keyword", "string", "comment", "number", "function", "meta", "type", "operator", "variable"]) {
+  for (const token of ["keyword", "boolean", "string", "comment", "number", "function", "meta", "type", "operator", "property", "punctuation", "variable"]) {
     assert.match(docApp, new RegExp(`--pg-syntax-${token}: var\\(--nuppdoc-syntax-${token}`));
   }
 });

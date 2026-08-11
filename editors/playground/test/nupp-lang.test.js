@@ -49,3 +49,26 @@ test("Nupp-looking text inside multiline strings remains a string", () => {
     ],
   ]);
 });
+
+test("token categories match documentation highlighting", () => {
+  assert.deepEqual(tokenize([
+    "local function render(value: Result): boolean",
+    "  if true then return value.name .. `ok` end",
+    "end",
+  ]), [
+    [
+      ["local", "keyword"], [" ", null], ["function", "keyword"], [" ", null],
+      ["render", "builtin"], ["(", "punctuation"], ["value", "variable"],
+      [":", "punctuation"], [" ", null], ["Result", "type"], [")", "punctuation"],
+      [":", "punctuation"], [" ", null], ["boolean", "type"],
+    ],
+    [
+      ["  ", null], ["if", "keyword"], [" ", null], ["true", "bool"], [" ", null],
+      ["then", "keyword"], [" ", null], ["return", "keyword"], [" ", null],
+      ["value", "variable"], [".", "punctuation"], ["name", "property"], [" ", null],
+      ["..", "operator"], [" ", null], ["`ok`", "string"], [" ", null],
+      ["end", "keyword"],
+    ],
+    [["end", "keyword"]],
+  ]);
+});

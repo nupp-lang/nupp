@@ -118,6 +118,7 @@ const styles = `
   --pg-code-background: var(--nuppdoc-code-background, #ded7b9);
   --pg-background-alt: var(--nuppdoc-background-alt, #f2eed8);
   --pg-border: var(--nuppdoc-border, #d4cda8);
+  --pg-code-block-radius: var(--nuppdoc-code-block-radius, 8px);
   --pg-text: var(--nuppdoc-text, #173333);
   --pg-muted: var(--nuppdoc-text-muted, #626956);
   --pg-faint: var(--nuppdoc-text-faint, color-mix(in srgb, var(--pg-muted) 72%, transparent));
@@ -125,6 +126,7 @@ const styles = `
   --pg-warning: #8c5f22;
   --pg-info: var(--nuppdoc-accent, #1b5670);
   --pg-syntax-keyword: var(--nuppdoc-syntax-keyword, #765128);
+  --pg-syntax-boolean: var(--nuppdoc-syntax-boolean, #8c5f22);
   --pg-syntax-string: var(--nuppdoc-syntax-string, #607331);
   --pg-syntax-comment: var(--nuppdoc-syntax-comment, #7b806a);
   --pg-syntax-number: var(--nuppdoc-syntax-number, #8c5f22);
@@ -132,6 +134,8 @@ const styles = `
   --pg-syntax-meta: var(--nuppdoc-syntax-meta, #315f58);
   --pg-syntax-type: var(--nuppdoc-syntax-type, #315f58);
   --pg-syntax-operator: var(--nuppdoc-syntax-operator, #315f58);
+  --pg-syntax-property: var(--nuppdoc-syntax-property, #506942);
+  --pg-syntax-punctuation: var(--nuppdoc-syntax-punctuation, #66725d);
   --pg-syntax-variable: var(--nuppdoc-syntax-variable, #173333);
   --pg-font: var(--nuppdoc-font, Inter, ui-sans-serif, system-ui, sans-serif);
   --pg-font-mono: var(--nuppdoc-font-mono, ui-monospace, monospace);
@@ -161,6 +165,17 @@ const styles = `
   position: static;
   height: 2rem;
   padding: 0 0 .2rem;
+}
+:host([data-grouped]) .editor {
+  border: 0;
+  border-top: 1px solid var(--pg-border);
+  border-radius: 0;
+}
+:host([data-grouped]) .output {
+  margin-top: 0;
+  border: 0;
+  border-top: 1px solid var(--pg-border);
+  border-radius: 0;
 }
 .example-picker {
   display: flex;
@@ -199,8 +214,9 @@ select {
 .icon-button .play { fill: currentColor; stroke: none; }
 .editor {
   position: relative;
+  overflow: hidden;
   border: 1px solid var(--pg-border);
-  border-radius: 2px;
+  border-radius: var(--pg-code-block-radius);
   background: var(--pg-background);
 }
 .editor .cm-scroller {
@@ -213,7 +229,7 @@ select {
 .output {
   margin-top: .35rem;
   border: 1px solid var(--pg-border);
-  border-radius: 2px;
+  border-radius: var(--pg-code-block-radius);
   background: var(--pg-background);
 }
 .output[hidden] { display: none; }
@@ -242,11 +258,14 @@ select {
   white-space: pre-wrap;
 }
 .output-main .lua-keyword { color: var(--pg-syntax-keyword); }
+.output-main .lua-boolean { color: var(--pg-syntax-boolean); }
 .output-main .lua-string { color: var(--pg-syntax-string); }
 .output-main .lua-comment { color: var(--pg-syntax-comment); font-style: italic; }
 .output-main .lua-number { color: var(--pg-syntax-number); }
 .output-main .lua-type { color: var(--pg-syntax-type); }
 .output-main .lua-operator { color: var(--pg-syntax-operator); }
+.output-main .lua-property { color: var(--pg-syntax-property); }
+.output-main .lua-punctuation { color: var(--pg-syntax-punctuation); }
 .output-main .lua-variable { color: var(--pg-syntax-variable); }
 .output-main .lua-builtin { color: var(--pg-syntax-function); }
 .output-main .lua-meta { color: var(--pg-syntax-meta); }

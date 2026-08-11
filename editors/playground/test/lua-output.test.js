@@ -7,6 +7,8 @@ test("generated Lua is split into syntax-highlighted segments", () => {
     "local answer = 42",
     "local message = \"done\" -- result",
     "rawget(_G, message)",
+    "local property = result.answer",
+    "if true then return property end",
     "return answer, message",
   ].join("\n"));
 
@@ -16,4 +18,7 @@ test("generated Lua is split into syntax-highlighted segments", () => {
   assert.ok(segments.some(({ text, classes }) => text === "-- result" && classes === "lua-comment"));
   assert.ok(segments.some(({ text, classes }) => text === "=" && classes === "lua-operator"));
   assert.ok(segments.some(({ text, classes }) => text === "rawget" && classes === "lua-builtin"));
+  assert.ok(segments.some(({ text, classes }) => text === "true" && classes === "lua-boolean"));
+  assert.ok(segments.some(({ text, classes }) => text === "answer" && classes === "lua-property"));
+  assert.ok(segments.some(({ text, classes }) => text === "(" && classes === "lua-punctuation"));
 });
