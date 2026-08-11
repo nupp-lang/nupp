@@ -61,6 +61,7 @@ type doc.Page = {
     hero_title: string?,
     layout: string?,
     path: string,
+    redirects: {string}?,
     source: string?,
     title: string?
 }
@@ -672,6 +673,22 @@ local function renderSite(root, outDir, modules, title, settings)
         ok, err = writeFile(join(outDir, file), html)
         if not ok then
             return nil, err
+        end
+        -- A page that moved leaves a stub where it used to answer, so a link
+        -- somebody else wrote still arrives rather than 404ing.
+        for _, former in ipairs(candidate.redirects or {}) do
+            local formerRoute = cleanRoute(former)
+            if not formerRoute or formerRoute == "" then
+                return nil, "invalid redirect route on page " .. candidate.path
+            end
+            local formerFile = routeFile(formerRoute)
+            ok, err = writeFile(
+                join(outDir, formerFile),
+                redirectHtml(relativePrefix(formerFile) .. file)
+            )
+            if not ok then
+                return nil, err
+            end
         end
         local mdFile = candidate.path == "" and "index.md" or candidate.path .. ".md"
         ok, err = writeFile(join(outDir, mdFile), markdown)

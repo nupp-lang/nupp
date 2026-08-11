@@ -3982,7 +3982,7 @@ local DOCS_KEYS = {
 
 "kind" , "dependencies" , "entries" , "resources" , "output" , "stub" , "nativeFeatures" , "layoutTarget" , }
 
-local PAGE_KEYS = { "path" , "title" , "source" , "layout" , "heroTitle" , "heroText" , "heroContent" , "heroImage" , "heroImageAlt" , "heroActions" ,
+local PAGE_KEYS = { "path" , "title" , "source" , "layout" , "redirects" , "heroTitle" , "heroText" , "heroContent" , "heroImage" , "heroImageAlt" , "heroActions" ,
 
 "hero_title" , "hero_text" , "hero_content" , "hero_image" , "hero_image_alt" , "hero_actions" , "features" , }
 
@@ -15059,6 +15059,44 @@ local analyzeCond , applyFacts = c . analyzeCond , c . applyFacts
 local borrowRoot , moveExpression = c . borrowRoot , c . moveExpression
 local ownershipKind , ownershipState = c . ownershipKind , c . ownershipState
 
+
+
+
+
+
+
+
+
+local function ownershipSnapshot ( )
+local seen , snapshot = { } , { }
+local scope = c . scope
+while scope do
+for _ , entry in pairs ( scope . vars or { } ) do
+local state = ownershipState ( entry )
+if state and state . ownership and not seen [ state ] then
+seen [ state ] = true
+snapshot [
+# snapshot + 1
+] = { state = state , moved = state . moved or false , movedAt = state . movedAt }
+end
+end
+scope = scope . parent
+end
+
+return snapshot
+end
+
+
+
+local function ownershipRewind ( snapshot , moved )
+for _ , item in ipairs ( snapshot ) do
+if item . state . moved and not item . moved then
+moved [ item . state ] = true
+end
+item . state . moved , item . state . movedAt = item . moved , item . movedAt
+end
+end
+
 local handlers = { }
 
 handlers . returnStmt = function ( stat )
@@ -15336,6 +15374,8 @@ local allBranchesLeave = true
 
 
 local paths = { }
+local ownershipBefore = ownershipSnapshot ( )
+local branchMoved = { }
 for _ , clause in ipairs ( stat . clauses ) do
 
 
@@ -15357,6 +15397,7 @@ if not alwaysExits ( body ) then
 paths [ # paths + 1 ] = snapshotNarrowed ( )
 end
 c . popScope ( )
+ownershipRewind ( ownershipBefore , branchMoved )
 accumulatedElse = mergeFacts ( accumulatedElse , facts . f )
 if cond then
 local key , seen = nil , 0
@@ -15419,12 +15460,19 @@ if not alwaysExits ( elseBody ) then
 paths [ # paths + 1 ] = snapshotNarrowed ( )
 end
 c . popScope ( )
+ownershipRewind ( ownershipBefore , branchMoved )
 else
 
 c . pushScope ( )
 applyFacts ( accumulatedElse )
 paths [ # paths + 1 ] = snapshotNarrowed ( )
 c . popScope ( )
+end
+
+
+
+for state in pairs ( branchMoved ) do
+state . moved = true
 end
 
 
@@ -37392,6 +37440,7 @@ local doc = { }
 
 
 
+
 function doc . extract (
 source ,
 path ,
@@ -37952,6 +38001,22 @@ ok , err = writeFile ( join ( outDir , file ) , html )
 if not ok then
 return nil , err
 end
+
+
+for _ , former in ipairs ( candidate . redirects or { } ) do
+local formerRoute = cleanRoute ( former )
+if not formerRoute or formerRoute == "" then
+return nil , "invalid redirect route on page " .. candidate . path
+end
+local formerFile = routeFile ( formerRoute )
+ok , err = writeFile (
+join ( outDir , formerFile ) ,
+redirectHtml ( relativePrefix ( formerFile ) .. file )
+)
+if not ok then
+return nil , err
+end
+end
 local mdFile = candidate . path == "" and "index.md" or candidate . path .. ".md"
 ok , err = writeFile ( join ( outDir , mdFile ) , markdown )
 if not ok then
@@ -38192,6 +38257,26 @@ end
 
 
 
+local function annotationBadges ( annotations )
+if not annotations or # annotations == 0 then
+return ""
+end
+local marks = { }
+for _ , annotation in ipairs ( annotations ) do
+marks [ # marks + 1 ] = '<span class="nuppdoc-annotation">' .. htmlEscape ( annotation ) .. "</span>"
+end
+
+return '<div class="nuppdoc-annotations">' .. table . concat ( marks ) .. "</div>"
+end
+
+
+
+local function spelledParam ( param )
+return ( param . mode and ( param . mode .. " " ) or "" ) .. param . name
+end
+
+
+
 
 local function htag ( level )
 return "h" .. math . min ( level , 6 )
@@ -38394,6 +38479,7 @@ out [
 ] = '<div class="nuppdoc-api-member" id="' .. htmlEscape (
 method . path
 ) .. '"><' .. hName .. '><code>' .. htmlEscape ( method . name ) .. "</code></" .. hName .. ">"
+out [ # out + 1 ] = annotationBadges ( method . annotations )
 out [ # out + 1 ] = markdownHtml ( method . text , links )
 out [
 # out + 1
@@ -38409,7 +38495,7 @@ for _ , param in ipairs ( method . params ) do
 rows [
 # rows + 1
 ] = {
-"<code>" .. htmlEscape ( param . name ) .. "</code>" ,
+"<code>" .. htmlEscape ( spelledParam ( param ) ) .. "</code>" ,
 inlineNupp ( param . type , links ) ,
 markdownHtml ( param . text , links )
 }
@@ -38439,6 +38525,7 @@ nested . name
 ) .. '</code><span class="nuppdoc-kind-badge nuppdoc-kind-' .. htmlEscape (
 nested . type
 ) .. '">' .. htmlEscape ( nested . type ) .. '</span></' .. hName .. '>'
+out [ # out + 1 ] = annotationBadges ( nested . annotations )
 out [ # out + 1 ] = markdownHtml ( nested . text , links )
 renderHtmlMembers ( out , nested . members , links , level + 2 )
 out [ # out + 1 ] = "</div>"
@@ -38479,6 +38566,7 @@ kind
 ) .. '</span><a class="nuppdoc-header-anchor" href="#' .. htmlEscape (
 item . path
 ) .. '" aria-label="Link to ' .. htmlEscape ( item . name ) .. '">#</a></h3>'
+out [ # out + 1 ] = annotationBadges ( item . annotations )
 out [ # out + 1 ] = markdownHtml ( item . doc . text , links )
 out [
 # out + 1
@@ -38500,7 +38588,7 @@ for _ , param in ipairs ( item . params ) do
 rows [
 # rows + 1
 ] = {
-"<code>" .. htmlEscape ( param . name ) .. "</code>" ,
+"<code>" .. htmlEscape ( spelledParam ( param ) ) .. "</code>" ,
 inlineNupp ( param . type , links ) ,
 markdownHtml ( param . text , links )
 }
@@ -38580,7 +38668,7 @@ local THEME = [[
 .nuppdoc-outline-title{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.66rem;font-weight:600}.nuppdoc-outline a[aria-current]{color:var(--nuppdoc-accent)}
 .nuppdoc-outline-section details{margin:0;padding:0;border:0;background:transparent}.nuppdoc-outline-section summary{position:relative;margin:0;padding:0 1rem 0 0;cursor:pointer;list-style:none}.nuppdoc-outline-section summary::-webkit-details-marker{display:none}.nuppdoc-outline-section summary::marker{content:""}.nuppdoc-outline-section summary::after{position:absolute;top:50%;right:.15rem;width:.32rem;height:.32rem;border-right:1.5px solid var(--nuppdoc-text-muted);border-bottom:1.5px solid var(--nuppdoc-text-muted);content:"";transform:translateY(-65%) rotate(45deg);transition:transform 120ms ease}.nuppdoc-outline-section details:not([open])>summary::after{transform:translateY(-50%) rotate(-45deg)}.nuppdoc-outline-section details>ol{margin:0;padding:0 0 0 .65rem;border:0;list-style:none}
 .nuppdoc-breadcrumbs{margin:0 0 .75rem}.nuppdoc-breadcrumbs ol{display:flex;flex-wrap:wrap;align-items:center;gap:0;margin:0;padding:0;list-style:none}.nuppdoc-breadcrumbs li{display:inline-flex;align-items:center;margin:0;padding:0;color:var(--nuppdoc-text-faint);font-size:.82rem;line-height:1.2}.nuppdoc-breadcrumbs li+li::before{margin:0 .45rem;color:var(--nuppdoc-border);content:"/"}.nuppdoc-breadcrumbs a{color:var(--nuppdoc-text-faint);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.16em}.nuppdoc-breadcrumbs .nuppdoc-breadcrumb-home{font-size:.9rem;text-decoration:none}.nuppdoc-breadcrumbs [aria-current="page"]{color:var(--nuppdoc-text-muted)}
-.nuppdoc-module-summary h3{margin-top:1.65rem;font-size:1rem}.nuppdoc-module-summary table,.nuppdoc-module-modules table{table-layout:fixed}.nuppdoc-module-summary th:first-child{width:28%}.nuppdoc-module-summary th:nth-child(2):not(:last-child){width:19%}.nuppdoc-module-modules th:first-child{width:32%}.nuppdoc-module-summary .nuppdoc-kind-badge{margin-left:0}.nuppdoc-kind-record,.nuppdoc-kind-interface,.nuppdoc-kind-struct,.nuppdoc-kind-type{color:#8250df;border-color:color-mix(in srgb,#8250df 35%,var(--nuppdoc-border));background:color-mix(in srgb,#8250df 12%,var(--nuppdoc-background))}.nuppdoc-kind-variable{color:#9a6700;border-color:color-mix(in srgb,#9a6700 35%,var(--nuppdoc-border));background:color-mix(in srgb,#9a6700 12%,var(--nuppdoc-background))}
+.nuppdoc-module-summary h3{margin-top:1.65rem;font-size:1rem}.nuppdoc-module-summary table,.nuppdoc-module-modules table{table-layout:fixed}.nuppdoc-module-summary th:first-child{width:28%}.nuppdoc-module-summary th:nth-child(2):not(:last-child){width:19%}.nuppdoc-module-modules th:first-child{width:32%}.nuppdoc-module-summary .nuppdoc-kind-badge{margin-left:0}.nuppdoc-kind-record,.nuppdoc-kind-interface,.nuppdoc-kind-struct,.nuppdoc-kind-type{color:#8250df;border-color:color-mix(in srgb,#8250df 35%,var(--nuppdoc-border));background:color-mix(in srgb,#8250df 12%,var(--nuppdoc-background))}.nuppdoc-kind-variable{color:#9a6700;border-color:color-mix(in srgb,#9a6700 35%,var(--nuppdoc-border));background:color-mix(in srgb,#9a6700 12%,var(--nuppdoc-background))}.nuppdoc-annotations{display:flex;flex-wrap:wrap;gap:.3rem;margin:.35rem 0 .1rem}.nuppdoc-annotation{padding:.12rem .42rem;color:#bc4c00;border:1px solid color-mix(in srgb,#bc4c00 35%,var(--nuppdoc-border));border-radius:999px;background:color-mix(in srgb,#bc4c00 12%,var(--nuppdoc-background));font-family:var(--nuppdoc-font-mono);font-size:.66rem;font-weight:650}
 .nuppdoc-home-shell{display:block;max-width:none}.nuppdoc-home-content{width:min(calc(100% - 2 * var(--nuppdoc-home-gutter)),var(--nuppdoc-home-width));padding-top:4.5rem}.nuppdoc-home-hero{margin:0 0 4rem}.nuppdoc-hero-main{display:grid;align-items:start;gap:3rem;grid-template-columns:minmax(0,1fr)}.nuppdoc-hero-main.has-image{grid-template-columns:minmax(0,1fr) minmax(280px,.8fr)}.nuppdoc-hero-copy{position:relative;z-index:1}.nuppdoc-hero-copy h1{max-width:720px;margin:0;color:var(--nuppdoc-accent);font-size:5.5rem;letter-spacing:-.04em;line-height:.95}.nuppdoc-hero-text{max-width:650px;margin:1.08rem 0 0;color:var(--nuppdoc-text-muted);font-size:1.6rem;line-height:1.35}.nuppdoc-hero-actions{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:2rem}.nuppdoc-hero-action{display:inline-flex;align-items:center;justify-content:center;padding:.52rem .95rem;border:1px solid transparent;border-radius:16px;font-size:.9rem;font-weight:650;line-height:1;text-decoration:none}.nuppdoc-hero-action.brand{color:var(--nuppdoc-accent-contrast);background:var(--nuppdoc-accent)}.nuppdoc-hero-action.alt{color:var(--nuppdoc-text);border-color:var(--nuppdoc-border);background:var(--nuppdoc-background-alt)}.nuppdoc-hero-image{position:relative;display:grid;align-self:center;place-items:center}.nuppdoc-hero-starburst{position:absolute;width:var(--nuppdoc-hero-glow-size);aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 38%,transparent) 0,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 20%,transparent) 34%,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 8%,transparent) 58%,transparent 76%);filter:blur(var(--nuppdoc-hero-glow-blur));opacity:var(--nuppdoc-hero-glow-opacity)}.nuppdoc-hero-image img{position:relative;z-index:1;width:min(100%,390px);max-height:330px;border-radius:20px;box-shadow:0 24px 70px rgb(0 0 0 / 22%);object-fit:contain}.nuppdoc-features{position:relative;z-index:2;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;margin-top:2rem}.nuppdoc-feature{margin:0;padding:1.4rem;border:1px solid var(--nuppdoc-border);border-radius:12px;background:var(--nuppdoc-background-alt)}.nuppdoc-feature-icon,.nuppdoc-feature-image{display:inline-grid;width:40px;height:40px;place-items:center;margin-bottom:1rem;border-radius:8px;background:var(--nuppdoc-accent-soft);font-size:1.25rem;object-fit:contain}.nuppdoc-feature h2{margin:0 0 .55rem;padding:0;border:0;font-size:1rem;letter-spacing:0}.nuppdoc-feature-details{margin:0;color:var(--nuppdoc-text-muted);font-size:.86rem;line-height:1.55}.nuppdoc-footer{display:flex;flex-wrap:wrap;justify-content:center;gap:.45rem}.nuppdoc-footer a{color:var(--nuppdoc-text-muted)}
 .nuppdoc-hero-starburst{overflow:hidden;clip-path:circle(50% at 50% 50%)}.nuppdoc-hero-image img{box-shadow:none;filter:drop-shadow(0 24px 35px rgb(0 0 0 / 22%))}
 @media(max-width:1100px){.nuppdoc-panel-toggle-right{display:none}.nuppdoc-shell.is-sidebar-collapsed{grid-template-columns:0 minmax(0,1fr)}.nuppdoc-features{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -39144,6 +39232,10 @@ extract.Member = {} extract.Member.__index = extract.Member
 
 
 
+
+
+
+
 local function firstToken ( node )
 if not node then
 return nil
@@ -39240,6 +39332,56 @@ end
 
 local function entryDoc ( entry )
 return parseDoc ( docLines ( documentedNode ( entry ) ) )
+end
+
+
+
+
+local function annotationText ( node )
+local name = node and node . name and node . name . text
+if not name then
+return nil
+end
+local args = { }
+for _ , arg in ipairs ( node . annotationArgs or { } ) do
+local parts = { }
+local function walk ( child )
+if cst . isToken ( child ) then
+parts [ # parts + 1 ] = child . text
+else
+for _ , nested in ipairs ( child ) do
+walk ( nested )
+end
+end
+end
+walk ( arg )
+args [ # args + 1 ] = trim ( table . concat ( parts ) )
+end
+if # args == 0 then
+return "@" .. name
+end
+
+return "@" .. name .. "(" .. table . concat ( args , ", " ) .. ")"
+end
+
+
+
+
+
+local function annotationsOf ( entry )
+local applied = entry and entry . annotations
+if not applied or # applied == 0 then
+return nil
+end
+local names = { }
+for _ , node in ipairs ( applied ) do
+local text = annotationText ( node )
+if text then
+names [ # names + 1 ] = text
+end
+end
+
+return # names > 0 and names or nil
 end
 
 
@@ -39398,6 +39540,7 @@ params = { } ,
 returns = { } ,
 raises = info . raises ,
 typeargs = { } ,
+annotations = annotationsOf ( field ) ,
 }
 local fn = typeFunction ( field . type )
 if fn then
@@ -39622,7 +39765,8 @@ fieldTextOverrides and fieldTextOverrides [ entry . name . text ]
 basePath .. "." .. entry . name . text ,  params = 
 { } ,  returns = 
 { } ,  raises = 
-fieldInfo . raises }, extract.Member)
+fieldInfo . raises ,  annotations = 
+annotationsOf ( entry ) }, extract.Member)
 
 local fieldFunction = typeFunction ( entry . type )
 if fieldFunction then
@@ -39647,7 +39791,8 @@ basePath .. "." .. entry . name . text ,  params =
 details . params ,  returns = 
 details . returns ,  raises = 
 methodInfo . raises ,  isFunction = 
-true }, extract.Member)
+true ,  annotations = 
+annotationsOf ( entry ) }, extract.Member)
 
 elseif entry . kind == "recordDecl" and entryVisible then
 local nestedPath = basePath .. "." .. entry . name . text
@@ -39662,7 +39807,8 @@ nestedPath ,  params =
 { } ,  raises = 
 { } ,  isType = 
 true ,  members = 
-buildMembers ( entry . entries , nestedPath , includePrivate , entryInfo . fields ) }, extract.Member)
+buildMembers ( entry . entries , nestedPath , includePrivate , entryInfo . fields ) ,  annotations = 
+annotationsOf ( entry ) }, extract.Member)
 
 elseif entry . name and entryVisible then
 members [
@@ -39674,7 +39820,8 @@ entryInfo . text ,  path =
 basePath .. "." .. entry . name . text ,  params = 
 { } ,  returns = 
 { } ,  raises = 
-{ } }, extract.Member)
+{ } ,  annotations = 
+annotationsOf ( entry ) }, extract.Member)
 
 end
 end
@@ -39688,7 +39835,12 @@ end
 
 declarationItem = function ( stat , moduleName , includeAll , declarationFile , includePrivate )
 local documented = stat
+local applied = { }
 while stat . kind == "pragmaStmt" and stat . stat do
+local text = annotationText ( stat )
+if text then
+applied [ # applied + 1 ] = text
+end
 stat = stat . stat
 end
 local lines = docLines ( documented )
@@ -39766,6 +39918,7 @@ params = { } ,
 returns = { } ,
 raises = info . raises ,
 typeargs = { } ,
+annotations = # applied > 0 and applied or nil ,
 }
 local declaredFunction = stat . kind == "localStmt" and typeFunction ( stat . types and stat . types [ 1 ] ) or nil
 local generics = stat . generics or (
@@ -39836,7 +39989,8 @@ owner . path .. "." .. name ,  params =
 item . params ,  returns = 
 item . returns ,  raises = 
 item . raises ,  isFunction = 
-true }, extract.Member)
+true ,  annotations = 
+item . annotations }, extract.Member)
 
 end
 else
@@ -41288,6 +41442,21 @@ local function heading ( level )
 return ( "#" ) : rep ( math . min ( level , 6 ) )
 end
 
+
+
+
+local function markdownAnnotations ( out , annotations )
+if not annotations or # annotations == 0 then
+return
+end
+local marks = { }
+for index , annotation in ipairs ( annotations ) do
+marks [ index ] = "`" .. markdownEscape ( annotation ) .. "`"
+end
+out [ # out + 1 ] = table . concat ( marks , " " )
+out [ # out + 1 ] = ""
+end
+
 local function markdownArguments ( out , params , heading )
 if # params == 0 then
 return
@@ -41297,10 +41466,13 @@ out [ # out + 1 ] = ""
 out [ # out + 1 ] = "| Name | Type | Description |"
 out [ # out + 1 ] = "| --- | --- | --- |"
 for _ , param in ipairs ( params ) do
+
+
+local spelled = ( param . mode and ( param . mode .. " " ) or "" ) .. param . name
 out [
 # out + 1
 ] = "| `" .. markdownEscape (
-param . name
+spelled
 ) .. "` | `" .. markdownEscape ( param . type ) .. "` | " .. cell ( param . text ) .. " |"
 end
 out [ # out + 1 ] = ""
@@ -41349,6 +41521,7 @@ for _ , method in ipairs ( methods ) do
 out [ # out + 1 ] = '<a id="' .. method . path .. '"></a>'
 out [ # out + 1 ] = hName .. " `" .. method . name .. "`"
 out [ # out + 1 ] = ""
+markdownAnnotations ( out , method . annotations )
 if method . text ~= "" then
 out [ # out + 1 ] = prose ( method . text )
 out [ # out + 1 ] = ""
@@ -41369,6 +41542,7 @@ for _ , nested in ipairs ( types ) do
 out [ # out + 1 ] = '<a id="' .. nested . path .. '"></a>'
 out [ # out + 1 ] = hName .. " `" .. nested . name .. "` _" .. nested . type .. "_"
 out [ # out + 1 ] = ""
+markdownAnnotations ( out , nested . annotations )
 if nested . text ~= "" then
 out [ # out + 1 ] = prose ( nested . text )
 out [ # out + 1 ] = ""
@@ -41398,6 +41572,7 @@ local h , hSub = heading ( level ) , heading ( level + 1 )
 out [ # out + 1 ] = '<a id="' .. item . path .. '"></a>'
 out [ # out + 1 ] = h .. " `" .. item . name .. "` _" .. displayKind ( item , constructorPattern ) .. "_"
 out [ # out + 1 ] = ""
+markdownAnnotations ( out , item . annotations )
 
 
 

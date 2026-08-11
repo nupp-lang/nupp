@@ -270,6 +270,17 @@ The area reference a code carries is linked when the docs target publishes that
 file and named as a path when it does not, so a page the site does not build
 never becomes a dead link.
 
+A page that moved names where it used to answer, and a stub is written there
+pointing at the new route:
+
+```lua
+{path = "guides/build", title = "Build system", source = "docs/tooling/build.md",
+ redirects = {"tooling/build"}},
+```
+
+The stub is a meta refresh with a canonical link, so a bookmark and a search
+result both still arrive.
+
 ## Cross-references
 
 A Markdown link whose target names something the documentation knows resolves

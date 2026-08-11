@@ -200,7 +200,7 @@ local DOCS_KEYS = {
     -- taken by any build target
     "kind", "dependencies", "entries", "resources", "output", "stub", "nativeFeatures", "layoutTarget",}
 
-local PAGE_KEYS = {"path", "title", "source", "layout", "heroTitle", "heroText", "heroContent", "heroImage", "heroImageAlt", "heroActions",
+local PAGE_KEYS = {"path", "title", "source", "layout", "redirects", "heroTitle", "heroText", "heroContent", "heroImage", "heroImageAlt", "heroActions",
     -- accepted spellings of the same six
     "hero_title", "hero_text", "hero_content", "hero_image", "hero_image_alt", "hero_actions", "features",}
 
