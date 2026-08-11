@@ -56,6 +56,11 @@ end
 -- Private source trees stay out of public API documentation by default. This is based
 -- on the path below the configured source root so a checkout living in an underscored
 -- parent directory is still documentable.
+--
+-- `internal` names a private module whether a directory or a single file spells it, so
+-- `internal.nupp` is hidden on the same rule as `internal/`. Both say the same thing
+-- about the module they produce, and which one a namespace is written as is a question
+-- of how many files it grew to need.
 local function privateSource(root: string, candidate: string): boolean
     local relative = candidate
     if candidate:sub(1, #root + 1) == root .. "/" then
@@ -63,7 +68,10 @@ local function privateSource(root: string, candidate: string): boolean
     end
     local filename = relative:match("([^/]+)$") or relative
 
-    return filename:sub(1, 1) == "_" or relative:match("^internal/") ~= nil or relative:match("/internal/") ~= nil
+    return filename:sub(1, 1) == "_"
+        or filename == "internal.nupp"
+        or relative:match("^internal/") ~= nil
+        or relative:match("/internal/") ~= nil
 end
 
 local function listDirectoryFiles(path)

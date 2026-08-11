@@ -118,10 +118,24 @@ Without `--all`, an ordinary module shows its globals, its exported types, and
 anything marked `@export`. Private by default:
 
 - a source file whose basename starts with `_`;
-- any file below an `internal/` directory;
+- any module named `internal`, and everything under it: the `internal/`
+  directory, the single-file `internal.nupp`, and the namespace an
+  `@namespace` declaration spells `internal` all describe the same private
+  module;
 - a file beginning with `@!internal`;
 - every module below an `init.nupp` beginning with `@!internal`;
-- a record method or member whose name starts with `_`.
+- a member of a record, interface, or struct whose name starts with `_`,
+  whatever it is — field, method, property, or nested type — and anything
+  tagged `@internal`.
+
+A hidden member leaves the rendered declaration too, not only the member
+table: the signature block a page shows for a record is the record's public
+surface, so a reader never sees a name the documentation refuses to describe.
+
+Metamethods are the one exception to the `_` rule. A metamethod is named for
+the Lua operation it implements, so `__index` says which operator this is
+rather than that it is private, and a declared `metamethod` is documented like
+any other member. `@internal` still opts one out.
 
 `includePrivate = true` on the docs target includes them.
 

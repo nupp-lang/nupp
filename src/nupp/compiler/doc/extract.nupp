@@ -118,6 +118,92 @@ local function syntax(node)
     return trim(cst.textOf(node))
 end
 
+-- The `---` run and its tags are read by nupp.compiler.docblock, because the checker
+-- reads
+-- the
+-- same run to ask whether a function that raises documented it.
+local docLines, parseDoc = docblock.linesOf, docblock.parse
+
+-- Where a record entry's `---` run actually sits. An annotation is parsed before the
+-- entry it modifies, so the run written above `@drop` attaches to the `@` rather than
+-- to the declaration underneath it, and asking the entry answers nothing. The first
+-- annotation is the top of what the author wrote, the same way a `pragmaStmt` wrapper
+-- is for a top-level statement.
+local function documentedNode(entry)
+    local annotations = entry and entry.annotations
+    return annotations and annotations[1] or entry
+end
+
+local function entryDoc(entry)
+    return parseDoc(docLines(documentedNode(entry)))
+end
+
+-- A declaration file is public by construction: it has no implementation to hide, and
+-- `local` there does not mean private. The prelude's bindings are checked with
+-- declare_globals and become every program's globals, and a bundled module's locals are
+-- what its `return` hands out. Documentation stops after parsing, so it cannot see
+-- either and would otherwise drop the one kind of file that is nothing but public
+-- surface. `@local` still opts a declaration out.
+local function privateName(name)
+    local tail = tostring(name or ""):match("([^%.:]+)$") or ""
+    tail = tail:gsub("^[\"']", "")
+    return tail:sub(1, 1) == "_"
+end
+
+-- A module whose name has an `internal` segment is private the same way a file below an
+-- `internal/` directory is. The rule is on the name rather than on the path so that a
+-- namespace an `@namespace` declaration implies, which has no file behind it, answers it
+-- too.
+local function internalModuleName(name: string?): boolean
+    return ("." .. tostring(name or "") .. "."):find(".internal.", 1, true) ~= nil
+end
+
+-- The entries of a record, interface, or struct that documentation leaves out: a name
+-- starting with `_`, and anything tagged `@internal`. A metamethod is exempt from the
+-- name rule rather than an exception to it — a metamethod is named for the Lua operation
+-- it implements, so `__index` says which operator this is and never says private.
+local function hiddenEntry(entry, includePrivate)
+    if includePrivate then
+        return false
+    end
+    if entryDoc(entry).tags.internal then
+        return true
+    end
+
+    return entry.kind ~= "metamethodDecl" and privateName(entry.name and entry.name.text or "")
+end
+
+-- Every node a signature must leave out to leave one entry out. An entry is not the
+-- whole of what was written for it: `@drop` is parsed before the entry it modifies and
+-- attached to the enclosing structure, so dropping only the entry strands its
+-- annotations in the block above the next visible one. Collecting the set up front also
+-- keeps the walk from asking about nodes that are not entries at all — it reaches
+-- parameters, type references and expressions too, and any of those can be named `_x`
+-- without that saying anything about what a reader may see.
+local function hiddenNodes(node, includePrivate)
+    local dropped = {}
+    local function mark(current)
+        if cst.isToken(current) then
+            return
+        end
+        for _, entry in ipairs(current.entries or current.fields or {}) do
+            if hiddenEntry(entry, includePrivate) then
+                dropped[entry] = true
+                for _, annotation in ipairs(entry.annotations or {}) do
+                    dropped[annotation] = true
+                end
+            end
+        end
+        for _, child in ipairs(current) do
+            mark(child)
+        end
+    end
+
+    mark(node)
+
+    return dropped
+end
+
 -- A structure's signature is its complete declaration, not only its opening line.
 -- Documentation is rendered beside the code block, so omit `---` trivia and executable
 -- function blocks while preserving ordinary comments and every declaration token, then
@@ -126,6 +212,7 @@ end
 -- member links without publishing an interface default, method, or constructor body.
 local function structureSignature(node, includePrivate)
     local parts: {string} = {}
+    local dropped = hiddenNodes(node, includePrivate)
     local function walk(child)
         if cst.isToken(child) then
             local triviaParts: {string} = {}
@@ -151,11 +238,11 @@ local function structureSignature(node, includePrivate)
             parts[#parts + 1] = triviaText
             parts[#parts + 1] = child.text
         else
-            if child ~= node and child.kind == "recordDecl" and not includePrivate then
-                local info = docblock.parse(docblock.linesOf(child))
-                if info.tags.internal then
-                    return
-                end
+            -- A hidden node leaves with the trivia its first token owns, which is the
+            -- blank line and the `---` run written above it, so removing one from the
+            -- block reads as though it had never been written there.
+            if dropped[child] then
+                return
             end
             for _, nested in ipairs(child) do
                 if child.kind ~= "funcbody" or nested ~= child.body then
@@ -173,26 +260,6 @@ local function structureSignature(node, includePrivate)
     end
 
     return trim(formatted)
-end
-
--- The `---` run and its tags are read by nupp.compiler.docblock, because the checker
--- reads
--- the
--- same run to ask whether a function that raises documented it.
-local docLines, parseDoc = docblock.linesOf, docblock.parse
-
--- Where a record entry's `---` run actually sits. An annotation is parsed before the
--- entry it modifies, so the run written above `@drop` attaches to the `@` rather than
--- to the declaration underneath it, and asking the entry answers nothing. The first
--- annotation is the top of what the author wrote, the same way a `pragmaStmt` wrapper
--- is for a top-level statement.
-local function documentedNode(entry)
-    local annotations = entry and entry.annotations
-    return annotations and annotations[1] or entry
-end
-
-local function entryDoc(entry)
-    return parseDoc(docLines(documentedNode(entry)))
 end
 
 -- One annotation as it was written. Built from the name and its arguments rather than
@@ -365,18 +432,6 @@ local function typeFunctionDetails(node, info)
     return details
 end
 
--- A declaration file is public by construction: it has no implementation to hide, and
--- `local` there does not mean private. The prelude's bindings are checked with
--- declare_globals and become every program's globals, and a bundled module's locals are
--- what its `return` hands out. Documentation stops after parsing, so it cannot see
--- either and would otherwise drop the one kind of file that is nothing but public
--- surface. `@local` still opts a declaration out.
-local function privateName(name)
-    local tail = tostring(name or ""):match("([^%.:]+)$") or ""
-    tail = tail:gsub("^[\"']", "")
-    return tail:sub(1, 1) == "_"
-end
-
 -- One field of a shape type or a record, read as the top-level item a synthesized
 -- namespace module holds it as. Shares its shape with `declarationItem`'s own field and
 -- record-entry handling, but produces a full `extract.Item` rather than a lighter
@@ -386,7 +441,7 @@ end
 local function fieldItem(field, childModuleName, includePrivate)
     local name = field.name.text
     local info = entryDoc(field)
-    if not (includePrivate or (not privateName(name) and not info.tags.internal)) then
+    if hiddenEntry(field, includePrivate) then
         return nil
     end
     local item = {
@@ -551,8 +606,11 @@ local function namespaceChildren(shape, prefix, path, blocks, includePrivate)
         if not entries or expanding[entries] then
             return
         end
-        expanding[entries] = true
         local childName = parentName .. "." .. field.name.text
+        if not includePrivate and internalModuleName(childName) then
+            return
+        end
+        expanding[entries] = true
         local items = {}
         for _, entry in ipairs(entries) do
             if entry.kind == "fieldDecl" or entry.kind == "tshapeField" then
@@ -590,9 +648,7 @@ local function namespaceChildren(shape, prefix, path, blocks, includePrivate)
     end
 
     for _, field in ipairs(shape.fields or {}) do
-        local info = entryDoc(field)
-        if field.kind == "tshapeField"
-            and (includePrivate or (not privateName(field.name.text) and not info.tags.internal)) then
+        if field.kind == "tshapeField" and not hiddenEntry(field, includePrivate) then
             addModule(field, prefix)
         end
     end
@@ -613,8 +669,7 @@ local function buildMembers(
     local members = {}
     for _, entry in ipairs(entries or {}) do
         local entryInfo = entryDoc(entry)
-        local entryName = entry.name and entry.name.text or ""
-        local entryVisible = includePrivate or (not privateName(entryName) and not entryInfo.tags.internal)
+        local entryVisible = not hiddenEntry(entry, includePrivate)
         if (entry.kind == "fieldDecl" or entry.kind == "metamethodDecl") and entryVisible then
             local fieldInfo = entryInfo
             local member = new extract.Member(
@@ -1051,6 +1106,7 @@ function extract.namespaces(modules: {extract.Module}): {extract.Module}
     return namespaces
 end
 
+extract.internalModuleName = internalModuleName
 extract.moduleName = moduleName
 extract.splitMembers = splitMembers
 

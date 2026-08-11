@@ -838,6 +838,131 @@ function M.hidesPrivateMembersUnlessExplicitlyIncluded()
    assert(#completeRecord.members == 3, "private record members were not included")
 end
 
+function M.hidesPrivateMembersFromTheRenderedDeclaration()
+   local source = table.concat({
+      "record Public",
+      "   visible: number",
+      "   --- The cached total.",
+      "   _secret: number",
+      "   function _calculate(): number",
+      "      return 1",
+      "   end",
+      "   --- @internal",
+      "   spare: number",
+      "   record _Backing",
+      "      slot: number",
+      "   end",
+      "   type _Key = string",
+      "end",
+   }, "\n")
+   local public = assert(doc.extract(source, "src/public.nupp", "public"))
+   local signature
+   for _, item in ipairs(public.items) do
+      if item.name == "Public" then signature = item.signature end
+   end
+   assert(signature:find("visible", 1, true), signature)
+   for _, hidden in ipairs({"_secret", "_calculate", "_Backing", "_Key", "spare"}) do
+      assert(not signature:find(hidden, 1, true),
+         hidden .. " leaked into the rendered declaration: " .. signature)
+   end
+   local complete = assert(doc.extract(source, "src/public.nupp", "public",
+      {includePrivate = true}))
+   for _, item in ipairs(complete.items) do
+      if item.name == "Public" then signature = item.signature end
+   end
+   for _, shown in ipairs({"_secret", "_calculate", "_Backing", "_Key", "spare"}) do
+      assert(signature:find(shown, 1, true),
+         "private docs lost " .. shown .. ": " .. signature)
+   end
+end
+
+function M.documentsMetamethodsDespiteTheirUnderscoredNames()
+   local source = table.concat({
+      "--- A point.",
+      "record Point",
+      "   x: number",
+      "   _scratch: number",
+      "   --- Compares two points.",
+      "   metamethod __eq: function(self, other: Point): boolean",
+      "   --- @internal",
+      "   metamethod __len: function(self): number",
+      "end",
+   }, "\n")
+   local module = assert(doc.extract(source, "src/point.nupp", "point"))
+   local record
+   for _, item in ipairs(module.items) do
+      if item.name == "Point" then record = item end
+   end
+   local byName = {}
+   for _, member in ipairs(record.members) do byName[member.name] = member end
+   assert(byName.x, "an ordinary field was dropped")
+   assert(not byName._scratch, "a private field leaked")
+   assert(byName.__eq, "a metamethod was hidden by the underscore rule")
+   assert(byName.__eq.isMetamethod, "__eq was not marked as a metamethod")
+   assert(byName.__eq.text == "Compares two points.", byName.__eq.text)
+   assert(not byName.__len, "an @internal metamethod leaked")
+   assert(record.signature:find("__eq", 1, true), record.signature)
+   assert(not record.signature:find("_scratch", 1, true), record.signature)
+   assert(not record.signature:find("__len", 1, true), record.signature)
+end
+
+function M.hidesModulesNamedInternal()
+   local dir = tempProject({
+      ["src/visible.nupp"] = "function visible(): number return 1 end\n",
+      ["src/internal.nupp"] = "function secret(): number return 2 end\n",
+      ["src/lib/internal/cache.nupp"] = "function cache(): number return 3 end\n",
+   })
+   local config = {include = {"src"}}
+   assert(doc.build(dir, config, {sources = {"src"}},
+      {format = "markdown", output = "public.md"}) == 0)
+   local public = readFile(dir .. "/public.md")
+   assert(public:find("Module: `visible`", 1, true), public)
+   assert(not public:find("Module: `internal`", 1, true), public)
+   assert(not public:find("Module: `lib.internal.cache`", 1, true), public)
+
+   assert(doc.build(dir, config, {sources = {"src"}, includePrivate = true},
+      {format = "markdown", output = "complete.md"}) == 0)
+   local complete = readFile(dir .. "/complete.md")
+   assert(complete:find("Module: `internal`", 1, true), complete)
+   assert(complete:find("Module: `lib.internal.cache`", 1, true), complete)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.hidesNamespacesNamedInternal()
+   local source = table.concat({
+      "--- @namespace lib",
+      "local lib: {",
+      "   --- Parsing.",
+      "   peg: {",
+      "      --- Matches a subject.",
+      "      match: function(): boolean",
+      "   },",
+      "   --- Implementation detail.",
+      "   internal: {",
+      "      --- Caches a result.",
+      "      cache: function(): boolean",
+      "   },",
+      "}",
+   }, "\n")
+   local module, errors, extra = doc.extract(source, "src/lib.d.nupp", "lib",
+      {includeAll = true})
+   assert(module, errors and errors[1] and errors[1].msg)
+   local byName = {}
+   for _, mod in ipairs(extra or {}) do byName[mod.name] = mod end
+   assert(byName["lib.peg"], "a public namespace was dropped")
+   assert(not byName["lib.internal"], "a namespace named internal leaked into public docs")
+
+   local private, privateErrors, privateExtra = doc.extract(source, "src/lib.d.nupp", "lib", {
+      includeAll = true,
+      includePrivate = true,
+   })
+   assert(private, privateErrors and privateErrors[1] and privateErrors[1].msg)
+   local privateByName = {}
+   for _, mod in ipairs(privateExtra or {}) do privateByName[mod.name] = mod end
+   assert(privateByName["lib.internal"],
+      "private docs must retain a namespace named internal")
+end
+
 function M.keepsMarkdownInsideDescriptionCells()
    local module = assert(doc.extract(table.concat({
       "--- Adds.",

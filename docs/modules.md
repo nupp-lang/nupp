@@ -205,8 +205,11 @@ Annotate exported parameters and returns; let obvious locals infer. That keeps
 public contracts stable without making bodies noisy.
 
 Leading underscores mark privacy to the documentation generator: members
-beginning with `_`, source files beginning with `_`, and files under
-`internal/` are omitted unless the docs target opts into private output.
+beginning with `_`, source files beginning with `_`, and anything under a
+module named `internal` are omitted unless the docs target opts into private
+output. A hidden member is left out of the rendered declaration as well as the
+member table. Metamethods are exempt, since `__index` names the operation
+rather than claiming privacy.
 
 ## Mutual recursion across files
 

@@ -29,6 +29,7 @@ local listFiles, privateSource = filesMod.listFiles, filesMod.privateSource
 local copyPublicFiles = filesMod.copyPublicFiles
 local moduleName, childModules = extractMod.moduleName, extractMod.children
 local namespaceModules = extractMod.namespaces
+local internalModuleName = extractMod.internalModuleName
 local configureScintillua = highlightMod.configureScintillua
 local markdownHtml, markdownOutline = htmlMod.markdownHtml, htmlMod.markdownOutline
 local THEME, SCRIPT = assetsMod.THEME, assetsMod.SCRIPT
@@ -208,7 +209,11 @@ local function loadModules(root, config, settings, requested)
         for _, item in ipairs(module.items) do
             local target = item.module and byName[item.module] or nil
             local nested = target and byName[item.module .. "." .. item.name] or nil
-            if nested and namespaceBacked[nested.name] then
+            if not settings.includePrivate and item.module and internalModuleName(item.module) then
+                -- Dropped outright. `record nupp.internal.Cache` belongs to a private
+                -- module whether or not a file by that name was read, so it must not fall
+                -- through and stay behind on whichever module happened to declare it.
+            elseif nested and namespaceBacked[nested.name] then
                 if item.doc.text ~= "" then
                     nested.text = item.doc.text
                 end
@@ -236,7 +241,7 @@ local function loadModules(root, config, settings, requested)
         end
         local public = {}
         for _, module in ipairs(modules) do
-            local hidden = module.documentationInternal and true or false
+            local hidden = (module.documentationInternal or internalModuleName(module.name)) and true or false
             for _, namespace in ipairs(internalTrees) do
                 if module.name == namespace or module.name:sub(1, #namespace + 1) == namespace .. "." then
                     hidden = true

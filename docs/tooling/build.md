@@ -215,10 +215,11 @@ a project stylesheet after Nuppdoc's default theme, so a site can override the
 documented `--nuppdoc-*` custom properties without changing other documentation
 targets. `logo` adds an image to the header brand; omit it to keep Nuppdoc's
 default mark. A configured `heroImage` sits in the homepage's right column over
-the theme's responsive accent glow. Source files below `internal/`, source files
-beginning with `_`, files marked `@!internal` (including descendants of a marked
-`init.nupp`), and methods or members beginning with `_` are private by default;
-set `includePrivate = true` to include them. A module's page lists the modules
+the theme's responsive accent glow. Anything under a module named `internal`,
+source files beginning with `_`, files marked `@!internal` (including
+descendants of a marked `init.nupp`), and members beginning with `_` other than
+metamethods are private by default; set `includePrivate = true` to include them.
+A private member leaves the rendered declaration too, not only the member table. A module's page lists the modules
 nested under it and groups what it declares into constructors, types, functions,
 and values. `constructorPattern` is the Lua pattern a function's last name
 segment has to match to count as a constructor, defaulting to `^new`; `""`
