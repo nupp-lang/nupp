@@ -56,6 +56,21 @@ local function heading(level)
     return ("#"):rep(math.min(level, 6))
 end
 
+-- What a declaration was annotated with, on its own line under the heading. `@drop` and
+-- `@owned` are the ownership contract, and a reader who cannot see them cannot tell an
+-- obligation from an ordinary method.
+local function markdownAnnotations(out, annotations)
+    if not annotations or #annotations == 0 then
+        return
+    end
+    local marks = {}
+    for index, annotation in ipairs(annotations) do
+        marks[index] = "`" .. markdownEscape(annotation) .. "`"
+    end
+    out[#out + 1] = table.concat(marks, " ")
+    out[#out + 1] = ""
+end
+
 local function markdownArguments(out, params, heading)
     if #params == 0 then
         return
@@ -65,10 +80,13 @@ local function markdownArguments(out, params, heading)
     out[#out + 1] = "| Name | Type | Description |"
     out[#out + 1] = "| --- | --- | --- |"
     for _, param in ipairs(params) do
+        -- `takes` and `borrows` decide whether the caller still owns the value
+        -- afterwards, which no other column says.
+        local spelled = (param.mode and (param.mode .. " ") or "") .. param.name
         out[
             #out + 1
         ] = "| `" .. markdownEscape(
-            param.name
+            spelled
         ) .. "` | `" .. markdownEscape(param.type) .. "` | " .. cell(param.text) .. " |"
     end
     out[#out + 1] = ""
@@ -117,6 +135,7 @@ local function renderMarkdownMembers(out, members, level)
             out[#out + 1] = '<a id="' .. method.path .. '"></a>'
             out[#out + 1] = hName .. " `" .. method.name .. "`"
             out[#out + 1] = ""
+            markdownAnnotations(out, method.annotations)
             if method.text ~= "" then
                 out[#out + 1] = prose(method.text)
                 out[#out + 1] = ""
@@ -137,6 +156,7 @@ local function renderMarkdownMembers(out, members, level)
             out[#out + 1] = '<a id="' .. nested.path .. '"></a>'
             out[#out + 1] = hName .. " `" .. nested.name .. "` _" .. nested.type .. "_"
             out[#out + 1] = ""
+            markdownAnnotations(out, nested.annotations)
             if nested.text ~= "" then
                 out[#out + 1] = prose(nested.text)
                 out[#out + 1] = ""
@@ -166,6 +186,7 @@ local function renderMarkdownItem(out, item, constructorPattern, level)
     out[#out + 1] = '<a id="' .. item.path .. '"></a>'
     out[#out + 1] = h .. " `" .. item.name .. "` _" .. displayKind(item, constructorPattern) .. "_"
     out[#out + 1] = ""
+    markdownAnnotations(out, item.annotations)
     -- What it is, then how it is spelled: the prose says whether this is the
     -- declaration you are looking for, and the signature answers how to call it once
     -- you know that it is.

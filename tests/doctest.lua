@@ -239,6 +239,33 @@ function M.anAnnotatedMemberKeepsItsDocumentation()
       close.returns[1] and close.returns[1].text)
 end
 
+-- `@drop` and `@owned` are the ownership contract. A reader who cannot see them
+-- cannot tell an obligation from an ordinary method, and the parameter mode that
+-- carries the same news was extracted but never rendered.
+function M.documentsAnnotationsAndParameterModes()
+   local module = assert(doc.extract(ANNOTATED_DECLARATIONS, "src/handle.d.nupp", "handle",
+      {includeAll = true}))
+   local handle
+   for _, item in ipairs(module.items) do
+      if item.name == "Handle" then handle = item end
+   end
+   assert(handle, "record missing")
+   local close, isReleased
+   for _, member in ipairs(handle.members) do
+      if member.name == "close" then close = member end
+      if member.name == "isReleased" then isReleased = member end
+   end
+   assert(close.annotations and close.annotations[1] == "@drop",
+      close.annotations and close.annotations[1])
+   assert(not isReleased.annotations, "an unannotated member carries no annotations")
+   assert(close.params[1].mode == "takes", tostring(close.params[1].mode))
+
+   local markdown = doc.markdown({module})
+   assert(markdown:find("`@drop`", 1, true), "the annotation is not rendered")
+   assert(markdown:find("| `takes self` |", 1, true),
+      "the parameter mode is not rendered")
+end
+
 function M.documentsInheritedContractsMetamethodsAndInlineMethods()
    local source = table.concat({
       "--- A callable task.",

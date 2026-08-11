@@ -55,6 +55,9 @@ record extract.Member
     isMetamethod: boolean?
     isType: boolean?
     members: {Member}?
+
+    --- What it was annotated with, as written: `@drop`, `@owned`, `@derive(JSON)`.
+    annotations: {string}?
 end
 
 --- One documented declaration: what it is called, how it is spelled, and everything its
@@ -71,7 +74,8 @@ type extract.Item = {
     params: {extract.Param},
     returns: {extract.Result},
     raises: {string},
-    typeargs: {extract.TypeArg}
+    typeargs: {extract.TypeArg},
+    annotations: {string}?
 }
 
 --- One source file, read as its documented declarations.
@@ -189,6 +193,56 @@ end
 
 local function entryDoc(entry)
     return parseDoc(docLines(documentedNode(entry)))
+end
+
+-- One annotation as it was written. Built from the name and its arguments rather than
+-- from the node's text, because a node carries its leading trivia and that trivia is the
+-- `---` run the annotation was written under.
+local function annotationText(node): string?
+    local name = node and node.name and node.name.text
+    if not name then
+        return nil
+    end
+    local args = {}
+    for _, arg in ipairs(node.annotationArgs or {}) do
+        local parts: {string} = {}
+        local function walk(child)
+            if cst.isToken(child) then
+                parts[#parts + 1] = child.text
+            else
+                for _, nested in ipairs(child) do
+                    walk(nested)
+                end
+            end
+        end
+        walk(arg)
+        args[#args + 1] = trim(table.concat(parts))
+    end
+    if #args == 0 then
+        return "@" .. name
+    end
+
+    return "@" .. name .. "(" .. table.concat(args, ", ") .. ")"
+end
+
+-- What a record entry or shape field was annotated with. `@drop` and `@owned` say who
+-- owes the cleanup, which is the one thing about a resource a reader cannot infer from
+-- the signature, so documentation that drops them describes a different API than the one
+-- the checker enforces.
+local function annotationsOf(entry): {string}?
+    local applied = entry and entry.annotations
+    if not applied or #applied == 0 then
+        return nil
+    end
+    local names = {}
+    for _, node in ipairs(applied) do
+        local text = annotationText(node)
+        if text then
+            names[#names + 1] = text
+        end
+    end
+
+    return #names > 0 and names or nil
 end
 
 -- A declaration's name as it was written, table and all. Readers reach a member as
@@ -347,6 +401,7 @@ local function fieldItem(field, childModuleName, includePrivate)
         returns = {},
         raises = info.raises,
         typeargs = {},
+        annotations = annotationsOf(field),
     }
     local fn = typeFunction(field.type)
     if fn then
@@ -571,7 +626,8 @@ local function buildMembers(
                 path = basePath .. "." .. entry.name.text,
                 params = {},
                 returns = {},
-                raises = fieldInfo.raises
+                raises = fieldInfo.raises,
+                annotations = annotationsOf(entry)
             )
             local fieldFunction = typeFunction(entry.type)
             if fieldFunction then
@@ -596,7 +652,8 @@ local function buildMembers(
                 params = details.params,
                 returns = details.returns,
                 raises = methodInfo.raises,
-                isFunction = true
+                isFunction = true,
+                annotations = annotationsOf(entry)
             )
         elseif entry.kind == "recordDecl" and entryVisible then
             local nestedPath = basePath .. "." .. entry.name.text
@@ -611,7 +668,8 @@ local function buildMembers(
                 returns = {},
                 raises = {},
                 isType = true,
-                members = buildMembers(entry.entries, nestedPath, includePrivate, entryInfo.fields)
+                members = buildMembers(entry.entries, nestedPath, includePrivate, entryInfo.fields),
+                annotations = annotationsOf(entry)
             )
         elseif entry.name and entryVisible then
             members[
@@ -623,7 +681,8 @@ local function buildMembers(
                 path = basePath .. "." .. entry.name.text,
                 params = {},
                 returns = {},
-                raises = {}
+                raises = {},
+                annotations = annotationsOf(entry)
             )
         end
     end
@@ -637,7 +696,12 @@ end
 -- every wrapper also handles stacked annotations.
 declarationItem = function(stat, moduleName, includeAll, declarationFile, includePrivate)
     local documented = stat
+    local applied = {}
     while stat.kind == "pragmaStmt" and stat.stat do
+        local text = annotationText(stat)
+        if text then
+            applied[#applied + 1] = text
+        end
         stat = stat.stat
     end
     local lines = docLines(documented)
@@ -715,6 +779,7 @@ declarationItem = function(stat, moduleName, includeAll, declarationFile, includ
         returns = {},
         raises = info.raises,
         typeargs = {},
+        annotations = #applied > 0 and applied or nil,
     }
     local declaredFunction = stat.kind == "localStmt" and typeFunction(stat.types and stat.types[1]) or nil
     local generics = stat.generics or (
@@ -785,7 +850,8 @@ local function foldMethods(items: {extract.Item}): {extract.Item}
                     params = item.params,
                     returns = item.returns,
                     raises = item.raises,
-                    isFunction = true
+                    isFunction = true,
+                    annotations = item.annotations
                 )
             end
         else

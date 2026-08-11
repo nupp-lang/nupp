@@ -245,6 +245,13 @@ work makes sense in.
         one excluded assertion reaches tecs's old private
         `runtime.registered("processes")` source; preserving it would test the
         implementation being replaced rather than Process compatibility.
+- [ ] **Closure capture** ([design](closure-capture.md)): a closure states what
+      it `takes (...)` and borrows everything else, which makes an
+      owner-capturing closure affine rather than rejected, and lets `Buffer`,
+      `ByteView`, `Reader` and `Writer` carry `@drop` on `close` without
+      rewriting the call sites that capture them. Amends the deliberate limit
+      recorded in [ownership hardening](ownership-hardening.md) without
+      weakening it: an *ordinary copyable* closure still may not hold an owner.
 - [ ] **Files adoption** ([design](files.md)): `nupp.io.files`, its native
       provider, bounded request lane, suspension integration, and compiler
       adoption have landed. The remaining project is tecs adoption: delete
