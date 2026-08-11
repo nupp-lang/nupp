@@ -257,7 +257,10 @@ select {
   line-height: 1.45;
   white-space: pre-wrap;
 }
-.output-main.is-code { padding-inline: 0; }
+.output-main.is-code {
+  padding-inline: 0;
+  white-space: pre;
+}
 .output-main .lua-line {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);

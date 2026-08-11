@@ -59,9 +59,13 @@ test("documentation playgrounds inherit normal code-block colors", () => {
 
 test("generated Lua output has a muted line-number gutter", () => {
   const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
   const style = readFileSync(new URL("../static/style.css", import.meta.url), "utf8");
   assert.match(docApp, /\.output-main \.lua-line-number \{[\s\S]*?color: var\(--pg-faint\);[\s\S]*?user-select: none;/);
   assert.match(style, /\.output-main \.lua-line-number \{[\s\S]*?color: var\(--pg-faint\);[\s\S]*?user-select: none;/);
+  assert.match(docApp, /\.output-main\.is-code \{[\s\S]*?white-space: pre;/);
+  assert.match(style, /\.output-main\.is-code \{[\s\S]*?white-space: pre;/);
+  assert.doesNotMatch(app, /EditorView\.lineWrapping/);
 });
 
 test("editor tooltips use compact text and balanced padding", () => {

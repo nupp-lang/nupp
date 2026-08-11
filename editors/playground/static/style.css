@@ -459,14 +459,15 @@ body {
   font-family: var(--pg-font-mono);
   font-size: .74rem;
   line-height: 1.5;
-  /* Wrapped for the same reason the full playground's output editor is (see
-     app.js): generated Lua keeps one line per source line, which leaves the
-     runtime preamble and any comptime table thousands of columns wide. */
+  /* Diagnostics wrap; generated code overrides this to preserve Lua lines. */
   white-space: pre-wrap;
 }
 /* Generated Lua reads as code; a diagnostic run reads as a report. */
 .output-main:not(.is-code) { color: var(--pg-muted); }
-.output-main.is-code { padding-inline: 0; }
+.output-main.is-code {
+  padding-inline: 0;
+  white-space: pre;
+}
 .output-main .lua-line {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);

@@ -269,17 +269,13 @@ const outputView = outputHost
         // highlights — reusing it here means one language definition covers
         // both panels rather than a second one for a subset of the first.
         //
-        // Wrapped, unlike the source editor. Generated Lua keeps one line per
-        // source line so positions still line up, which puts the whole runtime
-        // preamble on line 1 and a comptime table on however few lines the
-        // program declared it in — thousands of columns wide, and off the right
-        // edge of an unwrapped pane. A reader who scrolls past the first screen
-        // of that reasonably concludes the output arrived without line breaks.
+        // Keep generated lines intact, like the source editor. Long compiler
+        // preambles and comptime values scroll horizontally instead of making
+        // one Lua line look like several lines.
         extensions: [
           basicSetup,
           nuppEditorTheme,
           nuppLanguage,
-          EditorView.lineWrapping,
           EditorView.editable.of(false),
         ],
       }),
