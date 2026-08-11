@@ -1,0 +1,34 @@
+-- Types can form a small language of their own. Here the "program" is an
+-- addition assembled from Add and unary numbers. Checking the file evaluates
+-- it; the aliases are erased before runtime.
+
+local type Zero = "zero"
+local type Next<Number> = {Number,}
+
+-- The evaluator moves one Next at a time from the right operand to the left.
+-- Its recursive call is guarded by `match`, and every step handles a smaller
+-- right operand, which keeps the type-level computation bounded.
+local type Evaluate<Expression> = match Expression
+    when {infer Left, Zero} then Left
+    when {infer Left, {infer Previous,}} then
+        Evaluate<{{Left,}, Previous}>
+    else never
+end
+
+local type Add<Left, Right> = Evaluate<{Left, Right}>
+
+local type One = Next<Zero>
+local type Two = Next<One>
+local type Three = Next<Two>
+local type Four = Next<Three>
+local type Seven = Next<Next<Next<Four>>>
+local type Fourteen = Next<Next<Next<Next<Next<Next<Next<Seven>>>>>>>
+
+-- This is a program in the tiny DSL. The assignment checks only if evaluating
+-- its type produces exactly the type-level number fourteen.
+local type Problem = Add<Seven, Seven>
+local proof: Fourteen = nil as Evaluate<Problem>
+
+print("the type checker proved 7 + 7 = 14", proof)
+
+-- try breaking it: remove one Next from Fourteen and inspect the type mismatch

@@ -25,6 +25,8 @@ import OWNERSHIP from "./examples/ownership.nupp";
 import SYNTAX from "./examples/syntax.nupp";
 import OPTIMIZER from "./examples/optimizer.nupp";
 import COMPTIME from "./examples/comptime.nupp";
+import TYPE_LEVEL_DSL from "./examples/type-level-dsl.nupp";
+import PEG from "./examples/peg.nupp";
 
 // Roughly in order of how much of the language each one asks you to already
 // know, since a menu is read top to bottom.
@@ -38,4 +40,10 @@ export const EXAMPLES = [
   { id: "syntax", label: "LuaJIT 3.0 syntax", source: SYNTAX },
   { id: "optimizer", label: "Optimizing compiler", source: OPTIMIZER },
   { id: "comptime", label: "Compile-time evaluation", source: COMPTIME },
+  {
+    id: "type-level-dsl",
+    label: "Type-level arithmetic DSL",
+    source: TYPE_LEVEL_DSL,
+  },
+  { id: "peg", label: "PEG expressions", source: PEG },
 ];

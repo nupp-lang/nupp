@@ -1,0 +1,46 @@
+-- Nupp's PEG notation describes parsers from small expressions. These
+-- matchers are compiled while this file is compiled, then materialized as
+-- ordinary pure-Lua matchers; the grammar compiler is absent at runtime.
+
+-- Literals and classes form sequences. `*` repeats, while `!.` is a negative
+-- predicate that requires the match to have reached the end of the input.
+const Identifier: nupp.peg.Peg<integer> = comptime do
+    return nupp.peg.compile([[
+        [a-zA-Z_] [a-zA-Z_0-9]* !.
+    ]])
+end
+
+-- `{ p }` captures text. Parentheses group a sequence before `*`, and `{| |}`
+-- collects the repeated captures into one typed array result.
+const Fields: nupp.peg.Peg<{string}> = comptime do
+    return nupp.peg.compile([[
+        {| { [a-z]+ } (',' { [a-z]+ })* |} !.
+    ]])
+end
+
+-- `/` is ordered choice: the left expression is tried first. Named rules can
+-- refer to themselves, so this grammar recognizes balanced parentheses.
+const Nested: nupp.peg.Peg<integer> = comptime do
+    return nupp.peg.compile([[
+        nested <- '(' nested ')' / 'x'
+    ]])
+end
+
+-- A matcher can also search and replace. `%d` is the predefined digit class;
+-- `+` means one or more bytes.
+const Digits: nupp.peg.Peg<integer> = comptime do
+    return nupp.peg.compile([[%d+]])
+end
+
+local identifierEnd = Identifier("user_42")
+local fields = Fields("red,green,blue")
+local nestedEnd = Nested("(((x)))")
+local redacted = Digits:replaceAll("room 12, floor 3", "#")
+
+if fields then
+    print(identifierEnd, table.concat(fields, " / "), nestedEnd)
+end
+print(redacted)
+
+-- try breaking it: put `'in'` before `'integer'` in an ordered choice, or make
+-- a repetition nullable with `('')*`, and read the compile-time PEG diagnostic
