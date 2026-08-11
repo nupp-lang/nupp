@@ -621,6 +621,66 @@ declarationItem = function(stat, moduleName, includeAll, declarationFile, includ
     return item
 end
 
+-- A method is written twice over: the record declares `send: function(Worker, any)` and
+-- the implementation follows it as `function Worker:send(value)`. Both spell one method,
+-- and a module's function listing is the functions a reader calls through the module,
+-- not the ones reached through a type it happens to declare. Folding the implementation
+-- into that type puts it where the reader looks for it and lets it supply what the
+-- declaration left out. A method whose type this module does not document has nowhere to
+-- fold into and stays a listed function rather than disappearing.
+local function memberNamed(item: extract.Item, name: string): extract.Member?
+    for _, member in ipairs(item.members) do
+        if member.name == name then
+            return member
+        end
+    end
+
+    return nil
+end
+
+local function foldMethods(items: {extract.Item}): {extract.Item}
+    local types: {[string]: extract.Item} = {}
+    for _, item in ipairs(items) do
+        if item.kind ~= "function" and item.kind ~= "method" and item.kind ~= "variable" then
+            types[item.path] = item
+        end
+    end
+    local kept: {extract.Item} = {}
+    for _, item in ipairs(items) do
+        local ownerPath = item.kind == "method" and item.path:match("^(.*):") or nil
+        local owner = ownerPath and types[ownerPath] or nil
+        if owner then
+            local name = item.name:match("([^:]+)$") or item.name
+            local declared = memberNamed(owner, name)
+            if declared then
+                if declared.text == "" then
+                    declared.text = item.doc.text
+                end
+                if #declared.raises == 0 then
+                    declared.raises = item.raises
+                end
+            else
+                owner.members[
+                    #owner.members + 1
+                ] = {
+                    name = name,
+                    type = item.signature,
+                    text = item.doc.text,
+                    path = owner.path .. "." .. name,
+                    params = item.params,
+                    returns = item.returns,
+                    raises = item.raises,
+                    isFunction = true,
+                }
+            end
+        else
+            kept[#kept + 1] = item
+        end
+    end
+
+    return kept
+end
+
 local function moduleName(path: string, root: string, includes: {string}?): string
     path, root = normalize(path), normalize(root)
     local relative = path
@@ -721,6 +781,7 @@ function extract.extract(
             end
         end
     end
+    result.items = foldMethods(result.items)
     table.sort(result.items, byKindThenName)
 
     return result, {}, extraModules

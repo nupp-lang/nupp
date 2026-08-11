@@ -183,6 +183,58 @@ function M.documentsInheritedContractsMetamethodsAndInlineMethods()
    assert(task.members[2].params[1].name == "prefix")
 end
 
+-- A module's functions are the ones called through the module. A method belongs to
+-- its type, whether the record declared it, the implementation carried the prose, or
+-- the type it extends is one this module never documents.
+function M.documentsMethodImplementationsUnderTheirOwnType()
+   local source = table.concat({
+      "--- A worker.",
+      "record job.Worker",
+      "   --- Sends a value.",
+      "   send: function(job.Worker, any)",
+      "   stop: function(job.Worker)",
+      "end",
+      "",
+      "function job.Worker:send(value: any): nil",
+      "end",
+      "",
+      "--- Stops it.",
+      "--- @raises when it already stopped",
+      "function job.Worker:stop(): nil",
+      "end",
+      "",
+      "--- Starts one.",
+      "function job.spawn(): job.Worker",
+      "   return nil",
+      "end",
+      "",
+      "function Elsewhere:extend(): nil",
+      "end",
+   }, "\n")
+   local module = assert(doc.extract(source, "src/job.nupp", "job",
+      {includeAll = true, includePrivate = true}))
+   local listed = {}
+   for _, item in ipairs(module.items) do
+      listed[item.name] = item
+   end
+   assert(not listed["job.Worker:send"] and not listed["job.Worker:stop"],
+      "a method must not be listed among the module's own functions")
+   assert(listed["job.spawn"], "a module-level function must stay listed")
+   local worker = assert(listed["Worker"], "record missing")
+   local send, stop
+   for _, member in ipairs(worker.members) do
+      if member.name == "send" then send = member end
+      if member.name == "stop" then stop = member end
+   end
+   assert(send and send.text == "Sends a value.", "the declaration keeps its prose")
+   assert(stop and stop.text == "Stops it.", "the implementation supplies what it lacked")
+   assert(stop.raises[1] == "when it already stopped", "raises must fold in too")
+   assert(#worker.members == 2, "folding must not duplicate a declared method")
+   -- A type this module does not document has nowhere to fold into, and dropping the
+   -- method would lose it entirely.
+   assert(listed["Elsewhere:extend"], "an orphan method stays a listed function")
+end
+
 function M.omitsImplementationBodiesFromStructureSignatures()
    local source = table.concat({
       "interface Named",
