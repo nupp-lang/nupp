@@ -226,6 +226,14 @@ select {
   font-size: 13px;
 }
 .editor .cm-content { padding: .75rem 0 !important; }
+.reader-source {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  user-select: none;
+}
 .output {
   margin-top: .35rem;
   border: 1px solid var(--pg-border);
@@ -316,9 +324,26 @@ class NuppDocPlayground extends HTMLElement {
       try { source = decodeURIComponent(encoded); } catch { source = encoded; }
     }
 
+    // Reader Mode and no-script clients cannot use CodeMirror's shadow tree.
+    // Keep the current program in ordinary light DOM: it is the visible static
+    // fallback before upgrade and sits in a transparent slot beside the editor.
+    let readerSource = this.querySelector("[data-reader-source]");
+    if (!readerSource) {
+      readerSource = document.createElement("div");
+      readerSource.className = "nuppdoc-code-block";
+      readerSource.dataset.lang = "nupp";
+      readerSource.setAttribute("data-reader-source", "");
+      readerSource.slot = "reader-source";
+      readerSource.innerHTML = '<pre><code class="language-nupp"></code></pre>';
+      this.appendChild(readerSource);
+    }
+    this.readerSource = readerSource.querySelector("code");
+    this.readerSource.textContent = source;
+
     const root = this.attachShadow({ mode: "open" });
     root.innerHTML = `
       <style>${styles}</style>
+      <div class="reader-source" aria-hidden="true"><slot name="reader-source"></slot></div>
       <div class="toolbar">
         ${encoded === null ? '<label class="example-picker">Example <select></select></label>' : ""}
         <div class="actions">
@@ -379,11 +404,15 @@ class NuppDocPlayground extends HTMLElement {
           lintGutter(),
           hover,
           EditorView.updateListener.of((update) => {
-            if (update.docChanged) this.scheduleCheck();
+            if (update.docChanged) {
+              this.readerSource.textContent = update.state.doc.toString();
+              this.scheduleCheck();
+            }
           }),
         ],
       }),
     });
+    root.querySelector(".cm-gutters")?.setAttribute("aria-hidden", "true");
 
     const select = root.querySelector("select");
     if (select) {

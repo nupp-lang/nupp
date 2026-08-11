@@ -217,7 +217,11 @@ using it serves the playground's `dist/` at `/playground/`, the way `nupp task
 docs-serve` does, so the page can load `doc-app.js`, its shared compiler worker,
 and the browser-safe compiler. Editors size from their content; long programs
 scroll after 28rem. Because the editor lives in the page, CodeMirror popups are
-not clipped at an iframe boundary.
+not clipped at an iframe boundary. A fence with authored source also carries it
+as ordinary fallback markup, and an upgraded example menu keeps the same markup
+in sync with its current program. Reader Mode therefore sees source rather than
+the editor's line-number gutter; a browser without scripting sees authored
+source as a static code block.
 
 **File embeds**, which read a file at build time:
 

@@ -47,6 +47,17 @@ test("documentation playgrounds are inline and have dismissible output", () => {
   assert.match(docApp, /const compiler = new CompilerClient\(\)/);
 });
 
+test("documentation playgrounds expose source to Reader Mode", () => {
+  const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
+  assert.match(docApp, /this\.querySelector\("\[data-reader-source\]"\)/);
+  assert.match(docApp, /readerSource\.slot = "reader-source"/);
+  assert.match(docApp, /class="reader-source" aria-hidden="true"><slot name="reader-source"><\/slot>/);
+  assert.match(docApp, /\.reader-source \{[\s\S]*?position: absolute;[\s\S]*?opacity: 0;[\s\S]*?pointer-events: none;/);
+  assert.match(docApp, /this\.readerSource\.textContent = source/);
+  assert.match(docApp, /this\.readerSource\.textContent = update\.state\.doc\.toString\(\)/);
+  assert.match(docApp, /root\.querySelector\("\.cm-gutters"\)\?\.setAttribute\("aria-hidden", "true"\)/);
+});
+
 test("documentation playgrounds inherit normal code-block colors", () => {
   const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
   assert.match(docApp, /--pg-background: var\(--nuppdoc-code-background/);

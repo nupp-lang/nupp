@@ -1808,8 +1808,13 @@ function M.nuppFencesUseInlinePlaygrounds()
    assert(not editable:find("<iframe", 1, true), editable)
    assert(editable:find(
       'data-source="local%20answer%3A%20integer%20%3D%2042', 1, true), editable)
-   assert(not editable:find('class="nuppdoc-code-block"', 1, true), editable)
-
+   assert(editable:find(
+      '<div class="nuppdoc-code-block" data-lang="nupp" data-reader-source'
+         .. ' slot="reader-source">',
+      1, true), editable)
+   assert(editable:find(
+      '<code class="language-nupp">local answer: integer = 42</code>',
+      1, true), editable)
    local static = html.markdownHtml(
       "```nupp:static\nlocal answer: integer\n```", {})
    assert(static:find('class="nuppdoc-code-block"', 1, true), static)

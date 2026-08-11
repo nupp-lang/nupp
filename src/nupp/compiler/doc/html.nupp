@@ -134,11 +134,17 @@ end
 local function playgroundHtml(source: string, caption: string?): string
     local trimmed = trim(source)
     local title = caption or "Nupp playground: an editor that checks as you type"
+    local fallback = ""
+    if trimmed ~= "" then
+        fallback = '<div class="nuppdoc-code-block" data-lang="nupp"'
+            .. ' data-reader-source slot="reader-source"><pre><code class="language-nupp">'
+            .. htmlEscape(trimmed) .. "</code></pre></div>"
+    end
     return '<nupp-playground class="nuppdoc-playground" aria-label="' .. htmlEscape(
         title
     ) .. '"' .. (
         trimmed ~= "" and ' data-source="' .. urlFragmentEscape(trimmed) .. '"' or ""
-    ) .. '></nupp-playground>'
+    ) .. ">" .. fallback .. "</nupp-playground>"
 end
 
 local function renderedCodeBlockHtml(block, links)
