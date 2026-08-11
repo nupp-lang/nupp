@@ -198,6 +198,47 @@ function M.documentsNestedTypesAsTheirOwnSubHeadingWithMembers()
    assert(markdown:find("| `enabled` | `boolean` |", 1, true), "nested type's own fields table missing")
 end
 
+local ANNOTATED_DECLARATIONS = table.concat({
+   "--- An open handle.",
+   "local record Handle",
+   "   --- Whether it is closed.",
+   "   isReleased: function(self): boolean",
+   "",
+   "   --- Closes the handle.",
+   "   --- @param self this handle",
+   "   --- @return whether the close succeeded",
+   "   @drop",
+   "",
+   "   close: function(takes self: Handle): boolean",
+   "end",
+}, "\n") .. "\n"
+
+-- An annotation is parsed before the entry it modifies, so the `---` run written above
+-- it attaches to the `@` rather than to the declaration underneath. Reading the entry
+-- alone answered nothing, and the member silently lost its prose and every `@param` and
+-- `@return` description while its unannotated siblings kept theirs.
+function M.anAnnotatedMemberKeepsItsDocumentation()
+   local module = assert(doc.extract(ANNOTATED_DECLARATIONS, "src/handle.d.nupp", "handle",
+      {includeAll = true}))
+   local handle
+   for _, item in ipairs(module.items) do
+      if item.name == "Handle" then handle = item end
+   end
+   assert(handle, "record missing")
+   local close, isReleased
+   for _, member in ipairs(handle.members) do
+      if member.name == "close" then close = member end
+      if member.name == "isReleased" then isReleased = member end
+   end
+   assert(isReleased and isReleased.text ~= "", "an unannotated member documents")
+   assert(close, "the annotated member is missing entirely")
+   assert(close.text == "Closes the handle.", close.text)
+   assert(close.params[1] and close.params[1].text == "this handle",
+      close.params[1] and close.params[1].text)
+   assert(close.returns[1] and close.returns[1].text == "whether the close succeeded",
+      close.returns[1] and close.returns[1].text)
+end
+
 function M.documentsInheritedContractsMetamethodsAndInlineMethods()
    local source = table.concat({
       "--- A callable task.",

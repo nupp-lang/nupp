@@ -177,6 +177,20 @@ end
 -- same run to ask whether a function that raises documented it.
 local docLines, parseDoc = docblock.linesOf, docblock.parse
 
+-- Where a record entry's `---` run actually sits. An annotation is parsed before the
+-- entry it modifies, so the run written above `@drop` attaches to the `@` rather than
+-- to the declaration underneath it, and asking the entry answers nothing. The first
+-- annotation is the top of what the author wrote, the same way a `pragmaStmt` wrapper
+-- is for a top-level statement.
+local function documentedNode(entry)
+    local annotations = entry and entry.annotations
+    return annotations and annotations[1] or entry
+end
+
+local function entryDoc(entry)
+    return parseDoc(docLines(documentedNode(entry)))
+end
+
 -- A declaration's name as it was written, table and all. Readers reach a member as
 -- `cst.Node`, so that is what the signature has to show.
 local function declaredName(stat)
@@ -317,7 +331,7 @@ end
 -- as an ordinary module's functions and values.
 local function fieldItem(field, childModuleName, includePrivate)
     local name = field.name.text
-    local info = parseDoc(docLines(field))
+    local info = entryDoc(field)
     if not (includePrivate or (not privateName(name) and not info.tags.internal)) then
         return nil
     end
@@ -487,7 +501,7 @@ local function namespaceChildren(shape, prefix, path, blocks, includePrivate)
         local items = {}
         for _, entry in ipairs(entries) do
             if entry.kind == "fieldDecl" or entry.kind == "tshapeField" then
-                local info = parseDoc(docLines(entry))
+                local info = entryDoc(entry)
                 if info.tags.namespace and entriesOf(entry) then
                     addModule(entry, childName)
                 else
@@ -514,14 +528,14 @@ local function namespaceChildren(shape, prefix, path, blocks, includePrivate)
         modules[#modules + 1] = {
             name = childName,
             path = path,
-            text = parseDoc(docLines(field)).text,
+            text = entryDoc(field).text,
             items = items,
         }
         expanding[entries] = nil
     end
 
     for _, field in ipairs(shape.fields or {}) do
-        local info = parseDoc(docLines(field))
+        local info = entryDoc(field)
         if field.kind == "tshapeField"
             and (includePrivate or (not privateName(field.name.text) and not info.tags.internal)) then
             addModule(field, prefix)
@@ -543,7 +557,7 @@ local function buildMembers(
 ): {extract.Member}
     local members = {}
     for _, entry in ipairs(entries or {}) do
-        local entryInfo = parseDoc(docLines(entry))
+        local entryInfo = entryDoc(entry)
         local entryName = entry.name and entry.name.text or ""
         local entryVisible = includePrivate or (not privateName(entryName) and not entryInfo.tags.internal)
         if (entry.kind == "fieldDecl" or entry.kind == "metamethodDecl") and entryVisible then
