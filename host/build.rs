@@ -230,6 +230,18 @@ fn build_luajit(out: &Path) -> PathBuf {
         for (key, value) in cl.env() {
             build.env(key, value);
         }
+        let mut path = vec![cl
+            .path()
+            .parent()
+            .expect("cl.exe has a tool directory")
+            .to_path_buf()];
+        path.extend(std::env::split_paths(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        ));
+        build.env(
+            "PATH",
+            std::env::join_paths(path).expect("the MSVC tool path is valid"),
+        );
         run(&mut build);
         return root;
     }
