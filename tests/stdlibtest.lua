@@ -650,7 +650,7 @@ end
 function M.stringBufferTypeIsNameable()
    assertClean(table.concat({
       "local buffer = require('string.buffer')",
-      "local function render(out: buffer.Buffer): buffer.Buffer borrows out",
+      "local function render(out: buffer.Buffer): buffer.Buffer borrows (out)",
       "   return out:putf('%d', 1)",
       "end",
       "local b = buffer.new(64)",

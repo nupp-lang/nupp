@@ -100,10 +100,32 @@ function M.borrowedReturnsAcceptMultipleSources()
    assertEq(ret.params[2].text, "b")
 end
 
+-- Sources are a list, and one source is a list of length one, so the parentheses are
+-- not optional. The first slot of a result pack is where they read worst — the source
+-- list closes just before the comma separating the results — so it is the shape worth
+-- pinning.
+function M.borrowedSourcesAreAlwaysParenthesised()
+   local result = parser.parse(
+      "local ref: function(borrows b: any): (any borrows (b), integer)", "test")
+   assertEq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
+   local pack = result.root.blocks[1].stats[1].types[1].returnPack
+   assertEq(pack.types[1].kind, "tborrows")
+   assertEq(pack.types[1].params[1].text, "b")
+   assertEq(#pack.types, 2, "the source list closes before the result separator")
+
+   -- A mode written on a parameter modifies that one parameter and stays bare; only
+   -- the source list takes parentheses.
+   local bare = parser.parse(
+      "local view: function(borrows source: any): any borrows source", "test")
+   assert(#bare.errors > 0, "a bare source list is refused")
+   assert(bare.errors[1].msg:find("borrowed-result sources", 1, true),
+      bare.errors[1].msg)
+end
+
 function M.resultRelationsAttachToTheirFixedPackSlots()
    local result = parser.parse(table.concat({
       "local forward: function<T>(value: T): (string, T preserves value)",
-      "local view: function(borrows source: any): (integer, any borrows source)",
+      "local view: function(borrows source: any): (integer, any borrows (source))",
    }, "\n"), "test")
    assertEq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
    local stats = result.root.blocks[1].stats

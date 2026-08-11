@@ -917,7 +917,7 @@ function M.borrowReturnIsAKeyword()
       "local record Pool",
       "   n: integer",
       "end",
-      "local function peek(borrows p: Pool): Pool borrows p",
+      "local function peek(borrows p: Pool): Pool borrows (p)",
       "   return p",
       "end",
    }, "\n")

@@ -226,12 +226,12 @@ function M.nominalRecordsCanRetainDeclaredBorrowedFields()
       "local function openBuffer(): Buffer",
       "   return new Buffer(value = 'bytes')",
       "end",
-      "local function view(borrows source: Buffer): Buffer borrows source",
+      "local function view(borrows source: Buffer): Buffer borrows (source)",
       "   return source",
       "end",
       "local record Cursor",
       "   source: Buffer",
-      "   bytes: Buffer borrows source",
+      "   bytes: Buffer borrows (source)",
       "end",
       "local source = openBuffer()",
       "do",
@@ -247,12 +247,12 @@ function M.aBorrowedFieldMustMatchItsDeclaredSiblingRoot()
       "local record Buffer",
       "   value: string",
       "end",
-      "local function view(borrows source: Buffer): Buffer borrows source",
+      "local function view(borrows source: Buffer): Buffer borrows (source)",
       "   return source",
       "end",
       "local record Cursor",
       "   source: Buffer",
-      "   bytes: Buffer borrows source",
+      "   bytes: Buffer borrows (source)",
       "end",
       "local left = new Buffer(value = 'left')",
       "local right = new Buffer(value = 'right')",
@@ -265,7 +265,7 @@ function M.aRecordCanOwnTheRootOfItsBorrowedField()
       RESOURCE,
       "local record Parsed",
       "   source: owned<resource*>",
-      "   view: resource* borrows source",
+      "   view: resource* borrows (source)",
       "end",
       "local source = resource_new()",
       "local parsed = new Parsed(source = source, view = borrow(source))",
@@ -279,7 +279,7 @@ function M.anInternallyBorrowedRootFieldCannotMoveAlone()
       RESOURCE,
       "local record Parsed",
       "   source: owned<resource*>",
-      "   view: resource* borrows source",
+      "   view: resource* borrows (source)",
       "end",
       "local source = resource_new()",
       "local parsed = new Parsed(source = source, view = borrow(source))",
@@ -472,10 +472,10 @@ local POOL = table.concat({
    "local function open_pool(): Pool",
    "   return new Pool(items = {})",
    "end",
-   "function Pool:get(index: integer): Res borrows self",
+   "function Pool:get(index: integer): Res borrows (self)",
    "   return self.items[index]",
    "end",
-   "local function peek(borrows p: Pool): Pool borrows p",
+   "local function peek(borrows p: Pool): Pool borrows (p)",
    "   return p",
    "end",
 }, "\n")
@@ -540,7 +540,7 @@ end
 function M.borrowingAConsumedParameterIsRejected()
    assertEq(codes(POOL .. table.concat({
       "",
-      "local function eat(takes p: Pool): Pool borrows p",
+      "local function eat(takes p: Pool): Pool borrows (p)",
       "   return p",
       "end",
    }, "\n")), "NUPP2603 NUPP2618 NUPP2603")
@@ -549,7 +549,7 @@ end
 function M.borrowingSomethingThatIsNotAParameterIsRejected()
    assertEq(codes(POOL .. table.concat({
       "",
-      "local function odd(borrows p: Pool): Pool borrows q",
+      "local function odd(borrows p: Pool): Pool borrows (q)",
       "   return p",
       "end",
    }, "\n")), "NUPP2109")
@@ -592,7 +592,7 @@ local LAYERED = table.concat({
    "   return new Socket(fd = 1)",
    "end",
    "@owned(close_tls)",
-   "local function open_tls(borrows s: Socket): TLS borrows s",
+   "local function open_tls(borrows s: Socket): TLS borrows (s)",
    "   return new TLS(s = s)",
    "end",
 }, "\n")
@@ -670,7 +670,7 @@ end
 function M.anExplicitSourceStillWinsOverElision()
    assertEq(codes(POOL .. table.concat({
       "",
-      "function Pool:other(borrows p: Pool): Res borrows p",
+      "function Pool:other(borrows p: Pool): Res borrows (p)",
       "   return p.items[1]",
       "end",
    }, "\n")), "")
@@ -717,7 +717,7 @@ end
 function M.aBorrowMayBeDerivedThroughAnIntermediate()
    assertClean(POOL .. table.concat({
       "",
-      "local function deep(borrows p: Pool): Pool borrows p",
+      "local function deep(borrows p: Pool): Pool borrows (p)",
       "   local mid = peek(p)",
       "   return peek(mid)",
       "end",
@@ -1143,7 +1143,7 @@ end
 function M.bodyfulBorrowContractsNeedProvenanceProof()
    assertEq(codes(RESOURCE .. table.concat({
       "",
-      "local function fake(borrows source: resource*): resource* borrows source",
+      "local function fake(borrows source: resource*): resource* borrows (source)",
       "   local raw: resource*",
       "   return raw",
       "end",
@@ -1153,7 +1153,7 @@ end
 function M.borrowFromRestoresOpaqueProvenanceExplicitly()
    assertClean(RESOURCE .. table.concat({
       "",
-      "local function recover(borrows source: resource*, raw: resource*): resource* borrows source",
+      "local function recover(borrows source: resource*, raw: resource*): resource* borrows (source)",
       "   unsafe do",
       "      return borrowFrom(raw, source)",
       "   end",
@@ -1161,7 +1161,7 @@ function M.borrowFromRestoresOpaqueProvenanceExplicitly()
    }, "\n"))
    assertEq(codes(RESOURCE .. table.concat({
       "",
-      "local function recover(borrows source: resource*, raw: resource*): resource* borrows source",
+      "local function recover(borrows source: resource*, raw: resource*): resource* borrows (source)",
       "   return borrowFrom(raw, source)",
       "end",
    }, "\n")), "NUPP2604")

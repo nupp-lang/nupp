@@ -1744,9 +1744,15 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.param = add(n, advance())
             return n
         end
-        -- `T borrows p`: the result is a borrow of parameter `p` and cannot outlive it.
-        -- `borrows` stays contextual — it opens this form only directly after a return
-        -- type and directly before a name, and no statement can begin that way. [CS-18]
+        -- `T borrows (p)`: the result is a borrow of parameter `p` and cannot outlive
+        -- it. The sources are always parenthesised, because they are a list and one
+        -- source is a list of length one, while a mode written on a parameter modifies
+        -- that one parameter and stays bare. `borrows` remains contextual — it opens
+        -- this form only directly after a return type and directly before `(`, and no
+        -- statement can begin that way. [CS-18]
+        -- A bare name still opens the form so that the old spelling is answered by
+        -- "( expected" pointing at the source, rather than by whatever the type
+        -- grammar makes of a trailing name.
         if cur().kind == "name" and cur().text == "borrows" and tokens[
             i + 1
         ] and (tokens[i + 1].kind == "name" or tokens[i + 1].kind == "(") then
@@ -1754,20 +1760,16 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.type = add(n, result)
             add(n, advance()) -- 'borrows'
             n.params = {}
-            if cur().kind == "(" then
+            add(n, expect("(", "to open borrowed-result sources"))
+            repeat
+                local param = add(n, expectName("as borrowed-result source"))
+                n.params[#n.params + 1] = param
+                if cur().kind ~= "," then
+                    break
+                end
                 add(n, advance())
-                repeat
-                    local param = add(n, expectName("as borrowed-result source"))
-                    n.params[#n.params + 1] = param
-                    if cur().kind ~= "," then
-                        break
-                    end
-                    add(n, advance())
-                until false
-                add(n, expect(")", "to close borrowed-result sources"))
-            else
-                n.params[1] = add(n, advance())
-            end
+            until false
+            add(n, expect(")", "to close borrowed-result sources"))
             n.param = n.params[1]
             return n
         end

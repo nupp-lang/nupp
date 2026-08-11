@@ -511,12 +511,12 @@ record process.Writer is nupp.io.Writer
 end
 
 --- Borrows a process reader through the shared completion-oriented contract.
-function process.asReader(borrows source: process.Reader): nupp.io.Reader borrows source
+function process.asReader(borrows source: process.Reader): nupp.io.Reader borrows (source)
     return source
 end
 
 --- Borrows a process writer through the shared completion-oriented contract.
-function process.asWriter(borrows source: process.Writer): nupp.io.Writer borrows source
+function process.asWriter(borrows source: process.Writer): nupp.io.Writer borrows (source)
     return source
 end
 

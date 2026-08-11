@@ -110,10 +110,11 @@ suspension.race({function(): any
 end, ...})
 ```
 
-Whether a literal in argument position, consumed by the callee and never stored,
-is "storage" decides whether that line compiles or whether `race` needs a
-nominal container. It is the one open question this design turns on, and it is
-not answerable from the ownership record as written.
+What that table becomes is the question, and it is a question for the ownership
+model rather than for the grammar: an affine or borrow-carrying aggregate needs
+provenance and a promise the callee will not retain it, which argument position
+alone does not give. The shapes available are set out under
+[what the model has to say](#how-affinity-travels-through-an-aggregate).
 
 ### Only `takes` needs saying, where there is a default
 
@@ -219,11 +220,105 @@ suspension.race({
 })
 ```
 
-`race` may cancel a losing body without calling it. That is precisely why
-`scoped` only ever blesses borrows — an uncalled scoped body that owned
-something would leak. An affine body is safe there because dropping it
-discharges its captures, so both outcomes are covered, but only once `drive`
-actually drops what it abandons. It does not today.
+`race` may abandon a losing body. That is precisely why `scoped` only ever
+blesses borrows — an abandoned scoped body that owned something would leak. An
+affine body can be made safe there, but by two mechanisms rather than one: a
+body that never entered is dropped, and a body already suspended must be
+cancelled and unwound so its frame runs its own cleanup. `drive` does neither
+today.
+
+## What the model has to say
+
+An affine callable is a new kind of owning value, not an ordinary Lua function with
+restrictions bolted on. Four things need defining before any of it is built.
+
+### The state of a closure that took something
+
+```
+ready       captures live inside the closure
+  ├─ call ──▶ called    captures move into the invocation frame
+  └─ drop ──▶ dropped   captures cleaned, body never runs
+```
+
+Calling or dropping a second time is the existing double-discharge report. The useful
+consequence of the middle row is that **once called, a capture behaves like an ordinary
+owning local in that frame**, so lexical cleanup already handles normal return, early
+return, error and cancellation, and moving a capture into the result deactivates its
+cleanup the way any other move does. That last part rests on per-arm move tracking,
+which is why it landed first.
+
+`owned<function(...)>` may be a compiler-known affine callable rather than a literal
+nominal record, but the value has to carry each capture's producer-specific cleanup
+witness. A record field's cleanup is known from its declared type; a capture's is not,
+and the lowering must preserve it.
+
+### How affinity travels through an aggregate
+
+The motivating call site puts affine closures in a table, so the model must say what
+that table becomes. Three shapes are available:
+
+- an ephemeral affine aggregate that must move into a `takes` parameter immediately;
+- a general affine collection with linear operations;
+- a purpose-built owning collection that `race` accepts.
+
+None of them requires allowing arbitrary affine table storage: construction and
+immediate consumption of an affine literal can be permitted while aliasable mutable
+storage stays rejected. **A stage that produces affine closures which cannot reach
+their consumer is not finished**, so this belongs with the clause rather than after it.
+
+### Two kinds of loser
+
+`race` abandons a body in two different states, and one mechanism does not cover both:
+
+```
+ never entered its body   drop it — captures released, body never runs
+ entered and suspended    cancel and unwind — the frame runs its own cleanup
+```
+
+Dropping a suspended coroutine is not enough, because collecting one does not unwind
+its frame; resuming an uncalled loser merely to cancel it runs user code for no reason.
+`drive` has to know which state each callable is in and choose. It tracks `abandoned`
+and starts bodies lazily today, and drops nothing in either case.
+
+### What a callback parameter promises
+
+A higher-order function has to say which of four things it does with a callback: borrow
+a repeatable one, invoke one only during the call, consume an affine one exactly once,
+or retain it. For `pcall` the owning form is roughly
+
+```nupp
+pcall(takes f: owned<function(A...): R...>, A...)
+```
+
+alongside the existing copyable form. Whether overloads suffice or callback-capability
+polymorphism is needed is the question the stage-0 measurement answers.
+
+### What is in the type and what is not
+
+A capture name belongs to the construction of a closure, not to its type: these two
+must share a type despite naming different locals.
+
+```nupp
+function(): any takes (left) ... end
+function(): any takes (right) ... end
+```
+
+So four things need separating, and the plan previously ran them together:
+
+```
+ expression-level capture info    which values move, at construction
+ the affine callable type         what crosses a function boundary
+ cleanup witnesses                producer-specific, carried by the value
+ borrowed provenance              must stay visible in the type
+```
+
+The last two are in tension with the first: provenance has to survive into the type
+without the type naming a caller's local. Sibling-field provenance answers this for a
+record field and does not answer it for a closure value, which is the open half.
+
+Whether an affine closure may be **returned** should be decided here rather than left
+to fall out. A first-class movable `owned<function>` supports returning a cleanup thunk
+naturally, so forbidding it needs a reason.
 
 ## Diagnostics
 
@@ -244,26 +339,44 @@ move is the case this design exists to make visible.
 
 ## Staging
 
-`takes (...)` goes first. Its soundness argument stands on its own — an affine
-value discharged on call or on drop is the discipline the checker already
-proves — while borrow-by-default is the half that loosens a rule and turns on
-the unresolved question above. Ordering it first also removes the dependency:
-with an explicit clause a capturing call site gains one line, rather than
-resting on a default that has not been settled.
+Explicit ownership capture comes before borrow-by-default, because the second
+loosens an existing rule while the first only adds one. The measurement comes
+before both, because what a callback parameter may promise decides the type
+spelling everything else is written in.
 
-1. **The `takes (...)` clause.** Grammar, formatter rule and golden tests, the
-   affine closure type, discharge on call and on drop, and `borrows (...)` in
-   type position so a record may hold a closure beside what it borrows.
-2. **`@drop` on the four `nupp.io` closeables**, with `@owned` on the nine
-   producers that make them — `newBuffer`, `newStringReader`,
-   `Buffer:newReader`/`newWriter`/`view`, `ByteView:newReader`/`view`,
-   `File:newReader`/`newWriter`. Call sites that capture add a clause.
-3. **Borrow capture by default.** The loosening, with the anonymous-storage
-   question answered and an audit, after which the clauses added in stage 2
-   become optional wherever the closure only reads.
+0. **Normalise `borrows (...)`.** The syntax alone, with a regression test for
+   the shape that reads worst — a source list closing just before the separator
+   of a result pack.
 
-Stage 2 is the point of the exercise and the only stage with a user-visible API
-change.
+   ```nupp
+   local ref: function(borrows b: Buf): (Buf borrows (b), integer)
+   ```
+
+1. **Measure higher-order propagation.** Audit `pcall`, `xpcall`, `race` and
+   every other callback consumer in the prelude. Output is concrete: the
+   affected declarations, the affected call sites, and a decision between
+   overloads and callback-capability polymorphism. This is a gate, not a
+   spike — stage 2 is written in whatever spelling it chooses.
+
+2. **Define and implement affine callables.** Capture cleanup witnesses, the
+   ready/called/dropped transition, move diagnostics, consumption by call,
+   drop lowering, returns, and viral affinity through containment.
+
+3. **Aggregate transport and cancellation.** Whatever shape lets an affine
+   closure reach `race`, plus `drive` distinguishing a never-entered body it
+   drops from a suspended one it must cancel and unwind. Stage 2 is not usable
+   without this, which is why it is not deferred behind the I/O change.
+
+4. **Apply the I/O ownership annotations.** `@drop` on the four closeables,
+   `@owned` on their nine producers, and `takes (...)` written at the capture
+   sites that migrate.
+
+5. **Borrowed closure capture.** Provenance-bearing callable types and the
+   aggregate no-escape contract, after which capture borrows by default and the
+   clauses added in stage 4 become optional wherever a closure only reads.
+
+Stage 4 is the user-visible one. Stages 2 and 3 are what make it cost a line at
+a call site rather than a rewrite.
 
 ## Prerequisites that landed
 
@@ -279,28 +392,33 @@ change.
 
 ## Open questions
 
-- **Is a table literal in argument position storage?** Anonymous table storage
-  of a borrow is rejected, and `race` is handed a literal it consumes and never
-  keeps. If that counts as storage, `race` needs a nominal container or
-  `resource_set` and the plan says so; if it does not, the motivating call site
-  compiles as written. This is the question stage 3 turns on and the reason it
-  is staged last.
-- **`pcall` and friends.** The affine property is viral: a closure capturing an
-  affine closure is itself affine, correctly and by the same containment rule.
-  A thunk handed to `pcall` therefore needs `pcall` to accept an affine
-  callback, which means a prelude signature change. How far that ripples through
-  the prelude's higher-order functions is the first thing to measure in stage 1.
-- **`race` must drop what it does not call.** `drive` starts bodies lazily and
-  marks the rest abandoned; nothing drops them. An affine body is only safe
-  there once abandoning one runs its drop, which is runtime work stage 2
-  depends on rather than a property it inherits.
-- **An affine closure is single-shot.** Called at most once is what makes the
-  discharge exactly once, and it rules `takes` out for a repeatedly invoked
-  callback — a visitor, a loop body, `forEachMatch`. The answer is presumably to
-  borrow instead, which is the default, but a closure that must both own and run
-  repeatedly has no spelling here.
-- **Whether a bare `takes` without parentheses is sugar for one name.** It reads
-  well and it is one more grammar branch.
-- **Whether an affine closure may be returned.** Nothing above forbids it, and
-  it is the feature that would let a constructor hand back a
-  cleanup thunk. It wants its own answer rather than falling out.
+- **What contract lets a borrow-carrying aggregate reach its callee?** Stage 5
+  needs a table of closures that borrow locals to carry provenance and a
+  guarantee the callee does not retain it. Argument position does not establish
+  that on its own, so the answer belongs in the ownership model — a scoped
+  aggregate parameter whose implementation is proven not to retain its contents,
+  an ephemeral borrow-carrying aggregate, or a nominal container naming its
+  roots. A syntax-shaped exception for "a table literal written at the call" is
+  the answer to avoid: it would make the rule depend on where a value was
+  spelled rather than on what is done with it.
+- **Own and repeat has no spelling.** Affine means called at most once, which is
+  what makes the discharge exactly once and what rules `takes` out for a
+  repeatedly invoked callback — a visitor, a loop body, `forEachMatch`. Borrow
+  instead is the answer where the closure only reads. A closure that must own
+  something *and* run more than once has no form here, and the plan should
+  either give it one or say why it cannot exist.
+- **Whether an affine closure may be returned.** A first-class movable
+  `owned<function>` supports handing back a cleanup thunk, so forbidding it
+  wants a reason. Decided in stage 2 rather than left to fall out.
+
+## Deferred deliberately
+
+- **Bare `takes name` without parentheses.** It reads well and adds a grammar
+  branch, and it changes nothing about soundness or expressiveness. Not before
+  the model is complete.
+- **`@drop` on the four closeables ahead of the closure work.** Tempting,
+  because today `nupp.io.newStringReader` is not `@owned` and so a reader cannot
+  be closed at all by the code that made it — a user-visible gap independent of
+  closures. It is staged at 4 anyway, because doing it earlier forces exactly
+  the call-site rewrites this design exists to avoid. Worth revisiting only if
+  that gap starts costing someone.

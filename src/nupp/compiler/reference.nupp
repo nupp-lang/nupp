@@ -917,7 +917,7 @@ other view live, and `retains`/`releases` describe C holding a pointer across a
 call.
 
 `T preserves value` on a result transports the exact capability of that
-parameter through scalar generic narrowing. `T borrows source` ties a result,
+parameter through scalar generic narrowing. `T borrows (source)` ties a result,
 or a nominal record field, to its named root. A `scoped` callback parameter may
 capture borrows only because its callee proves that callback cannot escape.
 `@owned(cleanup)` may decorate a function-valued record or interface field so a

@@ -396,7 +396,7 @@ function M.genericPackForwardingKeepsBorrowProvenance()
       "cdef function resource_new(): resource*",
       "cdef function resource_free(takes value: resource*)",
       "local function borrow(borrows value: resource*):",
-      "   borrowed<resource*> borrows value",
+      "   borrowed<resource*> borrows (value)",
       "   return value",
       "end",
       "local function forward<A...>(...: A...): A...",

@@ -12,7 +12,7 @@ local span = {}
 --- @export
 local record ByteSpan
     readonly anchor: any
-    readonly pointer: uint8[?] borrows anchor
+    readonly pointer: uint8[?] borrows (anchor)
     readonly offset: integer
     readonly count: integer
 end
@@ -22,7 +22,7 @@ end
 --- @export
 local record ByteWriteSpan
     readonly anchor: any
-    readonly pointer: uint8[?] borrows anchor
+    readonly pointer: uint8[?] borrows (anchor)
     readonly offset: integer
     readonly count: integer
 
@@ -53,7 +53,7 @@ end
 
 --- Returns a checked subspan, inclusive at both ends.
 --- @raises when the requested range is outside this span
-function ByteSpan:slice(first: integer, last: integer?): ByteSpan borrows self
+function ByteSpan:slice(first: integer, last: integer?): ByteSpan borrows (self)
     local finish = last or self.count
     if first < 1 or finish < first - 1 or finish > self.count then
         error("span slice out of bounds", 2)
@@ -68,7 +68,7 @@ end
 
 --- Creates a byte span over a Lua string and keeps that string rooted.
 --- @export
-function span.from_string(borrows source: string): ByteSpan borrows source
+function span.from_string(borrows source: string): ByteSpan borrows (source)
     local pointer = ffi.cast<uint8[?]>(source)
     return new ByteSpan(anchor = source, pointer = pointer, offset = 0, count = #source)
 end
@@ -76,7 +76,7 @@ end
 --- Creates a checked shared span over a C array and an explicit logical count.
 --- @export
 --- @raises when count is negative
-function span.from_carray(borrows source: uint8[?], count: integer): ByteSpan borrows source
+function span.from_carray(borrows source: uint8[?], count: integer): ByteSpan borrows (source)
     if count < 0 then
         error("span count cannot be negative", 2)
     end
@@ -88,7 +88,7 @@ end
 --- @export
 --- @raises when count is negative
 @owned
-function span.write_carray(exclusive source: uint8[?], count: integer): ByteWriteSpan borrows source
+function span.write_carray(exclusive source: uint8[?], count: integer): ByteWriteSpan borrows (source)
     if count < 0 then
         error("write span count cannot be negative", 2)
     end
