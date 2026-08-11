@@ -1,18 +1,18 @@
 :root {
   --nupp-woodblock-vermilion: #a74732;
   --nupp-woodblock-vermilion-hover: #8d3829;
-  --nuppdoc-light-accent: #176b8a;
-  --nuppdoc-light-accent-hover: #0e526d;
-  --nuppdoc-light-accent-soft: #dcebf0;
+  --nuppdoc-light-accent: #55745b;
+  --nuppdoc-light-accent-hover: #3f5946;
+  --nuppdoc-light-accent-soft: #e1eadc;
   --nuppdoc-light-background: #faf7e8;
   --nuppdoc-light-background-alt: #f2eed8;
   --nuppdoc-light-border: #d4cda8;
   --nuppdoc-light-code-background: #ded7b9;
   --nuppdoc-light-text: #173333;
   --nuppdoc-light-muted: #626956;
-  --nuppdoc-dark-accent: #72b6d0;
-  --nuppdoc-dark-accent-hover: #9ed2e3;
-  --nuppdoc-dark-accent-soft: #183c4a;
+  --nuppdoc-dark-accent: #a7c49b;
+  --nuppdoc-dark-accent-hover: #c3d7b9;
+  --nuppdoc-dark-accent-soft: #233b34;
   --nuppdoc-dark-background: #081e27;
   --nuppdoc-dark-background-alt: #0d2931;
   --nuppdoc-dark-border: #2b4943;
