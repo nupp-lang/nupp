@@ -201,6 +201,7 @@ body {
   font-size: .74rem;
   flex: none;
 }
+.panel-head-note { margin-left: auto; }
 
 .editor-host {
   flex: 1;
@@ -297,12 +298,6 @@ body {
 .head-bar .example-picker { font-size: .72rem; }
 .head-bar .select {
   padding: .18rem 1.4rem .18rem .4rem;
-  font-size: .74rem;
-}
-
-.filename {
-  color: var(--pg-muted);
-  font-family: var(--pg-font-mono);
   font-size: .74rem;
 }
 

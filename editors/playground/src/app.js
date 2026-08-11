@@ -460,12 +460,12 @@ installResizer(outputResizer, outputEl, isOutputExpanded);
 // needs no expanded check of its own.
 installResizer(diagnosticsResizer, diagListEl);
 
-// `file:line:col: severity: CODE: message`, which is what nupp check writes to
-// a terminal — the same string a reader would paste into a search or an issue.
+// Keep the useful position, severity, and code without presenting the
+// playground's internal parser filename as if the reader had chosen it.
 // Commented, because the pane it lands in is the one that otherwise holds
 // generated Lua, and index.html highlights that pane as Lua.
 function diagnosticText(d) {
-  const parts = [`-- ${FILENAME}:${d.line}:${d.col}: ${d.severity || "error"}: `];
+  const parts = [`-- ${d.line}:${d.col}: ${d.severity || "error"}: `];
   if (d.code) parts.push(`${d.code}: `);
   parts.push(d.msg || "");
   if (d.help) parts.push(`\n--   help: ${d.help}`);
