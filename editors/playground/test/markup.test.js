@@ -42,6 +42,9 @@ test("documentation playgrounds are inline and have dismissible output", () => {
   assert.match(docApp, /:host\(\[data-grouped\]\) \.editor \{[\s\S]*?border: 0;[\s\S]*?border-radius: 0;/);
   assert.match(docApp, /\.editor \{[\s\S]*?border: 1px solid var\(--pg-border\);[\s\S]*?border-radius: var\(--pg-code-block-radius\);/);
   assert.match(docApp, /\.editor \.cm-content \{ padding: \.75rem 0 !important; \}/);
+  assert.match(docApp, /<div class="editor"><\/div>\s*<div class="tooltip-layer"><\/div>/);
+  assert.match(docApp, /\.tooltip-layer \{[\s\S]*?position: absolute;[\s\S]*?z-index: 3;[\s\S]*?pointer-events: none;/);
+  assert.match(docApp, /tooltips\(\{ parent: tooltipLayer \}\)/);
   assert.match(docApp, /class="icon-button output-close"[^>]+aria-label="Close output">×<\/button>/);
   assert.match(docApp, /root\.querySelector\("\.output-close"\)\.addEventListener\("click"/);
   assert.match(docApp, /const compiler = new CompilerClient\(\)/);

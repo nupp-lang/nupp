@@ -1,5 +1,5 @@
 import { EditorView, basicSetup } from "codemirror";
-import { hoverTooltip } from "@codemirror/view";
+import { hoverTooltip, tooltips } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
 import { linter, lintGutter, setDiagnostics } from "@codemirror/lint";
 import { nuppLanguage } from "./nupp-lang.js";
@@ -226,6 +226,13 @@ select {
   font-size: 13px;
 }
 .editor .cm-content { padding: .75rem 0 !important; }
+.tooltip-layer {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  pointer-events: none;
+}
+.tooltip-layer .cm-tooltip { pointer-events: auto; }
 .reader-source {
   position: absolute;
   inset: 0;
@@ -357,6 +364,7 @@ class NuppDocPlayground extends HTMLElement {
         </div>
       </div>
       <div class="editor"></div>
+      <div class="tooltip-layer"></div>
       <section class="output" aria-label="Output" hidden>
         <div class="output-head"><span>Output</span><span class="output-summary"></span>
           <button class="icon-button output-close" type="button" title="Close output" aria-label="Close output">×</button>
@@ -369,6 +377,7 @@ class NuppDocPlayground extends HTMLElement {
     this.output = root.querySelector(".output");
     this.outputMain = root.querySelector(".output-main");
     this.outputSummary = root.querySelector(".output-summary");
+    const tooltipLayer = root.querySelector(".tooltip-layer");
 
     const hover = hoverTooltip(async (view, position) => {
       const result = await compiler.hover(view.state.doc.toString(), toNuppOffset(position));
@@ -403,6 +412,7 @@ class NuppDocPlayground extends HTMLElement {
           linter(() => []),
           lintGutter(),
           hover,
+          tooltips({ parent: tooltipLayer }),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               this.readerSource.textContent = update.state.doc.toString();
