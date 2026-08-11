@@ -76,6 +76,89 @@ pub unsafe extern "C" fn nuppBytesDestroy(bytes: *mut NuppBytes) {
     }
 }
 
+/// Roots the selected C ABI in a statically linked host.
+///
+/// Linker `-u` flags can extract symbols from an ordinary archive, but Rust's
+/// release LTO sees this crate as bitcode and removes entry points that Rust
+/// itself never names. The host calls this once before starting LuaJIT. Taking
+/// each address gives LTO a real reference; the host's linker flags then expose
+/// the retained symbols to `ffi.C`.
+#[doc(hidden)]
+pub fn retain_c_abi_exports() {
+    macro_rules! retain {
+        ($($symbol:path),+ $(,)?) => {
+            std::hint::black_box([$($symbol as *const ()),+]);
+        };
+    }
+
+    retain!(
+        nuppNativeError,
+        nuppBytesData,
+        nuppBytesLength,
+        nuppBytesDestroy,
+    );
+
+    #[cfg(feature = "files")]
+    retain!(
+        files::nuppFilesInfo,
+        files::nuppFilesReadLink,
+        files::nuppFilesCreateSymlink,
+        files::nuppFilesSetReadOnly,
+        files::nuppFilesCreateDirectory,
+        files::nuppFilesRemove,
+        files::nuppFilesRename,
+        files::nuppFilesList,
+        files::nuppFilesGlob,
+        files::nuppFilesCreateTemporary,
+        files::nuppFilesCurrentDirectory,
+        files::nuppFilesUserFolder,
+        files::nuppFileOpen,
+        files::nuppFileRead,
+        files::nuppFileWrite,
+        files::nuppFileSeek,
+        files::nuppFileSize,
+        files::nuppFileFlush,
+        files::nuppFileClose,
+        files::lane::nuppFsSubmitRead,
+        files::lane::nuppFsSubmitWrite,
+        files::lane::nuppFsSubmitCopy,
+        files::lane::nuppFsStatus,
+        files::lane::nuppFsData,
+        files::lane::nuppFsLength,
+        files::lane::nuppFsError,
+        files::lane::nuppFsCancel,
+        files::lane::nuppFsDestroy,
+        files::lane::nuppFsPoll,
+        files::lane::nuppFsWait,
+        files::lane::nuppFsPending,
+    );
+
+    #[cfg(feature = "process")]
+    retain!(
+        process::nuppProcessMonotonicMs,
+        process::nuppProcessSpawnBegin,
+        process::nuppProcessSpawnArg,
+        process::nuppProcessSpawnEnv,
+        process::nuppProcessSpawnClearEnv,
+        process::nuppProcessSpawnCwd,
+        process::nuppProcessSpawnStdio,
+        process::nuppProcessSpawnCancel,
+        process::nuppProcessSpawnRun,
+        process::nuppProcessTakeStream,
+        process::nuppProcessTryRead,
+        process::nuppProcessTryWrite,
+        process::nuppProcessCloseStream,
+        process::nuppProcessStreamDestroy,
+        process::nuppProcessPollExit,
+        process::nuppProcessId,
+        process::nuppProcessKill,
+        process::nuppProcessReap,
+        process::nuppProcessUncollectedTotal,
+        process::nuppProcessDestroy,
+        process::nuppProcessWaitReady,
+    );
+}
+
 #[cfg(any(feature = "path", feature = "uri", feature = "files"))]
 unsafe fn text<'a>(data: *const u8, length: usize, what: &str) -> Result<&'a str, String> {
     if data.is_null() && length != 0 {
