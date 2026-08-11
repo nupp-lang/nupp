@@ -1238,12 +1238,12 @@ end
 --- Resolves `opts` into a reusable formatter. Unset fields keep the fixed defaults: 120
 --- columns and parenthesized method calls.
 function fmt.new(opts: fmt.Options?): fmt.Formatter
-    return new fmt.Formatter {
+    return new fmt.Formatter(
         width = (opts and opts.width) or WIDTH,
         methodParens = opts and opts.methodParens,
         annotations = opts and opts.annotations,
-        resolveAnnotation = opts and opts.resolveAnnotation,
-    }
+        resolveAnnotation = opts and opts.resolveAnnotation
+    )
 end
 
 --- Formats one file. Returns the source unchanged, with what stopped it, when the file

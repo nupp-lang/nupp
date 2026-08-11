@@ -58,19 +58,19 @@ function ByteSpan:slice(first: integer, last: integer?): ByteSpan borrows self
     if first < 1 or finish < first - 1 or finish > self.count then
         error("span slice out of bounds", 2)
     end
-    return new ByteSpan {
+    return new ByteSpan(
         anchor = self,
         pointer = self.pointer,
         offset = self.offset + first - 1,
-        count = finish - first + 1,
-    }
+        count = finish - first + 1
+    )
 end
 
 --- Creates a byte span over a Lua string and keeps that string rooted.
 --- @export
 function span.from_string(borrows source: string): ByteSpan borrows source
     local pointer = ffi.cast<uint8[?]>(source)
-    return new ByteSpan {anchor = source, pointer = pointer, offset = 0, count = #source}
+    return new ByteSpan(anchor = source, pointer = pointer, offset = 0, count = #source)
 end
 
 --- Creates a checked shared span over a C array and an explicit logical count.
@@ -80,7 +80,7 @@ function span.from_carray(borrows source: uint8[?], count: integer): ByteSpan bo
     if count < 0 then
         error("span count cannot be negative", 2)
     end
-    return new ByteSpan {anchor = source, pointer = source, offset = 0, count = count}
+    return new ByteSpan(anchor = source, pointer = source, offset = 0, count = count)
 end
 
 --- Creates an affine write span. The source is exclusive during construction and the
@@ -92,7 +92,7 @@ function span.write_carray(exclusive source: uint8[?], count: integer): ByteWrit
     if count < 0 then
         error("write span count cannot be negative", 2)
     end
-    return new ByteWriteSpan {anchor = source, pointer = source, offset = 0, count = count}
+    return new ByteWriteSpan(anchor = source, pointer = source, offset = 0, count = count)
 end
 
 span.ByteSpan = ByteSpan

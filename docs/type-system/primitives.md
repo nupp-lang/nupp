@@ -210,7 +210,7 @@ local record Options
     verbose: boolean?
 end
 
-local o: Options = new Options {}   -- fine
+local o: Options = new Options()   -- fine
 ```
 
 Write `A | B` with spaces. `A||B` lexes as the single `||` operator.

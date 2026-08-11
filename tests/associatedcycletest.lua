@@ -133,27 +133,21 @@ function M.aRefinementNeedsASettledAssociatedSurface()
       "local interface Bare is Shape",
       "   kind: 'bare'",
       "   associated type Item",
-      "   matches",
-      "      self.kind == 'bare'",
-      "   end",
+      "   satisfies |self| -> self.kind == 'bare'",
       "end",
       "return Bare"), "NUPP2122")
    reports(shape .. src(
       "local interface Defaulted is Shape",
       "   kind: 'defaulted'",
       "   associated type Item = string",
-      "   matches",
-      "      self.kind == 'defaulted'",
-      "   end",
+      "   satisfies |self| -> self.kind == 'defaulted'",
       "end",
       "return Defaulted"), "NUPP2122")
    clean(shape .. src(
       "local interface Fixed is Shape",
       "   kind: 'fixed'",
       "   associated type Item == string",
-      "   matches",
-      "      self.kind == 'fixed'",
-      "   end",
+      "   satisfies |self| -> self.kind == 'fixed'",
       "end",
       "return Fixed"))
 end
@@ -170,18 +164,14 @@ function M.aDerivedContractMaySettleWhatItInherited()
    reports(base .. src(
       "local interface Loose is Bare",
       "   kind: 'loose'",
-      "   matches",
-      "      self.kind == 'loose'",
-      "   end",
+      "   satisfies |self| -> self.kind == 'loose'",
       "end",
       "return Loose"), "NUPP2122")
    clean(base .. src(
       "local interface Settled is Bare",
       "   kind: 'settled'",
       "   associated type Item == string",
-      "   matches",
-      "      self.kind == 'settled'",
-      "   end",
+      "   satisfies |self| -> self.kind == 'settled'",
       "end",
       "return Settled"))
 end
@@ -232,9 +222,7 @@ function M.aFixedGradualAnswerDoesNotSettleARefinement()
       "local interface Gradual is Shape",
       "   kind: 'gradual'",
       "   associated type Item == any",
-      "   matches",
-      "      self.kind == 'gradual'",
-      "   end",
+      "   satisfies |self| -> self.kind == 'gradual'",
       "end",
       "return Gradual"), "NUPP2122")
 end

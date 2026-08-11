@@ -159,11 +159,11 @@ A record may declare several constructors with distinct parameter packs:
 local record Value
     text: string
 
-    constructor(value: integer)
+    constructor(self, value: integer)
         self.text = tostring(value)
     end
 
-    constructor(value: string)
+    constructor(self, value: string)
         self.text = value
     end
 end

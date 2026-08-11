@@ -926,7 +926,7 @@ end
 --- A primitive type, interned under its own tag.
 local function prim(tag: types.PrimTag): types.Type
     return interned(tag) or intern(tag, function()
-        return new types.Prim {tag = tag}
+        return new types.Prim(tag = tag)
     end)
 end
 
@@ -1014,7 +1014,7 @@ function types.array(elem: types.Type): types.Type
     local internKey = "{" .. elem.id .. "}"
 
     return interned(internKey) or intern(internKey, function()
-        return new types.Array {tag = "array", elem = elem}
+        return new types.Array(tag = "array", elem = elem)
     end)
 end
 
@@ -1040,14 +1040,14 @@ function types.indexer(
     ) .. "," .. (writeKey and writeKey.id or "-") .. ":" .. (writeValue and writeValue.id or "-") .. ")"
 
     return interned(id) or intern(id, function()
-        return new types.Map {
+        return new types.Map(
             tag = "map",
             key = key,
             value = value,
             readable = readValue ~= nil,
             writeKey = writeKey,
             writeValue = writeValue
-        }
+        )
     end)
 end
 
@@ -1061,7 +1061,7 @@ function types.tuple(elems: {types.Type}): types.Type
     local internKey = "tuple(" .. table.concat(ids, ",") .. ")"
 
     return interned(internKey) or intern(internKey, function()
-        return new types.Tuple {tag = "tuple", elems = elems}
+        return new types.Tuple(tag = "tuple", elems = elems)
     end)
 end
 
@@ -1114,7 +1114,7 @@ function types.shape(fields: {types.Field}, indexer: types.Indexer?, fresh: bool
     local key = "shape(" .. table.concat(parts, ",") .. ")" .. (fresh and "!fresh" or "")
 
     return interned(key) or intern(key, function()
-        return new types.Shape {
+        return new types.Shape(
             tag = "shape",
             fields = sorted,
             byname = byname,
@@ -1124,7 +1124,7 @@ function types.shape(fields: {types.Field}, indexer: types.Indexer?, fresh: bool
             indexWriteKey = iwk,
             indexWriteValue = iwv,
             fresh = fresh or nil
-        }
+        )
     end)
 end
 
@@ -1239,7 +1239,7 @@ function types.union(members: {types.Type}): types.Type
             end
         end
 
-        return new types.Union {tag = "union", members = flat, hasNil = hasNil}
+        return new types.Union(tag = "union", members = flat, hasNil = hasNil)
     end)
 end
 
@@ -1282,7 +1282,7 @@ function types.intersection(members: {types.Type}): types.Type
     local internKey = "intersection(" .. table.concat(ids, "&") .. ")"
 
     return interned(internKey) or intern(internKey, function()
-        return new types.Intersection {tag = "intersection", members = flat}
+        return new types.Intersection(tag = "intersection", members = flat)
     end)
 end
 
@@ -1296,39 +1296,39 @@ function types.ptr(t: types.Type): types.Type
     local internKey = t.id .. "*"
 
     return interned(internKey) or intern(internKey, function()
-        return new types.Ptr {tag = "ptr", elem = t}
+        return new types.Ptr(tag = "ptr", elem = t)
     end)
 end
 
 --- A free cleanup binding resolved in its declaring module.
 function types.functionCleanup(key: string, name: string, functionType: types.Type?): types.Cleanup
-    return new types.Cleanup {
+    return new types.Cleanup(
         id = "function:" .. key,
         kind = "function",
         key = key,
         name = name,
-        functionType = functionType,
-    }
+        functionType = functionType
+    )
 end
 
 --- A default drop operation reached through the owned value.
 function types.methodCleanup(name: string): types.Cleanup
-    return new types.Cleanup {id = "method:" .. name, kind = "method", name = name}
+    return new types.Cleanup(id = "method:" .. name, kind = "method", name = name)
 end
 
 --- A cleanup applied to one affine field of an owning record.
 function types.fieldCleanup(field: string, cleanup: types.Cleanup): types.Cleanup
-    return new types.Cleanup {
+    return new types.Cleanup(
         id = "field:" .. field .. ":" .. cleanup.id,
         kind = "field",
         field = field,
-        cleanup = cleanup,
-    }
+        cleanup = cleanup
+    )
 end
 
 --- Dropping a pinned field's strong Lua anchor needs no call.
 function types.dropFieldCleanup(field: string): types.Cleanup
-    return new types.Cleanup {id = "dropfield:" .. field, kind = "dropfield", field = field}
+    return new types.Cleanup(id = "dropfield:" .. field, kind = "dropfield", field = field)
 end
 
 --- Ownership qualifiers exist only in the static model. Both erase to the wrapped
@@ -1345,7 +1345,7 @@ function types.owned(t: types.Type, cleanups: {types.Cleanup}?): types.Type
     local internKey = "owned(" .. table.concat(ids, ",") .. ":" .. t.id .. ")"
 
     return interned(internKey) or intern(internKey, function()
-        return new types.Owned {tag = "owned", inner = t, cleanups = list}
+        return new types.Owned(tag = "owned", inner = t, cleanups = list)
     end)
 end
 
@@ -1353,7 +1353,7 @@ function types.borrowed(t: types.Type): types.Type
     local internKey = "borrowed(" .. t.id .. ")"
 
     return interned(internKey) or intern(internKey, function()
-        return new types.Borrowed {tag = "borrowed", inner = t}
+        return new types.Borrowed(tag = "borrowed", inner = t)
     end)
 end
 
@@ -1364,7 +1364,7 @@ function types.pinned(t: types.Type): types.Type
     local internKey = "pinned(" .. t.id .. ")"
 
     return interned(internKey) or intern(internKey, function()
-        return new types.Pinned {tag = "pinned", inner = t}
+        return new types.Pinned(tag = "pinned", inner = t)
     end)
 end
 
@@ -1417,21 +1417,21 @@ local function capability(t: types.Type, roots: {any}?, retention: any?): types.
     if found then
         return found
     end
-    local made = new types.Capability {
+    local made = new types.Capability(
         id = id,
         obligation = obligation,
         cleanups = cleanups,
         roots = rootList,
         retention = retention,
-        access = access,
-    }
+        access = access
+    )
     capabilityArena[id] = made
 
     return made
 end
 
 local function valueSlot(t: types.Type, roots: {any}?, retention: any?): types.ValueSlot
-    return new types.ValueSlot {payload = types.unwrapOwnership(t), capability = capability(t, roots, retention),}
+    return new types.ValueSlot(payload = types.unwrapOwnership(t), capability = capability(t, roots, retention))
 end
 
 --- Replaces only the payload of `source`, retaining its complete static capability.
@@ -1485,7 +1485,7 @@ function types.pack(head: {types.Type}?, tail: types.PackTail?, modes: {string}?
     if found then
         return found
     end
-    local made = new types.Pack {tag = "pack", head = copied, modes = ms, tail = tail}
+    local made = new types.Pack(tag = "pack", head = copied, modes = ms, tail = tail)
     made.id = inheritedMarks(key) .. serial("p")
     packArena[key] = made
 
@@ -1498,7 +1498,7 @@ function types.packvar(name: string, identity: string?): types.PackVar
     if found then
         return found
     end
-    local made = new types.PackVar {tag = "packvar", name = name}
+    local made = new types.PackVar(tag = "packvar", name = name)
     made.id = "!p" .. serial("pv")
     packVarArena[key] = made
 
@@ -1511,7 +1511,7 @@ function types.constLiteral(domain: string, value: string | boolean | integer): 
     if found then
         return found as types.ConstLiteral
     end
-    local made = new types.ConstLiteral {tag = "constLiteral", domain = domain, value = value}
+    local made = new types.ConstLiteral(tag = "constLiteral", domain = domain, value = value)
     made.id = serial("c")
     constArena[key] = made
 
@@ -1524,7 +1524,7 @@ function types.constvar(name: string, domain: string, identity: string?): types.
     if found then
         return found as types.ConstVar
     end
-    local made = new types.ConstVar {tag = "constVar", name = name, domain = domain}
+    local made = new types.ConstVar(tag = "constVar", name = name, domain = domain)
     made.id = "!c" .. serial("c")
     constArena[key] = made
 
@@ -1541,7 +1541,7 @@ function types.constOp(operation: string, operands: {types.ConstTerm}): types.Co
     if found then
         return found as types.ConstOp
     end
-    local made = new types.ConstOp {tag = "constOp", operation = operation, operands = operands}
+    local made = new types.ConstOp(tag = "constOp", operation = operation, operands = operands)
     made.id = inheritedMarks(key) .. serial("c")
     constArena[key] = made
 
@@ -1613,7 +1613,7 @@ function types.matchPattern(
     if found then
         return found
     end
-    local made = new types.MatchPattern {
+    local made = new types.MatchPattern(
         kind = kind,
         binder = binder,
         expected = expected,
@@ -1624,8 +1624,8 @@ function types.matchPattern(
         paramPackBinder = paramPackBinder,
         retPackBinder = retPackBinder,
         tupleTail = tupleTail,
-        nominalPackBinders = nominalPackBinders,
-    }
+        nominalPackBinders = nominalPackBinders
+    )
     made.id = inheritedMarks(id) .. serial("m")
     patternArena[id] = made
 
@@ -1633,7 +1633,7 @@ function types.matchPattern(
 end
 
 function types.matchArm(pattern: types.MatchPattern, result: types.Type): types.MatchArm
-    return new types.MatchArm {id = pattern.id .. "=>" .. result.id, pattern = pattern, result = result}
+    return new types.MatchArm(id = pattern.id .. "=>" .. result.id, pattern = pattern, result = result)
 end
 
 function types.packUnion(alternatives: {types.Pack}): types.Pack
@@ -1659,7 +1659,7 @@ function types.packUnion(alternatives: {types.Pack}): types.Pack
     if found then
         return found
     end
-    local made = new types.Pack {tag = "pack", head = {}, modes = {}, alternatives = flat}
+    local made = new types.Pack(tag = "pack", head = {}, modes = {}, alternatives = flat)
     made.id = key
     packArena[key] = made
 
@@ -1697,13 +1697,13 @@ function types.protocolThread(
 ): types.Type
     local key = "thread<" .. startPack.id .. "," .. resumePack.id .. "," .. yieldPack.id .. "," .. returnPack.id .. ">"
     return interned(key) or intern(key, function()
-        return new types.ProtocolThread {
+        return new types.ProtocolThread(
             tag = "protocolThread",
             startPack = startPack,
             resumePack = resumePack,
             yieldPack = yieldPack,
             returnPack = returnPack
-        }
+        )
     end)
 end
 
@@ -1730,7 +1730,7 @@ function types.genericAlias(
     local key = table.concat(parts, "|") .. ")"
 
     return interned(key) or intern(key, function()
-        return new types.GenericAlias {
+        return new types.GenericAlias(
             tag = "genericAlias",
             name = name,
             body = body,
@@ -1740,7 +1740,7 @@ function types.genericAlias(
             constParams = constParams or {},
             paramKinds = paramKinds or {},
             header = header
-        }
+        )
     end)
 end
 
@@ -1757,7 +1757,7 @@ function types.aliasHeader(
     paramKinds: {string}?
 ): types.AliasHeader
     aliasHeaderSerial = aliasHeaderSerial + 1
-    return new types.AliasHeader {
+    return new types.AliasHeader(
         id = "alias-header(" .. identity .. "#" .. tostring(aliasHeaderSerial) .. ")",
         name = name,
         typeParams = typeParams or {},
@@ -1765,7 +1765,7 @@ function types.aliasHeader(
         packParams = packParams or {},
         constParams = constParams or {},
         paramKinds = paramKinds or {}
-    }
+    )
 end
 
 function types.tostringPack(pack: types.Pack): string
@@ -1934,7 +1934,7 @@ function types.func(
     end
 
     return interned(key) or intern(key, function()
-        return new types.Func {
+        return new types.Func(
             tag = "func",
             params = params,
             rets = rets,
@@ -1961,7 +1961,7 @@ function types.func(
             paramKinds = paramKinds,
             yieldPack = yieldPack,
             resumePack = resumePack
-        }
+        )
     end)
 end
 
@@ -2063,7 +2063,7 @@ function types.literal(value: string | number | boolean, base: types.Type?): typ
     local internKey = "lit(" .. of.tag .. ":" .. tostring(value) .. ")"
 
     return interned(internKey) or intern(internKey, function()
-        return new types.Literal {tag = "literal", constant = value, base = of}
+        return new types.Literal(tag = "literal", constant = value, base = of)
     end)
 end
 
@@ -2076,7 +2076,7 @@ function types.carray(elem: types.Type, count: integer?, countTerm: types.ConstT
     local internKey = "carray(" .. elem.id .. "," .. (term and term.id or "?") .. ")"
 
     return interned(internKey) or intern(internKey, function()
-        return new types.CArray {tag = "carray", elem = elem, count = count, countTerm = term}
+        return new types.CArray(tag = "carray", elem = elem, count = count, countTerm = term)
     end)
 end
 
@@ -2089,7 +2089,7 @@ function types.constOf(t: types.Type): types.Type
     local internKey = "const(" .. t.id .. ")"
 
     return interned(internKey) or intern(internKey, function()
-        return new types.Const {tag = "const", inner = t}
+        return new types.Const(tag = "const", inner = t)
     end)
 end
 
@@ -2098,7 +2098,7 @@ function types.ctype(t: types.Type): types.Type
     local internKey = "ctype(" .. t.id .. ")"
 
     return interned(internKey) or intern(internKey, function()
-        return new types.CType {tag = "ctype", of = t}
+        return new types.CType(tag = "ctype", of = t)
     end)
 end
 
@@ -2111,7 +2111,7 @@ function types.typevar(name: string, identity: string?): types.Type
     local internKey = "!ttv(" .. (identity or name) .. ")"
 
     return interned(internKey) or intern(internKey, function()
-        return new types.TypeVar {tag = "typevar", name = name}
+        return new types.TypeVar(tag = "typevar", name = name)
     end)
 end
 
@@ -2169,7 +2169,7 @@ function types.neutral(
     ) .. ":" .. (matchEach and "each" or "one") .. ":" .. table.concat(armIds, ",") .. ")"
 
     return interned(id) or intern(id, function()
-        return new types.Neutral {
+        return new types.Neutral(
             tag = "neutral",
             op = op,
             capability = capability,
@@ -2183,7 +2183,7 @@ function types.neutral(
             templateParts = templateParts,
             matchEach = matchEach,
             matchArms = matchArms
-        }
+        )
     end)
 end
 
@@ -2209,14 +2209,14 @@ function types.aliasCall(
     local id = "neutral(alias:" .. table.concat(ids, ",") .. ")"
 
     return interned(id) or intern(id, function()
-        return new types.Neutral {
+        return new types.Neutral(
             tag = "neutral",
             op = "alias",
             aliasHeader = header,
             aliasTypeArgs = typeArgs or {},
             aliasPackArgs = packArgs or {},
             aliasConstArgs = constArgs or {}
-        }
+        )
     end)
 end
 
@@ -2224,7 +2224,7 @@ function types.metatable(t: types.Type): types.Type
     local internKey = "metatable(" .. t.id .. ")"
 
     return interned(internKey) or intern(internKey, function()
-        return new types.Metatable {tag = "metatable", of = t}
+        return new types.Metatable(tag = "metatable", of = t)
     end)
 end
 
@@ -2233,7 +2233,7 @@ function types.projection(of: types.Type, name: string): types.Type
     local internKey = "!jproj(" .. of.id .. "," .. name .. ")"
 
     return interned(internKey) or intern(internKey, function()
-        return new types.Projection {tag = "projection", of = of, name = name}
+        return new types.Projection(tag = "projection", of = of, name = name)
     end)
 end
 
@@ -2313,8 +2313,8 @@ local nominalCounter: integer = 0
 --- @param declKind "record", "interface" or "struct"
 function types.nominal(name: string, declKind: string): types.Nominal
     nominalCounter = nominalCounter + 1
-    local t = new types.Nominal {tag = "nominal", declKind = declKind, name = name, byname = {}, -- populated while the declaration is checked
-        writeByname = {}, staticByname = {}, staticWriteByname = {}, metamethods = {}, nestedTypes = {}, defaultDropOperations = {},}
+    local t = new types.Nominal(tag = "nominal", declKind = declKind, name = name, byname = {}, -- populated while the declaration is checked
+        writeByname = {}, staticByname = {}, staticWriteByname = {}, metamethods = {}, nestedTypes = {}, defaultDropOperations = {})
     t.id = "nominal#" .. nominalCounter .. "(" .. name .. ")"
 
     return t

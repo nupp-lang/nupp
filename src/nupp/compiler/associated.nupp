@@ -50,7 +50,7 @@ local function reachRequirements(head: Type, name: string, into: {T.AssociatedRe
     for _, requirement in ipairs((head as T.Nominal).associatedRequirements or {}) do
         if requirement.name == name and not seen[requirement] then
             seen[requirement] = true
-            into[#into + 1] = new T.AssociatedReached {requirement = requirement, from = head}
+            into[#into + 1] = new T.AssociatedReached(requirement = requirement, from = head)
         end
     end
     for _, super in ipairs((head as T.Nominal).supertypes or {}) do
@@ -193,7 +193,7 @@ function associated.lookup(head: Type, name: string): Lookup
 end
 
 lookupInto = function(head: Type, name: string): Lookup
-    local result: Lookup = new T.AssociatedLookup {requirements = {}, defaults = {}, fixed = {}}
+    local result: Lookup = new T.AssociatedLookup(requirements = {}, defaults = {}, fixed = {})
     if head == T.any then
         -- Gradual rather than invalid. A projection reaches this only by having been
         -- valid where it was written and then losing its head to inference.

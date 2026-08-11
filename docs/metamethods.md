@@ -83,7 +83,7 @@ record's own runtime table, which is not an instance of the record — the body
 calls `setmetatable` on it, which is the giveaway. Writing `event: E` claims to
 take an instance and would be a different function.
 
-Records retain their existing runtime namespace table. `new R {...}` stamps that
+Records retain their existing runtime namespace table. `new R(...)` stamps that
 table as the instance metatable, and the table carries `__index = R` for
 ordinary method lookup. A metamethod contract does not add a field to that
 namespace and does not change this lowering.
@@ -239,7 +239,7 @@ local record Counter
     end
 end
 
-local counter = new Counter {value = 0}
+local counter = new Counter(value = 0)
 counter:increment(2)
 ```
 
@@ -279,7 +279,7 @@ setmetatable(task, mt)
 local current: metatable<Task>? = getmetatable(task)
 ```
 
-It is also the type a record's own name holds. `new Task {...}` stamps that table
+It is also the type a record's own name holds. `new Task(...)` stamps that table
 on the instances it builds, so the table *is* their metatable and says so:
 
 ```nupp
@@ -293,7 +293,7 @@ setmetatable(instance, Task)
 
 That is what separates the declaration's table from an instance of it. `Task` may
 stand wherever a `metatable<Task>` is wanted and nowhere an instance is; a value
-built by `new Task {...}` is the reverse. Reaching a member through the table
+built by `new Task(...)` is the reverse. Reaching a member through the table
 reaches the record's, so `Task.make(...)`, `Task.field = ...` and the metamethods
 installed on it all resolve.
 

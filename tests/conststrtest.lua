@@ -104,7 +104,7 @@ end
 function M.constIsAPromiseNotToWrite()
    local P = "local struct P\n    x: float\nend"
    -- a mutable value satisfies a const one
-   assertEq(diagsOf(P .. "\nlocal p: P = new P {}\nlocal r: const P = p"), "")
+   assertEq(diagsOf(P .. "\nlocal p: P = new P()\nlocal r: const P = p"), "")
    -- the reverse discards the promise
    assertEq(diagsOf(P .. "\nlocal r: const P\nlocal p: P = r"), "NUPP2001")
    assertEq(diagsOf(P .. "\nlocal p: const P* = nil"), "NUPP2001",

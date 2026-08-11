@@ -276,7 +276,7 @@ local function normalize(raw: any): spec.Option
         end
     end
 
-    return new spec.Option {
+    return new spec.Option(
         names = names,
         key = raw.key or derivedKey(longest),
         value = raw.value,
@@ -289,8 +289,8 @@ local function normalize(raw: any): spec.Option
         display = raw.display,
         duplicate = raw.duplicate,
         invalid = raw.invalid,
-        help = raw.help or "",
-    }
+        help = raw.help or ""
+    )
 end
 
 -- The options every command has, appended to every grammar so that no command can be
@@ -357,7 +357,7 @@ function spec.command(raw: spec.Declaration): spec.Command
         end
     end
 
-    return new spec.Command {
+    return new spec.Command(
         name = raw.name,
         helpName = raw.helpName or raw.name,
         summary = raw.summary,
@@ -369,8 +369,8 @@ function spec.command(raw: spec.Declaration): spec.Command
         schema = raw.schema,
         stopAtPositional = raw.stopAtPositional,
         byName = byName,
-        patterned = patterned,
-    }
+        patterned = patterned
+    )
 end
 
 --- Records one value, refusing a second unless the option accumulates them.
@@ -519,7 +519,7 @@ function spec.Command:parse(args: {string}): spec.Result?, string?
         end
     end
 
-    return new spec.Result {values = values, positional = positional}
+    return new spec.Result(values = values, positional = positional)
 end
 
 --- The command's whole help text, with the options rendered from the grammar that

@@ -130,7 +130,7 @@ function M.aMismatchNamesTheConcreteType()
       "      return nil as any",
       "   end",
       "end",
-      "local archetype = new Archetype {}",
+      "local archetype = new Archetype()",
       "local health: ScalarComponent<number> = nil as any",
       "local wrong: {string} = archetype:column(health)",
       "return wrong"))
@@ -161,7 +161,7 @@ function M.computedPacksComposeWithAssociatedMembers()
       "): T.Item",
       "   return nil as any",
       "end",
-      "local row = new Row {}")
+      "local row = new Row()")
    clean(signature .. src(
       "local out: string = apply('pair', row, 'x', 1)",
       "return out"))

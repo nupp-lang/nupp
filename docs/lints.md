@@ -39,20 +39,22 @@ than one switch:
 Every lint has a name and a stable code:
 
 ```
- name                     code       category      default
- ───────────────────────  ─────────  ────────────  ───────
- missing-require          NUPP2120   correctness   error
- exhaustiveness           NUPP2107   correctness   warning
- string-pointer           NUPP2501   suspicious    warning
- jit-callback             NUPP2502   suspicious    warning
- lossy-narrowing          NUPP2503   suspicious    warning
- customary-operator       NUPP2504   style         warning
- loop-invariant-closure   NUPP2505   suspicious    warning
- undocumented-raise       NUPP2506   suspicious    warning
- unused-binding           NUPP2507   suspicious    warning
- discarded-result         NUPP2508   suspicious    warning
- reifiable-record         NUPP2509   performance   off
- else-if                  NUPP2510   style         warning
+ name                             code       category      default
+ ───────────────────────────────  ─────────  ────────────  ───────
+ missing-require                  NUPP2120   correctness   error
+ exhaustiveness                   NUPP2107   correctness   warning
+ string-pointer                   NUPP2501   suspicious    warning
+ jit-callback                     NUPP2502   suspicious    warning
+ lossy-narrowing                  NUPP2503   suspicious    warning
+ customary-operator               NUPP2504   style         warning
+ loop-invariant-closure           NUPP2505   suspicious    warning
+ undocumented-raise               NUPP2506   suspicious    warning
+ unused-binding                   NUPP2507   suspicious    warning
+ discarded-result                 NUPP2508   suspicious    warning
+ reifiable-record                 NUPP2509   performance   off
+ gradual-projection               NUPP2511   suspicious    warning
+ else-if                          NUPP2510   style         warning
+ positional-record-construction   NUPP2512   style         warning
 ```
 
 The name is what you write in configuration and suppressions; the code is what
@@ -207,6 +209,36 @@ src/else-if.nupp:3:1: warning: NUPP2510 else-if: this else contains only an if; 
  3 | else
    | ^~~~
 help: replace else followed by if with elseif
+```
+:::
+
+### `positional-record-construction`
+
+A record without a declared constructor may be built either way, and both build
+the same table. Naming the fields says at the call site which value lands where;
+leaving it to the order says it in the declaration, so a reader has to go there,
+and adding a field silently changes what an existing call means.
+
+A struct is exempt. It is its C layout, the ctype takes its values in that
+layout's order, and naming them is an error rather than a preference.
+
+::: code-group
+```nupp [src/positional-record-construction.nupp]
+local record Point
+    x: integer
+    y: integer
+end
+
+local p = new Point(1, 2)
+
+return p
+```
+
+```text [nupp check output]
+src/positional-record-construction.nupp:6:15: warning: NUPP2512 positional-record-construction: record Point is constructed by field order
+ 6 | local p = new Point(1, 2)
+   |               ^~~~~
+help: write new Point(field = value, ...) to name the fields
 ```
 :::
 
@@ -477,11 +509,11 @@ does.
 **1. Declare it** in the `lints.all` registry in `src/nupp/compiler/lints.nupp`:
 
 ```nupp
-new lints.Lint {
+new lints.Lint(
     name = "missing-require", code = "NUPP2120",
     category = "correctness", level = "error",
-    summary = "a project module is used without being required",
-},
+    summary = "a project module is used without being required"
+),
 ```
 
 - `name` — kebab-case, what a person writes in `@allow` and in `nupp.lua`.

@@ -2023,12 +2023,12 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
             -- where it was stated are the declaration's, not this application's.
             inst.associatedRequirements[
                 j
-            ] = new T.AssociatedRequirement {
+            ] = new T.AssociatedRequirement(
                 name = requirement.name,
                 bound = requirement.bound and generics.rebind(requirement.bound, complete) or nil,
                 selfBinder = requirement.selfBinder,
-                definition = requirement.definition,
-            }
+                definition = requirement.definition
+            )
         end
     end
     if n.associatedAnswers then
@@ -2039,12 +2039,12 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
             -- on the arguments this instantiation supplied.
             inst.associatedAnswers[
                 name
-            ] = new T.AssociatedAnswer {
+            ] = new T.AssociatedAnswer(
                 type = generics.rebind(entry.type, complete),
                 selfBinder = entry.selfBinder,
                 kind = entry.kind,
-                definition = entry.definition,
-            }
+                definition = entry.definition
+            )
         end
     end
     inst.overloadedMethods = {}

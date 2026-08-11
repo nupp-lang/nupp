@@ -629,7 +629,7 @@ function M.highlightsLjppWithTheNativeLexer()
       "   inspect(box)",
       "end",
       "local function make(point: Point): Point",
-      "   return point ?? new Point {x = 1}",
+      "   return point ?? new Point(x = 1)",
       "end",
    }, "\n"), {Point = "#math.Point"})
    assert(html:find("nuppdoc-token-comment", 1, true))
@@ -649,10 +649,9 @@ function M.highlightsCurrentNuppSyntaxWithTheParser()
    local html = doc.highlight(table.concat({
       "@!internal",
       "local interface Factory<P...>",
-      "   constructor(...: P...)",
+      "   constructor(self, ...: P...)",
       "   end",
-      "   matches self.ready",
-      "   end",
+      "   satisfies |self| -> self.ready",
       "end",
       "local function worker(): const unknown & Serializable",
       "   yields (number) resumes (boolean)",
@@ -662,7 +661,7 @@ function M.highlightsCurrentNuppSyntaxWithTheParser()
    assert(html:find("nuppdoc-token-meta", 1, true), html)
    assert(html:find(">internal</span>", 1, true), html)
    assert(html:find("keyword-constructor", 1, true), html)
-   assert(html:find("keyword-matches", 1, true), html)
+   assert(html:find("keyword-satisfies", 1, true), html)
    assert(html:find("keyword-yields", 1, true), html)
    assert(html:find("keyword-resumes", 1, true), html)
    assert(html:find("keyword-new", 1, true), html)
@@ -709,7 +708,7 @@ function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
       "local type First<T> = match each T when {infer Item} then Item else typeerror<\"expected list\"> end",
       "local function worker<P..., const Format: string>(...: unpackof Arguments<Format>): unpackof Results<Format>",
       "   yields (number) resumes (boolean)",
-      "   return new Factory {count = 1_000}",
+      "   return new Factory(count = 1_000)",
       "end",
       "local function preserve(scoped callback: function(): nil, value: owned<voidptr>): voidptr preserves value return value end",
       "local compiled = comptime do return {answer = 42} end",

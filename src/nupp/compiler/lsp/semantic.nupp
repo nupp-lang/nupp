@@ -181,7 +181,7 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
             for _, tok in ipairs((node as cst.Generics).names) do
                 mark(tok, "typeParameter")
             end
-        elseif kind == "newExpr" or kind == "constructorDecl" or kind == "matchesDecl" then
+        elseif kind == "newExpr" or kind == "constructorDecl" or kind == "satisfiesDecl" then
             mark(node[1], "keyword")
         elseif kind == "whereClause" then
             mark(node[1], "keyword")

@@ -251,7 +251,7 @@ local ENTRIES: {
     docs = "docs/type-system/packs.md#syntax",
 }, {code = "NUPP2122",
 
-    summary = "A 'where' refinement cannot be enforced", rule = "A `where` clause names the runtime test that decides whether a "
+    summary = "A refinement cannot be enforced", rule = "A `satisfies` declaration names the runtime test that decides whether a "
     .. "value is one of these, and `x is T` compiles to it. That test "
     .. "has to run wherever `is` is written, so it reads the "
     .. "declaration's own fields through `self` and nothing else: "
@@ -267,10 +267,10 @@ local ENTRIES: {
     .. "make that test fail would leave the two disagreeing about the "
     .. "same value. Only a provable failure is reported: a refinement "
     .. "whose answer no declaration settles is not evidence of a "
-    .. "mistake.", wrong = "local interface Circle\n    kind: string\n\n    matches\n"
-    .. "        tostring(self.kind) == \"circle\"\n    end\nend\n\n"
-    .. "return Circle\n", right = "local interface Circle\n    kind: string\n\n    matches\n"
-    .. "        self.kind == \"circle\"\n    end\nend\n\n"
+    .. "mistake.", wrong = "local interface Circle\n    kind: string\n\n"
+    .. "    satisfies |self| -> tostring(self.kind) == \"circle\"\nend\n\n"
+    .. "return Circle\n", right = "local interface Circle\n    kind: string\n\n"
+    .. "    satisfies |self| -> self.kind == \"circle\"\nend\n\n"
     .. "return Circle\n", related = {
     "NUPP2116"
 }, docs = "docs/type-system/generics.md",}, {
@@ -288,13 +288,13 @@ local ENTRIES: {
     .. "seen from here, so a computed metatable stays gradual.",
     wrong = "local record I64\n    v: integer\n"
     .. "    metamethod __add: function(self: I64, other: I64): I64\n"
-    .. "end\n\nlocal x = new I64 {v = 1}\n"
+    .. "end\n\nlocal x = new I64(v = 1)\n"
     .. "setmetatable(x, {__add = \"not a function\"})\n\nreturn x\n",
     right = "local record I64\n    v: integer\n"
     .. "    metamethod __add: function(self: I64, other: I64): I64\n"
-    .. "end\n\nlocal x = new I64 {v = 1}\n"
+    .. "end\n\nlocal x = new I64(v = 1)\n"
     .. "setmetatable(x, {__add = function(a: I64, b: I64): I64\n"
-    .. "    return new I64 {v = a.v + b.v}\nend})\n\nreturn x\n",
+    .. "    return new I64(v = a.v + b.v)\nend})\n\nreturn x\n",
     related = {"NUPP2118", "NUPP2006"},
     docs = "docs/metamethods.md",
 }, {
@@ -416,7 +416,7 @@ local ENTRIES: {
     right = "local interface Holds\n    associated type Item\nend\n\n"
     .. "local record Lines is Holds\n    associated type Item = string\nend\n\n"
     .. "local function held<T is Holds>(x: T): T.Item\n    return nil as any\nend\n\n"
-    .. "local kept = held(new Lines {})\n\nreturn kept\n",
+    .. "local kept = held(new Lines())\n\nreturn kept\n",
     related = {"NUPP2134"},
     docs = "docs/type-system/associated-types.md",
 }, {
@@ -445,7 +445,7 @@ local ENTRIES: {
     .. "those hooks back. A record that does declare a `__call` "
     .. "contract is called, not reported.",
     wrong = "local record Point\n    x: integer\nend\n\n" .. "local p = Point{x = 1}\n\nreturn p\n",
-    right = "local record Point\n    x: integer\nend\n\n" .. "local p = new Point {x = 1}\n\nreturn p\n",
+    right = "local record Point\n    x: integer\nend\n\n" .. "local p = new Point(x = 1)\n\nreturn p\n",
     related = {"NUPP2206"},
     docs = "docs/reference.md#records",
 }, {
@@ -548,10 +548,10 @@ local ENTRIES: {
     .. "value is one of its declared strings, written directly. The "
     .. "operand is answered as a type rather than through whatever "
     .. "value stands under the name, because an interface binds none.",
-    wrong = "local interface Named\n    name: string\nend\n\n" .. "local n = new Named {name = \"ada\"}\n\nreturn n\n",
+    wrong = "local interface Named\n    name: string\nend\n\n" .. "local n = new Named(name = \"ada\")\n\nreturn n\n",
     right = "local interface Named\n    name: string\nend\n\n"
     .. "local record User is Named\n    name: string\nend\n\n"
-    .. "local n = new User {name = \"ada\"}\n\nreturn n\n",
+    .. "local n = new User(name = \"ada\")\n\nreturn n\n",
     related = {"NUPP2202"},
     docs = "docs/reference.md#records",
 }, {
@@ -566,13 +566,29 @@ local ENTRIES: {
     .. "declaration file states what exists elsewhere and assigns "
     .. "nothing, so it is exempt.",
     wrong = "local record Point\n    x: integer\nend\n\n" .. "local p: Point\n\nreturn p.x\n",
-    right = "local record Point\n    x: integer\nend\n\n" .. "local p: Point = new Point {x = 0}\n\nreturn p.x\n",
+    right = "local record Point\n    x: integer\nend\n\n" .. "local p: Point = new Point(x = 0)\n\nreturn p.x\n",
     related = {"NUPP2202", "NUPP2206"},
     docs = "docs/reference.md#records",
 }, {
+    code = "NUPP2512",
+    summary = "A record is built by field order rather than by naming its fields",
+    rule = "A record without a declared constructor may be built either way, "
+    .. "and both build the same table. Naming the fields says at the call "
+    .. "site which value lands where; leaving it to the order says it in "
+    .. "the declaration, so a reader has to go there, and adding a field "
+    .. "silently changes what an existing call means. A struct is exempt: "
+    .. "it is its C layout, and that order is the layout's rather than the "
+    .. "program's to name. Turn it off by name or by its `style` category, "
+    .. "or write `@allow(\"positional-record-construction\")`.",
+    wrong = "local record Point\n    x: integer\n    y: integer\nend\n\n" .. "local p = new Point(1, 2)\n\nreturn p\n",
+    right = "local record Point\n    x: integer\n    y: integer\nend\n\n"
+    .. "local p = new Point(x = 1, y = 2)\n\nreturn p\n",
+    related = {"NUPP2202", "NUPP2208"},
+    docs = "docs/lints.md",
+}, {
     code = "NUPP2208",
     summary = "A constructor does not hold up its declaration",
-    rule = "A `constructor(...)` body is what `new T(...)` runs. The "
+    rule = "A `constructor(self, ...)` body is what `new T(...)` runs. The "
     .. "instance is made before it and returned after it, so its whole "
     .. "job is to fill the fields in — and every field that cannot hold "
     .. "nil has to be filled, or the value handed back does not match "
@@ -582,10 +598,10 @@ local ENTRIES: {
     .. "nothing and cannot carry one, and there is one constructor per "
     .. "declaration until overloads arrive with intersection types.",
     wrong = "local record Account\n    name: string\n    balance: number\n"
-    .. "\n    constructor(name: string)\n        self.name = name\n"
+    .. "\n    constructor(self, name: string)\n        self.name = name\n"
     .. "    end\nend\n\nreturn Account\n",
     right = "local record Account\n    name: string\n    balance: number\n"
-    .. "\n    constructor(name: string)\n        self.name = name\n"
+    .. "\n    constructor(self, name: string)\n        self.name = name\n"
     .. "        self.balance = 0\n    end\nend\n\nreturn Account\n",
     related = {"NUPP2202", "NUPP2207"},
     docs = "docs/reference.md#records",
@@ -597,20 +613,20 @@ local ENTRIES: {
     .. "neither, by design — it is conformance rather than provenance — "
     .. "so something has to stand in for one.\n\n"
     .. "Three things can. A literal-typed field is a tag, and the test "
-    .. "is read off it with nothing written. A `matches` block says the "
-    .. "test outright, for a shape no tag describes. And a subject "
+    .. "is read off it with nothing written. A `satisfies` declaration "
+    .. "says the test outright, for a shape no tag describes. And a subject "
     .. "whose own type declares the interface needs no test at all: the "
     .. "declaration already answered, so the `is` compiles to `true`. "
     .. "An alias has none of these and never will.",
     wrong = "local interface Drawable\n    width: number\nend\n\n"
     .. "local record Sprite is Drawable\n    width: number\nend\n\n"
-    .. "local unknown: any = new Sprite {width = 1}\n\n"
+    .. "local unknown: any = new Sprite(width = 1)\n\n"
     .. "return unknown is Drawable\n",
     right = "local interface Drawable\n    kind: \"drawable\"\n"
     .. "    width: number\nend\n\n"
     .. "local record Sprite is Drawable\n    kind: \"drawable\"\n"
     .. "    width: number\nend\n\n"
-    .. "local unknown: any = new Sprite {kind = \"drawable\", width = 1}\n\n"
+    .. "local unknown: any = new Sprite(kind = \"drawable\", width = 1)\n\n"
     .. "return unknown is Drawable\n",
     related = {"NUPP2122"},
     docs = "docs/type-system/interfaces.md",
@@ -669,7 +685,7 @@ function explain.lookup(code: string): explain.Entry?
     end
     local lint = lintFor(code)
     if entry then
-        return new explain.Entry {
+        return new explain.Entry(
             code = code,
             summary = entry.summary,
             rule = entry.rule,
@@ -678,11 +694,11 @@ function explain.lookup(code: string): explain.Entry?
             strict = entry.strict and true or false,
             related = entry.related or {},
             docs = entry.docs,
-            family = false,
-        }
+            family = false
+        )
     end
 
-    return new explain.Entry {
+    return new explain.Entry(
         code = code,
         summary = lint and lint.summary or family.summary,
         rule = lint and (
@@ -696,8 +712,8 @@ function explain.lookup(code: string): explain.Entry?
         strict = false,
         related = {},
         docs = lint and "docs/lints.md" or family.docs,
-        family = true,
-    }
+        family = true
+    )
 end
 
 --- Every code with an entry of its own, sorted. What `nupp explain` lists when it is

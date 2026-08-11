@@ -77,14 +77,14 @@ function M.new(ffiType: string, chunkSize: integer?): M.ChunkedArray
         error("StableChunkedArray.new: chunkSize must be a positive integer, got "
             .. tostring(size))
     end
-    return new M.ChunkedArray {
+    return new M.ChunkedArray(
         chunks = {},
         chunkSize = size,
         ffiType = ffiType .. "[?]",
         nextId = 1,
         freeIds = {},
-        alive = {},
-    }
+        alive = {}
+    )
 end
 
 return M

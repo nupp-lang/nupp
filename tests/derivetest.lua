@@ -138,7 +138,7 @@ local decoded, err = Payload.fromJSON('{"labels":[],"extra":{"nested":true}}')
 nupp.data.decodeMaxDepth(previousDepth)
 local codec = Payload.fieldCodec()
 local checked, checkedErr = codec:decode({name = "ok", labels = {"a"}})
-local payload = new Payload {name = "x", secret = "hidden", labels = {}}
+local payload = new Payload(name = "x", secret = "hidden", labels = {})
 local keyed = codec:encode(payload)
 return {
     name = decoded and decoded.name,
@@ -176,7 +176,7 @@ local record Node
     value: integer
     next: Node?
 end
-local root = new Node {value = 1, next = nil}
+local root = new Node(value = 1, next = nil)
 root.next = root
 local debugged = root:debug()
 local encoded, cycle = pcall(function(): string return root:toJSON() end)
@@ -215,7 +215,7 @@ local record Namespace
     end
 end
 
-local boxed: Box<Item> = new Box {value = new Item {label = "ok"}}
+local boxed: Box<Item> = new Box(value = new Item(label = "ok"))
 local inner: Namespace.Inner = Namespace.Inner.default()
 return {box = boxed:debug(), inner = inner:debug()}
 ]])
@@ -240,7 +240,7 @@ local record Envelope
     pet: Cat | Dog
 end
 
-local envelope = new Envelope {pet = new Cat {kind = "cat", lives = 9}}
+local envelope = new Envelope(pet = new Cat(kind = "cat", lives = 9))
 local text = envelope:toJSON()
 local decoded, err = Envelope.fromJSON('{"pet":{"kind":"dog","barks":true}}')
 assert(decoded and not err)
@@ -358,7 +358,7 @@ function M.delimitsTheRuntimeFromAnEmittedFirstLine()
    local result = run([[local marker = "first"
 @derive(Debug)
 local record First value: integer end
-return marker .. ":" .. (new First {value = 1}):debug()
+return marker .. ":" .. (new First(value = 1)):debug()
 ]])
    assertEq(result, "first:First { value = 1 }")
 end

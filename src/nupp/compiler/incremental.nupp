@@ -150,7 +150,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     -- Left nil when nothing forced it, so each file's extension decides.
     local strict = opts.strict
     local q = query.new()
-    local inc = new incremental.Inc {env = env, q = q}
+    local inc = new incremental.Inc(env = env, q = q)
 
     -- One store per environment, shared with whatever else reaches the same env: a
     -- check of one named file builds the project index through

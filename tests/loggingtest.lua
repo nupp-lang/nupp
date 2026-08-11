@@ -161,7 +161,7 @@ function M.anExpandedArgumentKeepsTheOrdinaryCall()
       "    b: number",
       "    expands (a, b)",
       "end",
-      "local p = new Pair {a = 1, b = 2}",
+      "local p = new Pair(a = 1, b = 2)",
       "nupp.log.error('%d %d', ...p)",
    }, "\n"), "amb")
    assertTrue(not isLowered(code), "a field expansion keeps its call")

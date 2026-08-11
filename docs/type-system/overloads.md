@@ -27,7 +27,7 @@ local type Decode = function(string): Ast
 
 local decode: Decode = nil as any
 local fromText: Ast = decode("name")
-local fromTokens: Ast = decode({new Token {kind = "name"}})
+local fromTokens: Ast = decode({new Token(kind = "name")})
 return fromText, fromTokens
 ```
 
@@ -54,11 +54,11 @@ local record Ast
 end
 
 local function parseText(text: string): Ast
-    return new Ast {source = text}
+    return new Ast(source = text)
 end
 
 local function parseTokens(tokens: {Token}): Ast
-    return new Ast {source = tokens[1].kind}
+    return new Ast(source = tokens[1].kind)
 end
 
 local record Decoder
@@ -71,9 +71,9 @@ local record Decoder
     end
 end
 
-local decoder = new Decoder {}
+local decoder = new Decoder()
 local textAst = decoder:decode("name")
-local tokenAst = decoder:decode({new Token {kind = "name"}})
+local tokenAst = decoder:decode({new Token(kind = "name")})
 return textAst, tokenAst
 ```
 
@@ -94,7 +94,7 @@ local record Decoder
     function decode(self, value: integer): string return tostring(value) end
 end
 
-local decoder = new Decoder {}
+local decoder = new Decoder()
 local held = decoder.decode
 return held
 ```
@@ -107,7 +107,7 @@ local record Decoder
     function decode(self, value: integer): string return tostring(value) end
 end
 
-local decoder = new Decoder {}
+local decoder = new Decoder()
 local fromText: function(string): string = function(text: string): string
     return decoder:decode(text)
 end
@@ -128,7 +128,7 @@ local record Decoder
     function decode(self, value: integer): string return tostring(value) end
 end
 
-local decoder = new Decoder {}
+local decoder = new Decoder()
 local input: any = "ready"
 return decoder:decode(input)
 ```
@@ -141,7 +141,7 @@ local record Decoder
     function decode(self, value: integer): string return tostring(value) end
 end
 
-local decoder = new Decoder {}
+local decoder = new Decoder()
 local input: any = "ready"
 return decoder:decode(input as string)
 ```
@@ -200,7 +200,7 @@ local record Decoder is DecoderContract
     function decode(self, value: integer): string return "number:" .. tostring(value) end
 end
 
-local decoder: DecoderContract = new Decoder {}
+local decoder: DecoderContract = new Decoder()
 return decoder:decode("ready"), decoder:decode(42)
 ```
 
@@ -243,7 +243,7 @@ local record LoudDecoder is Decoder
     end
 end
 
-local decoder: Decoder = new LoudDecoder {}
+local decoder: Decoder = new LoudDecoder()
 return decoder:decode("ready"), decoder:decode(42)
 ```
 
@@ -281,7 +281,7 @@ local record DetailedFormatter is Formatter
     function format(self, value: integer): string return "integer:" .. tostring(value) end
 end
 
-local formatter = new DetailedFormatter {}
+local formatter = new DetailedFormatter()
 return formatter:format("ready"), formatter:format(42)
 ```
 
@@ -300,7 +300,7 @@ end
 local record Decoder is TextDecoder, NumberDecoder
 end
 
-local decoder = new Decoder {}
+local decoder = new Decoder()
 return decoder:decode("ready"), decoder:decode(42)
 ```
 
@@ -324,7 +324,7 @@ local record Codec<T>
     end
 end
 
-local codec: Codec<integer> = new Codec {}
+local codec: Codec<integer> = new Codec()
 return codec:encode(4), codec:encode({5})
 ```
 
@@ -340,11 +340,11 @@ the overload group:
 local record Value
     text: string
 
-    constructor(value: integer)
+    constructor(self, value: integer)
         self.text = tostring(value)
     end
 
-    constructor(value: string)
+    constructor(self, value: string)
         self.text = value
     end
 end
@@ -375,11 +375,11 @@ local record Ast
 end
 
 local record Decoder
-    function decode(self, text: string): Ast return new Ast {source = text} end
-    function decode(self, tokens: {Token}): Ast return new Ast {source = tokens[1].kind} end
+    function decode(self, text: string): Ast return new Ast(source = text) end
+    function decode(self, tokens: {Token}): Ast return new Ast(source = tokens[1].kind) end
 end
 
-local decoder = new Decoder {}
+local decoder = new Decoder()
 
 local function decodeDynamic(input: any): Ast
     if type(input) == "string" then

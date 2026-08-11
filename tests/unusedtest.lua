@@ -166,7 +166,7 @@ end
 
 @owned(close)
 local function open(name: string): Handle
-   return new Handle {name = name}
+   return new Handle(name = name)
 end
 
 local function work()

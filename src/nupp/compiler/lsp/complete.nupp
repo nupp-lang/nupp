@@ -349,7 +349,7 @@ complete.completionWords = {
     "interface",
     "is",
     "local",
-    "matches",
+    "satisfies",
     "new",
     "nil",
     "not",

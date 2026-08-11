@@ -75,7 +75,7 @@ function store.open(path: string?, stamp: string): store.Store
     local live: {[string]: boolean} = {}
     local dirty = false
     local stats: {[string]: integer} = {gets = 0, hits = 0, puts = 0}
-    local self = new store.Store {path = path, stamp = stamp, stats = stats}
+    local self = new store.Store(path = path, stamp = stamp, stats = stats)
 
     if path then
         local text = fs.readFile(path)
@@ -179,7 +179,7 @@ end
 
 --- Opens the single-value store at `path`, or an empty one.
 function store.openValue(path: string?, stamp: string): store.Value
-    local self = new store.Value {}
+    local self = new store.Value()
     local dirty = false
     if path then
         local text = fs.readFile(path)

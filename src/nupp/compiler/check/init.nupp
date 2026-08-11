@@ -405,7 +405,7 @@ function checkMod.check(
 
     -- One run's whole state, so the passes below reach it through `c` rather than by
     -- being lexically inside one function. See nupp.compiler.check.state.
-    local c = new state.Checker {result = result, filename = filename, env = env, opts = opts,
+    local c = new state.Checker(result = result, filename = filename, env = env, opts = opts,
         reducerMemo = {},
         comptimeDepth = 0,
         comptimeFunctionDepth = 0,
@@ -446,7 +446,7 @@ function checkMod.check(
         automaticOwners = {},
         depth = 0,
         parent = nil
-    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, dropOperationFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, handledDepth = 0, functionDepth = 0, scopedCaptureDepth = 0, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, activeAlias = nil, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldConst = {}, moduleFieldValues = {}, constModulePaths = {}, moduleLocalAnnotated = false,}
+    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, dropOperationFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, handledDepth = 0, functionDepth = 0, scopedCaptureDepth = 0, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, activeAlias = nil, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldConst = {}, moduleFieldValues = {}, constModulePaths = {}, moduleLocalAnnotated = false)
     c.rootScope = c.scope
     -- What this file has declared to the FFI. Per file, because a cdef binding is
     -- file-local, and because the alternative is process state deciding what a

@@ -66,11 +66,11 @@ local TASK = table.concat({
 local M = {}
 
 function M.recordMethodsTypeAtCallSites()
-   assertClean(TASK .. "\nlocal t: Task = new Task {}\nlocal s: string = t:describe()")
-   assertEq(diagsOf(TASK .. "\nlocal t: Task = new Task {}\nlocal n: number = t:describe()"),
+   assertClean(TASK .. "\nlocal t: Task = new Task()\nlocal s: string = t:describe()")
+   assertEq(diagsOf(TASK .. "\nlocal t: Task = new Task()\nlocal n: number = t:describe()"),
       "NUPP2001:8")
-   assertEq(diagsOf(TASK .. "\nlocal t: Task = new Task {}\nt:describe(1)"), "NUPP2007:8")
-   assertEq(diagsOf(TASK .. "\nlocal t: Task = new Task {}\nt:nosuch()"), "NUPP2004:8")
+   assertEq(diagsOf(TASK .. "\nlocal t: Task = new Task()\nt:describe(1)"), "NUPP2007:8")
+   assertEq(diagsOf(TASK .. "\nlocal t: Task = new Task()\nt:nosuch()"), "NUPP2004:8")
 end
 
 function M.selfIsBoundInsideMethods()
@@ -124,7 +124,7 @@ function M.inlineFunctionsNeedSelfToBeMethods()
       "local record Numbers",
       "    function answer(): integer return 42 end",
       "end",
-      "local numbers = new Numbers {}",
+      "local numbers = new Numbers()",
       "numbers:answer()",
    }, "\n")), "NUPP2004:5")
    assertEq(diagsOf(table.concat({
@@ -159,7 +159,7 @@ end
 function M.recordMethodsRunAtRuntime()
    assertEq(run(TASK .. table.concat({
       "",
-      "local t = new Task {title = 'ok'}",
+      "local t = new Task(title = 'ok')",
       "return t:describe()",
    }, "\n")), "ok")
 end
@@ -173,7 +173,7 @@ function M.structMethodsDispatchThroughMetatype()
       "function Vec2:len(): number",
       "    return (self.x * self.x + self.y * self.y) ^ 0.5",
       "end",
-      "local v = new Vec2 {x = 3, y = 4}",
+      "local v = new Vec2(3, 4)",
       "return v:len()",
    }, "\n")
    assertClean(src)
@@ -186,7 +186,7 @@ function M.structMethodsDispatchThroughMetatype()
       "function P:twice(): number",
       "    return self.n * 2",
       "end",
-      "local p = new P {n = 21}",
+      "local p = new P(21)",
       "return p:twice()",
    }, "\n")), 42)
 end
@@ -230,7 +230,7 @@ function M.onlyACallExpandsAcrossTargets()
       "    one: function(n: string?): string?",
       "    two: function(n: string?): (string?, any)",
       "end",
-      "local b = new m.Box {}",
+      "local b = new m.Box()",
       "b.one = function(n)",
       "    if n == 'x' then return b.one(n) end",
       "    return b.two(n)",
@@ -257,8 +257,8 @@ function M.newConstructsRecordsAndStructs()
       "    x: float",
       "    y: float",
       "end",
-      "local a = new Account {name = 'Hina', balance = 500}",
-      "local named = new V2 {x = 3.0, y = 4.0}",
+      "local a = new Account(name = 'Hina', balance = 500)",
+      "local named = new V2(3.0, 4.0)",
       "local positional = new V2(1.0, 2.0)",
       "a:deposit(20)",
       "return a.balance + named.x + named.y + positional.x + positional.y",
@@ -276,7 +276,7 @@ function M.newStaysAnOrdinaryNameElsewhere()
       "local new = id",
       "local held = new",
       "id(R)",
-      "local built = new R {n = 5}",
+      "local built = new R(n = 5)",
       "return built.n + (held == id and 1 or 0)",
    }, "\n")), 6)
 end
@@ -311,16 +311,12 @@ function M.whereRefinementsDecideIsAtRuntime()
       "local interface Circle is Shape",
       "   kind: string",
       "   radius: number",
-      "   matches",
-      "      self.kind == 'circle'",
-      "   end",
+      "   satisfies |self| -> self.kind == 'circle'",
       "end",
       "local interface Square is Shape",
       "   kind: string",
       "   side: number",
-      "   matches",
-      "      self.kind == 'square'",
-      "   end",
+      "   satisfies |self| -> self.kind == 'square'",
       "end",
       "local function area(s: Shape): number",
       "   if s is Circle then return 3 * s.radius * s.radius end",
@@ -339,9 +335,7 @@ function M.whereRefinementsGiveAnInterfaceARuntimeIdentity()
    assertEq(run(table.concat({
       "local interface Tagged",
       "   tag: string",
-      "   matches",
-      "      type(self.tag) == 'string'",
-      "   end",
+      "   satisfies |self| -> type(self.tag) == 'string'",
       "end",
       "local function describe(v: any): string",
       "   if v is Tagged then return 'tagged ' .. v.tag end",
@@ -357,9 +351,7 @@ function M.aComputedSubjectIsEvaluatedOnce()
    assertEq(run(table.concat({
       "local interface Tagged",
       "   tag: string",
-      "   matches",
-      "      self.tag == 'x'",
-      "   end",
+      "   satisfies |self| -> self.tag == 'x'",
       "end",
       "local calls = 0",
       "local function make(): any",
@@ -385,9 +377,7 @@ function M.aRefinementReachesThroughFieldsSafely()
       "end",
       "local interface Deep",
       "   a: Mid",
-      "   matches",
-      "      self.a.b.c == 'x'",
-      "   end",
+      "   satisfies |self| -> self.a.b.c == 'x'",
       "end",
    }, "\n")
    -- present, absent halfway, and not a table at all
@@ -429,7 +419,7 @@ function M.instancesAreRecognisedThroughTheirPrototype()
       "end",
       "newEvent(OnSpawn)",
       "local linked = OnSpawn(42)",
-      "local stamped = new OnSpawn {eventId = 1, entity = 2}",
+      "local stamped = new OnSpawn(eventId = 1, entity = 2)",
       "local foreign: any = {eventId = 1, entity = 2}",
       -- linked and stamped are both instances; a lookalike and the declaration's
       -- own table are not
@@ -451,7 +441,7 @@ function M.aProvenInterfaceNeedsNoTest()
       "   kind: string",
       "   radius: number",
       "end",
-      "local c = new Circle {kind = 'c', radius = 1}",
+      "local c = new Circle(kind = 'c', radius = 1)",
       "local maybe: Circle? = c",
       "local absent: Circle? = nil",
       "return (c is Shape and 1 or 0) + (maybe is Shape and 2 or 0)",
@@ -489,9 +479,7 @@ function M.aTaggedInterfaceDerivesItsOwnTest()
       "",
       "local interface Odd",
       "   kind: 'odd'",
-      "   matches",
-      "      self.kind == 'even'",
-      "   end",
+      "   satisfies |self| -> self.kind == 'even'",
       "end",
       "local v: any = {kind = 'odd'}",
       "local w: any = {kind = 'even'}",
@@ -514,7 +502,7 @@ function M.interfacesCarryDefaultBodies()
       "local record Person is Greeter",
       "   name: string",
       "end",
-      "local p = new Person {name = 'Ada'}",
+      "local p = new Person(name = 'Ada')",
       "return p:greet()",
    }, "\n")), "hello, Ada")
    -- a struct takes it through the metatype's index table
@@ -530,7 +518,7 @@ function M.interfacesCarryDefaultBodies()
       "   w: float",
       "   h: float",
       "end",
-      "return (new Box {w = 3, h = 4}):area()",
+      "return (new Box(3, 4)):area()",
    }, "\n")), 12)
    -- and a chain of interfaces passes it along
    assertEq(run(table.concat({
@@ -546,7 +534,7 @@ function M.interfacesCarryDefaultBodies()
       "local record Leaf is Mid",
       "   n: integer",
       "end",
-      "return (new Leaf {n = 21}):twice()",
+      "return (new Leaf(n = 21)):twice()",
    }, "\n")), 42)
 end
 
@@ -581,7 +569,7 @@ function M.overridingADefaultIsDeclared()
       "      return 'LOUD'",
       "   end",
       "end",
-      "return (new Loud {name = 'x'}):greet()",
+      "return (new Loud(name = 'x')):greet()",
    }, "\n")), "LOUD")
    -- and claiming to override nothing is refused too
    assertEq(diagsOf(table.concat({
@@ -626,7 +614,7 @@ function M.aDefaultInheritedTwiceMustBeChosen()
       "      return 'mine'",
       "   end",
       "end",
-      "return (new Good {n = 1}):tag()",
+      "return (new Good(n = 1)):tag()",
    }, "\n")), "mine")
 end
 
@@ -637,7 +625,7 @@ function M.constructorsRunAndFillEveryField()
       "local record Account",
       "    name: string",
       "    balance: number",
-      "    constructor(name: string, opening: number)",
+      "    constructor(self, name: string, opening: number)",
       "        self.name = name",
       "        self.balance = opening",
       "    end",
@@ -653,7 +641,7 @@ function M.constructorsRunAndFillEveryField()
    assertEq(run(table.concat({
       "local record R",
       "    n: integer",
-      "    constructor(v: integer)",
+      "    constructor(self, v: integer)",
       "        self.n = v",
       "    end",
       "end",
@@ -668,7 +656,7 @@ function M.constructorsRefuseWhatTheyCannotGuarantee()
       "local record A",
       "    name: string",
       "    balance: number",
-      "    constructor(n: string)",
+      "    constructor(self, n: string)",
       "        self.name = n",
       "    end",
       "end",
@@ -678,7 +666,7 @@ function M.constructorsRefuseWhatTheyCannotGuarantee()
       "local record B",
       "    name: string",
       "    note: string?",
-      "    constructor(n: string)",
+      "    constructor(self, n: string)",
       "        self.name = n",
       "    end",
       "end",
@@ -690,7 +678,7 @@ function M.constructorsRefuseWhatTheyCannotGuarantee()
       "   name: string",
       "end",
       "local record Person is Named",
-      "   constructor()",
+      "   constructor(self)",
       "   end",
       "end",
    }, "\n")), "NUPP2208:5")
@@ -699,7 +687,7 @@ function M.constructorsRefuseWhatTheyCannotGuarantee()
       "   name: string",
       "end",
       "local record Person is Named",
-      "   constructor(n: string)",
+      "   constructor(self, n: string)",
       "      self.name = n",
       "   end",
       "end",
@@ -708,7 +696,7 @@ function M.constructorsRefuseWhatTheyCannotGuarantee()
    assertEq(diagsOf(table.concat({
       "local interface I",
       "    n: integer",
-      "    constructor(v: integer)",
+      "    constructor(self, v: integer)",
       "        self.n = v",
       "    end",
       "end",
@@ -717,10 +705,10 @@ function M.constructorsRefuseWhatTheyCannotGuarantee()
    assertClean(table.concat({
       "local record T",
       "    n: integer",
-      "    constructor(v: integer)",
+      "    constructor(self, v: integer)",
       "        self.n = v",
       "    end",
-      "    constructor(v: string)",
+      "    constructor(self, v: string)",
       "        self.n = #v",
       "    end",
       "end",
@@ -731,10 +719,10 @@ function M.overloadedConstructorsSelectDistinctBodies()
    assertEq(run(table.concat({
       "local record Value",
       "    text: string",
-      "    constructor(value: integer)",
+      "    constructor(self, value: integer)",
       "        self.text = tostring(value)",
       "    end",
-      "    constructor(value: string)",
+      "    constructor(self, value: string)",
       "        self.text = value",
       "    end",
       "end",
@@ -745,10 +733,10 @@ function M.overloadedConstructorsSelectDistinctBodies()
    assertEq(diagsOf(table.concat({
       "local record Duplicate",
       "    value: integer",
-      "    constructor(value: integer)",
+      "    constructor(self, value: integer)",
       "        self.value = value",
       "    end",
-      "    constructor(other: integer)",
+      "    constructor(self, other: integer)",
       "        self.value = other",
       "    end",
       "end",
@@ -759,10 +747,10 @@ function M.genericConstructorsRemainOverloadedAfterInstantiation()
    assertEq(run(table.concat({
       "local record Box<T>",
       "    value: T",
-      "    constructor(kind: 'value', value: T)",
+      "    constructor(self, kind: 'value', value: T)",
       "        self.value = value",
       "    end",
-      "    constructor(kind: 'converted', value: T, convert: boolean)",
+      "    constructor(self, kind: 'converted', value: T, convert: boolean)",
       "        self.value = (convert and tostring(value) or value) as any",
       "    end",
       "end",
@@ -780,7 +768,7 @@ function M.aConstructorClosesTheLiteralForm()
    local decl = table.concat({
       "local record A",
       "    n: integer",
-      "    constructor(v: integer)",
+      "    constructor(self, v: integer)",
       "        self.n = v",
       "    end",
       "end",
@@ -792,7 +780,7 @@ function M.aConstructorClosesTheLiteralForm()
       "local record C",
       "    constructor: string",
       "end",
-      "local c = new C {constructor = 'x'}",
+      "local c = new C(constructor = 'x')",
    }, "\n"))
 end
 
@@ -805,14 +793,14 @@ function M.aContractIsHeldToTheValueThatFulfilsIt()
       "   v: integer",
       "   metamethod __add: function(self: I64, other: I64): I64",
       "end",
-      "local x = new I64 {v = 1}",
+      "local x = new I64(v = 1)",
    }, "\n")
    assertEq(diagsOf(i64 .. "\nsetmetatable(x, {__add = 'not a function'})"),
       "NUPP2123:6")
    assertClean(i64 .. table.concat({
       "",
       "setmetatable(x, {__add = function(a: I64, b: I64): I64",
-      "   return new I64 {v = a.v + b.v}",
+      "   return new I64(v = a.v + b.v)",
       "end})",
    }, "\n"))
 end
@@ -820,7 +808,7 @@ end
 -- Where a declaration contracts for nothing, LuaJIT still says what it will do
 -- with the key it reads.
 function M.aKeyWithNoContractIsHeldToWhatLuaJITDoesWithIt()
-   local r = "local record R end\nlocal r = new R {}\n"
+   local r = "local record R end\nlocal r = new R()\n"
    assertEq(diagsOf(r .. "setmetatable(r, {__mode = 42})"), "NUPP2123:3")
    assertEq(diagsOf(r .. "setmetatable(r, {__gc = 'soon'})"), "NUPP2123:3")
    assertEq(diagsOf(r .. "setmetatable(r, {__index = 42})"), "NUPP2123:3")
@@ -837,7 +825,7 @@ function M.aRecordsTableIsNotAnInstanceOfIt()
    local foo = "local record Foo\n   v: integer\nend\n"
    assertClean(foo .. table.concat({
       "local mt: metatable<Foo> = Foo",
-      "local instance: Foo = new Foo {v = 1}",
+      "local instance: Foo = new Foo(v = 1)",
       "return {mt, instance}",
    }, "\n"))
    -- the table is not an instance
@@ -845,7 +833,7 @@ function M.aRecordsTableIsNotAnInstanceOfIt()
       "NUPP2001:4")
    -- and an instance is not the table
    assertEq(diagsOf(foo .. table.concat({
-      "local instance = new Foo {v = 1}",
+      "local instance = new Foo(v = 1)",
       "local wrong: metatable<Foo> = instance",
       "return wrong",
    }, "\n")), "NUPP2001:5")
@@ -856,7 +844,7 @@ function M.aRecordsTableIsNotAnInstanceOfIt()
       "      n: integer",
       "   end",
       "end",
-      "local made = new Outer.Inner {n = 4}",
+      "local made = new Outer.Inner(n = 4)",
       "return made.n",
    }, "\n")), 4)
 end
@@ -869,7 +857,7 @@ function M.aTableIsNotAnInstanceAndIsSaysSoWithoutAsking()
       "local record Foo",
       "   v: integer",
       "end",
-      "local instance = new Foo {v = 1}",
+      "local instance = new Foo(v = 1)",
    }, "\n")
    assertEq(run(foo .. table.concat({
       "",
@@ -891,7 +879,7 @@ function M.aMetamethodOnAnInstanceIsRefused()
    }, "\n")
    assertEq(diagsOf(i64 .. table.concat({
       "",
-      "local x = new I64 {v = 1}",
+      "local x = new I64(v = 1)",
       "x.__tostring = tostring",
    }, "\n")), "NUPP2004:6")
    -- and on the table it is the installation
@@ -951,7 +939,7 @@ function M.aContractIsInstalledOnTheRecordsOwnTable()
       "I64.__tostring = function(self: I64): string",
       "   return 'I64(' .. tostring(self.v) .. ')'",
       "end",
-      "return tostring(new I64 {v = 7})",
+      "return tostring(new I64(v = 7))",
    }, "\n")), "I64(7)")
    -- the value is held to the contract it fulfils
    assertEq(diagsOf(i64 .. "\nI64.__tostring = 42"), "NUPP2123:5")
@@ -996,7 +984,7 @@ function M.anIndexTableIsHeldToTheMembersItStandsIn()
       "   value: integer",
       "   label: function(self: Counter): string",
       "end",
-      "local c = new Counter {value = 1, label = tostring}",
+      "local c = new Counter(value = 1, label = tostring)",
    }, "\n")
    assertEq(diagsOf(counter .. table.concat({
       "",
@@ -1020,7 +1008,7 @@ function M.aComputedMetatableStaysGradual()
       "local record R",
       "   metamethod __tostring: function(self): string",
       "end",
-      "local r = new R {}",
+      "local r = new R()",
       "local function build(): table",
       "   return {__tostring = 42}",
       "end",
@@ -1083,7 +1071,7 @@ function M.aGenericMethodStillInfers()
       "      return value",
       "   end",
       "end",
-      "local box = new Box {}",
+      "local box = new Box()",
       "local wrong: string = box:idOf(42)",
       "return wrong",
    }, "\n") .. "\n"
@@ -1094,7 +1082,7 @@ function M.aGenericMethodStillInfers()
       "      return value",
       "   end",
       "end",
-      "local box = new Box {}",
+      "local box = new Box()",
       "local kept: integer = box:idOf(42)",
       "return kept",
    }, "\n") .. "\n")

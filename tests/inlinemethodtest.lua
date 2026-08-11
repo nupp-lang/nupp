@@ -71,7 +71,7 @@ record m.Point
     end
 end
 
-return (new m.Point {x = 3, y = 4}):lengthSquared()
+return (new m.Point(x = 3, y = 4)):lengthSquared()
 ]], "written-out self")
    assertEq(value, 25, "the receiver reaches the body")
 end
@@ -103,7 +103,7 @@ record m.P
         return 42
     end
 end
-return (new m.P {n = 4}):twice() + m.P.answer()
+return (new m.P(n = 4)):twice() + m.P.answer()
 ]], "static and instance functions")
    assertEq(value, 50)
    assert(code:find("function m.P:twice()", 1, true))
@@ -122,7 +122,7 @@ record m.Adder
     end
 end
 
-return (new m.Adder {base = 1}):plus(2, 3)
+return (new m.Adder(base = 1)):plus(2, 3)
 ]], "self plus parameters")
    assertEq(value, 6, "the arguments land on the right parameters")
 end
@@ -157,7 +157,7 @@ local record Decoder
         return "integer:" .. tostring(value)
     end
 end
-local decoder = new Decoder {}
+local decoder = new Decoder()
 return decoder:decode("hello") .. "," .. decoder:decode(7)
 ]], "overloaded bodies")
    assertEq(value, "text:hello,integer:7", "each call reaches its selected body")
@@ -196,7 +196,7 @@ end
 local calls = 0
 local function decoder(): Decoder
     calls = calls + 1
-    return new Decoder {}
+    return new Decoder()
 end
 return decoder():decode("once") .. ":" .. tostring(calls)
 ]], "overloaded receiver evaluation")
@@ -209,7 +209,7 @@ local record Decoder
     function decode(self, text: string): string return text end
     function decode(self, value: integer): string return tostring(value) end
 end
-local decoder = new Decoder {}
+local decoder = new Decoder()
 ]]
    assertEq(diagnostics(declaration .. "decoder:decode(true)"), "NUPP2125:6")
    assertEq(diagnostics(declaration .. "local value: any = 1\ndecoder:decode(value)"),
@@ -239,7 +239,7 @@ local record LoudDecoder is Decoder
     function decode(self, text: string): string return "loud:" .. text end
 end
 
-local decoder: Decoder = new LoudDecoder {}
+local decoder: Decoder = new LoudDecoder()
 return decoder:decode("yes") .. "," .. decoder:decode(3)
 ]], "overloaded interface defaults")
    assertEq(value, "loud:yes,number:3",
@@ -259,7 +259,7 @@ end
 local record Decoder is TextDecoder, NumberDecoder
 end
 
-local decoder = new Decoder {}
+local decoder = new Decoder()
 return decoder:decode("yes") .. "," .. decoder:decode(3)
 ]], "distributed interface overloads")
    assertEq(value, "text:yes,number:3",
@@ -278,7 +278,7 @@ local record Decoder is DecoderContract
     function decode(self, value: integer): string return "number:" .. tostring(value) end
 end
 
-local decoder: DecoderContract = new Decoder {}
+local decoder: DecoderContract = new Decoder()
 return decoder:decode("yes") .. "," .. decoder:decode(3)
 ]], "bodyless overloaded interface contract")
    assertEq(value, "text:yes,number:3",
@@ -297,7 +297,7 @@ local record Decoder is DecoderContract
     function decode(self, value: string): string return "value:" .. value end
 end
 
-local decoder: DecoderContract = new Decoder {}
+local decoder: DecoderContract = new Decoder()
 return decoder:decode(text = "yes") .. "," .. decoder:decode(value = "yes")
 ]], "labeled bodyless interface contract")
    assertEq(value, "text:yes,value:yes",
@@ -311,7 +311,7 @@ local record Codec<T>
     function encode(self, values: {T}): string return "many:" .. tostring(values[1]) end
 end
 
-local codec: Codec<integer> = new Codec {}
+local codec: Codec<integer> = new Codec()
 return codec:encode(4) .. "," .. codec:encode({5})
 ]], "generic overloaded methods")
    assertEq(value, "one:4,many:5",

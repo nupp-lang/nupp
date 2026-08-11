@@ -350,12 +350,8 @@ function ownership.install(c: state.Checker): ownership.Ops
             end
             return own.provenanceOwner(expr.rhs)
         elseif expr.kind == "call" and expr.recordConstruct then
-            local arguments = expr.args and expr.args.exprs or {}
-            if expr.args and expr.args.table then
-                arguments = {expr.args.table}
-            end
-            for _, argument in ipairs(arguments) do
-                local owner = own.provenanceOwner(argument)
+            for _, binding in ipairs(expr.recordFields or {}) do
+                local owner = own.provenanceOwner(binding.node)
                 if owner then
                     return owner
                 end
@@ -400,12 +396,11 @@ function ownership.install(c: state.Checker): ownership.Ops
                 own.provenanceOwners(field.value, out, seen)
             end
         elseif expr.kind == "call" and expr.recordConstruct then
-            local arguments = expr.args and expr.args.exprs or {}
-            if expr.args and expr.args.table then
-                arguments = {expr.args.table}
-            end
-            for _, argument in ipairs(arguments) do
-                own.provenanceOwners(argument, out, seen)
+            -- The fields the checker resolved, rather than the arguments as written:
+            -- a value named by its field and one placed by its order fill the same
+            -- slot, and what a construction carries in is what landed in a field.
+            for _, binding in ipairs(expr.recordFields or {}) do
+                own.provenanceOwners(binding.node, out, seen)
             end
         elseif expr.kind == "binop" then
             own.provenanceOwners(expr.lhs, out, seen)

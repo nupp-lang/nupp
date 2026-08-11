@@ -23,7 +23,7 @@ end
 
 -- models.nupp — the same file, once it is ready to hold the floor
 local function scale(p: Point, k: number): Point
-    return new Point {x = p.x * k, y = p.y * k}
+    return new Point(x = p.x * k, y = p.y * k)
 end
 ```
 

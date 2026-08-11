@@ -2495,15 +2495,24 @@ function gen.generate(
             return
 
         elseif (kind == "call" or kind == "safeCall") and x.recordConstruct then
-            -- R{...} builds an ordinary table carrying R as its metatable
+            -- `new R(...)` builds an ordinary table carrying R as its metatable. The
+            -- table is written here rather than taken from the call, so a construction
+            -- allocates the instance and nothing besides it.
+            --
+            -- The fields come out in the order they were written, whether the call
+            -- named them or left them to the declaration's order, because that is
+            -- where the source put the evaluation of their values.
             local first = x[1]
             local line = first and cst.isToken(first) and first.line or nil
-            e("setmetatable(", line)
-            local tbl = x.args and (x.args.table or (x.args.exprs or {})[1])
-            if tbl then
-                emit(tbl)
+            e("setmetatable({", line)
+            for index, binding in ipairs(x.recordFields or {}) do
+                if index > 1 then
+                    e(", ")
+                end
+                e(cst.identifier(binding.name) and (binding.name .. " = ") or ("[%q] = "):format(binding.name))
+                emit(binding.node)
             end
-            e(", " .. x.recordConstruct .. ")")
+            e("}, " .. x.recordConstruct .. ")")
             return
 
         elseif kind == "constructorDecl" and x.inlineRuntimeOwner then
@@ -2515,8 +2524,14 @@ function gen.generate(
             local first = x[1]
             local line = first and cst.isToken(first) and first.line or nil
             local names = {}
-            for _, p in ipairs(body.params or {}) do
-                if p.namedVararg then
+            for index, p in ipairs(body.params or {}) do
+                -- The receiver is written out the way a method's is, and is no more an
+                -- argument here than it is there: the instance is made below, so a
+                -- parameter of that name would shadow it with whatever the caller
+                -- happened to pass first.
+                if index == 1 and p.name and p.name.text == "self" then
+                -- skipped
+                elseif p.namedVararg then
                     names[#names + 1] = "..."
                 elseif p.name then
                     names[#names + 1] = p.name.text

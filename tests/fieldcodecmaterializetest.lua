@@ -59,7 +59,7 @@ const PositionCodec: nupp.FieldCodec.KeyedCodec<Position> = comptime do
     return nupp.fieldcodec.compile(reflect(Position))
 end
 
-local encoded = PositionCodec:encode(new Position {x = 10, y = 20})
+local encoded = PositionCodec:encode(new Position(x = 10, y = 20))
 return {x = encoded["x"], y = encoded["y"], fingerprint = PositionCodec.fingerprint}
 ]])
    assertEq(result.x, 10, "x field")
@@ -81,7 +81,7 @@ end
 const Codec: nupp.FieldCodec.KeyedCodec<Point> = comptime do
     return keyed(reflect(Point))
 end
-local encoded = Codec:encode(new Point {x = 3, y = 4})
+local encoded = Codec:encode(new Point(x = 3, y = 4))
 return {x = encoded.x, y = encoded.y}
 ]]
    local encoded = run(src)

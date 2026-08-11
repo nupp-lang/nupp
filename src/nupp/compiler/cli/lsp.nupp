@@ -1059,4 +1059,4 @@ local function dispatch(args: any): integer
     return 0
 end
 
-return new spec.Handler {spec = command, raw = true, run = dispatch}
+return new spec.Handler(spec = command, raw = true, run = dispatch)

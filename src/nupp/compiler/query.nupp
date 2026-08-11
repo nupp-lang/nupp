@@ -93,7 +93,7 @@ end
 
 --- A new, empty query database.
 function query.new(): query.Q
-    return new query.Q {revision = 1, inputs = {}, defs = {}, memo = {}, stack = {}, active = {}, stats = {},}
+    return new query.Q(revision = 1, inputs = {}, defs = {}, memo = {}, stack = {}, active = {}, stats = {})
 end
 
 --- Registers how to compute a derived query.

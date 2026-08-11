@@ -187,11 +187,11 @@ end
 const Build: function(Actions): nupp.peg.Peg<(string, integer)> = comptime do
     return nupp.peg.compile("[a-z]+ -> pair !.")
 end
-local matcher = Build(new Actions {
+local matcher = Build(new Actions(
     pair = function(text: string): (string, integer)
         return text, #text
-    end,
-})
+    end
+))
 local runtime = nupp.peg.compile("[a-z]+ -> pair !.", {
     definitions = {
         pair = function(value: string): (string, integer)
@@ -256,9 +256,9 @@ end
 const FalseResult: function(Actions): nupp.peg.Peg<boolean> = comptime do
     return nupp.peg.compile("'x' -> reject", {backend = "vm"})
 end
-local ReturnsFalse = FalseResult(new Actions {
-    reject = function(_: string): boolean return false end,
-})
+local ReturnsFalse = FalseResult(new Actions(
+    reject = function(_: string): boolean return false end
+))
 
 return Word:isMatch("123 hello"), Word:isMatch("hello 123", 2),
     Word:isMatch("123 hello", -5), Word:isMatch("123", 5),
@@ -294,9 +294,9 @@ end
 const Drop: function(Actions): nupp.peg.Peg<nil> = comptime do
     return nupp.peg.compile("'x' -> drop", {backend = "vm"})
 end
-local DropsValue = Drop(new Actions {
-    drop = function(_: string): nil return nil end,
-})
+local DropsValue = Drop(new Actions(
+    drop = function(_: string): nil return nil end
+))
 
 local first, nextPosition, value = Word:find("123 hello")
 local recognizerFirst, recognizerNext, recognizerValue = Identifier:find("123 hello")
@@ -715,12 +715,12 @@ const Number: function(NumberActions): nupp.peg.Peg<integer> = comptime do
 end
 
 local calls = 0
-local matcher = Number(new NumberActions {
+local matcher = Number(new NumberActions(
     number = function(text: string): integer
         calls = calls + 1
         return tonumber(text) as integer
-    end,
-})
+    end
+))
 return matcher("1234"), calls
 ]])
    assertEq(result, 1234, "action result")
@@ -736,12 +736,12 @@ const Build: function(Actions): nupp.peg.Peg<string> = comptime do
     return nupp.peg.compile("(('a' -> text) 'z' / ('ab' -> text)) !.")
 end
 local calls = 0
-local matcher = Build(new Actions {
+local matcher = Build(new Actions(
     text = function(value: string): string
         calls = calls + 1
         return value
-    end,
-})
+    end
+))
 return matcher("ab"), calls
 ]])
    assertEq(value, "ab", "winning action value")
@@ -758,11 +758,11 @@ const Build: function(Actions): nupp.peg.Peg<{integer}> = comptime do
     return nupp.peg.compile("{| ([0-9]+ -> number) (',' ([0-9]+ -> number))* |} !.")
 end
 
-local matcher = Build(new Actions {
+local matcher = Build(new Actions(
     number = function(value: string): integer
         return tonumber(value) as integer
-    end,
-})
+    end
+))
 return matcher("10,20,30")
 ]])
    assertEq(#values, 3, "action collection length")

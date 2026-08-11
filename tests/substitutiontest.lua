@@ -49,7 +49,7 @@ function M.aGenericMethodPreservesItsOwnBinder()
       "      return value",
       "   end",
       "end",
-      "local box = new Box {}",
+      "local box = new Box()",
    }, "\n") .. "\n"
    reports(body .. "local wrong: string = box:idOf(42)\nreturn wrong\n", "NUPP2001")
    clean(body .. "local kept: integer = box:idOf(42)\nreturn kept\n")
@@ -66,7 +66,7 @@ function M.aGenericDefaultMethodPreservesItsOwnBinder()
       "end",
       "local record Box is Source",
       "end",
-      "local box = new Box {}",
+      "local box = new Box()",
    }, "\n") .. "\n"
    reports(body .. "local wrong: string = box:idOf(42)\nreturn wrong\n", "NUPP2001")
    clean(body .. "local kept: integer = box:idOf(42)\nreturn kept\n")
@@ -104,7 +104,7 @@ function M.anInheritedSelfFollowsTheReceiver()
       "local record Node is Chainable",
       "   value: integer",
       "end",
-      "local node = new Node {value = 1}",
+      "local node = new Node(value = 1)",
    }, "\n") .. "\n"
    clean(body .. "local same: Node = node:chain()\nreturn same\n")
    reports(body .. "local wrong: string = node:chain()\nreturn wrong\n", "NUPP2001")

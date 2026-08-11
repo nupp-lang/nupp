@@ -190,8 +190,8 @@ local function draw(x: number, y: number, color: string?): nil
     print(x, y, color)
 end
 
-local position = new Vec3 {x = 1, y = 2, z = 3}
-local entity = new Entity {position = position}
+local position = new Vec3(x = 1, y = 2, z = 3)
+local entity = new Entity(position = position)
 draw(...entity.position, color = "blue")
 draw(x = position.x, y = position.y)
 
@@ -404,7 +404,7 @@ local record Decoder
     function decode(self, value: integer): string return "integer:" .. tostring(value) end
 end
 
-local decoder = new Decoder {}
+local decoder = new Decoder()
 local text: string = decoder:decode("source")
 local number: string = decoder:decode(42)
 
@@ -426,23 +426,30 @@ declares no `__call` contract is **NUPP2202**, and `new` on anything that is not
 a record or a struct is **NUPP2206**.
 
 The word is contextual — a name has to follow it on the same line — so a
-variable named `new` still means what it did. A construction's brace stands off
-its type, `new Point {x = 1}`, because the fields belong to the type rather than
-being an argument to it; the `f{...}` call sugar it is otherwise spelled like
-still hugs.
+variable named `new` still means what it did.
+
+A construction's values are its arguments: `new Point(x = 1, y = 2)`. The table
+is the compiler's to build, so the instance is the only allocation and an
+initializer table beside one is **NUPP2202**. Fields fill in written order, so
+their values evaluate where the source put them. `new Point(1, 2)` fills them in
+declaration order instead, builds the same table, and reports **NUPP2512**. A
+struct has no such choice: it is its C layout, so `new Vec2(1.0, 2.0)` lowers to
+`Vec2(1.0, 2.0)` with no table at any point, and naming its fields is
+**NUPP2202**.
 
 `local p: Point` declares storage and constructs nothing, so it holds nil until
 something assigns to it and reading it before that is **NUPP2207**.
 
-A declaration may state how it is built. A `constructor(...)` body is what
+A declaration may state how it is built. A `constructor(self, ...)` body is what
 `new T(...)` runs: the instance is made before it and returned after it, so the
-body fills the fields in. Several constructors may declare distinguishable
-parameter packs; the call selects exactly one and invokes it directly. Every
-field that cannot hold nil has to be filled — that guarantee is the reason to
-prefer one over a literal, and it is why declaring a constructor closes the
-literal form for that declaration. A duplicate parameter pack or a body that
-breaks either guarantee is **NUPP2208**. `constructor` is contextual, so a
-field may still be called one.
+body fills the fields in. It names that instance where a method names its
+receiver, and no more passes it than a method does. Several constructors may
+declare distinguishable parameter packs; the call selects exactly one and
+invokes it directly. Every field that cannot hold nil has to be filled — that
+guarantee is the reason to prefer one, and it is why declaring a constructor
+closes the direct form. A duplicate parameter pack, a missing receiver, or a
+body that breaks either guarantee is **NUPP2208**. `constructor` is contextual,
+so a field may still be called one.
 
 The name is a value too: the runtime table `new` stamps on the instances it
 builds. That table is their metatable, so it holds `metatable<Point>` rather
@@ -472,14 +479,14 @@ record m.Diagonal
     x: integer
     y: integer
 
-    constructor(at: integer)
+    constructor(self, at: integer)
         self.x = at
         self.y = at
     end
 end
 
 local corner = new m.Diagonal(3)
-local origin = new m.Point {x = 0, y = 0}
+local origin = new m.Point(x = 0, y = 0)
 print(corner.x, origin:lengthSquared())
 
 return m
@@ -582,7 +589,7 @@ the bounds unite, and the answers distribute.
 Associated types are not nested `type` aliases: an alias is lexically scoped,
 reachable by path, and not inherited. They have no runtime representation at all, so a
 projection is only legal where a C layout is needed once it resolves concretely, an
-interface leaving one unsettled cannot carry `matches` -- `== any` is fixed and still
+interface leaving one unsettled cannot carry `satisfies` -- `== any` is fixed and still
 settles nothing -- and an answer whose head inference never reached is checked as
 `any` and reported by `gradual-projection`.
 
@@ -610,9 +617,9 @@ record m.Archetype
     end
 end
 
-local archetype = new m.Archetype {}
+local archetype = new m.Archetype()
 local health: m.ScalarComponent<number> = nil as any
-local position = new m.Position {componentId = 1, x = 0}
+local position = new m.Position(componentId = 1, x = 0)
 
 local raw: {number} = archetype:column(health)
 local held: {m.Position} = archetype:column(position)
@@ -624,9 +631,13 @@ Reports: `NUPP2127`, `NUPP2128`, `NUPP2129`, `NUPP2134`, `NUPP2135`. `nupp expla
 
 ### Refinements
 
-An interface may carry a `matches` block, which names the runtime test that
-decides whether a value is one of these. `x is T` compiles to it, so
+An interface may carry a `satisfies` declaration, which names the runtime test
+that decides whether a value is one of these. `x is T` compiles to it, so
 `s is m.Circle` below becomes `type(s) == "table" and s.kind == "circle"`.
+
+It is a function of the value, so it is written as one, in either spelling a
+function takes anywhere else: `satisfies |self| -> test`, or `satisfies(self):
+boolean ... end` whose body is the one `return` saying the same thing.
 
 Only an interface. A record is identified by the metatable `new` stamps and a
 struct by its ctype, so both already answer `is` exactly; a refinement beside
@@ -652,9 +663,7 @@ interface m.Circle is m.Shape
     kind: string
     radius: number
 
-    matches
-        self.kind == "circle"
-    end
+    satisfies |self| -> self.kind == "circle"
 end
 
 function m.area(s: m.Shape): number
@@ -708,7 +717,7 @@ end
 local type Buffer = m.Vec3[?]
 local type Fixed = m.Vec3[16]
 
-local vertex = new m.Vertex {}
+local vertex = new m.Vertex()
 vertex.pos[0] = 1.5
 
 local layout = layoutof(m.Vertex)
@@ -1023,7 +1032,7 @@ return models
 ```nupp
 local models = require("models")
 
-local user: models.User = new models.User {id = 1, name = "ada"}
+local user: models.User = new models.User(id = 1, name = "ada")
 
 return user
 ```
@@ -1473,6 +1482,7 @@ Reports: `NUPP2414`, `NUPP2415`, `NUPP2416`, `NUPP2418`. `nupp explain <code>` s
 | `reifiable-record` | NUPP2509 | performance | off |
 | `gradual-projection` | NUPP2511 | suspicious | warning |
 | `else-if` | NUPP2510 | style | warning |
+| `positional-record-construction` | NUPP2512 | style | warning |
 
 ### Diagnostic codes with a worked example
 
@@ -1489,7 +1499,7 @@ Reports: `NUPP2414`, `NUPP2415`, `NUPP2416`, `NUPP2418`. `nupp explain <code>` s
 | NUPP2107 | A dispatch leaves members of a closed set unhandled |
 | NUPP2119 | A declaration does not say where it lives |
 | NUPP2121 | A type pack is used where only one value type can appear |
-| NUPP2122 | A 'where' refinement cannot be enforced |
+| NUPP2122 | A refinement cannot be enforced |
 | NUPP2123 | A metatable value does not fit the key it is written under |
 | NUPP2124 | An intersection is provably uninhabited |
 | NUPP2125 | No overload accepts a call |
@@ -1507,6 +1517,7 @@ Reports: `NUPP2414`, `NUPP2415`, `NUPP2416`, `NUPP2418`. `nupp explain <code>` s
 | NUPP2507 | A local is declared and nothing reads it |
 | NUPP2508 | A call that does nothing but return had its result dropped |
 | NUPP2511 | An associated type was erased because inference did not reach its head |
+| NUPP2512 | A record is built by field order rather than by naming its fields |
 | NUPP2605 | Adjusting a value pack would discard an affine value |
 | NUPP2701 | A non-suspending region can reach suspension |
 | NUPP2801 | A derive provider name is unknown or duplicated |

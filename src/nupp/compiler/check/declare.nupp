@@ -198,7 +198,56 @@ function declare.install(
             .. "unless it is converted first",}})
     end
 
-    --- Reads a `where` refinement into the runtime test it names, and holds it to the
+    --- The one statement a long-form refinement body is allowed to be, or nil.
+    ---
+    --- A refinement is a single test whichever way it is spelled, so the long form says
+    --- the same thing the short one does and says it with a `return`. Anything else is
+    --- a body the subset could never compile, and reporting that here names the shape
+    --- rather than leaving `predicate.build` to complain about whichever fragment it
+    --- reached first.
+    local function returnedExpression(block: any): any
+        local statements = {}
+        for _, entry in ipairs(block and block.stats or {}) do
+            if not cst.isToken(entry) and entry.kind ~= "emptyStmt" then
+                statements[#statements + 1] = entry
+            end
+        end
+        local only = #statements == 1 and statements[1] or nil
+        if not only or only.kind ~= "returnStmt" then
+            return nil
+        end
+        local values = only.exprs or {}
+
+        return #values == 1 and values[1] or nil
+    end
+
+    --- The test a refinement declares, read off whichever spelling was written.
+    ---
+    --- Both function forms reach the same place: the short one carries its expression
+    --- directly, and the long one carries a body that has to be the single `return`
+    --- saying the same thing.
+    local function refinementTest(clause: any): any, string?
+        local body = clause.body
+        if not body then
+            return nil, "empty"
+        end
+        local params = body.params or {}
+        local first = params[1]
+        if #params ~= 1 or not first or not first.name or first.name.text ~= "self" then
+            return nil, "parameter"
+        end
+        if body.kind == "shortfn" and body.expr then
+            return body.expr
+        end
+        local expression = returnedExpression(body.kind == "shortfn" and body.body or body.body)
+        if not expression then
+            return nil, "body"
+        end
+
+        return expression
+    end
+
+    --- Reads a refinement into the runtime test it names, and holds it to the
     --- declaration it belongs to.
     ---
     --- Three things have to be true before a refinement is worth compiling: the subset
@@ -207,7 +256,7 @@ function declare.install(
     --- failure keeps NUPP2122, which now means "this refinement cannot be enforced"
     --- rather than "no refinement is".
     local function checkRefinement(stat: any, n: any, clause: any)
-        local help = "a refinement tests the declaration's own fields: " .. "`matches self.kind == \"circle\" end`"
+        local help = "a refinement tests the declaration's own fields: " .. "`satisfies |self| -> self.kind == \"circle\"`"
 
         -- A record's identity is the metatable `new` stamps, and a struct's is its
         -- ctype. Both already answer `is` exactly, so a refinement beside one would be
@@ -229,7 +278,20 @@ function declare.install(
             return
         end
 
-        local built, why = predicate.build(clause.expr)
+        local test, shape = refinementTest(clause)
+        if not test then
+            local said = shape == "parameter"
+                and "a refinement takes the value it tests, and only that"
+                or shape == "body" and "a refinement is one test, so its body is one `return`"
+                or "a refinement needs a test"
+            c.diag("NUPP2122", clause, said, nil, {help = help})
+            return
+        end
+        -- What the rest of the compiler reads. Both spellings arrive here, and nothing
+        -- downstream has cause to know which one was written.
+        clause.expr = test
+
+        local built, why = predicate.build(test)
         if not built then
             c.diag("NUPP2122", clause, ("a refinement cannot be %s"):format(why), nil, {help = help})
             return
@@ -376,7 +438,7 @@ function declare.install(
                         n.associatedRequirements = n.associatedRequirements or {}
                         n.associatedRequirements[
                             #n.associatedRequirements + 1
-                        ] = new T.AssociatedRequirement {name = name, selfBinder = n.selfType}
+                        ] = new T.AssociatedRequirement(name = name, selfBinder = n.selfType)
                     end
                 end
             end
@@ -412,7 +474,7 @@ function declare.install(
                 end
             end
             if not requirement then
-                requirement = new T.AssociatedRequirement {name = name, selfBinder = n.selfType}
+                requirement = new T.AssociatedRequirement(name = name, selfBinder = n.selfType)
                 n.associatedRequirements[#n.associatedRequirements + 1] = requirement
             end
             requirement.bound = bound
@@ -434,12 +496,12 @@ function declare.install(
                 n.associatedAnswers = n.associatedAnswers or {}
                 n.associatedAnswers[
                     name
-                ] = new T.AssociatedAnswer {
+                ] = new T.AssociatedAnswer(
                     type = value,
                     selfBinder = n.selfType,
                     kind = e.fixed and "fixed" or "default",
-                    definition = definition,
-                }
+                    definition = definition
+                )
             end
 
             return nil
@@ -485,12 +547,12 @@ function declare.install(
         n.associatedAnswers = n.associatedAnswers or {}
         n.associatedAnswers[
             name
-        ] = new T.AssociatedAnswer {
+        ] = new T.AssociatedAnswer(
             type = value,
             selfBinder = n.selfType,
             kind = "answer",
-            definition = definition,
-        }
+            definition = definition
+        )
 
         return name
     end
@@ -782,6 +844,19 @@ function declare.install(
                 "a constructor returns the value it builds, so it declares no " .. "return type",
                 nil,
                 {help = "remove the return annotation"}
+            )
+        end
+        -- The instance the body fills in is named where a method names its receiver,
+        -- rather than appearing from nowhere. It is not an argument either way: what
+        -- `new T(...)` passes is everything after it.
+        local receiver = e.body and e.body.params and e.body.params[1]
+        if not (receiver and receiver.name and receiver.name.text == "self") then
+            c.diag(
+                "NUPP2208",
+                e.body or e,
+                "a constructor names the instance it fills in as its first parameter",
+                nil,
+                {help = "write `constructor(self, ...)`"}
             )
         end
         -- A funcbody's type is a function, whatever a body in general may be.
@@ -1874,7 +1949,7 @@ function declare.install(
             -- table to stamp at all, so a refinement is the only way one can answer
             -- `is`.
             for _, e in ipairs(stat.entries) do
-                if e.kind == "matchesDecl" then
+                if e.kind == "satisfiesDecl" then
                     if n.predicate then
                         c.diag(
                             "NUPP2122",
@@ -1889,15 +1964,15 @@ function declare.install(
                 end
             end
             -- The clause used to sit in the declaration head. It says the same thing a
-            -- `matches` block does and reads worse beside the others, so it is answered
-            -- rather than left to parse into nothing.
+            -- `satisfies` declaration does and reads worse beside the others, so it is
+            -- answered rather than left to parse into nothing.
             if stat.whereClause then
                 c.diag(
                     "NUPP2122",
                     stat.whereClause,
-                    "a refinement is written as a `matches` block in the body",
+                    "a refinement is written as a `satisfies` declaration in the body",
                     nil,
-                    {help = "write `matches <test> end` among the fields"}
+                    {help = "write `satisfies |self| -> <test>` among the fields"}
                 )
             end
             -- An interface whose fields carry literal types has already said what its

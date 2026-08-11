@@ -41,4 +41,4 @@ local function run(args: any): integer
     return project.runTask(".", name, args)
 end
 
-return new spec.Handler {spec = command, raw = true, run = run}
+return new spec.Handler(spec = command, raw = true, run = run)

@@ -582,14 +582,14 @@ function suspension.install(handler: suspension.Handler): suspension.Installed
     end
     -- What is stored is the installation, not the handler: a park belongs to the extent
     -- that accepted it, and one handler may be installed by two of them.
-    local installation = new suspension.Installed {
+    local installation = new suspension.Installed(
         co = co,
         previous = previous,
         handler = handler,
         restored = false,
         released = false,
-        parks = {},
-    }
+        parks = {}
+    )
     if co == nil then
         mainInstalled = installation
     else
@@ -729,7 +729,7 @@ local function drive<T>(
         end
     end
 
-    local branchHandler = new suspension.Handler {
+    local branchHandler = new suspension.Handler(
         park = function(_: suspension.Handler, waiting: suspension.Waiting, cancel: function(): nil): nil
             local index = indexOf[running()] as integer
             local function markRunnable(): nil
@@ -754,8 +754,8 @@ local function drive<T>(
             return true
         end,
         shutdown = function(_: suspension.Handler): nil
-        end,
-    }
+        end
+    )
 
     --- Starts the next body that has not been started. Counting inside is what keeps the
     --- index an integer rather than one arithmetic step away from being one.

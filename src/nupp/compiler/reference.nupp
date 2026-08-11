@@ -66,7 +66,7 @@ end
 -- Everything the reader needs, in the order it is worth reading.
 local SECTIONS: {reference.Section} = {
 
-    new reference.Section {
+    new reference.Section(
         title = "What Nupp is",
         codes = {},
         body = [=[
@@ -93,10 +93,10 @@ and C headers import as checked declarations. Everything else is ordinary Lua at
 run time.
 
 Generated code targets LuaJIT 2.1.1784535649 or newer.
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Declaring things",
         codes = {"NUPP2119"},
         body = [=[
@@ -122,10 +122,10 @@ record models.User
 end
 
 return models
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Types",
         codes = {"NUPP2101", "NUPP2001"},
         body = [=[
@@ -167,10 +167,10 @@ local type Point = {x: integer, y: integer}
 local type Handler = function(event: string): boolean
 local type Reply = unknown
 return m
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Functions",
         codes = {"NUPP2002", "NUPP2106"},
         body = [=[
@@ -205,10 +205,10 @@ function m.fail(message: string): never
 end
 
 return m
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Named arguments and value expansion",
         codes = {"NUPP2006", "NUPP2118", "NUPP2125", "NUPP2126"},
         body = [=[
@@ -261,16 +261,16 @@ local function draw(x: number, y: number, color: string?): nil
     print(x, y, color)
 end
 
-local position = new Vec3 {x = 1, y = 2, z = 3}
-local entity = new Entity {position = position}
+local position = new Vec3(x = 1, y = 2, z = 3)
+local entity = new Entity(position = position)
 draw(...entity.position, color = "blue")
 draw(x = position.x, y = position.y)
 
 return position
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Generics and bounds",
         codes = {"NUPP2101", "NUPP2131"},
         body = [=[
@@ -295,10 +295,10 @@ function m.labelOf<T is m.Named>(value: T): string
 end
 
 return m
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Type-level computation",
         codes = {"NUPP2130", "NUPP2132", "NUPP2133"},
         body = [=[
@@ -342,10 +342,10 @@ local deep: DeepElement<{{integer}}> = 1
 print(callback, element, deep)
 
 return m
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Type packs and variadic generics",
         codes = {"NUPP2010", "NUPP2121", "NUPP2605"},
         body = [=[
@@ -387,10 +387,10 @@ function m.protected<A..., R...>(
 end
 
 return m
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Property capabilities",
         codes = {"NUPP2001", "NUPP2009"},
         body = [=[
@@ -425,10 +425,10 @@ function m.show(input: Input): string
 end
 
 return m
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Intersections and overloads",
         codes = {"NUPP2124", "NUPP2125", "NUPP2126", "NUPP2208"},
         body = [=[
@@ -480,15 +480,15 @@ local record Decoder
     function decode(self, value: integer): string return "integer:" .. tostring(value) end
 end
 
-local decoder = new Decoder {}
+local decoder = new Decoder()
 local text: string = decoder:decode("source")
 local number: string = decoder:decode(42)
 
 return decimal, hexadecimal, text, number
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Records",
         codes = {"NUPP2004", "NUPP2118", "NUPP2202", "NUPP2206", "NUPP2207", "NUPP2208"},
         body = [=[
@@ -503,23 +503,30 @@ declares no `__call` contract is **NUPP2202**, and `new` on anything that is not
 a record or a struct is **NUPP2206**.
 
 The word is contextual — a name has to follow it on the same line — so a
-variable named `new` still means what it did. A construction's brace stands off
-its type, `new Point {x = 1}`, because the fields belong to the type rather than
-being an argument to it; the `f{...}` call sugar it is otherwise spelled like
-still hugs.
+variable named `new` still means what it did.
+
+A construction's values are its arguments: `new Point(x = 1, y = 2)`. The table
+is the compiler's to build, so the instance is the only allocation and an
+initializer table beside one is **NUPP2202**. Fields fill in written order, so
+their values evaluate where the source put them. `new Point(1, 2)` fills them in
+declaration order instead, builds the same table, and reports **NUPP2512**. A
+struct has no such choice: it is its C layout, so `new Vec2(1.0, 2.0)` lowers to
+`Vec2(1.0, 2.0)` with no table at any point, and naming its fields is
+**NUPP2202**.
 
 `local p: Point` declares storage and constructs nothing, so it holds nil until
 something assigns to it and reading it before that is **NUPP2207**.
 
-A declaration may state how it is built. A `constructor(...)` body is what
+A declaration may state how it is built. A `constructor(self, ...)` body is what
 `new T(...)` runs: the instance is made before it and returned after it, so the
-body fills the fields in. Several constructors may declare distinguishable
-parameter packs; the call selects exactly one and invokes it directly. Every
-field that cannot hold nil has to be filled — that guarantee is the reason to
-prefer one over a literal, and it is why declaring a constructor closes the
-literal form for that declaration. A duplicate parameter pack or a body that
-breaks either guarantee is **NUPP2208**. `constructor` is contextual, so a
-field may still be called one.
+body fills the fields in. It names that instance where a method names its
+receiver, and no more passes it than a method does. Several constructors may
+declare distinguishable parameter packs; the call selects exactly one and
+invokes it directly. Every field that cannot hold nil has to be filled — that
+guarantee is the reason to prefer one, and it is why declaring a constructor
+closes the direct form. A duplicate parameter pack, a missing receiver, or a
+body that breaks either guarantee is **NUPP2208**. `constructor` is contextual,
+so a field may still be called one.
 
 The name is a value too: the runtime table `new` stamps on the instances it
 builds. That table is their metatable, so it holds `metatable<Point>` rather
@@ -549,21 +556,21 @@ record m.Diagonal
     x: integer
     y: integer
 
-    constructor(at: integer)
+    constructor(self, at: integer)
         self.x = at
         self.y = at
     end
 end
 
 local corner = new m.Diagonal(3)
-local origin = new m.Point {x = 0, y = 0}
+local origin = new m.Point(x = 0, y = 0)
 print(corner.x, origin:lengthSquared())
 
 return m
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Interfaces",
         codes = {"NUPP2001"},
         body = [=[
@@ -583,10 +590,10 @@ record m.User is m.Named
 end
 
 return m
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Default implementations",
         codes = {"NUPP2118"},
         body = [=[
@@ -628,10 +635,10 @@ record m.Shouter is m.Greeter
 end
 
 return m
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Associated types",
         codes = {"NUPP2127", "NUPP2128", "NUPP2129", "NUPP2134", "NUPP2135"},
         body = [=[
@@ -662,7 +669,7 @@ the bounds unite, and the answers distribute.
 Associated types are not nested `type` aliases: an alias is lexically scoped,
 reachable by path, and not inherited. They have no runtime representation at all, so a
 projection is only legal where a C layout is needed once it resolves concretely, an
-interface leaving one unsettled cannot carry `matches` -- `== any` is fixed and still
+interface leaving one unsettled cannot carry `satisfies` -- `== any` is fixed and still
 settles nothing -- and an answer whose head inference never reached is checked as
 `any` and reported by `gradual-projection`.
 ]=],
@@ -690,24 +697,28 @@ record m.Archetype
     end
 end
 
-local archetype = new m.Archetype {}
+local archetype = new m.Archetype()
 local health: m.ScalarComponent<number> = nil as any
-local position = new m.Position {componentId = 1, x = 0}
+local position = new m.Position(componentId = 1, x = 0)
 
 local raw: {number} = archetype:column(health)
 local held: {m.Position} = archetype:column(position)
 
 return m, raw, held
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Refinements",
         codes = {"NUPP2122"},
         body = [=[
-An interface may carry a `matches` block, which names the runtime test that
-decides whether a value is one of these. `x is T` compiles to it, so
+An interface may carry a `satisfies` declaration, which names the runtime test
+that decides whether a value is one of these. `x is T` compiles to it, so
 `s is m.Circle` below becomes `type(s) == "table" and s.kind == "circle"`.
+
+It is a function of the value, so it is written as one, in either spelling a
+function takes anywhere else: `satisfies |self| -> test`, or `satisfies(self):
+boolean ... end` whose body is the one `return` saying the same thing.
 
 Only an interface. A record is identified by the metatable `new` stamps and a
 struct by its ctype, so both already answer `is` exactly; a refinement beside
@@ -733,9 +744,7 @@ interface m.Circle is m.Shape
     kind: string
     radius: number
 
-    matches
-        self.kind == "circle"
-    end
+    satisfies |self| -> self.kind == "circle"
 end
 
 function m.area(s: m.Shape): number
@@ -744,10 +753,10 @@ function m.area(s: m.Shape): number
 end
 
 return m
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Structs",
         codes = {"NUPP2203"},
         body = [=[
@@ -790,7 +799,7 @@ end
 local type Buffer = m.Vec3[?]
 local type Fixed = m.Vec3[16]
 
-local vertex = new m.Vertex {}
+local vertex = new m.Vertex()
 vertex.pos[0] = 1.5
 
 local layout = layoutof(m.Vertex)
@@ -800,10 +809,10 @@ for _, field in ipairs(layout.fields) do
 end
 
 return m
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Literal and tagged unions",
         codes = {"NUPP2107"},
         body = [=[
@@ -849,10 +858,10 @@ function m.area(shape: m.Shape): number
 end
 
 return m
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Narrowing",
         codes = {"NUPP2001"},
         body = [=[
@@ -885,10 +894,10 @@ function m.nameOf(user: {name: string?}): string
 end
 
 return m
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Owned resources",
         codes = {"NUPP2603", "NUPP2615"},
         body = [=[
@@ -955,10 +964,10 @@ function m.slurp(path: string): string
 end
 
 return m
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "C interop",
         codes = {"NUPP2203", "NUPP2101"},
         body = [=[
@@ -988,10 +997,10 @@ function m.magnitude(n: int32): int32
 end
 
 return m
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Annotations",
         codes = {"NUPP2119"},
         body = [=[
@@ -1026,10 +1035,10 @@ record m.User
 end
 
 return m
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Declaration derives",
         codes = {
             "NUPP2801", "NUPP2802", "NUPP2803", "NUPP2804",
@@ -1042,10 +1051,10 @@ source splicing. The providers add `debug`, static `default`, single-field
 infer through the static factories. `@default`, `@debug`, and `@json` configure
 fields. Generated members participate in lookup and conformance and conflict
 with written members. Derive augments a declaration; comptime produces values.
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Docblocks",
         codes = {"NUPP2506"},
         body = [=[
@@ -1078,10 +1087,10 @@ function m.load(path: string): string
 end
 
 return m
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Modules",
         codes = {"NUPP2120", "NUPP2101"},
         body = [=[
@@ -1116,13 +1125,13 @@ return models
         example = [=[
 local models = require("models")
 
-local user: models.User = new models.User {id = 1, name = "ada"}
+local user: models.User = new models.User(id = 1, name = "ada")
 
 return user
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "LuaJIT 3.0 syntax",
         codes = {"NUPP2504"},
         body = [=[
@@ -1170,10 +1179,10 @@ function m.demo(n: integer, flag: boolean, label: string?): integer
 end
 
 return m
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Lints and suppression",
         codes = {"NUPP2108"},
         body = [=[
@@ -1199,10 +1208,10 @@ function m.toggle(flag: boolean): boolean
 end
 
 return m
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Suspension regions",
         codes = {"NUPP2701"},
         body = [=[
@@ -1265,10 +1274,10 @@ function m.commit(values: {integer}, report: nosuspend function(n: number): nil)
 end
 
 return m
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Comptime",
         codes = {"NUPP2410", "NUPP2411", "NUPP2412", "NUPP2413", "NUPP2414", "NUPP2415", "NUPP2416",},
         body = [=[
@@ -1349,10 +1358,10 @@ function m.checksum(text: string): integer
 end
 
 return m
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "PEG matchers",
         codes = {"NUPP2414", "NUPP2415", "NUPP2416", "NUPP2417"},
         body = [=[
@@ -1496,10 +1505,10 @@ function m.fields(text: string): {string}?
 end
 
 return m
-]=],
-    },
+]=]
+    ),
 
-    new reference.Section {
+    new reference.Section(
         title = "Semantic reflection and field codecs",
         codes = {"NUPP2414", "NUPP2415", "NUPP2416", "NUPP2418"},
         body = [=[
@@ -1551,8 +1560,8 @@ function m.encode(position: Position): {[string]: any}
 end
 
 return m
-]=],
-    },
+]=]
+    ),
 
 }
 
@@ -1635,14 +1644,14 @@ local function languageSections(): {reference.Section}
     end
     sections[
         #sections + 1
-    ] = new reference.Section {title = "Built-in lints", codes = {}, body = table.concat(lintRows(), "\n"),}
+    ] = new reference.Section(title = "Built-in lints", codes = {}, body = table.concat(lintRows(), "\n"))
     sections[
         #sections + 1
-    ] = new reference.Section {
+    ] = new reference.Section(
         title = "Diagnostic codes with a worked example",
         codes = {},
-        body = table.concat(codeRows(), "\n"),
-    }
+        body = table.concat(codeRows(), "\n")
+    )
 
     return sections
 end
@@ -1650,7 +1659,7 @@ end
 local TOOLCHAIN_SECTIONS: {
     reference.Section
 } = {
-    new reference.Section {
+    new reference.Section(
         title = "CLI commands",
         codes = {},
         body = [=[
@@ -1669,10 +1678,10 @@ does not need every flag in context.
 Data-producing commands accept `--json`, and then `--schema` describes their
 JSON contract. Use the schema before automating against a command rather than
 inferring fields from an example. The CLI uses 1-based byte lines and columns.
-]=],
-    },
-    new reference.Section {title = "Working with the toolchain", codes = {}, body = reference.tooling,},
-    new reference.Section {
+]=]
+    ),
+    new reference.Section(title = "Working with the toolchain", codes = {}, body = reference.tooling),
+    new reference.Section(
         title = "Improving test coverage",
         codes = {},
         body = [=[
@@ -1693,25 +1702,25 @@ the focused coverage command, then `nupp test` before committing. Do not add tes
 solely to raise a percentage: prefer decisions, error paths, and boundary cases
 whose expected result a test can state clearly. The HTML report shows the same
 locations alongside highlighted Nupp and generated Lua when visual context helps.
-]=],
-    },
+]=]
+    ),
 }
 
 --- Chapters make the document scannable in a prompt and allow structured consumers to
 --- distinguish language rules from workflows for using the compiler.
 reference.chapters = {
-    new reference.Chapter {
+    new reference.Chapter(
         name = "language",
         title = "Language",
         summary = "Nupp syntax, types, runtime constructs, lints, and diagnostics.",
-        sections = languageSections(),
-    },
-    new reference.Chapter {
+        sections = languageSections()
+    ),
+    new reference.Chapter(
         name = "cli",
         title = "CLI",
         summary = "Nupp commands, JSON contracts, testing, and coverage workflows.",
-        sections = TOOLCHAIN_SECTIONS,
-    },
+        sections = TOOLCHAIN_SECTIONS
+    ),
 }
 
 --- Finds the chapter named by the CLI, without making callers know how the chapters are

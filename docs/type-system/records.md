@@ -10,7 +10,7 @@ layout. Choosing between them is choosing a representation.
  Runtime                Lua table + metatable       FFI cdata
  Field access           Hash lookup                 Offset
  Field types            Anything                    C-representable only
- Construction           new R {x = 1}                    new S {x = 1} or S(1, 2)
+ Construction           new R(x = 1)                    new S(x = 1) or S(1, 2)
  Uninitialized          Not nil-able; needs a value Zero-initialized
  Garbage collected      Yes                         Managed by the FFI
  Array part {T}         Allowed                     Rejected
@@ -33,7 +33,7 @@ local record Point
     end
 end
 
-local p = new Point {x = 3, y = 4}
+local p = new Point(x = 3, y = 4)
 print(p:length())
 ```
 
@@ -65,7 +65,7 @@ metatable its instances carry, so the value has the type of one.
 
 ```nupp
 local mt: metatable<Point> = Point
-local p: Point = new Point {x = 3, y = 4}
+local p: Point = new Point(x = 3, y = 4)
 ```
 
 Neither stands where the other is wanted. `Point` may be passed to
@@ -150,7 +150,7 @@ record m.Shapes
     type Id = uint32
 end
 
-local p: m.Shapes.Point = new m.Shapes.Point {x = 1}
+local p: m.Shapes.Point = new m.Shapes.Point(x = 1)
 ```
 
 ## Structs
@@ -174,7 +174,7 @@ Real memory, real widths. A `float` field truncates the way a C `float` does.
 Three construction forms:
 
 ```nupp
-local a = new Vec2 {x = 1.0, y = 2.0}   -- named
+local a = new Vec2(1.0, 2.0)   -- named
 local b = Vec2(1.0, 2.0)           -- positional, in field order
 local c: Vec2                      -- zero-initialized
 ```
@@ -208,7 +208,7 @@ local struct Vertex
     id: int32
 end
 
-local v = new Vertex {}
+local v = new Vertex()
 v.pos[0] = 1.5
 v.pos[2] = 3.5
 print(v.pos[0] + v.pos[2])
@@ -230,7 +230,7 @@ local struct Grid
     n: int32
 end
 
-local g = new Grid {}
+local g = new Grid()
 g.cells[0].a = 1
 g.cells[3].b = 9
 ```
@@ -250,8 +250,8 @@ local struct Node
     value: int32
 end
 
-local head = new Node {next = nil, value = 1}
-local tail = new Node {next = nil, value = 2}
+local head = new Node(nil, 1)
+local tail = new Node(nil, 2)
 head.next = tail
 print(head.next.value)
 ```

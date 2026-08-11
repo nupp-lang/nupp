@@ -215,7 +215,7 @@ record process.Reader is nupp.Reader
             -- This stream, and the child: end of stream is something the child's
             -- ending produces, so a reader that only asked about the pipe could sleep
             -- through the very event that answers it.
-            return new processtypes.Interest {child = self.owner.handle, read = {self.handle}, write = {}}
+            return new processtypes.Interest(child = self.owner.handle, read = {self.handle}, write = {})
         end)
 
         return chunk
@@ -395,7 +395,7 @@ record process.Writer is nupp.Writer
         local function interest(): processtypes.Interest
             -- Room in this pipe, and the child: a child that exits makes every
             -- remaining write impossible, which is an answer too.
-            return new processtypes.Interest {child = self.owner.handle, read = {}, write = {self.handle}}
+            return new processtypes.Interest(child = self.owner.handle, read = {}, write = {self.handle})
         end
 
         while sent < #data and not self.closed and not self.gone do
@@ -584,7 +584,7 @@ record process.Process
             -- reading stays ready forever, so asking about it here would turn this
             -- sleep into a spin. The cost is that waiting without draining can fill a
             -- pipe and stall, which is exactly what `communicate` is for.
-            return new processtypes.Interest {child = self.handle, read = {}, write = {}}
+            return new processtypes.Interest(child = self.handle, read = {}, write = {})
         end)
         if self.timedOut and self.exit ~= nil then
             self.exit.timedOut = true
@@ -723,18 +723,18 @@ record process.Process
                             write[#write + 1] = stdin.handle
                         end
 
-                        return new processtypes.Interest {child = self.handle, read = read, write = write}
+                        return new processtypes.Interest(child = self.handle, read = read, write = write)
                     end)
                 end
             end
 
             abandonInput()
 
-            return new processtypes.Result {
+            return new processtypes.Result(
                 output = table.concat(out),
                 errorOutput = table.concat(err),
                 exit = self:wait()
-            }
+            )
         end)
         if not ok then
             return nil, answer == nil and "process communication failed without saying why" or tostring(answer)
@@ -784,7 +784,7 @@ record process.Process
             await(self, "process close", function(): boolean
                 return not self.closing
             end, function(): processtypes.Interest
-                return new processtypes.Interest {child = self.handle, read = {}, write = {}}
+                return new processtypes.Interest(child = self.handle, read = {}, write = {})
             end)
             if self.reaped then
                 return true
@@ -843,7 +843,7 @@ record process.Process
                 await(self, "process close", function(): boolean
                     return self.exit ~= nil
                 end, function(): processtypes.Interest
-                    return new processtypes.Interest {child = self.handle, read = {}, write = {}}
+                    return new processtypes.Interest(child = self.handle, read = {}, write = {})
                 end)
             end)
         end
@@ -1116,7 +1116,7 @@ readForCompletion = function(source: process.Reader, limit: integer): (string?, 
 
         return false
     end, function(): processtypes.Interest
-        return new processtypes.Interest {child = source.owner.handle, read = {source.handle}, write = {}}
+        return new processtypes.Interest(child = source.owner.handle, read = {source.handle}, write = {})
     end, stopAt)
     if not completed then
         return nil, "the process read timed out"
@@ -1130,7 +1130,7 @@ local function newReader(owner: any, handle: any): any
         return nil
     end
 
-    return new process.Reader {owner = owner, handle = handle, closed = false, eof = false, timeoutMs = 30000}
+    return new process.Reader(owner = owner, handle = handle, closed = false, eof = false, timeoutMs = 30000)
 end
 
 local function newWriter(owner: any, handle: any): any
@@ -1138,7 +1138,7 @@ local function newWriter(owner: any, handle: any): any
         return nil
     end
 
-    return new process.Writer {owner = owner, handle = handle, closed = false, gone = false, timeoutMs = 30000}
+    return new process.Writer(owner = owner, handle = handle, closed = false, gone = false, timeoutMs = 30000)
 end
 
 --- Installs the backend `process.new` uses.
@@ -1194,10 +1194,10 @@ local function fromSpawn(
     errHandle: any?,
     pid: integer
 ): process.Process
-    local self = new process.Process {stdin = nil, stdout = nil, stderr = nil, backend = backend, handle = handle, exit = nil, reaped = false, childReleased = false, closing = false, closingBy = nil, pump = nil, timedOut = false, pid = pid,
+    local self = new process.Process(stdin = nil, stdout = nil, stderr = nil, backend = backend, handle = handle, exit = nil, reaped = false, childReleased = false, closing = false, closingBy = nil, pump = nil, timedOut = false, pid = pid,
         -- Measured from the start, not from the first wait: a caller that spawns, works
         -- and then waits should not get a deadline counted from whenever it asked.
-        deadline = options.timeoutMs ~= nil and (backend:now() + options.timeoutMs) or nil,}
+        deadline = options.timeoutMs ~= nil and (backend:now() + options.timeoutMs) or nil)
     self.stdin = newWriter(self, inHandle)
     self.stdout = newReader(self, outHandle)
     self.stderr = newReader(self, errHandle)

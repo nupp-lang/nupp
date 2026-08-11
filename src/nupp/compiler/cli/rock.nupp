@@ -108,4 +108,4 @@ local function run(args: {string}): integer
     return 0
 end
 
-return new spec.Handler {spec = command, raw = true, run = run}
+return new spec.Handler(spec = command, raw = true, run = run)

@@ -256,7 +256,7 @@ function M.projectIndexTracksOverlaysAndDependents()
    modelFile:close()
    local mainFile = assert(io.open(mainPath, "wb"))
    mainFile:write(table.concat({
-      "local item: Shared = new Shared {}",
+      "local item: Shared = new Shared()",
       "local value: number = item.value",
       "return value",
    }, "\n"))
@@ -394,7 +394,7 @@ function M.bundledModuleTypesResolveThroughTheIncrementalGraph()
       "local record Thing",
       "   buf: buffer.Buffer",
       "end",
-      "local thing = new Thing {buf = buffer.new()}",
+      "local thing = new Thing(buf = buffer.new())",
       "return thing.buf:tostring()",
    }, "\n"))
    file:close()

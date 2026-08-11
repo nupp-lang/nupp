@@ -47,11 +47,11 @@ local record Point
     end
 end
 
-local p = new Point {x = 3, y = 4}
+local p = new Point(x = 3, y = 4)
 print(p:length())
 ```
 
-`new Point {...}` lowers to `setmetatable({x = 3, y = 4}, Point)`. The runtime shape
+`new Point(...)` lowers to `setmetatable({x = 3, y = 4}, Point)`. The runtime shape
 is what you would have written by hand.
 
 ## Structs are cdata
@@ -65,7 +65,7 @@ local struct Vec2
     y: float
 end
 
-local v = new Vec2 {x = 1.0, y = 2.0}
+local v = new Vec2(1.0, 2.0)
 ```
 
 That becomes `ffi.metatype(ffi.typeof("struct { float x; float y; }"), ...)`.
@@ -197,7 +197,7 @@ end
 
 @owned
 local function openSession(): Session
-    return new Session {closed = false}
+    return new Session(closed = false)
 end
 ```
 

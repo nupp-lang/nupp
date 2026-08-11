@@ -157,15 +157,15 @@ function docblock.parse(lines: {string}): docblock.Doc
         table.remove(body)
     end
 
-    return new docblock.Doc {
+    return new docblock.Doc(
         text = table.concat(body, "\n"),
         params = params,
         returns = returns,
         raises = raises,
         fields = fields,
         typeargs = typeargs,
-        tags = tags,
-    }
+        tags = tags
+    )
 end
 
 --- The tags of the run attached to a node, in one call.

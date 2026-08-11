@@ -475,11 +475,11 @@ const IntegerFactory:
     return nupp.peg.compile("[0-9]+ -> integer !.")
 end
 
-local Integer = IntegerFactory(new Definitions {
+local Integer = IntegerFactory(new Definitions(
     integer = function(text: string): integer
         return assert(tonumber(text)) as integer
-    end,
-})
+    end
+))
 ```
 
 Every named slot is required and extra slots are rejected for static factories.

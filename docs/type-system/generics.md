@@ -137,9 +137,7 @@ local interface Circle is Shape
     kind: string
     radius: number
 
-    matches
-        self.kind == "circle"
-    end
+    satisfies |self| -> self.kind == "circle"
 end
 ```
 

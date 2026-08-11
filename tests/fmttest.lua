@@ -51,9 +51,9 @@ end
 -- the type rather than being an argument to it, so the brace stands off it while
 -- an ordinary `f{...}` keeps hugging its callee.
 function M.constructionBracesStandOffTheirType()
-   assertEq(fmt1("local a = new R{n = 1}"), "local a = new R {n = 1}\n")
-   assertEq(fmt1("local a = new R  {n = 1}"), "local a = new R {n = 1}\n")
-   assertEq(fmt1("local a = new m.Point{x = 1}"), "local a = new m.Point {x = 1}\n")
+   assertEq(fmt1("local a = new R(n = 1)"), "local a = new R(n = 1)\n")
+   assertEq(fmt1("local a = new R(n = 1)"), "local a = new R(n = 1)\n")
+   assertEq(fmt1("local a = new m.Point(x = 1)"), "local a = new m.Point(x = 1)\n")
    -- parentheses stay hugged, the way every other call's do
    assertEq(fmt1("local a = new V2 (1, 2)"), "local a = new V2(1, 2)\n")
    -- and the sugar this is spelled like is untouched

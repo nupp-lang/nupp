@@ -75,21 +75,21 @@ for name in pairs(SEVERITY_COLOUR) do
     PLAIN_SEVERITY[name] = plain
 end
 
-local PLAIN: ansi.Style = new ansi.Style {
+local PLAIN: ansi.Style = new ansi.Style(
     strong = plain,
     faint = plain,
     path = plain,
     gutter = plain,
-    severity = PLAIN_SEVERITY,
-}
+    severity = PLAIN_SEVERITY
+)
 
-local COLOURED: ansi.Style = new ansi.Style {
+local COLOURED: ansi.Style = new ansi.Style(
     strong = styler(SGR.strong),
     faint = styler(SGR.faint),
     path = styler(SGR.strong),
     gutter = styler(SGR.blue),
-    severity = {},
-}
+    severity = {}
+)
 for name, colour in pairs(SEVERITY_COLOUR) do
     COLOURED.severity[name] = styler(SGR[colour])
 end

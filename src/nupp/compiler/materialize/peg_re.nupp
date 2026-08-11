@@ -116,9 +116,9 @@ local function syntaxFailure(state: any, message: string, offset: integer?): peg
         near = ("%q"):format(near)
     end
 
-    return new pegRe.Failure {
-        message = ("PEG re syntax error at line %d, column %d: %s near %s"):format(line, column, message, near),
-    }
+    return new pegRe.Failure(
+        message = ("PEG re syntax error at line %d, column %d: %s near %s"):format(line, column, message, near)
+    )
 end
 
 local function skip(state: any): nil
@@ -580,7 +580,7 @@ end
 
 function pegRe.parse(source: string, make: any): any?, pegRe.Failure?
     if type(source) ~= "string" then
-        return nil, new pegRe.Failure {message = "nupp.peg.compile needs a grammar string"}
+        return nil, new pegRe.Failure(message = "nupp.peg.compile needs a grammar string")
     end
     local state = {source = source, position = 1, depth = 0, grammar = false, make = make}
     skip(state)

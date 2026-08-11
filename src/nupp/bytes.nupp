@@ -52,7 +52,7 @@ function bytes.newReader(data: string | string.buffer.Buffer): bytes.Reader
         buf = data as string.buffer.Buffer
     end
 
-    return new bytes.Reader {buf = buf}
+    return new bytes.Reader(buf = buf)
 end
 
 --- How many unread bytes remain.
@@ -144,7 +144,7 @@ end
 --- @param buf the buffer to append to
 --- @return the writer
 function bytes.newWriter(buf: string.buffer.Buffer?): bytes.Writer
-    return new bytes.Writer {buf = buf or buffer.new()}
+    return new bytes.Writer(buf = buf or buffer.new())
 end
 
 --- Appends `s` unchanged.

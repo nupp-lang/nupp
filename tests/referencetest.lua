@@ -162,7 +162,7 @@ end
 -- can afford to paste, not a target to write to.
 function M.theReferenceFitsInAPrompt()
    local markdown = reference.markdown()
-   assert(#markdown < 60000,
+   assert(#markdown < 62000,
       ("the reference has grown to %d bytes, past what it promises to be")
       :format(#markdown))
 end

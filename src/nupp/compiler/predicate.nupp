@@ -189,7 +189,7 @@ function predicate.build(node: cst.Node?): predicate.Node?, string?
     local kind = node.kind
 
     if kind == "trueExpr" or kind == "falseExpr" then
-        return new predicate.Node {op = "const", value = kind == "trueExpr"}
+        return new predicate.Node(op = "const", value = kind == "trueExpr")
     end
 
     if kind == "unop" and node.op and node.op.kind == "not" then
@@ -197,7 +197,7 @@ function predicate.build(node: cst.Node?): predicate.Node?, string?
         if not inner then
             return nil, why
         end
-        return new predicate.Node {op = "not", a = inner}
+        return new predicate.Node(op = "not", a = inner)
     end
 
     if kind == "binop" and node.op then
@@ -211,7 +211,7 @@ function predicate.build(node: cst.Node?): predicate.Node?, string?
             if not right then
                 return nil, why2
             end
-            return new predicate.Node {op = op, a = left, b = right}
+            return new predicate.Node(op = op, a = left, b = right)
         end
         if COMPARISONS[op] then
             -- `type(self.x) == "table"` is a type test rather than a string comparison,
@@ -229,9 +229,9 @@ function predicate.build(node: cst.Node?): predicate.Node?, string?
                 if op ~= "==" and op ~= "~=" then
                     return nil, "a type() test ordered rather than compared"
                 end
-                local test = new predicate.Node {op = "typeis", path = typePath, luaType = value as string}
+                local test = new predicate.Node(op = "typeis", path = typePath, luaType = value as string)
                 if op == "~=" then
-                    return new predicate.Node {op = "not", a = test}
+                    return new predicate.Node(op = "not", a = test)
                 end
                 return test
             end
@@ -259,7 +259,7 @@ function predicate.build(node: cst.Node?): predicate.Node?, string?
             if not text then
                 return nil, "a comparison against something that is not a literal"
             end
-            return new predicate.Node {op = "cmp", cmp = op, path = path, literal = text, constant = value}
+            return new predicate.Node(op = "cmp", cmp = op, path = path, literal = text, constant = value)
         end
         return nil, ("the %s operator"):format(op)
     end
@@ -270,7 +270,7 @@ function predicate.build(node: cst.Node?): predicate.Node?, string?
         if #path == 0 then
             return nil, "the subject itself"
         end
-        return new predicate.Node {op = "truthy", path = path}
+        return new predicate.Node(op = "truthy", path = path)
     end
 
     if kind == "call" or kind == "methodCall" or kind == "safeCall" then
@@ -306,7 +306,7 @@ function predicate.equals(path: {string}, constant: string | number | boolean): 
         return nil
     end
 
-    return new predicate.Node {op = "cmp", cmp = "==", path = path, literal = text, constant = constant}
+    return new predicate.Node(op = "cmp", cmp = "==", path = path, literal = text, constant = constant)
 end
 
 --- Both refinements, as one.
@@ -318,7 +318,7 @@ function predicate.both(a: predicate.Node?, b: predicate.Node?): predicate.Node?
         return a
     end
 
-    return new predicate.Node {op = "and", a = a, b = b}
+    return new predicate.Node(op = "and", a = a, b = b)
 end
 
 --- Every field path the refinement reads, so the checker can hold each one to the

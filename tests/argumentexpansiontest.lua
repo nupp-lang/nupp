@@ -71,7 +71,7 @@ function M.expansionAndNamedSuffixEraseToAPositionalCall()
       "local function draw(x: number, y: number, color: string?): string",
       "   return tostring(x) .. tostring(y) .. (color or '')",
       "end",
-      "local position = new Vec3 {x = 1, y = 2, z = 3}",
+      "local position = new Vec3(x = 1, y = 2, z = 3)",
       "return draw(...position, color = 'r')",
    }, "\n"))
    assertEq(answer, "12r")
@@ -91,9 +91,9 @@ function M.dottedPlaceExpansionLowersThroughEmbeddedRecords()
       "local function draw(x: number, y: number, color: string?): string",
       "   return tostring(x) .. tostring(y) .. (color or '')",
       "end",
-      "local position = new Vec3 {x = 1, y = 2, z = 3}",
-      "local body = new Body {position = position}",
-      "local entity = new Entity {body = body}",
+      "local position = new Vec3(x = 1, y = 2, z = 3)",
+      "local body = new Body(position = position)",
+      "local entity = new Entity(body = body)",
       "return draw(...entity.body.position, color = 'r')",
    }, "\n"))
    assertEq(answer, "12r")
@@ -163,7 +163,7 @@ function M.nestedExpansionUsesDirectProjectionsWithoutAWrapper()
       "   position: Vec3",
       "end",
       "local reads = 0",
-      "local position = new Vec3 {x = 1, y = 2, z = 3}",
+      "local position = new Vec3(x = 1, y = 2, z = 3)",
       "local entity = setmetatable({}, {__index = function(_, _)",
       "   reads = reads + 1",
       "   return position",
@@ -186,7 +186,7 @@ function M.nestedSafeExpansionUsesTheNativeSafeCallWithoutAWrapper()
       "   position: Vec3",
       "end",
       "local reads = 0",
-      "local position = new Vec3 {x = 1, y = 2, z = 3}",
+      "local position = new Vec3(x = 1, y = 2, z = 3)",
       "local entity = setmetatable({}, {__index = function(_, _)",
       "   reads = reads + 1",
       "   return position",
@@ -209,7 +209,7 @@ function M.safeCallStatementUsesGuardsWithoutAnExpressionWrapper()
       "   position: Vec3",
       "end",
       "local reads = 0",
-      "local position = new Vec3 {x = 1, y = 2, z = 3}",
+      "local position = new Vec3(x = 1, y = 2, z = 3)",
       "local entity = setmetatable({}, {__index = function(_, _)",
       "   reads = reads + 1",
       "   return position",
@@ -233,8 +233,8 @@ function M.returnedSafeExpansionUsesEarlyReturnsWithoutAWrapper()
       "end",
       "local function add(x: number, y: number): number return x + y end",
       "local maybe: function(number, number) | nil = add",
-      "local position = new Vec3 {x = 5, y = 6, z = 7}",
-      "local entity = new Entity {position = position}",
+      "local position = new Vec3(x = 5, y = 6, z = 7)",
+      "local entity = new Entity(position = position)",
       "return maybe?.(...entity.position)",
    }, "\n"))
    assertEq(answer, 11)
@@ -252,17 +252,17 @@ function M.safeReceiverAndMethodExpansionUsesStagedGuards()
       "end",
       "local reads = 0",
       "local calls = 0",
-      "local position = new Vec3 {x = 2, y = 3, z = 4}",
+      "local position = new Vec3(x = 2, y = 3, z = 4)",
       "local entity = setmetatable({}, {__index = function(_, _)",
       "   reads = reads + 1",
       "   return position",
       "end}) as Entity",
       "local drawer: Drawer | nil = nil",
       "drawer?.:draw?.(...entity.position)",
-      "drawer = new Drawer {draw = function(_, x: number, y: number): number",
+      "drawer = new Drawer(draw = function(_, x: number, y: number): number",
       "   calls = calls + 1",
       "   return x + y",
-      "end}",
+      "end)",
       "drawer?.:draw?.(...entity.position)",
       "return reads * 10 + calls",
    }, "\n"))
@@ -279,13 +279,13 @@ function M.constructorCallsReuseTheSameExpansionPlan()
       "local record Point",
       "   x: number",
       "   y: number",
-      "   constructor(x: number, y: number)",
+      "   constructor(self, x: number, y: number)",
       "      self.x = x",
       "      self.y = y",
       "   end",
       "end",
-      "local position = new Vec3 {x = 7, y = 8, z = 9}",
-      "local entity = new Entity {position = position}",
+      "local position = new Vec3(x = 7, y = 8, z = 9)",
+      "local entity = new Entity(position = position)",
       "local point = new Point(...entity.position)",
       "return point.x * 10 + point.y",
    }, "\n"))
@@ -304,8 +304,8 @@ function M.callableObjectsReuseTheOrdinaryExpansionPlan()
       "local adder = setmetatable({}, {__call = function(_, x: number, y: number): number",
       "   return x + y",
       "end}) as Adder",
-      "local position = new Vec3 {x = 4, y = 5, z = 6}",
-      "local entity = new Entity {position = position}",
+      "local position = new Vec3(x = 4, y = 5, z = 6)",
+      "local entity = new Entity(position = position)",
       "return adder(...entity.position)",
    }, "\n"))
    assertEq(answer, 9)
@@ -321,8 +321,8 @@ function M.methodReceiverAndDottedOperandAreEachEvaluatedOnce()
       "end",
       "local receiverReads = 0",
       "local positionReads = 0",
-      "local drawer = new Drawer {}",
-      "local position = new Vec3 {x = 1, y = 2, z = 3}",
+      "local drawer = new Drawer()",
+      "local position = new Vec3(x = 1, y = 2, z = 3)",
       "local entity = setmetatable({}, {__index = function(_, _)",
       "   positionReads = positionReads + 1",
       "   return position",
@@ -341,7 +341,7 @@ function M.expansionRejectsEffectfulAndComputedPlaceOperands()
    local declaration = vector .. "\n" .. table.concat({
       "local function draw(x: number, y: number): nil end",
       "local function make(): Vec3",
-      "   return new Vec3 {x = 1, y = 2, z = 3}",
+      "   return new Vec3(x = 1, y = 2, z = 3)",
       "end",
    }, "\n")
    assertEq(diagnostics(declaration .. "\ndraw(...make())"), "NUPP2006")
@@ -364,12 +364,12 @@ end
 function M.namedSuffixSelectsOneOfSeveralExpansionArities()
    clean(vector .. "\n" .. table.concat({
       "local function consume(x: number, y: number, z: number?): nil end",
-      "local position = new Vec3 {x = 1, y = 2, z = 3}",
+      "local position = new Vec3(x = 1, y = 2, z = 3)",
       "consume(...position, z = 9)",
    }, "\n"))
    assertEq(diagnostics(vector .. "\n" .. table.concat({
       "local function consume(x: number, y: number, z: number?): nil end",
-      "local position = new Vec3 {x = 1, y = 2, z = 3}",
+      "local position = new Vec3(x = 1, y = 2, z = 3)",
       "consume(...position)",
    }, "\n")), "NUPP2126")
 end
@@ -380,7 +380,7 @@ function M.aTrailingOrdinaryCallStillExpandsItsResultPack()
       "local function total(a: number, b: number, c: number, d: number): number",
       "   return a + b + c + d",
       "end",
-      "local position = new Vec3 {x = 1, y = 2, z = 9}",
+      "local position = new Vec3(x = 1, y = 2, z = 9)",
       "return total(...position, pair())",
    }, "\n"))
    assertEq(answer, 10)
@@ -395,8 +395,8 @@ function M.aNestedExpansionPreservesItsTrailingResultPack()
       "local function total(a: number, b: number, c: number, d: number): number",
       "   return a + b + c + d",
       "end",
-      "local position = new Vec3 {x = 1, y = 2, z = 9}",
-      "local entity = new Entity {position = position}",
+      "local position = new Vec3(x = 1, y = 2, z = 9)",
+      "local entity = new Entity(position = position)",
       "return tostring(total(...entity.position, pair()))",
    }, "\n"))
    assertEq(answer, "10")
@@ -442,7 +442,7 @@ function M.namedLabelsSelectMethodBodiesWithoutADispatcher()
       "   function decode(self, value: number): string return 'n' end",
       "   function decode(self, text: string): string return 's' end",
       "end",
-      "local decoder = new Decoder {}",
+      "local decoder = new Decoder()",
       "return decoder:decode(value = 1) .. decoder:decode(text = 'x')",
    }, "\n"))
    assertEq(answer, "ns")

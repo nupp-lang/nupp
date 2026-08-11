@@ -139,10 +139,10 @@ function test.calleeUsesTheSelectedConstructorSummary()
    local queries, result = analysed([[
 local record Choice
     value: string
-    constructor(value: string)
+    constructor(self, value: string)
         self.value = value
     end
-    constructor(value: integer)
+    constructor(self, value: integer)
         coroutine.yield()
         self.value = tostring(value)
     end
@@ -174,7 +174,7 @@ local record Choice
     end
 end
 
-local choice = new Choice {}
+local choice = new Choice()
 local text = choice:choose("ready")
 local number = choice:choose(42)
 return text, number
@@ -204,7 +204,7 @@ local record Concrete is Choice
     function choose(self, value: string): string return "local:" .. value end
 end
 
-local choice = new Concrete {}
+local choice = new Concrete()
 local text = choice:choose("ready")
 local number = choice:choose(42)
 return text, number

@@ -128,7 +128,7 @@ function M.anAnswerWrittenAsAnyDoesNotWarn()
       "local function held<T is Holds>(x: T): T.Item",
       "   return nil as any",
       "end",
-      "local fine = held(new Untyped {})",
+      "local fine = held(new Untyped())",
       "return fine"))
 end
 
@@ -162,10 +162,10 @@ function M.aWrongResultCannotPassSilently()
       "      return nil as any",
       "   end",
       "end",
-      "local arch = new Archetype {}")
+      "local arch = new Archetype()")
    -- concrete: rejected outright
    reports(world .. src(
-      "local health = new Health {componentId = 1}",
+      "local health = new Health(componentId = 1)",
       "local wrong: {string} = arch:get(health)",
       "return wrong"), "NUPP2001")
    -- erased: accepted, but the lint says the check stopped meaning anything

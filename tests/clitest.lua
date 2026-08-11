@@ -313,7 +313,7 @@ function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
       "local function close_resource(value: Resource) end",
       "@owned(close_resource)",
       "local function open_resource(): Resource",
-      "   return new Resource {name = 'audit'}",
+      "   return new Resource(name = 'audit')",
       "end",
       "local function use_resource()",
       "   local value = open_resource()",

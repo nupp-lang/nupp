@@ -269,6 +269,64 @@ function calls.install(c: state.Checker): calls.Ops
         return {related = related and {related} or nil, help = "compare the call with the declared parameter list"}
     end
 
+    --- Turning an initializer table into the argument list it should have been.
+    ---
+    --- A named field and a named argument are written the same way, so the rewrite is
+    --- the braces and the separators: `{a = 1; b = 2,}` is `(a = 1, b = 2)`. A bracket
+    --- key has no argument spelling at all, so a table carrying one is left for its
+    --- author -- the message still says what to do.
+    local function tableConstructionFix(tbl: any): {any}?
+        local open, close, trailing = nil, nil, nil
+        local separators = {}
+        for _, entry in ipairs(tbl) do
+            if cst.isToken(entry) then
+                if entry.kind == "{" then
+                    open = open or entry
+                elseif entry.kind == "}" then
+                    close = entry
+                elseif entry.kind == "," or entry.kind == ";" then
+                    separators[#separators + 1] = entry
+                    trailing = entry
+                end
+            else
+                trailing = nil
+                if entry.kind == "fieldBracket" or entry.isConst then
+                    return nil
+                end
+            end
+        end
+        if not open or not close then
+            return nil
+        end
+        -- An argument list hugs its callee where a construction's brace stood off it,
+        -- so the gap between them goes with the brace. A plain one-line gap only: a
+        -- comment written there is the author's, and a line break is a layout this
+        -- rewrite has no opinion about.
+        local gap = nil
+        for _, trivia in ipairs(open.trivia or {}) do
+            if trivia.kind ~= "whitespace" or trivia.text:find("\n", 1, true) then
+                gap = nil
+                break
+            end
+            gap = gap or trivia
+        end
+        local opening = gap
+            and {offset = gap.offset, length = open.offset + #open.text - gap.offset, newText = "("}
+            or c.edits.replaceToken(open, "(")
+        local edits = {opening, c.edits.replaceToken(close, ")")}
+        for _, separator in ipairs(separators) do
+            -- A `;` separates table fields and nothing else, and the last one before the
+            -- brace separates a field from nothing at all.
+            if separator == trailing then
+                edits[#edits + 1] = {offset = separator.offset, length = #separator.text, newText = ""}
+            elseif separator.kind == ";" then
+                edits[#edits + 1] = c.edits.replaceToken(separator, ",")
+            end
+        end
+
+        return {{title = "build it from arguments", edits = edits}}
+    end
+
     --- Expansion projections visible through a static type. A union exposes only the
     --- arities whose ordered fields agree in every member; a bound type parameter
     --- exposes exactly its bound's capabilities.
@@ -876,89 +934,148 @@ function calls.install(c: state.Checker): calls.Ops
                 end
                 return first, rets, pack
             end
-            local genericMap = calleeT.typeParams and {} or nil
-            local constructionFields = {}
-            if tbl and calleeT.declKind == "record" then
-                -- tell the generator to stamp the metatable
-                node.recordConstruct = c.pathKey(node.obj) or calleeT.name
-            elseif calleeT.declKind == "record" then
+            local declared = c.pathKey(node.obj) or calleeT.name
+            local isRecord = calleeT.declKind == "record"
+            -- A construction's values are its arguments. A table beside one would be an
+            -- allocation whose whole life is to be read once and dropped, and a struct
+            -- has no table at run time for it to become: the ctype takes the values.
+            if tbl then
                 c.diag(
                     "NUPP2202",
                     node,
-                    ("record %s is constructed with named fields: new %s{...}"):format(calleeT.name, calleeT.name)
+                    ("%s is constructed from arguments, not from a table"):format(declared),
+                    tableConstructionFix(tbl),
+                    {
+                        help = isRecord
+                        and ("write new %s(field = value, ...)"):format(declared)
+                        or ("write new %s(...) with one value per field, in order"):format(declared),
+                    }
+                )
+                c.infer(tbl)
+                return calleeT, {calleeT}
+            end
+            local genericMap = calleeT.typeParams and {} or nil
+            local constructionFields = {}
+            if isRecord then
+                -- tell the generator to stamp the metatable
+                node.recordConstruct = declared
+            end
+
+            -- One field, however it was named: by a label the call wrote or by the
+            -- position it stands in. Everything past the name is the same question --
+            -- does this value belong in that field -- so it is asked in one place.
+            local order = calleeT.fieldOrder or {}
+            local bindings, bound = {}, {}
+            local function bindField(fname: string?, value: any, site: any, label: string)
+                if not fname then
+                    c.infer(value)
+                    return
+                end
+                if bound[fname] then
+                    c.diag("NUPP2202", site, ("field %q is filled twice"):format(fname))
+                    c.infer(value)
+                    return
+                end
+                local ft = calleeT.writeByname[fname] or calleeT.byname[fname]
+                if not ft then
+                    c.diag("NUPP2202", site, ("no field %q in %s %s"):format(fname, calleeT.declKind, calleeT.name))
+                    c.infer(value)
+                    return
+                end
+                bound[fname] = true
+                bindings[#bindings + 1] = {name = fname, node = value}
+                local vt = c.infer(value)
+                constructionFields[fname] = {node = value, type = vt}
+                local borrowedRoot = calleeT.borrowedRootFields and calleeT.borrowedRootFields[fname]
+                local storesCapability = c.ownershipKind(ft) == "owned" or c.ownershipKind(ft) == "pinned"
+                if storesCapability and (c.ownershipKind(vt) == "owned" or c.ownershipKind(vt) == "pinned") then
+                    affineValues[fname] = vt
+                    if borrowedRoot then
+                        deferredAffineRoots[fname] = {node = value, type = vt}
+                    else
+                        c.moveExpression(value, vt, "affine record construction", c.ownershipKind(vt))
+                    end
+                end
+                if genericMap then
+                    unify(ft, vt, genericMap)
+                end
+                local ok, why = isA(borrowedRoot and not storesCapability and rawType(vt) or vt, ft)
+                if not ok then
+                    c.diag("NUPP2202", site, ("%s: %s"):format(label, why))
+                end
+            end
+
+            local positional, byOrder, namedStarted = 0, false, false
+            for _, arg in ipairs(args) do
+                if cst.isToken(arg) then
+                    c.diag("NUPP2202", node, ("%s is constructed from arguments"):format(declared))
+                elseif arg.kind == "namedArg" then
+                    local fname = arg.name and arg.name.text or nil
+                    namedStarted = true
+                    if not isRecord then
+                        -- A struct is its C layout, and the ctype takes its values in
+                        -- the order that layout has. Naming them would read as though
+                        -- the order were the program's to choose.
+                        c.diag(
+                            "NUPP2202",
+                            arg,
+                            ("a struct is built in field order, so %s takes its values positionally"):format(declared),
+                            nil,
+                            {help = ("write new %s(...) with one value per field, in order"):format(declared)}
+                        )
+                        c.infer(arg.value or arg)
+                    else
+                        if fname then
+                            local fieldDef = calleeT.writeFieldDefs and calleeT.writeFieldDefs[
+                                fname
+                            ] or (calleeT.fieldDefs and calleeT.fieldDefs[fname] or nil)
+                            c.markToken(arg.name, fieldDef, calleeT.writeByname[fname] or calleeT.byname[fname], "property")
+                        end
+                        bindField(fname, arg.value or arg, arg, ("field %q"):format(fname or "?"))
+                    end
+                elseif arg.kind == "expandArg" then
+                    -- Expansion fills a parameter list, and direct construction has none
+                    -- to fill: what a field is called here is settled by the declaration
+                    -- rather than by a signature the call was held to.
+                    c.diag(
+                        "NUPP2202",
+                        arg,
+                        "a construction fills fields, so there is no parameter list to expand into",
+                        nil,
+                        {help = ("declare a constructor on %s, or name the fields"):format(declared)}
+                    )
+                    c.infer(arg.value or arg)
+                else
+                    if namedStarted then
+                        c.diag("NUPP2202", arg, "a positional value cannot follow a named field")
+                    end
+                    positional = positional + 1
+                    local fname = order[positional]
+                    if not fname then
+                        c.diag(
+                            "NUPP2202",
+                            arg,
+                            ("too many values (%s %s has %d fields)"):format(calleeT.declKind, calleeT.name, #order)
+                        )
+                    else
+                        byOrder = true
+                    end
+                    bindField(fname, arg, arg, ("value %d (field %q)"):format(positional, fname or "?"))
+                end
+            end
+            -- Positional construction is legal and says less: which field a value lands
+            -- in is read off the declaration rather than the call. That is a judgement
+            -- about the call site rather than a claim it is wrong, so it is a lint.
+            if byOrder and isRecord then
+                c.diag(
+                    "NUPP2512",
+                    node,
+                    ("record %s is constructed by field order"):format(calleeT.name),
+                    nil,
+                    {help = ("write new %s(field = value, ...) to name the fields"):format(declared)}
                 )
             end
-            if tbl then
-                for _, f in ipairs(tbl.fields) do
-                    if f.kind == "fieldNamed" then
-                        local ft = calleeT.writeByname[f.name.text] or calleeT.byname[f.name.text]
-                        local fieldDef = calleeT.writeFieldDefs and calleeT.writeFieldDefs[
-                            f.name.text
-                        ] or (calleeT.fieldDefs and calleeT.fieldDefs[f.name.text] or nil)
-                        c.markToken(f.name, fieldDef, ft, "property")
-                        if not ft then
-                            c.diag("NUPP2202", f, ("no field %q in struct %s"):format(f.name.text, calleeT.name))
-                        else
-                            local vt = c.infer(f.value)
-                            constructionFields[f.name.text] = {node = f.value, type = vt}
-                            local borrowedRoot = calleeT.borrowedRootFields and calleeT.borrowedRootFields[f.name.text]
-                            local storesCapability = c.ownershipKind(ft) == "owned" or c.ownershipKind(ft) == "pinned"
-                            if storesCapability and (c.ownershipKind(vt) == "owned" or c.ownershipKind(vt) == "pinned") then
-                                affineValues[f.name.text] = vt
-                                if borrowedRoot then
-                                    deferredAffineRoots[f.name.text] = {node = f.value, type = vt}
-                                else
-                                    c.moveExpression(f.value, vt, "affine record construction", c.ownershipKind(vt))
-                                end
-                            end
-                            if genericMap then
-                                unify(ft, vt, genericMap)
-                            end
-                            local ok, why = isA(borrowedRoot and not storesCapability and rawType(vt) or vt, ft)
-                            if not ok then
-                                c.diag("NUPP2202", f, ("field %q: %s"):format(f.name.text, why))
-                            end
-                        end
-                    else
-                        c.diag("NUPP2202", f, "struct construction takes named fields only")
-                        if f.value then
-                            c.infer(f.value)
-                        end
-                    end
-                end
-            else
-                -- positional: values fill fields in declaration order
-                local order = calleeT.fieldOrder or {}
-                if #args > #order then
-                    c.diag("NUPP2202", node, ("too many values (struct %s has %d fields)"):format(calleeT.name, #order))
-                end
-                for j, arg in ipairs(args) do
-                    if not cst.isToken(arg) then
-                        local at = c.infer(arg)
-                        local fname = order[j]
-                        if fname then
-                            constructionFields[fname] = {node = arg, type = at}
-                        end
-                        local ft = fname and (calleeT.writeByname[fname] or calleeT.byname[fname])
-                        local borrowedRoot = fname and calleeT.borrowedRootFields and calleeT.borrowedRootFields[fname]
-                        local storesCapability = ft and (c.ownershipKind(ft) == "owned" or c.ownershipKind(ft) == "pinned")
-                        if fname and storesCapability and (c.ownershipKind(at) == "owned" or c.ownershipKind(at) == "pinned") then
-                            affineValues[fname] = at
-                            if borrowedRoot then
-                                deferredAffineRoots[fname] = {node = arg, type = at}
-                            else
-                                c.moveExpression(arg, at, "affine record construction", c.ownershipKind(at))
-                            end
-                        end
-                        if ft then
-                            local ok, why = isA(borrowedRoot and not storesCapability and rawType(at) or at, ft)
-                            if not ok then
-                                c.diag("NUPP2202", arg, ("value %d (field %q): %s"):format(j, fname, why))
-                            end
-                        end
-                    end
-                end
-            end
+            node.recordFields = isRecord and bindings or nil
             if genericMap then
                 -- the type arguments follow from the values supplied
                 ops.validateTypeBounds(calleeT.typeParams, calleeT.typeBounds, genericMap, node)

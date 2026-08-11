@@ -120,7 +120,7 @@ function M.propertyCapabilities()
       "   readonly [string]: string",
       "   writeonly [string]: Animal",
       "end",
-      "local cell = new Cell {value = 'ready'}",
+      "local cell = new Cell(value = 'ready')",
       "cell.value = 1",
       "local value: string = cell.value",
       "cell['answer'] = 42",
@@ -309,8 +309,8 @@ function M.genericIndexContracts()
       "   metamethod __index: function<T>(self, key: Key<T>): T",
       "   metamethod __newindex: function<T>(self, key: Key<T>, value: T)",
       "end",
-      "local store: Store = new Store {}",
-      "local key: Key<string> = new Key {}",
+      "local store: Store = new Store()",
+      "local key: Key<string> = new Key()",
       "local value: string = store[key]",
       "store[key] = 'saved'",
    }, "\n"))
@@ -321,11 +321,11 @@ function M.arithmeticAndLengthContracts()
       "local record I64",
       "   metamethod __add: function(self: I64, other: I64): I64",
       "end",
-      "local a, b: I64, I64 = new I64 {}, new I64 {}",
+      "local a, b: I64, I64 = new I64(), new I64()",
       "local c: I64 = a + b",
    }, "\n"))
    assertEq((diagsOf("local n = #true")), "NUPP2003:1")
-   assertEq((diagsOf("local record A end\nlocal record B end\nlocal x: A = new A {}\nlocal y: B = new B {}\nprint(x < y)")),
+   assertEq((diagsOf("local record A end\nlocal record B end\nlocal x: A = new A()\nlocal y: B = new B()\nprint(x < y)")),
       "NUPP2003:5")
 end
 
@@ -333,7 +333,7 @@ function M.metatableTypeIsACompilerKnownPhantom()
    assertClean(table.concat({
       "local record R end",
       "local mt: metatable<R> = {__index = {}}",
-      "local r: R = new R {}",
+      "local r: R = new R()",
       "setmetatable(r, mt)",
       "setmetatable(r, nil)",
    }, "\n"))
@@ -356,7 +356,7 @@ function M.inlineMethodsAreHoistedAndNestedAliasesAreQualified()
       "   end",
       "end",
       "local id: Types.Id = 1",
-      "local counter: Types.Counter = new Types.Counter {}",
+      "local counter: Types.Counter = new Types.Counter()",
       "local yes: boolean = counter:even(id)",
    }, "\n"))
 end
@@ -366,12 +366,12 @@ function M.recordsWorkWithPairsAndMetatableTyposAreRejected()
       "local record R",
       "   value: number",
       "end",
-      "local r: R = new R {}",
+      "local r: R = new R()",
       "for key, value in pairs(r) do print(key, value) end",
    }, "\n"))
    assertEq((diagsOf(table.concat({
       "local record R end",
-      "local r: R = new R {}",
+      "local r: R = new R()",
       "setmetatable(r, {__cal = function() end})",
    }, "\n"))), "NUPP2118:3")
 end
@@ -379,7 +379,7 @@ end
 function M.metamethodTyposCarrySafeFixes()
    local literal = table.concat({
       "local record R end",
-      "local r: R = new R {}",
+      "local r: R = new R()",
       "setmetatable(r, {__cal = function() end})",
    }, "\n")
    local _, literalDiags = diagsOf(literal)
@@ -539,14 +539,14 @@ function M.recordDeclarationsCheck()
       "   x: number",
       "   y: number",
       "end",
-      "local p: Point = new Point {}",
+      "local p: Point = new Point()",
       "local n: number? = p?.x",
    }, "\n"))
    assertEq((diagsOf(table.concat({
       "local record Point",
       "   x: number",
       "end",
-      "local p: Point = new Point {}",
+      "local p: Point = new Point()",
       "local v = p.z",
    }, "\n"))), "NUPP2004:5")
 end
@@ -560,7 +560,7 @@ function M.nominalProvenance()
       "local record B",
       "   v: number",
       "end",
-      "local a: A = new A {}",
+      "local a: A = new A()",
       "local b: B = a",
    }, "\n"))), "NUPP2001:8")
    -- but a record erodes to a matching structural shape
@@ -568,7 +568,7 @@ function M.nominalProvenance()
       "local record A",
       "   v: number",
       "end",
-      "local a: A = new A {}",
+      "local a: A = new A()",
       "local s: {v: number} = a",
    }, "\n"))
 end
@@ -658,7 +658,7 @@ function M.unknownNeedsNarrowingOrACast()
       "local record P",
       "   x: integer",
       "end",
-      "local a: unknown = new P {x = 1}",
+      "local a: unknown = new P(x = 1)",
       "if a is P then print(a.x) end",
    }, "\n"))
 end
@@ -705,17 +705,13 @@ function M.refinementsAreEnforced()
       "local interface Circle",
       "   kind: string",
       "   radius: number",
-      "   matches",
-      "      self.kind == 'circle'",
-      "   end",
+      "   satisfies |self| -> self.kind == 'circle'",
       "end",
    }, "\n"))
    assertClean(table.concat({
       "local interface Tagged",
       "   tag: string",
-      "   matches",
-      "      type(self.tag) == 'string'",
-      "   end",
+      "   satisfies |self| -> type(self.tag) == 'string'",
       "end",
    }, "\n"))
    -- and it composes the way a test does
@@ -724,9 +720,7 @@ function M.refinementsAreEnforced()
       "   a: integer",
       "   b: boolean",
       "   c: boolean",
-      "   matches",
-      "      self.a == 1 and (self.b or not self.c)",
-      "   end",
+      "   satisfies |self| -> self.a == 1 and (self.b or not self.c)",
       "end",
    }, "\n"))
    assertClean("local record Even\n   n: integer\nend")
@@ -742,31 +736,23 @@ function M.onlyAnInterfaceCarriesARefinement()
    assertEq((diagsOf(table.concat({
       "local record R",
       "   kind: string",
-      "   matches",
-      "      self.kind == 'r'",
-      "   end",
+      "   satisfies |self| -> self.kind == 'r'",
       "end",
    }, "\n"))), "NUPP2122:3")
    assertEq((diagsOf(table.concat({
       "local struct S",
       "   n: int32",
-      "   matches",
-      "      self.n == 1",
-      "   end",
+      "   satisfies |self| -> self.n == 1",
       "end",
    }, "\n"))), "NUPP2122:3")
    -- one per declaration
    assertEq((diagsOf(table.concat({
       "local interface J",
       "   n: integer",
-      "   matches",
-      "      self.n == 1",
-      "   end",
-      "   matches",
-      "      self.n == 2",
-      "   end",
+      "   satisfies |self| -> self.n == 1",
+      "   satisfies |self| -> self.n == 2",
       "end",
-   }, "\n"))), "NUPP2122:6")
+   }, "\n"))), "NUPP2122:4")
    -- and the clause that used to sit in the head says where it went
    assertEq((diagsOf(table.concat({
       "local interface I where self.n == 1",
@@ -785,22 +771,18 @@ function M.aDeclarationIsHeldToTheRefinementsItInherits()
    assertEq((diagsOf(table.concat({
       "local interface Shape",
       "   kind: string",
-      "   matches",
-      "      self.kind == 'shape'",
-      "   end",
+      "   satisfies |self| -> self.kind == 'shape'",
       "end",
       "local record Circle is Shape",
       "   kind: 'circle'",
       "   radius: number",
       "end",
-   }, "\n"))), "NUPP2122:7")
+   }, "\n"))), "NUPP2122:5")
    -- a tag that agrees is fine
    assertClean(table.concat({
       "local interface Shape",
       "   kind: string",
-      "   matches",
-      "      self.kind == 'circle'",
-      "   end",
+      "   satisfies |self| -> self.kind == 'circle'",
       "end",
       "local record Circle is Shape",
       "   kind: 'circle'",
@@ -810,9 +792,7 @@ function M.aDeclarationIsHeldToTheRefinementsItInherits()
    assertClean(table.concat({
       "local interface Shape",
       "   kind: string",
-      "   matches",
-      "      type(self.kind) == 'string'",
-      "   end",
+      "   satisfies |self| -> type(self.kind) == 'string'",
       "end",
       "local record Circle is Shape",
       "   kind: 'circle'",
@@ -822,9 +802,7 @@ function M.aDeclarationIsHeldToTheRefinementsItInherits()
    assertClean(table.concat({
       "local interface Open",
       "   n: integer",
-      "   matches",
-      "      self.n == 1",
-      "   end",
+      "   satisfies |self| -> self.n == 1",
       "end",
       "local record Any is Open",
       "   n: integer",
@@ -837,9 +815,7 @@ function M.refinementsRejectWhatCannotBeEnforced()
       return (diagsOf(table.concat({
          "local interface I",
          "   n: integer",
-         "   matches",
-         "      " .. test,
-         "   end",
+         "   satisfies |self| -> " .. test,
          "end",
       }, "\n")))
    end

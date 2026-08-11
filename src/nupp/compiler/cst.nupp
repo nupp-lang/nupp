@@ -299,6 +299,14 @@ interface cst.Hints
     --- Set on a call that constructs a record.
     recordConstruct: string?
 
+    --- The fields that construction binds, in the order they were written, so the
+    --- table the generator builds evaluates its values where the source put them.
+    --- Each entry carries the field's name and the expression filling it.
+    ---
+    --- The checker resolves these because a positional construction is bound by the
+    --- declaration's field order, which only the checker knows.
+    recordFields: {any}?
+
     --- Set on the call under a `new`, which is what makes it a construction rather than
     --- an ordinary call reaching `__call` or a ctype.
     isNew: boolean?
@@ -1324,28 +1332,37 @@ record cst.NewExpr is cst.Hints
     call: cst.Node?
 end
 
---- `constructor(...) ... end` in a declaration body: what `new T(...)` runs.
----
---- It has no name and no return type. The instance is made before the body runs and
---- returned after it, so the body's whole job is to fill the fields in. `matches ...
---- end` in an interface body: the runtime test for `is`.
+--- `satisfies |self| -> test` in an interface body: the runtime test for `is`.
 ---
 --- An interface has no table to stamp, so this is the only identity it can have. The
 --- expression reads the declaration's own fields through `self`, in a subset small
 --- enough to inline wherever `is` is written.
-record cst.MatchesDecl is cst.Hints
+---
+--- Both function spellings are accepted, as they are anywhere else a function is
+--- written: the short `|self| -> test` and the long `(self): boolean ... end`. The
+--- long one's body says the same single thing, so it is one `return`.
+record cst.SatisfiesDecl is cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
-    kind: 'matchesDecl'
+    kind: 'satisfiesDecl'
 
-    --- The test.
+    --- The test, read off whichever spelling was written.
     expr: cst.Node?
+
+    --- The function it was written as, short or long.
+    body: cst.Node?
 
     --- Annotations written above it.
     annotations: {cst.Node}?
 end
 
+--- `constructor(self, ...) ... end` in a declaration body: what `new T(...)` runs.
+---
+--- It has no name and no return type. The instance is made before the body runs and
+--- returned after it, so the body's whole job is to fill the fields in. The receiver
+--- is written out the way a method's is, and is no more an argument than a method's
+--- is: `new T(...)` passes what follows it.
 record cst.ConstructorDecl is cst.Hints
     {cst.Node | lexer.Token}
 
@@ -2099,7 +2116,7 @@ end
 --- A node of the concrete syntax tree: one of the productions above, told apart by its
 --- `kind`. Reading a field that belongs to another kind is an error, which is what
 --- makes a dispatch loop check.
-type cst.Node = cst.Chunk | cst.Block | cst.EmptyStmt | cst.HandleStmt | cst.IfStmt | cst.IfClause | cst.ElseifClause | cst.ElseClause | cst.WhileStmt | cst.DoStmt | cst.UnsafeStmt | cst.NoSuspendStmt | cst.FornumStmt | cst.ForinStmt | cst.RepeatStmt | cst.FuncStmt | cst.Funcname | cst.LocalFuncStmt | cst.LocalStmt | cst.LabelStmt | cst.GotoStmt | cst.BreakStmt | cst.ContinueStmt | cst.ReturnStmt | cst.CompoundAssign | cst.AssignStmt | cst.CallStmt | cst.ErrorStmt | cst.PragmaStmt | cst.AnnotationApply | cst.AnnotationArg | cst.AssociatedDecl | cst.TypeAlias | cst.RecordDecl | cst.ExpansionDecl | cst.WhereClause | cst.FieldDecl | cst.IndexerDecl | cst.ArrayPart | cst.InlineMethod | cst.MetamethodDecl | cst.CdefFunc | cst.CdefStruct | cst.Generics | cst.Param | cst.Funcbody | cst.NameExpr | cst.NumberLit | cst.StringLit | cst.NilExpr | cst.TrueExpr | cst.FalseExpr | cst.Vararg | cst.Paren | cst.ComptimeExpr | cst.NewExpr | cst.ConstructorDecl | cst.MatchesDecl | cst.ErrorExpr | cst.DotIndex | cst.BracketIndex | cst.MethodCall | cst.SafeIndex | cst.SafeBracket | cst.SafeCall | cst.Call | cst.Args | cst.NamedArg | cst.ExpandArg | cst.TableExpr | cst.FieldBracket | cst.FieldNamed | cst.FieldItem | cst.Shortfn | cst.Istring | cst.FuncExpr | cst.Unop | cst.Binop | cst.CastExpr | cst.IsExpr | cst.Ternary | cst.Tconst | cst.Tkeyof | cst.Ttypeerror | cst.Twriteof | cst.Tinfer | cst.TmatchArm | cst.Tmatch | cst.Tliteral | cst.Tname | cst.Tparen | cst.Tmap | cst.Tshape | cst.TshapeField | cst.Tmapped | cst.Ttuple | cst.Tarray | cst.Tfunc | cst.Tpack | cst.TpackUnion | cst.TfuncParam | cst.Topt | cst.Tptr | cst.Tcarray | cst.Tmember | cst.Tunion | cst.Tintersection | cst.ErrorType | cst.Tpredicate | cst.Tborrows | cst.Tpreserves
+type cst.Node = cst.Chunk | cst.Block | cst.EmptyStmt | cst.HandleStmt | cst.IfStmt | cst.IfClause | cst.ElseifClause | cst.ElseClause | cst.WhileStmt | cst.DoStmt | cst.UnsafeStmt | cst.NoSuspendStmt | cst.FornumStmt | cst.ForinStmt | cst.RepeatStmt | cst.FuncStmt | cst.Funcname | cst.LocalFuncStmt | cst.LocalStmt | cst.LabelStmt | cst.GotoStmt | cst.BreakStmt | cst.ContinueStmt | cst.ReturnStmt | cst.CompoundAssign | cst.AssignStmt | cst.CallStmt | cst.ErrorStmt | cst.PragmaStmt | cst.AnnotationApply | cst.AnnotationArg | cst.AssociatedDecl | cst.TypeAlias | cst.RecordDecl | cst.ExpansionDecl | cst.WhereClause | cst.FieldDecl | cst.IndexerDecl | cst.ArrayPart | cst.InlineMethod | cst.MetamethodDecl | cst.CdefFunc | cst.CdefStruct | cst.Generics | cst.Param | cst.Funcbody | cst.NameExpr | cst.NumberLit | cst.StringLit | cst.NilExpr | cst.TrueExpr | cst.FalseExpr | cst.Vararg | cst.Paren | cst.ComptimeExpr | cst.NewExpr | cst.ConstructorDecl | cst.SatisfiesDecl | cst.ErrorExpr | cst.DotIndex | cst.BracketIndex | cst.MethodCall | cst.SafeIndex | cst.SafeBracket | cst.SafeCall | cst.Call | cst.Args | cst.NamedArg | cst.ExpandArg | cst.TableExpr | cst.FieldBracket | cst.FieldNamed | cst.FieldItem | cst.Shortfn | cst.Istring | cst.FuncExpr | cst.Unop | cst.Binop | cst.CastExpr | cst.IsExpr | cst.Ternary | cst.Tconst | cst.Tkeyof | cst.Ttypeerror | cst.Twriteof | cst.Tinfer | cst.TmatchArm | cst.Tmatch | cst.Tliteral | cst.Tname | cst.Tparen | cst.Tmap | cst.Tshape | cst.TshapeField | cst.Tmapped | cst.Ttuple | cst.Tarray | cst.Tfunc | cst.Tpack | cst.TpackUnion | cst.TfuncParam | cst.Topt | cst.Tptr | cst.Tcarray | cst.Tmember | cst.Tunion | cst.Tintersection | cst.ErrorType | cst.Tpredicate | cst.Tborrows | cst.Tpreserves
 
 --- What a node holds: another node, or a token.
 type cst.Child = cst.Node | lexer.Token
@@ -2187,6 +2204,17 @@ function cst.add<T>(n: cst.Node, child: T): T
         n[#n + 1] = child as cst.Child
     end
     return child
+end
+
+--- Whether `name` can be written as a bare key or field, rather than in brackets.
+---
+--- A declaration's field names arrive from the parser, which already refused the
+--- keywords; one reaching here from a declaration this compiler did not parse is
+--- what the bracket form is for.
+---
+--- @param name the field or key to write
+function cst.identifier(name: string): boolean
+    return not lexer.KEYWORDS[name] and name:match("^[%a_][%w_]*$") ~= nil
 end
 
 --- The first token under `x`, which is where a diagnostic about it points. A node owns

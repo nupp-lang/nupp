@@ -128,7 +128,7 @@ local record Point
     x: float
     y: float
 
-    constructor(x: float, y: float)
+    constructor(self, x: float, y: float)
         self.x = x
         self.y = y
     end

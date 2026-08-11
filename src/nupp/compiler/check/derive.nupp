@@ -147,7 +147,7 @@ end
 --- Installs one run's derive merger and finalizer.
 function derive.install(c: state.Checker): derive.Ops
     local pending = {}
-    local ops = new derive.Ops {}
+    local ops = new derive.Ops()
     local planNodes, planLimitAt, planLimitReported = 0, nil, false
     local currentItem = nil
 
