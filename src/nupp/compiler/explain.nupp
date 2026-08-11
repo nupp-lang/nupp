@@ -53,6 +53,7 @@ end
 local FAMILIES = {
     {
         prefix = "NUPP0",
+        title = "Input",
         summary = "Source input could not be read",
         rule = "The compiler was given a path it could not read. This is about "
         .. "the file system rather than the program: the path does not "
@@ -61,6 +62,7 @@ local FAMILIES = {
     },
     {
         prefix = "NUPP1",
+        title = "Syntax",
         summary = "The source is not syntactically valid",
         rule = "The parser could not read the file as Nupp. Recovery continues "
         .. "past the first error, so several of these often describe one "
@@ -69,6 +71,7 @@ local FAMILIES = {
     },
     {
         prefix = "NUPP2",
+        title = "Types, declarations, and rules",
         summary = "A type, declaration, lint, FFI or ownership rule",
         rule = "The program parses but does not mean something the checker can "
         .. "accept, or means something its author probably did not intend.",
@@ -76,6 +79,7 @@ local FAMILIES = {
     },
     {
         prefix = "NUPP3",
+        title = "Code generation",
         summary = "Code generation cannot represent the construct",
         rule = "The program checked, but the generator cannot lower it to Lua. "
         .. "This is a limit of the backend rather than a mistake in the "
@@ -84,6 +88,7 @@ local FAMILIES = {
     },
     {
         prefix = "NUPP4",
+        title = "Formatting",
         summary = "Formatting could not safely produce the result",
         rule = "The formatter declines to rewrite source it cannot prove it "
         .. "would preserve. Formatting is never allowed to change meaning.",
@@ -91,6 +96,7 @@ local FAMILIES = {
     },
     {
         prefix = "OPT",
+        title = "Optimizer remarks",
         summary = "An optimizer remark",
         rule = "Not a problem. A pass saying what it rewrote, or what it looked "
         .. "at and declined to rewrite. Always a note, and never fails a "
@@ -714,6 +720,37 @@ function explain.lookup(code: string): explain.Entry?
         docs = lint and "docs/lints.md" or family.docs,
         family = true
     )
+end
+
+--- What the family a code belongs to is called, for grouping codes under a heading.
+--- Returns nil for a code from no family at all.
+function explain.familyTitle(code: string): string?
+    local family = familyFor(code)
+
+    return family and family.title or nil
+end
+
+--- Every code a page can be written for, sorted: the codes with entries of their own,
+--- and every lint's code. A code that resolves only through its family is left out,
+--- because the family answers for all of them at once and a page would repeat it under
+--- a number that adds nothing.
+function explain.documented(): {string}
+    local codes: {string} = {}
+    local seen: {[string]: boolean} = {}
+    for _, entry in ipairs(ENTRIES) do
+        if not seen[entry.code] then
+            seen[entry.code], codes[#codes + 1] = true, entry.code
+        end
+    end
+    local lints = require("nupp.compiler.lints")
+    for _, lint in ipairs(lints.all) do
+        if not seen[lint.code] then
+            seen[lint.code], codes[#codes + 1] = true, lint.code
+        end
+    end
+    table.sort(codes)
+
+    return codes
 end
 
 --- Every code with an entry of its own, sorted. What `nupp explain` lists when it is

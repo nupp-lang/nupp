@@ -1,0 +1,217 @@
+--[[
+The diagnostic index: one site page per code, written from what `nupp explain`
+already knows.
+
+A reader holding a code from terminal output has one question, and it is not
+which chapter covers the area. The page a code lands on states the rule, shows
+the program that reports it, and shows the same program corrected. That is
+`nupp explain` rendered as a page rather than said a second time, so the two can
+not disagree.
+
+Codes that only resolve through their family have no example pair. Those still
+get a page, saying the rule and what is missing, because a reader who arrived
+with the code needs an answer more than the index needs to look complete. See
+[docs/diagnostics.md](../../../../docs/diagnostics.md) for the families
+themselves.
+]]
+
+local explainMod = require("nupp.compiler.explain")
+local lintsMod = require("nupp.compiler.lints")
+
+local diagnostics = {}
+
+--- One generated page: the route it is written to, its title, and its markdown.
+type diagnostics.Page = {
+    markdown: string,
+    path: string,
+    title: string
+}
+
+--- Where a manifest asked the index to live, and what to call it. `path` is the
+--- route prefix the code pages are written under.
+type diagnostics.Settings = {
+    path: string?,
+    title: string?
+}
+
+--- The repository paths the site has a page for, which is what says whether a
+--- reference a code carries can be linked or only named.
+type diagnostics.Published = {[string]: boolean}
+
+local function fence(source: string): string
+    return "```nupp\n" .. source:gsub("%s+$", "") .. "\n```"
+end
+
+local function route(prefix: string, code: string): string
+    return prefix .. "/" .. code:lower()
+end
+
+-- Links between generated pages are written as files rather than routes. Nothing
+-- rewrites them later, because only a link that names a repository path has a
+-- configured page to be rewritten to.
+local function siblingLink(code: string): string
+    return "../" .. code:lower() .. "/index.html"
+end
+
+local function codeMarkdown(
+    code: string,
+    entry: explainMod.Entry,
+    paged: {[string]: boolean},
+    published: diagnostics.Published
+): string
+    local out = {"# " .. code, "", entry.summary .. ".", ""}
+    if entry.wrong then
+        out[#out + 1] = fence(entry.wrong)
+        out[#out + 1] = ""
+    end
+    out[#out + 1] = entry.rule
+    out[#out + 1] = ""
+    if entry.strict then
+        out[#out + 1] = "This applies only under `--strict`, or in a `.nupp` file."
+        out[#out + 1] = ""
+    end
+    if entry.right then
+        out[#out + 1] = "## Correction"
+        out[#out + 1] = ""
+        out[#out + 1] = fence(entry.right)
+        out[#out + 1] = ""
+    elseif entry.family then
+        out[#out + 1] = "This code has no example pair of its own. What is above is "
+            .. "its family's rule, which is what the compiler knows about it."
+        out[#out + 1] = ""
+    end
+    local lint = nil
+    for _, candidate in ipairs(lintsMod.all) do
+        if candidate.code == code then
+            lint = candidate
+        end
+    end
+    if lint then
+        out[#out + 1] = "## Lint configuration"
+        out[#out + 1] = ""
+        out[#out + 1] = "Reported by the `"
+            .. lint.name
+            .. "` lint, category `"
+            .. lint.category
+            .. "`, at `"
+            .. lint.level
+            .. "` by default. Configure it by name or by category, or suppress "
+            .. "it at the site with an annotation."
+        out[#out + 1] = ""
+    end
+    if #entry.related > 0 then
+        out[#out + 1] = "## Related codes"
+        out[#out + 1] = ""
+        for _, other in ipairs(entry.related) do
+            local sibling = explainMod.lookup(other)
+            local name = paged[other] and "[**" .. other .. "**](" .. siblingLink(other) .. ")" or "**"
+                .. other
+                .. "**"
+            out[
+                #out + 1
+            ] = "- "
+                .. name
+                .. ": "
+                .. (sibling and sibling.summary or "A related rule")
+                .. ". Run `nupp explain "
+                .. other
+                .. "`."
+        end
+        out[#out + 1] = ""
+    end
+    out[#out + 1] = "## Reference"
+    out[#out + 1] = ""
+    local target = entry.docs:match("^([^#]+)") or entry.docs
+    out[
+        #out + 1
+    ] = published[target] and (
+        "- [" .. entry.docs .. "](" .. entry.docs .. ") covers the area this rule belongs to."
+    ) or ("- `" .. entry.docs .. "` in the repository covers the area this rule belongs to.")
+    out[#out + 1] = "- [Diagnostic index](../index.html) lists every code."
+    out[#out + 1] = ""
+
+    return table.concat(out, "\n")
+end
+
+local function indexMarkdown(codes: {string}, title: string): string
+    local out = {
+        "# " .. title,
+        "",
+        "Every code the compiler reports, with the rule it enforces and, where "
+        .. "one is known, the program that reports it beside the same program "
+        .. "corrected. `nupp explain <code>` prints the same thing in a "
+        .. "terminal.",
+        "",
+    }
+    local byFamily: {[string]: {string}} = {}
+    local order: {string} = {}
+    for _, code in ipairs(codes) do
+        local family = explainMod.familyTitle(code) or "Other"
+        local bucket = byFamily[family]
+        if not bucket then
+            bucket = {}
+            byFamily[family], order[#order + 1] = bucket, family
+        end
+        bucket[#bucket + 1] = code
+    end
+    for _, family in ipairs(order) do
+        out[#out + 1] = "## " .. family
+        out[#out + 1] = ""
+        for _, code in ipairs(byFamily[family] or {}) do
+            local entry = explainMod.lookup(code)
+            out[
+                #out + 1
+            ] = "- [**"
+                .. code
+                .. "**]("
+                .. code:lower()
+                .. "/index.html): "
+                .. (entry and entry.summary or "A diagnostic")
+                .. "."
+        end
+        out[#out + 1] = ""
+    end
+
+    return table.concat(out, "\n")
+end
+
+--- The index and one page per documented code, in the order they belong in a
+--- sidebar. Answers an empty list when the manifest asked for no index.
+function diagnostics.pages(
+    settings: diagnostics.Settings?,
+    published: diagnostics.Published?
+): {diagnostics.Page}
+    local pages: {diagnostics.Page} = {}
+    if not settings then
+        return pages
+    end
+    local known = published or {}
+    local prefix = settings.path or "diagnostics"
+    local title = settings.title or "Diagnostic index"
+    local codes = explainMod.documented()
+    local paged: {[string]: boolean} = {}
+    for _, code in ipairs(codes) do
+        paged[code] = true
+    end
+    pages[#pages + 1] = {
+        path = prefix,
+        title = title,
+        markdown = indexMarkdown(codes, title)
+    }
+    for _, code in ipairs(codes) do
+        local entry = explainMod.lookup(code)
+        if entry then
+            pages[
+                #pages + 1
+            ] = {
+                path = route(prefix, code),
+                title = code,
+                markdown = codeMarkdown(code, entry, paged, known)
+            }
+        end
+    end
+
+    return pages
+end
+
+return diagnostics

@@ -19,6 +19,7 @@ local assetsMod = require("nupp.compiler.doc.assets")
 local urlsMod = require("nupp.compiler.doc.urls")
 local apiMod = require("nupp.compiler.doc.api")
 local pageMod = require("nupp.compiler.doc.page")
+local diagnosticsMod = require("nupp.compiler.doc.diagnostics")
 
 local trim, htmlEscape = stringsMod.trim, stringsMod.htmlEscape
 local escapeJs = stringsMod.escapeJs
@@ -71,6 +72,7 @@ type doc.Settings = {
     constructorPattern: string?,
     customCss: string?,
     description: string?,
+    diagnostics: diagnosticsMod.Settings?,
     favicon: string?,
     format: string?,
     github: string?,
@@ -340,6 +342,34 @@ local function configuredPages(root, settings, title)
             candidate.markdown = source
         end
         pages[#pages + 1] = candidate
+    end
+    -- Which handwritten files the site actually builds, so a generated page can link
+    -- the ones it can reach and name the ones it cannot.
+    local published: {[string]: boolean} = {}
+    for _, configured in ipairs(settings.pages or {}) do
+        if type(configured) == "table" and configured.source then
+            published[configured.source] = true
+        end
+    end
+    -- The diagnostic index is generated rather than configured: the codes are the
+    -- compiler's, so a manifest that had to list them would be a copy that goes stale
+    -- the first time one is added.
+    for _, generated in ipairs(diagnosticsMod.pages(settings.diagnostics, published)) do
+        local generatedRoute = cleanRoute(generated.path)
+        if not generatedRoute then
+            return nil, "invalid diagnostic index path"
+        end
+        if seen[generatedRoute] then
+            return nil, "diagnostic index collides with a configured page: " .. generatedRoute
+        end
+        seen[generatedRoute] = true
+        pages[
+            #pages + 1
+        ] = {
+            path = generatedRoute,
+            title = generated.title,
+            markdown = generated.markdown
+        }
     end
     if not home then
         table.insert(

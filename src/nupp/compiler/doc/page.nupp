@@ -178,7 +178,10 @@ local function sidebar(modules, current, prefix, pages, currentPath)
     local groups, byGroup = {}, {}
     for _, candidate in ipairs(pages or {}) do
         if candidate.path ~= "" and not candidate.module then
-            local key = candidate.path:match("^([^/]+)/") or "Pages"
+            -- A route that is exactly a group's first segment heads that group rather
+            -- than standing alone: `diagnostics` is the index its `diagnostics/*`
+            -- pages belong to, not a section of its own with one entry in it.
+            local key = candidate.path:match("^([^/]+)") or "Pages"
             if not byGroup[key] then
                 byGroup[key] = {key = key, pages = {}}
                 groups[#groups + 1] = byGroup[key]

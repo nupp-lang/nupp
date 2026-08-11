@@ -196,13 +196,15 @@ end
 -- is how `nupp doc` gets the rocks it renders with.
 local DOCS_KEYS = {
     -- read by nupp.compiler.doc
-    "sources", "format", "outDir", "title", "name", "description", "github", "logo", "favicon", "public", "customCss", "lexers", "includePrivate", "all", "pages", "constructorPattern",
+    "sources", "format", "outDir", "title", "name", "description", "github", "logo", "favicon", "public", "customCss", "lexers", "includePrivate", "all", "pages", "constructorPattern", "diagnostics",
     -- taken by any build target
     "kind", "dependencies", "entries", "resources", "output", "stub", "nativeFeatures", "layoutTarget",}
 
 local PAGE_KEYS = {"path", "title", "source", "layout", "heroTitle", "heroText", "heroContent", "heroImage", "heroImageAlt", "heroActions",
     -- accepted spellings of the same six
     "hero_title", "hero_text", "hero_content", "hero_image", "hero_image_alt", "hero_actions", "features",}
+
+local DIAGNOSTICS_KEYS = {"path", "title"}
 
 local HERO_ACTION_KEYS = {"text", "path", "theme"}
 local FEATURE_KEYS = {"icon", "image", "imageAlt", "title", "details", "code", "codeLanguage"}
@@ -242,6 +244,15 @@ local function validateDocsTarget(target, label)
     end
     if target.pages ~= nil and type(target.pages) ~= "table" then
         return nil, label .. ".pages must be an array of page tables"
+    end
+    if target.diagnostics ~= nil then
+        if type(target.diagnostics) ~= "table" then
+            return nil, label .. ".diagnostics must be a table"
+        end
+        valid, err = validateKeys(target.diagnostics, DIAGNOSTICS_KEYS, label .. ".diagnostics")
+        if not valid then
+            return nil, err
+        end
     end
     for index, page in ipairs(target.pages or {}) do
         local pageLabel = ("%s.pages[%d]"):format(label, index)

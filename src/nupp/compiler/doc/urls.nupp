@@ -210,16 +210,16 @@ local function rewriteConfiguredPageLinks(
     pages: {urls.Page},
     file: string
 ): string
-    if not candidate.source then
-        return markdown
-    end
     local routes = {}
     for _, page in ipairs(pages) do
         if page.source then
             routes[resolveDots(normalize(page.source))] = page.path
         end
     end
-    local sourceDirectory = dirname(normalize(candidate.source))
+    -- A generated page has no file of its own, so a link out of one cannot be relative
+    -- to where it was written. It names the repository path instead, which the second
+    -- lookup below answers, and is why a missing source is not a reason to stop.
+    local sourceDirectory = candidate.source and dirname(normalize(candidate.source)) or nil
 
     return (markdown:gsub("(%[[^%]]+%]%()([^%)]+)(%))", function(opening, target, closing)
         if target:match("^[%w+.-]+:") or target:match("^[/#]") or target:find("%s") then
@@ -227,9 +227,9 @@ local function rewriteConfiguredPageLinks(
         end
         local path, fragment = target:match("^([^#]+)(#.*)$")
         path, fragment = path or target, fragment or ""
-        local route = routes[
-            resolveDots(normalize(join(sourceDirectory, path)))
-        ] or routes[resolveDots(normalize(path))]
+        local route = (
+            sourceDirectory and routes[resolveDots(normalize(join(sourceDirectory, path)))] or nil
+        ) or routes[resolveDots(normalize(path))]
         if route == nil then
             return opening .. target .. closing
         end

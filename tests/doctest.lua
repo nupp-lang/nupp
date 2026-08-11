@@ -1837,4 +1837,64 @@ function M.headingsKeepTheirAnchors()
    assert(html.markdownHtml("# One", {}, 0):find("<h1 ", 1, true))
 end
 
+-- The diagnostic index is generated from the compiler's own table, so the pages
+-- exist for exactly the codes `nupp explain` can answer for and no manifest
+-- lists them.
+function M.diagnosticIndexCoversEveryDocumentedCode()
+   local diagnostics = require("nupp.compiler.doc.diagnostics")
+   local explain = require("nupp.compiler.explain")
+
+   assert(#diagnostics.pages(nil) == 0)
+
+   local pages = diagnostics.pages({path = "diagnostics"})
+   local codes = explain.documented()
+   assert(#pages == #codes + 1, #pages .. " pages for " .. #codes .. " codes")
+   assert(pages[1].path == "diagnostics")
+
+   local byPath = {}
+   for _, page in ipairs(pages) do byPath[page.path] = page end
+   for _, code in ipairs(codes) do
+      local page = byPath["diagnostics/" .. code:lower()]
+      assert(page, "no page for " .. code)
+      assert(page.title == code)
+      assert(page.markdown:find("# " .. code, 1, true), code)
+      assert(pages[1].markdown:find(code, 1, true), code .. " is missing from the index")
+   end
+end
+
+-- A code with an example pair shows the program that reports it above the fold and
+-- the correction under its own heading, which is what the page is for.
+function M.diagnosticPageShowsBothProgramsAndItsLint()
+   local diagnostics = require("nupp.compiler.doc.diagnostics")
+   local pages = diagnostics.pages({path = "diagnostics"}, {["docs/lints.md"] = true})
+
+   local page
+   for _, candidate in ipairs(pages) do
+      if candidate.path == "diagnostics/nupp2107" then page = candidate end
+   end
+   assert(page, "NUPP2107 has no page")
+   local wrong = assert(page.markdown:find("```nupp", 1, true))
+   assert(page.markdown:find("## Correction", 1, true) > wrong)
+   assert(page.markdown:find("`exhaustiveness` lint", 1, true), page.markdown)
+   assert(page.markdown:find("](docs/lints.md)", 1, true), page.markdown)
+end
+
+-- A reference the site has no page for is named rather than linked, and so is a
+-- related code with no page of its own. Both would otherwise be dead links.
+function M.diagnosticPagesOnlyLinkWhatExists()
+   local diagnostics = require("nupp.compiler.doc.diagnostics")
+   local pages = diagnostics.pages({path = "diagnostics"})
+
+   for _, page in ipairs(pages) do
+      assert(not page.markdown:find("](docs/", 1, true), page.path .. " links an unpublished page")
+      for target in page.markdown:gmatch("%]%(%.%./(nupp%d+)/index%.html%)") do
+         local found = false
+         for _, candidate in ipairs(pages) do
+            if candidate.path == "diagnostics/" .. target then found = true end
+         end
+         assert(found, page.path .. " links missing " .. target)
+      end
+   end
+end
+
 return M
