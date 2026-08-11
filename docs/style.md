@@ -332,9 +332,6 @@ page is next edited, rather than in one sweep.
   sentences that cannot shorten without deciding what they mean: the built-in
   annotations in `annotations.md`, three member tables in `data.md`, the proof
   table in `ownership.md`, and two in `tooling/optimization.md`.
-- `docs/reference.md` is `nupp reference all` written to a file, so its pipe
-  tables, em dashes and long lines belong to the compiler's reference strings
-  rather than to the page. Fixing them means editing what the compiler prints.
 - Em dashes are still live in doc comments under `src/` and in CLI help text.
   The handwritten pages under `docs/` no longer carry any.
 

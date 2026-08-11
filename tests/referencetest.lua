@@ -158,12 +158,14 @@ function M.referenceCommandListsAndSelectsChapters()
       "CLI chapter is selectable")
 end
 
--- Around four thousand tokens is the claim the help text makes. Held loosely —
+-- Around four thousand tokens is the claim the help text makes. Held loosely:
 -- this is a ceiling that catches the reference growing into something nobody
--- can afford to paste, not a target to write to.
+-- can afford to paste, not a target to write to. The space-aligned tables the
+-- style guide requires cost about six hundred bytes over the pipe tables they
+-- replaced, which is what the room between this number and the last one is.
 function M.theReferenceFitsInAPrompt()
    local markdown = reference.markdown()
-   assert(#markdown < 62000,
+   assert(#markdown < 63000,
       ("the reference has grown to %d bytes, past what it promises to be")
       :format(#markdown))
 end
