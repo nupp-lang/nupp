@@ -76,6 +76,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$RUNNER_OS" = Windows ]; then
+            msvc_bin=$(cygpath -u "${VCToolsInstallDir}bin\\Hostx64\\x64")
+            export PATH="$msvc_bin:$PATH"
             export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER="${VCToolsInstallDir}bin\\Hostx64\\x64\\link.exe"
           fi
 
