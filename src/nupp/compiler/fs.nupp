@@ -26,14 +26,18 @@ local function normalize(path: string): string
 end
 
 local function join(left: string?, right: string): string
+    if not right then
+        return normalize(left or "")
+    end
+    right = normalize(right)
     if not left or left == "" or left == "." then
-        return normalize(right)
+        return right
     end
     if not right or right == "" then
         return normalize(left)
     end
-    if right:sub(1, 1) == "/" then
-        return normalize(right)
+    if right:sub(1, 1) == "/" or right:match("^[A-Za-z]:/") then
+        return right
     end
 
     return normalize(left .. "/" .. right)

@@ -37,9 +37,9 @@ function M.signaturesComeFromLuaJITsOwnParse()
    assertEq(T.tostring(res.exports.nuppSinkCategory),
       "function(int32, int32, cstring?)")
    assertEq(T.tostring(res.exports.nuppSinkClose), "function()")
-   -- unsigned long is 64-bit here, and that is read from the FFI rather
-   -- than assumed
-   assertEq(T.tostring(res.exports.nuppSinkCount), "function(): uint64")
+   -- `unsigned long` follows the host ABI: LLP64 on Windows, LP64 here.
+   local width = require("ffi").os == "Windows" and "uint32" or "uint64"
+   assertEq(T.tostring(res.exports.nuppSinkCount), "function(): " .. width)
 end
 
 function M.pointersAndStructsDecode()

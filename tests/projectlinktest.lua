@@ -50,7 +50,11 @@ local function checkFile(env, path)
 end
 
 local function projectEnv(dir)
-   return envMod.new(dir, {config = {include = {"src"}}})
+   local env = envMod.new(dir, {config = {include = {"src"}}})
+   local files = envMod.listProjectFiles(env)
+   assert(#files > 0,
+      "project discovery found no files under " .. dir)
+   return env
 end
 
 local M = {}

@@ -107,7 +107,12 @@ type coverage.Model = {
 function coverage.collect(statePath: string, shardPath: string): coverage.Model
     local state = cache.loadState(statePath)
     local shard, shardErr = readShard(shardPath)
-    local hits = shard and shard.hits or {}
+    local hits = {}
+    for path, counts in pairs(shard and shard.hits or {}) do
+        -- Generated Windows modules spell their source keys with the native
+        -- separator; the cached manifest has already normalized the same path.
+        hits[normalize(path)] = counts
+    end
     local files, warnings = {}, {}
     if not shard then
         warnings[#warnings + 1] = shardErr or "coverage runner did not flush a shard"
@@ -133,7 +138,7 @@ function coverage.collect(statePath: string, shardPath: string): coverage.Model
                 }
                 files[path] = file
             end
-            local moduleHits = hits[manifest.path] or hits[path] or {}
+            local moduleHits = hits[path] or {}
             for _, site in ipairs(manifest.sites) do
                 local id = tostring(site.id)
                 local line = tonumber(site.line) or 0

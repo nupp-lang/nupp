@@ -60,14 +60,15 @@ end
 
 -- A fresh function every time, because a trace abort is a one-off: once the
 -- compiler has given up on a piece of code it stops trying, and the second
--- test to run the same function would see nothing. `coroutine.wrap` closes
--- over a new closure per iteration, which is bytecode the recorder refuses.
+-- test to run the same function would see nothing. Creating a closure directly
+-- in the loop is FNEW bytecode, which the recorder refuses on every host; putting
+-- it behind `coroutine.wrap` let the x64 recorder stitch past the refusal.
 local function newAbortingWorkload()
    return assert(loadstring([[
       local rounds = ...
       local total = 0
       for i = 1, rounds do
-         local step = coroutine.wrap(function() coroutine.yield(i) end)
+         local function step() return i end
          total = total + step()
       end
       return total

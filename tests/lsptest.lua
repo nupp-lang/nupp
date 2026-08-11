@@ -1,6 +1,7 @@
 -- Integration test: drives bin/nupp lsp over stdio with framed JSON-RPC
 -- and asserts diagnostics come back.
 local json = require("cjson").new()
+local test = require("assert")
 
 json.decode_array_with_array_mt(true)
 json.decode_invalid_numbers(false)
@@ -53,6 +54,9 @@ end
 -- answers with: a round trip proves every message ahead of it has been handled,
 -- and an unknown method is the cheapest one that touches no state.
 local function runLiveSession(steps, rootDir)
+   if jit.os == "Windows" then
+      test.skip("the live LSP harness requires POSIX named pipes")
+   end
    local dir = os.tmpname()
    os.remove(dir)
    assert(os.execute("mkdir -p '" .. dir .. "'") == 0)

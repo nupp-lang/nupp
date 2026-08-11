@@ -270,6 +270,24 @@ function M.namespaceTagSynthesizesModulesFromAShapesFields()
    assert(privateByName["lib.test"], "private docs must retain internal namespace fields")
 end
 
+function M.namespaceTagsIgnoreWindowsLineEndings()
+   local source = table.concat({
+      "--- Compiler facilities.",
+      "--- @namespace nupp",
+      "local nupp: {",
+      "   --- Data helpers.",
+      "   data: {",
+      "      --- Encodes a value.",
+      "      encode: function(value: any): string",
+      "   }",
+      "}",
+   }, "\r\n") .. "\r\n"
+   local _, errors, extra = doc.extract(source, "prelude.d.nupp", "prelude")
+   assert(not errors or #errors == 0, errors and errors[1] and errors[1].msg)
+   assert(extra and extra[1] and extra[1].name == "nupp.data",
+      extra and extra[1] and extra[1].name or "namespace missing")
+end
+
 function M.standardDataApiHasCompleteDocumentation()
    local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
    local module, errors, extra = doc.extract(source,
@@ -1512,6 +1530,12 @@ function M.markdownIsRenderedByLunamark()
    -- Every block wraps the same way whether or not the source ended in a blank
    -- line; a table cell full of summaries depends on it.
    assert(html.markdownHtml("one\n\ntwo", {}):find("<p>two</p>", 1, true))
+   -- A Windows checkout presents Markdown with CRLF endings. Fences and the
+   -- following block must survive the same parser path as an LF-only page.
+   local windows = html.markdownHtml(
+      "## Try Nupp\r\n\r\n```playground\r\n```\r\n\r\nafter", {})
+   assert(windows:find("nuppdoc-playground", 1, true), windows)
+   assert(windows:find("<p>after</p>", 1, true), windows)
    -- A summary is a sentence, so the one paragraph around it goes.
    assert(html.inlineHtml("a **bold** one") == "a <strong>bold</strong> one")
 end

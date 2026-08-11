@@ -10,10 +10,16 @@
 # already lowered to Lua, and it is the one thing here that does not itself need
 # building. A checkout without it has no way in.
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+LUA_ROOT="$ROOT"
+case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*) LUA_ROOT="$(cygpath -m "$ROOT")" ;;
+esac
 BUILT="$ROOT/build/nupp/compiler/main.lua"
 STAMP="$ROOT/build/.nupp-complete"
 BOOTSTRAP="$ROOT/bootstrap/nupp.lua"
-LUAPATH="package.path=\"$ROOT/build/?.lua;\" .. package.path"
+LUA_BUILT="$LUA_ROOT/build/nupp/compiler/main.lua"
+LUA_BOOTSTRAP="$LUA_ROOT/bootstrap/nupp.lua"
+LUAPATH="package.path=\"$LUA_ROOT/build/?.lua;\" .. package.path"
 
 # The project's own rock tree, from `scripts/rocks`. Exported rather than passed
 # with -e, because the toolchain starts other interpreters — `nupp run`, the
@@ -21,20 +27,36 @@ LUAPATH="package.path=\"$ROOT/build/?.lua;\" .. package.path"
 # they can see too. A trailing empty entry is where Lua substitutes the default
 # path, so nothing already installed is hidden.
 ROCKS="$ROOT/.rocks"
-LUA_PATH="$ROCKS/share/lua/5.1/?.lua;$ROCKS/share/lua/5.1/?/init.lua;${LUA_PATH:-;}"
-LUA_CPATH="$ROCKS/lib/lua/5.1/?.so;${LUA_CPATH:-;}"
+LUA_ROCKS="$LUA_ROOT/.rocks"
+LUA_PATH="$LUA_ROCKS/share/lua/5.1/?.lua;$LUA_ROCKS/share/lua/5.1/?/init.lua;${LUA_PATH:-;}"
+LUA_CPATH="$LUA_ROCKS/lib/lua/5.1/?.so;$LUA_ROCKS/lib/lua/5.1/?.dll;${LUA_CPATH:-;}"
 export LUA_PATH LUA_CPATH
-export NUPP_COMPILER_ROOT="$ROOT"
+export NUPP_COMPILER_ROOT="$LUA_ROOT"
 
 # The compiler lists directories through `nupp.io.files`, so it needs that
 # facility's native provider the way any other program using one does. A built
 # program finds its library beside itself; the compiler's own output tree puts
 # `build/lib` one level further out than the generated loader looks, so name it
-# outright. Every interpreter this launcher starts inherits it.
+# outright. Windows requires the real `.dll` filename; keeping the platform
+# filename everywhere also makes this override agree with the generated loader.
 # Keep the launcher's broad development provider separate from the feature-matched
 # provider a build target stages. Otherwise rebuilding the compiler can replace the
 # library under a later `nupp run` with a narrower union.
-export NUPP_NATIVE_LIBRARY="$ROOT/build/lib/nupp_native_dev"
+case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*)
+        NATIVE_BUILT_FILENAME=nupp_native.dll
+        NATIVE_FILENAME=nupp_native_dev.dll
+        ;;
+    Darwin*)
+        NATIVE_BUILT_FILENAME=libnupp_native.dylib
+        NATIVE_FILENAME=libnupp_native_dev.dylib
+        ;;
+    *)
+        NATIVE_BUILT_FILENAME=libnupp_native.so
+        NATIVE_FILENAME=libnupp_native_dev.so
+        ;;
+esac
+export NUPP_NATIVE_LIBRARY="$LUA_ROOT/build/lib/$NATIVE_FILENAME"
 
 # Which makes Cargo a prerequisite for building Nupp at all, rather than only for
 # a target that asked for a native facility. Stage 0 reaches the provider while
@@ -56,11 +78,10 @@ build_native() {
         --target-dir "$NATIVE_TARGET" --no-default-features --features files,process,http,uri \
         >/dev/null || return 1
     mkdir -p "$ROOT/build/lib"
-    for name in libnupp_native.dylib libnupp_native.so nupp_native.dll; do
-        if [ -f "$NATIVE_TARGET/release/$name" ]; then
-            cp "$NATIVE_TARGET/release/$name" "$NUPP_NATIVE_LIBRARY" && return 0
-        fi
-    done
+    if [ -f "$NATIVE_TARGET/release/$NATIVE_BUILT_FILENAME" ]; then
+        cp "$NATIVE_TARGET/release/$NATIVE_BUILT_FILENAME" "$NUPP_NATIVE_LIBRARY" \
+            && return 0
+    fi
     echo "nupp: cargo built no shared library for the file provider" >&2
     return 1
 }
@@ -117,12 +138,12 @@ built_is_current() {
 # only way out is knowing to delete build/ by hand.
 build_now() {
     if built_exists; then
-        (cd "$ROOT" && luajit -e "$LUAPATH" "$BUILT" build) && return 0
+        (cd "$ROOT" && luajit -e "$LUAPATH" "$LUA_BUILT" build) && return 0
         [ -f "$BOOTSTRAP" ] || return 1
         echo "nupp: falling back to the bootstrap compiler" >&2
     fi
     [ -f "$BOOTSTRAP" ] || return 1
-    (cd "$ROOT" && luajit "$BOOTSTRAP" build)
+    (cd "$ROOT" && luajit "$LUA_BOOTSTRAP" build)
 }
 
 # `build` and `clean` are the build; running one before them would be doing
@@ -162,11 +183,11 @@ if [ "$rebuild" = yes ] && ! built_is_current; then
 fi
 
 if built_exists; then
-    exec luajit -e "$LUAPATH" "$BUILT" "$@"
+    exec luajit -e "$LUAPATH" "$LUA_BUILT" "$@"
 fi
 
 if [ -f "$BOOTSTRAP" ]; then
-    exec luajit "$BOOTSTRAP" "$@"
+    exec luajit "$LUA_BOOTSTRAP" "$@"
 fi
 
 echo "nupp: no completed build or bootstrap compiler found" >&2

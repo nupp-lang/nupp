@@ -426,7 +426,9 @@ local function configureScintillua(root: string?, settings: highlight.Settings?)
     local lexerDir = settings and settings.lexers
     if lexerDir then
         local custom = join(root, lexerDir)
-        if exists(custom) then
+        -- Opening a directory happens to succeed on Unix and fails on Windows;
+        -- ask the filesystem the question that is actually being answered.
+        if nupp.io.files.isDirectory(custom) then
             searchPath = custom .. ";" .. base
         end
     end

@@ -12,10 +12,19 @@ local fs = require("nupp.compiler.fs")
 local process = require("nupp.compiler.build.process")
 local diagnostics = require("nupp.compiler.diagnostics")
 
-local join, normalize = fs.join, fs.normalize
+local join, normalize, dirname, basename = fs.join, fs.normalize, fs.dirname, fs.basename
 local readFile, writeFile = fs.readFile, fs.writeFile
 
 local rock = {}
+local windows = package.config:sub(1, 1) == "\\"
+
+local function commandPath(path)
+    if not windows then
+        return path
+    end
+    path = path:gsub("^/([A-Za-z])(/)", "%1:%2")
+    return (path:gsub("/", "\\"))
+end
 
 type rock.Metadata = {
     name: string,
@@ -275,7 +284,8 @@ function rock.pack(root: string?, asked: string?): string?, string?
     if not path then
         return nil, "LuaRocks packed the project but did not report the output path"
     end
-    if path:sub(1, 1) ~= "/" and root ~= "." then
+    local absolute = path:sub(1, 1) == "/" or path:match("^[A-Za-z]:/") ~= nil
+    if not absolute and root ~= "." then
         path = join(root, path)
     end
 
@@ -283,8 +293,8 @@ function rock.pack(root: string?, asked: string?): string?, string?
 end
 
 local function removeTree(path)
-    if package.config:sub(1, 1) == "\\" then
-        return process.run({"cmd", "/d", "/c", "rmdir", "/s", "/q", path})
+    if windows then
+        return process.run({"cmd", "/d", "/c", "rmdir", "/s", "/q", commandPath(path)})
     end
     return process.run({"rm", "-rf", path})
 end
@@ -305,11 +315,19 @@ function rock.test(root: string?, asked: string?): string?, string?
     if not fs.mkdir(temp) then
         return nil, "cannot create temporary rock tree"
     end
-    local code, output = process.capture({"luarocks", "--lua-version=5.1", "--tree=" .. temp, "install", packed})
+    local localArtifact = (windows and ".\\" or "./") .. basename(packed)
+    local code, output = process.capture({
+        "luarocks",
+        "--lua-version=5.1",
+        "--tree=" .. commandPath(temp),
+        "install",
+        localArtifact,
+    }, {cwd = commandPath(dirname(packed))})
     if code ~= 0 then
         io.stderr:write(output)
         removeTree(temp)
-        return nil, "the packed rock could not be installed"
+        return nil, ("the packed rock %s could not be installed from %s (present: %s)")
+            :format(localArtifact, dirname(packed), tostring(fs.exists(packed)))
     end
     local modules, modulesErr = declarationModules(
         join(temp, "lib/luarocks/rocks-5.1/" .. meta.name .. "/" .. meta.version)

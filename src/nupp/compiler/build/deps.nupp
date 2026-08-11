@@ -544,13 +544,26 @@ end
 -- to be told what the first one said.
 local listings = {}
 local toolVersions = {}
+local toolFailures = {}
+
+local function toolArgv(tool)
+    local suffix = tool:lower():match("%.([^.]+)$")
+    if windows and (suffix == "bat" or suffix == "cmd") then
+        return {"cmd", "/d", "/c", "call", tool}
+    end
+
+    return {tool}
+end
 
 -- False rather than a version when there is no LuaRocks to ask, so that a missing tool
 -- is reported as the missing tool rather than as a rock that would not install.
 local function toolVersion(luarocks)
     if toolVersions[luarocks] == nil then
-        local code, printed = process.capture({luarocks, "--version"})
+        local argv = toolArgv(luarocks)
+        argv[#argv + 1] = "--version"
+        local code, printed = process.capture(argv)
         toolVersions[luarocks] = code == 0 and (printed or "") or false
+        toolFailures[luarocks] = code ~= 0 and printed or nil
     end
 
     return toolVersions[luarocks]
@@ -616,14 +629,18 @@ local function buildRock(root, outDir, name, dep, previous)
     end
     local wanted = dep.version or declared
 
-    local luarocks = dep.luarocks or "luarocks"
+    local luarocks = dep.luarocks
+        or os.getenv("NUPP_LUAROCKS")
+        or (windows and "luarocks.bat" or "luarocks")
     local version = toolVersion(luarocks)
     if not version then
         return nil, (
-            "dependency %s is a rock and %s is not on PATH; install " .. "LuaRocks to build it"
-        ):format(name, luarocks)
+            "dependency %s cannot run LuaRocks through %s: %s"
+        ):format(name, luarocks, toolFailures[luarocks] or "the command failed")
     end
-    local argv = {luarocks, "--lua-version=" .. luaVersion, "--tree=" .. tree}
+    local argv = toolArgv(luarocks)
+    argv[#argv + 1] = "--lua-version=" .. luaVersion
+    argv[#argv + 1] = "--tree=" .. tree
     local luaDir = luaDirectory(dep)
     if luaDir then
         argv[#argv + 1] = "--lua-dir=" .. luaDir

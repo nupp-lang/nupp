@@ -8,4 +8,16 @@ things a program has to do that a library cannot — read `arg`, and exit with a
 status.
 ]]
 
+-- Windows opens the inherited standard streams in text mode. That changes LF
+-- output to CRLF and, more seriously, changes the bytes and Content-Length of
+-- an LSP frame after it was measured. CLI protocols and generated artifacts
+-- are byte contracts, so put all three standard descriptors in binary mode.
+if package.config:sub(1, 1) == "\\" then
+    cdef function _setmode(descriptor: int32, mode: int32): int32
+    const BINARY = 0x8000
+    _setmode(0, BINARY)
+    _setmode(1, BINARY)
+    _setmode(2, BINARY)
+end
+
 os.exit(require("nupp.compiler.cli").main(arg))

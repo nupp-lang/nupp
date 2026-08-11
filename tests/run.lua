@@ -8,10 +8,115 @@
 -- the file and line the error came from. Standard output and error from a test
 -- are held back unless it fails or --verbose asks for them. Lines are 1-based,
 -- as everywhere else; a Lua error carries no column, so none is invented.
-local dir = arg[0]:match("^(.*)[/\\]") or "."
+local runnerPath = arg[0]
+if package.config:sub(1, 1) == "\\" then
+   runnerPath = runnerPath:gsub("^/([A-Za-z])(/)", function(drive, slash)
+      return drive:upper() .. ":" .. slash
+   end)
+end
+local dir = runnerPath:match("^(.*)[/\\]") or "."
 local buildDir = os.getenv("NUPP_COVERAGE_BUILD") or "build"
 package.path = dir .. "/../" .. buildDir .. "/?.lua;" .. dir .. "/?.lua;"
    .. package.path
+
+-- The suites predate Windows support and deliberately exercise shell-facing
+-- CLI behaviour with POSIX commands. On Windows the VM's `system` and `popen`
+-- otherwise hand those commands to cmd.exe even though the runner itself was
+-- launched by Git Bash. Keep one shell dialect for the tests, and keep native
+-- paths for the Windows programs those commands start.
+if package.config:sub(1, 1) == "\\" then
+   local rawExecute, rawPopen, rawTmpname = os.execute, io.popen, os.tmpname
+   local bash = assert(os.getenv("NUPP_TEST_BASH"),
+      "NUPP_TEST_BASH must name Git Bash on Windows")
+   local nativeMarker = "__NUPP_WINDOWS_COMMAND__"
+   _G.__NUPP_TEST_CMD_MARKER = nativeMarker
+   _G.__NUPP_TEST_BASH = bash
+   local cwdPipe = assert(rawPopen("cd"))
+   local cwd = assert(cwdPipe:read("*l")):gsub("\\", "/")
+   cwdPipe:close()
+
+   os.tmpname = function()
+      return rawTmpname():gsub("\\", "/")
+   end
+
+   local function script(command)
+      command = command:gsub("(%a):/", function(drive)
+         return "/" .. drive:lower() .. "/"
+      end)
+      local path = os.tmpname() .. ".sh"
+      local file = assert(io.open(path, "wb"))
+      file:write(command, "\n")
+      file:close()
+      return path
+   end
+
+   local function invocation(path)
+      -- cmd.exe strips the first pair of quotes from a command line that starts
+      -- with a quoted executable. The outer pair preserves the executable and
+      -- script as two quoted arguments.
+      return ('""%s" "%s""'):format(bash:gsub('"', '\\"'),
+         path:gsub('"', '\\"'))
+   end
+
+   os.execute = function(command)
+      if type(command) ~= "string" then return rawExecute(command) end
+      if command:sub(1, #nativeMarker) == nativeMarker then
+         return rawExecute(command:sub(#nativeMarker + 1))
+      end
+      local caller = debug.getinfo(2, "S")
+      local source = caller and caller.source:gsub("\\", "/") or ""
+      if not source:find("/tests/", 1, true)
+         and not source:match("^@?tests/") then
+         return rawExecute(command)
+      end
+      local path = script(command)
+      local result = rawExecute(invocation(path))
+      os.remove(path)
+      return result
+   end
+
+   io.popen = function(command, mode)
+      if command:sub(1, #nativeMarker) == nativeMarker then
+         return rawPopen(command:sub(#nativeMarker + 1), mode)
+      end
+      local caller = debug.getinfo(2, "S")
+      local source = caller and caller.source:gsub("\\", "/") or ""
+      if not source:find("/tests/", 1, true)
+         and not source:match("^@?tests/") then
+         return rawPopen(command, mode)
+      end
+      if command == "pwd" then
+         local unread = true
+         return {
+            read = function()
+               if not unread then return nil end
+               unread = false
+               return cwd
+            end,
+            lines = function()
+               return function()
+                  if not unread then return nil end
+                  unread = false
+                  return cwd
+               end
+            end,
+            close = function() return true end,
+         }
+      end
+      local path = script(command)
+      local pipe = assert(rawPopen(invocation(path), mode))
+      local proxy = {}
+      function proxy:read(...) return pipe:read(...) end
+      function proxy:lines(...) return pipe:lines(...) end
+      function proxy:close()
+         local result = {pipe:close()}
+         os.remove(path)
+         return unpack(result)
+      end
+      return proxy
+   end
+end
+
 local test = require("assert")
 
 -- Existing suites use Lua's familiar assert spelling.  Give those assertions
@@ -50,22 +155,41 @@ local capture
 local progressWrite
 do
    local loaded, ffi = pcall(require, "ffi")
-   if loaded and ffi.os ~= "Windows" then
-      ffi.cdef[[
-         int dup(int);
-         int dup2(int, int);
-         int open(const char *, int, int);
-         int close(int);
-         int fflush(void *);
-         long write(int, const void *, unsigned long);
-      ]]
+   if loaded then
+      if ffi.os == "Windows" then
+         ffi.cdef[[
+            int _dup(int);
+            int _dup2(int, int);
+            int _open(const char *, int, int);
+            int _close(int);
+            int fflush(void *);
+            int _write(int, const void *, unsigned int);
+         ]]
+      else
+         ffi.cdef[[
+            int dup(int);
+            int dup2(int, int);
+            int open(const char *, int, int);
+            int close(int);
+            int fflush(void *);
+            long write(int, const void *, unsigned long);
+         ]]
+      end
       local C = ffi.C
-      local create = ffi.os == "OSX" and 0x200 or 0x40
-      local truncate = ffi.os == "OSX" and 0x400 or 0x200
-      local statusFd = C.dup(asJson and 2 or 1)
+      local create = ffi.os == "Windows" and 0x0100
+         or (ffi.os == "OSX" and 0x200 or 0x40)
+      local truncate = ffi.os == "Windows" and 0x0200
+         or (ffi.os == "OSX" and 0x400 or 0x200)
+      local binary = ffi.os == "Windows" and 0x8000 or 0
+      local dup = ffi.os == "Windows" and C._dup or C.dup
+      local dup2 = ffi.os == "Windows" and C._dup2 or C.dup2
+      local open = ffi.os == "Windows" and C._open or C.open
+      local close = ffi.os == "Windows" and C._close or C.close
+      local write = ffi.os == "Windows" and C._write or C.write
+      local statusFd = dup(asJson and 2 or 1)
 
       progressWrite = function(text)
-         C.write(statusFd, text, #text)
+         write(statusFd, text, #text)
       end
 
       local function flush()
@@ -83,19 +207,19 @@ do
       capture = function(run)
          local outPath, errPath = os.tmpname(), os.tmpname()
          flush()
-         local savedOut, savedErr = C.dup(1), C.dup(2)
-         local out = C.open(outPath, 1 + create + truncate, 384)
-         local err = C.open(errPath, 1 + create + truncate, 384)
+         local savedOut, savedErr = dup(1), dup(2)
+         local out = open(outPath, 1 + create + truncate + binary, 384)
+         local err = open(errPath, 1 + create + truncate + binary, 384)
          assert(savedOut >= 0 and savedErr >= 0 and out >= 0 and err >= 0,
             "cannot capture test output")
-         assert(C.dup2(out, 1) >= 0 and C.dup2(err, 2) >= 0,
+         assert(dup2(out, 1) >= 0 and dup2(err, 2) >= 0,
             "cannot redirect test output")
-         C.close(out); C.close(err)
+         close(out); close(err)
          local ok, problem = pcall(run)
          flush()
-         assert(C.dup2(savedOut, 1) >= 0 and C.dup2(savedErr, 2) >= 0,
+         assert(dup2(savedOut, 1) >= 0 and dup2(savedErr, 2) >= 0,
             "cannot restore test output")
-         C.close(savedOut); C.close(savedErr)
+         close(savedOut); close(savedErr)
          return ok, problem, read(outPath), read(errPath)
       end
    else

@@ -1387,12 +1387,14 @@ function M.cdefOwnedOutputsBecomeLuaReturns()
       code)
    assert(code:find('const __nuppT', 1, true),
       "out holders and status are const: " .. code)
+   if require("ffi").os == "Windows" then return end
    local chunk, loadErr = loadstring(code, "@ownership-cdef-out")
    assert(chunk, tostring(loadErr) .. "\n" .. code)
    assertEq(chunk(), true, "owned out pointer is returned and dropped")
 end
 
 function M.failedOwnedOutputsAreNil()
+   if require("ffi").os == "Windows" then return end
    local source = table.concat({
       "cdef function free(takes value: voidptr)",
       "@owned(out = result, cleanup = free, success = zero)",

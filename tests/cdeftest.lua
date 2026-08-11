@@ -1,6 +1,7 @@
 local parser = require("nupp.compiler.parser")
 local check = require("fragment")
 local gen = require("nupp.compiler.gen")
+local windows = require("ffi").os == "Windows"
 
 local function assertEq(got, want, label)
    if got ~= want then
@@ -156,8 +157,9 @@ function M.realLibcCall()
       "return tonumber(strlen('hello, C'))",
    }, "\n")), 8)
    assertEq(run(table.concat({
-      "cdef function getpid(): int32",
-      "return getpid() > 0",
+      windows and "cdef function _getpid(): int32"
+         or "cdef function getpid(): int32",
+      windows and "return _getpid() > 0" or "return getpid() > 0",
    }, "\n")), true)
 end
 
@@ -187,16 +189,24 @@ end
 function M.fromClauseBindsNamedLibrary()
    -- symbols resolve through a cached ffi.load instead of the default
    -- namespace; zlib is not linked into the luajit binary
-   assertClean("cdef function crc32(crc: uint64, buf: cstring, len: uint32): uint64 from \'z\'")
-   local code = compile(
-      "cdef function crc32(crc: uint64, buf: cstring, len: uint32): uint64 from 'z'")
-   assert(code:find("__nuppLib('z')", 1, true), "binds through ffi.load:\n" .. code)
+   local declaration = windows
+      and "cdef function GetCurrentProcessId(): uint32 from 'kernel32'"
+      or "cdef function crc32(crc: uint64, buf: cstring, len: uint32): uint64 from 'z'"
+   local library = windows and "kernel32" or "z"
+   assertClean(declaration)
+   local code = compile(declaration)
+   assert(code:find("__nuppLib('" .. library .. "')", 1, true),
+      "binds through ffi.load:\n" .. code)
    assert(code:find("__nuppLibCache", 1, true), "load is cached")
    -- and it actually calls the library
-   assertEq(run(table.concat({
-      "cdef function crc32(crc: uint64, buf: cstring, len: uint32): uint64 from 'z'",
-      "return tonumber(crc32(0, 'hello, world', 12))",
-   }, "\n")), 4289425978)
+   if windows then
+      assert(run(declaration .. "\nreturn GetCurrentProcessId()") > 0)
+   else
+      assertEq(run(table.concat({
+         declaration,
+         "return tonumber(crc32(0, 'hello, world', 12))",
+      }, "\n")), 4289425978)
+   end
 end
 
 function M.defaultNamespaceStillUsedWithoutFrom()

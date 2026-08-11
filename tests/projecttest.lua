@@ -115,14 +115,11 @@ function M.theToolFingerprintDoesNotDependOnHowTheCompilerWasFound()
       local script = ("package.path=%q..package.path "
          .. "print(require('nupp.compiler.build.cache').toolFingerprint())")
          :format(prefix .. "build/?.lua;")
-      local pipe = assert(io.popen("luajit -e " .. ("%q"):format(script)))
-      local out = pipe:read("*l")
-      pipe:close()
-      return out
+      local code, out = process.capture({"luajit", "-e", script})
+      return code == 0 and out:match("[^\r\n]+") or nil
    end
-   local cwd = assert(io.popen("pwd"))
-   local here = cwd:read("*l")
-   cwd:close()
+   local here = assert(nupp.io.files.currentDirectory())
+   here = here:gsub("^/([A-Za-z])(/)", "%1:%2")
    local relative = fingerprintUnder("")
    assert(relative and relative ~= "", "the relative run produced a digest")
    assertEq(fingerprintUnder(here .. "/"), relative,
@@ -130,6 +127,8 @@ function M.theToolFingerprintDoesNotDependOnHowTheCompilerWasFound()
 end
 
 function M.windowsMkdirUsesNativePathAndIsIdempotent()
+   assertEq(fs.join("C:/one", "D:/two"), "D:/two",
+      "joining an absolute Windows path does not prefix it")
    local command = process.mkdirCommand("build/nupp", true)
    assertEq(table.concat(command, " "),
       "cmd /d /c if not exist build\\nupp mkdir build\\nupp")

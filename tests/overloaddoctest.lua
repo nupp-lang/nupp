@@ -21,6 +21,7 @@ function M.everyOverloadGuideExampleChecksAsDocumented()
    local file = assert(io.open(ROOT .. "/docs/type-system/overloads.md", "rb"))
    local markdown = file:read("*a")
    file:close()
+   markdown = markdown:gsub("\r\n?", "\n")
 
    local count = 0
    for source in markdown:gmatch("```nupp\n(.-)\n```") do

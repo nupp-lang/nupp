@@ -547,7 +547,7 @@ pub unsafe extern "C" fn nuppProcessTakeStream(
     let Some(child) = child.as_mut() else {
         return std::ptr::null_mut();
     };
-    let result = if which == 1 {
+    let result = if which == 1 && child.merged.is_some() {
         child.merged.take().map(start_reader)
     } else if which == 2 && child.merged.is_some() {
         return std::ptr::null_mut();
@@ -994,7 +994,7 @@ mod tests {
     #[test]
     fn a_child_speaks_and_exits() {
         unsafe {
-            let child = command("<nul set /p =windows-child");
+            let child = command("<nul set /p =windows-child& exit /b 0");
             let output = nuppProcessTakeStream(child, 1);
             assert_eq!(read_to_end(output), b"windows-child");
             let mut code = -1;

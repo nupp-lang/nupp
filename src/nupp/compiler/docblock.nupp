@@ -76,7 +76,7 @@ function docblock.linesOf(node: cst.Child?): {string}
     local pending: {string} = {}
     for _, trivia in ipairs(token and token.trivia or {}) do
         if trivia.kind == "comment" and trivia.text:match("^%-%-%-") then
-            pending[#pending + 1] = trivia.text:gsub("^%-%-%- ?", "", 1)
+            pending[#pending + 1] = trivia.text:gsub("^%-%-%- ?", "", 1):gsub("\r$", "")
         elseif trivia.kind == "comment" then
             pending = {}
         elseif trivia.kind == "whitespace" then

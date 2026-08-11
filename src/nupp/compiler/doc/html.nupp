@@ -375,7 +375,10 @@ local function buildParser()
 end
 
 markdownHtml = function(text: string?, links: nupp.compiler.doc.urls.Links?, headingShift: integer?): string
-    text = tostring(text or "")
+    -- A Windows checkout hands the page to us with CRLF endings. The grammar is
+    -- line-oriented, and the fenced-block pass rebuilds its input with LF, so
+    -- normalize before either one sees a stray carriage return.
+    text = tostring(text or ""):gsub("\r\n?", "\n")
     if text == "" then
         return ""
     end

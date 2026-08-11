@@ -242,7 +242,8 @@ function worker.evaluate(
     if not decoded or type(response) ~= "table" then
         return nil, {
             code = "NUPP2412",
-            message = "the comptime worker crashed or returned an invalid response: " .. tostring(response or output),
+            message = "the comptime worker crashed or returned an invalid response: "
+                .. tostring(decoded and response or output),
         }
     end
     if not response.ok then

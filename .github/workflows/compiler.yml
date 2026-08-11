@@ -1,0 +1,79 @@
+name: Compiler matrix
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  compiler:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            os: ubuntu-24.04
+          - name: macOS arm64
+            os: macos-15
+          - name: Windows x64
+            os: windows-2022
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Build LuaJIT and lua-cjson
+        if: runner.os != 'Windows'
+        shell: bash
+        run: .github/scripts/setup-luajit-posix.sh
+
+      - name: Build LuaJIT and lua-cjson
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .github/scripts/setup-luajit-windows.ps1
+
+      - name: Bootstrap the compiler
+        shell: bash
+        run: ./bin/nupp build
+
+      - name: Diagnose a Windows native-library load failure
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-ChildItem build/lib
+          dumpbin /dependents build/lib/nupp_native.dll
+
+      - name: Install the development rocks
+        shell: bash
+        run: ./bin/nupp build --target docs
+
+      - name: Check the compiler
+        shell: bash
+        run: ./bin/nupp check
+
+      - name: Run the compiler suite
+        if: runner.os != 'Windows'
+        shell: bash
+        run: ./bin/nupp test
+
+      - name: Run the compiler suite
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          NUPP_TEST_BASH: ${{ env.NUPP_CI_BASH }}
+          NUPP_TEST_SH: ${{ env.NUPP_CI_SH }}
+        run: ./bin/nupp test
+
+      - name: Verify the self-hosting fixpoint
+        shell: bash
+        run: ./bin/nupp fixpoint
+
+      - name: Run every native provider test
+        shell: bash
+        run: >-
+          cargo test --locked --manifest-path runtime/native/Cargo.toml
+          --all-features

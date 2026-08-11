@@ -269,7 +269,7 @@ end
 -- since the caller passed a name and a failure that does not repeat it says nothing
 -- about which name was wrong.
 local function writeFile(path: string, text: string)
-    local file, openReason = io.open(path, "w")
+    local file, openReason = io.open(path, "wb")
     if not file then
         error("profile: cannot write '" .. path .. "': " .. (openReason or "unknown"), 3)
     end

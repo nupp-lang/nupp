@@ -41,4 +41,13 @@ build = {
    install_command = "mkdir -p $(LUADIR)/scintillua && "
       .. "cp -R lexers $(LUADIR)/scintillua/ && "
       .. "cp LICENSE $(LUADIR)/scintillua/",
+   platforms = {
+      win32 = {
+         build_command = "ver > nul",
+         install_command = 'if not exist "$(LUADIR)\\scintillua" '
+            .. 'mkdir "$(LUADIR)\\scintillua" && '
+            .. 'xcopy /E /I /Y lexers "$(LUADIR)\\scintillua\\lexers" > nul && '
+            .. 'copy /Y LICENSE "$(LUADIR)\\scintillua\\LICENSE" > nul',
+      },
+   },
 }

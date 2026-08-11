@@ -5,7 +5,6 @@ Documentation reads a source tree and writes a site, and both halves want the
 same normalized, forward-slashed paths regardless of platform.
 ]]
 
-local process = require("nupp.compiler.build.process")
 local fs = require("nupp.compiler.fs")
 
 local files = {}
@@ -68,17 +67,8 @@ local function privateSource(root: string, candidate: string): boolean
 end
 
 local function listDirectoryFiles(path)
-    local code, output
-    if package.config:sub(1, 1) == "\\" then
-        code, output = process.capture({"cmd", "/c", "dir", "/s", "/b", path})
-    else
-        code, output = process.capture({"find", path, "-type", "f"})
-    end
-    if code ~= 0 then
-        return {}
-    end
     local paths = {}
-    for candidate in output:gmatch("[^\r\n]+") do
+    for _, candidate in ipairs(fs.listFiles(path)) do
         candidate = normalize(candidate)
         if not hiddenBelow(path, candidate) then
             paths[#paths + 1] = candidate

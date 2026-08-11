@@ -158,10 +158,11 @@ function stage.build(root: string, outDir: string, effects: {[string]: any}?): {
         end
         local filename = libraryFile(provider.library)
         local built = join(targetDir, join("release", filename))
-        -- ffi.load treats a path containing a slash as an exact filename; staging
-        -- the loader name without a platform suffix lets the same generated
-        -- bootstrap work on every supported host.
-        local output = join(root, join(outDir, join("lib", provider.library)))
+        -- The sidecar has one public name on POSIX. Windows' loader appends
+        -- `.dll` to an extensionless path, so keep that suffix there while
+        -- leaving the provider name stable everywhere else.
+        local staged = jit.os == "Windows" and filename or provider.library
+        local output = join(root, join(outDir, join("lib", staged)))
         local copied, err = fs.copyFile(built, output)
         if not copied then
             return nil, (

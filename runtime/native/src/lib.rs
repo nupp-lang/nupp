@@ -110,7 +110,11 @@ mod path {
         Ok(Utf8Path::new(unsafe { text(data, length, "path") }?))
     }
     fn output(path: impl Into<Utf8PathBuf>) -> *mut NuppBytes {
-        output_bytes(path.into().into_string().into_bytes())
+        let mut text = path.into().into_string();
+        if cfg!(windows) {
+            text = text.replace('\\', "/");
+        }
+        output_bytes(text.into_bytes())
     }
     fn fail(error: impl ToString) -> *mut NuppBytes {
         set_error(error);
@@ -609,7 +613,12 @@ pub mod files {
 
     fn named(path: PathBuf) -> *mut NuppBytes {
         match path.into_os_string().into_string() {
-            Ok(text) => output_bytes(text.into_bytes()),
+            Ok(mut text) => {
+                if cfg!(windows) {
+                    text = text.replace('\\', "/");
+                }
+                output_bytes(text.into_bytes())
+            }
             Err(_) => missing("path is not valid UTF-8"),
         }
     }
@@ -1174,6 +1183,8 @@ pub mod files {
         fn settle(slot: &Arc<Slot>, outcome: Outcome, status: i32) {
             // A canceled transfer keeps its verdict: the work finished, but
             // nobody is left who asked for it, so the bytes go nowhere.
+            let mut answer = slot.outcome.lock().expect("outcome mutex");
+            *answer = outcome;
             if slot
                 .status
                 .compare_exchange(
@@ -1182,10 +1193,11 @@ pub mod files {
                     Ordering::AcqRel,
                     Ordering::Acquire,
                 )
-                .is_ok()
+                .is_err()
             {
-                *slot.outcome.lock().expect("outcome mutex") = outcome;
+                *answer = Outcome::Waiting;
             }
+            drop(answer);
             SETTLED.fetch_add(1, Ordering::AcqRel);
             let (count, waiters) = arrivals();
             *count.lock().expect("arrivals mutex") += 1;
@@ -1203,13 +1215,56 @@ pub mod files {
                 .open(&temporary)
                 .and_then(|mut file| {
                     file.write_all(contents)?;
-                    file.sync_all()
+                    file.sync_all().map_err(|error| {
+                        std::io::Error::new(
+                            error.kind(),
+                            format!("cannot sync atomic temporary file: {error}"),
+                        )
+                    })
                 })
-                .and_then(|()| fs::rename(&temporary, path));
+                .and_then(|()| {
+                    replace_file(&temporary, path).map_err(|error| {
+                        std::io::Error::new(
+                            error.kind(),
+                            format!("cannot replace atomic destination: {error}"),
+                        )
+                    })
+                });
             if written.is_err() {
                 let _ = fs::remove_file(&temporary);
             }
             written
+        }
+
+        #[cfg(not(windows))]
+        fn replace_file(from: &Path, to: &Path) -> std::io::Result<()> {
+            fs::rename(from, to)
+        }
+
+        #[cfg(windows)]
+        fn replace_file(from: &Path, to: &Path) -> std::io::Result<()> {
+            use std::os::windows::ffi::OsStrExt;
+
+            #[link(name = "kernel32")]
+            extern "system" {
+                fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
+            }
+
+            const REPLACE_EXISTING: u32 = 0x1;
+            let existing: Vec<u16> = from.as_os_str().encode_wide().chain(Some(0)).collect();
+            let replacement: Vec<u16> = to.as_os_str().encode_wide().chain(Some(0)).collect();
+            if unsafe {
+                MoveFileExW(
+                    existing.as_ptr(),
+                    replacement.as_ptr(),
+                    REPLACE_EXISTING,
+                )
+            } != 0
+            {
+                Ok(())
+            } else {
+                Err(std::io::Error::last_os_error())
+            }
         }
 
         fn perform(work: Work) -> std::io::Result<Vec<u8>> {

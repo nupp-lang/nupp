@@ -31,6 +31,16 @@ type process.Options = {
 
 local windows = package.config:sub(1, 1) == "\\"
 
+-- The Windows test host runs its shell-facing cases through MSYS, whose
+-- `tmpname` wrapper answers `/c/...`. Product commands still run under cmd.exe,
+-- so their redirection path must be returned to the native spelling first.
+local function nativePath(path)
+    if windows then
+        return (path:gsub("^/([A-Za-z])(/)", "%1:%2"))
+    end
+    return path
+end
+
 local function quote(arg)
     arg = tostring(arg)
     if windows then
@@ -46,6 +56,16 @@ end
 function process.command(argv: {string}, opts: process.Options?): string
     assert(type(argv) == "table" and #argv > 0, "argv must not be empty")
     opts = (opts or {}) as process.Options
+    local testBash = windows and (
+        rawget(_G, "__NUPP_TEST_BASH") or os.getenv("NUPP_TEST_BASH")
+    ) or nil
+    if testBash and tostring(argv[1]):gsub("\\", "/"):match("/bin/nupp$") then
+        local launched = {testBash}
+        for _, arg in ipairs(argv) do
+            launched[#launched + 1] = arg
+        end
+        argv = launched
+    end
     local parts = {}
     if opts.env then
         local names = {}
@@ -56,7 +76,9 @@ function process.command(argv: {string}, opts: process.Options?): string
         for _, name in ipairs(names) do
             assert(name:match("^[%a_][%w_]*$"), "invalid environment name")
             if windows then
-                parts[#parts + 1] = "set " .. name .. "=" .. tostring(opts.env[name])
+                -- The closing quote, rather than whitespace before `&&`, ends
+                -- the value. `set NAME=value &&` stores that space in NAME.
+                parts[#parts + 1] = 'set "' .. name .. "=" .. tostring(opts.env[name]) .. '"'
                 parts[#parts + 1] = "&&"
             else
                 parts[#parts + 1] = name .. "=" .. quote(opts.env[name])
@@ -73,7 +95,12 @@ function process.command(argv: {string}, opts: process.Options?): string
         ) or ("cd " .. quote(opts.cwd) .. " && " .. command)
     end
 
-    return command
+    -- The Windows test runner keeps legacy handwritten shell tests in Bash,
+    -- but argv-based product commands must retain cmd.exe semantics. The
+    -- runner strips this out-of-band marker before handing this command to the
+    -- native shell.
+    local testMarker = windows and rawget(_G, "__NUPP_TEST_CMD_MARKER") or nil
+    return testMarker and (testMarker .. command) or command
 end
 
 function process.mkdirCommand(path: string, forWindows: boolean?): {string}
@@ -111,7 +138,7 @@ end
 
 function process.capture(argv: {string}, opts: process.Options?): integer, string
     opts = (opts or {}) as process.Options
-    local tmp = os.tmpname()
+    local tmp = nativePath(os.tmpname())
     local command = process.command(argv, opts) .. " >" .. quote(tmp) .. " 2>&1"
     local code = exitCode(os.execute(command))
     local f = io.open(tmp, "rb")

@@ -108,6 +108,7 @@ function M.theCommittedPageIsCurrent()
       "docs/reference.md is missing; run: nupp reference -o docs/reference.md")
    local committed = file:read("*a")
    file:close()
+   committed = committed:gsub("\r\n?", "\n")
    assertEq(committed, reference.markdown() .. "\n",
       "docs/reference.md is stale; run: nupp reference -o docs/reference.md")
 end
