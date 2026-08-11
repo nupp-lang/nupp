@@ -10,7 +10,7 @@ Two shapes of union earn their own names, because they are what other languages
 reach for a keyword to express: a union of literals is a closed set of values,
 and a union of records sharing a literal-typed field is a tagged union.
 
-## A union of literals is an enum
+## Literal unions are enums
 
 A string literal is a type containing exactly that value, so a union of them is
 a closed set of strings:
@@ -56,7 +56,7 @@ An alias is transparent, so `Color` and its union are interchangeable. That is
 also why a diagnostic prints the members rather than the alias: there is no
 nominal identity behind the name to print instead.
 
-## A union of records is a tagged union
+## Record unions are tagged unions
 
 A literal member carries no data. When the alternatives need to, give each
 record a field whose type is a literal, the tag, and union the records:

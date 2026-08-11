@@ -123,7 +123,7 @@ in through `nupp.suspension`, while the host owns scheduling policy through a
 [suspension handler](suspension-handlers.md). [Suspension](suspension.md)
 follows the model from an application call down to the subscription contract.
 
-## A toolchain that ships with the language
+## Toolchain ships with the language
 
 One binary, built from one parse of your source:
 

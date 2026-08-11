@@ -83,7 +83,7 @@ effects, source definition, and stable hidden runtime slot. Once the checker
 selects an entry, code generation calls that slot directly with ordinary Lua
 colon semantics. The receiver is evaluated once and no dispatcher runs.
 
-### A method group is not one field value
+### Method groups are not field values
 
 There is no runtime value corresponding to the source name `decoder.decode`:
 

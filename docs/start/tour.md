@@ -1,4 +1,4 @@
-# A tour of Nupp
+# Tour of Nupp
 
 This walks the whole language in one pass. Nothing here is a preview of a
 feature described properly later. It is the short version of each thing, with a
@@ -93,7 +93,7 @@ required for that. It is a claim the checker trusts without re-proving, which is
 what lets a runtime registrar install the surface later. Interfaces erase
 completely and have no runtime value.
 
-## A union of literals is an enum
+## Literal unions are enums
 
 ```nupp
 local type Color = "red" | "green"

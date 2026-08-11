@@ -24,7 +24,7 @@ Everything else is optional and buys one feature each:
 ```
 
 That table is about a **checkout**. A stamped binary carries all three of the
-first ones already, as [the binary](#a-self-contained-binary) describes, and
+first ones already, as [the binary](#self-contained-binary) describes, and
 needs nothing installed to check, compile, run or document a project.
 
 ## From a checkout
@@ -79,7 +79,7 @@ Every command's `--json` output and the language server read it.
 Inside a checkout, run `./bin/nupp`. Everywhere else, either put the checkout's
 `bin` on your path, or build a self-contained binary.
 
-## A self-contained binary
+## Self-contained binary
 
 ```bash
 ./bin/nupp build --target dist

@@ -58,7 +58,7 @@ proves, when the fact is the point:
 
 ```
  Intrinsics live under `nupp`
- A union of literals is an enum
+ Literal unions are enums
  Shared borrowing allows mutation
  Loops that cannot run
 ```
@@ -99,19 +99,21 @@ The same applies to a title naming the document rather than its subject:
 A section that genuinely covers a boundary is titled for the boundary, as
 "Limits", rather than for the negation, as "What it will not do".
 
-**A title never opens with "The".** The article carries nothing and pushes the
-identifying word off the front, which is where a reader scanning an outline
-looks. This holds for a declarative title too: state the fact starting from its
-subject.
+**A title never opens with an article.** "The", "A" and "An" carry nothing and
+push the identifying word off the front, which is where a reader scanning an
+outline looks. This holds for a declarative title too: state the fact starting
+from its subject, which usually means writing the subject plural.
 
 ```
- Banned                      Write instead
- ──────────────────────────  ─────────────────────────────────
- The passes                  Passes
- The diagnostic index        Diagnostic index
- The call is an intrinsic    Severity calls are intrinsics
- The host supplies policy    Hosts supply policy
- The checker tracks it       Suspension propagates through calls
+ Banned                          Write instead
+ ──────────────────────────────  ─────────────────────────────────
+ The passes                      Passes
+ The diagnostic index            Diagnostic index
+ A self-contained binary         Self-contained binary
+ The call is an intrinsic        Severity calls are intrinsics
+ A union of literals is an enum  Literal unions are enums
+ A wait parks one coroutine      Waits park one coroutine
+ The checker tracks it           Suspension propagates through calls
 ```
 
 Sentence case. No trailing colons or question marks. A question as a heading

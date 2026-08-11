@@ -46,7 +46,7 @@ Framework authors and scheduler integrations implement one. The `all`,
 `gather`, `race`, and `batch` combinators also use a private handler to
 interleave their branches.
 
-## A wait parks one coroutine
+## Waits park one coroutine
 
 When `child:communicate()` cannot finish immediately, control moves through
 seven steps:

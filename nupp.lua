@@ -401,7 +401,7 @@ nupp lsp            # start the language server]],
                },
                {
                   path = "getting-started/tour",
-                  title = "A tour of Nupp",
+                  title = "Tour of Nupp",
                   source = "docs/start/tour.md",
                },
                {
