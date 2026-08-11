@@ -330,7 +330,7 @@ function M.reflectionDependsOnlyOnTheExportedTypeItReads()
    write(unrelatedPath, unrelated)
    write(mainPath, table.concat({
       "const SUMMARY = comptime do",
-      "   local info = reflect(Reflected)",
+      "   local info = nupp.reflect(Reflected)",
       "   return info.fields[1].name",
       "end",
       "return SUMMARY",

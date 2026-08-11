@@ -304,17 +304,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         ["alignof"] = true,
     }
 
-    -- Compiler intrinsics whose first parenthesized argument is a type position. Their
-    -- names are contextual: they remain ordinary names until called, but a call with
-    -- one of these spellings parses aliases, pointers and generic instantiations as
-    -- types rather than as runtime expressions.
-    local COMPTIME_TYPE_INTRINSIC = {
-        ["reflect"] = true,
-        ["sizeof"] = true,
-        ["alignof"] = true,
-        ["offsetof"] = true,
-    }
-
     -- Compound assignment: statement-only, so there is no ambiguity with the expression
     -- operators they are built from. That is also what lets `~=` mean xor-assign here
     -- while it stays inequality in an expression: Lua has no assignment expression, so
@@ -1242,9 +1231,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     end
                 end
             else
-                local typeFirst = e.kind == "name" and e.token
-                    and COMPTIME_TYPE_INTRINSIC[e.token.text] or false
-                local args = parseCallargs(typeFirst)
+                local comptimeIntrinsic = cst.comptimeTypeIntrinsicSpelling(e)
+                local args = parseCallargs(comptimeIntrinsic ~= nil)
                 if args then
                     local n = new cst.Call(kind = "call")
                     n.obj = add(n, e)

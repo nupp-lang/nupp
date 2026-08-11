@@ -48,7 +48,7 @@ local record Position
 end
 
 const PositionCodec: nupp.fieldcodec.KeyedCodec<Position> = comptime do
-    return nupp.fieldcodec.compile(reflect(Position))
+    return nupp.fieldcodec.compile(nupp.reflect(Position))
 end
 
 local payload: {string: any} = PositionCodec:encode(new Position {

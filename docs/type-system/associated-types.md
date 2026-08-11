@@ -219,7 +219,7 @@ interface that adds only associated types still emits nothing.
 
 That has three consequences worth knowing:
 
-- A **reified position** — `sizeof`, `layoutof`, a struct field, a fixed array —
+- A **reified position** — `nupp.sizeof`, `layoutof`, a struct field, a fixed array —
   needs a representation, so a projection is legal there only once it resolves to a
   reifiable type. An opaque one is refused by the ordinary reification error. An
   array asks about its element and a pointer does not ask about its pointee, so an

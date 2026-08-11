@@ -297,6 +297,36 @@ function M.comptimeHoverAndCompletionExposeOnlyEvaluatorState()
    assert(members.concat, "allowlisted library members remain available")
 end
 
+function M.comptimeTypeIntrinsicsCompleteOnlyOnTheNuppNamespace()
+   local projectDir = makeDir()
+   local path = projectDir .. "/main.nupp"
+   local uri = "file://" .. path
+   local source = "return comptime do\n   return nupp.\nend\n"
+   local out = runSession({
+      { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
+      { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = {uri = uri, languageId = "nupp", version = 1,
+            text = source} } },
+      { jsonrpc = "2.0", id = 10, method = "textDocument/completion",
+        params = {textDocument = {uri = uri}, position = {line = 1, character = 15}} },
+      { jsonrpc = "2.0", id = 11, method = "textDocument/completion",
+        params = {textDocument = {uri = uri}, position = {line = 1, character = 3}} },
+      { jsonrpc = "2.0", id = 2, method = "shutdown" },
+      { jsonrpc = "2.0", method = "exit" },
+   }, projectDir)
+   os.execute("rm -rf '" .. projectDir .. "'")
+
+   local members = {}
+   for _, item in ipairs(responseWithId(out, 10).result) do members[item.label] = true end
+   assert(members.reflect and members.sizeof and members.alignof and members.offsetof,
+      "the compiler type intrinsics are members of nupp")
+
+   local globals = {}
+   for _, item in ipairs(responseWithId(out, 11).result) do globals[item.label] = true end
+   assert(not globals.reflect and not globals.sizeof and not globals.alignof
+      and not globals.offsetof, "the compiler type intrinsics are not bare globals")
+end
+
 function M.queuedRequestsCanBeCancelledWhileComptimeIsInFlight()
    local projectDir = makeDir()
    local path = projectDir .. "/main.nupp"

@@ -924,8 +924,8 @@ end
 evalMulti = function(state, node)
     local kind = node.kind
     local values
-    if kind == "call" and node.obj and node.obj.kind == "name"
-        and node.obj.token and node.obj.token.text == "reflect" then
+    local comptimeIntrinsic, intrinsicQualified = cst.comptimeTypeIntrinsicSpelling(node.obj)
+    if kind == "call" and intrinsicQualified and comptimeIntrinsic == "reflect" then
         local args = node.args and node.args.exprs or {}
         local argument = args[1]
         local function typePath(value)
@@ -946,16 +946,11 @@ evalMulti = function(state, node)
         local key = #args == 1 and typePath(argument) or nil
         local descriptor = key and state.reflections[key] or nil
         if not descriptor then
-            fail("NUPP2418", node, "reflect type information is unavailable in this comptime worker")
+            fail("NUPP2418", node, "nupp.reflect type information is unavailable in this comptime worker")
         end
         values = {n = 1, materializeProviders.reflect(state, descriptor, node)}
-    elseif kind == "call" and node.obj and node.obj.kind == "name"
-        and node.obj.token and (
-            node.obj.token.text == "sizeof"
-            or node.obj.token.text == "alignof"
-            or node.obj.token.text == "offsetof"
-        ) then
-        local name = node.obj.token.text
+    elseif kind == "call" and intrinsicQualified and comptimeIntrinsic then
+        local name = comptimeIntrinsic
         local args = node.args and node.args.exprs or {}
         local function typePath(value)
             if not value then

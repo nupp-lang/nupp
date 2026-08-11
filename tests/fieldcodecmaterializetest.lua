@@ -56,7 +56,7 @@ local record Position
 end
 
 const PositionCodec: nupp.FieldCodec.KeyedCodec<Position> = comptime do
-    return nupp.fieldcodec.compile(reflect(Position))
+    return nupp.fieldcodec.compile(nupp.reflect(Position))
 end
 
 local encoded = PositionCodec:encode(new Position(x = 10, y = 20))
@@ -79,7 +79,7 @@ end
     return nupp.fieldcodec.compile(info)
 end
 const Codec: nupp.FieldCodec.KeyedCodec<Point> = comptime do
-    return keyed(reflect(Point))
+    return keyed(nupp.reflect(Point))
 end
 local encoded = Codec:encode(new Point(x = 3, y = 4))
 return {x = encoded.x, y = encoded.y}
@@ -106,7 +106,7 @@ end
     return info.schema .. ":" .. info.types[info.root].kind
         .. ":" .. #info.fields .. ":" .. table.concat(names, ",")
 end
-return comptime do return summarize(reflect(Pair)) end
+return comptime do return summarize(nupp.reflect(Pair)) end
 ]]
    assertEq(run(src), "2:record:2:left:string,right:integer",
       "user comptime code reads the versioned descriptor graph")
@@ -135,7 +135,7 @@ end
     return recordName .. ":" .. idName .. ":" .. tostring(omitted)
 end
 
-return comptime do return summarize(reflect(User)) end
+return comptime do return summarize(nupp.reflect(User)) end
 ]]
    assertEq(run(src), "users:user_id:true",
       "typed annotation values cross the worker as immutable semantic data")
@@ -158,7 +158,7 @@ local record User
 end
 
 return comptime do
-    local info = reflect(User)
+    local info = nupp.reflect(User)
     local edge = info.fields[1].annotations[1].arguments[1].type as integer
     return info.types[edge].name
 end
@@ -173,7 +173,7 @@ local record Pair
     left: string
 end
 return comptime do
-    local info = reflect(Pair)
+    local info = nupp.reflect(Pair)
     info.name = "Changed"
     return info.name
 end
@@ -186,7 +186,7 @@ function M.rejectsAReflectedTypeAndRuntimeTargetMismatch()
 local record Position x: number end
 local record Velocity x: number end
 const Bad: nupp.FieldCodec.KeyedCodec<Velocity> = comptime do
-    return nupp.fieldcodec.compile(reflect(Position))
+    return nupp.fieldcodec.compile(nupp.reflect(Position))
 end
 ]])
    assertEq(codes[1], "NUPP2415", "nominal mismatch")
@@ -196,7 +196,7 @@ function M.requiresATypePositionForReflection()
    local codes = errorsOf([[
 local value = 1
 const Bad: nupp.FieldCodec.KeyedCodec<any> = comptime do
-    return nupp.fieldcodec.compile(reflect(value))
+    return nupp.fieldcodec.compile(nupp.reflect(value))
 end
 ]])
    assertEq(codes[1], "NUPP2418", "runtime value reflection")

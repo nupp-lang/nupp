@@ -106,14 +106,14 @@ local type Pair<T> = T[2]
 return comptime do
     const INNER = "inner"
     return {
-        sizeof(Packet),
-        alignof(Packet),
-        offsetof(Packet, "value"),
-        offsetof(Packet, INNER),
-        sizeof(int32),
-        sizeof(Inner*),
-        sizeof(PacketAlias),
-        sizeof(Pair<int16>)
+        nupp.sizeof(Packet),
+        nupp.alignof(Packet),
+        nupp.offsetof(Packet, "value"),
+        nupp.offsetof(Packet, INNER),
+        nupp.sizeof(int32),
+        nupp.sizeof(Inner*),
+        nupp.sizeof(PacketAlias),
+        nupp.sizeof(Pair<int16>)
     }
 end
 ]]
@@ -133,12 +133,21 @@ function M.computesLayoutForTheDeclaredTargetRatherThanTheHost()
    assertEq(table.concat(ilp32, ","), "36,4,4,16,4,4,36,4", "i686 SysV layout")
 end
 
+function M.compilerTypeIntrinsicsRequireTheNuppNamespace()
+   for _, name in ipairs({"reflect", "sizeof", "alignof", "offsetof"}) do
+      local argument = name == "offsetof" and 'int32, "value"' or "int32"
+      local codes = errorsOf(("return comptime do return %s(%s) end"):format(
+         name, argument))
+      assertEq(codes[1], "NUPP2410", name .. " is not a bare comptime global")
+   end
+end
+
 function M.layoutIntrinsicsRequireATargetAndAReifiableType()
    local codes, diags = errorsOf([[
 local struct Value
     n: int32
 end
-return comptime do return sizeof(Value) end
+return comptime do return nupp.sizeof(Value) end
 ]])
    assertEq(codes[1], "NUPP2419", "missing target")
    assert(diags[1].help and diags[1].help:find("layoutTarget", 1, true),
@@ -148,7 +157,7 @@ return comptime do return sizeof(Value) end
 local record Value
     n: int32
 end
-return comptime do return sizeof(Value) end
+return comptime do return nupp.sizeof(Value) end
 ]], layoutEnv("x86_64-unknown-linux-gnu"))
    assertEq(invalid[1].code, "NUPP2419", "records have no C layout")
    assert(invalid[1].msg:find("no runtime layout", 1, true), invalid[1].msg)
@@ -159,7 +168,7 @@ function M.offsetofRequiresAKnownExistingField()
 local struct Value
     n: int32
 end
-return comptime do return offsetof(Value, "missing") end
+return comptime do return nupp.offsetof(Value, "missing") end
 ]], layoutEnv("x86_64-unknown-linux-gnu"))
    assertEq(unknown[1].code, "NUPP2419", "unknown field")
    assert(unknown[1].msg:find('no field "missing"', 1, true), unknown[1].msg)
@@ -169,7 +178,7 @@ local struct Value
     n: int32
 end
 local name: string = "n"
-return comptime do return offsetof(Value, name) end
+return comptime do return nupp.offsetof(Value, name) end
 ]], layoutEnv("x86_64-unknown-linux-gnu"))
    assertEq(dynamic[1].code, "NUPP2410", "runtime locals remain unavailable")
 end

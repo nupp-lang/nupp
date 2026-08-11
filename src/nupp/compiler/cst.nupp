@@ -141,7 +141,7 @@ interface cst.Hints
     --- Versioned provider/backend facts and the cacheable canonical products.
     materializationObservation: any
 
-    --- The immutable semantic descriptor attached to a checked `reflect(T)` call.
+    --- The immutable semantic descriptor attached to a checked `nupp.reflect(T)` call.
     reflectedType: any
 
     reflectedTypeKey: string?
@@ -2194,6 +2194,35 @@ function cst.ownershipIntrinsicSpelling(callee: cst.Node?): string?, boolean?
     local baseToken = base.token
 
     return baseToken and baseToken.text == "nupp" and member or nil, true
+end
+
+local COMPTIME_TYPE_INTRINSICS: {[string]: boolean} = {
+    reflect = true,
+    sizeof = true,
+    alignof = true,
+    offsetof = true,
+}
+
+--- The compiler-provided type intrinsic a call spells before name resolution.
+---
+--- @param callee the expression being applied
+--- @return the intrinsic's name, or nil
+--- @return whether it was written on `nupp`
+function cst.comptimeTypeIntrinsicSpelling(callee: cst.Node?): string?, boolean?
+    if not callee then
+        return nil
+    end
+    if callee.kind ~= "dotIndex" then
+        return nil
+    end
+    local base = callee.obj
+    local member = callee.name and callee.name.text or ""
+    local baseToken = base and base.kind == "name" and base.token or nil
+    if not baseToken or baseToken.text ~= "nupp" or not COMPTIME_TYPE_INTRINSICS[member] then
+        return nil
+    end
+
+    return member, true
 end
 
 --- Appends a child to `n`'s array part and returns it, so a caller can consume a token

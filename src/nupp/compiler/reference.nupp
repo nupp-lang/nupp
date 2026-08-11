@@ -1512,7 +1512,7 @@ return m
         title = "Semantic reflection and field codecs",
         codes = {"NUPP2414", "NUPP2415", "NUPP2416", "NUPP2418"},
         body = [=[
-`reflect(T)` resolves `T` in a type position and creates an immutable,
+`nupp.reflect(T)` resolves `T` in a type position and creates an immutable,
 target-independent semantic descriptor for comptime. Schema 2 represents the
 possibly recursive type as an acyclic indexed graph: `root` selects a node in
 `types`, and edges between nodes are integer indices. The graph covers nominal
@@ -1528,12 +1528,12 @@ with deterministic `ipairs` or `pairs`. Views preserve identity for equality
 but reject mutation and cannot escape as runtime tables. The fingerprint is
 computed from the canonical semantic graph rather than the checker's
 process-local type identities. Reflection reads declared meaning, not FFI
-layout; `sizeof`, `alignof`, and `offsetof` use the build's `layoutTarget`.
+layout; `nupp.sizeof`, `nupp.alignof`, and `nupp.offsetof` use the build's `layoutTarget`.
 Annotation names, arguments, values and referenced types participate
 in the fingerprint, so changing serialization metadata invalidates a cached
 comptime result even when the field types themselves are unchanged.
 
-`nupp.fieldcodec.compile(reflect(R))` is the first non-PEG materializer. For a
+`nupp.fieldcodec.compile(nupp.reflect(R))` is the first non-PEG materializer. For a
 record `R`, it produces a `nupp.FieldCodec.KeyedCodec<R>` whose `encode` method
 copies exactly the record's present declared fields with `rawget`. Its stable
 compatibility fingerprint is `t:` followed by those field names in declaration
@@ -1552,7 +1552,7 @@ local record Position
 end
 
 const PositionCodec: nupp.FieldCodec.KeyedCodec<Position> = comptime do
-    return nupp.fieldcodec.compile(reflect(Position))
+    return nupp.fieldcodec.compile(nupp.reflect(Position))
 end
 
 function m.encode(position: Position): {[string]: any}

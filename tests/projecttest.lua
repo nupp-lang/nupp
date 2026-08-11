@@ -217,7 +217,7 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"}}}
       ["src/main.nupp"] = [[
 local models = require("models")
 const UserCodec: nupp.FieldCodec.KeyedCodec<models.User> = comptime do
-    return nupp.fieldcodec.compile(reflect(models.User))
+    return nupp.fieldcodec.compile(nupp.reflect(models.User))
 end
 return UserCodec.fingerprint
 ]],
@@ -264,7 +264,7 @@ local struct PointerSized
     tag: int8
     pointer: int8*
 end
-return comptime do return sizeof(PointerSized) end
+return comptime do return nupp.sizeof(PointerSized) end
 ]],
    })
 
@@ -304,7 +304,7 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"},
 ]],
       ["src/main.nupp"] = [[
 local models = require("models")
-return comptime do return sizeof(models.Wire) end
+return comptime do return nupp.sizeof(models.Wire) end
 ]],
       ["src/models.nupp"] = model,
    })
@@ -796,7 +796,7 @@ return {
       ["src/unrelated.nupp"] = unrelated,
       ["src/main.nupp"] = table.concat({
          "const SUMMARY = comptime do",
-         "   local info = reflect(ReflectedModel)",
+         "   local info = nupp.reflect(ReflectedModel)",
          "   return info.fields[1].name",
          "end",
          "return SUMMARY",

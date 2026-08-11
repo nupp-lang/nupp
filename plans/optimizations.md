@@ -354,7 +354,7 @@ an unexplained absence.
   key is NUPP2004 before the optimizer runs. The fold would be code no program
   could execute.
 
-- **`sizeof`, `alignof` and `offsetof` folded to literals.** The comptime plan
+- **`nupp.sizeof`, `nupp.alignof` and `nupp.offsetof` folded to literals.** The comptime plan
   separates cleanly here in principle: these are pure functions of a resolved
   type and want no evaluator. What they want instead is a compile-time layout
   model, and nupp deliberately does not have one. `layoutof(T)` already answers

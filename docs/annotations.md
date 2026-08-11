@@ -124,12 +124,12 @@ an `@annotation` record or struct.
 ## Compile-time reflection
 
 Checked user-defined annotations on records, interfaces, structs, and their
-fields are available through `reflect(T)` inside comptime. Applications retain
+fields are available through `nupp.reflect(T)` inside comptime. Applications retain
 source order, and arguments follow the annotation definition's member order:
 
 ```nupp
 return comptime do
-    local info = reflect(User)
+    local info = nupp.reflect(User)
     local recordMetadata = info.annotations
     local fieldMetadata = info.fields[1].annotations
     return {recordMetadata = #recordMetadata, fieldMetadata = #fieldMetadata}

@@ -330,7 +330,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
     end
 
     -- Resolves an expression-shaped type path without inferring it as a runtime value.
-    -- `reflect` and the layout intrinsics share this spelling and dependency behavior.
+    -- `nupp.reflect` and the layout intrinsics share this spelling and dependency behavior.
     local function concreteTypePath(argument: Node?, typePosition: boolean?): string?, Type?
         if argument and typePosition then
             local key = cst.textOf(argument):gsub("%s+", "")
@@ -398,22 +398,23 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             argStr = callArgs.str
             argTable = callArgs.table
         end
-        local layoutIntrinsic = calleeName == "sizeof" or calleeName == "alignof"
-            or calleeName == "offsetof"
+        local comptimeIntrinsic, intrinsicQualified = cst.comptimeTypeIntrinsicSpelling(callee)
+        local layoutIntrinsic = intrinsicQualified and comptimeIntrinsic ~= "reflect"
+            and comptimeIntrinsic or nil
         if layoutIntrinsic and not argStr and not argTable then
             if (c.comptimeDepth or 0) == 0 then
-                c.diag("NUPP2419", node, calleeName .. " is available only inside a comptime block")
+                c.diag("NUPP2419", node, "nupp." .. layoutIntrinsic .. " is available only inside a comptime block")
                 return T.any
             end
             local globals = c.env and c.env.globals
-            local stable = globals and c.lookupEntry(calleeName) == globals[calleeName]
-            local expected = calleeName == "offsetof" and 2 or 1
+            local stable = globals and c.lookupEntry("nupp") == globals.nupp
+            local expected = layoutIntrinsic == "offsetof" and 2 or 1
             if not stable or #argExprs ~= expected then
                 c.diag(
                     "NUPP2419",
                     node,
-                    ("%s expects %d argument%s"):format(
-                        calleeName,
+                    ("nupp.%s expects %d argument%s"):format(
+                        layoutIntrinsic,
                         expected,
                         expected == 1 and "" or "s"
                     )
@@ -429,7 +430,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 c.diag(
                     "NUPP2419",
                     argExprs[1] or node,
-                    calleeName .. " expects one concrete type name",
+                    "nupp." .. layoutIntrinsic .. " expects one concrete type name",
                     nil,
                     {help = "pass a declared or qualified type, not a runtime value"}
                 )
@@ -440,7 +441,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 c.diag(
                     "NUPP2419",
                     node,
-                    calleeName .. " needs an explicit build layout target",
+                    "nupp." .. layoutIntrinsic .. " needs an explicit build layout target",
                     nil,
                     {help = "set layoutTarget on the selected build target in nupp.lua"}
                 )
@@ -459,7 +460,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 )
                 return T.any
             end
-            if calleeName == "offsetof" then
+            if layoutIntrinsic == "offsetof" then
                 local fieldType = argExprs[2] and c.infer(argExprs[2]) or nil
                 local fieldName = literalString(argExprs[2])
                 if not fieldName and fieldType and fieldType.tag == "literal"
@@ -470,7 +471,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     c.diag(
                         "NUPP2419",
                         argExprs[2] or node,
-                        "offsetof field name must be a compile-time-known string"
+                        "nupp.offsetof field name must be a compile-time-known string"
                     )
                     return T.any
                 end
@@ -487,13 +488,14 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
 
             return T.integer
         end
-        if calleeName == "reflect" and #argExprs == 1 and not argStr and not argTable then
+        if comptimeIntrinsic == "reflect" and intrinsicQualified
+            and #argExprs == 1 and not argStr and not argTable then
             if (c.comptimeDepth or 0) == 0 then
-                c.diag("NUPP2418", node, "reflect is available only inside a comptime block")
+                c.diag("NUPP2418", node, "nupp.reflect is available only inside a comptime block")
                 return T.any
             end
             local globals = c.env and c.env.globals
-            local stable = globals and c.lookupEntry("reflect") == globals["reflect"]
+            local stable = globals and c.lookupEntry("nupp") == globals.nupp
             local typeArgument = callArgs and callArgs.typeArg or argExprs[1]
             local key, reflected = concreteTypePath(
                 typeArgument,
@@ -503,7 +505,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 c.diag(
                     "NUPP2418",
                     argExprs[1] or node,
-                    "reflect expects one concrete type name",
+                    "nupp.reflect expects one concrete type name",
                     nil,
                     {help = "pass a declared or qualified type, not a runtime value"}
                 )

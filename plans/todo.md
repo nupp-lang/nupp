@@ -16,7 +16,7 @@ work makes sense in.
         pure-Lua reference-machine benchmark now. It has no comptime milestone
         prerequisite. Record workloads and numeric margins before measuring;
         delete the specialized-backend milestone if it misses that margin.
-  - [x] C2a: immutable `reflect(T)` descriptors over the checker's full
+  - [x] C2a: immutable `nupp.reflect(T)` descriptors over the checker's full
         structural vocabulary; semantic type fingerprints and module interface
         dependencies. Target-independent and blocked on nothing. Shared with a
         future derive phase, so it is not shaped around comptime's convenience.
@@ -24,8 +24,9 @@ work makes sense in.
         handling, structural vocabulary, semantic fingerprints, checked
         declaration/field annotations, reflection hover/completion, and keyed
         cross-process invalidation have landed.
-  - [x] C2b: target-aware `sizeof`/`alignof`/`offsetof`. Build targets select an
-        explicit `layoutTarget`; the compiler owns versioned LP64, i686 SysV,
+  - [x] C2b: target-aware `nupp.sizeof`/`nupp.alignof`/`nupp.offsetof`.
+        Build targets select an explicit `layoutTarget`; the compiler owns
+        versioned LP64, i686 SysV,
         and i686 MSVC C layout profiles for nupp's fixed-width reifiable type
         vocabulary. Type-position intrinsics accept aliases, qualified types,
         pointers, arrays, and generic instantiations, with target keys separated

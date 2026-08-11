@@ -46,7 +46,7 @@ The full phase table is:
 | Direction | Mechanism | Status |
 | --- | --- | --- |
 | value -> value | comptime evaluator | C1 landed |
-| type -> value | `reflect(T)` descriptor | C2a landed |
+| type -> value | `nupp.reflect(T)` descriptor | C2a landed |
 | value -> type | no general mechanism | closed deliberately |
 | type -> type | checker-native type reducer | T1--T5 landed |
 
@@ -66,7 +66,7 @@ the governing rule:
 
 Comptime therefore cannot implement any part of this feature:
 
-- `reflect(T)` serializes facts the checker has already established into a
+- `nupp.reflect(T)` serializes facts the checker has already established into a
   comptime-only value. `keyof T` must establish a type while the checker is
   still resolving one.
 - `@comptime` helpers run ordinary checked functions over closed values. A
@@ -352,7 +352,7 @@ integer const parameters land; today the internal type algebra can carry one
 but the type grammar cannot spell one.
 
 Target-sized cdata arithmetic is excluded. `int32`, `uint64`, floating point,
-pointer sizes, `sizeof`, and ABI layout remain outside this target-independent
+pointer sizes, `nupp.sizeof`, and ABI layout remain outside this target-independent
 generic system.
 
 ### Type matching and inference

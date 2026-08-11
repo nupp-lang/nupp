@@ -71,9 +71,9 @@ now described in §Layout intrinsics.
    the goal that carries the feature; the others support it.
 2. Expose read-only semantic type reflection: what a declaration says, which the
    checker already knows in full and which no layout model is needed to answer.
-3. Expose target-aware `sizeof`, `alignof`, and `offsetof`. Separate from goal 2
-   and implemented on the compiler-owned model in §Layout intrinsics. Reached
-   through this feature rather than part of it.
+3. Expose target-aware `nupp.sizeof`, `nupp.alignof`, and `nupp.offsetof`.
+   Separate from goal 2 and implemented on the compiler-owned model in §Layout
+   intrinsics. Reached through this feature rather than part of it.
 4. Preserve deterministic builds, the line-count invariant, incremental
    cutoff, and responsive editor tooling.
 5. Give comptime code the same type checking and diagnostics as runtime code.
@@ -385,10 +385,10 @@ not bypass assignment, return, or field checks.
 The public intrinsics are:
 
 ```lua
-reflect(T): TypeInfo             -- target-independent
-sizeof(T): integer               -- target-specific
-alignof(T): integer              -- target-specific
-offsetof(T, fieldName): integer  -- target-specific
+nupp.reflect(T): TypeInfo             -- target-independent
+nupp.sizeof(T): integer               -- target-specific
+nupp.alignof(T): integer              -- target-specific
+nupp.offsetof(T, fieldName): integer  -- target-specific
 ```
 
 Their type arguments are parsed and resolved as type positions, so aliases,
@@ -397,7 +397,7 @@ corresponding runtime value. `fieldName` must be a compile-time-known string.
 
 The comment column is the important thing on that list, and an earlier revision
 of this plan missed it. These are two features that happen to take the same kind
-of argument. `reflect` asks what a declaration *says*, which the checker already
+of argument. `nupp.reflect` asks what a declaration *says*, which the checker already
 knows in full. The other three ask what a value *measures* on some machine. They
 now read the explicit build target through the compiler-owned layout model.
 Treating the two groups as one milestone originally blocked reflection on a
@@ -405,7 +405,7 @@ prerequisite it did not have.
 
 ### Semantic reflection
 
-`reflect(T)` returns an immutable public descriptor rather than the mutable
+`nupp.reflect(T)` returns an immutable public descriptor rather than the mutable
 tables used internally by `nupp.compiler.types`. It is target-independent and needs no
 layout model: everything in it is a fact the checker established while checking
 the declaration.
@@ -450,15 +450,16 @@ exactly this (§What a derive would be), and so would a schema or serialization
 helper; designing it as comptime's private convenience would mean designing it
 twice.
 
-`reflect` does still need the evaluator, on the other axis: its only use the
+`nupp.reflect` does still need the evaluator, on the other axis: its only use the
 scalar intrinsics do not already cover is iterating `fields`, and iteration is
-C1. A program reading `reflect(T).size` has written `sizeof(T)` the long way.
+C1. A program reading `nupp.reflect(T).size` has written `nupp.sizeof(T)` the
+long way.
 
 ### Layout intrinsics, and the model they need
 
-`sizeof`, `alignof`, and `offsetof` accept only types with a defined runtime
-layout for the selected target. They use compiler-owned layout information,
-not ambient host `ffi.sizeof`. A request for an erased or target-unsupported
+`nupp.sizeof`, `nupp.alignof`, and `nupp.offsetof` accept only types with a
+defined runtime layout for the selected target. They use compiler-owned layout
+information, not ambient host `ffi.sizeof`. A request for an erased or target-unsupported
 type is a checked error.
 
 That sentence required a separate project. Nupp now owns versioned LP64, i686
@@ -475,7 +476,7 @@ not an unfinished version of compiler-owned layout. It is the opposite choice,
 made because nupp compiles to portable Lua source: a size folded at compile time
 is the *build host's* ABI baked into a file that may run somewhere else.
 
-So `sizeof(T)` was not a small intrinsic waiting on the evaluator. Three things
+So `nupp.sizeof(T)` was not a small intrinsic waiting on the evaluator. Three things
 had to exist first, and have landed:
 
 1. a target layout model — C ABI rules per target, owned by the compiler rather
@@ -505,7 +506,7 @@ Comptime execution receives a fresh capability-limited environment containing:
   and `type`
 - an explicit allowlist of deterministic functions from `math`, `string`,
   `table`, and `bit`, as frozen or per-evaluation copies
-- the compiler-provided reflection and layout intrinsics
+- the compiler-provided reflection and `nupp` layout intrinsics
 - captured known constants serialized into the request
 
 **An allowlist, named function by function, not "the pure portions of" a
@@ -798,12 +799,12 @@ in persistent build caches.
 - Define a target layout model: C ABI rules the compiler owns, rather than
   answers asked of whichever FFI is running.
 - Define target selection, since a layout is meaningless without knowing whose.
-- Then: target-aware `sizeof`, `alignof`, and `offsetof`, and the layout facts
-  exposed alongside `TypeInfo` rather than inside it.
+- Then: target-aware `nupp.sizeof`, `nupp.alignof`, and `nupp.offsetof`, and
+  the layout facts exposed alongside `TypeInfo` rather than inside it.
 - Test target keys and layout cache separation.
 
-`layoutof` and `sizeof` both exist with deliberately different names and phases.
-The first answers at run time from the running platform; the second answers at
+`layoutof` and `nupp.sizeof` both exist with deliberately different names and
+phases. The first answers at run time from the running platform; the second answers at
 compile time from a declared target. They can disagree in a cross-compiled build,
 which is the purpose of selecting a target rather than measuring the host.
 
@@ -882,7 +883,7 @@ approves everything:
 
 Two nearby pieces of work shrink the residue further and should be checked
 before the estimate is trusted. [layout.md](layout.md) answers field names,
-offsets and sizes at run time, which covers much of what `reflect` was for
+offsets and sizes at run time, which covers much of what `nupp.reflect` was for
 without any evaluator; and `import-c` already brings a C header's constants
 across, which is one of the usual reasons a systems language grows comptime.
 

@@ -115,7 +115,7 @@ The initial and acceptance cases are:
 - **PEG matchers.** A pattern graph becomes either a flat program consumed by a
   pure-Lua parsing machine or a specialized matcher closure. A bundle can use
   it without linking LPeg.
-- **Type-directed codecs.** A descriptor built from `reflect(T)` becomes a
+- **Type-directed codecs.** A descriptor built from `nupp.reflect(T)` becomes a
   typed encoder/decoder or field projection. The real acceptance workload is
   the keyed codec `fieldcodec.tl` builds through `load()` at run time from a
   table component's declared `fields`. It is not a C-layout codec and does not
