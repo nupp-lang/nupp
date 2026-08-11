@@ -67,7 +67,13 @@ jobs:
           export NUPP_COMPILER_ROOT="$GITHUB_WORKSPACE"
           export NUPP_LUA_DIR="$GITHUB_WORKSPACE/.lua"
           export NUPP_NATIVE_LIBRARY="$GITHUB_WORKSPACE/$native_library"
-          "$bootstrap_host" bootstrap/nupp.lua build --target dist
+          "$bootstrap_host" bootstrap/nupp.lua build --target compiler
+          cat > build/current-compiler.lua <<'LUA'
+          package.path = os.getenv("GITHUB_WORKSPACE") .. "/build/?.lua;"
+             .. package.path
+          dofile(os.getenv("GITHUB_WORKSPACE") .. "/build/nupp/compiler/main.lua")
+          LUA
+          "$bootstrap_host" build/current-compiler.lua build --target dist
 
           mkdir -p release
           mv build/dist/nupp "release/$ARTIFACT_NAME"

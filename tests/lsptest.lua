@@ -28,14 +28,20 @@ local function runSession(messages, rootDir)
    for _, m in ipairs(messages) do input[#input + 1] = frame(m) end
    local infile = os.tmpname()
    local outfile = os.tmpname()
+   local errfile = os.tmpname()
    local f = assert(io.open(infile, "wb"))
    f:write(table.concat(input))
    f:close()
-   local exit = os.execute(("'%s/bin/nupp' lsp serve '%s' < '%s' > '%s' 2>/dev/null")
-      :format(ROOT, rootDir or ROOT, infile, outfile))
+   local exit = os.execute(("'%s/bin/nupp' lsp serve '%s' < '%s' > '%s' 2>'%s'")
+      :format(ROOT, rootDir or ROOT, infile, outfile, errfile))
    local out = assert(io.open(outfile, "rb")):read("*a")
+   local errors = assert(io.open(errfile, "rb")):read("*a")
    os.remove(infile)
    os.remove(outfile)
+   os.remove(errfile)
+   if #out == 0 and #errors > 0 then
+      out = errors
+   end
    return out, exit
 end
 
