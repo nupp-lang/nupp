@@ -16523,6 +16523,20 @@ end
 
 
 
+
+if e . body and e . body . kind == "shortfn" and e . body . expr then
+c . diag (
+"NUPP2208" ,
+e . body . expr ,
+"a constructor returns the instance it fills in, so its body is statements" ,
+nil ,
+{ help = "write `-> do ... end`, or the `constructor(self, ...) ... end` form" }
+)
+return
+end
+
+
+
 local receiver = e . body and e . body . params and e . body . params [ 1 ]
 if not ( receiver and receiver . name and receiver . name . text == "self" ) then
 c . diag (
@@ -66099,6 +66113,15 @@ return tok . kind == "or" and tok . text == "||"
 end
 
 
+
+
+local function startsShortfn ( at )
+local tok = tokens [ at ]
+
+return tok ~= nil and ( tok . kind == "|" or ( tok . kind == "or" and tok . text == "||" ) )
+end
+
+
 local function atExprStart ( )
 local kind = tokens [ i ] . kind
 return EXPR_START [ kind ] or UNOPS [ kind ] or kind == "error" or atEmptyPipes ( )
@@ -67375,6 +67398,8 @@ n . call = add ( n , call )
 if call . kind == "call" or call . kind == "safeCall" then
 
 
+
+
 local calleeEnd = cst . lastToken ( call . obj )
 if calleeEnd then
 calleeEnd . constructTarget = true
@@ -67383,7 +67408,7 @@ end
 if call . kind ~= "call" and call . kind ~= "safeCall" then
 errAt (
 kw ,
-"'new' needs a construction; write new T(...) or new T {...}" ,
+"'new' needs a construction; write new T(...)" ,
 "NUPP1004" ,
 "add the constructor arguments, or `()` when there are none"
 )
@@ -67759,14 +67784,22 @@ e = setmetatable({ kind =  "inlineMethod" }, cst.InlineMethod)
 add ( e , advance ( ) )
 e . name = add ( e , expectName ( "after 'function' in declaration" ) )
 e . body = add ( e , parseFuncbody ( ) )
-elseif cur ( ) . kind == "name" and cur ( ) . text == "constructor" and tokens [
-i + 1
-] and tokens [ i + 1 ] . kind == "(" then
+elseif cur ( ) . kind == "name" and cur ( ) . text == "constructor" and tokens [ i + 1 ] and (
+tokens [ i + 1 ] . kind == "(" or startsShortfn ( i + 1 )
+) then
 
 
 e = setmetatable({ kind =  "constructorDecl" }, cst.ConstructorDecl)
 add ( e , advance ( ) )
+
+
+
+
+if startsShortfn ( i ) then
+e . body = add ( e , parseShortfn ( ) )
+else
 e . body = add ( e , parseFuncbody ( ) )
+end
 elseif cur ( ) . kind == "name" and cur ( ) . text == "satisfies" and tokens [ i + 1 ] and tokens [ i + 1 ] . kind ~= ":" then
 
 
@@ -67776,7 +67809,7 @@ add ( e , advance ( ) )
 
 
 
-if cur ( ) . kind == "|" or atEmptyPipes ( ) then
+if startsShortfn ( i ) then
 e . body = add ( e , parseShortfn ( ) )
 else
 e . body = add ( e , parseFuncbody ( ) )
@@ -69806,13 +69839,16 @@ something assigns to it and reading it before that is **NUPP2207**.
 A declaration may state how it is built. A `constructor(self, ...)` body is what
 `new T(...)` runs: the instance is made before it and returned after it, so the
 body fills the fields in. It names that instance where a method names its
-receiver, and no more passes it than a method does. Several constructors may
-declare distinguishable parameter packs; the call selects exactly one and
-invokes it directly. Every field that cannot hold nil has to be filled — that
-guarantee is the reason to prefer one, and it is why declaring a constructor
-closes the direct form. A duplicate parameter pack, a missing receiver, or a
-body that breaks either guarantee is **NUPP2208**. `constructor` is contextual,
-so a field may still be called one.
+receiver, and no more passes it than a method does. It takes either spelling a
+function takes anywhere else, so `constructor |self, at| -> do ... end` is the
+same declaration; the expression form is refused, because what a constructor
+hands back is settled before its body runs. Several constructors may declare
+distinguishable parameter packs; the call selects exactly one and invokes it
+directly. Every field that cannot hold nil has to be filled — that guarantee is
+the reason to prefer one, and it is why declaring a constructor closes the
+direct form. A duplicate parameter pack, a missing receiver, or a body that
+breaks either guarantee is **NUPP2208**. `constructor` is contextual, so a
+field may still be called one.
 
 The name is a value too: the runtime table `new` stamps on the instances it
 builds. That table is their metatable, so it holds `metatable<Point>` rather

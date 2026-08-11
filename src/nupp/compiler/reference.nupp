@@ -520,13 +520,16 @@ something assigns to it and reading it before that is **NUPP2207**.
 A declaration may state how it is built. A `constructor(self, ...)` body is what
 `new T(...)` runs: the instance is made before it and returned after it, so the
 body fills the fields in. It names that instance where a method names its
-receiver, and no more passes it than a method does. Several constructors may
-declare distinguishable parameter packs; the call selects exactly one and
-invokes it directly. Every field that cannot hold nil has to be filled — that
-guarantee is the reason to prefer one, and it is why declaring a constructor
-closes the direct form. A duplicate parameter pack, a missing receiver, or a
-body that breaks either guarantee is **NUPP2208**. `constructor` is contextual,
-so a field may still be called one.
+receiver, and no more passes it than a method does. It takes either spelling a
+function takes anywhere else, so `constructor |self, at| -> do ... end` is the
+same declaration; the expression form is refused, because what a constructor
+hands back is settled before its body runs. Several constructors may declare
+distinguishable parameter packs; the call selects exactly one and invokes it
+directly. Every field that cannot hold nil has to be filled — that guarantee is
+the reason to prefer one, and it is why declaring a constructor closes the
+direct form. A duplicate parameter pack, a missing receiver, or a body that
+breaks either guarantee is **NUPP2208**. `constructor` is contextual, so a
+field may still be called one.
 
 The name is a value too: the runtime table `new` stamps on the instances it
 builds. That table is their metatable, so it holds `metatable<Point>` rather

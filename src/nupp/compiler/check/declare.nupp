@@ -846,6 +846,20 @@ function declare.install(
                 {help = "remove the return annotation"}
             )
         end
+        -- Either spelling of a function is accepted, and what each may say differs. A
+        -- constructor hands back the instance the body filled in, so the expression
+        -- form has nowhere to put its expression: everywhere else `-> e` means return
+        -- `e`, and here the result is settled before the body runs.
+        if e.body and e.body.kind == "shortfn" and e.body.expr then
+            c.diag(
+                "NUPP2208",
+                e.body.expr,
+                "a constructor returns the instance it fills in, so its body is statements",
+                nil,
+                {help = "write `-> do ... end`, or the `constructor(self, ...) ... end` form"}
+            )
+            return
+        end
         -- The instance the body fills in is named where a method names its receiver,
         -- rather than appearing from nowhere. It is not an argument either way: what
         -- `new T(...)` passes is everything after it.

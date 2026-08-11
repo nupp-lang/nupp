@@ -110,7 +110,7 @@ type lexer.Token = {
     propertyCapability: string?,
 
     --- The last token of the type a `new` builds. A construction's brace stands off its
-    --- type — `new R {x = 1}` — where the `f{...}` call sugar it otherwise looks like
+    --- type — `new R(x = 1)` — where the `f{...}` call sugar it otherwise looks like
     --- hugs its callee.
     constructTarget: boolean?,
 

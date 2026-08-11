@@ -452,7 +452,7 @@ record types.Neutral
 end
 
 --- The metatable a receiver type carries, which is a record's own runtime table: the
---- value its name holds, and what `new R {...}` stamps on the instances it builds.
+--- value its name holds, and what `new R(...)` stamps on the instances it builds.
 --- Reaching a member through it reaches the receiver's. It erases to an ordinary Lua
 --- table.
 record types.Metatable

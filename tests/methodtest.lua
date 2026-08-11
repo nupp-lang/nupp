@@ -650,6 +650,50 @@ function M.constructorsRunAndFillEveryField()
    }, "\n")), 7)
 end
 
+-- A constructor is a function of the instance, so it takes either spelling a
+-- function takes anywhere else. Both reach the same generated body.
+function M.constructorsTakeEitherFunctionSpelling()
+   assertEq(run(table.concat({
+      "local record Diagonal",
+      "    x: integer",
+      "    y: integer",
+      "    constructor |self, at: integer| -> do",
+      "        self.x = at",
+      "        self.y = at",
+      "    end",
+      "end",
+      "local d = new Diagonal(4)",
+      "return d.x + d.y",
+   }, "\n")), 8)
+   -- several parameters, and a body that is more than assignments
+   assertEq(run(table.concat({
+      "local record Signed",
+      "    x: integer",
+      "    constructor |self, at: integer, flip: boolean| -> do",
+      "        self.x = flip ? at : -at",
+      "    end",
+      "end",
+      "return (new Signed(5, false)).x",
+   }, "\n")), -5)
+   -- the receiver is named in this spelling too
+   assertEq(diagsOf(table.concat({
+      "local record R",
+      "    n: integer",
+      "    constructor |at: integer| -> do",
+      "        self.n = at",
+      "    end",
+      "end",
+   }, "\n")), "NUPP2208:3")
+   -- and the expression form has nowhere to put its expression: what a
+   -- constructor hands back is settled before the body runs
+   assertEq(diagsOf(table.concat({
+      "local record R",
+      "    n: integer",
+      "    constructor |self, at: integer| -> at",
+      "end",
+   }, "\n")), "NUPP2208:3")
+end
+
 function M.constructorsRefuseWhatTheyCannotGuarantee()
    -- a field that cannot hold nil has to be filled
    assertEq(diagsOf(table.concat({

@@ -157,6 +157,15 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return tok.kind == "or" and tok.text == "||"
     end
 
+    --- Whether a short function's parameter list opens at `at`.
+    ---
+    --- `||` lexes as one token, so a list with nothing in it opens and closes at once.
+    local function startsShortfn(at: integer): boolean
+        local tok = tokens[at]
+
+        return tok ~= nil and (tok.kind == "|" or (tok.kind == "or" and tok.text == "||"))
+    end
+
     --- True when an expression could begin at the cursor.
     local function atExprStart(): boolean
         local kind = tokens[i].kind
@@ -1418,7 +1427,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return after ~= nil and after.kind == "do" and after.line == tok.line
     end
 
-    --- `new T(...)`, `new T {...}`: a construction.
+    --- `new T(...)`: a construction.
     ---
     --- The operand is parsed as an ordinary suffixed expression, so a qualified name
     --- and every call-argument spelling come from the machinery that already reads
@@ -1432,8 +1441,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         local call = parseSuffixedexp()
         n.call = add(n, call)
         if call.kind == "call" or call.kind == "safeCall" then
-            -- A construction is not the call sugar it is spelled as, so its brace
-            -- stands off the type rather than hugging it the way `f{...}` does.
+            -- A construction takes arguments rather than a table, so a brace here is
+            -- the call sugar `f{...}` and not a construction at all. The mark keeps it
+            -- standing off the type, which is how it was written and how the
+            -- diagnostic about it reads.
             local calleeEnd = cst.lastToken(call.obj)
             if calleeEnd then
                 calleeEnd.constructTarget = true
@@ -1442,7 +1453,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if call.kind ~= "call" and call.kind ~= "safeCall" then
             errAt(
                 kw,
-                "'new' needs a construction; write new T(...) or new T {...}",
+                "'new' needs a construction; write new T(...)",
                 "NUPP1004",
                 "add the constructor arguments, or `()` when there are none"
             )
@@ -1818,14 +1829,22 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 add(e, advance())
                 e.name = add(e, expectName("after 'function' in declaration"))
                 e.body = add(e, parseFuncbody())
-            elseif cur().kind == "name" and cur().text == "constructor" and tokens[
-                i + 1
-            ] and tokens[i + 1].kind == "(" then
+            elseif cur().kind == "name" and cur().text == "constructor" and tokens[i + 1] and (
+                tokens[i + 1].kind == "(" or startsShortfn(i + 1)
+            ) then
                 -- Contextual, like every other word this grammar adds: a field named
-                -- `constructor` is followed by a colon, never a paren.
+                -- `constructor` is followed by a colon, never a paren or a pipe.
                 e = new cst.ConstructorDecl(kind = "constructorDecl")
                 add(e, advance())
-                e.body = add(e, parseFuncbody())
+                -- A constructor is a function of the instance, so it is written as one,
+                -- in whichever of the two spellings a function is written in anywhere
+                -- else. What it may say differs -- a body that fills fields in is
+                -- statements -- and that is the checker's to answer.
+                if startsShortfn(i) then
+                    e.body = add(e, parseShortfn())
+                else
+                    e.body = add(e, parseFuncbody())
+                end
             elseif cur().kind == "name" and cur().text == "satisfies" and tokens[i + 1] and tokens[i + 1].kind ~= ":" then
                 -- Contextual: a field named `satisfies` is followed by a colon, because
                 -- every field states its own type.
@@ -1835,7 +1854,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 -- whichever of the two spellings a function is written in anywhere
                 -- else. Reading the test back out of either is the checker's job: the
                 -- grammar here only says which was written.
-                if cur().kind == "|" or atEmptyPipes() then
+                if startsShortfn(i) then
                     e.body = add(e, parseShortfn())
                 else
                     e.body = add(e, parseFuncbody())
