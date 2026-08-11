@@ -10,6 +10,7 @@ if not HERE:match("^/") then
    p:close()
 end
 local NUPP = HERE .. "/../bin/nupp"
+local packaging = require("nupp.compiler.build.package")
 
 local function tempProject(files)
    local dir = os.tmpname()
@@ -84,6 +85,59 @@ return greet
 ]]
 
 local M = {}
+
+function M.aWorkerPayloadCarriesRuntimeModulesAndDispatchesItsEntry()
+   local dir = tempProject({
+      ["build/main.lua"] = "return 'main'\n",
+      ["build/jobs/hash.lua"] = "return 'worker'\n",
+      ["build/nupp/suspension.lua"] = "return {runtime = 'suspension'}\n",
+      ["build/nupp/workers.lua"] = "return {runtime = 'workers'}\n",
+   })
+   local text, problem = packaging.bundleText(dir, {}, {
+      kind = "binary",
+      outDir = "build",
+      entries = {"main"},
+   }, nil, {
+      main = {output = dir .. "/build/main.lua"},
+      ["jobs.hash"] = {output = dir .. "/build/jobs/hash.lua"},
+   }, true, {"nupp.suspension", "nupp.workers"})
+   assert(text, "the worker payload is assembled: " .. tostring(problem))
+   assert(text:find('package.preload["nupp.suspension"]', 1, true),
+      "the suspension runtime is carried")
+   assert(text:find('package.preload["nupp.workers"]', 1, true),
+      "the workers runtime is carried")
+   assert(text:find('package.preload["main"]', 1, true),
+      "the ordinary entry becomes selectable")
+   assert(text:find('__nuppWorkerEntry', 1, true)
+      and text:find('return require(__nuppEntry or "main")', 1, true),
+      "one dispatcher selects the worker or ordinary entry")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.workersRefuseTargetsWithoutTheCompilerOwnedHost()
+   local function rejected(kind, stub)
+      local manifest = ([[
+return {
+   include = {"src"},
+   build = {default = "app", targets = {app = {
+      kind = %q, entries = {"main"}, stub = %s,
+   }}},
+}
+]]):format(kind, stub and string.format("%q", stub) or "nil")
+      local dir = tempProject({
+         ["nupp.lua"] = manifest,
+         ["src/main.nupp"] = 'local workers = require("nupp.workers")\nreturn workers\n',
+      })
+      local out, ok = run(dir, "'" .. NUPP .. "' build")
+      os.execute("rm -rf '" .. dir .. "'")
+      assert(not ok and out:find('workers currently require a binary target with stub = "nupp"', 1, true),
+         kind .. " with " .. tostring(stub) .. " is refused before runtime: " .. out)
+   end
+
+   rejected("modules")
+   rejected("bundle")
+   rejected("binary", "third-party-host")
+end
 
 -- One file, runnable by an interpreter that has never heard of nupp.
 function M.aBundleRunsUnderAPlainInterpreter()
@@ -337,6 +391,32 @@ return 1
    local checked, checkOk = run(dir, "'" .. NUPP .. "' check --strict leak.nupp")
    assert(checkOk and not checked:find("NUPP2603", 1, true),
       "the ordinary owner receives automatic cleanup: " .. checked)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.theWorkersSurfaceIsTypedAndOwnedOutsideThisTree()
+   local dir = tempProject({
+      ["nupp.lua"] = STD_MANIFEST,
+      ["typed.nupp"] = [[
+local workers = require("nupp.workers")
+local wrong: integer = workers.current
+return wrong
+]],
+      ["owned.nupp"] = [[
+local workers = require("nupp.workers")
+do
+    local worker = workers.spawn("job")
+    worker:close()
+end
+return true
+]],
+   })
+   local typed = run(dir, "'" .. NUPP .. "' check --strict typed.nupp")
+   assert(typed:find("NUPP2001", 1, true),
+      "the workers surface is typed rather than gradual: " .. typed)
+   local owned, ok = run(dir, "'" .. NUPP .. "' check --strict owned.nupp")
+   assert(ok and not owned:find("NUPP2603", 1, true),
+      "a worker local carries its automatic stop obligation: " .. owned)
    os.execute("rm -rf '" .. dir .. "'")
 end
 

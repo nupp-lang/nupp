@@ -22,9 +22,11 @@ path = "src/main.rs"
 default = []
 cjson = []
 lua-utf8 = []
+workers = ["dep:libc"]
 
 [dependencies]
 sha2 = { version = "0.10", default-features = false }
+libc = { version = "0.2", optional = true }
 
 [build-dependencies]
 # LuaJIT and lua-cjson are both fetched by revision and checked against a

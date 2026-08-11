@@ -151,6 +151,11 @@ function M.nativeFeaturesAreResolvedEffects()
    local expanded = native.expand(process)
    assert(expanded["runtime.suspension"], "the process provider brings its waiting runtime")
 
+   local workers = effectsOf("local workers = require('nupp.workers')")
+   assert(workers["native.workers"], "the public workers module selects its host provider")
+   local workerEffects = native.expand(workers)
+   assert(workerEffects["runtime.suspension"], "workers bring their waiting runtime")
+
    local utf8 = effectsOf("local utf8 = require('lua-utf8')")
    assert(utf8["native.lua_utf8"],
       "require('lua-utf8') records its native effect")

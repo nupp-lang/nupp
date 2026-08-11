@@ -84,10 +84,12 @@ local function bundleText(
     config: Config,
     target: Target,
     banner: string?,
-    modules: {[string]: ModuleRecord}?
+    modules: {[string]: ModuleRecord}?,
+    workerDispatch: boolean?,
+    runtimeModules: {string}?
 ): string?, string?, {string}?
     local outDir = target.outDir or "build"
-    local _, mainPath = entryModule(root, outDir, target)
+    local mainName, mainPath = entryModule(root, outDir, target)
     local chunks = {banner or ""}
 
     -- The modules this build compiled, under the names it compiled them as.
@@ -123,6 +125,24 @@ local function bundleText(
     for _, name in ipairs(names) do
         local path = (built[name] as nupp.compiler.build.cache.ModuleRecord).output
         if path and normalize(path) ~= normalize(mainPath) then
+            local text, readErr = readFile(path)
+            if not text then
+                return nil, readErr
+            end
+            chunks[#chunks + 1] = ("package.preload[%q] = function(...)\n"):format(name)
+            chunks[#chunks + 1] = text
+            chunks[#chunks + 1] = "\nend\n"
+        end
+    end
+
+    -- Compiler-provided implementation modules are staged after ordinary module
+    -- compilation, so they are not in the module records above. A binary still has to
+    -- carry them in its payload: the native provider and its Nupp state machine are one
+    -- selected facility, not a shared library with a filesystem dependency hidden
+    -- behind it.
+    for _, name in ipairs(runtimeModules or {}) do
+        if built[name] == nil and name ~= mainName then
+            local path = join(root, join(outDir, name:gsub("%.", "/") .. ".lua"))
             local text, readErr = readFile(path)
             if not text then
                 return nil, readErr
@@ -174,7 +194,19 @@ local function bundleText(
     if not mainText then
         return nil, mainErr
     end
-    chunks[#chunks + 1] = mainText
+    if workerDispatch then
+        -- A worker runs the same immutable payload in a fresh state, but selects
+        -- another preloaded module instead of executing the ordinary entry. This
+        -- branch is emitted only for the host-backed workers feature, so worker-free
+        -- bundles retain their exact former bytes and startup path.
+        chunks[#chunks + 1] = ("package.preload[%q] = function(...)\n"):format(mainName)
+        chunks[#chunks + 1] = mainText
+        chunks[#chunks + 1] = "\nend\n"
+        chunks[#chunks + 1] = "local __nuppEntry = rawget(_G, \"__nuppWorkerEntry\")\n"
+        chunks[#chunks + 1] = ("return require(__nuppEntry or %q)\n"):format(mainName)
+    else
+        chunks[#chunks + 1] = mainText
+    end
 
     return table.concat(chunks), nil, unreachable
 end

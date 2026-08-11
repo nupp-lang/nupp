@@ -9,7 +9,7 @@ use std::os::raw::{c_char, c_int, c_void};
 use std::ptr;
 
 #[allow(non_camel_case_types)]
-type lua_State = c_void;
+pub(crate) type lua_State = c_void;
 
 const LUA_MULTRET: c_int = -1;
 const LUA_GLOBALSINDEX: c_int = -10002;
@@ -31,14 +31,16 @@ extern "C" {
     fn lua_pushlstring(state: *mut lua_State, s: *const c_char, length: usize);
     fn lua_rawseti(state: *mut lua_State, index: c_int, n: c_int);
     fn lua_setfield(state: *mut lua_State, index: c_int, name: *const c_char);
-    #[cfg(any(feature = "cjson", feature = "lua-utf8"))]
+    #[cfg(any(feature = "cjson", feature = "lua-utf8", feature = "workers"))]
     fn lua_getfield(state: *mut lua_State, index: c_int, name: *const c_char);
-    #[cfg(any(feature = "cjson", feature = "lua-utf8"))]
+    #[cfg(any(feature = "cjson", feature = "lua-utf8", feature = "workers"))]
     fn lua_pushcclosure(state: *mut lua_State, f: LuaFunction, upvalues: c_int);
+    #[cfg(feature = "workers")]
+    fn lua_pushlightuserdata(state: *mut lua_State, value: *mut c_void);
 }
 
-#[cfg(any(feature = "cjson", feature = "lua-utf8"))]
-type LuaFunction = unsafe extern "C" fn(*mut lua_State) -> c_int;
+#[cfg(any(feature = "cjson", feature = "lua-utf8", feature = "workers"))]
+pub(crate) type LuaFunction = unsafe extern "C" fn(*mut lua_State) -> c_int;
 
 // The selected vendored C libraries. Each is reached through require like any
 // other module; Cargo features decide which openers exist in this host.
@@ -75,11 +77,13 @@ impl Lua {
         // lunamark asks for; LuaJIT has no utf8 of its own to collide with.
         #[cfg(feature = "lua-utf8")]
         self.preload("lua-utf8", luaopen_utf8);
+        #[cfg(feature = "workers")]
+        self.preload("nupp.workers.native", crate::workers::luaopen);
     }
 
     /// Puts a C module in `package.preload`, so `require` finds it without a
     /// search path and without a shared library on disk.
-    #[cfg(any(feature = "cjson", feature = "lua-utf8"))]
+    #[cfg(any(feature = "cjson", feature = "lua-utf8", feature = "workers"))]
     fn preload(&self, name: &str, opener: LuaFunction) {
         let key = match CString::new(name) {
             Ok(key) => key,
@@ -93,6 +97,24 @@ impl Lua {
             lua_pushcclosure(self.state, opener, 0);
             lua_setfield(self.state, -2, key.as_ptr());
             lua_settop(self.state, -3); // drop package.preload and package
+        }
+    }
+
+    #[cfg(feature = "workers")]
+    pub(crate) fn set_pointer(&self, name: &str, value: *mut c_void) {
+        let name = CString::new(name).expect("worker registry names have no NUL");
+        unsafe {
+            lua_pushlightuserdata(self.state, value);
+            lua_setfield(self.state, LUA_GLOBALSINDEX, name.as_ptr());
+        }
+    }
+
+    #[cfg(feature = "workers")]
+    pub(crate) fn set_string(&self, name: &str, value: &str) {
+        let name = CString::new(name).expect("worker registry names have no NUL");
+        unsafe {
+            lua_pushlstring(self.state, value.as_ptr().cast(), value.len());
+            lua_setfield(self.state, LUA_GLOBALSINDEX, name.as_ptr());
         }
     }
 

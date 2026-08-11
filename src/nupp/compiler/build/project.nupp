@@ -20,6 +20,7 @@ local modules = require("nupp.compiler.build.modules")
 local packaging = require("nupp.compiler.build.package")
 local storeMod = require("nupp.compiler.build.store")
 local native = require("nupp.compiler.build.native")
+local nativeFeatures = require("nupp.compiler.native")
 local materializeObserve = require("nupp.compiler.materialize.observe")
 
 local project = {}
@@ -248,6 +249,13 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
     end
     local detectedEffects = native.dependencyEffects(root, config, target, result.effects)
     local resolvedEffects = native.resolve(detectedEffects, target.nativeFeatures)
+    if resolvedEffects["native.workers"] and (target.kind ~= "binary" or target.stub ~= "nupp") then
+        io.stderr:write(
+            "nupp: workers currently require a binary target with stub = \"nupp\"; "
+            .. "the compiler-owned host supplies the isolated Lua states and early machine-code arena\n"
+        )
+        return 1
+    end
     if target.kind == "bundle" and next(resolvedEffects) then
         io.stderr:write(
             "nupp: a one-file bundle cannot carry native features; "
@@ -266,7 +274,22 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
     -- A bundle is a modules build and then one more file: everything it just compiled,
     -- folded into a chunk that runs with nothing beside it.
     if target.kind == "bundle" or target.kind == "binary" then
-        local text, bundleErr, unreachable = bundleText(root, config, target, nil, newState.modules)
+        local runtimeModules = {}
+        for _, feature in ipairs(nativeFeatures.features(resolvedEffects)) do
+            if feature.runtimeModule then
+                runtimeModules[#runtimeModules + 1] = feature.runtimeModule
+            end
+        end
+        table.sort(runtimeModules)
+        local text, bundleErr, unreachable = bundleText(
+            root,
+            config,
+            target,
+            nil,
+            newState.modules,
+            resolvedEffects["native.workers"] == true,
+            runtimeModules
+        )
         if not text then
             io.stderr:write("nupp: " .. tostring(bundleErr) .. "\n")
             return 1

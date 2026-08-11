@@ -1,154 +1,131 @@
-# Worker threads — design record
+# Worker threads — implementation record
 
-Status: proposed. This depends on S2 of
-[suspension](suspension.md): the handled `suspend` operation, its blocking
-fallback, and readiness sources. The native isolation and message protocol can
-be prototyped before S2, but the public waiting API should not land by
-recreating the scheduler dispatch that suspension is meant to replace.
+Status: implemented for compiler-owned binary targets. Module targets, external
+LuaJIT interpreters, and third-party binary stubs remain follow-up work because
+they do not yet provide the pinned interpreter, payload bootstrap, or early
+machine-code reservation this implementation relies on.
 
 ## Decision
 
-Nupp will provide optional worker threads as `nupp.workers`. A worker is a
-fresh LuaJIT state on its own operating-system thread, joined to its spawner by
-two bounded byte queues. Lua values never cross directly. The sending state
+Nupp provides isolated worker threads as `nupp.workers`. Each worker is a fresh
+LuaJIT state on its own operating-system thread, connected to its spawner by two
+bounded byte queues. Lua values never cross directly. The sending state
 validates and serializes a value; the receiving state decodes a separate copy.
 
-The model is deliberately closer to Web Workers than to shared-memory threads:
+The first provider belongs to the compiler-owned binary host. That host already
+owns a pinned LuaJIT, the immutable stamped payload, and the point early enough
+in process startup to preserve nearby machine-code address space. A worker runs
+the same payload in a new state with `__nuppWorkerEntry` set to the requested
+module. The payload dispatcher requires that module instead of the ordinary
+entry.
+
+This is deliberately narrower than the original two-provider proposal. A
+sidecar loaded into an arbitrary interpreter cannot reliably reserve address
+space before the rest of that process maps libraries, and embedding a second
+LuaJIT raises symbol-interposition and native-module identity questions. Nupp
+now refuses that configuration at build time instead of shipping a worker that
+quietly runs interpreted or initializes a different runtime.
+
+The model is closer to Web Workers than shared-memory threads:
 
 - no shared Lua heap, globals, registry, loaded modules, closures, userdata, or
   cdata pointers;
 - messages and request/reply calls are the only communication path;
-- worker code runs as an independently initialized Nupp module;
+- worker code is a named, checked module already present in the target payload;
 - stopping closes the inbox and joins rather than killing a thread at an
-  arbitrary instruction.
+  arbitrary instruction; and
+- an uncooperative worker can keep `join` or automatic cleanup waiting forever.
 
-The implementation begins from `tecs.workers`, whose queue, isolation,
-shutdown, routing, and call protocol are already exercised in a real LuaJIT
-host. It does not copy tecs's scheduler integration. A Nupp wait performs
-`suspend`, so the same call blocks in an ordinary command-line program and
-parks under tecs or another installed scheduler.
+## What landed
 
-Workers are a compiler-native feature and are included only when a target has a
-resolved runtime use of `nupp.workers`. A target without that effect gets:
+The implemented slice includes:
 
-- no worker native library;
-- no `workers` feature in the compiler-owned host;
-- no worker entry dispatcher or embedded worker image;
-- no machine-code arena reservation;
-- no worker initialization code and no idle poll source; and
-- no change to the Lua it would otherwise generate.
+- automatic `native.workers` detection from `require("nupp.workers")`;
+- a `workers` feature in the compiler-owned host;
+- conditional worker-aware payload dispatch;
+- fresh-state bootstrap with the same selected built-in C modules as the main
+  state;
+- two queues bounded to 1024 messages and 256 MiB per direction;
+- FIFO push, blocking and nonblocking pop, close, count, and closed state;
+- copied `string.buffer` messages with pathful validation;
+- ordinary send/receive, request/reply call, and worker-side serve;
+- protocol envelopes outside the user payload, so user table keys cannot
+  collide with routing metadata;
+- immediate polling plus blocking or suspension-aware waiting;
+- nonblocking idempotent close, join, idempotent stop, and ownership-driven
+  automatic stop;
+- clean and failed exit records with worker error text; and
+- an early best-effort LuaJIT machine-code arena on Unix.
 
-This follows the existing native-feature rule rather than inventing a second
-manifest switch. A resolved `require("nupp.workers")` records
-`native.workers`; target `nativeFeatures.workers` retains the existing
-tri-state override for expert use. At `-O1` and above a use removed with
-constant-dead code does not select the feature, as with the other native
-facilities.
+The first release intentionally refuses:
 
-## Why this belongs in Nupp
+- `modules` targets;
+- one-file `bundle` targets;
+- binary targets with a path-valued third-party stub; and
+- an unstamped worker-enabled host used as a plain Lua interpreter.
 
-TypeScript describes worker APIs supplied by browsers and Node, but does not
-implement or unify them. The useful precedent is the execution model, not the
-ownership of the API: a separate realm, messages copied through a structured
-serialization boundary, and explicit termination.
+The refusal is part of the feature contract, not a temporary runtime error.
 
-LuaJIT makes that boundary more important. One `lua_State` must not be entered
-from several threads, and an FFI callback invoked on a thread Lua did not enter
-is unsafe. Giving each worker a state created and used only by its own thread
-provides actual parallel execution without pretending Lua objects are safe to
-share.
+## Public surface
 
-Nupp has three reasons to own the facility rather than leave every host to
-write one:
+```nupp
+record nupp.workers.Exit
+    succeeded: boolean
+    status: integer
+    error: string?
+end
 
-1. A library can use one checked, documented worker protocol under a plain
-   interpreter, the Nupp binary host, and tecs.
-2. The ownership system can require a worker to be closed and joined.
-3. The suspension effect makes a wait scheduler-neutral. The worker module
-   should not know whether it is serving a CLI or a frame loop.
+record nupp.workers.Worker
+    send: function(self: nupp.workers.Worker, value: any)
+    tryReceive: function(self: nupp.workers.Worker): any?
+    receive: function(self: nupp.workers.Worker, timeoutMs: integer?): any?
+    call: function(self: nupp.workers.Worker, value: any): any
+    close: function(self: nupp.workers.Worker)
+    join: function(self: nupp.workers.Worker): nupp.workers.Exit
+    stop: function(self: nupp.workers.Worker): nupp.workers.Exit
+end
 
-The feature is not the hardened comptime worker. A worker thread shares the
-process's address space, native libraries, and fate. An abort, memory blowup,
-or hostile native call can still take down the compiler and language server.
-C4 in [comptime](comptime.md) therefore remains an operating-system process
-with kill and resource limits, built over `nupp.io.Process` and suspension.
+record nupp.workers.Self
+    receive: function(self: nupp.workers.Self): any?
+    send: function(self: nupp.workers.Self, value: any)
+    serve: function(self: nupp.workers.Self, handler: function(any): any)
+end
+```
 
-## Goals
+`workers.spawn(entry)` returns an owner. `Worker:stop` is its `@drop`
+operation, so a local worker is stopped on every structured exit. Collection is
+not a lifecycle operation and no finalizer performs an unbounded join.
 
-1. Run CPU-bound Nupp code concurrently in isolated LuaJIT states.
-2. Preserve a small message API: send, receive, request/reply call, serve, and
-   orderly stop.
-3. Block efficiently without a suspension handler and park without blocking
-   the host thread when a handler is installed.
-4. Make every payload crossing the thread boundary an owned byte copy with a
-   narrow, diagnosed value vocabulary.
-5. Compile and initialize worker entry modules correctly in module and
-   compiler-owned binary targets.
-6. Select every worker artifact and every worker-specific runtime cost only
-   when the checked target uses the feature.
-7. Preserve deterministic builds and the existing generated output of targets
-   that do not use workers.
-8. Keep the immediate send and receive paths allocation- and scheduler-free
-   apart from serialization and the queue's required byte allocation.
+`tryReceive` is the explicit poll. `receive()` waits indefinitely; a positive
+timeout waits up to that many monotonic milliseconds, and zero polls. The
+worker-side `Self:receive()` waits indefinitely because an idle worker has no
+other useful work and must not spin a core.
 
-## Non-goals
+An ordinary receive returns only `message` frames. `call(value)` numbers a
+`request` and waits for its matching `reply`; replies observed by another
+waiter are routed to their request id rather than consumed. `Self:serve` handles
+requests until the inbox closes. A handler error becomes a failed reply and the
+serve loop continues.
 
-- Shared mutable Lua tables or globals.
-- `SharedArrayBuffer`, atomics, locks exposed to Nupp, or arbitrary pointers
-  crossing between states.
-- Running a Lua closure captured in the spawning state.
-- Safely terminating an uncooperative thread. There is no portable operation
-  that can stop arbitrary LuaJIT execution and preserve process invariants.
-- A worker pool, work stealing, priorities, or automatic core selection. A
-  pool is a library over workers once measured consumers need one.
-- A scheduler. Scheduler policy remains with the installed suspension handler.
-- Process isolation, crash containment, memory quotas, or the comptime worker.
-- Making every target pay merely because the compiler knows how to provide
-  workers. Selection still follows Nupp's existing whole-source-set effect
-  rule: a compiled module containing a live `require("nupp.workers")` counts as
-  a use even when an entry does not reach that module dynamically.
+`close` is nonblocking and idempotent. It closes the inbox and wakes a worker
+blocked in `Self:receive`. `join` waits for the native thread, and `stop` closes,
+joins, then destroys both queues. Repeated joins and stops return the recorded
+exit.
 
-## Execution model
+## Worker entries and payloads
 
-Each `Worker` owns:
-
-- one native thread and the fresh Lua state created on it;
-- one bounded spawner-to-worker queue;
-- one bounded worker-to-spawner queue;
-- request identifiers and reply routing held only in the spawning state; and
-- the right and obligation to close and join the thread.
-
-The native bridge sees only byte blocks and control frames. It does not inspect
-Lua values, request tables, or module types. The Lua layer owns validation,
-serialization, the request/reply envelope, and public errors.
-
-The worker thread creates its Lua state, opens the same baseline libraries as
-the selected host, installs the channel endpoints as private registry values,
-loads the worker image, and requires the chosen entry module. It closes its
-outbox on every exit path, including a load error or an uncaught error from the
-entry. Closing is observable separately from an empty queue, so no waiter can
-remain parked for a result that can never arrive.
-
-The fresh state gets no copy of the spawner's `_G` or `package.loaded`. Module
-initializers run again. Environment variables and process-wide native state
-remain process facilities and must be documented by their owners; the worker
-abstraction does not claim to isolate them.
-
-### Worker entries
-
-The normal spawn operation names a Nupp module, not source text:
+The normal spawn operation names a module:
 
 ```nupp
 local workers = require("nupp.workers")
 
-with hasher = workers.spawn("workers.hash") do
-    hasher:send({name = "level1", bytes = contents})
-    local answer = hasher:receive()
-end
+do
+    local hasher = workers.spawn("workers.hash")
+    local answer = hasher:call({name = "level1", bytes = contents})
+end -- automatic stop
 ```
 
-The entry runs only in the worker state and obtains its endpoints through
-`workers.current()`:
+The entry obtains its endpoints in its own state:
 
 ```nupp
 local workers = require("nupp.workers")
@@ -159,473 +136,215 @@ self:serve(function(job: any): any
 end)
 ```
 
-A module name may be computed at run time for a modules target, because the
-filesystem remains the module registry there. A compiler-owned binary already
-carries the complete compiled source set, so its worker dispatcher may require
-any module present in that payload. The first version does not pretend the
-caller's request type proves anything about a separately initialized entry;
-messages remain `any` at the boundary and are narrowed or validated by ordinary
-Nupp code on each side.
+The entry must be one of the modules compiled into the target. Listing a worker
+entry in `target.entries` is the direct way to include a module not otherwise
+reachable from the ordinary entry.
 
-Raw source text is not public in the first API. It is useful as a native
-bring-up hook and in tests, but making it the normal surface would put worker
-code outside project checking, documentation, incremental dependencies, and
-binary packaging—the parts Nupp is in a position to improve over the tecs API.
+Worker-aware packaging preloads the ordinary entry as a module too, then emits
+one final dispatcher:
 
-## Public surface
-
-The first surface is intentionally small:
-
-```nupp
-interface nupp.workers.Worker
-    pending: integer
-
-    send: function(self: nupp.workers.Worker, value: any)
-    tryReceive: function(self: nupp.workers.Worker): any?
-    receive: function(self: nupp.workers.Worker, timeoutMs: number?): any?
-    call: function(self: nupp.workers.Worker, value: any): any
-    close: function(self: nupp.workers.Worker)
-    join: function(self: nupp.workers.Worker): nupp.workers.Exit
-    stop: function(self: nupp.workers.Worker): nupp.workers.Exit
-end
-
-interface nupp.workers.Self
-    receive: function(self: nupp.workers.Self): any?
-    send: function(self: nupp.workers.Self, value: any)
-    serve: function(self: nupp.workers.Self, handler: function(any): any)
-end
+```lua
+local entry = rawget(_G, "__nuppWorkerEntry")
+return require(entry or ordinaryEntry)
 ```
 
-`workers.spawn(entry)` is an owned producer whose default drop is
-`Worker:stop`. `stop` is `close` followed by `join`, and a second stop returns
-the recorded exit. `close` is nonblocking and idempotent. It closes the inbox,
-wakes a worker blocked in `Self:receive`, and asks a conventional receive loop
-to finish. `join` waits contextually through suspension and may therefore park
-a task. It cannot complete while worker source ignores closure and continues
-running.
-
-`tryReceive` is the explicit poll. `receive()` waits indefinitely; a positive
-timeout waits up to that many monotonic milliseconds, and zero is equivalent
-to `tryReceive`. This removes tecs's surprising main-side default, which was
-chosen before a general suspension operation existed. The worker-side
-`Self:receive()` waits indefinitely because an idle worker has no other useful
-work and must not spin a core.
-
-An ordinary receive returns only messages sent outside a call. `call(value)`
-numbers the request and waits for its matching reply; replies for other calls
-and ordinary messages are routed without being consumed by the wrong waiter.
-`Self:serve(handler)` reads until the inbox closes. A handler error becomes a
-failed reply for that call and does not end the serve loop.
-
-`Exit` distinguishes a clean return from a load or uncaught runtime error and
-carries the worker's error text. Worker failure is observable as soon as the
-control frame arrives; callers do not have to wait for a later `stop` merely
-to learn why a call cannot be answered.
-
-Top-level `nil` is not a valid message. It is the receive API's absence and
-closure sentinel and cannot be made distinguishable after decoding. Nested
-nil has ordinary Lua table semantics. Sending nil raises before reaching the
-native queue.
-
-### Ownership and cancellation
-
-The owning `Worker` wrapper is not copied. Borrowed method calls retain the
-owner, and `stop` consumes or permanently closes it according to the ownership
-surface chosen when implementation reaches this milestone. Collection is not
-a substitute for joining: no finalizer calls an unbounded join from the Lua
-collector.
-
-Cancellation of a suspended `receive`, `call`, or `join` removes only that
-waiter. It cannot cancel Lua code already running on the worker. A canceled call
-forgets its request identifier, so a late reply is discarded rather than
-delivered to a later call. If cancellation unwinds a `with` that owns the
-worker, its drop operation closes and joins in the same way as an explicit stop.
-
-This interaction depends on suspension S4's ownership contract. Until a
-drop operation may wait through a handled suspension and cancellation reliably
-unwinds it, the public owned producer does not land.
+Worker-free payload generation keeps its existing shape and bytes.
 
 ## Message boundary
 
-The initial transferable vocabulary is:
+The transferable vocabulary is:
 
 ```text
-nil only below the top level
 boolean
 number
 string
-tables whose keys and values recursively use this vocabulary
+tables whose scalar keys and values recursively use this vocabulary
 ```
 
-Functions, threads, userdata, cdata, pointers, metatables, and resources do not
-cross. Every send walks the value first and reports the path to the first
-unsupported item. The walk has an explicit nesting limit and tracks visited
-tables, both to diagnose cycles according to the selected encoding contract
-and to avoid turning validation into uncontrolled recursion.
+Top-level nil is rejected because it is the absence and closure sentinel.
+Functions, threads, userdata, cdata, metatables, resources, table keys that are
+not scalar, nesting past 32 tables, cycles, and repeated table aliases are
+rejected before encoding. The diagnostic names the path to the first rejected
+value.
 
-`string.buffer` supplies the first encoding because it is already part of
-LuaJIT and is the proven tecs path. Its exact accepted graph shapes are pinned
-by tests before Nupp documents them as a compatibility promise. If cyclic
-tables or alias preservation are not guaranteed by every supported LuaJIT
-build, validation rejects them rather than silently changing identity.
+Repeated aliases are rejected along with cycles because the compatibility
+contract does not promise graph identity. A later encoder may widen the
+contract only with conformance tests across every supported LuaJIT build.
 
-The queue is bounded by both message count and serialized byte count. The
-tecs defaults—1024 messages and 256 MiB per direction—are the starting values,
-not yet an immutable public contract. Send never blocks waiting for capacity;
-it raises with the current count and byte limit. Blocking on a full producer
-queue would introduce a second suspension path and a deadlock surface before a
-consumer demonstrates the need for backpressure.
-
-### Framing
-
-User payloads are never themselves inspected for routing keys. Each native
-message has a small frame kind outside the encoded value:
+Every serialized value is wrapped in a private envelope:
 
 ```text
-message        ordinary user payload
-request        request id plus user payload
-reply          request id, success/failure, and payload or error text
-worker-error   load or uncaught entry failure
+message  { kind = "message", payload = value }
+request  { kind = "request", id = n, payload = value }
+reply    { kind = "reply", id = n, ok = true, payload = value }
+reply    { kind = "reply", id = n, ok = false, error = text }
 ```
 
-This avoids `tecs.workers`' reserved-table-key collision, where an ordinary
-message containing the numeric call-id key can be mistaken for a reply. Frame
-lengths and identifiers are fixed-width and checked before allocating. The
-public serializer still owns user values; the native layer owns only frame
-integrity and raw error bytes from `lua_pcall`.
+The user's value is always below `payload`. Unlike tecs's original reserved-key
+protocol, a user table can contain any of these field names without becoming a
+control frame.
+
+Send never waits for queue capacity. It raises when the channel is closed or
+when either fixed bound is full. Blocking on a full producer queue would add a
+second suspension path and a deadlock surface; it remains out until a measured
+consumer needs backpressure.
 
 ## Suspension integration
 
-Every waiting operation first tries its immediate path:
+Every wait tries its immediate path first. No ready operation calls
+`suspension.suspend`.
 
-- `tryReceive` performs one zero-time pop and never suspends;
-- `receive` drains an already routed message before subscribing;
-- `call` checks an already routed reply after sending; and
-- `join` checks whether the native thread has finished.
+Without an installed handler, receive waits on the native channel condition
+variable and join blocks in the native thread join. Timed receive uses the
+host's monotonic clock.
 
-Only an operation that is not ready performs `suspend`. Its subscription adds
-a waiter to the worker module's state for that `SuspensionContext`, retains one
-readiness source while that context has any worker waiter, and returns a
-cancellation that removes the waiter and any abandoned call id.
+With a handler, a wait registers a readiness source through its
+`SuspensionContext`. The source polls native state without blocking and resumes
+the caller when its message, reply, deadline, closure, or thread exit is ready.
+Cancellation releases the source. No native worker thread calls a Lua callback.
 
-One source per suspension context polls all workers with pending waits. It
-does not register once per worker or once per call. A poll drains a bounded
-amount of work, routes frames, resumes satisfied waiters, settles deadlines,
-and reports how many continuations it resumed. The source is released when its
-last waiter leaves, so imported but idle workers add no frame work.
+This implementation uses one short-lived source per suspended operation. A
+future optimization may coalesce waits into one source per suspension context,
+but it must preserve cancellation, request routing, and the zero-source idle
+state before replacing the simpler correct path.
 
-The built-in blocking handler drives the same source. It may sleep briefly
-between nonblocking polls; the native channel retains an efficient conditional
-wait for a future specialized blocking context, but the public worker API has
-no `waitMode` branch. The operation is written once and suspension chooses its
-handler.
+## Native host
 
-Worker-source shutdown cancels its waiters and releases registrations. It does
-not silently destroy worker owners. Cancellation unwinds their scopes; owned
-workers then close and join through their normal cleanup. The suspension
-handler's invariant—that shutdown returns with no live parks or sources—is
-therefore preserved without giving a global source authority over unrelated
-worker lifetimes.
+The `workers` Cargo feature preloads a private `nupp.workers.native` C module in
+every state. Its ABI exposes opaque handles and byte strings only:
 
-## Native implementation
+- channel create, destroy, close, push, pop, count, and closed state;
+- worker spawn, finished state, and consuming join;
+- the current worker endpoints; and
+- monotonic milliseconds.
 
-The proven tecs core ports with deliberately fewer dependencies:
+Rust owns `Mutex<ChannelState>`, `Condvar`, `VecDeque<Box<[u8]>>`, and
+`JoinHandle`. Lua owns value validation, `string.buffer` encoding, framing,
+routing, errors, and public records. The worker closes its outbox on every exit
+path so no receive or call waits for a result that can no longer arrive.
 
-- Rust `Mutex<ChannelState>` and `Condvar` protect a `VecDeque` of owned byte
-  frames;
-- `std::thread::Builder` starts a named worker thread;
-- one fresh `lua_State` is created, opened, run, and closed on that thread;
-- close wakes every blocked pop;
-- `JoinHandle::is_finished` supports nonblocking join polling; and
-- no native function ever calls a Lua callback on the worker thread.
+The host retains one immutable copy of the verified payload for the process
+lifetime. Worker states borrow its bytes only while loading them; each state
+gets its own Lua objects and `package.loaded` table. A worker closes both queues
+when its entry returns, so later sends fail and no receive waits on a producer
+that no longer exists.
 
-SDL logging, tecs's FFI registry, tecs's Lua-module installer, trace watcher,
-task runtime, and frame-source registry do not port. Worker errors travel over
-the control frame and Nupp's own state bootstrap installs selected native Lua
-modules.
+## Machine-code arena
 
-### Two provider forms
+The arena follows the implementation and measurements in tecs.
 
-The same Rust core has two link forms:
+LuaJIT arm64 traces reach the interpreter with an immediate branch. LuaJIT
+therefore needs to map machine code within roughly 62 MiB on either side of its
+own image. A process may fill that window before a later worker calls
+`luaL_newstate`; the worker then runs interpreted even though `jit.status()`
+still returns true.
 
-1. A `nupp_workers` sidecar for module targets running under an external
-   LuaJIT. It contains or resolves a LuaJIT runtime usable exclusively by its
-   worker states and exports only the byte-channel/worker ABI.
-2. The `workers` feature of the compiler-owned Nupp host. It reuses the host's
-   pinned LuaJIT and its module-registration path, and exposes the same ABI to
-   generated Lua through `ffi.C`.
+Tecs tried a per-state workaround first: warm one trace, set `sizemcode` and
+`maxmcode` to the one 64 KiB area that still fit, and reuse it. That was not a
+cache worth porting. A trace flush released the area, the state could not take
+another, and the load-bearing size depended on process layout.
 
-Generated bootstrap tries the host ABI first and loads the sidecar otherwise,
-the same distinction other compiler-native facilities already make. Both
-forms must run the same conformance suite.
+The successful tecs design reserves unreadable address space near the pinned
+LuaJIT image before ordinary initialization. Nupp ports that design:
 
-W0 decides the sidecar's LuaJIT linkage after a spike. A private statically
-linked LuaJIT is acceptable only if its symbols are hidden on ELF, Mach-O, and
-PE and a process already running LuaJIT cannot interpose them. Resolving the
-embedding interpreter is acceptable only if all supported deployments expose
-the required symbols and module openers. The spike tests both rather than
-turning platform-loader folklore into the ABI.
+- try 24 MiB first and halve down to 4 MiB;
+- search within LuaJIT's branch-reachable window;
+- use `PROT_NONE`, so reservation consumes address space but no physical memory;
+- make failure best-effort rather than a launch failure; and
+- release once, immediately before the first worker state is created.
 
-### Machine-code address space
+The reservation is compiled only into a worker-enabled host. Windows currently
+uses the no-op platform branch pending an equivalent measured implementation.
 
-Several LuaJIT states can exhaust nearby machine-code address space while
-`jit.status()` continues to report the JIT enabled. The tecs host reserves a
-small inaccessible arena near LuaJIT before later states start, giving their
-machine code somewhere branch-reachable to land after the reservation is
-released.
+A permanent performance gate still needs a trace-abort probe comparable to
+tecs's `TECS_TRACEPROF`. `jit.status()` alone is explicitly not an adequate
+test.
 
-Nupp ports or replaces that mechanism only with the `workers` host feature.
-The ordinary host performs no reservation. The sidecar measures its own
-private interpreter image and applies the equivalent reservation within that
-provider. Tests run hot worker loops and inspect trace aborts so a worker that
-quietly runs interpreted fails the feature's performance gate.
+## Build selection
 
-## Build and packaging
-
-`nupp.workers` is registered in the compiler-native feature table with:
+The feature registry entry is:
 
 ```text
 effect          native.workers
 module          nupp.workers
 feature name    workers
-sidecar         nupp_workers
 host feature    workers
+runtime module  nupp.workers
+requires        runtime.suspension
 ```
 
-The existing effect collection, target override, provider grouping, cache key,
-and staging flow do the selection. No unconditional dependency is added to
-`runtime/native`, the host's default feature set, or every generated module.
+Resolved use selects the host feature, both compiler-provided runtime modules,
+and the worker dispatcher. Removing the last use removes those outputs on the
+next successful build through ordinary stale-output cleanup.
 
-### Modules targets
-
-A modules target stages `lib/nupp_workers` only when `native.workers` survives
-resolution. `spawn(entry)` gives the fresh state the target's generated module
-path and corresponding rock paths, then requires the compiled entry normally.
-Selected native sidecars remain discoverable through the worker's `package.cpath`.
-
-The worker artifact is part of the target's output set and cache fingerprint.
-Removing the last use removes it on the next successful build through the
-existing stale-output cleanup.
-
-### Compiler-owned binaries
-
-A compiler-owned binary selected with `stub = "nupp"` builds the host with its
-`workers` feature only when the resolved effect is present. Its worker states
-must see the same compiled module registry and selected statically linked Lua
-modules as the main state.
-
-When workers are selected, bundle generation emits a worker-aware dispatcher:
-all compiled modules, including the ordinary entry, are installable through
-`package.preload`; the host runs the configured main entry, while a worker
-state runs the module name supplied to `spawn`. The host retains the verified
-payload bytes for its lifetime so a worker can load the same image rather than
-embedding a second copy.
-
-When workers are not selected, packaging keeps its current shape. The
-dispatcher, retained payload, and alternate entry path are not generalized
-into every binary merely for implementation convenience.
-
-A path-valued third-party stub does not automatically gain worker-state
-bootstrap. The first version refuses a binary using workers unless its stub
-declares the worker ABI or the target uses `stub = "nupp"`; it does not emit a
-binary that starts successfully and fails on its first spawn. The declaration
-mechanism is designed with the first third-party host that needs it rather than
-guessed here.
-
-### Bundles
-
-A one-file Lua bundle cannot carry a native worker provider. It follows the
-existing native-feature rule and is refused when workers are selected. There
-is no silent subprocess fallback and no base64-encoded shared library hidden
-inside generated Lua.
+`nativeFeatures.workers = true` may force the feature into a compatible binary
+target; `false` removes it. A forced removal from code that still calls the
+module produces a target without its provider by explicit expert request, the
+same contract as other native-feature overrides.
 
 ## Failures and lifecycle
 
-The following are distinct and remain distinct in the API:
+The following remain distinct:
 
-- spawn failure: the native thread or Lua state could not be created;
-- entry load failure: the worker image or selected module did not load;
-- entry runtime failure: uncaught code ended the worker;
-- call failure: `serve` caught one handler error and continued;
-- closed: the worker returned cleanly or its inbox was closed and drained;
-- queue full: send exceeded a configured bound; and
-- canceled wait: the caller stopped waiting, without implying the worker
-  stopped computing.
+- spawn failure: the native thread could not be started;
+- entry load or runtime failure: `join` returns a failed exit with error text;
+- call failure: `serve` catches one handler error, replies with it, and
+  continues;
+- closed and drained: receive returns nil;
+- queue full: send raises without blocking; and
+- canceled wait: the caller stops waiting without canceling worker code.
 
-`call` raises the remote handler's reason with a worker-entry frame in the
-traceback context. An entry failure settles every outstanding receive with
-closure and every call with the entry error. A clean worker return settles
-calls with "worker ended before replying" rather than waiting forever.
+A call whose worker exits before replying joins the already-ending thread and
+raises its entry error when available. A clean early return raises that the
+worker ended before replying.
 
-`stop` can wait forever when source never receives again or ignores a closed
-inbox. That is a property of cooperative thread shutdown and is documented as
-such. Process workers are the answer for untrusted or forcibly bounded work;
-unsafe thread cancellation is not.
+Thread cancellation is not provided. Code that must be killed, memory-limited,
+or isolated from a crash belongs in an operating-system process, as the
+comptime worker already does.
 
-## Determinism and cost
+## Verification
 
-Worker selection is a checked build fact. It cannot affect comptime evaluation
-or another module's meaning. The effect and provider set participate in the
-ordinary configuration and interface fingerprints.
+Required regression coverage for the landed slice:
 
-A worker-enabled payload remains deterministic:
+- host unit tests for FIFO delivery, close-and-drain, send-after-close, and the
+  message-count bound;
+- compiler tests for `native.workers` detection and suspension expansion;
+- packaging tests for conditional dispatch and compiler runtime modules;
+- an end-to-end stamped binary that starts a named worker, exchanges a call,
+  stops through ownership, and observes a failed entry through `join`;
+- build refusal tests for modules, bundles, and third-party stubs; and
+- ordinary compiler tests plus self-host fixpoint.
 
-- module installation order is sorted;
-- no worker id, timestamp, machine path, or build counter enters output;
-- alternate entry dispatch is selected at run time by the host, not baked from
-  a run; and
-- the same source and configuration produce byte-identical worker-aware
-  payloads.
+The platform matrix must add Windows before the feature is advertised there.
+The performance matrix must add a worker trace-abort probe and parallel hot-loop
+benchmark before modules-sidecar work begins.
 
-The zero-use cost is zero by construction. For a selected feature with no live
-worker waits, there is no registered readiness source and no per-frame poll.
-For a live worker, send pays validation, encoding, one byte copy into the
-bounded queue, and a condition-variable notification. A ready receive pays a
-queue pop, one byte copy into a Lua string, and decoding. The scheduler path is
-reached only when an operation is not ready.
+## Follow-up milestones
 
-## Relationship to tecs
+### W6: harden the shipped host provider
 
-The following concepts port directly:
+- Add trace-abort instrumentation and fail when a hot worker remains
+  interpreted.
+- Add bounded parallel-progress and repeated spawn/stop memory tests.
+- Exercise cancellation and handler shutdown with a cooperative test handler.
+- Implement and measure the Windows arena strategy.
 
-```text
-tecs.workers                         nupp.workers
-----------------------------------   ----------------------------------
-fresh lua_State per native thread    unchanged
-two bounded byte channels            unchanged
-string.buffer encoding               unchanged initially
-close wakes a blocked worker         unchanged
-call id and reply routing            retained with external framing
-Self:serve                            unchanged in behavior
-taskruntime.checkWait                 removed
-taskruntime.awaitCallback             suspend
-runtime.register("workers", ...)     SuspensionContext:source(...)
-SDL_Log worker failure                worker-error control frame
-raw source spawn                      internal bring-up hook only
-```
+### W7: external interpreter spike
 
-Tecs can continue using its implementation until it is itself ported to Nupp.
-Once Nupp suspension is installed in tecs, adopting `nupp.workers` should
-change the import and worker entry packaging, not the semantics of its call
-sites. Tecs's scheduler, gates, source ordering, and frame policy remain tecs's.
+- Decide between a verified embedding function table and a symbol-hidden
+  private LuaJIT.
+- Prove no symbol interposition on Mach-O, ELF, or PE.
+- Prove early reservation is possible before arbitrary host mappings, or state
+  and enforce the narrower deployment contract that makes it possible.
+- Run the same conformance suite as the compiler-owned host.
 
-## Milestones
+Only after W7 passes should `modules` targets stage a `nupp_workers` sidecar.
 
-### W0: native and packaging spike
+### W8: source and scheduler optimization
 
-- Run two fresh LuaJIT states concurrently through the shared Rust core.
-- Prove the sidecar link strategy on macOS, Linux, and Windows without symbol
-  interposition or a dependency on a development-only LuaJIT installation.
-- Run the same worker entry in a modules target and a compiler-owned binary.
-- Install the exact native Lua modules selected for the target in every state.
-- Prove worker-free builds are byte-identical and build no new artifact.
-- Measure machine-code allocation and select the conditional arena strategy.
-
-Exit test: a hot pure-Nupp worker runs JIT-compiled in both provider forms;
-adding and then removing the only `nupp.workers` use adds and removes every
-worker artifact, host feature, dispatcher, and reservation.
-
-### W1: channels and lifecycle
-
-- Bounded native frames, push, zero-time pop, conditional wait, close, count,
-  closed state, and destruction.
-- Worker spawn, state bootstrap, entry selection, clean exit, error control
-  frame, `is_finished`, and join.
-- Owned `Worker`, nonblocking `close`, suspending `join`, and `stop`.
-- Validation and `string.buffer` encode/decode with pathful errors.
-
-Exit test: messages round-trip in order; full queues refuse without blocking;
-close drains queued frames and wakes blocked receivers; every native allocation
-and thread is released after clean and failed entries.
-
-### W2: suspension waits
-
-- `tryReceive`, indefinite and timed `receive`, and suspending `join`.
-- One readiness source per `SuspensionContext`, retained only while waiters
-  exist.
-- Cancellation, deadlines from a monotonic clock, worker exit, and handler
-  shutdown settlement.
-- Blocking-handler and cooperative-handler conformance tests.
-
-Exit test: one call site blocks without a handler and parks with one; a ready
-operation never calls `suspend`; canceling the last waiter removes the source
-and leaves no idle polling.
-
-### W3: calls and serving
-
-- External request/reply frames and monotonically increasing identifiers.
-- Concurrent calls, out-of-order replies, ordinary message routing, late-reply
-  discard, and id exhaustion handling.
-- `Self:serve`, per-call error replies, and continued service after failure.
-
-Exit test: calls return to their issuing waiters regardless of reply order;
-ordinary messages are never consumed as replies; user tables cannot collide
-with protocol metadata.
-
-### W4: build and distribution completion
-
-- Automatic `native.workers` detection and `nativeFeatures.workers` override.
-- Conditional sidecar staging and conditional compiler-host feature.
-- Worker entry dispatch for compiler-owned binaries and explicit refusal for
-  unsupported stubs and one-file bundles.
-- Cache, stale-output, clean, package, and binary fixpoint coverage.
-
-Exit test: modules and binary targets run the same entries; a worker-enabled
-binary rebuilds byte-identically; a worker-free compiler binary remains
-byte-identical to its pre-feature output.
-
-### W5: tecs adoption and performance
-
-- Port representative tecs worker entries and the existing worker spec suite.
-- Install tecs's suspension handler and exercise receive, call, cancellation,
-  stop, and shutdown inside a frame.
-- Benchmark spawn, send, ready receive, parked receive, call throughput, frame
-  polling, and several workers computing concurrently.
-
-Exit test: behavior matches the tecs suite, ready paths do not regress beyond
-the cost of Nupp's validation contract, and four CPU-bound workers demonstrate
-parallel progress.
-
-## Test matrix
-
-- selection: direct require, aliased module use, constant-dead use at `-O1`,
-  forced include, forced removal, no use
-- targets: modules, compiler-owned binary, unsupported prebuilt stub, refused
-  one-file bundle
-- values: every scalar, nested tables, mixed allowed keys, top-level nil,
-  function, thread, userdata, cdata, excessive depth, cycles, oversized payload
-- queue: FIFO order, message limit, byte limit, close with queued messages,
-  close while blocked, send after close, repeated close and destruction
-- worker: missing entry, syntax/load failure, runtime failure, clean return,
-  blocked receive, compute before receive, repeated stop, join while running
-- routing: ordinary messages among replies, concurrent calls, reversed replies,
-  canceled call, late reply, handler failure, unserializable handler result
-- suspension: immediate readiness, blocking wait, cooperative wait, timeout,
-  synchronous resume, cancellation, source retention and release, shutdown
-- ownership: explicit stop, `with` fallthrough, error unwind, cancellation
-  unwind, no GC join, uncooperative worker documented as non-terminating
-- native modules: pure standard library, each selected Lua C module, each
-  sidecar native facility supported in workers, absent facility diagnostics
-- performance: JIT compilation in every worker state, no idle source, bounded
-  poll work, parallel CPU progress, repeated spawn/stop memory stability
-- determinism: module output, worker-aware payload, binary fixpoint, cache hits,
-  and byte identity for worker-free targets
-
-## Open questions
-
-- Whether the sidecar embeds a symbol-hidden pinned LuaJIT or receives a
-  verified runtime function table from the embedding interpreter. W0 owns the
-  answer.
-- Whether timed receive belongs in W2 or should wait for the first common
-  monotonic time facility. Indefinite receive and explicit polling are enough
-  for the first useful worker.
-- Whether queue bounds become spawn options. Fixed bounds make the first
-  ownership and denial-of-service contract easier to audit.
-- Whether a later `Worker<Request, Reply>` protocol type can be checked against
-  an entry module without introducing a false guarantee across `any`, dynamic
-  module names, or independently built packages.
-- Whether worker entry metadata should eventually be inspectable by `nupp
-  tasks`. It is unnecessary while any compiled module may be selected and
-  should not become manifest ceremony without a packaging need.
-- Whether a pool belongs in `nupp.workers.pool` after the compiler or tecs has
-  two measured consumers with compatible scheduling requirements.
+- Measure whether one readiness source per suspension context improves real
+  hosts over one source per wait.
+- Preserve late-reply discard and cancellation while coalescing.
+- Consider typed `Worker<Request, Reply>` protocols only with a checked entry
+  relation that does not make dynamic module names falsely safe.
+- Add a pool only after two measured consumers need compatible policy.

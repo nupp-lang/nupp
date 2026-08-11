@@ -12,6 +12,8 @@
 - [A tour of Nupp](start/tour.md) — the whole language in one pass.
 - [Suspension](start/suspension.md) waits with or without a scheduler, composes
   concurrent work, and checks where suspension is forbidden.
+- [Workers](start/workers.md) run CPU work in isolated LuaJIT states and
+  communicate through bounded copied messages.
 - [Nupp syntax](start/syntax.md) — the syntax, and what LuaJIT 2.1 carries.
 
 ## API docs

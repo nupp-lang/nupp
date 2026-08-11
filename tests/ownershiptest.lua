@@ -690,6 +690,29 @@ function M.bareOwnedUsesTheDeclaredDefaultDropOperation()
    assertEq(chunk(), "close", "default drop operation runs")
 end
 
+function M.anExplicitDefaultDropAfterACallIsASeparateStatement()
+   local source = table.concat({
+      "local calls = ''",
+      "local record File",
+      "   @drop",
+      "   function stop(self): nil calls = calls .. 'stop' end",
+      "end",
+      "@owned",
+      "local function openFile(): File return new File() end",
+      "local file = openFile()",
+      "print('before')",
+      "file:stop()",
+      "return calls",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-test")
+   assertEq(#genDiags, 0)
+   local chunk, loadErr = loadstring(code, "@ownership-explicit-drop")
+   assert(chunk, tostring(loadErr) .. "\n" .. code)
+   assertEq(chunk(), "stop", "the terminal call runs once after another call statement")
+end
+
 function M.defaultDropOperationsAreInheritedFromInterfaces()
    assertClean(table.concat({
       "local interface Closeable",

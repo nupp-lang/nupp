@@ -2146,6 +2146,17 @@ function gen.generate(
             e("end")
             return
 
+        elseif kind == "callStmt" and x.expr and x.expr.automaticOwnerMoves then
+            -- A consuming call lowers to an immediately-invoked wrapper. At the start
+            -- of a statement its leading `(` can continue the call on the previous
+            -- line, because Lua newlines are whitespace: `print(x)\n(function...)()`
+            -- is one ambiguous statement. A block makes the expression unambiguously
+            -- statement-level without changing nested consuming expressions.
+            e("do", sourceLine(x))
+            emit(x.expr)
+            e("end")
+            return
+
         elseif kind == "call" and x.ffiOutContracts then
             needsFfi = true
             local line = sourceLine(x)

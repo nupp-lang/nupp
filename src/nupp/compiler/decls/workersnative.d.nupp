@@ -1,0 +1,22 @@
+--- Private compiler-host primitives used by `nupp.workers`.
+---
+--- The public module owns values, framing, suspension, and lifecycle. These
+--- functions deliberately expose only opaque handles and serialized bytes.
+local record native
+    channelCreate: function(): any
+    channelDestroy: function(any)
+    channelClose: function(any)
+    channelPush: function(any, string): boolean
+    channelPop: function(any, integer): string?
+    channelCount: function(any): integer
+    channelClosed: function(any): boolean
+
+    workerSpawn: function(string, any, any): (any?, string?)
+    workerFinished: function(any): boolean
+    workerJoin: function(any): (integer, string?)
+
+    current: function(): (any?, any?)
+    now: function(): number
+end
+
+return native

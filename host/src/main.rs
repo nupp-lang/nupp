@@ -12,13 +12,19 @@ use sha2::{Digest, Sha256};
 use std::os::raw::c_int;
 
 mod lua;
+#[cfg(feature = "workers")]
+mod mcode;
 mod payload;
+#[cfg(feature = "workers")]
+mod workers;
 
 use lua::Lua;
 
 const EXIT_USAGE: c_int = 2;
 
 fn main() {
+    #[cfg(feature = "workers")]
+    mcode::reserve();
     let arguments: Vec<String> = std::env::args().collect();
     let status = run(&arguments);
     std::process::exit(status);
@@ -38,6 +44,8 @@ fn run(arguments: &[String]) -> c_int {
 
     match payload::read(&exe) {
         Ok(Some(chunk)) => {
+            #[cfg(feature = "workers")]
+            workers::set_payload(chunk.clone());
             let name = format!("@{}", exe.display());
             execute(&chunk, &name, &arguments[1..])
         }

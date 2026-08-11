@@ -177,6 +177,15 @@ local FEATURES: {
     binary = true,
     requires = {"runtime.suspension"},
 }, [
+    "native.workers"
+] = {
+    name = "workers",
+    module = "nupp.workers",
+    host = "workers",
+    binary = true,
+    runtimeModule = "nupp.workers",
+    requires = {"runtime.suspension"},
+}, [
     "native.sha256"
 ] = {
     name = "sha256",
