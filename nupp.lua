@@ -486,6 +486,21 @@ nupp lsp            # start the language server]],
                   source = "docs/type-system/generics.md",
                },
                {
+                  path = "type-system/type-level-computation",
+                  title = "Type-level computation",
+                  source = "docs/type-system/type-level-computation.md",
+               },
+               {
+                  path = "type-system/packs",
+                  title = "Type packs",
+                  source = "docs/type-system/packs.md",
+               },
+               {
+                  path = "type-system/associated-types",
+                  title = "Associated types",
+                  source = "docs/type-system/associated-types.md",
+               },
+               {
                   path = "type-system/narrowing",
                   title = "Narrowing",
                   source = "docs/type-system/narrowing.md",
