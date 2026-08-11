@@ -6,26 +6,26 @@ to Lua, so building the real one takes a LuaJIT and nothing else.
 ## What you need
 
 **LuaJIT 2.1.1784535649 or newer.** Generated Nupp is written in the LuaJIT 3.0
-syntax that 2.1 backported — `?.`, `??`, `?:`, the bit operators, compound
-assignment — rather than in a lowering of it. That rolling version is the first
-build carrying those extensions. `bin/nupp` reads `luajit -v` and says which
-build is wanted, so an older interpreter fails with a sentence instead of a
-syntax error on a line nobody wrote.
+syntax that 2.1 backported, meaning `?.`, `??`, `?:`, the bit operators and
+compound assignment, rather than in a lowering of it. That rolling version is
+the first build carrying those extensions. `bin/nupp` reads `luajit -v` and says
+which build is wanted, so an older interpreter fails with a sentence instead of
+a syntax error on a line nobody wrote.
 
 Everything else is optional and buys one feature each:
 
 ```
  Component      Needed for                        Installed by
- ─────────────  ────────────────────────────────  ─────────────────────
+ ─────────────  ────────────────────────────────  ────────────────
  lua-cjson      --json output and the LSP server  luarocks install
  lunamark       nupp doc                          nupp doc
  Scintillua     highlighting in generated sites   nupp doc
- Rust toolchain building the binary host stub     rustup
+ Rust toolchai  building the binary host stub     rustup
 ```
 
 That table is about a **checkout**. A stamped binary carries all three of the
-first ones already — see [the binary](#a-self-contained-binary) — and needs
-nothing installed to check, compile, run or document a project.
+first ones already, as [the binary](#a-self-contained-binary) describes, and
+needs nothing installed to check, compile, run or document a project.
 
 ## From a checkout
 
@@ -35,10 +35,10 @@ cd nupp
 ./bin/nupp build
 ```
 
-`bin/nupp` is the entry point and it builds on demand: it runs `build/nupp/compiler`
-when that exists and no source is newer, and compiles the compiler first when
-it does not. An edit to the compiler is picked up by the next command rather
-than by the next person who remembers to build.
+`bin/nupp` is the entry point and it builds on demand: it runs
+`build/nupp/compiler` when that exists and no source is newer, and compiles the
+compiler first when it does not. An edit to the compiler is picked up by the
+next command rather than by the next person who remembers to build.
 
 The one thing it cannot do is start from nothing, since compiling Nupp needs a
 Nupp compiler. `bootstrap/nupp.lua` is that compiler, tracked in the
@@ -59,7 +59,8 @@ that `bin/nupp` and `tests/run` put on the search path. Nupp's own binaries use
 their pure PEG compatibility frontend for the LPeg calls in those libraries;
 they do not carry LPeg's C module. Two checkouts can hold different versions
 without either disturbing the other, and nothing lands in a global tree. See
-[rock dependencies](../tooling/build.md#rock-dependencies) for declaring your own.
+[rock dependencies](../tooling/build.md#rock-dependencies) for declaring your
+own.
 
 `nupp doc` needs lunamark and stops with a message when it cannot install or
 load it. Scintillua degrades instead: a fence in a language it cannot load
@@ -89,23 +90,23 @@ standard library, and what it documents with, needing no LuaJIT installed
 alongside:
 
 ```
- Carried              How                          For
- ───────────────────  ───────────────────────────  ──────────────────────
- LuaJIT               linked into the stub         running anything
- lua-cjson            detected and linked          --json and the LSP
- Nupp PEG frontend    emitted in the payload       legacy LPeg pattern calls
- luautf8              detected and linked          nupp doc's entities
- lunamark             in the payload               nupp doc's markdown
- Scintillua (45)      in the payload               highlighting fences
+ Carried            How                     For
+ ─────────────────  ──────────────────────  ─────────────────────────
+ LuaJIT             linked into the stub    running anything
+ lua-cjson          detected and linked     --json and the LSP
+ Nupp PEG frontend  emitted in the payload  legacy LPeg pattern calls
+ luautf8            detected and linked     nupp doc's entities
+ lunamark           in the payload          nupp doc's markdown
+ Scintillua (45)    in the payload          highlighting fences
 ```
 
-The lexers are a chosen set rather than all hundred and sixty Scintillua
-ships — the languages a technical document actually fences, listed at the top
+The lexers are a chosen set rather than all hundred and sixty Scintillua ships.
+They are the languages a technical document actually fences, listed at the top
 of `nupp.lua`. A fence in something else renders as escaped text, which is what
-it does with no Scintillua at all. See
-[distribution](../distribution.md) for the stub-and-payload format, and
-[rock dependencies](../tooling/build.md#carrying-a-rock-into-a-bundle) for
-carrying your own.
+it does with no Scintillua at all. See [distribution](../distribution.md) for
+the stub-and-payload format, and [rock
+dependencies](../tooling/build.md#carrying-a-rock-into-a-bundle) for carrying
+your own.
 
 ## Checking that it works
 
@@ -176,5 +177,5 @@ Nupp verify module boundaries, ownership contracts, and lint settings together.
 
 ## Next
 
-- [A tour of Nupp](tour.md) — the whole language in one pass.
-- [Reasons to use Nupp](why.md) — what each feature is for.
+- [A tour of Nupp](tour.md): the whole language in one pass.
+- [Reasons to use Nupp](why.md): what each feature is for.

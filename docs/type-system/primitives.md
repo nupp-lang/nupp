@@ -3,24 +3,24 @@
 These names, and only these, resolve as bare builtin types:
 
 ```
- Name       Means
- ─────────  ──────────────────────────────────────────────────────
- any        The gradual type; compatible with everything
- unknown    The top type; everything fits it, it fits nothing else
- never      The bottom type; fits everything, nothing fits it
- nil        The nil singleton
- boolean    true or false
- string     A Lua string
- number     A LuaJIT double
- integer    A number known to be integral
- table      Any table shape; gradual in both directions
- thread     A coroutine
- userdata   Userdata
- float      A C float; widens to number
- cdata      Any cdata value
- cstring    const char *
- voidptr    void *
- int8       Sized C integers, signed and unsigned
+ Name      Means
+ ────────  ──────────────────────────────────────────────────────
+ any       The gradual type; compatible with everything
+ unknown   The top type; everything fits it, it fits nothing else
+ never     The bottom type; fits everything, nothing fits it
+ nil       The nil singleton
+ boolean   true or false
+ string    A Lua string
+ number    A LuaJIT double
+ integer   A number known to be integral
+ table     Any table shape; gradual in both directions
+ thread    A coroutine
+ userdata  Userdata
+ float     A C float; widens to number
+ cdata     Any cdata value
+ cstring   const char *
+ voidptr   void *
+ int8      Sized C integers, signed and unsigned
  int16
  int32
  int64
@@ -31,15 +31,15 @@ These names, and only these, resolve as bare builtin types:
 ```
 
 `metatable<T>`, `ctype<T>`, `carray<T>`, `owned<T>`, `borrowed<T>`, and
-`pinned<T>` are constructors rather than names — each needs a type argument,
-and bare `metatable` is an unknown type name.
+`pinned<T>` are constructors rather than names. Each needs a type argument, and
+bare `metatable` is an unknown type name.
 
 ## `unknown`, the top type
 
 `any` is the gradual opt-out: it is compatible with everything in both
 directions, silently, which is exactly right for code that has not been
 annotated yet. `unknown` is the sound alternative, for a value whose type
-genuinely is not known — a JSON decode, a `pcall` result, reflection over an
+genuinely is not known: a JSON decode, a `pcall` result, or reflection over an
 undeclared table:
 
 ```nupp
@@ -51,9 +51,9 @@ local reply = decode("{}")
 print(reply.status)                    -- NUPP2004: no field "status" in unknown
 ```
 
-Anything fits into `unknown`, but it fits nowhere else on its own — reading a
-field, calling it, comparing it against a typed value, all need it narrowed or
-cast first, the same as any other concrete type that is not what the
+Anything fits into `unknown`, but it fits nowhere else on its own. Reading a
+field, calling it, and comparing it against a typed value all need it narrowed
+or cast first, the same as any other concrete type that is not what the
 operation wants:
 
 ```nupp
@@ -127,12 +127,12 @@ end
 
 A call to a `never`-returning function leaves the block it stands in the same
 way an inline `error` does, which is what lets the guard clause above narrow
-`x`. The checker infers this for a body whose every path raises, whether or
-not it says `never` — the return type is only needed where the checker cannot
-see that for itself: a loop that never ends, or a declaration with no body to
-read, such as `local error: function(msg: any, level: number?): never` in the
-prelude. Declaring `never` on a function that does return is an ordinary
-return-type mismatch, since nothing but `never` fits `never`.
+`x`. The checker infers this for a body whose every path raises, whether or not
+it says `never`. The return type is only needed where the checker cannot see
+that for itself: a loop that never ends, or a declaration with no body to read,
+such as `local error: function(msg: any, level: number?): never` in the prelude.
+Declaring `never` on a function that does return is an ordinary return-type
+mismatch, since nothing but `never` fits `never`.
 
 A function type carries it in return position with no special syntax beyond
 the name:
@@ -141,7 +141,7 @@ the name:
 local type Bailer = function(msg: string): never
 ```
 
-A `never` variadic parameter takes no extra arguments at all — nothing but
+A `never` variadic parameter takes no extra arguments at all, since nothing but
 `never` fits `never`, so any value offered there is refused:
 
 ```nupp
@@ -182,9 +182,9 @@ local z: int32 = x     -- accepted
 
 So `number → integer` is refused while `number → int32` is allowed. The sized
 types are a C boundary, where truncation is the expected arithmetic; `integer`
-is a claim about a Lua value. In a strict file — a `.nupp` one, or any file
-under `--strict` — narrowing a wider numeric into a small sized type raises the
-`lossy-narrowing` lint, and the suggested fix is an explicit `as`.
+is a claim about a Lua value. In a strict file, meaning a `.nupp` one or any
+file under `--strict`, narrowing a wider numeric into a small sized type raises
+the `lossy-narrowing` lint, and the suggested fix is an explicit `as`.
 
 Literals type as you would expect: `1` is an `integer` literal, `1.5` and `1e3`
 are `number`, `1LL` is `int64`, `1ULL` is `uint64`, `0xff` is `integer`.
@@ -202,7 +202,7 @@ local name: string?
 For a union to be assignable, every member has to fit. For a value to fit a
 union, it has to match some member.
 
-An optional field on a shape is both nullable and omissible — leaving it out
+An optional field on a shape is both nullable and omissible, so leaving it out
 satisfies it:
 
 ```nupp
@@ -218,18 +218,18 @@ Write `A | B` with spaces. `A||B` lexes as the single `||` operator.
 ## Collections
 
 ```
- Form            Means
- ──────────────  ────────────────────────────────────────────────
- {T}             Lua array, one-based, dense
- {T, U}          Tuple, fixed positions
- {[K]: V}        Map with an explicit key type
- {x: T, y: U}    Inline shape
- T[4]            C array of fixed length, zero-based
- T[?]            C array of unspecified length, zero-based
+ Form          Means
+ ────────────  ─────────────────────────────────────────
+ {T}           Lua array, one-based, dense
+ {T, U}        Tuple, fixed positions
+ {[K]: V}      Map with an explicit key type
+ {x: T, y: U}  Inline shape
+ T[4]          C array of fixed length, zero-based
+ T[?]          C array of unspecified length, zero-based
 ```
 
 Reading a map yields `V?`, because a key may be absent. Reading an array yields
-`T` rather than `T?` — a pragmatic choice, since almost every array read in
+`T` rather than `T?`, a pragmatic choice since almost every array read in
 practice is in range.
 
 `{T}` and `T[N]` are different types: one is a Lua table, the other is cdata.
@@ -237,10 +237,10 @@ practice is in range.
 ## Pointers
 
 ```
- Form       Means
- ─────────  ────────────────────────────────
- T*         Pointer to T
- T*?        Pointer that may be NULL
+ Form  Means
+ ────  ────────────────────────
+ T*    Pointer to T
+ T*?   Pointer that may be NULL
 ```
 
 Pointers are invariant in their pointee. `nil` is not a `T*`; the diagnostic
@@ -275,9 +275,8 @@ local type Mode = "read" | "write"
 ```
 
 `false` exists as a type so that `T | false` narrows usefully. A literal is
-assignable to its base type, and to any union that lists it. A union of
-literals is the closed set other languages spell `enum` — see
-[unions](unions.md).
+assignable to its base type, and to any union that lists it. A union of literals
+is the closed set other languages spell `enum`. See [unions](unions.md).
 
 ## Type aliases
 
@@ -286,7 +285,7 @@ local type Id = uint32
 local type Handler = function(event: Event): boolean
 ```
 
-An alias is transparent — it introduces a name, not a new nominal identity, so
+An alias is transparent. It introduces a name, not a new nominal identity, so
 `Id` and `uint32` are interchangeable. Aliases may be generic, and may refer to
 each other in any order; an alias defined in terms of itself is NUPP2115.
 

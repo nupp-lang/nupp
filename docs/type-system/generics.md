@@ -40,9 +40,9 @@ end
 
 Ordinary binders precede pack binders. Explicit pack arguments use parentheses
 to delimit one pack from the next; those parentheses are type-pack syntax, not a
-tuple allocation. Pack parameters work uniformly on aliases, records, interfaces,
-and functions. See [Type packs](packs.md) for list adjustment, correlation, and
-ownership rules.
+tuple allocation. Pack parameters work uniformly on aliases, records,
+interfaces, and functions. See [Type packs](packs.md) for list adjustment,
+correlation, and ownership rules.
 
 A computed tuple or array can supply a pack tail with `unpackof`:
 
@@ -147,32 +147,32 @@ end
 ```
 
 **Only an interface.** A record is identified by the metatable `new` stamps and
-a struct by its ctype, so both already answer `is` exactly — a refinement beside
+a struct by its ctype, so both already answer `is` exactly. A refinement beside
 either would be a second answer to a settled question, and which answer `is R`
 gave would depend on whether a body happened to carry one. An interface has no
 runtime table at all, so this is the only identity it can have.
 
 That is also what lets an interface answer `is` for values this program did not
-build — a table off a decoder, or anything an untyped library returned. Such a
-value never received a metatable, so nothing else could identify it.
+build, such as a table off a decoder or anything an untyped library returned.
+Such a value never received a metatable, so nothing else could identify it.
 
 The test has to run wherever `is` is written, so it reads the declaration's own
 fields through `self` and nothing else: comparisons against literals, `type()`
 tests, and `and` / `or` / `not`. A call, arithmetic, or a name from outside the
 subject is **NUPP2122**, and so is a refinement that always answers the same
-way — always true identifies every value, always false leaves the type
+way: always true identifies every value, and always false leaves the type
 uninhabited.
 
 A subject that is not a plain name is evaluated once and handed to the test,
 since a refinement may read it more than once. Reaching through a field guards
 the step before it with `?.`, because the test runs against values that are not
-of the type yet — `matches self.a.b.c == "x" end` compiles to
-`s.a?.b?.c == "x"`.
+of the type yet, so `matches self.a.b.c == "x" end` compiles to `s.a?.b?.c ==
+"x"`.
 
-A declaration is held to the refinements of the interfaces it declares.
-`record C is Shape` is a claim the checker proves, and Shape's refinement is
-what `is Shape` runs, so fields that provably fail it are **NUPP2122** — the
-alternative is a value the checker calls a `Shape` and `is` calls otherwise.
+A declaration is held to the refinements of the interfaces it declares. `record
+C is Shape` is a claim the checker proves, and Shape's refinement is what `is
+Shape` runs, so fields that provably fail it are **NUPP2122**. The alternative
+is a value the checker calls a `Shape` and `is` calls otherwise.
 
 ## Inference at a call site
 
@@ -186,7 +186,7 @@ Inference is structural unification over parameters against argument types. It
 sees through arrays, tuples, maps, unions, shapes, function types, pointers,
 and nominal applications, and it strips ownership wrappers first.
 
-Three behaviours are worth knowing:
+Three behaviors are worth knowing:
 
 - **A binder appearing twice unions the two arguments** rather than failing or
   picking the more specific one.
@@ -212,8 +212,8 @@ local n = id<number>(1)
 -- NUPP2003: cannot compare boolean and 1 with '>'
 ```
 
-Type arguments appear in *type* position — `Box<number>`, `a.b.Map<K, V>` — and
-at the six FFI intrinsics, which are special-cased in the grammar:
+Type arguments appear in *type* position, as in `Box<number>` and `a.b.Map<K,
+V>`, and at the six FFI intrinsics, which are special-cased in the grammar:
 
 ```nupp
 local p = ffi.new<Point>()
@@ -233,8 +233,8 @@ local empty: {string} = {}
 
 ## Instantiation
 
-`Box<number>` is one type everywhere — instantiations are memoized, and the
-cache is populated before members are filled in, so a self-referential generic
+`Box<number>` is one type everywhere. Instantiations are memoized, and the cache
+is populated before members are filled in, so a self-referential generic
 terminates.
 
 Generic nominals are **covariant** in every argument, so `Box<integer>` is

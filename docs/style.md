@@ -178,9 +178,9 @@ makes them fire.
 ```markdown
 ## Diagnostics
 
-- **NUPP2201** — a struct field is not reifiable, or a struct nests a
+- **NUPP2201**: a struct field is not reifiable, or a struct nests a
   declaration.
-- **NUPP2204** / **NUPP2205** — array-part problems.
+- **NUPP2204** / **NUPP2205**: array-part problems.
 ```
 
 Do not paste the full text of `nupp explain`. The page says which codes belong
@@ -325,15 +325,18 @@ Before a page lands:
 These predate the guide and are the standing fix list. Correct them when the
 page is next edited, rather than in one sweep.
 
-- `ownership.md` renders its ownership syntax surface as a Markdown pipe table.
-- Spelling is split: 17 `behavior` to 11 `behaviour`, 19 `color` to 3
-  `colour`, 11 `initialize` to 1 `initialise`. American spelling wins.
 - Banned headings are still live: "What developers gain", "What is public",
   "What this costs", "What is inferred", "What a struct field may hold", and
   "What Nupp is".
-- Em dashes are still live throughout the handwritten pages, doc comments, and
-  CLI help text; only this guide and `ownership.md`'s "Declaring a resource"
-  section have been brought into line with the no-em-dash rule.
+- Six converted tables run wider than 80 columns, because their cells carry
+  sentences that cannot shorten without deciding what they mean: the built-in
+  annotations in `annotations.md`, three member tables in `data.md`, the proof
+  table in `ownership.md`, and two in `tooling/optimization.md`.
+- `docs/reference.md` is `nupp reference all` written to a file, so its pipe
+  tables, em dashes and long lines belong to the compiler's reference strings
+  rather than to the page. Fixing them means editing what the compiler prints.
+- Em dashes are still live in doc comments under `src/` and in CLI help text.
+  The handwritten pages under `docs/` no longer carry any.
 
 ## Next
 

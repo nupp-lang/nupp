@@ -8,7 +8,7 @@ There are two channels, and they answer different questions:
 - **Sampling** (`--profile`) says *where* the time went. A timer interrupts the
   program, writes down the stack, and the result is collapsed-stack text that
   speedscope.app, FlameGraph.pl and inferno all read.
-- **Trace aborts** (`--jit-aborts`) says *how* the time was spent there —
+- **Trace aborts** (`--jit-aborts`) says *how* the time was spent there,
   compiled or interpreted. It records every place LuaJIT tried to compile
   something and gave up.
 
@@ -18,7 +18,8 @@ magnitude slower than code it took, and nothing says so out loud: the function
 looks the same, it just is not fast.
 
 Both handles satisfy `profile.Session`. Its associated `Report` preserves which
-channel produced the handle, so shared lifecycle helpers retain the concrete report:
+channel produced the handle, so shared lifecycle helpers retain the concrete
+report:
 
 ```nupp
 local profile = require("nupp.profile")
@@ -60,9 +61,9 @@ The leaf carries the VM state most of its samples were in:
 `_[I]` on something hot is the finding. It means the compiler is not running
 that code, and `--jit-aborts` will say why.
 
-The stacks start at your program. The frames underneath — the loader that read
-it, the pcall that guards it — belong to `nupp run`, not to what you asked
-about, so they are cut.
+The stacks start at your program. The frames underneath, the loader that read it
+and the pcall that guards it, belong to `nupp run`, not to what you asked about,
+so they are cut.
 
 One thing to know about reading the frames: LuaJIT inlines a compiled call
 chain into a single trace, and inlined frames are not on the stack to be
@@ -72,8 +73,8 @@ That is the compiler doing its job, not the profiler losing frames.
 ## Naming the parts of a program
 
 Frames tell you which function ran. Zones tell you which *phase* it ran in, and
-that is usually the question — the same `sort` called from loading and from
-rendering is two different problems.
+that is usually the question, because the same `sort` called from loading and
+from rendering is two different problems.
 
 `nupp.zone` is a stack of names that the profiler reads:
 
@@ -101,8 +102,8 @@ opens on your phases and drills into the code under each:
     frame;physics;app.nupp:stepWorld_[N] 812
     frame;render;app.nupp:drawWorld_[N] 233
 
-Pushing and popping costs nothing while no profiler is listening — the module
-checks one boolean and returns. What it used to cost, when a session *is*
+Pushing and popping costs nothing while no profiler is listening, because the
+module checks one boolean and returns. What it used to cost, when a session *is*
 running, was a function call in the code being measured, and a call on the
 hottest path can stop a trace forming.
 
@@ -113,13 +114,13 @@ own state rather than called at all, so there is no call left for a hot path
 to pay for.
 
 ```
- Spelling                              Lowered   Why not
- ────────────────────────────────────  ────────  ─────────────────────────────
- zone.push("frame")                    yes
- zone.pop()                            yes       result discarded
- local name = zone.pop()               no        the popped name is kept
- holder.zone.push("frame")             no        receiver is not a bare name
- other.push("frame")                   no        other is not nupp.zone
+ Spelling                   Lowered  Why not
+ ─────────────────────────  ───────  ───────────────────────────
+ zone.push("frame")         yes
+ zone.pop()                 yes      result discarded
+ local name = zone.pop()    no       the popped name is kept
+ holder.zone.push("frame")  no       receiver is not a bare name
+ other.push("frame")        no       other is not nupp.zone
 ```
 
 Mark warm paths, not the innermost loop, regardless: `push`/`pop` still call
@@ -127,9 +128,9 @@ through the ordinary API in every other spelling, and `enter`/`leave` below
 always do.
 
 Use `zone.enter` and `zone.leave` instead of `push`/`pop` when the two halves
-might not run in the same session — a coroutine resumed after the profile
-stopped, say. `enter` hands back a token that a late `leave` discards rather
-than popping somebody else's zone.
+might not run in the same session, such as a coroutine resumed after the profile
+stopped. `enter` hands back a token that a late `leave` discards rather than
+popping somebody else's zone.
 
 ## Finding what the compiler refused
 
@@ -143,11 +144,11 @@ That writes `jit-aborts.csv`:
 Each row is one place the compiler gave up, how often, and which zone was open.
 `severity` orders the file:
 
-- `blacklist` — always worth fixing. The trace is permanently demoted to the
+- `blacklist`: always worth fixing. The trace is permanently demoted to the
   interpreter for the rest of the process. It will not be retried.
-- `warn` — a refusal. Whether it matters depends on whether it is hot, which
-  is what the sampling channel is for.
-- `info` — trace formation working as designed: a loop was left, recursion was
+- `warn`: a refusal. Whether it matters depends on whether it is hot, which is
+  what the sampling channel is for.
+- `info`: trace formation working as designed: a loop was left, recursion was
   found. Left out unless you ask for it.
 
 `NYI: bytecode FNEW` above is a closure being created inside a loop, which
@@ -156,9 +157,9 @@ running again is how you find out whether it was the only one.
 
 ## From a program rather than the command line
 
-The flags are a thin wrapper over `nupp.profile`, which is worth using
-directly when the interesting window is not the whole run — a single frame, one
-request, the part after warm-up.
+The flags are a thin wrapper over `nupp.profile`, which is worth using directly
+when the interesting window is not the whole run: a single frame, one request,
+or the part after warm-up.
 
 ```nupp
 local profile = require("nupp.profile")
@@ -175,8 +176,8 @@ that was written. `pause` and `resume` leave a window out without ending
 anything, which is how a benchmark keeps its own setup out of the numbers.
 
 The `zone` option filters at `stop` rather than while sampling, so narrowing it
-costs nothing at runtime — but it also means you cannot widen it afterwards.
-What fell outside the prefix was still collected; the prefix is fixed when the
+costs nothing at runtime, but it also means you cannot widen it afterwards. What
+fell outside the prefix was still collected; the prefix is fixed when the
 session starts.
 
 The trace channel works the same way:
@@ -191,8 +192,8 @@ if report.blacklisted > 0 then
 end
 ```
 
-One session of each kind runs at a time — both are process-wide, because the VM
-hooks they attach to are — and starting a second while one is live is an error
+One session of each kind runs at a time, since both are process-wide because the
+VM hooks they attach to are, and starting a second while one is live is an error
 rather than a silent replacement. A handle dropped without stopping leaves the
 timer running or the hook attached for the rest of the process.
 

@@ -7,11 +7,11 @@ cannot describe lifetime behavior.
 There are three ways in, and they suit different sizes of problem:
 
 ```
- Route                    Use it when
- ───────────────────────  ─────────────────────────────────────────────
- cdef declarations        The API is small, or you want exact control
- cheader("mini.h")        You want the header typed with no generated file
- nupp import-c mini.h     You want a committed module you can edit
+ Route                 Use it when
+ ────────────────────  ────────────────────────────────────────────────
+ cdef declarations     The API is small, or you want exact control
+ cheader("mini.h")     You want the header typed with no generated file
+ nupp import-c mini.h  You want a committed module you can edit
 ```
 
 ## Import a header
@@ -89,19 +89,19 @@ module table, which is what `import-c` generates.
 ### Type mapping
 
 ```
- Nupp                C
- ──────────────────  ────────────────────────
- number              double
- float               float
- boolean             bool
- integer             int32_t
- int8 … int64        int8_t … int64_t
- uint8 … uint64      uint8_t … uint64_t
- cstring             const char *
- voidptr             void *
- T (a cdef struct)   struct T
- T*                  <C spelling> *
- function(A): R      R (*)(A)
+ Nupp               C
+ ─────────────────  ──────────────────
+ number             double
+ float              float
+ boolean            bool
+ integer            int32_t
+ int8 … int64       int8_t … int64_t
+ uint8 … uint64     uint8_t … uint64_t
+ cstring            const char *
+ voidptr            void *
+ T (a cdef struct)  struct T
+ T*                 <C spelling> *
+ function(A): R     R (*)(A)
 ```
 
 `cstring` and `voidptr` are allowed in a `cdef struct` but rejected in a plain
@@ -119,7 +119,7 @@ function pointers in return or field position, function-like macros, and names
 that collide with Lua keywords.
 
 A declaration LuaJIT itself will not parse gets the same comment and does not
-take the header with it — commonly a struct laid out from a type whose
+take the header with it. That is commonly a struct laid out from a type whose
 definition belongs to a header this import left alone. Those are counted on
 stderr as `N of M declarations skipped`, and the count is the part to read: one
 of thirty is a corner in the header, and most of thirty means the vocabulary
@@ -134,8 +134,8 @@ local STATUS_BUSY: int32 = 1
 
 They arrive whether or not the enum itself is named, since `typedef enum { ... }
 Mode;` names the type and the members are the point either way. The type is an
-integer wherever it appears — that is all a C enum ever is, and C checks nothing
-about which integer — so a member passes to the function it belongs to without a
+integer wherever it appears, which is all a C enum ever is, and C checks nothing
+about which integer, so a member passes to the function it belongs to without a
 cast, and any other integer passes too. A name declared twice keeps its first
 meaning.
 
@@ -208,12 +208,12 @@ end
 Reifying puts a value where anything that walks a table cannot reach it:
 `string.buffer.encode` refuses cdata outright, `pairs` needs a `__pairs`, and
 `type` answers `"cdata"`. This is what makes it reachable again without the
-language choosing a serialization format — a codec, a snapshot writer, or a GPU
+language choosing a serialization format. A codec, a snapshot writer, or a GPU
 vertex-attribute descriptor is written against the layout, and the format stays
 yours.
 
 `size` is a field's own; `padding` is the alignment gap that follows it. They
-are separate because they answer different questions — an `int8` before a
+are separate because they answer different questions. An `int8` before a
 `number` has size 1 and padding 7, and a writer walking bytes needs both.
 
 Every number is this platform's, asked of the FFI when the layout is first
@@ -232,7 +232,7 @@ struct Vertex
 end
 ```
 
-`layoutof` reports `pos` as `float[3]`, twelve bytes wide at offset zero — which
+`layoutof` reports `pos` as `float[3]`, twelve bytes wide at offset zero. That
 is a vertex attribute descriptor, and is what makes one derivable rather than
 hand-maintained. `T[?]` is not a field: a struct whose size depends on a count
 nobody wrote has no size, so it stays **NUPP2201**.

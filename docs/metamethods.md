@@ -79,7 +79,7 @@ own body: the metatable it builds is a `metatable<E>`, and `E`'s bound says what
 the registrar unchecked and only its call sites held to anything.
 
 The parameter is `metatable<E>`, not `E`. What `newEvent(OnSpawn)` passes is the
-record's own runtime table, which is not an instance of the record — the body
+record's own runtime table, which is not an instance of the record. The body
 calls `setmetatable` on it, which is the giveaway. Writing `event: E` claims to
 take an instance and would be a different function.
 
@@ -105,17 +105,19 @@ end
 
 ## What a metatable literal is checked for
 
-Wherever a table literal meets a `metatable<T>` — an argument to `setmetatable`
-or to any function declaring one, and a binding or assignment under a
-`metatable<T>` annotation — each of its `__` keys is checked:
+Wherever a table literal meets a `metatable<T>`, whether as an argument to
+`setmetatable` or to any function declaring one, or as a binding or assignment
+under a `metatable<T>` annotation, each of its `__` keys is checked:
 
-| Key | Held to |
-| --- | --- |
-| one `T` contracts for | the declared contract, `self` specialized to `T` |
-| `__mode` | a string |
-| `__index`, `__newindex` | a table to defer to, or a function to run |
-| any other key LuaJIT knows | a function, since LuaJIT calls it |
-| a `__` name LuaJIT does not know | reported as a misspelling, with the repair |
+```
+ Key                             Held to
+ ──────────────────────────────  ────────────────────────────────────────────
+ one T contracts for             the declared contract, self specialized to T
+ __mode                          a string
+ __index, __newindex             a table to defer to, or a function to run
+ any other key LuaJIT knows      a function, since LuaJIT calls it
+ a __ name LuaJIT does not know  reported as a misspelling, with the repair
+```
 
 A table written directly under `__index` is what instances read their members
 through, so an entry naming a declared member is held to what the declaration
@@ -132,17 +134,19 @@ Only literals are checked. Nothing here can see what a function returns, so
 
 The checker dispatches these contracts:
 
-| Contract | Checked operation | Declared parameters |
-| --- | --- | --- |
-| `__call` | `value(...)` | receiver, then source arguments |
-| `__index` | `value[key]`, `value.name` | receiver, key |
-| `__newindex` | `value[key] = newValue` | receiver, key, value |
-| `__add`, `__sub`, `__mul` | `+`, `-`, `*` | left, right |
-| `__div`, `__mod`, `__pow` | `/`, `%`, `^` | left, right |
-| `__unm` | unary `-` | operand |
-| `__concat` | `..` | left, right |
-| `__len` | `#` | operand |
-| `__lt`, `__le` | ordered comparison | left, right |
+```
+ Contract             Checked operation       Declared parameters
+ ───────────────────  ──────────────────────  ───────────────────────────────
+ __call               value(...)              receiver, then source arguments
+ __index              value[key], value.name  receiver, key
+ __newindex           value[key] = newValue   receiver, key, value
+ __add, __sub, __mul  +, -, *                 left, right
+ __div, __mod, __pow  /, %, ^                 left, right
+ __unm                unary -                 operand
+ __concat             ..                      left, right
+ __len                #                       operand
+ __lt, __le           ordered comparison      left, right
+```
 
 `__eq` and `__tostring` may also be declared as protocol surface. Equality is
 always a valid Lua operation and always returns `boolean`, so the checker does
@@ -291,11 +295,11 @@ local instance: table = {}
 setmetatable(instance, Task)
 ```
 
-That is what separates the declaration's table from an instance of it. `Task` may
-stand wherever a `metatable<Task>` is wanted and nowhere an instance is; a value
-built by `new Task(...)` is the reverse. Reaching a member through the table
-reaches the record's, so `Task.make(...)`, `Task.field = ...` and the metamethods
-installed on it all resolve.
+That is what separates the declaration's table from an instance of it. `Task`
+may stand wherever a `metatable<Task>` is wanted and nowhere an instance is; a
+value built by `new Task(...)` is the reverse. Reaching a member through the
+table reaches the record's, so `Task.make(...)`, `Task.field = ...` and the
+metamethods installed on it all resolve.
 
 Direct metatable literals reject unknown double-underscore keys, catching
 mistakes such as `__cal`. Computed tables remain gradual. `as` retains its usual
@@ -311,15 +315,16 @@ be reconsidered when the runtime dispatches them. `__idiv` is also rejected:
 2.1 has no `//` at all, so it lowers to a floored division that dispatches
 nothing.
 
-For the same reason, `a += b` where `a` holds a value with an `__add`
-contract calls `__add(a, b)` and not the `__add(a, b, true)` LuaJIT 3.0
-specifies — the in-place third argument is another part of the backport that
-did not come across. Nothing depends on it; a metamethod that ignores its
-third argument behaves identically under both.
+For the same reason, `a += b` where `a` holds a value with an `__add` contract
+calls `__add(a, b)` and not the `__add(a, b, true)` LuaJIT 3.0 specifies. The
+in-place third argument is another part of the backport that did not come
+across. Nothing depends on it; a metamethod that ignores its third argument
+behaves identically under both.
 
 `__gc` and `__close` are not static operation contracts. Deterministic cleanup
-uses affine ownership and automatic lexical cleanup instead. `__pairs` is not used to type
-`pairs`; LuaJIT's ordinary `pairs` accepts nominal record tables directly.
+uses affine ownership and automatic lexical cleanup instead. `__pairs` is not
+used to type `pairs`; LuaJIT's ordinary `pairs` accepts nominal record tables
+directly.
 
 Declaration-only struct metamethods are rejected. LuaJIT FFI metatypes must be
 installed when `ffi.metatype` is called, so an erased promise would leave no
@@ -328,7 +333,7 @@ through the generated `ffi.metatype` method namespace.
 
 Macro-generated protocol declarations are an `import-tl` concern. Comptime is
 deliberately data-only and does not generate declarations, so a translated
-macroexp-defined `__len`—such as tecs's `DoubleArray` contract—must be ejected
+macroexp-defined `__len`, such as tecs's `DoubleArray` contract, must be ejected
 as an explicit declaration or a visible translation residue.
 
 ## Diagnostics

@@ -10,13 +10,13 @@ That sentence is the design. Everything below follows from it.
 ## What is inferred, and what is not
 
 ```
- Position                     Inferred?
- ───────────────────────────  ────────────────────────────────────
- Local from its initializer   Yes; mutable bindings widen — see below
- Function parameters          No; an unannotated parameter is any
- Function return types        No; the body's returns go unchecked
- Short-function body          Yes, one inferred result
- Unknown global               any, silently
+ Position                    Inferred?
+ ──────────────────────────  ───────────────────────────────────────
+ Local from its initializer  Yes; mutable bindings widen - see below
+ Function parameters         No; an unannotated parameter is any
+ Function return types       No; the body's returns go unchecked
+ Short-function body         Yes, one inferred result
+ Unknown global              any, silently
 ```
 
 A function with no return annotation is not checked against its `return`
@@ -59,19 +59,19 @@ shaped.b = 2         -- NUPP2004: no field "b" in {a: number}
 The four widening cases are: a literal type on a mutable binding collapses to
 its base, `integer` widens further to `number`, a shape built from a table
 literal collapses to `table`, and `nil` becomes `any`. A shape *returned by a
-call* keeps its type — only mutable literal initializers widen.
+call* keeps its type, because only mutable literal initializers widen.
 
 The practical reading: annotate when you want the constraint, leave it off when
-you want the Lua behaviour. Both are supported positions.
+you want the Lua behavior. Both are supported positions.
 
 ## The strict floor, and which files hold it
 
 Strict adds exactly three things:
 
-- **NUPP2105** — unknown variable, for a name no project file answers to.
-- **NUPP2106** — an exported declaration needs a type annotation, so nothing
+- **NUPP2105**: unknown variable, for a name no project file answers to.
+- **NUPP2106**: an exported declaration needs a type annotation, so nothing
   untyped crosses a module boundary.
-- **NUPP2503** — the `lossy-narrowing` lint, on a narrow integer annotation
+- **NUPP2503**: the `lossy-narrowing` lint, on a narrow integer annotation
   initialized from a wider numeric type. This lint is unreachable without
   strict mode.
 
@@ -81,18 +81,18 @@ Which files hold that floor is decided by their extension, so a file says what
 it is where anyone reading it can see it:
 
 ```
- Extension  Floor     What it means
- ─────────  ────────  ──────────────────────────────────────────────
- .nupp      strict    Ordinary Nupp.
- .g.nupp    gradual   The typed syntax, without the floor.
- .d.nupp    gradual   Describes an interface somebody else implements.
- .lua       gradual   Plain Lua, and the typed layer is refused there.
+ Extension  Floor    What it means
+ ─────────  ───────  ────────────────────────────────────────────────
+ .nupp      strict   Ordinary Nupp.
+ .g.nupp    gradual  The typed syntax, without the floor.
+ .d.nupp    gradual  Describes an interface somebody else implements.
+ .lua       gradual  Plain Lua, and the typed layer is refused there.
 ```
 
 `.g.nupp` is the opt-out, and it is a whole file at a time on purpose: a
 per-declaration escape would be a second way to say `any`, which the language
-already has. The module name drops the marker — `models.g.nupp` is the module
-`models`, and `require("models")` finds it — so a file can change layer
+already has. The module name drops the marker, so `models.g.nupp` is the module
+`models` and `require("models")` finds it. A file can therefore change layer
 without anything that requires it noticing.
 
 `.d.nupp` is exempt because a declaration file describes foreign code. LuaJIT's
@@ -108,9 +108,9 @@ nupp check --strict
 
 ## `any`, and the escape hatches
 
-`any` is compatible with everything in both directions. Reading a field of
-`any` gives `any`; calling it gives `any` with no arity or argument checks. It
-also swallows unions — `any | string` is `any`.
+`any` is compatible with everything in both directions. Reading a field of `any`
+gives `any`; calling it gives `any` with no arity or argument checks. It also
+swallows unions, so `any | string` is `any`.
 
 There is no `unknown` and no `never`, and no bottom type of any kind.
 Subtracting every member of a union leaves the union alone rather than
@@ -144,22 +144,22 @@ are is more useful than pretending they do not exist.
 
 ## Type-system guides
 
-- [Primitive types](primitives.md) — the builtin names, unions, optionals,
+- [Primitive types](primitives.md): the builtin names, unions, optionals,
   collections, and aliases.
-- [Records and structs](records.md) — nominal tables and FFI cdata.
-- [Interfaces](interfaces.md) — structural satisfaction, `is`, and metamethods.
-- [Property capabilities](properties.md) — independent read and write views.
-- [Unions](unions.md) — literal sets, tagged unions, and exhaustiveness.
-- [Intersections](intersections.md) — capability composition and provable
+- [Records and structs](records.md): nominal tables and FFI cdata.
+- [Interfaces](interfaces.md): structural satisfaction, `is`, and metamethods.
+- [Property capabilities](properties.md): independent read and write views.
+- [Unions](unions.md): literal sets, tagged unions, and exhaustiveness.
+- [Intersections](intersections.md): capability composition and provable
   emptiness.
-- [Overloads and overrides](overloads.md) — callable intersections, separate
+- [Overloads and overrides](overloads.md): callable intersections, separate
   method bodies, interface defaults, and constructors.
-- [Generics](generics.md) — type parameters, inference, and bounds.
-- [Type-level computation](type-level-computation.md) — member transforms,
+- [Generics](generics.md): type parameters, inference, and bounds.
+- [Type-level computation](type-level-computation.md): member transforms,
   const parameters, matching, template literal types, and guarded recursion.
-- [Type packs](packs.md) — heterogeneous variadics, Lua value-list adjustment,
+- [Type packs](packs.md): heterogeneous variadics, Lua value-list adjustment,
   protected calls, and coroutine protocols.
-- [Narrowing](narrowing.md) — what proves what, and what does not.
+- [Narrowing](narrowing.md): what proves what, and what does not.
 
 For where a declaration lives and how modules see it, read
 [declarations and modules](../modules.md).

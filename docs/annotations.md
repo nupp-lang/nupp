@@ -124,8 +124,9 @@ an `@annotation` record or struct.
 ## Compile-time reflection
 
 Checked user-defined annotations on records, interfaces, structs, and their
-fields are available through `nupp.reflect(T)` inside comptime. Applications retain
-source order, and arguments follow the annotation definition's member order:
+fields are available through `nupp.reflect(T)` inside comptime. Applications
+retain source order, and arguments follow the annotation definition's member
+order:
 
 ```nupp
 return comptime do
@@ -154,19 +155,19 @@ turns them into a runtime value.
 Targets are semantic categories rather than parser node names. A definition
 must name at least one target and may name several; the list is a union.
 
-| Target | Matches |
-| --- | --- |
-| `statement` | Every annotatable statement |
-| `declaration` | Value, function, type, and C declarations |
-| `binding`, `local-binding` | Local/const value bindings |
-| `function` | Local, const, and named functions with bodies |
-| `local-function`, `named-function` | Only the indicated function form |
-| `type-declaration` | Alias, record, interface, struct, and C struct declarations |
-| `alias`, `record`, `interface`, `struct` | Only that type declaration |
-| `field` | A record, interface, or struct field |
-| `c-declaration` | `cdef function` and `cdef struct` |
-| `c-function` | Only `cdef function` |
-| `block`, `loop`, `conditional`, `assignment`, `call` | The corresponding statement family |
+- `statement`: every annotatable statement.
+- `declaration`: value, function, type, and C declarations.
+- `binding`, `local-binding`: local/const value bindings.
+- `function`: local, const, and named functions with bodies.
+- `local-function`, `named-function`: only the indicated function form.
+- `type-declaration`: alias, record, interface, struct, and C struct
+  declarations.
+- `alias`, `record`, `interface`, `struct`: only that type declaration.
+- `field`: a record, interface, or struct field.
+- `c-declaration`: `cdef function` and `cdef struct`.
+- `c-function`: only `cdef function`.
+- `block`, `loop`, `conditional`, `assignment`, `call`: the corresponding
+  statement family.
 
 An unrecognized target makes the annotation definition invalid.
 
@@ -178,24 +179,26 @@ annotated directly.
 
 ## Built-in annotations
 
-| Name | Status | Arguments | May attach to |
-| --- | --- | --- | --- |
-| `@annotation` | Implemented | `targets = {"..."}` | `record`, `struct` |
-| `@annotationValue` | Implemented | None | A field in an annotation definition |
-| `@ref` | Implemented | None | A field in an annotation definition |
-| `@allow` | Implemented | Zero or more lint names or codes | `statement` |
-| `@owned` | Implemented | Cleanup/default/opaque/output contract | `function`, `c-function` |
-| `@borrowed` | Implemented | Foreign output and source contract | `c-function` |
-| `@drop` | Implemented | None | `function`, `c-function`, `field` |
-| `@override` | Implemented | None | `function` |
-| `@effects` | Implemented | Named effect members | `function`, `c-function`, `local-binding` |
-| `@relax` | Implemented | Observable guarantee names | `function` |
-| `@derive` | Implemented | `Debug`, `Default`, `From`, `JSON` | `record` |
-| `@default` | Implemented | One literal value | Field in a derived record |
-| `@json` | Implemented | JSON record or field options | `record`, `field` |
-| `@debug` | Implemented | `skip` or `redact` | Field in a derived record |
-| `@jit` | Reserved | None | `function` |
-| `@comptime` | Reserved | None | `local-function` |
+```
+ Name              Status       Arguments                               May attach to
+ ────────────────  ───────────  ──────────────────────────────────────  ───────────────────────────────────
+ @annotation       Implemented  targets = {"..."}                       record, struct
+ @annotationValue  Implemented  None                                    An annotation definition field
+ @ref              Implemented  None                                    An annotation definition field
+ @allow            Implemented  Lint names or codes        statement
+ @owned            Implemented  Cleanup, default, opaque or output  fu  tion, c-function
+ @borrowed         Implemented  Foreign output and source      c-funct  n
+ @drop             Implemented  None                                    function, c-function, field
+ @override         Implemented  None                                    function
+ @effects          Implemented  Named effect members                    function, c-function, local-binding
+ @relax            Implemented  Observable guarantee names              function
+ @derive           Implemented  Debug, Default, From, JSON              record
+ @default          Implemented  One literal value                       Field in a derived record
+ @json             Implemented  JSON record or field options            record, field
+ @debug            Implemented  skip or redact                          Field in a derived record
+ @jit              Reserved     None                                    function
+ @comptime         Reserved     None                                    local-function
+```
 
 A reserved annotation parses and resolves, then reports `NUPP2113` naming what
 it is held for: `@jit` for the trace checker, `@comptime` for compile-time
@@ -228,7 +231,7 @@ from = source, success = zero)` does the same for a view tied to a `borrows`
 input. These contracts allocate and position the C output holder while
 presenting an ordinary Lua multiple return.
 
-A declaration that never comes back — it raises, exits, or loops forever —
+A declaration that never comes back, because it raises, exits, or loops forever,
 says so with `never` as its return type, not an annotation; see
 [primitives](type-system/primitives.md#never-the-bottom-type).
 
@@ -237,18 +240,18 @@ default drop operation. A drop contract must take its resource, and a
 bare `@owned` result is rejected unless exactly one default applies. See
 [Ownership and FFI safety](ownership.md) for the complete model and examples.
 
-Automatic lexical cleanup uses `@owned` producers with arbitrary return types; the returned
-type does not need to implement a cleanup interface. The annotation belongs to
-the producer, not the type, so different producers of the same type may carry
-different cleanup contracts.
+Automatic lexical cleanup uses `@owned` producers with arbitrary return types;
+the returned type does not need to implement a cleanup interface. The annotation
+belongs to the producer, not the type, so different producers of the same type
+may carry different cleanup contracts.
 
 `@override` marks a member that replaces a default implementation an interface
 provides. It is required there, and equally an error on a member that replaces
-nothing — which catches both the misspelling that silently defines a new method
+nothing. That catches both the misspelling that silently defines a new method
 instead of overriding, and the interface that later adds a default which would
-otherwise silently shadow an implementor's method. See
-[overloads and overrides](type-system/overloads.md#default-implementations-and-override)
-for per-entry replacement, and
+otherwise silently shadow an implementor's method. See [overloads and
+overrides](type-system/overloads.md#default-implementations-and-override) for
+per-entry replacement, and
 [interfaces](type-system/interfaces.md#default-implementations) for interface
 default behavior generally.
 
@@ -320,6 +323,6 @@ current numeric `ipairs` rewrite needs no relaxation because it preserves the
 language's observable behavior under its proof.
 
 Compiler integrations can still add definitions directly through the
-extensible `nupp.compiler.annotations` registry. Source declarations are the normal
-language-facing mechanism; direct registration remains useful for built-ins
-and compiler extensions.
+extensible `nupp.compiler.annotations` registry. Source declarations are the
+normal language-facing mechanism; direct registration remains useful for
+built-ins and compiler extensions.

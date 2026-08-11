@@ -5,11 +5,11 @@ saying where a definition lives. There is no fourth rule to learn and no
 default to remember.
 
 ```
- form                    value side (plain Lua)   type side
- ─────────────────────   ──────────────────────   ────────────────
- local record R          file-local               file-local
- record M.R              a member of M            a member of M
- global record R         a _G global              a project global
+ form             value side (plain Lua)  type side
+ ───────────────  ──────────────────────  ────────────────
+ local record R   file-local              file-local
+ record M.R       a member of M           a member of M
+ global record R  a _G global             a project global
 ```
 
 The parallel is exact: `record M.Point` is to `record` what `function M.f` is
@@ -66,8 +66,8 @@ A module path also names a type directly, without a runtime `require`:
 local p: geom.shapes.Point
 ```
 
-The module itself is a value like any other, so it has to be required before
-its name means anything — a file's basename is not in scope elsewhere:
+The module itself is a value like any other, so it has to be required before its
+name means anything. A file's basename is not in scope elsewhere:
 
 ```nupp
 local doubled = mathutil.double(21)   -- `mathutil` is just an unknown name
@@ -82,11 +82,11 @@ after it, the checker knows better, and says so once per name:
 error: NUPP2120: "mathutil" names a project module; require("mathutil") to use it
 ```
 
-A build refuses it. The program does not work — `mathutil` is `nil` when it
-runs — and a compiler that can see why should not hand you a binary that
-fails later. An editor reports the same thing as a warning: a file you are
-typing into is half-written by definition, and the `require` is usually the
-next thing you add.
+A build refuses it. The program does not work, because `mathutil` is `nil` when
+it runs, and a compiler that can see why should not hand you a binary that fails
+later. An editor reports the same thing as a warning: a file you are typing into
+is half-written by definition, and the `require` is usually the next thing you
+add.
 
 This is the one diagnostic where a name being merely unknown is not the end of
 it, so it is not `@allow`-able advice. If a project genuinely has an
@@ -94,15 +94,15 @@ undeclared global sharing a file's basename, the file or the global has to be
 renamed.
 
 Only a `global` is reachable without saying where it came from. There is no
-project-wide search for an unqualified name, so adding a `Point` — or a
-`mathutil.nupp` — to one corner of a project cannot change what a name means in
+project-wide search for an unqualified name, so adding a `Point`, or a
+`mathutil.nupp`, to one corner of a project cannot change what a name means in
 another.
 
 ## Returned module tables
 
-A module's type is whatever the file returned — nothing is merged in behind
-it. A declaration that carries a runtime value puts itself on its table, which
-is an ordinary assignment in the generated Lua:
+A module's type is whatever the file returned. Nothing is merged in behind it. A
+declaration that carries a runtime value puts itself on its table, which is an
+ordinary assignment in the generated Lua:
 
 ```nupp
 record shapes.Point     -->  shapes.Point = {} shapes.Point.__index = shapes.Point
@@ -127,7 +127,7 @@ return setmetatable(shapes, {})   -- shapes is still the module
 ```
 
 One table deep, so the name a declaration binds under and the field it is
-assigned to stay the same thing — `record m.sub.Deep` is refused. A record body
+assigned to stay the same thing. `record m.sub.Deep` is refused. A record body
 is where types nest, and it reaches through the table its owner sits on:
 
 ```nupp
@@ -186,7 +186,7 @@ separate qualified method only when adapting a type outside its declaration.
 
 ## Conventions
 
-None of this is enforced — there is no naming lint — but it is what the
+None of this is enforced, and there is no naming lint, but it is what the
 compiler's own sources and the generated documentation assume.
 
 Use camelCase for functions, methods, locals, parameters, fields, and module
@@ -214,8 +214,8 @@ Type resolution runs over declarations, not over loaded modules: a declaration
 is nameable as soon as its header is parsed, before any body is checked. Two
 modules may therefore refer to each other's types freely. The runtime `require`
 is a separate matter and follows ordinary Lua rules, so a genuine load-time
-cycle — two modules constructing each other's records while loading — is still
-a genuine cycle, and is reported as one.
+cycle, meaning two modules constructing each other's records while loading, is
+still a genuine cycle, and is reported as one.
 
 This is also what keeps rebuilds cheap: a file's interface is derived from its
 declaration headers, so editing a function body cannot change it, and
@@ -296,25 +296,25 @@ print(path:count(), shapes.origin().x, d is shapes.Point)
 
 ## Diagnostics
 
-- **NUPP2119** — a declaration names no visibility and no table to attach to.
-  Write `local`, `global`, or a qualified name. Also raised when a modifier
-  sits beside a qualified name, which says where it lives twice.
-- **NUPP2101** — unknown type name. An unqualified name that is a member of
-  some module reports this rather than resolving: name the module.
-- **NUPP2102** / **NUPP2104** — two project globals share a type or value name.
+- **NUPP2119**: a declaration names no visibility and no table to attach to.
+  Write `local`, `global`, or a qualified name. Also raised when a modifier sits
+  beside a qualified name, which says where it lives twice.
+- **NUPP2101**: unknown type name. An unqualified name that is a member of some
+  module reports this rather than resolving: name the module.
+- **NUPP2102** / **NUPP2104**: two project globals share a type or value name.
   Globals are one flat namespace, so one of them has to become a member.
-- **NUPP2120** — a project module is used without being required. An error in a
+- **NUPP2120**: a project module is used without being required. An error in a
   build, a warning in an editor. Given once per name, and it replaces NUPP2105
   for that name.
-- **NUPP2105** (strict files) — unknown variable, for names no project file
+- **NUPP2105** (strict files): unknown variable, for names no project file
   answers to. Reported in a `.nupp` file, and in any file under `--strict`.
-- **NUPP1006** — the typed layer written in a `.lua` file, which is plain Lua.
+- **NUPP1006**: the typed layer written in a `.lua` file, which is plain Lua.
 
 NUPP2119, NUPP2101 and NUPP2120 carry machine-applicable fixes, which the LSP
-server offers as quick fixes. Each way out a message names is its own fix
-rather than a choice made for the author: NUPP2119 offers `local`, `global`,
-and — where the file returns a table — attaching to it; NUPP2101 offers the
-qualified spelling through each module exporting that name, adding the
-`require` in the same edit when the file has none; NUPP2120 offers one require
-per candidate module. A fix that would bind over a name already in scope is not
-offered at all.
+server offers as quick fixes. Each way out a message names is its own fix rather
+than a choice made for the author: NUPP2119 offers `local`, `global`, and, where
+the file returns a table, attaching to it; NUPP2101 offers the qualified
+spelling through each module exporting that name, adding the `require` in the
+same edit when the file has none; NUPP2120 offers one require per candidate
+module. A fix that would bind over a name already in scope is not offered at
+all.

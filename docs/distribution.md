@@ -3,22 +3,22 @@
 How a Nupp program becomes one file somebody can run.
 
 A distributed program is a **stub** with a **payload** appended to it. The stub
-is an ordinary executable — a host that embeds LuaJIT and knows how to find and
+is an ordinary executable, a host that embeds LuaJIT and knows how to find and
 run a payload. The payload is one Lua chunk carrying everything the program
 needs. Making a binary is copying a stub, appending a payload, and writing a
 trailer that says where the payload starts.
 
 Nothing about that is specific to Nupp's own compiler, and that is the point.
 Nupp is the first stub, not the only one: an engine or framework can publish its
-own host — one that opens a window, or owns an event loop — and Nupp will stamp
+own host, one that opens a window or owns an event loop, and Nupp will stamp
 programs into it without knowing what it is.
 
 ## Contract before code
 
 Everything else here can be revised. This cannot: once somebody publishes a stub
 built against it, the format is load-bearing in a repository nobody here
-controls. So it is specified first, and the first two consumers are both ours —
-the trivial test host and Nupp itself — before any third party is invited.
+controls. So it is specified first, and the first two consumers are both ours,
+the trivial test host and Nupp itself, before any third party is invited.
 
 ## Container
 
@@ -28,8 +28,8 @@ resource are three formats and three writers, and appending is one that works on
 all of them and on a platform nobody has thought of yet.
 
 What appending costs is code signatures. A signed Mach-O has a recorded code
-limit, and bytes past it are outside what the signature covers — which turns
-out to be exactly what makes this work, provided nothing touches the signature
+limit, and bytes past it are outside what the signature covers, which turns out
+to be exactly what makes this work, provided nothing touches the signature
 afterwards. Stripping it, or re-signing, both fail. See "Signing" below.
 
     ┌──────────────────────┐
@@ -58,7 +58,7 @@ checks the magic, and knows the rest without searching.
 The magic is last-resort identification, not a search key: a stub that finds no
 magic has no payload and says so, and one that finds a version it does not know
 refuses rather than guessing. The truncated digest is a corruption check, not a
-security boundary — a stub that wanted integrity guarantees would need a
+security boundary. A stub that wanted integrity guarantees would need a
 signature over the payload, and appending one is a version-2 question.
 
 Reserved bytes are zero and are checked to be zero, so a later version can use
@@ -70,8 +70,8 @@ One Lua chunk, exactly as `nupp build` with a `bundle` target produces it. It is
 plain Lua and runs under a plain `luajit` with no stub at all, which is what
 makes it testable on its own.
 
-"Plain" has a floor. Generated Nupp is written in the LuaJIT 3.0 syntax that
-2.1 backported — `?.`, `??`, `?:`, the bit operators, compound assignment —
+"Plain" has a floor. Generated Nupp is written in the LuaJIT 3.0 syntax that 2.1
+backported, meaning `?.`, `??`, `?:`, the bit operators and compound assignment,
 rather than in a lowering of it, so a payload needs LuaJIT 2.1.1784535649 or
 newer. A stub is therefore not free to embed whichever LuaJIT its build system
 had lying around: `host/build.rs` pins one by revision and digest, and the pin
@@ -93,19 +93,18 @@ content. That is the same mechanism the compiler uses to carry its own standard
 library declarations, so a program's resources and the compiler's behave
 identically and are read through one lookup.
 
-Rock modules ride in `package.preload` too, under the names `require` would
-have found them by in the tree they came from — so `require("lunamark")`
-resolves in a checkout, in a bundle, and in a stamped binary, and the program
-cannot tell which it is running in. A target names what it carries with the
-`bundle` globs on its
-[rock dependencies](tooling/build.md#rock-dependencies); a rock tree also holds
-test scripts, command-line programs and lexers nobody asked for, and a payload
-that swept the tree would carry all of it.
+Rock modules ride in `package.preload` too, under the names `require` would have
+found them by in the tree they came from, so `require("lunamark")` resolves in a
+checkout, in a bundle, and in a stamped binary, and the program cannot tell
+which it is running in. A target names what it carries with the `bundle` globs
+on its [rock dependencies](tooling/build.md#rock-dependencies); a rock tree also
+holds test scripts, command-line programs and lexers nobody asked for, and a
+payload that swept the tree would carry all of it.
 
 The payload is **deterministic**: modules and resources are emitted in sorted
 order, and nothing records a timestamp, a path from the building machine, or a
 build counter. Two builds of one tree produce byte-identical payloads. This is
-not tidiness — the packaging fixpoint below depends on it.
+not tidiness. The packaging fixpoint below depends on it.
 
 ## What a stub must do
 
@@ -142,10 +141,10 @@ along with both of the things that do not work:
                                      strict validation
      strip, append, then sign        the same refusal
 
-Apple's `codesign` will not accept a Mach-O with anything after its signature —
-its parser rejects bytes past everything the load commands describe. And unsigned
-is not a fallback, because arm64 kills an unsigned executable outright. Doing
-nothing is what works.
+Apple's `codesign` will not accept a Mach-O with anything after its signature,
+because its parser rejects bytes past everything the load commands describe. And
+unsigned is not a fallback, because arm64 kills an unsigned executable outright.
+Doing nothing is what works.
 
      Platform  State
      ────────  ─────────────────────────────────────────────────────────
@@ -164,9 +163,9 @@ do, and a third-party implementation can set it to cover everything. Apple's
 tool will not.
 
 That signer is the same component cross-building needs, which is worth noticing.
-Linking a Mach-O off-platform is impossible — the Apple SDK is not
-redistributable — but *appending to one already linked* needs no SDK at all.
-Once signing is ours rather than Apple's, a Linux machine can produce a runnable,
+Linking a Mach-O off-platform is impossible, since the Apple SDK is not
+redistributable, but *appending to one already linked* needs no SDK at all. Once
+signing is ours rather than Apple's, a Linux machine can produce a runnable,
 distributable macOS binary. Fetching a prebuilt stub is what turns
 cross-compilation from a licensing problem into a download.
 
@@ -177,10 +176,10 @@ packager proves the same thing about itself: a Nupp binary, run, stamps out a
 Nupp binary identical to itself.
 
 That is the acceptance test for everything above. It fails if the payload is not
-deterministic, if the trailer does not round-trip, if the emitter's idea of where
-a payload starts disagrees with the stub's, or if signing is not reproducible. It
-is deliberately the last gate before a third party is allowed to publish a stub,
-because after that the format cannot move.
+deterministic, if the trailer does not round-trip, if the emitter's idea of
+where a payload starts disagrees with the stub's, or if signing is not
+reproducible. It is deliberately the last gate before a third party is allowed
+to publish a stub, because after that the format cannot move.
 
 **It passes**, and it is a command rather than a story: `nupp fixpoint --binary`
 stamps the target named by `selfHost.binary`, then has the binary that came out
@@ -188,8 +187,8 @@ stamp another, and compares them. Stage one is kept beside the output so stage
 two writes where stage one did, and the comparison is of two files made the same
 way rather than of one file and a memory of another.
 
-Two things it caught on the way, both of which would otherwise have been found by
-somebody else:
+Two things it caught on the way, both of which would otherwise have been found
+by somebody else:
 
 - A bundle was carrying every `.lua` under the output directory, which is also
   where native dependencies build. lua-cjson ships example scripts, one of them
@@ -201,19 +200,18 @@ somebody else:
 ## What this does not do
 
 - **It does not replace the bootstrap.** `bootstrap/nupp.lua` exists so a source
-  checkout can build a compiler; a distributed binary is what comes out the other
-  end. Different problems that are easy to conflate.
+  checkout can build a compiler; a distributed binary is what comes out the
+  other end. Different problems that are easy to conflate.
 - **It does not absorb arbitrary native dependencies.** Self-contained means the
   program needs no LuaJIT and no engine installed. A project with its own C or
   Rust library still ships that library beside the binary, unless it is linked
   into a stub built for the purpose.
 
-  Nupp's compiler payload detects two native modules, and its compiler-owned host
-  links exactly those features: `lua-cjson`, which the compiler requires before
-  it does anything, and `luautf8`, which Lunamark's entity table uses. Lunamark's
-  LPeg pattern objects lower through Nupp's pure-Lua PEG compatibility frontend.
-  Another payload
-  selects whatever its own code and bundled dependencies need; the format has
-  no opinion.
-- **It does not make Nupp a Rust project.** The host is a component, built by the
-  same machinery that already builds a project's other native dependencies.
+  Nupp's compiler payload detects two native modules, and its compiler-owned
+  host links exactly those features: `lua-cjson`, which the compiler requires
+  before it does anything, and `luautf8`, which Lunamark's entity table uses.
+  Lunamark's LPeg pattern objects lower through Nupp's pure-Lua PEG
+  compatibility frontend. Another payload selects whatever its own code and
+  bundled dependencies need; the format has no opinion.
+- **It does not make Nupp a Rust project.** The host is a component, built by
+  the same machinery that already builds a project's other native dependencies.

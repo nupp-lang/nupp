@@ -3,7 +3,7 @@
 Nupp leaves ordinary hot-path optimization to LuaJIT. Its own passes target
 startup work and facts available only to the checker. The catalog stays small:
 a pass lands only with a LuaJIT-enabled benchmark and a static proof that it
-preserves behaviour. The longer design catalog is in
+preserves behavior. The longer design catalog is in
 [`plans/optimizations.md`](../../plans/optimizations.md).
 
 ## Levels
@@ -20,13 +20,15 @@ than mixing artifacts compiled at different levels.
 
 ## What runs
 
-| Code | Name | Level | Rewrite |
-| --- | --- | --- | --- |
-| `OPT-1` | presize | `-O1` | Size an empty table for the writes about to follow |
-| `OPT-2` | numeric-ipairs | `-O1` | Use a numeric loop for a proved stable dense array |
-| `OPT-3` | constant-fold | `-O1` | Fold exact primitives, branches, dead loops, and immutable paths |
-| `OPT-4` | static-callable | `-O1` | Bind repeated immutable dotted callees at first use |
-| `OPT-5` | concat-buffer | `-O1` | Append to a `string.buffer` instead of rebuilding a string each pass |
+```
+ Code   Name             Level  Rewrite
+ ─────  ───────────────  ─────  ──────────────────────────────────────────────────────────────────
+ OPT-1  presize          -O1    Size an empty table for the writes about to follow
+ OPT-2  numeric-ipairs   -O1    Use a numeric loop for a proved stable dense array
+ OPT-3  constant-fold    -O1    Fold exact primitives, branches, dead loops, and immutable paths
+ OPT-4  static-callable  -O1    Bind repeated immutable dotted callees at first use
+ OPT-5  concat-buffer    -O1    Append to a string.buffer instead of rebuilding a string each pass
+```
 
 Each `OPT-n` example below shows Nupp beside its `-O1` and `-O0` output.
 Generated temporary names are illustrative.
@@ -488,18 +490,18 @@ return out
 :::
 
 This is the one pass here whose win is not a lookup the trace compiler could
-have folded. `out = out .. piece` is O(n²) — every pass allocates a string
-holding everything so far and interns it — so the work grows with the length
-rather than with the count, and a JIT that makes each step fast cannot make
-there be fewer steps. `bench/concat.lua` measures 1.8x over eight pieces rising
-to 3.6x over sixty-four, still climbing.
+have folded. `out = out .. piece` is O(n²), because every pass allocates a
+string holding everything so far and interns it, so the work grows with the
+length rather than with the count, and a JIT that makes each step fast cannot
+make there be fewer steps. `bench/concat.lua` measures 1.8x over eight pieces
+rising to 3.6x over sixty-four, still climbing.
 
 The accumulator keeps its own declaration and is assigned back where the loop
 closes, so everything after the loop reads an ordinary string and nothing
 downstream knows a buffer was involved. Both additions sit on lines that already
 belonged to those statements.
 
-The rewrite requires the initialiser to be `""`, every mention of the
+The rewrite requires the initializer to be `""`, every mention of the
 accumulator inside the loop to be the one `out = out .. ...`, and nothing to
 touch the binding between its declaration and the loop. A read of the
 half-built string, a capture by a function written in the loop, a prepend
@@ -516,19 +518,21 @@ two concatenations cost, so rewriting `a .. b .. c` would be slower.
 These are fresh local medians with LuaJIT enabled. They measure the exact
 generated-Lua shapes shown above, not checker time.
 
-| Pass and scenario | Before | After | Change |
-| --- | ---: | ---: | ---: |
-| `OPT-1`, 200,000 tables, four hash fields | 0.0151s | 0.0066s | 2.31x faster |
-| `OPT-1`, 200,000 tables, eight hash fields | 0.0291s | 0.0104s | 2.81x faster |
-| `OPT-1`, 200,000 tables, four array slots | 0.0153s | 0.0023s | 6.59x faster |
-| `OPT-2`, eight million visits, 4-element arrays | 0.0126s | 0.0087s | 1.44x faster |
-| `OPT-2`, eight million visits, 32-element arrays | 0.0053s | 0.0050s | 1.06x faster |
-| `OPT-2`, eight million visits, 256-element arrays | 0.0051s | 0.0047s | 1.07x faster |
-| `OPT-3`, 20,000 primitive expressions, load and run | 0.0039s | 0.0024s | 1.64x faster |
-| `OPT-3`, 20,000 nested paths, load only | 0.0095s | 0.0025s | 3.82x faster |
-| `OPT-3`, 20,000 nested paths, load and run | 0.0099s | 0.0025s | 3.95x faster |
-| `OPT-4`, 20,000 dotted calls, load only | 0.0027s | 0.0011s | 2.54x faster |
-| `OPT-4`, 20,000 dotted calls, load and run | 0.0030s | 0.0012s | 2.53x faster |
+```
+ Pass and scenario                                  Before   After    Change
+ ─────────────────────────────────────────────────  ───────  ───────  ────────────
+ OPT-1, 200,000 tables, four hash fields            0.0151s  0.0066s  2.31x faster
+ OPT-1, 200,000 tables, eight hash fields           0.0291s  0.0104s  2.81x faster
+ OPT-1, 200,000 tables, four array slots            0.0153s  0.0023s  6.59x faster
+ OPT-2, eight million visits, 4-element arrays      0.0126s  0.0087s  1.44x faster
+ OPT-2, eight million visits, 32-element arrays     0.0053s  0.0050s  1.06x faster
+ OPT-2, eight million visits, 256-element arrays    0.0051s  0.0047s  1.07x faster
+ OPT-3, 20,000 primitive expressions, load and run  0.0039s  0.0024s  1.64x faster
+ OPT-3, 20,000 nested paths, load only              0.0095s  0.0025s  3.82x faster
+ OPT-3, 20,000 nested paths, load and run           0.0099s  0.0025s  3.95x faster
+ OPT-4, 20,000 dotted calls, load only              0.0027s  0.0011s  2.54x faster
+ OPT-4, 20,000 dotted calls, load and run           0.0030s  0.0012s  2.53x faster
+```
 
 Primitive folding reduced its generated input by 32.1%; nested propagation by
 60.8%; static callable binding by 63.6%. Warmed results were 0.99x, 2.01x, and
@@ -555,9 +559,9 @@ passes that are therefore not here. `ffi-hoisting` finds that caching a ctype is
 the interpreter's win alone, while the clib symbol binding it also measures is
 real and already emitted. `scratch-reuse` finds that hoisting a loop-local table
 or `ffi.new` out of its loop is slower than leaving it, because allocation
-sinking already removes an allocation that does not escape its trace — the same
-condition a pass would have had to prove. All three exit non-zero if their
-finding stops holding, so the ones that argue against a pass keep arguing.
+sinking already removes an allocation that does not escape its trace, which is
+the same condition a pass would have had to prove. All three exit non-zero if
+their finding stops holding, so the ones that argue against a pass keep arguing.
 
 ## Inspecting and controlling passes
 
@@ -588,7 +592,7 @@ end
 Suppress an intentional case with `@allow("loop-invariant-closure")`; see
 [lints](../lints.md).
 
-## Observable behaviour
+## Observable behavior
 
 Current passes change nothing observable. Optimizations that would trade a
 guarantee for speed must explicitly check a named `--relax` or `@relax`

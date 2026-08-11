@@ -1,8 +1,8 @@
 # A tour of Nupp
 
 This walks the whole language in one pass. Nothing here is a preview of a
-feature described properly later — it is the short version of each thing, with
-a link to the long one.
+feature described properly later. It is the short version of each thing, with a
+link to the long one.
 
 ## It starts as Lua
 
@@ -51,8 +51,8 @@ local p = new Point(x = 3, y = 4)
 print(p:length())
 ```
 
-`new Point(...)` lowers to `setmetatable({x = 3, y = 4}, Point)`. The runtime shape
-is what you would have written by hand.
+`new Point(...)` lowers to `setmetatable({x = 3, y = 4}, Point)`. The runtime
+shape is what you would have written by hand.
 
 ## Structs are cdata
 
@@ -69,8 +69,8 @@ local v = new Vec2(1.0, 2.0)
 ```
 
 That becomes `ffi.metatype(ffi.typeof("struct { float x; float y; }"), ...)`.
-Fields must be C-representable, so a `string` or a `{T}` field is refused —
-this is the trade you make for the layout. A struct binding is never nil and
+Fields must be C-representable, so a `string` or a `{T}` field is refused. That
+is the trade you make for the layout. A struct binding is never nil and
 zero-initializes, so `local v: Vec2` is complete on its own.
 
 [Records and structs](../type-system/records.md) covers when to reach for each.
@@ -89,8 +89,8 @@ end
 ```
 
 A type satisfies an interface by carrying its members. The `is` clause is not
-required for that — it is a claim the checker trusts without re-proving, which
-is what lets a runtime registrar install the surface later. Interfaces erase
+required for that. It is a claim the checker trusts without re-proving, which is
+what lets a runtime registrar install the surface later. Interfaces erase
 completely and have no runtime value.
 
 ## A union of literals is an enum
@@ -130,8 +130,8 @@ end
 `T?` is `T | nil`. Inside the `if`, `s` is `string`.
 
 When the alternatives carry data, give each record a literal-typed field and
-compare it — that is a tagged union, and the comparison narrows to the one
-record that declares the tag:
+compare it. That is a tagged union, and the comparison narrows to the one record
+that declares the tag:
 
 ```nupp
 local record Circle
@@ -155,7 +155,7 @@ end
 ```
 
 Narrowing reads `is`, `== nil`, truthiness, discriminant fields, and
-`ffi.istype`. It does **not** read `type(x) == "string"` — that is an ordinary
+`ffi.istype`. It does **not** read `type(x) == "string"`, which is an ordinary
 call returning an ordinary string, and the checker has no way to tie it back to
 `x`. Write `x is string`.
 
@@ -172,8 +172,8 @@ end
 print(firstOr({1, 2, 3}, 0))
 ```
 
-Type arguments are inferred from the call. Constraints use `is`:
-`<T is Callable>`. There is no explicit type-argument syntax at a call site —
+Type arguments are inferred from the call. Constraints use `is`: `<T is
+Callable>`. There is no explicit type-argument syntax at a call site.
 `f<number>(x)` parses as two comparisons, the way it does in Lua.
 
 ## Ownership
@@ -256,8 +256,8 @@ end
 cdef function point_length(borrows point: nativePoint*): number from "mini"
 ```
 
-That emits `ffi.cdef` and an `ffi.load` lookup. Parameter modes — `borrows`,
-`takes`, `exclusive`, `retains`, `releases` — say what C does with a pointer,
+That emits `ffi.cdef` and an `ffi.load` lookup. The parameter modes `borrows`,
+`takes`, `exclusive`, `retains` and `releases` say what C does with a pointer,
 which a header cannot. None of them change the ABI.
 
 For a whole header there are two routes: `nupp import-c` writes a committed,
@@ -282,10 +282,10 @@ profiler, and C importer are the same executable, built from the same parse.
 
 ## What to read next
 
-- [Reasons to use Nupp](why.md) — the case for each of the pieces above.
-- [Nupp syntax](syntax.md) — the syntax in one place, including what LuaJIT
+- [Reasons to use Nupp](why.md): the case for each of the pieces above.
+- [Nupp syntax](syntax.md): the syntax in one place, including what LuaJIT
   2.1 does and does not carry.
 - [Suspension](suspension.md) covers ordinary calls that block or park
   according to their context.
-- [Type system](../type-system/overview.md) — gradual typing, and what the
+- [Type system](../type-system/overview.md): gradual typing, and what the
   checker proves.

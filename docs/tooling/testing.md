@@ -8,7 +8,7 @@ nupp test sometest        # extra arguments reach the test command
 ```
 
 `nupp test` builds the configured target, then runs the command the manifest
-names. Nupp does not supply a test framework — it supplies the step that builds
+names. Nupp does not supply a test framework. It supplies the step that builds
 first, so a test never runs against a stale compiler.
 
 ## Coverage
@@ -21,11 +21,12 @@ nupp coverage checktest
 
 `nupp coverage` builds a separate instrumented artifact under `build/coverage`,
 runs the configured test command, and writes a static report to
-`build/reports/coverage/index.html` by default. Normal builds and their cache never contain
-coverage probes. The output directory also holds `coverage.json`, `summary.json`,
-and `lcov.info` for CI or editor integrations.
+`build/reports/coverage/index.html` by default. Normal builds and their cache
+never contain coverage probes. The output directory also holds `coverage.json`,
+`summary.json`, and `lcov.info` for CI or editor integrations.
 
-Agents and other tools can read the full existing report without rerunning tests:
+Agents and other tools can read the full existing report without rerunning
+tests:
 
 ```bash
 nupp coverage --report-json
@@ -33,8 +34,8 @@ nupp coverage --report-json --out reports/coverage
 ```
 
 It writes the complete `coverage.json` document to stdout: per-file metrics,
-missed locations, and counted coverage sites. Source text and generated Lua remain
-in the HTML report.
+missed locations, and counted coverage sites. Source text and generated Lua
+remain in the HTML report.
 
 The HTML report has a collapsible source tree, root and per-directory totals,
 sortable file metrics, and syntax-highlighted Nupp and generated-Lua views.
@@ -71,7 +72,7 @@ return {
 
 ```
  Key    Required  Means
- ─────  ────────  ────────────────────────────────────────────
+ ─────  ────────  ──────────────────────────────────────────
  argv   yes       The command, as an argv array
  build  no        The target to build first
  env    no        Environment variables, as string to string
@@ -83,8 +84,8 @@ the project root as its working directory, and anything you pass after
 
 ## Arguments
 
-`nupp test` does not parse its arguments — they belong to the test command. Two
-consequences:
+`nupp test` does not parse its arguments, because they belong to the test
+command. Two consequences:
 
 - `-h` and `--help` are honoured only as the *first* argument. Use `--` before
   a test argument literally named `--help`.
@@ -181,8 +182,8 @@ return M
 `beforeAll` failure prevents the suite's cases from running and is reported as
 `beforeAll`; `afterAll` still runs. A failing `afterEach` is reported with the
 case failure, if there was one, so cleanup failures do not hide the original
-problem. The same four names work in Nupp; a hook in a `.nupp` file needs a `: nil`
-return annotation, since that is a strict file and its exports are typed.
+problem. The same four names work in Nupp; a hook in a `.nupp` file needs a `:
+nil` return annotation, since that is a strict file and its exports are typed.
 
 The same shape works in Nupp; save this as `tests/mathstest.nupp`:
 
@@ -199,7 +200,8 @@ return M
 `test.equal`, `test.notEqual`, `test.matches`, and `test.raises` include their
 expected and actual values in failures. `test.skip("reason")` records a skipped
 test. The ordinary `assert` is also upgraded by the runner to say which falsy
-value it received, so existing tests get better failures without being rewritten.
+value it received, so existing tests get better failures without being
+rewritten.
 
 ## Verifying the compiler itself
 

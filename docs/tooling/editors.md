@@ -25,12 +25,12 @@ For other workspaces, install `nupp` on `PATH` or point the extension at it.
 ### Settings
 
 ```
- Setting                  Default
- ───────────────────────  ─────────────────────────────────────────
- nupp.serverPath          The checkout's bin/nupp, else nupp on PATH
- nupp.serverArgs          ["lsp", "serve", "${workspaceFolder}"]
- nupp.serverCwd           ${workspaceFolder}
- nupp.serverEnvironment   {}
+ Setting                 Default
+ ──────────────────────  ──────────────────────────────────────────
+ nupp.serverPath         The checkout's bin/nupp, else nupp on PATH
+ nupp.serverArgs         ["lsp", "serve", "${workspaceFolder}"]
+ nupp.serverCwd          ${workspaceFolder}
+ nupp.serverEnvironment  {}
 ```
 
 All four expand `${workspaceFolder}` and `${env:NAME}`, and all four restart
@@ -43,9 +43,9 @@ graph.
 ### Highlighting without the server
 
 The TextMate grammar covers the shebang line, `---` doc comments as their own
-scope — with nested ```` ```nupp ```` fences inside them highlighted as Nupp —
-block comments, every string form including backtick interpolation with
-`${...}` regions, numerics with `_` separators and `ULL`/`i` suffixes, and the
+scope, with nested ```` ```nupp ```` fences inside them highlighted as Nupp,
+block comments, every string form including backtick interpolation with `${...}`
+regions, numerics with `_` separators and `ULL`/`i` suffixes, and the
 declaration forms. It is hand-scoped rather than generated from the ABNF,
 because ABNF defines syntax and a grammar file defines editor scope intent.
 
@@ -61,8 +61,8 @@ claude plugin marketplace add ./editors/claude-code
 claude plugin install nupp-lsp@nupp
 ```
 
-`nupp` has to be on `PATH`, and Claude Code has to be restarted afterwards — it
-builds its file-type-to-server table when a session starts.
+`nupp` has to be on `PATH`, and Claude Code has to be restarted afterwards,
+because it builds its file-type-to-server table when a session starts.
 
 ## Other editors
 

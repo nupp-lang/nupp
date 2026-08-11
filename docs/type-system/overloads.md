@@ -396,12 +396,14 @@ method calls do not pay for it.
 
 ## Diagnostics
 
-| Code | Meaning here |
-| --- | --- |
-| **NUPP2125** | No callable-intersection member accepts the argument pack. |
-| **NUPP2126** | Several members accept it, or an overloaded method was read as one field value. |
-| **NUPP2118** | A method parameter pack is duplicated, an interface entry is missing or incompatible, or `@override` does not match exactly one inherited default. |
-| **NUPP2208** | Constructor overloads duplicate a parameter pack or violate constructor integrity. |
+- **NUPP2125**: no callable-intersection member accepts the argument pack.
+- **NUPP2126**: several members accept it, or an overloaded method was read as
+  one field value.
+- **NUPP2118**: a method parameter pack is duplicated, an interface entry is
+  missing or incompatible, or `@override` does not match exactly one inherited
+  default.
+- **NUPP2208**: constructor overloads duplicate a parameter pack or violate
+  constructor integrity.
 
 For the underlying intersection relation, including capability composition and
 provable emptiness, see [Intersection types](intersections.md). For general

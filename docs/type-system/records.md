@@ -5,20 +5,20 @@ is a Lua table with a nominal name. A `struct` is FFI cdata with a fixed C
 layout. Choosing between them is choosing a representation.
 
 ```
-                        record                      struct
- ────────────────────   ─────────────────────────   ─────────────────────────
- Runtime                Lua table + metatable       FFI cdata
- Field access           Hash lookup                 Offset
- Field types            Anything                    C-representable only
- Construction           new R(x = 1)                    new S(x = 1) or S(1, 2)
- Uninitialized          Not nil-able; needs a value Zero-initialized
- Garbage collected      Yes                         Managed by the FFI
- Array part {T}         Allowed                     Rejected
- Property capabilities  `readonly` / `writeonly`    Ordinary fields only
- Nested declarations    Allowed                     Rejected
- Inline methods         Yes                         Yes, via ffi.metatype
- metamethod contracts   Yes                         Rejected
- `is` runtime test      getmetatable(v)?.__index == R        ffi.istype(S, v)
+                       record                     struct
+ ────────────────────  ─────────────────────────  ─────────────────────────
+ Runtime               Lua table + metatable      FFI cdata
+ Field access          Hash lookup                Offset
+ Field types           Anything                   C-representable only
+ Construction          new R(x = 1)               new S(x = 1) or S(1, 2)
+ Uninitialized         Not nil-able; needs a val  Zero-initialized
+ Garbage collected     Yes                        Managed by the FFI
+ Array part {T}        Allowed                    Rejected
+ Property capabilitie  `readonly` / `writeonly`   Ordinary fields only
+ Nested declarations   Allowed                    Rejected
+ Inline methods        Yes                        Yes, via ffi.metatype
+ metamethod contracts  Yes                        Rejected
+ `is` runtime test     getmetatable(v)?.__index   R        ffi.istype(S, v)
 ```
 
 ## Records
@@ -48,9 +48,9 @@ The declaration's runtime table is the type's identity, which is what lets
 `p is Point` compile to a `getmetatable` comparison.
 
 An instance is a value that came from the declaration, not only one the
-declaration stamped itself. A constructor may link back rather than stamping —
+declaration stamped itself. A constructor may link back rather than stamping,
 giving instances their own metatable whose `__index` is the record, which is how
-a prototype-style registrar builds them — and those are instances too. The test
+a prototype-style registrar builds them. Those are instances too. The test
 reaches the record through `__index` so that both arrive at the same answer,
 which works because a record is its own prototype: `R.__index = R` is emitted
 with it.
@@ -69,11 +69,11 @@ local p: Point = new Point(x = 3, y = 4)
 ```
 
 Neither stands where the other is wanted. `Point` may be passed to
-`setmetatable`, held under a `metatable<Point>` annotation, and written to when a
-[metamethod contract](../metamethods.md) is installed; `p` may not. `p` may be
+`setmetatable`, held under a `metatable<Point>` annotation, and written to when
+a [metamethod contract](../metamethods.md) is installed; `p` may not. `p` may be
 read for its fields and passed where a `Point` is wanted; `Point` may not.
-`Point is Point` is answered without running, because a declaration's own table is
-never one of the values it stamps.
+`Point is Point` is answered without running, because a declaration's own table
+is never one of the values it stamps.
 
 Reaching a member through the table reaches the record's, so `Point.length`,
 `Point.make(...)` and a nested `Point.Inner` all resolve as they always did. A
@@ -183,7 +183,7 @@ A struct binding is never nil, so the third form is complete on its own.
 
 ### What a struct field may hold
 
-The field type has to be reifiable — something with a C layout:
+The field type has to be reifiable, meaning something with a C layout:
 
 - the numeric primitives: `number`, `float`, `boolean`, `integer`, and the
   sized integers `int8` through `uint64`;
@@ -198,8 +198,8 @@ but not in a Nupp `struct`, since a GC-managed struct gives them no anchor.
 
 #### Fixed arrays
 
-`T[N]` sits inline — N elements in the struct's own bytes, with no
-indirection, which is how a C struct carries a vector:
+`T[N]` sits inline, N elements in the struct's own bytes with no indirection,
+which is how a C struct carries a vector:
 
 ```nupp
 local struct Vertex
@@ -256,8 +256,8 @@ head.next = tail
 print(head.next.value)
 ```
 
-By value it cannot — `next: Node` would have to contain a copy of itself and so
-has no size. That is NUPP2201, and the repair it names is the pointer.
+By value it cannot, since `next: Node` would have to contain a copy of itself
+and so has no size. That is NUPP2201, and the repair it names is the pointer.
 
 ### Value or reference
 
@@ -275,21 +275,20 @@ Reach for a **struct** when the layout matters: interop with C, a large array
 of small values, or a hot field access you want to be an offset instead of a
 hash lookup.
 
-`layoutof(T)` reports how one is laid out — see
-[C interop](../c-interop.md). That is what lets a codec, a snapshot writer or a
-GPU vertex-attribute descriptor be derived from the declaration rather than
-maintained beside it, and it is worth knowing about before writing the second
-one by hand.
+`layoutof(T)` reports how one is laid out. See [C interop](../c-interop.md).
+That is what lets a codec, a snapshot writer or a GPU vertex-attribute
+descriptor be derived from the declaration rather than maintained beside it, and
+it is worth knowing about before writing the second one by hand.
 
 Both are nominal. Two records with identical fields are different types, and
 neither is assignable to the other. A record does erode into a structural shape
-with the same fields — width subtyping works one way only.
+with the same fields, so width subtyping works one way only.
 
 ## Diagnostics
 
-- **NUPP2201** — a struct field is not reifiable, or a struct nests a
+- **NUPP2201**: a struct field is not reifiable, or a struct nests a
   declaration.
-- **NUPP2202** — a construction problem: an unknown field, a missing one, or a
+- **NUPP2202**: a construction problem: an unknown field, a missing one, or a
   positional argument to a record.
-- **NUPP2204** / **NUPP2205** — array-part problems.
-- **NUPP2118** — a duplicate member, or a metamethod contract on a struct.
+- **NUPP2204** / **NUPP2205**: array-part problems.
+- **NUPP2118**: a duplicate member, or a metamethod contract on a struct.

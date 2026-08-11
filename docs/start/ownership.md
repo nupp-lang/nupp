@@ -1,12 +1,13 @@
 # Ownership
 
-A file, a socket, a C allocation — anything that needs exactly one cleanup —
-carries that obligation in its type. The checker finds the missing cleanup, the
-double free, and the use-after-move before the program runs.
+A file, a socket, a C allocation, or anything else that needs exactly one
+cleanup carries that obligation in its type. The checker finds the missing
+cleanup, the double free, and the use-after-move before the program runs.
 
 The model is deliberately smaller than Rust's: no named lifetimes, no
-typestate, and no borrow checker over arbitrary object graphs. It is aimed at the failures that
-happen at a C boundary, and it costs one annotation on the producer.
+typestate, and no borrow checker over arbitrary object graphs. It is aimed at
+the failures that happen at a C boundary, and it costs one annotation on the
+producer.
 
 This page is the working subset. The [ownership reference](../ownership.md) has
 the complete model.
@@ -32,9 +33,9 @@ local function openFile(): File
 end
 ```
 
-The annotation, rather than the name, is what makes `close` the drop operation. Bare
-`@owned` is accepted only when the result type has exactly one, so the compiler
-never has to guess between close, free, flush, and stop.
+The annotation, rather than the name, is what makes `close` the drop operation.
+Bare `@owned` is accepted only when the result type has exactly one, so the
+compiler never has to guess between close, free, flush, and stop.
 
 For a type you do not own, the drop operation can be a free function, and the
 producer names it:
@@ -91,10 +92,10 @@ enqueue(s)
 **Return it** from a function that is itself `@owned`.
 
 Inside a function, a `takes` parameter is discharged by passing it to another
-`takes` parameter — the drop operation, or something that adopts it. `nupp.drop()`
-needs a value whose *static type* carries a cleanup list, and a bare `takes`
-binding does not have one, so `nupp.drop(session)` there reports NUPP2602 and
-names the fix.
+`takes` parameter, either the drop operation or something that adopts it.
+`nupp.drop()` needs a value whose *static type* carries a cleanup list, and a
+bare `takes` binding does not have one, so `nupp.drop(session)` there reports
+NUPP2602 and names the fix.
 
 ## Borrowing
 
@@ -111,8 +112,8 @@ inspect(s)
 closeSession(s)
 ```
 
-`borrows` is a lifetime and aliasing contract rather than a `const` qualifier —
-mutating through one is allowed. Use `exclusive` for a call that needs sole
+`borrows` is a lifetime and aliasing contract rather than a `const` qualifier,
+so mutating through one is allowed. Use `exclusive` for a call that needs sole
 access because it may invalidate views derived from the value.
 
 For a Nupp function with a body, the checker infers whether a resource
@@ -176,8 +177,8 @@ end
 
 ## Where it stops
 
-`unsafe do` grants permission for pointer operations the checker cannot prove —
-raw dereference, `intoRaw`, `fromRaw`, `borrowFrom`. It grants nothing else:
+`unsafe do` grants permission for pointer operations the checker cannot prove:
+raw dereference, `intoRaw`, `fromRaw`, and `borrowFrom`. It grants nothing else:
 owners still have to be discharged inside one, borrows still cannot escape, and
 ordinary lexical cleanup still runs.
 
@@ -189,6 +190,6 @@ auditable edges; everything inside them is checked.
 
 ## Next
 
-- [The ownership reference](../ownership.md) — the complete model, C output
+- [The ownership reference](../ownership.md): the complete model, C output
   parameters, pinning, and the proved-versus-trusted table.
-- [C interop](../c-interop.md) — parameter modes at a C boundary.
+- [C interop](../c-interop.md): parameter modes at a C boundary.

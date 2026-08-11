@@ -20,7 +20,8 @@ local type Color = "red" | "green" | "blue"
 ```
 
 Nupp has no `enum` declaration; this is the spelling. Nothing is declared at run
-time — the value is the plain string — and a bare literal lands in the union:
+time, since the value is the plain string, and a bare literal lands in the
+union:
 
 ```nupp
 local c: Color = "red"
@@ -58,7 +59,7 @@ nominal identity behind the name to print instead.
 ## A union of records is a tagged union
 
 A literal member carries no data. When the alternatives need to, give each
-record a field whose type is a literal — the tag — and union the records:
+record a field whose type is a literal, the tag, and union the records:
 
 ```nupp
 local record Circle

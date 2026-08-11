@@ -6,23 +6,23 @@ type checker, and an incremental engine, so the editor and the build agree
 about what your code means.
 
 ```
- Command       What it does                            More
- ────────────  ──────────────────────────────────────  ─────────────────────
- check         Type-check the project                  cli.md
- build         Compile to Lua, incrementally           build.md
- run           Compile and run; profile behind a flag  profiling.md
- test          Build, then run the configured suite    testing.md
- fmt           Format; fixed style                     fmt.md
- doc           Generate an API site from the parse     doc.md
- lsp           Language server, and CLI equivalents    lsp.md
- explain       Describe a diagnostic code              ../diagnostics.md
- lints         List the lints and their levels         ../lints.md
- import-c      Turn a C header into declarations       ../c-interop.md
- rock          Create and package typed Lua rocks      luarocks.md
- tasks         List or inspect manifest targets        build.md
- clean         Remove configured build outputs         build.md
- fixpoint      Verify the self-hosting rebuild         ../distribution.md
- ast           Dump a parsed syntax tree               cli.md
+ Command   What it does                            More
+ ────────  ──────────────────────────────────────  ──────────────────
+ check     Type-check the project                  cli.md
+ build     Compile to Lua, incrementally           build.md
+ run       Compile and run; profile behind a flag  profiling.md
+ test      Build, then run the configured suite    testing.md
+ fmt       Format; fixed style                     fmt.md
+ doc       Generate an API site from the parse     doc.md
+ lsp       Language server, and CLI equivalents    lsp.md
+ explain   Describe a diagnostic code              ../diagnostics.md
+ lints     List the lints and their levels         ../lints.md
+ import-c  Turn a C header into declarations       ../c-interop.md
+ rock      Create and package typed Lua rocks      luarocks.md
+ tasks     List or inspect manifest targets        build.md
+ clean     Remove configured build outputs         build.md
+ fixpoint  Verify the self-hosting rebuild         ../distribution.md
+ ast       Dump a parsed syntax tree               cli.md
 ```
 
 Every command takes `-h`, and `nupp help <command>` prints the same reference.
@@ -53,7 +53,7 @@ nupp build --json      # diagnostics, the target, and every path written
 nupp test --json       # a record per test: name, status, duration, failure
 ```
 
-Colour is off whenever output is not a terminal, so a pipe never carries escape
+Color is off whenever output is not a terminal, so a pipe never carries escape
 codes. `--color=always` forces it back on; `NO_COLOR`, `CLICOLOR_FORCE`, and
 `TERM=dumb` are honoured.
 

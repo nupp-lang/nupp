@@ -10,21 +10,19 @@ Your Lua already builds: a `.lua` file is required, compiled and run
 unchanged, and nothing in it has to be annotated for that to keep working.
 There is no configuration step and no migration mode.
 
-What a file is called says which floor it is held to. A `.nupp` file is
-checked strictly — unknown variables are errors, and nothing untyped crosses a
-module boundary. Rename a `.lua` file to `.g.nupp` and the typed syntax becomes
+What a file is called says which floor it is held to. A `.nupp` file is checked
+strictly: unknown variables are errors, and nothing untyped crosses a module
+boundary. Rename a `.lua` file to `.g.nupp` and the typed syntax becomes
 available with that floor still down, so annotations can go in one at a time:
 
 ```nupp
--- models.g.nupp — the typed syntax, no floor yet
+-- models.g.nupp: the typed syntax, no floor yet
 local function scale(p, k)
     return {x = p.x * k, y = p.y * k}
 end
 
--- models.nupp — the same file, once it is ready to hold the floor
-local function scale(p: Point, k: number): Point
-    return new Point(x = p.x * k, y = p.y * k)
-end
+-- models.nupp: the same file, once it is ready to hold the floor local function
+scale(p: Point, k: number): Point return new Point(x = p.x * k, y = p.y * k) end
 ```
 
 The marker is not part of the module's name, so `require("models")` finds it
@@ -32,9 +30,9 @@ either way and nothing that depends on the file has to change when it moves.
 `nupp check --strict` holds every file to the floor whatever it is called,
 which is how you find out what a rename would cost before doing it.
 
-What you get for an annotation is the ordinary list — misspelled fields, wrong
-argument types, missing returns, unhandled union members — reported with a code,
-a caret, and usually a machine-applicable fix.
+What you get for an annotation is the ordinary list of misspelled fields, wrong
+argument types, missing returns and unhandled union members, reported with a
+code, a caret, and usually a machine-applicable fix.
 
 ## Types that survive to runtime
 
@@ -71,8 +69,8 @@ cdef function point_length(borrows point: nativePoint*): number from "mini"
 
 Now the call is checked, and `borrows` records something the C prototype could
 not: the callee only looks at the pointer for the duration of the call. Nupp
-imports whole headers two ways — `nupp import-c` for a committed module you can
-edit, `cheader("mini.h")` for compile-time typing with no generated file — and
+imports whole headers two ways, `nupp import-c` for a committed module you can
+edit and `cheader("mini.h")` for compile-time typing with no generated file, and
 neither changes the ABI or installs a finalizer.
 
 ## Resources that are hard to leak
@@ -131,7 +129,7 @@ One binary, built from one parse of your source:
 
 ```
  Command       What it does
- ────────────  ───────────────────────────────────────────────
+ ────────────  ────────────────────────────────────────────────
  nupp check    Type-check the project
  nupp build    Compile to Lua, incrementally
  nupp run      Compile and run, with a profiler behind a flag
@@ -140,23 +138,23 @@ One binary, built from one parse of your source:
  nupp lsp      Language server: hover, rename, code actions
  nupp test     Build, then run the configured suite
  nupp explain  Describe a diagnostic code, with worked examples
- nupp import-c Turn a C header into typed declarations
+ nupp import-  Turn a C header into typed declarations
 ```
 
-The profiler is the part people are most surprised to find in a compiler.
-`nupp run --profile` writes collapsed-stack text that speedscope reads, and
-`nupp run --jit-aborts` reports every place LuaJIT declined to compile
-something — the question a sampling profiler structurally cannot answer, and on
-LuaJIT usually the one that matters.
+The profiler is the part people are most surprised to find in a compiler. `nupp
+run --profile` writes collapsed-stack text that speedscope reads, and `nupp run
+--jit-aborts` reports every place LuaJIT declined to compile something, which is
+the question a sampling profiler structurally cannot answer, and on LuaJIT
+usually the one that matters.
 
 ## What it does not try to be
 
 The compiler does not repeat LuaJIT's optimizer. A tracing JIT is very good at
 the transformations a compiler usually performs, and doing them again buys a
 soundness burden for gains that vanish once a trace warms up. Nupp optimizes
-what the JIT structurally cannot see — costs paid before it runs, and facts
-only a type checker holds. Today that is one pass, and it grows only when a
-benchmark says a new one earns its place.
+what the JIT structurally cannot see: costs paid before it runs, and facts only
+a type checker holds. Today that is one pass, and it grows only when a benchmark
+says a new one earns its place.
 
 The type system has deliberate holes, and they are written down rather than
 implied: arrays are covariant, `as` is unchecked, `table` is gradual in both

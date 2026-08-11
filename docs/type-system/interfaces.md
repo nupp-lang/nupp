@@ -1,6 +1,6 @@
 # Interfaces
 
-An interface names a set of members. It has no runtime value at all — the
+An interface names a set of members. It has no runtime value at all, because the
 declaration emits nothing.
 
 ```nupp
@@ -92,22 +92,22 @@ whether it was stamped directly or linked back to), and structs
 
 A test the subject's own type already answers does not run at all. `c is Shape`
 where `c` is a `Circle` and `Circle is Shape` is `true` by the declaration, and
-an optional's nil is the only part left to ask — `maybe is Shape` compiles to
+an optional's nil is the only part left to ask, so `maybe is Shape` compiles to
 `maybe ~= nil`. This works whatever the interface can or cannot test at run
 time, and is the usual reason `is` against an interface succeeds.
 
 Because it trusts the type, an `is` in the tail of an exhaustive chain over a
 union is answered by what the earlier branches ruled out rather than re-checked.
-That is the same trust the checker already extends — it lets the branch read the
-narrowed type's fields without a test — so a value that reached the union
+That is the same trust the checker already extends when it lets the branch read
+the narrowed type's fields without a test, so a value that reached the union
 through an `as` it did not deserve is answered by the cast, not by `is`.
 
 Where the subject's type does not settle it, an interface has no runtime table
 of its own. It can still be tested two ways:
 
 **A tag it already declares.** An interface whose fields carry literal types has
-said what its test is — the field admits that value and nothing else — so the
-test is read off the declaration with nothing written:
+said what its test is, since the field admits that value and nothing else, so
+the test is read off the declaration with nothing written:
 
 ```nupp
 local interface Circle
@@ -136,7 +136,7 @@ checked at runtime.
 ## Default implementations
 
 An interface may implement what it declares, and a declaration that takes the
-contract takes the behaviour with it:
+contract takes the behavior with it:
 
 ```nupp
 local interface Greeter
@@ -161,14 +161,14 @@ end
 const Person = {} Person.__index = Person Person.greet = Greeter.greet
 ```
 
-The body is emitted **once** and referenced, not copied — resolved where the
-implementor is written rather than looked up at run time, so there is no chain
-and no indirection. A struct takes it through its metatype's index table, and a
-chain of interfaces passes it along.
+The body is emitted **once** and referenced, not copied. It is resolved where
+the implementor is written rather than looked up at run time, so there is no
+chain and no indirection. A struct takes it through its metatype's index table,
+and a chain of interfaces passes it along.
 
 This is the one thing that gives an interface a runtime presence. An interface
 that declares only signatures still emits nothing at all, so the table is paid
-for by the feature rather than by every interface — and it is why an interface
+for by the feature rather than by every interface. It is also why an interface
 carrying defaults has to be reachable from an implementor in another module.
 
 **Replacing one has to be said.** `@override` is required on a member that
@@ -187,7 +187,7 @@ by separate interfaces.
 
 **Two interfaces providing the same name is refused.** They are two
 implementations and no reason to prefer either, so the declaration writes the
-member itself to say which behaviour it means.
+member itself to say which behavior it means.
 
 ## Metamethod contracts
 
@@ -206,26 +206,25 @@ end
 ```
 
 The declaration is a static contract. It emits no `__call` field, builds no
-metatable, and decides nothing about what the call constructs — ordinary Lua
-code installs the function with `setmetatable`, a registrar, or a foreign
-runtime. Inheriting the contract rebinds `self`, so `Position(...)` has type
-`Position`.
+metatable, and decides nothing about what the call constructs. Ordinary Lua code
+installs the function with `setmetatable`, a registrar, or a foreign runtime.
+Inheriting the contract rebinds `self`, so `Position(...)` has type `Position`.
 
 The declarable set:
 
 ```
- Contract                    Operation
- ──────────────────────────  ──────────────────────────
- __call                      value(...)
- __index                     value[key], value.name
- __newindex                  value[key] = v
- __add __sub __mul           + - *
- __div __mod __pow           / % ^
- __unm                       unary -
- __concat                    ..
- __len                       #
- __lt __le                   ordered comparison
- __eq __tostring             protocol surface only
+ Contract           Operation
+ ─────────────────  ──────────────────────
+ __call             value(...)
+ __index            value[key], value.name
+ __newindex         value[key] = v
+ __add __sub __mul  + - *
+ __div __mod __pow  / % ^
+ __unm              unary -
+ __concat           ..
+ __len              #
+ __lt __le          ordered comparison
+ __eq __tostring    protocol surface only
 ```
 
 `__eq` and `__tostring` participate in conformance but do not change a result
@@ -242,16 +241,16 @@ later fulfillment point.
 
 The bit-operator contracts (`__band`, `__bor`, `__bxor`, `__bnot`, `__shl`,
 `__shr`, `__sar`) and `__idiv` are rejected: the LuaJIT 2.1 backport does not
-dispatch them. `__gc` and `__close` are not contracts either — deterministic
-cleanup is [ownership](../ownership.md).
+dispatch them. `__gc` and `__close` are not contracts either, since
+deterministic cleanup is [ownership](../ownership.md).
 
 [The metamethod reference](../metamethods.md) covers generic indexing, runtime
 fulfillment, `metatable<T>`, and the full set of exclusions.
 
 ## Diagnostics
 
-- **NUPP2116** — a generic argument violates its bound.
-- **NUPP2117** — `is` names something that is not an interface.
-- **NUPP2118** — an invalid, duplicate, or unsupported metamethod contract, or
+- **NUPP2116**: a generic argument violates its bound.
+- **NUPP2117**: `is` names something that is not an interface.
+- **NUPP2118**: an invalid, duplicate, or unsupported metamethod contract, or
   an interface method given a body.
-- **NUPP3001** — `is` used against a type with no runtime identity.
+- **NUPP3001**: `is` used against a type with no runtime identity.

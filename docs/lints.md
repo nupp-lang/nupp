@@ -15,12 +15,12 @@ Clippy's split between `rustc` errors and `clippy::` lints is the same line.
 ## Severity levels
 
 ```
- level     reported   build     @allow    editor
- ────────  ─────────  ────────  ────────  ──────────────
- off       no         —         —         —
- note      yes        continues yes       Information (3)
- warning   yes        continues yes       Warning (2)
- error     yes        FAILS     yes       Error (1)
+ level    reported  build     @allow  editor
+ ───────  ────────  ────────  ──────  ───────────────
+ off      no        -         -       -
+ note     yes       continue  yes     Information (3)
+ warning  yes       continue  yes     Warning (2)
+ error    yes       FAILS     yes     Error (1)
 ```
 
 Three things vary independently, which is why they are three columns rather
@@ -39,22 +39,22 @@ than one switch:
 Every lint has a name and a stable code:
 
 ```
- name                             code       category      default
- ───────────────────────────────  ─────────  ────────────  ───────
- missing-require                  NUPP2120   correctness   error
- exhaustiveness                   NUPP2107   correctness   warning
- string-pointer                   NUPP2501   suspicious    warning
- jit-callback                     NUPP2502   suspicious    warning
- lossy-narrowing                  NUPP2503   suspicious    warning
- customary-operator               NUPP2504   style         warning
- loop-invariant-closure           NUPP2505   suspicious    warning
- undocumented-raise               NUPP2506   suspicious    warning
- unused-binding                   NUPP2507   suspicious    warning
- discarded-result                 NUPP2508   suspicious    warning
- reifiable-record                 NUPP2509   performance   off
- gradual-projection               NUPP2511   suspicious    warning
- else-if                          NUPP2510   style         warning
- positional-record-construction   NUPP2512   style         warning
+ name                            code      category     default
+ ──────────────────────────────  ────────  ───────────  ───────
+ missing-require                 NUPP2120  correctness  error
+ exhaustiveness                  NUPP2107  correctness  warning
+ string-pointer                  NUPP2501  suspicious   warning
+ jit-callback                    NUPP2502  suspicious   warning
+ lossy-narrowing                 NUPP2503  suspicious   warning
+ customary-operator              NUPP2504  style        warning
+ loop-invariant-closure          NUPP2505  suspicious   warning
+ undocumented-raise              NUPP2506  suspicious   warning
+ unused-binding                  NUPP2507  suspicious   warning
+ discarded-result                NUPP2508  suspicious   warning
+ reifiable-record                NUPP2509  performance  off
+ gradual-projection              NUPP2511  suspicious   warning
+ else-if                         NUPP2510  style        warning
+ positional-record-construction  NUPP2512  style        warning
 ```
 
 The name is what you write in configuration and suppressions; the code is what
@@ -64,8 +64,8 @@ survives renaming and what tooling keys on. Either is accepted everywhere.
 marking any the project has moved. The text table has no code column;
 `nupp lints --json` carries `code`, `default` and `moved` as well.
 
-`lossy-narrowing` is checked only in a strict file — a `.nupp` one, or any file
-under `--strict`. Moving its level does not raise a file's floor by itself.
+`lossy-narrowing` is checked only in a strict file, meaning a `.nupp` one or any
+file under `--strict`. Moving its level does not raise a file's floor by itself.
 
 ## Built-in lints
 
@@ -367,18 +367,17 @@ are inferred for every visible function already, so being nothing but a result
 is proved rather than declared. Nothing has to be annotated.
 
 The proof is two questions. Whether the callee reaches anything the compiler
-cannot see is answered by its effect summary, which is file-local — a callee
-that reaches another module, or makes an unresolved call, widens to `top` and is
-left alone. Whether it writes is answered separately and syntactically, because
-a summary treats a write through a non-parameter local as staying local, and a
+cannot see is answered by its effect summary, which is file-local. A callee that
+reaches another module, or makes an unresolved call, widens to `top` and is left
+alone. Whether it writes is answered separately and syntactically, because a
+summary treats a write through a non-parameter local as staying local, and a
 local read out of a parameter is not scratch. See
 [effects](effects.md#calls-and-fixed-point-propagation).
 
 Reads and allocation are not reasons to call: reading state and dropping the
 answer is the mistake being described. Writes, shape and metatable changes,
 escapes, declared callees, yielding and raising all are. A function returning
-nothing — including one returning only `nil` — discards nothing and is not
-judged.
+nothing, including one returning only `nil`, discards nothing and is not judged.
 
 ### `reifiable-record`
 
@@ -414,20 +413,20 @@ That last cost is the one worth checking before taking the suggestion, because
 it reaches further than the declaration:
 
 ```
- what                          on a record        on a struct
- ────────────────────────────  ─────────────────  ──────────────────────────
- type(v)                       "table"            "cdata"
- pairs(v)                      iterates fields    needs a __pairs metamethod
- string.buffer.encode(v)       encodes            raises, and takes no hook
- a table-walking serializer    works              sees no keys
+ what                        on a record      on a struct
+ ──────────────────────────  ───────────────  ──────────────────────────
+ type(v)                     "table"          "cdata"
+ pairs(v)                    iterates fields  needs a __pairs metamethod
+ string.buffer.encode(v)     encodes          raises, and takes no hook
+ a table-walking serializer  works            sees no keys
 ```
 
 `__pairs` is dispatched on a `ffi.metatype`, so iteration can be restored by
-declaring one. Serialization cannot be patched the same way — LuaJIT's
-serializer refuses cdata outright with no extension point — so a struct that
-has to cross a serialization boundary needs a conversion written for it.
+declaring one. Serialization cannot be patched the same way, because LuaJIT's
+serializer refuses cdata outright with no extension point, so a struct that has
+to cross a serialization boundary needs a conversion written for it.
 
-[`NUPP2201`](diagnostics.md) is the other half of the pair — it fires once
+[`NUPP2201`](diagnostics.md) is the other half of the pair. It fires once
 `struct` is written and a field cannot live in C memory, so between them a
 declaration is told both what it could gain and what it may not do.
 
@@ -446,18 +445,18 @@ lints = { performance = "note" }
 
 ## Categories
 
-- **correctness** — the program is very likely wrong. A project rarely turns
+- **correctness**: the program is very likely wrong. A project rarely turns
   these off.
-- **suspicious** — legal, and probably not meant.
-- **style** — it works and reads badly.
-- **performance** — a declaration is paying for something it does not use. The
+- **suspicious**: legal, and probably not meant.
+- **style**: it works and reads badly.
+- **performance**: a declaration is paying for something it does not use. The
   only opt-in category: its members default to `off`, and a project asks for
   them as a class. Whether a faster declaration is worth having depends on how
   many values are built and where, which no declaration states, so reported
   unprompted these would fire on code that is not hot and teach their reader to
   silence the category before meeting the case they were written for. `nupp
   lints` lists them whatever their level, which is where they are discovered.
-- **pedantic** — opinions a project may not share. No lint is in this category
+- **pedantic**: opinions a project may not share. No lint is in this category
   yet, so setting it currently moves nothing.
 
 A category is a grouping, not a level: the default comes from each lint's own
@@ -516,20 +515,20 @@ new lints.Lint(
 ),
 ```
 
-- `name` — kebab-case, what a person writes in `@allow` and in `nupp.lua`.
-- `code` — the next free `NUPPxxxx`. It survives the name being reconsidered,
+- `name`: kebab-case, what a person writes in `@allow` and in `nupp.lua`.
+- `code`: the next free `NUPPxxxx`. It survives the name being reconsidered,
   and is what tooling keys on. Add it to the code list in the file's header
   comment too.
-- `category` — one of the four declared in `CATEGORIES` beside the registry. A
+- `category`: one of the four declared in `CATEGORIES` beside the registry. A
   category that is not declared there is rejected at load.
-- `level` — the default: `note`, `warning` or `error`. Not `off`; a lint
+- `level`: the default: `note`, `warning` or `error`. Not `off`; a lint
   nobody sees by default is one nobody knows to turn on.
-- `summary` — one line, lowercase, no full stop. It is what `nupp lints`
+- `summary`: one line, lowercase, no full stop. It is what `nupp lints`
   prints.
 
 `everyLintIsWellFormed` in `tests/allowtest.lua` checks the shape of every
-entry — name, code, category, level, uniqueness, and that both spellings
-resolve — so a misspelled category is a failing test rather than a lint nothing
+entry, covering name, code, category, level, uniqueness, and that both spellings
+resolve, so a misspelled category is a failing test rather than a lint nothing
 can configure. It is a test rather than a load-time assertion on purpose: an
 assertion in the compiler would brick a build tree over a typo until it was
 deleted.
@@ -540,7 +539,7 @@ deleted.
 diag("missing-require", node, advice)
 ```
 
-`diag` takes the name or the code — both reach the same lint, and the reported
+`diag` takes the name or the code. Both reach the same lint, and the reported
 diagnostic carries the canonical code either way. Prefer the name at the call
 site: it reads as what is being said rather than as a number.
 
@@ -550,8 +549,8 @@ That is the whole of it. The level resolves through the registry, the project's
 
 ### Editor severity
 
-A lint that a build should refuse but an editor should not shout about — one
-whose fix is usually the next thing the author types — gets a row in
+A lint that a build should refuse but an editor should not shout about, one
+whose fix is usually the next thing the author types, gets a row in
 `EDITOR_ADVICE` in `src/nupp/compiler/lsp/diagnostics.nupp`:
 
 ```nupp
@@ -565,11 +564,11 @@ changes.
 
 ### Lint tests
 
-`tests/allowtest.lua` has the harness for level resolution — `checkOf(src,
-{lints = ...})` returns the diagnostics with a project configuration applied,
-which is how the level, the category override and `@allow` are covered. A lint
-that spans files wants `tests/projectlinktest.lua`'s `withProject`, and one
-whose editor severity differs wants an LSP session in `tests/lsptest.lua`.
+`tests/allowtest.lua` has the harness for level resolution. `checkOf(src, {lints
+= ...})` returns the diagnostics with a project configuration applied, which is
+how the level, the category override and `@allow` are covered. A lint that spans
+files wants `tests/projectlinktest.lua`'s `withProject`, and one whose editor
+severity differs wants an LSP session in `tests/lsptest.lua`.
 
 Assert the `severity` as well as the code. A lint that reports at the wrong
 level is a lint that fails the wrong builds.

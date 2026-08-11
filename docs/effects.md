@@ -70,13 +70,13 @@ make an unsound decision from the missing fact.
 The meaning of an effect annotation depends on whether its implementation is
 visible.
 
-| Surface | Treatment |
-| --- | --- |
-| Nupp function with a body | Inferred, propagated, then checked against the annotation |
-| `cdef function` | Trusted declaration; there is no Nupp body to inspect |
-| Bodyless function binding in `.d.nupp` | Trusted declaration |
-| Visible function without `@effects` | Inferred summary is available to same-file analysis |
-| Unknown or unresolved call | Worst case (`top`) |
+- Nupp function with a body: inferred, propagated, then checked against the
+  annotation.
+- `cdef function`: trusted declaration; there is no Nupp body to inspect.
+- Bodyless function binding in `.d.nupp`: trusted declaration.
+- Visible function without `@effects`: inferred summary is available to
+  same-file analysis.
+- Unknown or unresolved call: worst case (`top`).
 
 A visible body cannot use an annotation to hide what it does. A declaration
 without a body necessarily crosses a trust boundary, just as an FFI type
@@ -119,24 +119,21 @@ member that is not literally `true` or `false` is `NUPP2112`.
 
 ### Path-valued members
 
-| Member | Meaning |
-| --- | --- |
-| `reads` | State the function may observe through a rooted path |
-| `writes` | Existing state the function may write through a rooted path |
-| `shapes` | Tables whose key set or dense-array boundary may change |
-| `metatables` | Values whose metatable or metatable-dependent behavior may change |
-| `escapes` | Arguments that may remain reachable after the call returns |
-| `calls` | Symbolic callees carried by a declared or propagated summary |
-| `returns` | Result positions that alias an input path |
+- `reads`: state the function may observe through a rooted path.
+- `writes`: existing state the function may write through a rooted path.
+- `shapes`: tables whose key set or dense-array boundary may change.
+- `metatables`: values whose metatable or metatable-dependent behavior may
+  change.
+- `escapes`: arguments that may remain reachable after the call returns.
+- `calls`: symbolic callees carried by a declared or propagated summary.
+- `returns`: result positions that alias an input path.
 
 ### Boolean members
 
-| Member | Meaning |
-| --- | --- |
-| `allocates` | May allocate a table, closure, or other modeled object |
-| `yields` | May suspend the current coroutine |
-| `raises` | May raise instead of returning normally |
-| `external` | May perform opaque behavior outside the modeled paths |
+- `allocates`: may allocate a table, closure, or other modeled object.
+- `yields`: may suspend the current coroutine.
+- `raises`: may raise instead of returning normally.
+- `external`: may perform opaque behavior outside the modeled paths.
 
 All eleven members are optional. Omission means an empty list or `false`, not
 unknown.
@@ -145,14 +142,16 @@ unknown.
 
 Paths are symbolic strings. Use these canonical roots:
 
-| Form | Meaning |
-| --- | --- |
-| `parameter` | The parameter value itself |
-| `parameter[*]` | An element or field reached through the parameter |
-| `self` | A method receiver |
-| `$capture` | State reached through a captured local |
-| `$capture[*]` | An element or field reached through captured state |
-| `$global` | State reached through a global declaration contract |
+```
+ Form          Meaning
+ ────────────  ───────────────────────────────────────────────────
+ parameter     The parameter value itself
+ parameter[*]  An element or field reached through the parameter
+ self          A method receiver
+ $capture      State reached through a captured local
+ $capture[*]   An element or field reached through captured state
+ $global       State reached through a global declaration contract
+```
 
 Examples:
 
@@ -198,9 +197,9 @@ local function first(value: table): table
 end
 ```
 
-This does not describe the result's type—that remains the return type
-annotation. It says the result and argument may be the same object, which is
-the fact alias analysis needs.
+This does not describe the result's type, which remains the return type
+annotation. It says the result and argument may be the same object, which is the
+fact alias analysis needs.
 
 Multiple results name their positions independently:
 
@@ -434,12 +433,10 @@ and the benchmark behind that restriction.
 
 These mechanisms answer different questions:
 
-| Mechanism | Question answered |
-| --- | --- |
-| `@effects` | What may happen while this value is called? |
-| `const` | Will this bodyless binding keep the same value? |
-| `@relax` / `--relax` | Which observable guarantee may an optimization change? |
-| `@owned`, `@borrowed`, `@drop` | Who must release a resource, and when? |
+- `@effects`: what may happen while this value is called?.
+- `const`: will this bodyless binding keep the same value?.
+- `@relax` / `--relax`: which observable guarantee may an optimization change?.
+- `@owned`, `@borrowed`, `@drop`: who must release a resource, and when?.
 
 An effect summary does not imply stability, purity does not imply ownership,
 and ownership does not imply a call cannot raise or yield. State each boundary

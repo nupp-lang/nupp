@@ -41,34 +41,47 @@ occasional use-after-free.
 
 ## Ownership syntax
 
-| Surface | Meaning |
-| --- | --- |
-| `@owned(cleanup...)` | The first result is a new affine owner with this ordered cleanup list. |
-| `@owned` | Use the result type's one inherited `@drop` operation. |
-| `@owned(opaque = true)` | The result is transfer-only; it has no local cleanup operation. |
-| `@drop` | Marks the default operation that consumes a resource. |
-| `takes p: T` | The callee accepts and consumes the ownership obligation. |
-| `borrows p: T` | Shared, call-duration access; mutation is allowed but escape is not. |
-| `exclusive p: T` | Exclusive call-duration access; no other live borrow may overlap it. |
-| `retains p: T` | Imported C code keeps a pinned pointer after return. |
-| `releases p: T` | Imported C code stops keeping that pinned pointer before return. |
-| `T borrows p` | The result remains tied to parameter `p`. |
-| `T borrows(a, b)` | The result remains tied to every named source. |
-| `T preserves p` | The result transports the exact capability arriving through `p`. |
-| `scoped callback: function(...)` | The callback may capture borrows because the callee proves it cannot escape. |
-| `field: View borrows source` | A nominal field is tied to its declared sibling root. |
-| `owned<T>` | A value carrying one affine discharge obligation. |
-| `borrowed<T>` | A non-escaping value tied to another live binding. |
-| `pinned<T>` | An affine pointer plus a strong Lua anchor for C retention. |
-| `nupp.drop(x)` | Consume `x` and invoke its recorded cleanup list. |
-| `nupp.borrow(x)` | Create an explicit lexical borrow of `x`. |
-| `nupp.intoRaw(x)` | In `unsafe`, abandon tracking and return the underlying value. |
-| `nupp.fromRaw(x, cleanup...)` | In `unsafe`, assert fresh ownership of a raw value. |
-| `nupp.borrowFrom(raw, source)` | In `unsafe`, assert raw provenance from a named source. |
-| `nupp.pin(pointer, anchor)` | Bind a managed pointer to the Lua object keeping it valid. |
-| `local x = acquire()` | Keep a movable owner and destroy it at its lexical boundary unless transferred. |
-| `sets.new(): ResourceSet` | A checked dynamic collection that reifies per-owner discharge. |
-| `unsafe do ... end` | Permit operations whose lifetime proof is deliberately abandoned. |
+- `@owned(cleanup...)`: the first result is a new affine owner with this ordered
+  cleanup list.
+- `@owned`: use the result type's one inherited `@drop` operation.
+- `@owned(opaque = true)`: the result is transfer-only; it has no local cleanup
+  operation.
+- `@drop`: marks the default operation that consumes a resource.
+- `takes p: T`: the callee accepts and consumes the ownership obligation.
+- `borrows p: T`: shared, call-duration access; mutation is allowed but escape
+  is not.
+- `exclusive p: T`: exclusive call-duration access; no other live borrow may
+  overlap it.
+- `retains p: T`: imported C code keeps a pinned pointer after return.
+- `releases p: T`: imported C code stops keeping that pinned pointer before
+  return.
+- `T borrows p`: the result remains tied to parameter `p`.
+- `T borrows(a, b)`: the result remains tied to every named source.
+- `T preserves p`: the result transports the exact capability arriving through
+  `p`.
+- `scoped callback: function(...)`: the callback may capture borrows because the
+  callee proves it cannot escape.
+- `field: View borrows source`: a nominal field is tied to its declared sibling
+  root.
+- `owned<T>`: a value carrying one affine discharge obligation.
+- `borrowed<T>`: a non-escaping value tied to another live binding.
+- `pinned<T>`: an affine pointer plus a strong Lua anchor for C retention.
+- `nupp.drop(x)`: consume `x` and invoke its recorded cleanup list.
+- `nupp.borrow(x)`: create an explicit lexical borrow of `x`.
+- `nupp.intoRaw(x)`: in `unsafe`, abandon tracking and return the underlying
+  value.
+- `nupp.fromRaw(x, cleanup...)`: in `unsafe`, assert fresh ownership of a raw
+  value.
+- `nupp.borrowFrom(raw, source)`: in `unsafe`, assert raw provenance from a
+  named source.
+- `nupp.pin(pointer, anchor)`: bind a managed pointer to the Lua object keeping
+  it valid.
+- `local x = acquire()`: keep a movable owner and destroy it at its lexical
+  boundary unless transferred.
+- `sets.new(): ResourceSet`: a checked dynamic collection that reifies per-owner
+  discharge.
+- `unsafe do ... end`: permit operations whose lifetime proof is deliberately
+  abandoned.
 
 All ownership syntax is erased or lowered to direct Lua/FFI operations. It
 does not change the C ABI and does not install `ffi.gc` finalizers.
@@ -391,8 +404,8 @@ inferred.
 
 ## Lexical borrows and result provenance
 
-`nupp.borrow(owner)` is the explicit lexical form. It is useful when a named view
-must keep the owner immovable for part of a scope:
+`nupp.borrow(owner)` is the explicit lexical form. It is useful when a named
+view must keep the owner immovable for part of a scope:
 
 ```nupp
 local value = widget_new()
@@ -707,9 +720,9 @@ state becomes moved, independent fields remain accessible, whole-record methods
 are refused, and synthesized drop skips only fields proven moved. Assigning
 the same exact affine contract back reinitializes the field.
 
-A record may define a custom `@drop` method. The checker requires that its
-body discharge every affine field, and it does that by handing each one to a
-`takes` parameter — the field's own drop operation:
+A record may define a custom `@drop` method. The checker requires that its body
+discharge every affine field, and it does that by handing each one to a `takes`
+parameter, which is the field's own drop operation:
 
 ```nupp
 @drop
@@ -809,19 +822,21 @@ Owners are never captured by ordinary copyable closures.
 
 ## What is proved and what is trusted
 
-| Fact | Derived or checked? | Why |
-| --- | --- | --- |
-| Local owner moved exactly once | Checked | Visible in Nupp control flow. |
-| Borrow stored, captured, returned, or outliving source | Checked | Visible lexical escape and provenance. |
-| Resource parameter does not escape a body | Derived conservatively | A property of the body. |
-| Explicit `borrows` body honors non-escape | Checked | The declaration pins a verifiable contract. |
-| Result expression derives from named parameters | Checked for bodies | Provenance is traceable in the implementation. |
-| Result is an exclusive external resource | Trusted | Exclusivity is not observable from its bits. |
-| Correct cleanup operation | Trusted | The type does not identify `free` versus `close`. |
-| C consumes, retains, or releases a pointer | Trusted | A header has no body or lifetime metadata. |
-| C borrowed output derives from the named input | Trusted | The foreign implementation is unavailable. |
-| Unsafe pointer manipulation is valid | Trusted locally | `unsafe` explicitly abandons the proof. |
-| A handled park eventually resumes or cancels | Trusted handler contract | Scheduler behavior is not derivable from a Lua value. |
+```
+ Fact                                                    Derived or checked?       Why
+ ──────────────────────────────────────────────────────  ────────────────────────  ─────────────────────────────────────────────────────
+ Local owner moved exactly once                          Checked                   Visible in Nupp control flow.
+ Borrow stored, captured, returned, or outliving source  Checked                   Visible lexical escape and provenance.
+ Resource parameter does not escape a body               Derived conservatively    A property of the body.
+ Explicit borrows body honors non-escape                 Checked                   The declaration pins a verifiable contract.
+ Result expression derives from named parameters         Checked for bodies        Provenance is traceable in the implementation.
+ Result is an exclusive external resource                Trusted                   Exclusivity is not observable from its bits.
+ Correct cleanup operation                               Trusted                   The type does not identify free versus close.
+ C consumes, retains, or releases a pointer              Trusted                   A header has no body or lifetime metadata.
+ C borrowed output derives from the named input          Trusted                   The foreign implementation is unavailable.
+ Unsafe pointer manipulation is valid                    Trusted locally           unsafe explicitly abandons the proof.
+ A handled park eventually resumes or cancels            Trusted handler contract  Scheduler behavior is not derivable from a Lua value.
+```
 
 Indirect or untyped calls are conservative. If the checker cannot see a
 callee contract, an owner or borrow may not cross it. Convert through
@@ -837,7 +852,8 @@ callee contract, an owner or borrow may not cross it. Convert through
 - No automatic terminal choice for opaque or multi-terminal protocols. Ordinary
   locals auto-destroy only when their exact producer cleanup is known.
 - No inference of ownership from names such as `new`, `close`, or `free`.
-- No arbitrary affine table storage; dynamic ownership is confined to `ResourceSet`.
+- No arbitrary affine table storage; dynamic ownership is confined to
+  `ResourceSet`.
 - No proof of C implementation behavior, allocator pairing, cleanup body
   correctness, or unsafe code.
 - No implicit `ffi.gc`; safe code also rejects attaching it to owned, borrowed,

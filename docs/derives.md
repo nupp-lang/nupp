@@ -28,12 +28,11 @@ print(user:debug(), id.value, user:toJSON())
 
 The four built-in providers are:
 
-| Provider | Generated surface |
-| --- | --- |
-| `Debug` | `debug(self): string` and `nupp.Debug` conformance |
-| `Default` | static `default(): T` and `nupp.default(T)` support |
-| `From` | static `from(value): T` and `nupp.into(value, T)` support |
-| `JSON` | `toJSON`, static `fromJSON`, `fieldCodec`, and `nupp.data.JSONEncodable` conformance |
+- `Debug`: `debug(self): string` and `nupp.Debug` conformance.
+- `Default`: static `default(): T` and `nupp.default(T)` support.
+- `From`: static `from(value): T` and `nupp.into(value, T)` support.
+- `JSON`: `toJSON`, static `fromJSON`, `fieldCodec`, and
+  `nupp.data.JSONEncodable` conformance.
 
 Generated members participate in normal member lookup, generic inference, and
 interface checking. A written member of the same name is a compile-time

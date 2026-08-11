@@ -150,10 +150,11 @@ example of what the type reducer can express, not a runtime parser library or a
 promise of LPeg-compatible syntax, diagnostics, or performance.
 
 The production `nupp.peg` API does not duplicate its textual grammar parser in
-recursive aliases. Literal runtime calls and actionless `comptime` materializations
-instead ask the canonical PEG parser and capture-shape analyzer for `Peg<R>`. Recursive
-conditional types remain useful for application-specific literal protocols like the
-prototype above, where the type computation itself is the API.
+recursive aliases. Literal runtime calls and actionless `comptime`
+materializations instead ask the canonical PEG parser and capture-shape analyzer
+for `Peg<R>`. Recursive conditional types remain useful for application-specific
+literal protocols like the prototype above, where the type computation itself is
+the API.
 
 ### Static `string.format` checking
 

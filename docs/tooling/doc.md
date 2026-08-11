@@ -69,37 +69,36 @@ documentation.
 ### Tags
 
 ```
- Tag                        Shape
- ─────────────────────────  ──────────────────────────────────
- @param <name> <text>       Named, by parameter
- @field <name> <text>       Named, by field
- @typearg <name> <text>     Named, by type parameter
- @return <text>             Listed, one per occurrence, in order
- @returns <text>            The same tag
- @raises <text>             Listed, one per occurrence, in order
- @module [text]             Overrides the file's module blurb
- @export, @public           Force a declaration public
- @local                     Keep a declaration out; --all brings it back
- @namespace [prefix]        Document a shape's own fields as modules
+ Tag                     Shape
+ ──────────────────────  ────────────────────────────────────────────
+ @param <name> <text>    Named, by parameter
+ @field <name> <text>    Named, by field
+ @typearg <name> <text>  Named, by type parameter
+ @return <text>          Listed, one per occurrence, in order
+ @returns <text>         The same tag
+ @raises <text>          Listed, one per occurrence, in order
+ @module [text]          Overrides the file's module blurb
+ @export, @public        Force a declaration public
+ @local                  Keep a declaration out; --all brings it back
+ @namespace [prefix]     Document a shape's own fields as modules
 ```
 
 A tag's description continues onto any following indented line. Any other
 `@name` is kept as a tag with its value.
 
-`@namespace` is for a shape with no file of its own to be documented from — an
+`@namespace` is for a shape with no file of its own to be documented from: an
 ambient global declared once, whose fields are the surface a reader actually
 reaches. On a `local name: {...}` declaration it replaces that one item with a
 module per field, named `prefix.field` (the enclosing module's own name, when
-`prefix` is omitted). A field inside one of those modules may carry
-`@namespace` too; it becomes a nested module instead of a value on its parent.
-A field written inline (`data: {...}`) documents its own fields directly; a
-field spelled as a name (`math: nupp.MathLibrary`) is followed to a record of
-that name declared in the same file. Documentation never resolves a type the
-way the checker does, so a field answering to neither is left out rather than
-guessed at. This is how the standard library's own `nupp` global —
-`nupp.data`, `nupp.io`, and `nupp.math` — gets pages nested under
-`nupp` without a file to require any of them by, since native members have
-none.
+`prefix` is omitted). A field inside one of those modules may carry `@namespace`
+too; it becomes a nested module instead of a value on its parent. A field
+written inline (`data: {...}`) documents its own fields directly; a field
+spelled as a name (`math: nupp.MathLibrary`) is followed to a record of that
+name declared in the same file. Documentation never resolves a type the way the
+checker does, so a field answering to neither is left out rather than guessed
+at. This is how the standard library's own `nupp` global, covering `nupp.data`,
+`nupp.io`, and `nupp.math`, gets pages nested under `nupp` without a file to
+require any of them by, since native members have none.
 
 `@raises` says what makes a function raise, one line per condition. Lua has no
 signature to find that out from, so it is written down. The
@@ -139,7 +138,7 @@ It affects documentation only. The compiler still checks, builds, and resolves
 the modules normally.
 
 A `.d.nupp` declaration file documents in full without `--all`, because `local`
-there is not privacy — its bindings are the interface it describes. Mark one
+there is not privacy. Its bindings are the interface it describes. Mark one
 `@local` to keep it out.
 
 ## Markdown pages
@@ -205,13 +204,13 @@ local p: Priority = "urgent"
 ````
 
 An ordinary `nupp` fence supplies its program the same way. The program is
-checked in the reader's browser, as they type, by the real
-compiler — see [`editors/playground`](https://github.com/nupp-lang/nupp/tree/main/editors/playground)
+checked in the reader's browser, as they type, by the real compiler. See
+[`editors/playground`](https://github.com/nupp-lang/nupp/tree/main/editors/playground)
 for how that works and what it cannot do. An empty fence opens on the editor's
-own example menu instead of a program; a caption becomes the editor's accessible label.
-Add `:static` to a `nupp` fence when it is deliberately an incomplete fragment.
-`:line-numbers` also keeps a Nupp fence static so its requested starting line
-is preserved.
+own example menu instead of a program; a caption becomes the editor's accessible
+label. Add `:static` to a `nupp` fence when it is deliberately an incomplete
+fragment. `:line-numbers` also keeps a Nupp fence static so its requested
+starting line is preserved.
 
 The block is an inline `<nupp-playground>` custom element, not an iframe. A site
 using it serves the playground's `dist/` at `/playground/`, the way `nupp task
@@ -237,7 +236,7 @@ and contextual syntax and can turn a name into a link into the API reference.
 Every other language goes to Scintillua.
 
 Links between pages are written as ordinary relative Markdown paths to the
-source file — `[ownership](ownership.md)` — and are rewritten to the page's
+source file, as in `[ownership](ownership.md)`, and are rewritten to the page's
 public route at build time. Fragments survive.
 
 A page source may open with `---`-delimited front matter, which is stripped.
@@ -283,8 +282,8 @@ and it works the same in a handwritten page, a module blurb, and a `---` run:
 [the guard's field](nupp.zone.Zone.active)
 ```
 
-Empty link text stands for the target, so `[](nupp.zone)` renders that name
-as code and links it — the whole cost of a reference in passing.
+Empty link text stands for the target, so `[](nupp.zone)` renders that name as
+code and links it, which is the whole cost of a reference in passing.
 
 An unqualified name works wherever it is unambiguous, and a name declared in
 the module being rendered resolves to that module first. A name two modules
@@ -293,7 +292,7 @@ point at the wrong one.
 
 A target that reads as a URL, has a slash, or carries a fragment is left alone,
 so ordinary links are never captured. A name nothing documents is left alone
-too, except that empty link text still renders the name — a reference to
+too, except that empty link text still renders the name, so a reference to
 something that has moved reads as the name it used to have rather than as an
 invisible link. References inside a code block are code. A `nupp:static` block
 can link names into the API reference; an editable Nupp block treats them only
@@ -306,16 +305,16 @@ neighbour keeps its name and drops its link.
 ## Module pages
 
 Every module gets its own page: its blurb, a table of the modules nested under
-it, and a table per group of what it declares — constructors, types, functions,
+it, and a table per group of what it declares: constructors, types, functions,
 and values. The detailed reference repeats those group headings, nests each
 declaration beneath its group, and uses the same hierarchy in the page outline
 and companion Markdown.
 
 A directory with no `init.nupp` gets a page too, holding the modules below it
-and nothing else — the name every module inside it is spelled with, and it
-would otherwise be the one name in the reference that led nowhere. Such a page
-is titled `Namespace:` rather than `Module:`, and its entries in the sidebar,
-the search index, and the Markdown output say the same.
+and nothing else. That is the name every module inside it is spelled with, and
+it would otherwise be the one name in the reference that led nowhere. Such a
+page is titled `Namespace:` rather than `Module:`, and its entries in the
+sidebar, the search index, and the Markdown output say the same.
 
 A constructor is a function whose last name segment matches
 `constructorPattern`, which defaults to `^new`. Set it to another Lua pattern to
@@ -333,12 +332,12 @@ rendered above the generated API rather than as a second page beside it:
 ```
 
 The route is `modules/` followed by the module name with its dots as slashes.
-This is where prose longer than a blurb belongs — a page a doc comment would
-have to hold. It is ordinary page Markdown, so cross-references, links to
+This is where prose longer than a blurb belongs, being a page a doc comment
+would have to hold. It is ordinary page Markdown, so cross-references, links to
 other pages, code groups, and admonitions all work, and its headings join the
-page outline above the generated ones. `title` overrides the generated
-`Module:` or `Namespace:` one. A module with both an overview and a blurb
-shows the overview first.
+page outline above the generated ones. `title` overrides the generated `Module:`
+or `Namespace:` one. A module with both an overview and a blurb shows the
+overview first.
 
 ## Output
 

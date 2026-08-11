@@ -5,7 +5,7 @@ reference each command's `-h` does.
 
 ```
  Command      Does
- ───────────  ────────────────────────────────────────────────
+ ───────────  ──────────────────────────────────────────────────────
  ast          Dump a Nupp file's parsed syntax tree
  check        Type-check source without emitting Lua
  fmt          Format Nupp source
@@ -29,19 +29,19 @@ reference each command's `-h` does.
 ## Options every command takes
 
 ```
- Option           Means
- ───────────────  ─────────────────────────────────────────────
- --color[=WHEN]   always, never, or auto (the default)
- --no-color       The same as --color=never
- -h, --help       Show this help
+ Option          Means
+ ──────────────  ────────────────────────────────────
+ --color[=WHEN]  always, never, or auto (the default)
+ --no-color      The same as --color=never
+ -h, --help      Show this help
 ```
 
 `--color` never consumes the next argument. Write `--color=never`; a bare
 `--color` means `always`. Passing both `--color` and `--no-color` is an error
 rather than last-wins.
 
-Colour is decided by `NO_COLOR`, then `CLICOLOR_FORCE`, then `TERM=dumb`, then
-whether the stream is a terminal. JSON output is never coloured.
+Color is decided by `NO_COLOR`, then `CLICOLOR_FORCE`, then `TERM=dumb`, then
+whether the stream is a terminal. JSON output is never colored.
 
 `nupp test` and the `nupp lsp` group forward their arguments, so they take only
 `-h`.
@@ -65,7 +65,7 @@ nupp completions fish > ~/.config/fish/completions/nupp.fish
 
 ## JSON and schemas
 
-Every command that produces data takes `--format json` — spelled `--json` — and
+Every command that produces data takes `--format json`, spelled `--json`, and
 also `--schema`, which prints the JSON Schema of that output:
 
 ```bash
@@ -87,7 +87,7 @@ error. No option repeats unless it says so, and only `-Zno-opt` does.
 
 ```
  Code  Means
- ────  ────────────────────────────────────────────────────────
+ ────  ──────────────────────────────────────────────────────
  0     Success
  1     The work was attempted and failed
  2     Usage error: unknown option, wrong argument count, ...
@@ -105,11 +105,11 @@ nupp check [--strict] [--target NAME] [--format text|json] [file...]
 ```
 
 With no files, checks the default target from `nupp.lua`. A file's extension
-decides the floor it is held to — `.nupp` strict, `.g.nupp` and `.d.nupp` and
-`.lua` gradual — and `--strict` overrides that, holding every file to the
+decides the floor it is held to, with `.nupp` strict and `.g.nupp`, `.d.nupp`
+and `.lua` gradual, and `--strict` overrides that, holding every file to the
 strict floor whatever it is called: unknown-variable errors, annotations
-required on module exports, and the `lossy-narrowing` lint. `--target` cannot
-be combined with explicit files.
+required on module exports, and the `lossy-narrowing` lint. `--target` cannot be
+combined with explicit files.
 
 ### `build`
 
@@ -144,8 +144,8 @@ nupp run [--strict] [-O<n>] [--profile[=MS]] [--profile-out PATH]
 The first non-option argument is the program; everything after it goes to the
 program, options included. Arguments arrive as the chunk's varargs.
 
-`--profile` and `--jit-aborts` take an attached value or none —
-`--profile=2`, not `--profile 2`. Defaults are 10 ms and `profile.out`, and
+`--profile` and `--jit-aborts` take an attached value or none, so `--profile=2`
+rather than `--profile 2`. Defaults are 10 ms and `profile.out`, and
 `jit-aborts.csv`. See [profiling](profiling.md).
 
 A `.nupp` file is compiled first; anything else is loaded as Lua directly.
@@ -279,8 +279,8 @@ that artifact into a fresh tree and checks it from a fresh consumer. See
 nupp ast [--format text|json] <file>
 ```
 
-Dumps the parsed tree. It prints the tree even when parsing fails — a recovered
-tree is intentional output — and then exits 1.
+Dumps the parsed tree. It prints the tree even when parsing fails, because a
+recovered tree is intentional output, and then exits 1.
 
 ### `fixpoint`
 
