@@ -25,7 +25,8 @@ local function write(path, text)
 end
 
 local function run(path, args)
-   local pipe = assert(io.popen(("luajit %q %s 2>&1"):format(path, args or "")))
+   local quoted = "'" .. path:gsub("'", "'\\''") .. "'"
+   local pipe = assert(io.popen(("luajit %s %s 2>&1"):format(quoted, args or "")))
    local output = pipe:read("*a")
    pipe:close()
    return output
