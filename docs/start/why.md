@@ -147,7 +147,7 @@ run --profile` writes collapsed-stack text that speedscope reads, and `nupp run
 the question a sampling profiler structurally cannot answer, and on LuaJIT
 usually the one that matters.
 
-## What it does not try to be
+## Limits
 
 The compiler does not repeat LuaJIT's optimizer. A tracing JIT is very good at
 the transformations a compiler usually performs, and doing them again buys a

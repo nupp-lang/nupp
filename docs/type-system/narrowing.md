@@ -11,7 +11,7 @@ local function widthOf(s: string?): integer
 end
 ```
 
-## What narrows
+## Narrowing tests
 
 ```
  Construct                     Example
@@ -35,7 +35,7 @@ end
 Discriminant narrowing also follows a copied local, so binding the value to a
 new name first does not lose the fact.
 
-## What does not narrow
+## Tests that do not narrow
 
 **`type(x) == "string"` does not narrow.** This is the one people expect most:
 

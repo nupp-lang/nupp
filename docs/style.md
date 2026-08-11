@@ -63,15 +63,31 @@ proves, when the fact is the point:
  Loops that cannot run
 ```
 
-Never write a title that describes the writing instead of the subject. These
-are banned outright:
+Never write a title that describes the writing instead of the subject.
+
+**A title that opens with "What" is the common way to get this wrong**, and it
+is banned whatever follows. It names the question the section answers rather
+than the thing the section is about, so every one of them reads the same and
+none of them says which is which. Name the subject:
+
+```
+ Banned                     Write instead
+ ─────────────────────────  ─────────────────────
+ What it provides           LSP features
+ What it does               Inlining
+ What is public             Public surface
+ What this costs            Cost
+ What narrows               Narrowing tests
+ What a struct field holds  Struct field types
+ What is inferred           Inference
+ What this does not do      Limits
+```
+
+The same applies to a title naming the document rather than its subject:
 
 ```
  Banned                  Write instead
  ──────────────────────  ────────────────────────────────
- What it does            The behavior itself: "Inlining"
- What is X               X
- What X is not           The boundary: "Limits", or fold it into prose
  Why it's this way       The reason: "One layout per struct"
  Overview                Delete it; that is the intro
  Introduction            Delete it; that is the intro
@@ -79,6 +95,9 @@ are banned outright:
  Advanced usage          The topic: "Type packs"
  Notes / Miscellaneous   Split it or drop it
 ```
+
+A section that genuinely covers a boundary is titled for the boundary, as
+"Limits", rather than for the negation, as "What it will not do".
 
 Sentence case. No trailing colons or question marks. A question as a heading
 is a fact you have not committed to yet, so skip FAQ framing. Stop at H3;
@@ -325,9 +344,6 @@ Before a page lands:
 These predate the guide and are the standing fix list. Correct them when the
 page is next edited, rather than in one sweep.
 
-- Banned headings are still live: "What developers gain", "What is public",
-  "What this costs", "What is inferred", "What a struct field may hold", and
-  "What Nupp is".
 - Six converted tables run wider than 80 columns, because their cells carry
   sentences that cannot shorten without deciding what they mean: the built-in
   annotations in `annotations.md`, three member tables in `data.md`, the proof

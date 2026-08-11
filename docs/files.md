@@ -232,7 +232,7 @@ nosuspend do
 end
 ```
 
-## What this costs
+## Cost
 
 Reaching `nupp.io.files` selects a Rust provider, built with only this feature
 and loaded on first use. A program that never reaches it links nothing and

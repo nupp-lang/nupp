@@ -112,7 +112,7 @@ function-typed record fields that declaration files are written with, so
 `local ipairs: function<V>(t: {V}): ...` documents its arguments like any other
 function.
 
-## What is public
+## Public surface
 
 Without `--all`, an ordinary module shows its globals, its exported types, and
 anything marked `@export`. Private by default:

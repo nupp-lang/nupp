@@ -253,7 +253,7 @@ end -- the file is closed on every structured exit]],
                            .. "without a handler and parks its coroutine under a host scheduler. "
                            .. "The checker tracks that effect separately from the return type. "
                            .. "[Follow the call from function to scheduler]"
-                           .. "(getting-started/suspension/index.html).",
+                           .. "(concepts/suspension/index.html).",
                         code = [[local process = require("nupp.io.process")
 
 local function compilerVersion(): string

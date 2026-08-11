@@ -280,7 +280,7 @@ The checker, formatter, documentation generator, language server, build system,
 profiler, and C importer are the same executable, built from the same parse.
 [Tooling](tooling.md) is the guided version of that list.
 
-## What to read next
+## Next
 
 - [Reasons to use Nupp](why.md): the case for each of the pieces above.
 - [Nupp syntax](syntax.md): the syntax in one place, including what LuaJIT

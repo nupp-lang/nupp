@@ -33,7 +33,7 @@ not:
 {"ok": true, "unformatted": ["src/a.nupp"], "written": 0, "failed": []}
 ```
 
-## What it does
+## Formatting rules
 
 ```
  Setting              Value
@@ -96,7 +96,7 @@ back on over a manifest that turned them off.
 The default, 120, is unchanged from before this was a flag; docblock text
 keeps wrapping at 88 columns regardless of `--width`.
 
-## What it will not do
+## Limits
 
 The formatter guarantees that its output re-lexes to a token sequence identical
 in kind and text to the input. When a rewrite would break that, it returns the

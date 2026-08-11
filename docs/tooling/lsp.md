@@ -11,7 +11,7 @@ editor clients.
 The server drives the same checker and incremental engine the build does, so an
 editor and `nupp check` agree about what your code means.
 
-## What it provides
+## LSP features
 
 ```
  Capability          Notes

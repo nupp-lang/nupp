@@ -181,7 +181,7 @@ local c: Vec2                      -- zero-initialized
 
 A struct binding is never nil, so the third form is complete on its own.
 
-### What a struct field may hold
+### Struct field types
 
 The field type has to be reifiable, meaning something with a C layout:
 

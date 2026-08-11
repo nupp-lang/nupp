@@ -3,7 +3,7 @@
 Nupp is written in Nupp. A checkout carries a stage-0 compiler already lowered
 to Lua, so building the real one takes a LuaJIT and nothing else.
 
-## What you need
+## Requirements
 
 **LuaJIT 2.1.1784535649 or newer.** Generated Nupp is written in the LuaJIT 3.0
 syntax that 2.1 backported, meaning `?.`, `??`, `?:`, the bit operators and

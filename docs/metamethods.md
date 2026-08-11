@@ -103,7 +103,7 @@ I64.__tostring = function(self: I64): string
 end
 ```
 
-## What a metatable literal is checked for
+## Checking a metatable literal
 
 Wherever a table literal meets a `metatable<T>`, whether as an argument to
 `setmetatable` or to any function declaring one, or as a binding or assignment

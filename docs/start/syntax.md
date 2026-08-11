@@ -122,7 +122,7 @@ One more thing changes without breaking: `a || b` now parses, as `a or b`,
 where Lua 5.1 rejected it. It raises the `customary-operator` lint, which is a
 house-style judgement a project can turn off.
 
-### What the generated code needs
+### Generated code requirements
 
 Generated Lua targets **LuaJIT 2.1.1784535649 or newer**, the first build
 carrying the backported syntax extensions. `bin/nupp` checks `luajit -v` and

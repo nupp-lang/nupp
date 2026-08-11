@@ -162,7 +162,7 @@ are replaced when the level or target changes, so a filtered call reaches an
 empty function rather than a test, but the arguments are still evaluated, which
 is the cost of a name chosen at run time.
 
-## What is emitted where
+## Destinations
 
 The installer lands only in modules that reach `nupp.log`, like every other
 ambient facility. A module that never logs carries nothing.

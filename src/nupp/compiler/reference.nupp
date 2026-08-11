@@ -67,7 +67,7 @@ end
 local SECTIONS: {reference.Section} = {
 
     new reference.Section(
-        title = "What Nupp is",
+        title = "The language",
         codes = {},
         body = [=[
 A gradually typed superset of LuaJIT's Lua dialect. Every valid LuaJIT program

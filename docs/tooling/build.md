@@ -419,7 +419,7 @@ anything only the build itself uses.
 A rock's **C** libraries cannot ride in a payload, because a `.so` is not a Lua
 chunk, so a binary that needs one needs a stub linked against it. Nupp's own
 stub links the three its commands cannot run without; see
-[distribution](../distribution.md#what-this-does-not-do).
+[distribution](../distribution.md#limits).
 
 ## Self-hosting
 

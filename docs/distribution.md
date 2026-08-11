@@ -106,7 +106,7 @@ order, and nothing records a timestamp, a path from the building machine, or a
 build counter. Two builds of one tree produce byte-identical payloads. This is
 not tidiness. The packaging fixpoint below depends on it.
 
-## What a stub must do
+## Stub requirements
 
 1. Locate its own executable. Not `arg[0]`, which is whatever the caller typed:
    `/proc/self/exe`, `_NSGetExecutablePath`, `GetModuleFileNameW`.
@@ -152,7 +152,7 @@ Doing nothing is what works.
      Linux     works; nothing to sign
      Windows   expected to work; Authenticode only if distributing
 
-### What this costs
+### Cost
 
 `codesign --verify` reports strict validation failure on the result, and with it
 notarization. That is fine for a binary you run, and not fine for one handed to
@@ -197,7 +197,7 @@ by somebody else:
 - The stub could not find `cjson` at all until it was vendored and registered in
   `package.preload`, because the compiler requires it before it does anything.
 
-## What this does not do
+## Limits
 
 - **It does not replace the bootstrap.** `bootstrap/nupp.lua` exists so a source
   checkout can build a compiler; a distributed binary is what comes out the

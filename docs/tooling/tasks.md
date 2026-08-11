@@ -42,7 +42,7 @@ it answers for code that has to exist first, a task only builds when `build`
 names a target. Most won't: `argv` can be anything that runs, and building is
 one thing a task might need on the way, not something every task means.
 
-## What this is for
+## Why tasks exist
 
 `test` and `selfHost` are two fixed-purpose instances of the same shape: build
 something, then run a command. `tasks` generalizes that to any number of named

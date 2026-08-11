@@ -18,7 +18,7 @@ means the same thing and reserves room for a stronger tier later.
 The level is part of the build key, so changing it triggers a cold build rather
 than mixing artifacts compiled at different levels.
 
-## What runs
+## The passes
 
 ```
  Code   Name             Level  Rewrite

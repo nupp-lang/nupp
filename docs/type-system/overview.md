@@ -7,7 +7,7 @@ time.
 
 That sentence is the design. Everything below follows from it.
 
-## What is inferred, and what is not
+## Inference
 
 ```
  Position                    Inferred?

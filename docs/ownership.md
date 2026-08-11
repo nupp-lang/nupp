@@ -17,7 +17,7 @@ it can. For C declarations and other bodyless interfaces, annotations state
 facts that cannot be recovered from a header. `unsafe do` is the explicit
 escape hatch for an address or invariant that the checker cannot prove.
 
-## What developers gain
+## Guarantees
 
 Plain LuaJIT and FFI provide no static distinction among a fresh allocation, a
 shared pointer, a pointer retained by C, and an already-freed pointer. Cleanup
@@ -346,7 +346,7 @@ Use `exclusive` only for operations that may invalidate derived views, replace
 storage, reallocate, or otherwise require call-duration exclusivity. Ordinary
 field mutation belongs under `borrows`.
 
-### What is inferred
+### Inference
 
 For a Nupp body, the checker derives whether each resource-shaped
 parameter stays within the call. A read-only or stable-mutation helper needs no
@@ -820,7 +820,7 @@ capture a borrow only when the visible callee proves it invokes the callback
 without storing, returning, retaining, or forwarding it to an unknown target.
 Owners are never captured by ordinary copyable closures.
 
-## What is proved and what is trusted
+## Proof and trust
 
 ```
  Fact                                                    Derived or checked?       Why

@@ -216,7 +216,7 @@ local held: Holder = lookalike               -- refused: it answers nothing
 A declared `is` edge is trusted for members and still proves the answers, for
 the same reason.
 
-## What it costs at run time
+## Runtime cost
 
 Nothing. An associated type is erased exactly as a type parameter is, and an
 interface that adds only associated types still emits nothing.
