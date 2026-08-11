@@ -67,7 +67,7 @@ end
 local SECTIONS: {reference.Section} = {
 
     new reference.Section(
-        title = "The language",
+        title = "Gradual typing over LuaJIT",
         codes = {},
         body = [=[
 A gradually typed superset of LuaJIT's Lua dialect. Every valid LuaJIT program

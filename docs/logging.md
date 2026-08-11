@@ -23,7 +23,7 @@ nupp.log.error("id %d")
 Because `%s` accepts anything, nothing needs `tostring` and a nil argument
 prints as `nil` rather than raising.
 
-## The call is an intrinsic
+## Severity calls are intrinsics
 
 A severity call in statement position whose format is a literal is lowered
 rather than called:

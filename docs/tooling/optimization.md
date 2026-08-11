@@ -18,7 +18,7 @@ means the same thing and reserves room for a stronger tier later.
 The level is part of the build key, so changing it triggers a cold build rather
 than mixing artifacts compiled at different levels.
 
-## The passes
+## Passes
 
 ```
  Code   Name             Level  Rewrite
@@ -126,7 +126,7 @@ Each used builtin is bound once per generated module and omitted when unused.
 definition, so a locally shadowed `table` is untouched, and generated modules
 remain standalone under external LuaJIT.
 
-### The `string.buffer` builtin
+### `string.buffer` builtin
 
 `string.buffer` is reachable through the builtin `string` namespace with no
 source-level `require`:

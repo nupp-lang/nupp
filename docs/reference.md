@@ -5,7 +5,7 @@ that report getting it wrong. Generated from the compiler: `nupp reference`.
 
 ## Language
 
-### The language
+### Gradual typing over LuaJIT
 
 A gradually typed superset of LuaJIT's Lua dialect. Every valid LuaJIT program
 is a valid Nupp program: a `.lua` file is required, built and run unchanged, and

@@ -29,7 +29,7 @@ or a handler built into Nupp. The `application` function defines its dynamic
 scope. `printCompilerVersion` uses it because `application` called that
 function inside the region.
 
-## The host supplies scheduling policy
+## Hosts supply scheduling policy
 
 A command-line program needs no handler. Its suspension-aware calls drive the
 registered readiness sources and block the current operating-system thread.

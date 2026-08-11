@@ -58,7 +58,7 @@ with it.
 A value with no metatable, another record's instance, and the declaration's own
 table all answer `false`.
 
-### The name holds the table
+### A name holds its table
 
 `Point` is a type and also a value: the runtime table above. That table is the
 metatable its instances carry, so the value has the type of one.

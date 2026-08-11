@@ -1,4 +1,4 @@
-# The `nupp` standard library
+# `nupp` standard library
 
 `nupp` is an ambient global. It is present in every generated module, so
 standard facilities do not need `require`:

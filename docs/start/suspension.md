@@ -57,7 +57,7 @@ printVersion()
 The compiler infers that `compilerVersion` and `printVersion` may suspend. That
 fact travels separately from their parameter and result types.
 
-## The checker tracks suspension
+## Suspension propagates through calls
 
 A direct `coroutine.yield` marks its function as suspending. The effect
 propagates through resolved calls and across module boundaries, so a caller can

@@ -64,7 +64,7 @@ call* keeps its type, because only mutable literal initializers widen.
 The practical reading: annotate when you want the constraint, leave it off when
 you want the Lua behavior. Both are supported positions.
 
-## The strict floor, and which files hold it
+## Strict floor, and which files hold it
 
 Strict adds exactly three things:
 

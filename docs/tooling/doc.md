@@ -273,7 +273,7 @@ are rewritten to whatever route it is published at, so moving a page leaves
 them working. Redirects are for addresses this project does not control:
 bookmarks, search results, and links from other sites.
 
-## The diagnostic index
+## Diagnostic index
 
 `diagnostics` generates a page holding every diagnostic code, at the route it
 names:

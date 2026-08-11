@@ -451,7 +451,7 @@ nupp lsp            # start the language server]],
                },
                {
                   path = "concepts/standard-library",
-                  title = "The standard library",
+                  title = "Standard library",
                   source = "docs/stdlib.md",
                },
                {

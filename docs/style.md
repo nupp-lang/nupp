@@ -99,6 +99,21 @@ The same applies to a title naming the document rather than its subject:
 A section that genuinely covers a boundary is titled for the boundary, as
 "Limits", rather than for the negation, as "What it will not do".
 
+**A title never opens with "The".** The article carries nothing and pushes the
+identifying word off the front, which is where a reader scanning an outline
+looks. This holds for a declarative title too: state the fact starting from its
+subject.
+
+```
+ Banned                      Write instead
+ ──────────────────────────  ─────────────────────────────────
+ The passes                  Passes
+ The diagnostic index        Diagnostic index
+ The call is an intrinsic    Severity calls are intrinsics
+ The host supplies policy    Hosts supply policy
+ The checker tracks it       Suspension propagates through calls
+```
+
 Sentence case. No trailing colons or question marks. A question as a heading
 is a fact you have not committed to yet, so skip FAQ framing. Stop at H3;
 reaching H4 usually means the page should split.
