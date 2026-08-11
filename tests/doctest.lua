@@ -1477,6 +1477,10 @@ function M.siteMatchesTheNuppdocPageModel()
    assert(home:find('class="nuppdoc-search-button"', 1, true), home)
    assert(home:find('data-nuppdoc-search-index="assets/search-index.js"',
       1, true), home)
+   assert(home:find('<a href="http://nupp-lang.org/modules/nupp/index.html">API</a>',
+      1, true), home)
+   assert(not home:find('<h2 id="modules">Modules</h2>', 1, true), home)
+   assert(not home:find('class="nuppdoc-module-grid"', 1, true), home)
 
    local guide = readFile(dir .. "/site/guide/index.html")
    assert(guide:find('class="nuppdoc-logo" src="../images/project.svg"',

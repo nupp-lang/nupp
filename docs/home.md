@@ -32,5 +32,3 @@
   writers, paths, URIs, identifiers, hashes, checksums, math and vectors.
 - [The language reference](reference.md): every construct and the codes that
   report getting it wrong, generated from the compiler.
-
-The generated API reference for the compiler's own modules follows.

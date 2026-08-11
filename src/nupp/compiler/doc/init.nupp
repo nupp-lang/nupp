@@ -642,21 +642,6 @@ local function renderSite(root, outDir, modules, title, settings)
                 if not featureStart then
                     body[#body + 1] = homeFeatures(candidate, links)
                 end
-                body[#body + 1] = '<h2 id="modules">Modules</h2><div class="nuppdoc-module-grid">'
-                for _, module in ipairs(modules) do
-                    -- A namespace has no declarations to count, and saying it has none
-                    -- reads as an empty module rather than as the index it is.
-                    local held = module.namespace and #childModules(modules, module.name) or #module.items
-                    local noun = module.namespace and " module" or " documented declaration"
-                    body[
-                        #body + 1
-                    ] = '<a class="nuppdoc-module-card" href="' .. moduleFile(
-                        module.name
-                    ) .. '"><code>' .. htmlEscape(
-                        module.name
-                    ) .. '</code><span>' .. held .. noun .. (held == 1 and "" or "s") .. '</span></a>'
-                end
-                body[#body + 1] = '</div>'
             end
         end
         local html = renderPage(
