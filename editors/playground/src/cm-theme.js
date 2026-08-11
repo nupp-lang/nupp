@@ -36,6 +36,7 @@ const chrome = EditorView.theme({
   ".cm-activeLine": { backgroundColor: "var(--pg-background-alt)" },
   ".cm-lineNumbers .cm-gutterElement": {
     paddingLeft: ".65rem",
+    paddingRight: "1px",
     color: "var(--pg-faint, color-mix(in srgb, var(--pg-muted) 72%, transparent))",
   },
   ".cm-matchingBracket, .cm-nonmatchingBracket": {

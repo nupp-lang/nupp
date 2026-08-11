@@ -24,7 +24,7 @@ test("condensed controls sit above the rounded editor border", () => {
   const theme = readFileSync(new URL("../src/cm-theme.js", import.meta.url), "utf8");
   const style = readFileSync(new URL("../static/style.css", import.meta.url), "utf8");
   assert.match(theme, /"\.cm-gutters": \{[\s\S]*?backgroundColor: "var\(--pg-code-background, var\(--pg-background\)\)"[\s\S]*?borderRight: "0"/);
-  assert.match(theme, /"\.cm-lineNumbers \.cm-gutterElement": \{[\s\S]*?paddingLeft: "\.65rem"[\s\S]*?var\(--pg-faint/);
+  assert.match(theme, /"\.cm-lineNumbers \.cm-gutterElement": \{[\s\S]*?paddingLeft: "\.65rem"[\s\S]*?paddingRight: "1px"[\s\S]*?var\(--pg-faint/);
   assert.match(style, /\.is-embed \.editor-host \.cm-content \{ padding: \.5rem 0; \}/);
   assert.match(style, /\.is-embed #source-editor \{[\s\S]*?border: 1px solid var\(--pg-border\);[\s\S]*?border-radius: var\(--pg-code-block-radius\);/);
   assert.match(style, /\.head-bar \{[\s\S]*?justify-content: flex-end;[\s\S]*?border: 0;[\s\S]*?background: transparent;/);
