@@ -70,7 +70,9 @@
 }
 
 .nuppdoc-home-hero + h2 {
-  margin: 0 0 1rem;
+  /* The playground toolbar sits 1.75rem above its editor. Include that offset
+   * so the heading keeps a visible 1rem gap instead of touching the toolbar. */
+  margin: 0 0 2.75rem;
   padding: 0;
   border: 0;
 }
