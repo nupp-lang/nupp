@@ -55,7 +55,10 @@ end
 return M
 ]])
 
-   local plain = run(dir .. "/run.lua")
+   -- This case is about captured output, not the runner's own worker fan-out.
+   -- Keep its copied runner in one process so the Windows test does not nest a
+   -- second MSYS/native subprocess boundary inside the matrix's serial run.
+   local plain = run(dir .. "/run.lua", "--jobs=1")
    test.equal(plain:find("ordinary output", 1, true), nil,
       "passing stdout stays hidden")
    test.equal(plain:find("diagnostic output", 1, true), nil,
@@ -64,7 +67,7 @@ return M
    test.matches(plain, "failing stdout")
    test.matches(plain, "failing stderr")
 
-   local verbose = run(dir .. "/run.lua", "--verbose")
+   local verbose = run(dir .. "/run.lua", "--jobs=1 --verbose")
    test.matches(verbose, "ordinary output")
    test.matches(verbose, "diagnostic output")
    os.execute("rm -rf " .. string.format("%q", dir))

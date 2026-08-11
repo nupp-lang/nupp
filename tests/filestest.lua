@@ -144,10 +144,18 @@ function M.globbingMatchesRecursivelyAndSortsPaths()
    write(inRoot("glob/nested/deep/ignored.lua"), "ignored")
 
    local matches = assert(files.glob(inRoot("glob/**/*.nupp")))
+   local separator = package.config:sub(1, 1)
+   local function nativePath(path)
+      local normalized = path:gsub("[/\\]", separator)
+      return normalized
+   end
+   for index, path in ipairs(matches) do
+      matches[index] = nativePath(path)
+   end
    test.equal(table.concat(matches, "|"), table.concat({
-      inRoot("glob/nested/child.nupp"),
-      inRoot("glob/nested/deep/leaf.nupp"),
-      inRoot("glob/root.nupp"),
+      nativePath(inRoot("glob/nested/child.nupp")),
+      nativePath(inRoot("glob/nested/deep/leaf.nupp")),
+      nativePath(inRoot("glob/root.nupp")),
    }, "|"))
    test.equal(#assert(files.glob(inRoot("glob/*.txt"))), 0,
       "no matches answers an empty list")

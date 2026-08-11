@@ -1069,8 +1069,17 @@ function lsp.run(rootDir: string?): integer
         io.stderr:write("nupp-lsp: cannot identify the current executable\n")
         return 1
     end
+    local relayArgs = {executable, "__lsp-reader"}
+    if compilerRoot and package.config:sub(1, 1) == "\\" then
+        local path = ("package.path=%q .. package.path")
+            :format(compilerRoot .. "/build/?.lua;")
+        relayArgs = {
+            "luajit", "-e", path,
+            compilerRoot .. "/build/nupp/compiler/main.lua", "__lsp-reader",
+        }
+    end
     local relay, problem = process.new({
-        args = {executable, "__lsp-reader"},
+        args = relayArgs,
         stdin = "inherit",
         stdout = "pipe",
         stderr = "inherit",
