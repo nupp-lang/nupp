@@ -39,6 +39,9 @@ const chrome = EditorView.theme({
     paddingRight: "1px",
     color: "var(--pg-faint, color-mix(in srgb, var(--pg-muted) 72%, transparent))",
   },
+  ".cm-foldGutter span": { padding: "0" },
+  ".cm-gutter-lint": { width: "1em" },
+  ".cm-gutter-lint .cm-gutterElement": { padding: "0" },
   ".cm-matchingBracket, .cm-nonmatchingBracket": {
     backgroundColor: "var(--pg-accent-soft)",
     outline: "1px solid var(--pg-accent)",
