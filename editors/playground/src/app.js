@@ -5,6 +5,7 @@ import { linter, lintGutter, setDiagnostics } from "@codemirror/lint";
 import { nuppLanguage } from "./nupp-lang.js";
 import { nuppEditorTheme } from "./cm-theme.js";
 import { EXAMPLES } from "./examples.js";
+import { renderLuaOutput } from "./lua-output.js";
 
 // Nupp positions are 1-based byte offsets (AGENTS.md: "Source positions are
 // 1-based byte line and column numbers"); CodeMirror positions are 0-based
@@ -104,7 +105,6 @@ function onWorkerMessage(event) {
     // Open still works — a dead compiler is not a dead page.
     setBusy(false);
     setOutput("-- the compiler failed to start\n\n" + msg.message);
-    if (outputMain) outputMain.classList.remove("is-code");
     if (outputSummary) {
       outputSummary.textContent = "failed to start";
       outputSummary.classList.add("is-error");
@@ -286,8 +286,12 @@ const outputView = outputHost
     })
   : null;
 
-function setOutput(text) {
-  if (outputMain) outputMain.textContent = text;
+function setOutput(text, isCode = false) {
+  if (outputMain) {
+    outputMain.classList.toggle("is-code", isCode);
+    if (isCode) renderLuaOutput(outputMain, text);
+    else outputMain.textContent = text;
+  }
   if (!outputView) return;
   outputView.dispatch({
     changes: { from: 0, to: outputView.state.doc.length, insert: text },
@@ -597,7 +601,6 @@ async function checkNow() {
   // back to saying what the checker says rather than showing Lua from a buffer
   // that has since changed.
   setOutput(result.diagnostics.length ? result.diagnostics.map(diagnosticText).join("\n") : "");
-  if (outputMain) outputMain.classList.remove("is-code");
   if (checkTimeEl) checkTimeEl.textContent = `${elapsed} ms`;
 }
 
@@ -622,7 +625,6 @@ async function compileNow() {
   }
   if (!result.ok) {
     setOutput(`-- ${result.error}`);
-    if (outputMain) outputMain.classList.remove("is-code");
     if (outputSummary) {
       outputSummary.textContent = "failed";
       outputSummary.classList.add("is-error");
@@ -632,14 +634,12 @@ async function compileNow() {
   applyDiagnostics(result.diagnostics);
   const diags = result.diagnostics;
   if (result.code) {
-    setOutput(result.code);
-    if (outputMain) outputMain.classList.add("is-code");
+    setOutput(result.code, true);
     setOutputSummary(diags, "compiled");
   } else {
     // The reason is the compiler's own ("syntax errors", "type errors", "code
     // generation errors"); the diagnostics under it are what it means.
     setOutput([`-- ${result.reason}`, "", ...diags.map(diagnosticText)].join("\n"));
-    if (outputMain) outputMain.classList.remove("is-code");
     setOutputSummary(diags, result.reason);
   }
 }

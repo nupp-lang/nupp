@@ -5,6 +5,7 @@ import { linter, lintGutter, setDiagnostics } from "@codemirror/lint";
 import { nuppLanguage } from "./nupp-lang.js";
 import { nuppEditorTheme } from "./cm-theme.js";
 import { EXAMPLES } from "./examples.js";
+import { renderLuaOutput } from "./lua-output.js";
 
 const FILENAME = "playground.nupp";
 const OPTIONS = { strict: true, optimize: true };
@@ -127,6 +128,8 @@ const styles = `
   --pg-syntax-number: color-mix(in srgb, var(--pg-warning) 75%, var(--pg-text));
   --pg-syntax-function: var(--nuppdoc-accent, #1b5670);
   --pg-syntax-meta: color-mix(in srgb, var(--pg-accent) 72%, var(--pg-text));
+  --pg-syntax-type: var(--nuppdoc-accent, #1b5670);
+  --pg-syntax-operator: color-mix(in srgb, var(--pg-accent) 62%, var(--pg-text));
   --pg-syntax-variable: var(--pg-text);
   --pg-font: var(--nuppdoc-font, Inter, ui-sans-serif, system-ui, sans-serif);
   --pg-font-mono: var(--nuppdoc-font-mono, ui-monospace, monospace);
@@ -236,6 +239,15 @@ select {
   line-height: 1.45;
   white-space: pre-wrap;
 }
+.output-main .lua-keyword { color: var(--pg-syntax-keyword); }
+.output-main .lua-string { color: var(--pg-syntax-string); }
+.output-main .lua-comment { color: var(--pg-syntax-comment); font-style: italic; }
+.output-main .lua-number { color: var(--pg-syntax-number); }
+.output-main .lua-type { color: var(--pg-syntax-type); }
+.output-main .lua-operator { color: var(--pg-syntax-operator); }
+.output-main .lua-variable { color: var(--pg-syntax-variable); }
+.output-main .lua-builtin { color: var(--pg-syntax-function); }
+.output-main .lua-meta { color: var(--pg-syntax-meta); }
 `;
 
 function icon(path, className = "") {
@@ -405,6 +417,7 @@ class NuppDocPlayground extends HTMLElement {
     this.runButton.disabled = true;
     this.output.hidden = false;
     this.outputSummary.textContent = "compiling…";
+    this.outputMain.classList.remove("is-code");
     this.outputMain.textContent = "";
     try {
       const result = await compiler.compile(this.view.state.doc.toString());
@@ -417,9 +430,15 @@ class NuppDocPlayground extends HTMLElement {
         errors && `${errors} error${errors === 1 ? "" : "s"}`,
         warnings && `${warnings} warning${warnings === 1 ? "" : "s"}`,
       ].filter(Boolean).join(", ") || (result.code ? "compiled" : result.reason || "clean");
-      this.outputMain.textContent = result.code || diagnostics.map(diagnosticText).join("\n\n");
+      if (result.code) {
+        this.outputMain.classList.add("is-code");
+        renderLuaOutput(this.outputMain, result.code);
+      } else {
+        this.outputMain.textContent = diagnostics.map(diagnosticText).join("\n\n");
+      }
     } catch (error) {
       this.outputSummary.textContent = "failed";
+      this.outputMain.classList.remove("is-code");
       this.outputMain.textContent = `-- ${error instanceof Error ? error.message : String(error)}`;
     } finally {
       this.runButton.disabled = false;
