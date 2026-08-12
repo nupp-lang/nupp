@@ -137,12 +137,39 @@ end
 
 --- Marks the instructions a loop body covers. A back edge names the top of its own
 --- body, so everything from there to the edge is inside it.
+---
+--- Also marks what some branch can jump over. A trace records the path it saw, so work
+--- an iteration can skip is work the trace need not contain -- which is the difference
+--- between a function built every time round and one built once behind a guard and
+--- reused. The second is how a shared cleanup region is lowered, and reporting it would
+--- be reporting a loop that demonstrably does compile.
+---
+--- Skipping over means only that: some forward jump lands past it. That is weaker than
+--- proving the branch is cold, and deliberately so. Missing a real one costs what it
+--- always cost; reporting a loop that compiles costs the report its credibility.
 local function markLoops(instructions: {any}): nil
     for _, ins in ipairs(instructions) do
         if BACK_EDGE[ins.op] and ins.jump then
             for _, other in ipairs(instructions) do
                 if other.pc >= ins.jump - 1 and other.pc <= ins.pc then
                     other.inLoop = true
+                end
+            end
+        end
+    end
+    -- Only a branch can skip anything. A loop header also jumps forward -- `FORI` clears
+    -- the whole body to reach the exit -- and counting that would mark every instruction
+    -- in every loop as skippable, which is the same as not checking at all.
+    --
+    -- A conditional branch in this bytecode is a test followed by its `JMP`, so that
+    -- pairing is what to look for.
+    for index, ins in ipairs(instructions) do
+        local previous = instructions[index - 1]
+        local conditional = ins.op == "JMP" and previous ~= nil and previous.op:sub(1, 2) == "IS"
+        if conditional and ins.jump and ins.jump - 1 > ins.pc then
+            for _, other in ipairs(instructions) do
+                if other.pc > ins.pc and other.pc < ins.jump - 1 then
+                    other.skippable = true
                 end
             end
         end
@@ -174,7 +201,7 @@ local function collect(util: any, bc: any, fn: any, depth: integer, into: {any},
     local instructions = instructionsOf(util, bc, fn)
     markLoops(instructions)
     for _, ins in ipairs(instructions) do
-        if ins.inLoop then
+        if ins.inLoop and not ins.skippable then
             ins.unrecordable = UNRECORDABLE[ins.op]
         end
     end

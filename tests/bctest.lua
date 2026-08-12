@@ -128,6 +128,28 @@ function M.checkReportsALoopThatCannotCompileAndFailsForIt()
       "the run says how many:\n" .. out)
 end
 
+-- A function built behind a guard and reused is not a function built every iteration.
+-- A trace records the path it saw, so by the time the loop is hot the guarded arm is
+-- cold and the trace never contains it -- the loop compiles, and saying otherwise would
+-- fail a build over code that demonstrably works. This is how a shared cleanup region
+-- is lowered, so it is not a corner case.
+function M.aFunctionBuiltOnceBehindAGuardIsNotReported()
+   local dir = project{["guarded.g.nupp"] = table.concat({
+      "cdef function free(takes value: voidptr)",
+      "@owned(free)",
+      "cdef function malloc(size: uint64): voidptr",
+      "",
+      "local n = 0",
+      "for i = 1, 3000 do",
+      "    local value = malloc(8)",
+      "end",
+      "return n",
+   }, "\n") .. "\n"}
+   local out, code = run(dir, "--check guarded.g.nupp")
+   assert(code == 0,
+      "a guarded, reused function is not a loop that cannot compile:\n" .. out)
+end
+
 function M.checkPassesWhenEveryLoopCanCompile()
    local dir = project{["demo.g.nupp"] = SCALE}
    local out, code = run(dir, "--check demo.g.nupp")
