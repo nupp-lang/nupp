@@ -21,13 +21,20 @@ workloads have moved, remove:
 - the static PEG example whose purpose is demonstrating a type-level
   interpreter rather than typing the production PEG API.
 
-The first replacement does not remove const parameters, `keyof`, indexed
-member types, mapped structural shapes, template construction, associated
-types, or `unpackof`. Those are finite declaration and generic-system
-operations rather than a second control-flow language. Comptime type functions
-must nevertheless be able to express their results. A later evidence gate may
-retire more surface after the replacement is complete; none is kept because a
-type function is incapable of replacing it.
+This replacement deliberately keeps const parameters, `keyof` and
+`writekeyof`, indexed member types, mapped structural shapes, template
+construction, associated-type projections, and `unpackof`. These are the
+direct, readable spelling for common finite type operations. They remain
+language features even when a comptime function could produce the same result;
+expressive equivalence is not a reason to replace a small declarative operator
+with a function and builder calls.
+
+The simplification boundary is type-level programming, not every operation
+performed while checking a type. Remove pattern binding, branching, and
+recursion expressed through `match`, `match each`, `infer`, and recursive
+aliases. Keep bounded structural queries and construction whose meaning is
+visible locally and which do not form a second general-purpose control-flow
+language.
 
 This plan supersedes the matching, inference, and recursive-alias portions of
 [`type-level-computation.md`](type-level-computation.md). Its const-parameter,
@@ -69,6 +76,14 @@ Nupp already has a checked, deterministic, bounded language for loops, local
 state, string processing, helper calls, and authored errors: comptime. Making
 types values in that language removes a language rather than adding a third
 one.
+
+This does not make comptime the only acceptable spelling for compile-time type
+work. `keyof T`, `T.[K]`, a mapped structural shape, or `unpackof T` states a
+small operation more clearly than opening a comptime function, reflecting a
+type, and rebuilding the result. Those operators remain primitive syntax and
+continue to reduce directly in the checker. Comptime is the replacement for
+the exotic cases that need user-authored control flow, parsing, iteration, or
+recursion.
 
 The target model is close to a compile-time type function:
 
@@ -117,6 +132,8 @@ because it occurs in type position and its checked comptime callee returns
    production users have moved.
 8. Keep simple type errors at the application site and retain a bounded
    comptime call trace back to the generator.
+9. Preserve concise finite type operators when their syntax is clearer than an
+   equivalent comptime implementation.
 
 ## Non-goals
 
@@ -135,6 +152,9 @@ because it occurs in type position and its checked comptime callee returns
 - Preserving type-level `match` as compatibility sugar after the migration.
 - Creating fresh nominal identities. A type function may receive and return an
   existing record, struct, or interface type, but may not manufacture one.
+- Replacing `keyof`, indexed member types, mapped structural shapes, template
+  construction, associated-type projections, const parameters, or `unpackof`
+  with library calls merely because comptime can express equivalent results.
 
 ## Surface model
 
@@ -693,7 +713,9 @@ and playground highlighting are deleted with the grammar.
 
 This is an intentional breaking language simplification. Implementation is
 staged so the compiler can prove parity before removing syntax, but the final
-language does not keep two equivalent ways to compute a type.
+language does not keep two general-purpose ways to compute a type. Direct
+finite operators intentionally overlap with comptime because they are shorter,
+clearer, and easier to diagnose at their use sites.
 
 The migration order is:
 
@@ -719,6 +741,12 @@ The migration guide gives direct recipes:
 | tuple reconstruction | `nupp.types.tuple` or `nupp.types.pack` |
 | `function(infer A...): infer R...` | `parameters(F)` and `results(F)` |
 | `typeerror<Message>` in a match | `error(message)` in the type function |
+
+There is no migration for `keyof`, `writekeyof`, `T.[K]`, `writeof T.[K]`,
+mapped structural shapes, template construction, const parameters,
+associated-type projections, or `unpackof`: their existing source syntax stays.
+Template construction remains; only template-pattern decomposition through
+`infer` moves to ordinary comptime string processing.
 
 ## Removal inventory
 
@@ -845,15 +873,21 @@ Exit test: searches and checked inventories find no live type-pattern or
 recursive-alias implementation; the replacement suite passes without a hidden
 compatibility reducer.
 
-### CT7: consolidation gate
+### CT7: retained-operator consolidation
 
-Measure whether `keyof`, indexed member operators, mapped shapes, and template
-construction still earn their syntax now that comptime type functions exist.
-Judge them by frequency, readability, diagnostic quality, latency, and compiler
-surface—not by theoretical expressiveness.
+- Keep `keyof`, `writekeyof`, indexed member operators, mapped structural
+  shapes, template construction, const parameters, associated-type
+  projections, and `unpackof` as documented language syntax.
+- Detach their finite reduction paths from the deleted pattern matcher and
+  recursive-alias evaluator.
+- Preserve their focused diagnostics, formatting, hover, completion,
+  fingerprints, and incremental behavior.
+- Document the design boundary: direct bounded operators are preferred for
+  simple local transformations; comptime type functions are for algorithms.
 
-Removing any of them requires a separate decision and migrations. Keeping them
-does not restore `match`, `infer`, or recursive aliases.
+Exit test: every retained operator works without the removed match-pattern or
+recursive-alias machinery, and the language reference presents it as the
+normal readable spelling rather than as legacy compatibility syntax.
 
 ## Verification
 
