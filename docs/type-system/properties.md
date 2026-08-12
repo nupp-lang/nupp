@@ -109,3 +109,16 @@ reads the old value and then writes the result.
 NUPP2118 reports duplicate capabilities, an ordinary property combined with a
 separate capability of the same name, and capability properties on structs.
 Struct fields are fixed C memory slots and remain ordinary invariant fields.
+
+## Diagnostics
+
+- **NUPP2009**: a property view does not grant the access asked of it, which a
+  read through a write-only view and an assignment through a read-only one both
+  report.
+- **NUPP2118**: a duplicate capability, or an ordinary property combined with a
+  separated one.
+
+## Next
+
+- [records.md](records.md): the declarations these views sit on.
+- [intersections.md](intersections.md): how two capability sets compose.

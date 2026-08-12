@@ -181,3 +181,16 @@ type-reduction depth and result-size budgets remain the safety boundary.
 A nonliteral format cannot determine a finite parameter list, so it retains the
 gradual `...any` contract. The return type remains `string`: this checks a
 runtime call; it does not manufacture or promise an exact result value.
+
+## Diagnostics
+
+- **NUPP2006**: an argument does not fit the parameter a computed pack gave it.
+- **NUPP2007**: a call supplies more arguments than the computed pack has slots.
+- **NUPP2133**: a recursive alias is unsafe or exceeded its budget, which an
+  unconditional reference, mutual recursion, or identical active arguments all
+  report.
+
+## Next
+
+- [packs.md](packs.md): the variadics a computed type usually feeds.
+- [associated-types.md](associated-types.md): the other way a declaration answers with a type.

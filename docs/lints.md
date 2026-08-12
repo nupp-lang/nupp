@@ -575,3 +575,8 @@ severity differs wants an LSP session in `tests/lsptest.lua`.
 
 Assert the `severity` as well as the code. A lint that reports at the wrong
 level is a lint that fails the wrong builds.
+
+## Next
+
+- [diagnostics.md](diagnostics.md): what a diagnostic carries, and its families.
+- [tooling/lsp.md](tooling/lsp.md): the same lints reported as you type.

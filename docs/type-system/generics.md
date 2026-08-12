@@ -274,3 +274,16 @@ store[nameKey] = "saved"
 ```
 
 `T` is inferred from `Key<T>` for both the read and the write.
+
+## Diagnostics
+
+- **NUPP2003**: an operator is applied to types it does not accept, which an
+  unbounded type parameter reports before a bound admits the operation.
+- **NUPP2116**: a type argument violates its bound, checked where the generic is
+  instantiated.
+- **NUPP2122**: a refinement cannot be enforced.
+
+## Next
+
+- [packs.md](packs.md): variadic parameters and correlated results.
+- [type-level-computation.md](type-level-computation.md): computing a type from a type parameter.

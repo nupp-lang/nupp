@@ -129,3 +129,17 @@ argument list, count-only selection, or slicing a pack is NUPP2605 when any
 discarded slot is owned, pinned, or a still-generic potentially affine slot.
 A correlated owner returned by `pcall` becomes a live obligation only in its
 success arm.
+
+## Diagnostics
+
+- **NUPP2007**: a call's results do not fit where they land, which a two-result
+  call into a one-parameter function still reports.
+- **NUPP2010**: a complete value pack does not fit the required sequence,
+  covering incompatible heads, tails, alternatives and `select` indices.
+- **NUPP2121**: a type pack is used where only one value type can appear.
+- **NUPP2605**: adjusting a value pack would discard an affine value.
+
+## Next
+
+- [generics.md](generics.md): the type parameters a pack is declared with.
+- [type-level-computation.md](type-level-computation.md): deriving a pack from an earlier argument.

@@ -486,3 +486,13 @@ When an effect contract reports `NUPP2112`:
 
 For bodyless declarations, review the implementation on the other side of the
 boundary: the checker cannot do that verification for you.
+
+## Diagnostics
+
+- **NUPP2112**: an effect annotation member is not one the contract accepts, or
+  a boolean member is not literally `true` or `false`.
+
+## Next
+
+- [ownership.md](ownership.md): the other contract a bodyless declaration carries.
+- [optimization.md](tooling/optimization.md): what a summary lets a pass prove.

@@ -188,6 +188,12 @@ no body to inspect. Whether a returned resource is genuinely exclusive is not
 observable from a pointer value. Cleanup bodies are not verified. Those are the
 auditable edges; everything inside them is checked.
 
+## Diagnostics
+
+- **NUPP2602**: a value was dropped whose static type records the obligation
+  without recording how to discharge it, such as a `takes` parameter. The
+  message names the fix.
+
 ## Next
 
 - [The ownership reference](../ownership.md): the complete model, C output

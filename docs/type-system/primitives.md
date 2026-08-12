@@ -308,3 +308,18 @@ variadic.
 Function parameters and results are represented as value sequences. Fixed,
 homogeneous, generic, and correlated sequences are described in [Type
 packs](packs.md).
+
+## Diagnostics
+
+- **NUPP2001**: a value does not fit the type it is bound to, which is what a
+  widening arithmetic result reports when it is bound back to `integer`.
+- **NUPP2004**: the field does not exist on that type, which is what reading a
+  field of `unknown` reports before it is narrowed.
+- **NUPP2006**: a call's arguments are not arranged in a way it can be given,
+  which is what an extra argument to a `never` variadic reports.
+- **NUPP2115**: an alias is defined in terms of itself.
+
+## Next
+
+- [records.md](records.md): nominal tables and the structs that lower to C memory.
+- [unions.md](unions.md): closed sets of literals, and tagged unions of records.

@@ -134,3 +134,16 @@ checker reports the unhandled members as the `exhaustiveness` lint. See
 
 Exhaustiveness counts single literal types and unions of them. A union of
 records is narrowed by a discriminant field instead.
+
+## Diagnostics
+
+- **NUPP2002**: a returned value does not fit the declared result, which is
+  what a union that was never narrowed reports.
+- **NUPP2109**: a narrowing test cannot hold, because the type tested for is
+  not one the subject could be.
+- **NUPP2110**: a parameter could not hold the type a test narrows it to.
+
+## Next
+
+- [refinements.md](refinements.md): the test an interface supplies for `is`.
+- [unions.md](unions.md): the closed sets narrowing is usually applied to.

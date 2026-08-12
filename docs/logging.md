@@ -162,3 +162,8 @@ is the cost of a name chosen at run time.
 
 The installer lands only in modules that reach `nupp.log`, like every other
 ambient facility. A module that never logs carries nothing.
+
+## Diagnostics
+
+- **NUPP2006**: a logging call's arguments do not fit the format it names,
+  which an omitted argument supplying nil also reports.

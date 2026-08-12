@@ -344,3 +344,8 @@ The principal diagnostics are:
 - `NUPP2117`: an invalid contract parent after `is`.
 - `NUPP2118`: an invalid, duplicate, misspelled, or unsupported metamethod or
   inline method declaration.
+
+## Next
+
+- [interfaces.md](type-system/interfaces.md): the contracts a metamethod is declared through.
+- [records.md](type-system/records.md): the declarations a metatable is attached to.

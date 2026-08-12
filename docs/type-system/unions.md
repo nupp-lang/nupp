@@ -216,3 +216,14 @@ What the alternatives carry decides which of the two you want:
 - The alternatives carry different data: a tagged union of records.
 - The alternatives are unrelated existing types, told apart by `is`: a plain
   union, no tag needed.
+
+## Diagnostics
+
+- **NUPP2001**: a value is not a member of the union it is bound to.
+- **NUPP2107**: the `exhaustiveness` lint, where a dispatch leaves members of a
+  closed set unhandled.
+
+## Next
+
+- [narrowing.md](narrowing.md): what proves which member you are holding.
+- [primitives.md](primitives.md): the literal types a closed set is built from.

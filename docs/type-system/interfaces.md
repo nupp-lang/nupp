@@ -253,3 +253,8 @@ fulfillment, `metatable<T>`, and the full set of exclusions.
 - **NUPP2118**: an invalid, duplicate, or unsupported metamethod contract, or
   an interface method given a body.
 - **NUPP3001**: `is` used against a type with no runtime identity.
+
+## Next
+
+- [refinements.md](refinements.md): the runtime test an interface carries so `is` can answer.
+- [overloads.md](overloads.md): what happens when an interface member is an overload set.

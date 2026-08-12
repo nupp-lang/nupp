@@ -292,3 +292,8 @@ with the same fields, so width subtyping works one way only.
   positional argument to a record.
 - **NUPP2204** / **NUPP2205**: array-part problems.
 - **NUPP2118**: a duplicate member, or a metamethod contract on a struct.
+
+## Next
+
+- [interfaces.md](interfaces.md): the structural contract a record can declare it satisfies.
+- [c-interop.md](../c-interop.md): what a struct's layout means at the C boundary.

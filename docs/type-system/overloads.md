@@ -457,3 +457,8 @@ method calls do not pay for it.
 For the underlying intersection relation, including capability composition and
 provable emptiness, see [Intersection types](intersections.md). For general
 interface inheritance and runtime defaults, see [Interfaces](interfaces.md).
+
+## Next
+
+- [intersections.md](intersections.md): the type an overload set is.
+- [generics.md](generics.md): how a type parameter picks an entry.

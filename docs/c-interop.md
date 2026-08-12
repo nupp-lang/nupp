@@ -279,3 +279,15 @@ See the [build system reference](tooling/build.md) for C and Cargo provider
 configuration, [ownership](start/ownership.md) for the resource workflow, and
 the [ownership reference](ownership.md) for output parameters, callbacks,
 pinning, and raw-pointer escape hatches.
+
+## Diagnostics
+
+- **NUPP2201**: a struct field is not reifiable, which a `T[?]` field reports
+  because a struct whose size depends on a runtime count has none.
+- **NUPP2402**: `layoutof` was asked about something with no layout, such as a
+  `record`, which is a table rather than C memory.
+
+## Next
+
+- [ownership.md](ownership.md): the contracts a C pointer crosses the boundary with.
+- [records.md](type-system/records.md): the struct declarations a header imports as.

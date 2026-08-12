@@ -253,6 +253,11 @@ makes them fire.
 Do not paste the full text of `nupp explain`. The page says which codes belong
 to it; the command says everything else.
 
+A page that does not introduce rules has no such section. `lints.md` and
+`diagnostics.md` are about the diagnostic system itself, so a list of the codes
+they mention would point at themselves, and a command reference showing
+`nupp explain NUPP2119` is quoting a code rather than introducing one.
+
 ## Admonitions
 
 `::: note`, `info`, `tip`, `warning`, `danger`. Use them for exactly two jobs:

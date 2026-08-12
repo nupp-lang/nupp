@@ -328,3 +328,8 @@ Comptime evaluates closed value-producing programs after normal type checking.
 Derives run as part of declaration checking and may attach only their
 compiler-owned member recipes. They can share reflection and materialization
 infrastructure, but neither turns comptime into arbitrary source generation.
+
+## Next
+
+- [annotations.md](annotations.md): the field annotations each provider reads.
+- [reflection.md](concepts/reflection.md): the descriptor a generator reads instead.

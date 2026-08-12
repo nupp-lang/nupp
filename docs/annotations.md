@@ -365,3 +365,18 @@ Compiler integrations can still add definitions directly through the
 extensible `nupp.compiler.annotations` registry. Source declarations are the
 normal language-facing mechanism; direct registration remains useful for
 built-ins and compiler extensions.
+
+## Diagnostics
+
+- **NUPP2108**: an `@allow` names a lint that does not exist, and the error it
+  was meant to suppress still stands.
+- **NUPP2112**: an annotation argument is outside the closed set the annotation
+  accepts, which is what a misspelled `@relax` guarantee reports.
+- **NUPP2113**: a reserved annotation parsed and resolved, and is not yet
+  implemented.
+- **NUPP2119**: a declaration does not say where it lives.
+
+## Next
+
+- [derives.md](derives.md): the members `@derive` generates.
+- [effects.md](effects.md): the contract `@effects` states.

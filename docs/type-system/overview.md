@@ -163,3 +163,16 @@ One page per idea, in the order they build on each other:
 
 For where a declaration lives and how modules see it, read
 [declarations and modules](../modules.md).
+
+## Diagnostics
+
+- **NUPP2001**: a value does not fit the type it is bound to.
+- **NUPP2004**: the field does not exist on that type.
+- **NUPP2105**: an unknown variable, in a strict file only.
+- **NUPP2106**: an exported declaration needs a type annotation.
+- **NUPP2503**: the `lossy-narrowing` lint, in a strict file only.
+
+## Next
+
+- [primitives.md](primitives.md): the builtin names, and where to start.
+- [strictness.md](../concepts/strictness.md): which files are held to the strict floor.

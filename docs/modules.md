@@ -403,3 +403,8 @@ spelling through each module exporting that name, adding the `require` in the
 same edit when the file has none; NUPP2120 offers one require per candidate
 module. A fix that would bind over a name already in scope is not offered at
 all.
+
+## Next
+
+- [strictness.md](concepts/strictness.md): which floor a file is held to.
+- [build.md](tooling/build.md): how a project's files become a build.

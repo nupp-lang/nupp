@@ -248,6 +248,11 @@ queue that grows with its callers eventually takes the process with it.
 Metadata, listings and cursor reads through an open `File` do not use the lane.
 Scheduling a transfer costs more than those cost to run.
 
+## Diagnostics
+
+- **NUPP2701**: a non-suspending region can reach suspension, which a
+  filesystem call inside `nosuspend` reports at compile time.
+
 ## Next
 
 - [docs/io.md](io.md): the buffer, reader and writer contracts a file

@@ -148,3 +148,9 @@ The language server implements `textDocument/formatting` and
 
 Range formatting formats the whole document and then keeps the edits that fall
 inside the requested range.
+
+## Diagnostics
+
+- **NUPP4001**: formatting could not safely produce a result, so the input is
+  left untouched. The formatter refuses whatever it cannot prove it would
+  preserve.

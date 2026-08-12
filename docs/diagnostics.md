@@ -149,3 +149,8 @@ output against it, so the two cannot drift.
 6. Re-run the check after each edit group, then `./bin/nupp test --json` before
    commit, which reports the failing test's name, message, file and line rather
    than a wall of progress text.
+
+## Next
+
+- [lints.md](lints.md): the configurable half, and how to move one.
+- [lsp.md](tooling/lsp.md): the same diagnostics in an editor.

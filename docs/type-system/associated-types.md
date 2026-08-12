@@ -264,3 +264,23 @@ parameter whether or not it mentions the element type. An associated type stays
 where it was declared.
 
 The rule is which side chooses. When the caller chooses, write a parameter.
+
+## Diagnostics
+
+- **NUPP2127**: a declaration does not answer an associated type it owes, or
+  answers otherwise than a `==` fixes it, or two contracts default it
+  differently.
+- **NUPP2128**: an associated type member cannot mean anything where it is
+  written. Answering a name no contract declares, restating a bound, or stating
+  a requirement outside an interface.
+- **NUPP2129**: an associated type collides with a nested alias or declaration.
+- **NUPP2134**: a projection names something that cannot be projected.
+- **NUPP2135**: an associated type answers through itself, reported once per
+  component.
+- **NUPP2511**: the `gradual-projection` lint, where inference did not reach a
+  projection's head and it was erased to `any`.
+
+## Next
+
+- [interfaces.md](interfaces.md): the contracts that declare a requirement.
+- [type-level-computation.md](type-level-computation.md): computing a type rather than answering with one.
