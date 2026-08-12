@@ -56,11 +56,7 @@ work makes sense in.
       buffer and file paths; make responses progressive `Reader` values; use
       bounded per-transfer queues and deduplicated readiness tokens rather than
       per-chunk events. Benchmark warm small requests and 256 MiB streams as
-      landing gates. Tecs keeps its ECS policy and SDL-owned loop, installs its
-      existing suspension adapter per task, polls Nupp without sleeping before
-      and between scheduler rounds, and deletes its per-client transport pump
-      and private upload scheduler after adoption. A close/count-only facade
-      registry may remain for Teal lifecycle compatibility.
+      landing gates.
 
 ## FFI and the C boundary
 
@@ -98,14 +94,13 @@ work makes sense in.
       constructed records, aliases, and declared preserved or borrowed call
       results. NUPP2501 is emitted at the cast, so assignment form does not
       create the earlier hole.
-- [ ] **Generic bounds-carrying spans and the tecs buffer port.** Rooted
+- [ ] **Generic bounds-carrying spans.** Rooted
       `ByteSpan` and affine `ByteWriteSpan` have landed with checked indexing
       and slicing, consuming `commit`, and provenance-preserving buffer
       conversions. Fixed C arrays also enforce static or runtime bounds. What
-      remains is the generic `span<T>`/`span<const T>` decision and the actual
-      tecs `Buffer`, `ByteView`, `WriteRange`, compression, process-I/O,
-      mapped-buffer, and pointer-plus-length acceptance port. Conversion to a
-      raw pointer or unchecked bulk copy remains an explicit `unsafe` boundary.
+      remains is the generic `span<T>`/`span<const T>` decision. Conversion to
+      a raw pointer or unchecked bulk copy remains an explicit `unsafe`
+      boundary.
 - [ ] **`@jit` trace checker.** NYI analysis behind the pragma, which is
       likewise reserved and erroring today (`src/nupp/compiler/annotations.nupp:201`).
       Depends on nothing above except the marking pass it shares with the
@@ -464,7 +459,9 @@ What is left, in the order the numbers justify:
       test whose result depends on trace timing will keep costing somebody a
       bisect.
 
-## Acceptance: the tecs subsystem port
+## Tecs
+
+### Subsystem acceptance port
 
 Translating and running `internal/ffi/FFIStorage` and its components is the
 v0.1 gate, and it is the acceptance corpus several items above name: bounded
@@ -503,6 +500,18 @@ what checked clean.
       registration, late `__call` installation, generic `__index`/`__newindex`,
       and arithmetic contracts (`tests/gentest.lua:152`,
       `tests/checktest.lua:276`).
+
+### Library adoption
+
+- [ ] **Buffer adoption.** Port tecs `Buffer`, `ByteView`, `WriteRange`,
+      compression, process-I/O, mapped-buffer, and pointer-plus-length call
+      sites to Nupp's bounds-carrying spans and buffer implementation.
+- [ ] **HTTP adoption** ([design](http.md)): Tecs keeps its ECS policy and
+      SDL-owned loop, installs its existing suspension adapter per task, polls
+      Nupp without sleeping before and between scheduler rounds, and deletes
+      its per-client transport pump and private upload scheduler after
+      adoption. A close/count-only facade registry may remain for Teal
+      lifecycle compatibility.
 - [ ] **Files adoption** ([design](files.md)): `nupp.io.files`, its native
       provider, bounded request lane, suspension integration, and compiler
       adoption have landed. The remaining project is tecs adoption: delete
