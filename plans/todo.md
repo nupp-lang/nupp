@@ -57,6 +57,18 @@ work makes sense in.
       a CLI without knowing which it is in. Nominal methods carry suspension
       guarantees through incremental interfaces, and structured exits from a
       handled region reuse the ownership cleanup protocol.
+- [ ] **A `borrows` result does not survive on an inline method.** A member
+      declared `lend: function(self: H, item: thing*): thing* borrows (self)` and
+      defined below it hands the caller a borrow; the same signature written as
+      an inline `function lend(self, item: thing*): thing* borrows (self)` hands
+      back the raw value, and the first dereference reports NUPP2604. The
+      declaration is accepted either way, so nothing points at the method — the
+      error lands on the caller. `resources.Set.adopt` is declared and defined
+      separately for this reason while its sibling `remove`, which returns no
+      borrow, is inline. Same shape as the parameter modes fixed in
+      675c6de6: the receiver an inline method does not spell is missing where
+      the clause is resolved.
+
 ## FFI and the C boundary
 
 - [ ] **`import-c` stops at the file it was pointed at.** One boundary

@@ -827,17 +827,20 @@ function M.standardResourcesApiHasCompleteDocumentation()
 
    -- Only what reaches an operation that can fail documents a failure. Handing back
    -- an empty set cannot fail, and neither can discharging one.
+   -- `remove` is an inline member and documents itself inside the record. `close` and
+   -- `adopt` are declared there and defined below, so they are items of their own: a
+   -- `@drop` member states `nosuspend` in its declared type, and a `borrows` result
+   -- does not survive on an inline method. Neither has anywhere to say that inline.
    local expected = {
       ["resources.openFile"] = "raises",
       ["resources.openProcess"] = "raises",
       ["resources.temporaryFile"] = "raises",
+      ["resources.Set.close"] = "raises",
       ["resources.Set.adopt"] = "raises",
-      ["resources.Set.remove"] = "raises",
       ["resources.set"] = "function",
-      ["resources.Set.close"] = "function",
       ["Set"] = "record",
    }
-   assert(#module.items == 8, "nupp.resources must document exactly its public surface")
+   assert(#module.items == 7, "nupp.resources must document exactly its public surface")
    for _, item in ipairs(module.items) do
       local prefix = item.path
       local want = expected[item.name]
@@ -860,9 +863,14 @@ function M.standardResourcesApiHasCompleteDocumentation()
       -- The set's storage is its own business. A reader of these docs is told what a
       -- set does, never what it keeps to do it.
       if want == "record" then
+         local named = {}
          for _, member in ipairs(item.members) do
             assert(member.name ~= "_entries" and member.name ~= "_closed",
                "the set's private storage leaked into the public docs")
+            named[member.name] = true
+         end
+         for _, operation in ipairs({"close", "adopt", "remove"}) do
+            assert(named[operation], "the set stopped documenting " .. operation)
          end
       end
    end

@@ -64,14 +64,26 @@ record resources.Set
     --- @param terminal what discharges an opaque owner, which carries no contract
     --- @return the adopted value, borrowed from the set
     --- @raises when the set is already closed, or adoption carries no witness
+    --- Declared rather than defined here: a `borrows` result does not survive on an
+    --- inline method, and a caller would receive the raw value instead of a borrow.
     adopt: function<T>(self: resources.Set, takes value: T, terminal: function(takes value: T)?): T borrows (self)
 
     --- Deletes one registration and returns the original capability exactly once.
     ---
     --- @param value a value a previous `adopt` returned
     --- @return that value, owned by the caller again
-    --- @raises when the value is not registered in this set
-    remove: function<T>(self: resources.Set, borrows value: T): T
+    --- @raises when the value is not registered in this set, or the set is closed
+    function remove<T>(self, borrows value: T): T
+        assert(not self._closed, "resource set is closed")
+        for index = #self._entries, 1, -1 do
+            local entry = self._entries[index]
+            if entry.value == value then
+                table.remove(self._entries, index)
+                return entry.value as T
+            end
+        end
+        error("resource is not registered in this set", 2)
+    end
 end
 
 --- Discharges every registration in reverse.
@@ -133,25 +145,6 @@ function resources.Set.adopt<T>(self, takes value: T, terminal: function(takes v
         self._entries[#self._entries + 1] = new Entry(value = nupp.intoRaw(value), cleanup = witness)
         return self._entries[#self._entries].value as T
     end
-end
-
---- Deletes one registration and returns the original capability exactly once.
----
---- @export
---- @param self the set giving the owner up
---- @param value a value a previous `adopt` returned
---- @return that value, owned by the caller again
---- @raises when the value is not registered in this set, or the set is closed
-function resources.Set.remove<T>(self, borrows value: T): T
-    assert(not self._closed, "resource set is closed")
-    for index = #self._entries, 1, -1 do
-        local entry = self._entries[index]
-        if entry.value == value then
-            table.remove(self._entries, index)
-            return entry.value as T
-        end
-    end
-    error("resource is not registered in this set", 2)
 end
 
 --- Creates a set that owns whatever is adopted into it.
