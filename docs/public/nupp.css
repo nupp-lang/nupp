@@ -52,6 +52,10 @@
   padding: 0.75rem 1.35rem;
 }
 
+.nuppdoc-brand-name {
+  color: var(--nuppdoc-light-accent);
+}
+
 .nuppdoc-hero-text {
   font-weight: 700;
 }
