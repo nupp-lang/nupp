@@ -9,8 +9,10 @@ work makes sense in.
 - [ ] **Derives** ([design](derives.md)): the compiler-owned `Debug`, `Default`,
       single-field `From`, and `JSON` derives have landed as checked semantic
       additions with closed lowering recipes, never source or CST fragments.
-      Reference/skill output, canonical plan hashing, idempotent rechecking,
-      basic plan/field limits, and a passing compiler fixpoint have landed.
+      Reference/skill output, plan-hashing machinery, idempotent rechecking,
+      basic plan/field limits, and a pre-adoption compiler fixpoint run have
+      landed. The existing hash has a known nested-`key` omission and is not an
+      early-cutoff key until D5b replaces its name-based exclusions.
       D5 still owns generated-member tooling, source-position-free incremental
       identity and equal-plan cutoff, the remaining resource limits,
       cancellation/recovery, build observations, acceptance workloads, and
@@ -22,11 +24,14 @@ work makes sense in.
         refused with useful help; derive diagnostics offer whole quick fixes.
   - [ ] D5b: extract planning into a memoized `planDerives` query keyed by the
         provider/helper ABI, frozen written declaration, relevant annotations,
-        reached semantic dependencies and target policy. Separate runtime
-        registration keys from semantic fingerprints, remove filenames and
-        line numbers from the latter, publish generated signatures, contracts,
-        effects and behavior fingerprints in module interfaces, and prove an
-        equal public plan cuts off downstream work.
+        reached semantic dependencies and target policy. Define the hash input
+        as an explicit root projection whose recursive serializer retains every
+        nested field, including a Debug map's `key`; never exclude fields by
+        name at arbitrary depth. Separate runtime registration keys from
+        semantic fingerprints, derive them from resolved module/declaration
+        identity rather than invocation paths, publish generated signatures,
+        contracts, effects and behavior fingerprints in module interfaces, and
+        prove an equal public plan cuts off downstream work.
   - [ ] D5c: retain and directly test the field and semantic-node limits; add
         rendered-output and any necessary generated-member, local and upvalue
         limits, or document and test the structural reason a category is
@@ -39,6 +44,7 @@ work makes sense in.
         tests, and one external tecs configuration or protocol corpus.
   - [ ] D5e: close with check/build/LSP agreement; cached/cold byte identity;
         body-, field-, annotation-, bound- and dependency-edit counters;
+        distinct Debug-map-key fingerprints, path-spelling-independent output,
         adversarial limit and cancellation tests; exact line-count and LuaJIT
         loadability coverage; the full suite; and byte-identical fixpoint.
   - [ ] D6: only after D5d, prototype one external provider against a versioned

@@ -354,9 +354,11 @@ round-trip through JSON inside the checker.
 
 The first version has no user callback and therefore does not need to send a
 derive request to the comptime worker. `JSON` may send its codec blueprint
-through the existing closed materialization path. A later user-defined derive
-receives a serialized, versioned descriptor in the isolated worker and returns
-a separately versioned `DeriveResult` envelope.
+through the existing closed materialization path. D6 does not assume how a
+later user-defined derive executes: its proving case must choose and justify an
+in-process or isolated trust model. Either model receives a serialized,
+versioned descriptor and returns a separately versioned `DeriveResult`
+envelope rather than live compiler objects.
 
 ## Prelude surface
 
@@ -867,6 +869,10 @@ provider consults the filename extension directly.
 
 ## Runtime lowering and the line-count invariant
 
+This section specifies the required end state. The line-count-preserving
+emission and closed forwarding recipes have landed. The complete resource
+limit set below has not; D5c owns it.
+
 Derives inherit the compiler's existing documented rule that generated code
 never changes the source line count. This is a lowering constraint to retain,
 not a new code-generation doctrine.
@@ -889,8 +895,11 @@ names. Stack traces point at the declaration line; diagnostics and editor
 navigation point more precisely at `@derive` or a contributing field. A helper
 failure retains its field path and derive provenance.
 
-Limits cover generated members, private constants, expression nodes, rendered
-bytes, locals and upvalues per declaration. Exceeding one reports a derive
+The completed implementation must bound generated members, private constants,
+expression nodes, rendered bytes, locals and upvalues per declaration, or
+prove a category structurally constant for the closed built-ins. Today only
+field count and semantic plan nodes have explicit derive caps. Every remaining
+limit or structural proof lands in D5c; exceeding a limit reports a derive
 diagnostic rather than emitting a function LuaJIT cannot load.
 
 The runtime feature manifest records the exact helpers each derive needs.
@@ -900,7 +909,15 @@ constructor derives add no helper when direct lowering suffices.
 
 ## Incremental queries and fingerprints
 
-Derive planning is a derived query:
+This section specifies the D5b end state, not the current implementation.
+Planning currently runs inside the whole module check. It computes a hash, but
+the serializer excludes every table entry named `key` or `fingerprint` at any
+depth. That wrongly removes the key-type subtree of a Debug map plan, so the
+current hash is not safe for interning or early cutoff. Nested record
+references also contain the filename-and-line-derived runtime key, so source
+positions already enter some plan fingerprints.
+
+Derive planning becomes a derived query:
 
 ```text
 planDerives(
@@ -911,9 +928,13 @@ planDerives(
 ) -> canonical DerivePlan
 ```
 
-The canonical result excludes source offsets except from diagnostic
-provenance. Equal plans intern to the same identity, providing early cutoff.
-The final module interface includes:
+The canonical hash input is an explicit projection of the plan root: it omits
+only named root envelope fields such as the runtime registration key and the
+stored fingerprint. Its recursive serializer retains every nested field
+without a name blacklist, including `key` when that field describes a Debug
+map's key type. Source offsets occur only in diagnostic provenance. Equal plans
+then intern to the same identity, providing early cutoff. The final module
+interface includes:
 
 - requested derive names and provider ABI versions;
 - generated public signatures and interface contracts;
@@ -929,6 +950,9 @@ conservatively replan; precise per-provider annotation dependency tracking is
 an optimization, not a correctness prerequisite.
 
 Cross-module dependencies use resolved nominal identity, never source spelling.
+The separate runtime registration key derives from resolved module identity
+and declaration identity, not the filename spelling passed to the compiler, so
+absolute, relative and separator-normalized invocations emit identical bytes.
 Changing a dependency's body stops at its unchanged interface. Changing a
 field or derive contract invalidates dependents whose plans reached it.
 
@@ -964,13 +988,14 @@ identifier across stacked applications. Invalid target and unavailable
 annotation are deliberately absent from NUPP2801, so one mistake cannot
 produce both an annotation and derive diagnostic.
 
-JSON planning wraps the existing materialization provider rather than leaking
-its domain errors. A field-codec blueprint mismatch such as NUPP2415 or
-NUPP2418 is consumed by the derive adapter and re-emitted once as NUPP2806 at
-the `JSON` derive argument, with the provider message and contributing field
-attached as `related`. Worker/protocol failures that are not schema failures
-retain their comptime infrastructure code. A derive-owned generated-size limit
-is NUPP2808.
+JSON schema failures are reported once as NUPP2806 at the `JSON` derive
+argument, with the provider message and contributing field attached as
+`related`. If D5c moves planning through the existing materialization worker,
+the adapter consumes field-codec blueprint mismatches such as NUPP2415 or
+NUPP2418 and remaps them to that derive diagnostic, while infrastructure or
+protocol failures retain their own codes. The in-process path must provide the
+same schema/infrastructure distinction without inventing worker failures. A
+derive-owned generated-size limit is NUPP2808.
 
 Diagnostics carry structured `related` entries for every contributing field
 and generated-member collision. `help` gives the smallest source action: add a
@@ -1001,6 +1026,12 @@ JSON diagnostic schemas with a failing and corrected program.
 
 ## Tooling
 
+This is the normative tooling contract. Ordinary member lookup and completion
+can already see generated signatures through the nominal member maps. The
+generated identity, provenance-aware presentation, disjoint references,
+rename refusal, generated document symbols, derive quick fixes and build
+observations below remain D5a–D5c work.
+
 - Completion and member inspection include generated signatures.
 - Hover labels a member `generated by @derive(Debug)` and summarizes the
   contributing fields or codec fingerprint.
@@ -1017,8 +1048,9 @@ JSON diagnostic schemas with a failing and corrected program.
   count, private-value size, runtime features, cached state and duration.
 
 The language server never executes generated Lua. It consumes the canonical
-semantic plan, and JSON materialization follows the existing isolated-worker
-and cancellation rules.
+semantic plan. JSON planning must follow the same bounded cancellation and
+recovery contract whether it remains in-process or later moves through an
+isolated worker; D5c decides and tests that execution model.
 
 ## User-defined derives later
 
@@ -1176,12 +1208,14 @@ paths; pure bundled output runs with no compiler present.
 
 The landed D5 baseline is narrower than closure. Derives are present in the
 source reference, generated reference and ejected `--format skill` language
-skill. Rechecking one parse is idempotent, plans are canonically hashed, the
-planner caps fields and semantic nodes, and the compiler currently reaches a
-byte-identical fixpoint. These are retained gates, not evidence that the editor
-and incremental model are complete. In particular, a runtime derive key still
-contains a filename and declaration line, generated JSON members share their
-derive-argument definition identity, and planning is still part of the whole
+skill. Rechecking one parse is idempotent, plan-hashing machinery exists, the
+planner caps fields and semantic nodes, and a pre-adoption compiler fixpoint
+run has completed byte-identically. These are retained gates, not evidence that
+the editor and incremental model are complete. In particular, the current
+recursive canonicalizer drops every nested field named `key`, which omits a
+Debug map's key type; nested record references carry filename-and-line-derived
+runtime keys into plan fingerprints; generated JSON members share their
+derive-argument definition identity; and planning is still part of the whole
 module check rather than an independently memoized query.
 
 #### D5a: generated-member semantic and editor model
@@ -1220,10 +1254,17 @@ provider name.
   reached semantic type dependencies and target/runtime policy. Diagnostic
   source locations travel beside the canonical result and do not participate
   in equality.
+- Define fingerprint input by an explicit projection of root envelope fields,
+  then serialize the projected value recursively without excluding names at
+  deeper levels. In particular, a Debug `{string: string}` map and
+  `{integer: string}` map have different behavior fingerprints. Never use a
+  recursive `key`/`fingerprint` name blacklist as the projection.
 - Separate a hygienic runtime registration key from semantic identity. The
   canonical plan and every nested record reference use resolved nominal
   identity that is stable across line moves and workspace relocation; filename
-  and source line never enter a semantic or behavior fingerprint.
+  and source line never enter a semantic or behavior fingerprint. Derive the
+  runtime key from resolved module identity and declaration identity rather
+  than the path spelling supplied at invocation.
 - Intern equal plans or compare their canonical serialized envelopes so an
   unchanged result supplies early cutoff even when an irrelevant input caused
   the query to run.
@@ -1237,10 +1278,12 @@ provider name.
   edits separately.
 
 Exit test: moving a declaration or relocating the project leaves semantic and
-behavior fingerprints unchanged; a body-only or irrelevant-annotation edit
-does not replan; an equal public plan cuts off consumers; a changed generated
-signature, contract, effect or behavior fingerprint invalidates exactly the
-modules that observed it; cached and cold output remain byte-identical.
+behavior fingerprints unchanged; absolute, relative and normalized spellings
+of one input emit identical bytes; Debug maps with different key types have
+different fingerprints; a body-only or irrelevant-annotation edit does not
+replan; an equal public plan cuts off consumers; a changed generated signature,
+contract, effect or behavior fingerprint invalidates exactly the modules that
+observed it; cached and cold output remain byte-identical.
 
 #### D5c: bounded work, cancellation and observations
 
@@ -1293,10 +1336,14 @@ invented for the provider API.
   accepted workloads.
 - Pin exact source/output line counts, LuaJIT loadability, runtime feature
   manifests and every generation boundary.
+- Change a derived Debug field between `{string: string}` and
+  `{integer: string}` and prove that its behavior fingerprint, cached plan and
+  emitted plan all change, while changing only invocation path spelling leaves
+  emitted bytes unchanged.
 - Run the full suite and the stage-one/stage-two compiler fixpoint after the
   compiler adoption, not only before derived records enter the compiler.
 
-Exit test: every D5a-D5d exit test passes; cached and cold builds are
+Exit test: every D5a–D5d exit test passes; cached and cold builds are
 byte-identical; unchanged public plans cut off downstream work; adversarial
 types cannot hang or overflow the compiler or LSP; the compiler using accepted
 derives rebuilds itself byte-identically.
