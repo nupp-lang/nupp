@@ -120,3 +120,10 @@ test("playground codegen drops effects removed by optimization", () => {
     "live effects must be recomputed before generation",
   );
 });
+
+test("the playground build rejects bootstrap syntax Fengari cannot parse", () => {
+  const build = readFileSync(new URL("../build.mjs", import.meta.url), "utf8");
+  assert.match(build, /function verifyFengariSyntax\(filename\)/);
+  assert.match(build, /lauxlib\.luaL_loadstring\(state, to_luastring\(source\)\)/);
+  assert.match(build, /verifyFengariSyntax\(path\.join\(dist, "nupp-bootstrap\.lua"\)\)/);
+});

@@ -46188,8 +46188,8 @@ end
 
 
 
-local ops = breakPoints ( line , |tok| -> ( tok . breakOp ) )
-local chain = breakPoints ( line , |tok| -> ( tok . chainStep ) )
+local ops = breakPoints ( line , function ( tok ) return tok . breakOp end )
+local chain = breakPoints ( line , function ( tok ) return tok . chainStep end )
 if # chain > 0 then
 return breakBefore ( # ops > 0 and ops or chain )
 end

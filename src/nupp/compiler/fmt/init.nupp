@@ -879,8 +879,8 @@ local function splitLine(line)
     -- A chain breaks between its steps before anything inside one of its calls breaks.
     -- An operator joining two operands is looser still, so a chain that is only one of
     -- those operands waits until the line is down to the chain.
-    local ops = breakPoints(line, |tok| -> tok.breakOp)
-    local chain = breakPoints(line, |tok| -> tok.chainStep)
+    local ops = breakPoints(line, function(tok) return tok.breakOp end)
+    local chain = breakPoints(line, function(tok) return tok.chainStep end)
     if #chain > 0 then
         return breakBefore(#ops > 0 and ops or chain)
     end

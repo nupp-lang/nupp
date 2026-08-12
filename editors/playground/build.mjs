@@ -1,14 +1,27 @@
 #!/usr/bin/env node
 // Bundles the playground into dist/. See README.md for what each piece is.
 import { build, context } from "esbuild";
-import { mkdirSync, copyFileSync, cpSync, existsSync } from "node:fs";
+import { mkdirSync, copyFileSync, cpSync, existsSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { lauxlib, lua, to_luastring } from "fengari";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(root, "dist");
 const watch = process.argv.includes("--watch");
+
+function verifyFengariSyntax(filename) {
+  const state = lauxlib.luaL_newstate();
+  const source = readFileSync(filename, "utf8");
+  const status = lauxlib.luaL_loadstring(state, to_luastring(source));
+  if (status !== lua.LUA_OK) {
+    const message = lua.lua_tojsstring(state, -1);
+    lua.lua_close(state);
+    throw new Error(`Fengari cannot parse ${filename}: ${message}`);
+  }
+  lua.lua_close(state);
+}
 
 mkdirSync(dist, { recursive: true });
 
@@ -97,6 +110,7 @@ async function run() {
       },
     }
   );
+  verifyFengariSyntax(path.join(dist, "nupp-bootstrap.lua"));
 
   copyFileSync(path.join(root, "README.md"), path.join(dist, "README.md"));
 }
