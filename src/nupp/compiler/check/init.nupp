@@ -911,6 +911,16 @@ function checkMod.check(
 
         return def
     end
+    c.generatedDefinition = function(tok, name, kind, identity)
+        if not tok then
+            return nil
+        end
+        local def = {filename = filename, token = tok, name = name, kind = kind, generatedIdentity = identity,}
+        result.symbols[#result.symbols + 1] = def
+        c.seenDefinitions[def] = true
+
+        return def
+    end
     c.markToken = function(tok, def, t, kind)
         if not tok then
             return

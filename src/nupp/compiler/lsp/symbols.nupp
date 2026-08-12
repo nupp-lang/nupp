@@ -72,6 +72,38 @@ local function declarationChildren(stat, source)
         end
     end
 
+    local nominal = stat.resolvedType
+    if nominal and nominal.tag == "nominal" then
+        local generated = {}
+        for name, definition in pairs(nominal.derivedDefinitions or {}) do
+            generated[#generated + 1] = {name = name, definition = definition}
+        end
+        for name, definition in pairs(nominal.derivedStaticDefinitions or {}) do
+            generated[#generated + 1] = {name = name, definition = definition, static = true}
+        end
+        table.sort(generated, function(a, b)
+            if a.name ~= b.name then
+                return a.name < b.name
+            end
+            return not a.static and b.static
+        end)
+        for _, item in ipairs(generated) do
+            local definition = item.definition
+            local origin = definition and definition.token
+            if origin then
+                children[
+                    #children + 1
+                ] = {
+                    name = item.name .. " (generated" .. (item.static and ", static" or "") .. ")",
+                    kind = symbols.SYMBOL_KINDS[definition.kind] or symbols.SYMBOL_KINDS.method,
+                    range = text.tokenRange(source, origin),
+                    selectionRange = text.tokenRange(source, origin),
+                    children = wire.array({}),
+                }
+            end
+        end
+    end
+
     return wire.array(children)
 end
 

@@ -239,7 +239,7 @@ function navigate.install(s: navigate.Session): navigate.Api
         -- compiles nor says why. Once references are requirement-identity based this
         -- can allow the single-contract case; a name answered for two coalesced
         -- contracts stays refused, since one answer cannot be renamed two ways.
-        if def.associated then
+        if def.associated or def.generatedBy then
             return false
         end
         if isOpenDefinition(def) then
@@ -292,7 +292,8 @@ function navigate.install(s: navigate.Session): navigate.Api
             return locations
         end
         local seen = {}
-        for _, entry in ipairs(documentsMentioning(def.token.text)) do
+        local spelling = def.generatedBy and def.name or def.token.text
+        for _, entry in ipairs(documentsMentioning(spelling)) do
             local declaring = uriToPath(entry.uri) == def.filename
             for _, tok in ipairs(entry.result.tokens or {}) do
                 -- Told apart by where it is, not which object it is: a file checked

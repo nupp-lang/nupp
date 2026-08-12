@@ -89,11 +89,26 @@ record query.Q
 
     --- How many times each query actually computed, for tests and tooling.
     stats: {[string]: integer}
+
+    --- Memo answers and equal-result early cutoffs, kept separately from executions.
+    hits: {[string]: integer}
+
+    cutoffs: {[string]: integer}
 end
 
 --- A new, empty query database.
 function query.new(): query.Q
-    return new query.Q(revision = 1, inputs = {}, defs = {}, memo = {}, stack = {}, active = {}, stats = {})
+    return new query.Q(
+        revision = 1,
+        inputs = {},
+        defs = {},
+        memo = {},
+        stack = {},
+        active = {},
+        stats = {},
+        hits = {},
+        cutoffs = {}
+    )
 end
 
 --- Registers how to compute a derived query.
@@ -164,6 +179,7 @@ function query.Q:get(name: string, key: any): any
     local entry = m[key]
 
     if entry and entry.verifiedAt == self.revision then
+        self.hits[name] = (self.hits[name] or 0) + 1
         record(self, name, key)
         return entry.value
     end
@@ -187,6 +203,7 @@ function query.Q:get(name: string, key: any): any
                     return false
                 end
             end
+
             return true
         end)
         self.stack[#self.stack] = nil
@@ -195,6 +212,7 @@ function query.Q:get(name: string, key: any): any
         end
         if clean then
             entry.verifiedAt = self.revision
+            self.hits[name] = (self.hits[name] or 0) + 1
             record(self, name, key)
             return entry.value
         end
@@ -220,6 +238,7 @@ function query.Q:get(name: string, key: any): any
             same = entry.value == value
         end
         if same then
+            self.cutoffs[name] = (self.cutoffs[name] or 0) + 1
             changedAt = entry.changedAt -- early cutoff: not really a change
             value = entry.value
         end

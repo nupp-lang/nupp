@@ -41,7 +41,11 @@ type cache.ModuleRecord = {
 
     --- Keyed project declaration lookups made while checking this module. Their
     --- semantic fingerprints permit reuse across unrelated project-index edits.
-    projectDependencies: {{name: string?, key: string?, fingerprint: string?}}?,
+    projectDependencies: {{
+        name: string?,
+        key: string?,
+        fingerprint: string?
+    }}?,
 
     --- The compiler-recognized runtime features this module needs staging for.
     effects: {[string]: any}?,
@@ -63,7 +67,10 @@ type cache.ModuleRecord = {
 
     --- Canonical provider blueprints and rendered backend outputs, with public build
     --- observations alongside them. Plain data only; never evaluator handles.
-    materializations: {any}?
+    materializations: {any}?,
+
+    --- Compiler-owned derive plan observations. Reporting only; never a build key.
+    derives: {any}?
 }
 
 --- What one dependency's last build produced, as its provider described it.

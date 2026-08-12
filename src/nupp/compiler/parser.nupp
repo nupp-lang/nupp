@@ -34,7 +34,10 @@ type parser.ParseResult = {
     tokens: {Token},
 
     --- Syntax errors, in source order. Parsing continued past all of them.
-    errors: {lexer.LexError}
+    errors: {lexer.LexError},
+
+    --- Compiler passes attach reporting-only derive observations after checking.
+    deriveObservations: {any}?
 }
 
 local add = cst.add
@@ -1101,13 +1104,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             j = j + 2
         end
 
-        return tokens[
-            j
-        ] ~= nil and tokens[
-            j
-        ].kind == ")" and tokens[
-            j + 1
-        ] ~= nil and tokens[j + 1].kind == "="
+        return tokens[j] ~= nil and tokens[j].kind == ")" and tokens[j + 1] ~= nil and tokens[j + 1].kind == "="
     end
 
     --- A call's arguments: parenthesized, a string, or a table.

@@ -71,6 +71,7 @@ type modules.Result = {
     outputs: {[string]: boolean},
 
     materializations: {any},
+    derives: {any},
 
     --- Every native feature the built modules asked for, merged.
     effects: {[string]: any}?
@@ -513,6 +514,7 @@ local function copyModuleRecord(record)
         diags = record.diags,
         coverage = record.coverage,
         materializations = record.materializations,
+        derives = record.derives,
     }
 end
 
@@ -701,6 +703,7 @@ local function buildModules(
         end
         said[name] = mine
         local materializations = materializeObserve.collect(result.result and result.result.root, path)
+        local derives = result.result and result.result.deriveObservations or {}
         local projectDependencies = inc.projectDependencies(path)
         records[
             name
@@ -711,6 +714,8 @@ local function buildModules(
                 result.exports
             ) .. "\0nominal-callables:" .. (
                 result.exports.nominalEffectFingerprint or ""
+            ) .. "\0derives:" .. (
+                result.exports.deriveInterfaceFingerprint or ""
             ) .. (external and ("\0" .. sourceHash) or "")
         ), artifactHash = artifactHash, dependencies = jsonArray(
             depNames
@@ -720,7 +725,9 @@ local function buildModules(
             -- Only what checking found. Generation runs once per artifact and a reused
             -- module does not run it again, so its remarks belong to the run that
             -- produced them and not to the record.
-            diags = jsonArray(result.diags or {}), coverage = coverage, materializations = jsonArray(materializations),}
+            diags = jsonArray(
+            result.diags or {}
+        ), coverage = coverage, materializations = jsonArray(materializations), derives = jsonArray(derives),}
         codeFor[name] = code
         reused[name] = nil
         for _, depName in ipairs(depNames) do
@@ -754,7 +761,9 @@ local function buildModules(
                     previous.projectDependencies
                 ) == "table" and type(
                     previous.effects
-                ) == "table" and type(previous.diags) == "table" and type(previous.materializations) == "table"
+                ) == "table" and type(
+                    previous.diags
+                ) == "table" and type(previous.materializations) == "table" and type(previous.derives) == "table"
                 if usable and previous then
                     for _, dependency in ipairs(previous.projectDependencies or {}) do
                         if type(dependency) ~= "table" then
@@ -887,13 +896,17 @@ local function buildModules(
         return nil, checkFailed and "project has errors" or "code generation failed"
     end
     local materializations = {}
+    local derives = {}
     for _, name in ipairs(order) do
         for _, observation in ipairs(records[name].materializations or {}) do
             materializations[#materializations + 1] = observation
         end
+        for _, observation in ipairs(records[name].derives or {}) do
+            derives[#derives + 1] = observation
+        end
     end
     if checkOnly then
-        return {outputs = {}, materializations = materializations}
+        return {outputs = {}, materializations = materializations, derives = derives}
     end
 
     -- Every module compiled, with no closure to prune it back to. A stale dependency
@@ -952,7 +965,7 @@ local function buildModules(
         end
     end
 
-    return {outputs = outputs, effects = effects, materializations = materializations}
+    return {outputs = outputs, effects = effects, materializations = materializations, derives = derives}
 end
 
 modules.typeFingerprint = typeFingerprint

@@ -131,6 +131,67 @@ function M.interfaceCutoffAcrossModules()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.derivePlansMemoizeAndPublishBehaviorChanges()
+   local dir = os.tmpname()
+   os.remove(dir)
+   os.execute("mkdir -p '" .. dir .. "'")
+   local depPath = dir .. "/dep.nupp"
+   local mainPath = dir .. "/main.nupp"
+   local function write(path, source)
+      local file = assert(io.open(path, "wb"))
+      file:write(source)
+      file:close()
+   end
+   local dep = table.concat({
+      "local dep = {}",
+      "@derive(Debug, Default)",
+      "record dep.Config",
+      "   entries: {[string]: string}",
+      "end",
+      "local function body(): integer",
+      "   return 1",
+      "end",
+      "return dep",
+   }, "\n")
+   write(depPath, dep)
+   write(mainPath, table.concat({
+      "local dep = require('dep')",
+      "local config = dep.Config.default()",
+      "return config:debug()",
+   }, "\n"))
+
+   local inc = incremental.new(dir, {cache = false})
+   local cold = inc.checkFile(mainPath)
+   assertEq(#cold.diags, 0, "derived dependency checks cold")
+   assertEq(inc.deriveStats().executions, 1, "one cold derive plan query")
+   local coldChecks = inc.q.stats.checkModule
+   local coldFingerprint = inc.checkFile(depPath).exports.deriveInterfaceFingerprint
+
+   inc.changeDocument(depPath, dep:gsub("return 1", "return 2"))
+   assertEq(#inc.checkFile(mainPath).diags, 0, "body edit stays clean")
+   local warm = inc.deriveStats()
+   assertEq(warm.executions, 1,
+      "a body-only edit reuses the canonical plan query")
+   assert(warm.cacheHits >= 1, "the warm plan records a cache hit")
+   assertEq(inc.q.stats.checkModule, coldChecks + 1,
+      "unchanged derive interface cuts off its consumer")
+
+   inc.changeDocument(depPath, dep:gsub("%{%[string%]%: string%}",
+      "{[integer]: string}"))
+   assertEq(#inc.checkFile(mainPath).diags, 0, "behavior edit stays well typed")
+   assertEq(inc.deriveStats().executions, 2,
+      "a reached field-type edit computes a new plan")
+   assertEq(inc.q.stats.checkModule, coldChecks + 3,
+      "changed derive behavior invalidates the requiring module")
+   local changed = inc.checkFile(depPath)
+   assert(changed.exports.deriveInterfaceFingerprint,
+      "the module publishes an explicit derive interface")
+   assert(changed.exports.deriveInterfaceFingerprint ~= coldFingerprint,
+      "the checked result publishes the changed behavior envelope")
+
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.deprecationMetadataInvalidatesModuleDependents()
    local dir = os.tmpname()
    os.remove(dir)

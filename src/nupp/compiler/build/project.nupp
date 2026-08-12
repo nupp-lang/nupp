@@ -176,7 +176,9 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
             return 1
         end
         return (
-            require("nupp.compiler.doc").build(root, config, target, {checkOnly = opts.checkOnly, output = opts.outDir,})
+            require(
+                "nupp.compiler.doc"
+            ).build(root, config, target, {checkOnly = opts.checkOnly, output = opts.outDir,})
         )
     elseif target.kind and target.kind ~= "modules" and target.kind ~= "bundle" and target.kind ~= "binary" then
         -- A bundle is a modules build plus one more file, and a binary is a bundle
@@ -362,6 +364,7 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
         opts.produced.target = targetKey
         opts.produced.outputs = mine
         opts.produced.materializations = materializeObserve.public(result.materializations)
+        opts.produced.derives = result.derives
     end
     local ok, stateErr = saveState(statePath, newState)
     if not ok then

@@ -45,6 +45,13 @@ local function exists(path)
    return false
 end
 
+local function read(path)
+   local file = assert(io.open(path, "rb"))
+   local contents = file:read("*a")
+   file:close()
+   return contents
+end
+
 local M = {}
 
 local LIB = table.concat({
@@ -439,6 +446,47 @@ function M.checksModulesNothingRequires()
    assert(out:find("NUPP2002", 1, true),
       "the orphan's type error is reported: " .. out)
    assert(out:find("orphan.g.nupp", 1, true), "and named: " .. out)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.jsonBuildReportsColdAndWarmDeriveObservations()
+   local dir = tempProject({
+      ["nupp.lua"] = 'return {include = {"."}}\n',
+      ["model.g.nupp"] = [[
+@derive(Debug, Default, JSON)
+local record Model
+    value: integer
+end
+return Model.default()
+]],
+   })
+   local first = require("cjson").decode(capture(
+      ("cd '%s' && '%s' build model.g.nupp --json"):format(dir, NUPP)
+   ))
+   assert(first.ok and #first.derives == 3, "cold build reports all derives")
+   local byProvider = {}
+   for _, observation in ipairs(first.derives) do byProvider[observation.provider] = observation end
+   assert(byProvider.Debug and byProvider.Default and byProvider.JSON,
+      "build observations name every provider")
+   assert(byProvider.JSON.generatedMembers == 3
+      and byProvider.JSON.canonicalBytes > 0
+      and byProvider.JSON.renderedBytes > 0,
+      "build observations expose bounded generation facts")
+   local coldBytes = read(dir .. "/model.lua")
+
+   local second = require("cjson").decode(capture(
+      ("cd '%s' && '%s' build model.g.nupp --json"):format(dir, NUPP)
+   ))
+   assert(second.ok and #second.derives == 3,
+      "cached build preserves derive observations")
+   for index, observation in ipairs(first.derives) do
+      assertEq(second.derives[index].semanticFingerprint,
+         observation.semanticFingerprint, "cached/cold derive fingerprint")
+      assertEq(second.derives[index].canonicalBytes,
+         observation.canonicalBytes, "cached/cold derive size")
+   end
+   assertEq(read(dir .. "/model.lua"), coldBytes,
+      "cached and cold derived output bytes")
    os.execute("rm -rf '" .. dir .. "'")
 end
 

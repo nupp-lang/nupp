@@ -44,7 +44,14 @@ type tree.Definition = {
     kind: string?,
 
     --- The module a `require` bound to this name.
-    requiredModule: string?
+    requiredModule: string?,
+
+    --- A compiler-generated member has a semantic key separate from the written
+    --- derive argument token it uses as its navigation origin.
+    generatedIdentity: string?,
+    generatedBy: string?,
+    generatedOwner: string?,
+    generatedNamespace: string?
 }
 
 --- One use of a module member, with the statement that declares it when this use is the
@@ -94,9 +101,16 @@ function tree.tokenAt(result: tree.Parse?, offset: number): lexer.Token?
 end
 
 function tree.symbolKey(def: tree.Definition?): string?
-    if not def or not def.filename or not def.token then
+    if not def then
         return nil
     end
+    if def.generatedIdentity then
+        return "generated:" .. def.generatedIdentity
+    end
+    if not def.filename or not def.token then
+        return nil
+    end
+
     return def.filename .. ":" .. tostring(def.token.offset)
 end
 

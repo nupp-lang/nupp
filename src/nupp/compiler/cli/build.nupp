@@ -61,14 +61,56 @@ local command = spec.command{name = "build", summary = "Build source files or a 
                     abis = {type = "object"},
                 },
                 required = {
-                    "source", "line", "column", "provider", "schema", "fingerprint",
-                    "backend", "blueprintSize", "generatedSize", "runtimeFeatures", "abis"
+                    "source",
+                    "line",
+                    "column",
+                    "provider",
+                    "schema",
+                    "fingerprint",
+                    "backend",
+                    "blueprintSize",
+                    "generatedSize",
+                    "runtimeFeatures",
+                    "abis"
+                },
+            },
+        },
+        derives = {
+            type = "array",
+            description = "Compiler-owned derive plans and their bounded generation facts.",
+            items = {
+                type = "object",
+                properties = {
+                    provider = {type = "string"},
+                    owner = {type = "string"},
+                    semanticFingerprint = {type = "string"},
+                    generatedMembers = {type = "integer"},
+                    canonicalBytes = {type = "integer"},
+                    renderedBytes = {type = "integer"},
+                    effects = {type = "array", items = {type = "string"}},
+                    cached = {type = "boolean"},
+                    durationMs = {type = "number"},
+                    generatedLocals = {type = "integer"},
+                    maxGeneratedUpvalues = {type = "integer"},
+                },
+                required = {
+                    "provider",
+                    "owner",
+                    "semanticFingerprint",
+                    "generatedMembers",
+                    "canonicalBytes",
+                    "renderedBytes",
+                    "effects",
+                    "cached",
+                    "durationMs",
+                    "generatedLocals",
+                    "maxGeneratedUpvalues"
                 },
             },
         },
         ok = {type = "boolean", description = "Whether the build completed. False when a " .. "diagnostic stopped it."},
     },
-    required = {"ok", "diagnostics", "written", "materializations"},
+    required = {"ok", "diagnostics", "written", "materializations", "derives"},
 }, detail = [[Manifest target options cannot be combined with explicit source files.
 Use 'nupp tasks' to discover target names and configuration.
 
@@ -101,11 +143,13 @@ local function run(parsed: any): integer
     local compile = require("nupp.compiler.cli.compile")
     local settings = compile.settings(values, asJson and diagnostics or nil)
     local materializations: {any} = {}
+    local derives: {any} = {}
     local function finish(
         code: integer,
         builtTarget: any,
         outputs: {string},
-        observed: {any}?
+        observed: {any}?,
+        observedDerives: {any}?
     ): integer
         if asJson then
             reportMod.write({
@@ -114,6 +158,7 @@ local function run(parsed: any): integer
                 target = builtTarget,
                 written = outputs,
                 materializations = observed or materializations,
+                derives = observedDerives or derives,
             })
         end
 
@@ -137,15 +182,16 @@ local function run(parsed: any): integer
                 produced = asJson and produced or nil
             }
         )
-        return finish(code, produced.target, produced.outputs or {}, produced.materializations)
+        return finish(code, produced.target, produced.outputs or {}, produced.materializations, produced.derives)
     end
     local process = require("nupp.compiler.build.process")
     if outDir and process.run(process.mkdirCommand(outDir)) ~= 0 then
         io.stderr:write("nupp: cannot create output directory " .. outDir .. "\n")
-        return finish(1, nil, {}, materializations)
+        return finish(1, nil, {}, materializations, derives)
     end
     local env = require("nupp.compiler.env").new(".")
     settings.materializations = materializations
+    settings.derives = derives
     local failed = false
     local written: {[string]: boolean} = {}
     local outputs: {string} = {}
@@ -208,7 +254,7 @@ local function run(parsed: any): integer
     end
     table.sort(outputs)
 
-    return finish(failed and 1 or 0, nil, outputs, materializations)
+    return finish(failed and 1 or 0, nil, outputs, materializations, derives)
 end
 
 return new spec.Handler(spec = command, run = run)

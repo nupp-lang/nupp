@@ -168,8 +168,10 @@ record types.MatchPattern
     paramCount: integer?
     paramPackBinder: types.PackVar?
     retPackBinder: types.PackVar?
+
     --- A tuple suffix matched by `unpackof` after the fixed children.
     tupleTail: types.MatchPattern?
+
     --- Pack binders in a nominal pattern, in nominal pack-parameter order.
     nominalPackBinders: {types.PackVar}?
 end
@@ -609,7 +611,11 @@ record types.Nominal
 
     --- Generated declaration members and the provider requests that own them.
     derivedByname: {[string]: types.Type}?
+
     derivedStaticByname: {[string]: types.Type}?
+    derivedDefinitions: {[string]: any}?
+    derivedStaticDefinitions: {[string]: any}?
+    derivedContracts: {[any]: boolean}?
     deriveProviders: {[string]: boolean}?
     deriveKey: string?
     derivePlan: any
@@ -673,10 +679,12 @@ record types.Nominal
     --- The audited dynamic discharge container shipped by the standard library.
     resourceSet: boolean?
 
-    --- The compiler-provided LPeg declaration whose generic argument is its capture tuple.
+    --- The compiler-provided LPeg declaration whose generic argument is its capture
+    --- tuple.
     lpegPattern: boolean?
 
-    --- The compiler-provided LPeg module record, used to preserve callback result packs.
+    --- The compiler-provided LPeg module record, used to preserve callback result
+    --- packs.
     lpegLibrary: boolean?
 
     --- The capture-carrying pattern declaration exported by that module.
@@ -825,6 +833,7 @@ end
 --- digest is `typeFingerprint` in `nupp.compiler.build.modules`, which is computed from
 --- the type itself and is the same in every process.
 local nextSerial: integer = 0
+
 local function serial(prefix: string): string
     nextSerial = nextSerial + 1
 
@@ -834,7 +843,8 @@ end
 --- Marks a serial carries, so the questions that used to be asked of a structural id
 --- can still be asked of a short one.
 ---
---- `hasTypevar` and `hasProjection` read their answer off the id rather than walking the
+--- `hasTypevar` and `hasProjection` read their answer off the id rather than walking
+--- the
 --- type, and an id that spells nothing would answer no to both. So a type variable, a
 --- pack variable, a const variable and a projection each stamp a mark, and anything
 --- interned from a part that carries one carries it too. The question stays a search of
@@ -843,6 +853,7 @@ end
 ---
 --- Adding a mark means adding it here and giving its constructor's key the same prefix.
 local MARK_TYPEVAR = "!t"
+
 local MARK_PACKVAR = "!p"
 local MARK_CONSTVAR = "!c"
 local MARK_PROJECTION = "!j"
@@ -917,7 +928,8 @@ end
 --- module interned 1,335,624 times and hit 1,317,356 of those, so 98.6% of the closures
 --- were built to be thrown away.
 ---
---- Spelled `interned(key) or intern(key, function() ... end)` at each constructor, which
+--- Spelled `interned(key) or intern(key, function() ... end)` at each constructor,
+--- which
 --- leaves the closure an argument that a hit never gets as far as evaluating.
 local function interned(key: string): types.Type?
     return arena[key]
@@ -1583,9 +1595,11 @@ function types.matchPattern(
     -- Length in front for the same reason as in `types.neutral`: these are joined with
     -- a separator a literal part may contain.
     for j, part in ipairs(templateParts or {}) do
-        partIds[j] = type(part) == "string"
-            and "s" .. #(part as string) .. ":" .. (part as string)
-            or "p:" .. (part as types.MatchPattern).id
+        partIds[
+            j
+        ] = type(
+            part
+        ) == "string" and "s" .. #(part as string) .. ":" .. (part as string) or "p:" .. (part as types.MatchPattern).id
     end
     for index, nominalBinder in ipairs(nominalPackBinders or {}) do
         nominalPackIds[index] = nominalBinder.id
@@ -1606,9 +1620,9 @@ function types.matchPattern(
         paramCount or "-"
     ) .. ":" .. (
         paramPackBinder and paramPackBinder.id or "-"
-    ) .. ":" .. (retPackBinder and retPackBinder.id or "-") .. ":" .. (
-        tupleTail and tupleTail.id or "-"
-    ) .. ":" .. table.concat(nominalPackIds, ",") .. ")"
+    ) .. ":" .. (
+        retPackBinder and retPackBinder.id or "-"
+    ) .. ":" .. (tupleTail and tupleTail.id or "-") .. ":" .. table.concat(nominalPackIds, ",") .. ")"
     local found = patternArena[id]
     if found then
         return found
@@ -2177,9 +2191,11 @@ function types.neutral(
     -- collision unreachable in practice rather than impossible.
     local templateIds = {}
     for j, part in ipairs(templateParts or {}) do
-        templateIds[j] = type(part) == "string"
-            and "s" .. #(part as string) .. ":" .. (part as string)
-            or "t:" .. (part as types.Type).id
+        templateIds[
+            j
+        ] = type(
+            part
+        ) == "string" and "s" .. #(part as string) .. ":" .. (part as string) or "t:" .. (part as types.Type).id
     end
     local armIds = {}
     for j, arm in ipairs(matchArms or {}) do
@@ -2317,9 +2333,11 @@ function types.hasTypevar(t: types.Type): boolean
             end
         end
         for _, argument in ipairs(t.packArgs or {}) do
-            if argument.id:find(MARK_TYPEVAR, 1, true)
-                or argument.id:find(MARK_PACKVAR, 1, true)
-                or argument.id:find(MARK_CONSTVAR, 1, true) then
+            if argument.id:find(
+                MARK_TYPEVAR,
+                1,
+                true
+            ) or argument.id:find(MARK_PACKVAR, 1, true) or argument.id:find(MARK_CONSTVAR, 1, true) then
                 return true
             end
         end
@@ -2333,9 +2351,12 @@ function types.hasTypevar(t: types.Type): boolean
     -- A nominal is not interned, so it inherits no mark and the arguments above are
     -- where its variables show. Everything else carries its parts' marks; see
     -- `inheritedMarks`. A projection's mark is deliberately not one of these.
-    return t.id:find(MARK_TYPEVAR, 1, true) ~= nil
-        or t.id:find(MARK_PACKVAR, 1, true) ~= nil
-        or t.id:find(MARK_CONSTVAR, 1, true) ~= nil
+
+    return t.id:find(
+        MARK_TYPEVAR,
+        1,
+        true
+    ) ~= nil or t.id:find(MARK_PACKVAR, 1, true) ~= nil or t.id:find(MARK_CONSTVAR, 1, true) ~= nil
 end
 
 ---------------------------------------------------------------------------

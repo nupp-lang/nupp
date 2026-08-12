@@ -136,6 +136,9 @@ record incremental.Inc
     --- The header store, for tests that need to see hits and misses rather than infer
     --- them from a stopwatch.
     headerStore: any
+
+    --- Derive planning executions, memo hits, equal cutoffs and module checks.
+    deriveStats: function(): any
 end
 
 --- Builds a query graph rooted at `rootDir`.
@@ -337,6 +340,18 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return self:get("projectModulePath", name) or envMod.findModulePath(env, name)
     end
 
+    -- Plans are immutable semantic envelopes keyed by their behavior fingerprint.
+    -- The checker still supplies source provenance separately on each run; this query
+    -- owns only the canonical result and therefore safely interns it across edits.
+    q:define("planDerives", function(_, fingerprint)
+        return fingerprint
+    end)
+    local function internDerivePlan(self, plan)
+        local executions = q.stats.planDerives or 0
+        q:get("planDerives", plan.fingerprint)
+        return plan, (q.stats.planDerives or 0) == executions
+    end
+
     q:define("checkModule", function(self: any, path: any): incremental.CheckResult
         local result = self:get("parse", path)
         if not result then
@@ -361,7 +376,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             return self:get("projectModuleBasenames", short)
         end, projectAnnotations = function(_, name)
             return self:get("projectAnnotations", name)
-        end,}, {__index = env})
+        end, internDerivePlan = internDerivePlan,}, {__index = env})
         local external = envMod.isDependencyTypePath(env, path)
         local diags, moduleType, exports = check.check(result, path, qenv, {moduleName = envMod.moduleNameForPath(
             env,
@@ -382,6 +397,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             return bundled and {
                 type = bundled.type,
                 nominalEffectFingerprint = bundled.exports and bundled.exports.nominalEffectFingerprint,
+                deriveInterfaceFingerprint = bundled.exports and bundled.exports.deriveInterfaceFingerprint,
             } or nil
         end
         -- nil on the re-entrant edge of a require cycle: the module is mid-check, so
@@ -391,12 +407,15 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return r and {
             type = r.moduleType,
             nominalEffectFingerprint = r.exports and r.exports.nominalEffectFingerprint,
+            deriveInterfaceFingerprint = r.exports and r.exports.deriveInterfaceFingerprint,
         } or nil
     end, function(left, right)
         if left == nil or right == nil then
             return left == right
         end
-        return left.type == right.type and left.nominalEffectFingerprint == right.nominalEffectFingerprint
+        return left.type == right.type
+            and left.nominalEffectFingerprint == right.nominalEffectFingerprint
+            and left.deriveInterfaceFingerprint == right.deriveInterfaceFingerprint
     end)
 
     local function sameTypeMap(left, right)
@@ -444,7 +463,9 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         if left == nil or right == nil then
             return left == right
         end
-        return left.nominalEffectFingerprint == right.nominalEffectFingerprint and sameTypeMap(
+        return left.nominalEffectFingerprint == right.nominalEffectFingerprint
+            and left.deriveInterfaceFingerprint == right.deriveInterfaceFingerprint
+            and sameTypeMap(
             left.types,
             right.types
         ) and sameTypeMap(
@@ -607,6 +628,15 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     function inc.persist()
         envMod.persist(env)
         headerStore.save()
+    end
+
+    function inc.deriveStats(): any
+        return {
+            executions = q.stats.planDerives or 0,
+            cacheHits = q.hits.planDerives or 0,
+            equalCutoffs = q.cutoffs.planDerives or 0,
+            downstreamChecks = q.stats.checkModule or 0,
+        }
     end
 
     return inc

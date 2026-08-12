@@ -52,7 +52,8 @@ type state.ModuleExports = {
     typeDefs: {[string]: any},
     values: {[string]: Type},
     valueDefs: {[string]: any},
-    nominalEffectFingerprint: string?
+    nominalEffectFingerprint: string?,
+    deriveInterfaceFingerprint: string?
 }
 
 --- One thing to report about a file.
@@ -499,6 +500,10 @@ record state.Checker
 
     --- Records where a name was declared, for the editor.
     definition: function(tok: any, kind: string?): any
+
+    --- Records a compiler-generated member with its own semantic identity while
+    --- retaining a written token as its navigation origin.
+    generatedDefinition: function(tok: any, name: string, kind: string, identity: string): any
 
     --- Resolves an alias hoisted to the top of its block, the first time anything names
     --- it.

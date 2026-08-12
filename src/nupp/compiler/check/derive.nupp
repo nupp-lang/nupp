@@ -2,51 +2,45 @@
 -- lowers the closed provider set without parsing or synthesizing source syntax.
 
 local T = require("nupp.compiler.types")
+local cst = require("nupp.compiler.cst")
 local relations = require("nupp.compiler.relations")
 local generics = require("nupp.compiler.generics")
 local hash = require("nupp.compiler.build.hash")
-local fs = require("nupp.compiler.fs")
+local planCodec = require("nupp.compiler.derive_plan")
 local state = require("nupp.compiler.check.state")
 
 local derive = {}
 
 local PROVIDERS = {Debug = true, Default = true, From = true, JSON = true}
+local PROVIDER_ABI = {Debug = 1, Default = 1, From = 1, JSON = 1}
+local HELPER_ABI = {debug = 1, default = 1, from = 1, json = 1}
 local NUMERIC = {
-    number = true, integer = true, float = true,
-    int8 = true, int16 = true, int32 = true,
-    uint8 = true, uint16 = true, uint32 = true,
+    number = true,
+    integer = true,
+    float = true,
+    int8 = true,
+    int16 = true,
+    int32 = true,
+    uint8 = true,
+    uint16 = true,
+    uint32 = true,
 }
-local INTEGER = {
-    integer = true, int8 = true, int16 = true, int32 = true,
-    uint8 = true, uint16 = true, uint32 = true,
-}
+local INTEGER = {integer = true, int8 = true, int16 = true, int32 = true, uint8 = true, uint16 = true, uint32 = true,}
 local RANGES = {
-    int8 = {-128, 127}, int16 = {-32768, 32767}, int32 = {-2147483648, 2147483647},
-    uint8 = {0, 255}, uint16 = {0, 65535}, uint32 = {0, 4294967295},
+    int8 = {-128, 127},
+    int16 = {-32768, 32767},
+    int32 = {-2147483648, 2147483647},
+    uint8 = {0, 255},
+    uint16 = {0, 65535},
+    uint32 = {0, 4294967295},
     integer = {-9007199254740991, 9007199254740991},
 }
 local MAX_FIELDS, MAX_PLAN_NODES = 2048, 16384
+local MAX_GENERATED_MEMBERS = 6
 
-local function canonical(value)
-    local kind = type(value)
-    if kind == "nil" then return "n"
-    elseif kind == "boolean" then return value and "t" or "f"
-    elseif kind == "number" then return "d" .. string.format("%.17g", value)
-    elseif kind == "string" then return "s" .. #value .. ":" .. value
-    elseif kind ~= "table" then return "x" .. tostring(value) end
-    local keys = {}
-    for key in pairs(value) do
-        if key ~= "key" and key ~= "fingerprint" then keys[#keys + 1] = key end
-    end
-    table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
-    local out = {"{"}
-    for _, key in ipairs(keys) do
-        out[#out + 1] = canonical(key)
-        out[#out + 1] = canonical(value[key])
-    end
-    out[#out + 1] = "}"
-    return table.concat(out)
-end
+derive.MAX_FIELDS = MAX_FIELDS
+derive.MAX_PLAN_NODES = MAX_PLAN_NODES
+derive.MAX_GENERATED_MEMBERS = MAX_GENERATED_MEMBERS
 
 record derive.Ops
     merge: function(stat: any, nominal: any): nil
@@ -55,26 +49,39 @@ end
 
 local function argumentName(arg)
     local expr = arg and arg.expr
-    if not expr then return nil end
+    if not expr then
+        return nil
+    end
     if expr.kind == "name" then
         return expr.token and expr.token.text or nil
     elseif expr.kind == "string" then
         local text = expr.token and expr.token.text or ""
         return #text >= 2 and text:sub(2, -2) or nil
     end
+
     return nil
 end
 
 local function constant(expr)
-    if not expr then return nil, false end
-    if expr.kind == "nilExpr" then return nil, true end
-    if expr.kind == "trueExpr" then return true, true end
-    if expr.kind == "falseExpr" then return false, true end
+    if not expr then
+        return nil, false
+    end
+    if expr.kind == "nilExpr" then
+        return nil, true
+    end
+    if expr.kind == "trueExpr" then
+        return true, true
+    end
+    if expr.kind == "falseExpr" then
+        return false, true
+    end
     if expr.kind == "number" or expr.kind == "string" then
         local chunk = loadstring("return " .. (expr.token and expr.token.text or "nil"))
         if chunk then
             local ok, value = pcall(chunk)
-            if ok then return value, true end
+            if ok then
+                return value, true
+            end
         end
         return nil, false
     end
@@ -82,7 +89,9 @@ local function constant(expr)
         local out, index = {}, 1
         for _, field in ipairs(expr.fields or {}) do
             local value, ok = constant(field.value)
-            if not ok then return nil, false end
+            if not ok then
+                return nil, false
+            end
             if field.kind == "fieldItem" then
                 out[index], index = value, index + 1
             elseif field.kind == "fieldNamed" then
@@ -93,13 +102,17 @@ local function constant(expr)
         end
         return out, true
     end
+
     return nil, false
 end
 
 local function annotation(annotations, name)
     for _, item in ipairs(annotations or {}) do
-        if item.name == name then return item end
+        if item.name == name then
+            return item
+        end
     end
+
     return nil
 end
 
@@ -109,16 +122,24 @@ local function annotationArgument(item, name)
             return arg.value, arg.kind == "nil"
         end
     end
+
     return nil, false
 end
 
 local function withoutNil(t)
-    if t.tag ~= "union" or not t.hasNil then return nil end
+    if t.tag ~= "union" or not t.hasNil then
+        return nil
+    end
     local rest = {}
     for _, member in ipairs(t.members) do
-        if member ~= T.nil_ then rest[#rest + 1] = member end
+        if member ~= T.nil_ then
+            rest[#rest + 1] = member
+        end
     end
-    if #rest == 1 then return rest[1] end
+    if #rest == 1 then
+        return rest[1]
+    end
+
     return #rest > 1 and T.union(rest) or nil
 end
 
@@ -129,6 +150,7 @@ local function fieldNodes(stat)
             out[entry.name.text] = entry
         end
     end
+
     return out
 end
 
@@ -136,30 +158,87 @@ local function shapeFields(t, make)
     local fields = {}
     for _, field in ipairs(t.fields or {}) do
         local ft = field.read or field.type or field.write
-        if not ft then return nil end
+        if not ft then
+            return nil
+        end
         local spec = make(ft)
-        if not spec then return nil end
+        if not spec then
+            return nil
+        end
         fields[#fields + 1] = {name = field.name, type = spec}
     end
+
     return fields
 end
 
 --- Installs one run's derive merger and finalizer.
 function derive.install(c: state.Checker): derive.Ops
+    c.result.cancelled = nil
+    c.result.deriveAborted = nil
+    c.result.deriveObservations = nil
+    c.result.deriveInterface = nil
     local pending = {}
     local ops = new derive.Ops()
     local planNodes, planLimitAt, planLimitReported = 0, nil, false
     local currentItem = nil
+    local keyOccurrences = {}
+    local aborted, abortReason = false, nil
+    local budget = c.opts and c.opts.deriveBudget or nil
+    local budgetReported = false
+    local configuredLimits = c.opts and c.opts.deriveLimits or {}
+    local maxFields = configuredLimits.fields or MAX_FIELDS
+    local maxPlanNodes = configuredLimits.nodes or MAX_PLAN_NODES
+    local maxCanonicalBytes = configuredLimits.canonicalBytes or planCodec.MAX_CANONICAL_BYTES
+    local maxOutputBytes = configuredLimits.outputBytes or planCodec.MAX_OUTPUT_BYTES
+
+    local function probe(at): boolean
+        if aborted then
+            return false
+        end
+        if c.opts and c.opts.cancelled and c.opts.cancelled() then
+            aborted, abortReason = true, "cancelled"
+            return false
+        end
+        if budget then
+            if budget <= 0 then
+                aborted, abortReason = true, "budget"
+                if not budgetReported then
+                    budgetReported = true
+                    c.diag(
+                        "NUPP2808",
+                        at,
+                        "derive planning exhausted its cooperative work budget",
+                        nil,
+                        {help = "split the declaration or increase the compiler-owned derive budget"}
+                    )
+                end
+                return false
+            end
+            budget = budget - 1
+        end
+
+        return true
+    end
 
     local function takePlanNode(at)
+        if not probe(at) then
+            return false
+        end
         planNodes = planNodes + 1
-        if planNodes <= MAX_PLAN_NODES then return true end
+        if planNodes <= maxPlanNodes then
+            return true
+        end
         if not planLimitReported then
             planLimitReported = true
-            c.diag("NUPP2808", at or planLimitAt,
-                ("derive plan exceeds %d semantic nodes"):format(MAX_PLAN_NODES), nil,
-                {help = "split the record or replace part of the derive with a written implementation"})
+            c.diag(
+                "NUPP2808",
+                at or planLimitAt,
+                ("derive plan exceeds %d semantic nodes"):format(maxPlanNodes),
+                nil,
+                {help = "split the record or replace part of the derive with a written implementation"}
+            )
         end
+
         return false
     end
 
@@ -167,81 +246,203 @@ function derive.install(c: state.Checker): derive.Ops
         return item.origins[provider] or item.stat.name
     end
 
-    local function addDefinition(n, name, signature, tok, kind, provider, isStatic)
+    local function removeProviderFix(application, arg, provider, duplicate)
+        local function token(node): any
+            return cst.firstToken(node)
+        end
+
+        local function lastToken(node): any
+            return cst.lastToken(node)
+        end
+
+        local args = application and application.annotationArgs or {}
+        local title = duplicate
+            and "remove duplicate @derive("
+            .. provider
+            .. ")"
+            or "remove @derive("
+            .. provider
+            .. ")"
+        local first, last
+        if #args == 1 then
+            first, last = token(application), lastToken(application)
+        else
+            for index, candidate in ipairs(args) do
+                if candidate == arg then
+                    if args[index + 1] then
+                        first = token(candidate)
+                        last = token(args[index + 1])
+                        return c.edits.fix(
+                            title,
+                            {offset = first.offset, length = last.offset - first.offset, newText = "",}
+                        )
+                    end
+                    local prior = lastToken(args[index - 1])
+                    first, last = prior, lastToken(candidate)
+                    return c.edits.fix(
+                        title,
+                        {
+                            offset = first.offset + #first.text,
+                            length = last.offset + #last.text - (first.offset + #first.text),
+                            newText = "",
+                        }
+                    )
+                end
+            end
+        end
+        if not first or not last then
+            return nil
+        end
+
+        return c.edits.fix(
+            title,
+            {offset = first.offset, length = last.offset + #last.text - first.offset, newText = "",}
+        )
+    end
+
+    local function addDefinition(n, name, signature, tok, kind, provider, isStatic, site)
         local reads = isStatic and n.staticByname or n.byname
         local writes = isStatic and n.staticWriteByname or n.writeByname
         local other = isStatic and n.byname or n.staticByname
         if reads[name] or other[name] then
+            local remove = site and removeProviderFix(site.application, site.arg, provider)
             c.diag(
-                "NUPP2802", tok,
-                ("%s would generate %s member %q, but %s already declares it"):format(
-                    provider, isStatic and "static" or "instance", name, n.name
-                ), nil,
+                "NUPP2802",
+                tok,
+                (
+                    "%s would generate %s member %q, but %s already declares it"
+                ):format(provider, isStatic and "static" or "instance", name, n.name),
+                remove and {remove} or nil,
                 {help = ("remove @derive(%s) or remove the written member"):format(provider)}
             )
             return false
         end
         reads[name], writes[name] = signature, signature
-        local definition = c.definition(tok, kind)
+        local namespace = isStatic and "static" or "instance"
+        local identity = table.concat({n.deriveKey, namespace, name}, "\0")
+        local definition = c.generatedDefinition(tok, name, kind, identity)
         definition.type = signature
         definition.generatedBy = provider
         definition.generatedOwner = n.name
+        definition.generatedNamespace = namespace
+        definition.generatedOrigin = tok
         if isStatic then
             n.derivedStaticByname = n.derivedStaticByname or {}
+            n.derivedStaticDefinitions = n.derivedStaticDefinitions or {}
             n.derivedStaticByname[name] = signature
+            n.derivedStaticDefinitions[name] = definition
             n.staticFieldDefs[name], n.staticWriteFieldDefs[name] = definition, definition
         else
             n.derivedByname = n.derivedByname or {}
+            n.derivedDefinitions = n.derivedDefinitions or {}
             n.derivedByname[name] = signature
+            n.derivedDefinitions[name] = definition
             n.fieldDefs[name], n.writeFieldDefs[name] = definition, definition
         end
+
         return true
     end
 
     local function addContract(n, name)
         -- `globalTypes` only indexes one qualified level, so a contract nested deeper
-        -- (`nupp.data.JSONEncodable`) walks the rest through `nestedTypes`, the same way
+        -- (`nupp.data.JSONEncodable`) walks the rest through `nestedTypes`, the same
+        -- way
         -- the field-codec lookup below reaches `nupp.fieldcodec.KeyedCodec`.
         local segments = {}
         for segment in name:gmatch("[^.]+") do
             segments[#segments + 1] = segment
         end
-        local contract = c.env
-            and c.env.globalTypes
-            and c.env.globalTypes[segments[1] .. "." .. (segments[2] or "")]
+        local contract = c.env and c.env.globalTypes and c.env.globalTypes[segments[1] .. "." .. (segments[2] or "")]
         for i = 3, #segments do
             contract = contract and contract.tag == "nominal" and contract.nestedTypes and contract.nestedTypes[
                 segments[i]
             ]
         end
-        if not contract then return end
+        if not contract then
+            return
+        end
         for _, existing in ipairs(n.supertypes or {}) do
-            if existing == contract then return end
+            if existing == contract then
+                return
+            end
         end
         n.supertypes[#n.supertypes + 1] = contract
+        n.derivedContracts = n.derivedContracts or {}
+        n.derivedContracts[contract] = true
     end
 
     local function clearGeneratedMembers(n)
         for name, generated in pairs(n.derivedByname or {}) do
-            if n.byname[name] == generated then n.byname[name] = nil end
-            if n.writeByname[name] == generated then n.writeByname[name] = nil end
+            if n.byname[name] == generated then
+                n.byname[name] = nil
+            end
+            if n.writeByname[name] == generated then
+                n.writeByname[name] = nil
+            end
             local definition = n.fieldDefs and n.fieldDefs[name]
-            if definition and definition.generatedBy then n.fieldDefs[name] = nil end
+            if definition and definition.generatedBy then
+                n.fieldDefs[name] = nil
+            end
             definition = n.writeFieldDefs and n.writeFieldDefs[name]
-            if definition and definition.generatedBy then n.writeFieldDefs[name] = nil end
+            if definition and definition.generatedBy then
+                n.writeFieldDefs[name] = nil
+            end
         end
         for name, generated in pairs(n.derivedStaticByname or {}) do
-            if n.staticByname[name] == generated then n.staticByname[name] = nil end
-            if n.staticWriteByname[name] == generated then n.staticWriteByname[name] = nil end
+            if n.staticByname[name] == generated then
+                n.staticByname[name] = nil
+            end
+            if n.staticWriteByname[name] == generated then
+                n.staticWriteByname[name] = nil
+            end
             local definition = n.staticFieldDefs and n.staticFieldDefs[name]
-            if definition and definition.generatedBy then n.staticFieldDefs[name] = nil end
+            if definition and definition.generatedBy then
+                n.staticFieldDefs[name] = nil
+            end
             definition = n.staticWriteFieldDefs and n.staticWriteFieldDefs[name]
-            if definition and definition.generatedBy then n.staticWriteFieldDefs[name] = nil end
+            if definition and definition.generatedBy then
+                n.staticWriteFieldDefs[name] = nil
+            end
         end
         n.derivedByname, n.derivedStaticByname = {}, {}
+        n.derivedDefinitions, n.derivedStaticDefinitions = {}, {}
+        if n.derivedContracts then
+            local retained = {}
+            for _, contract in ipairs(n.supertypes or {}) do
+                if not n.derivedContracts[contract] then
+                    retained[#retained + 1] = contract
+                end
+            end
+            n.supertypes = retained
+            n.derivedContracts = {}
+        end
+    end
+
+    local function abortAll()
+        for _, item in ipairs(pending) do
+            clearGeneratedMembers(item.nominal)
+            item.nominal.derivePlan = nil
+            item.stat.derivePlan = nil
+        end
+        local symbols = {}
+        for _, definition in ipairs(c.result.symbols or {}) do
+            if not definition.generatedBy then
+                symbols[#symbols + 1] = definition
+            end
+        end
+        c.result.symbols = symbols
+        c.result.deriveInterface = nil
+        c.moduleExports.deriveInterfaceFingerprint = nil
+        if abortReason == "cancelled" then
+            c.result.cancelled = true
+        end
+        c.result.deriveAborted = abortReason
     end
 
     function ops.merge(stat, n)
+        if not probe(stat) then
+            return
+        end
         local applications = {}
         for _, application in ipairs(stat.deriveApplications or {}) do
             applications[#applications + 1] = application
@@ -251,76 +452,159 @@ function derive.install(c: state.Checker): derive.Ops
                 applications[#applications + 1] = application
             end
         end
-        if #applications == 0 then return end
+        if #applications == 0 then
+            return
+        end
         clearGeneratedMembers(n)
-        local requested, origins, order = {}, {}, {}
+        local requested, origins, order, providerSites = {}, {}, {}, {}
         for _, application in ipairs(applications) do
             for _, arg in ipairs(application.annotationArgs or {}) do
                 local name = argumentName(arg)
-                local at = arg.expr or arg
+                local at = arg.expr and (arg.expr.token or arg.expr) or arg
                 if name and not PROVIDERS[name] then
                     c.diag("NUPP2801", at, ("unknown derive provider %q"):format(name))
                 elseif name and requested[name] then
-                    c.diag("NUPP2801", at, ("derive provider %q was requested twice"):format(name))
+                    local remove = removeProviderFix(application, arg, name, true)
+                    c.diag(
+                        "NUPP2801",
+                        at,
+                        ("derive provider %q was requested twice"):format(name),
+                        remove and {remove} or nil
+                    )
                 elseif name then
                     requested[name], origins[name] = true, at
+                    providerSites[name] = {application = application, arg = arg}
                     order[#order + 1] = name
                 end
             end
         end
-        if #order == 0 then return end
+        if #order == 0 then
+            return
+        end
 
         c.recordEffect("stdlib.derives")
-        if requested.JSON then c.recordEffect("native.cjson") end
+        if requested.JSON then
+            c.recordEffect("native.cjson")
+        end
         stat.compilerFeatureEffects = {"stdlib.derives"}
         if requested.JSON then
             stat.compilerFeatureEffects[#stat.compilerFeatureEffects + 1] = "native.cjson"
         end
 
         n.deriveProviders = requested
-        local filename = c.filename and fs.normalize(c.filename) or "<source>"
-        n.deriveKey = filename .. ":" .. tostring(stat.name.line or 0) .. ":" .. n.name
-        local item = {stat = stat, nominal = n, requested = requested, origins = origins, order = order}
+        local moduleIdentity = c.result.moduleName or "<chunk>"
+        local declarationIdentity = n.runtimePath or n.name
+        local keyBase = moduleIdentity .. ":" .. declarationIdentity
+        keyOccurrences[keyBase] = (keyOccurrences[keyBase] or 0) + 1
+        n.deriveKey = "nupp.derive.runtime.v2:" .. keyBase .. ":" .. tostring(keyOccurrences[keyBase])
+        local item = {
+            stat = stat,
+            nominal = n,
+            requested = requested,
+            origins = origins,
+            order = order,
+            providerSites = providerSites,
+            startedAt = os.clock(),
+        }
         pending[#pending + 1] = item
 
         if requested.Debug then
-            if addDefinition(n, "debug", T.func({n}, {T.string}), origin(item, "Debug"), "method", "Debug", false) then
+            if addDefinition(
+                n,
+                "debug",
+                T.func({n}, {T.string}),
+                origin(item, "Debug"),
+                "method",
+                "Debug",
+                false,
+                providerSites.Debug
+            ) then
                 addContract(n, "nupp.Debug")
             end
         end
         if requested.Default then
-            addDefinition(n, "default", T.func({}, {n}), origin(item, "Default"), "function", "Default", true)
+            addDefinition(
+                n,
+                "default",
+                T.func({}, {n}),
+                origin(item, "Default"),
+                "function",
+                "Default",
+                true,
+                providerSites.Default
+            )
         end
         if requested.From then
             local field = n.fieldOrder and n.fieldOrder[1]
             local source = field and n.byname[field] or T.any
-            addDefinition(n, "from", T.func({source}, {n}), origin(item, "From"), "function", "From", true)
+            addDefinition(
+                n,
+                "from",
+                T.func({source}, {n}),
+                origin(item, "From"),
+                "function",
+                "From",
+                true,
+                providerSites.From
+            )
         end
         if requested.JSON then
-            if addDefinition(n, "toJSON", T.func({n}, {T.string}), origin(item, "JSON"), "method", "JSON", false) then
+            if addDefinition(
+                n,
+                "toJSON",
+                T.func({n}, {T.string}),
+                origin(item, "JSON"),
+                "method",
+                "JSON",
+                false,
+                providerSites.JSON
+            ) then
                 addContract(n, "nupp.data.JSONEncodable")
             end
             addDefinition(
-                n, "fromJSON",
+                n,
+                "fromJSON",
                 T.func({T.string}, {T.union({n, T.nil_}), T.union({T.string, T.nil_})}),
-                origin(item, "JSON"), "function", "JSON", true
+                origin(item, "JSON"),
+                "function",
+                "JSON",
+                true,
+                providerSites.JSON
             )
             local namespace = c.env and c.env.globalTypes and c.env.globalTypes["nupp.fieldcodec"]
             local codec = namespace and namespace.nestedTypes and namespace.nestedTypes.KeyedCodec
-            local codecType = codec and codec.typeParams and codec.typeParams[1]
-                and generics.instantiate(codec, {[codec.typeParams[1]] = n}) or T.any
-            addDefinition(n, "fieldCodec", T.func({}, {codecType}), origin(item, "JSON"), "function", "JSON", true)
+            local codecType = codec and codec.typeParams and codec.typeParams[
+                1
+            ] and generics.instantiate(codec, {[codec.typeParams[1]] = n}) or T.any
+            addDefinition(
+                n,
+                "fieldCodec",
+                T.func({}, {codecType}),
+                origin(item, "JSON"),
+                "function",
+                "JSON",
+                true,
+                providerSites.JSON
+            )
         end
         relations.invalidate()
     end
 
     local function debugSpec(t, at, active)
-        if not takePlanNode(at) then return {kind = "unsupported"} end
+        if not takePlanNode(at) then
+            return {kind = "unsupported"}
+        end
         active = active or {}
         local optional = withoutNil(t)
-        if optional then return {kind = "optional", value = debugSpec(optional, at, active)} end
-        if t.tag == "literal" then return {kind = "literal", value = t.constant} end
-        if t == T.any then return {kind = "any"} end
+        if optional then
+            return {kind = "optional", value = debugSpec(optional, at, active)}
+        end
+        if t.tag == "literal" then
+            return {kind = "literal", value = t.constant}
+        end
+        if t == T.any then
+            return {kind = "any"}
+        end
         if t.tag == "nil" or t.tag == "boolean" or t.tag == "string" or NUMERIC[t.tag] then
             return {kind = t.tag}
         elseif t.tag == "array" then
@@ -329,71 +613,118 @@ function derive.install(c: state.Checker): derive.Ops
             return {kind = "map", key = debugSpec(t.key, at, active), value = debugSpec(t.value, at, active)}
         elseif t.tag == "tuple" then
             local items = {}
-            for _, member in ipairs(t.elems) do items[#items + 1] = debugSpec(member, at, active) end
+            for _, member in ipairs(t.elems) do
+                items[#items + 1] = debugSpec(member, at, active)
+            end
             return {kind = "tuple", items = items}
         elseif t.tag == "shape" then
-            return {kind = "shape", fields = shapeFields(t, function(member) return debugSpec(member, at, active) end)}
+            return {kind = "shape", fields = shapeFields(t, function(member)
+                return debugSpec(member, at, active)
+            end)}
         elseif t.tag == "nominal" and t.declKind == "record" then
             if t.deriveProviders and t.deriveProviders.Debug and t.deriveKey then
                 return {kind = "record", typeKey = t.deriveKey}
             end
-            if t.byname and t.byname.debug then return {kind = "customDebug"} end
+            if t.byname and t.byname.debug then
+                return {kind = "customDebug"}
+            end
         elseif t.tag == "typevar" and t.bound then
             local debugContract = c.env and c.env.globalTypes and c.env.globalTypes["nupp.Debug"]
-            if debugContract and relations.isA(t.bound, debugContract) then return {kind = "customDebug"} end
+            if debugContract and relations.isA(t.bound, debugContract) then
+                return {kind = "customDebug"}
+            end
         end
         c.diag("NUPP2803", at, ("%s cannot be formatted by Debug"):format(T.tostring(t)))
+
         return {kind = "unsupported"}
     end
 
     local function defaultSpec(t, at)
-        if not takePlanNode(at) then return nil end
-        if t.tag == "union" and t.hasNil then return {kind = "nil"} end
-        if t.tag == "literal" then return {kind = "literal", value = t.constant} end
-        if t.tag == "boolean" then return {kind = "literal", value = false} end
-        if t.tag == "string" then return {kind = "literal", value = ""} end
-        if NUMERIC[t.tag] then return {kind = "literal", value = 0} end
-        if t.tag == "array" or t.tag == "map" then return {kind = "table"} end
+        if not takePlanNode(at) then
+            return nil
+        end
+        if t.tag == "union" and t.hasNil then
+            return {kind = "nil"}
+        end
+        if t.tag == "literal" then
+            return {kind = "literal", value = t.constant}
+        end
+        if t.tag == "boolean" then
+            return {kind = "literal", value = false}
+        end
+        if t.tag == "string" then
+            return {kind = "literal", value = ""}
+        end
+        if NUMERIC[t.tag] then
+            return {kind = "literal", value = 0}
+        end
+        if t.tag == "array" or t.tag == "map" then
+            return {kind = "table"}
+        end
         if t.tag == "tuple" then
             local items = {}
             for _, member in ipairs(t.elems) do
                 local spec = defaultSpec(member, at)
-                if not spec then return nil end
+                if not spec then
+                    return nil
+                end
                 items[#items + 1] = spec
             end
             return {kind = "tuple", items = items}
         end
         if t.tag == "shape" then
-            local fields = shapeFields(t, function(member) return defaultSpec(member, at) end)
+            local fields = shapeFields(t, function(member)
+                return defaultSpec(member, at)
+            end)
             return fields and {kind = "shape", fields = fields} or nil
         end
-        if t.tag == "nominal" and t.declKind == "record" and t.deriveProviders
-            and t.deriveProviders.Default and t.deriveKey then
+        if t.tag == "nominal"
+            and t.declKind == "record"
+            and t.deriveProviders
+            and t.deriveProviders.Default
+            and t.deriveKey
+        then
             return {kind = "record", typeKey = t.deriveKey}
         end
-        c.diag("NUPP2804", at, ("field type %s has no default"):format(T.tostring(t)), nil,
-            {help = "add @default(...), make the field optional, or derive Default for its record type"})
-        if currentItem then currentItem.defaultFailed = true end
+        c.diag(
+            "NUPP2804",
+            at,
+            ("field type %s has no default"):format(T.tostring(t)),
+            nil,
+            {help = "add @default(...), make the field optional, or derive Default for its record type"}
+        )
+        if currentItem then
+            currentItem.defaultFailed = true
+        end
+
         return nil
     end
 
     local function jsonSpec(t, at)
-        if not takePlanNode(at) then return nil end
+        if not takePlanNode(at) then
+            return nil
+        end
         local optional = withoutNil(t)
         if optional then
             local value = jsonSpec(optional, at)
             return value and {kind = "optional", value = value} or nil
         end
-        if t.tag == "literal" then return {kind = "literal", value = t.constant} end
+        if t.tag == "literal" then
+            return {kind = "literal", value = t.constant}
+        end
         if t.tag == "nil" or t.tag == "boolean" or t.tag == "string" or NUMERIC[t.tag] then
             local spec = {kind = INTEGER[t.tag] and "integer" or t.tag}
             local range = RANGES[t.tag]
-            if range then spec.minimum, spec.maximum = range[1], range[2] end
+            if range then
+                spec.minimum, spec.maximum = range[1], range[2]
+            end
             return spec
         end
         if t.tag == "int64" or t.tag == "uint64" then
             c.diag("NUPP2806", at, ("%s cannot round-trip through an exact JSON number"):format(t.tag))
-            if currentItem then currentItem.jsonFailed = true end
+            if currentItem then
+                currentItem.jsonFailed = true
+            end
             return nil
         elseif t.tag == "array" then
             local value = jsonSpec(t.elem, at)
@@ -405,12 +736,16 @@ function derive.install(c: state.Checker): derive.Ops
             local items = {}
             for _, member in ipairs(t.elems) do
                 local spec = jsonSpec(member, at)
-                if not spec then return nil end
+                if not spec then
+                    return nil
+                end
                 items[#items + 1] = spec
             end
             return {kind = "tuple", items = items}
         elseif t.tag == "shape" then
-            local fields = shapeFields(t, function(member) return jsonSpec(member, at) end)
+            local fields = shapeFields(t, function(member)
+                return jsonSpec(member, at)
+            end)
             return fields and {kind = "shape", fields = fields, unknown = "reject"} or nil
         elseif t.tag == "union" then
             local first = t.members and t.members[1]
@@ -418,17 +753,25 @@ function derive.install(c: state.Checker): derive.Ops
                 for _, fieldName in ipairs(first.fieldOrder or {}) do
                     local choices, seen, jsonName, valid = {}, {}, nil, true
                     for _, member in ipairs(t.members) do
-                        local tagType = member.tag == "nominal" and member.declKind == "record"
-                            and member.byname and member.byname[fieldName] or nil
-                        if not tagType or tagType.tag ~= "literal" or seen[tagType.constant]
-                            or not (member.deriveProviders and member.deriveProviders.JSON and member.deriveKey) then
+                        local tagType = member.tag == "nominal"
+                            and member.declKind == "record"
+                            and member.byname
+                            and member.byname[
+                            fieldName
+                        ] or nil
+                        if not tagType or tagType.tag ~= "literal" or seen[
+                            tagType.constant
+                        ] or not (member.deriveProviders and member.deriveProviders.JSON and member.deriveKey) then
                             valid = false
                             break
                         end
                         local definition = member.fieldDefs and member.fieldDefs[fieldName]
                         local json = annotation(definition and definition.annotations, "json")
                         local encoded = annotationArgument(json, "name") or fieldName
-                        if jsonName and jsonName ~= encoded then valid = false break end
+                        if jsonName and jsonName ~= encoded then
+                            valid = false
+                            break
+                        end
                         jsonName = encoded
                         seen[tagType.constant] = true
                         choices[tagType.constant] = {kind = "record", typeKey = member.deriveKey}
@@ -438,46 +781,92 @@ function derive.install(c: state.Checker): derive.Ops
                     end
                 end
             end
-            c.diag("NUPP2806", at,
-                "a JSON record union needs one common literal field with a distinct value in every arm")
-            if currentItem then currentItem.jsonFailed = true end
+            c.diag(
+                "NUPP2806",
+                at,
+                "a JSON record union needs one common literal field with a distinct value in every arm"
+            )
+            if currentItem then
+                currentItem.jsonFailed = true
+            end
             return nil
-        elseif t.tag == "nominal" and t.declKind == "record" and t.deriveProviders
-            and t.deriveProviders.JSON and t.deriveKey then
+        elseif t.tag == "nominal"
+            and t.declKind == "record"
+            and t.deriveProviders
+            and t.deriveProviders.JSON
+            and t.deriveKey
+        then
             return {kind = "record", typeKey = t.deriveKey}
         end
         c.diag("NUPP2806", at, ("type %s is not supported by JSON"):format(T.tostring(t)))
-        if currentItem then currentItem.jsonFailed = true end
+        if currentItem then
+            currentItem.jsonFailed = true
+        end
+
         return nil
     end
 
     function ops.finalize()
+        if aborted or not probe(pending[1] and pending[1].stat or nil) then
+            abortAll()
+            return
+        end
         local byKey = {}
+        local function serializationProbe(): boolean
+            return probe(planLimitAt)
+        end
+
         for _, requested in ipairs(pending) do
             byKey[requested.nominal.deriveKey] = requested
         end
         for _, item in ipairs(pending) do
+            if not probe(item.stat) then
+                abortAll()
+                ;
+                return
+            end
             local stat, n = item.stat, item.nominal
             currentItem = item
             planNodes, planLimitAt, planLimitReported = 0, origin(item, item.order[1]), false
             local nodes = fieldNodes(stat)
             item.fieldNodes = nodes
-            local plan = {key = n.deriveKey, name = n.name, providers = {}, fields = {}}
-            if #(n.fieldOrder or {}) > MAX_FIELDS then
-                c.diag("NUPP2808", planLimitAt,
-                    ("derive target has %d fields; the limit is %d"):format(#n.fieldOrder, MAX_FIELDS))
+            local plan = {
+                key = n.deriveKey,
+                name = n.name,
+                providers = {},
+                providerABI = {},
+                helperABI = {},
+                fields = {},
+            }
+            if #(n.fieldOrder or {}) > maxFields then
+                c.diag(
+                    "NUPP2808",
+                    planLimitAt,
+                    ("derive target has %d fields; the limit is %d"):format(#n.fieldOrder, maxFields)
+                )
             end
-            for _, provider in ipairs(item.order) do plan.providers[provider] = true end
+            for _, provider in ipairs(item.order) do
+                plan.providers[provider] = true
+                plan.providerABI[provider] = PROVIDER_ABI[provider]
+                plan.helperABI[provider:lower()] = HELPER_ABI[provider:lower()]
+            end
 
             if item.requested.From then
                 if #(n.fieldOrder or {}) ~= 1 or #(n.constructorEntries or {}) > 0 then
-                    c.diag("NUPP2805", origin(item, "From"), "From requires exactly one stored field and no constructor")
+                    c.diag(
+                        "NUPP2805",
+                        origin(item, "From"),
+                        "From requires exactly one stored field and no constructor"
+                    )
                 else
                     plan.fromField = n.fieldOrder[1]
                     local source = n.byname[plan.fromField] or n.writeByname[plan.fromField]
                     if source and (source.tag == "owned" or source.tag == "borrowed" or source.tag == "pinned") then
-                        c.diag("NUPP2805", nodes[plan.fromField] or stat,
-                            "From does not infer an ownership transfer policy")
+                        c.diag(
+                            "NUPP2805",
+                            nodes[plan.fromField] or stat,
+                            "From does not infer an ownership transfer policy"
+                        )
                         plan.fromField = nil
                     end
                 end
@@ -504,6 +893,11 @@ function derive.install(c: state.Checker): derive.Ops
             plan.unknown = unknown
 
             for _, name in ipairs(n.fieldOrder or {}) do
+                if not probe(nodes[name] or stat) then
+                    abortAll()
+                    ;
+                    return
+                end
                 local node = nodes[name] or stat
                 local ft = n.byname[name] or n.writeByname[name]
                 local field = {name = name}
@@ -522,21 +916,31 @@ function derive.install(c: state.Checker): derive.Ops
 
                 local explicit = nil
                 for _, application in ipairs(node.annotations or {}) do
-                    if application.name and application.name.text == "default" then explicit = application end
+                    if application.name and application.name.text == "default" then
+                        explicit = application
+                    end
                 end
                 if explicit and (item.requested.Default or item.requested.JSON) then
                     local arg = explicit.annotationValues and explicit.annotationValues.value
                     local value, ok = constant(arg and arg.expr)
                     if not ok then
-                        c.diag("NUPP2804", arg and arg.expr or explicit,
-                            ("default for %q must be a literal compile-time value"):format(name))
+                        c.diag(
+                            "NUPP2804",
+                            arg and arg.expr or explicit,
+                            ("default for %q must be a literal compile-time value"):format(name)
+                        )
                         item.defaultFailed = true
                     else
                         local actual = c.infer(arg.expr)
                         local fits, why = relations.isA(actual, ft)
                         if not fits then
-                            c.diag("NUPP2804", arg.expr, ("default for %q does not fit %s%s"):format(
-                                name, T.tostring(ft), why and (": " .. why) or ""))
+                            c.diag(
+                                "NUPP2804",
+                                arg.expr,
+                                (
+                                    "default for %q does not fit %s%s"
+                                ):format(name, T.tostring(ft), why and (": " .. why) or "")
+                            )
                             item.defaultFailed = true
                         end
                         field.default = {kind = "literal", value = value}
@@ -560,7 +964,9 @@ function derive.install(c: state.Checker): derive.Ops
                     end
                     field.jsonName, field.omit, field.omitEmpty = encoded, omit, omitEmpty
                     field.jsonType = not omit and jsonSpec(ft, node) or nil
-                    if omit and not field.default then field.default = defaultSpec(ft, node) end
+                    if omit and not field.default then
+                        field.default = defaultSpec(ft, node)
+                    end
                 end
                 plan.fields[#plan.fields + 1] = field
             end
@@ -569,16 +975,62 @@ function derive.install(c: state.Checker): derive.Ops
                 for _, field in ipairs(plan.fields) do
                     if not field.omit then
                         if seen[field.jsonName] then
-                            c.diag("NUPP2806", nodes[field.name] or stat, ("JSON field name %q is duplicated"):format(field.jsonName))
+                            c.diag(
+                                "NUPP2806",
+                                nodes[field.name] or stat,
+                                ("JSON field name %q is duplicated"):format(field.jsonName)
+                            )
                             item.jsonFailed = true
                         end
                         seen[field.jsonName] = true
                     end
                 end
             end
-            plan.fingerprint = hash.sha256("nupp.derive\0v1\0" .. canonical(plan))
+            local canonical, canonicalError = planCodec.canonicalRoot(
+                plan,
+                {limit = maxCanonicalBytes, probe = serializationProbe,}
+            )
+            if not canonical then
+                if canonicalError == "limit" then
+                    c.diag(
+                        "NUPP2808",
+                        planLimitAt,
+                        ("derive plan exceeds %d canonical bytes"):format(maxCanonicalBytes)
+                    )
+                    aborted, abortReason = true, "limit"
+                end
+                abortAll()
+                return
+            end
+            item.canonicalBytes = #canonical
+            plan.fingerprint = hash.sha256("nupp.derive\0v2\0" .. canonical)
+            local rendered, renderError = planCodec.render(plan, {limit = maxOutputBytes, probe = serializationProbe,})
+            if not rendered then
+                if renderError == "limit" then
+                    c.diag(
+                        "NUPP2808",
+                        planLimitAt,
+                        ("derive output plan exceeds %d rendered bytes"):format(maxOutputBytes)
+                    )
+                    aborted, abortReason = true, "limit"
+                end
+                abortAll()
+                return
+            end
+            item.renderedBytes = #rendered
+            if c.env and c.env.internDerivePlan then
+                plan, item.planCached = c.env.internDerivePlan(c.env, plan)
+            end
             stat.derivePlan = plan
             n.derivePlan = plan
+            for _, definition in pairs(n.derivedDefinitions or {}) do
+                definition.generatedPlanFingerprint = plan.fingerprint
+                definition.generatedContributingFields = nodes
+            end
+            for _, definition in pairs(n.derivedStaticDefinitions or {}) do
+                definition.generatedPlanFingerprint = plan.fingerprint
+                definition.generatedContributingFields = nodes
+            end
         end
 
         -- A required Default edge has to reach a base case. Optional fields and
@@ -586,12 +1038,21 @@ function derive.install(c: state.Checker): derive.Ops
         -- reduced graph are precisely the constructions that recurse forever.
         local complete, visiting = {}, {}
         local function validateDefault(item, path)
+            if not probe(origin(item, "Default")) then
+                return false
+            end
             local key = item.nominal.deriveKey
-            if complete[key] ~= nil then return complete[key] end
+            if complete[key] ~= nil then
+                return complete[key]
+            end
             if visiting[key] then
-                c.diag("NUPP2807", origin(item, "Default"),
+                c.diag(
+                    "NUPP2807",
+                    origin(item, "Default"),
                     ("Default has a required recursive cycle through %s"):format(table.concat(path, " -> ")),
-                    nil, {help = "make an edge optional or give it an explicit @default literal"})
+                    nil,
+                    {help = "make an edge optional or give it an explicit @default literal"}
+                )
                 item.defaultFailed = true
                 return false
             end
@@ -609,30 +1070,58 @@ function derive.install(c: state.Checker): derive.Ops
             end
             path[#path], visiting[key] = nil, nil
             complete[key] = ok
+
             return ok
         end
+
         for _, item in ipairs(pending) do
-            if item.requested.Default then validateDefault(item, {}) end
+            if item.requested.Default then
+                validateDefault(item, {})
+            end
+        end
+        if aborted then
+            abortAll()
+            ;
+            return
         end
         currentItem = nil
 
         local function recordDependencies(spec, out)
-            if not spec then return end
-            if spec.kind == "record" then out[#out + 1] = spec.typeKey
-            elseif spec.kind == "optional" then recordDependencies(spec.value, out)
+            if not probe(nil) then
+                return
+            end
+            if not spec then
+                return
+            end
+            if spec.kind == "record" then
+                out[#out + 1] = spec.typeKey
+            elseif spec.kind == "optional" then
+                recordDependencies(spec.value, out)
             elseif spec.kind == "array" or spec.kind == "map" then
                 recordDependencies(spec.value, out)
             elseif spec.kind == "union" then
-                for _, choice in pairs(spec.choices or {}) do recordDependencies(choice, out) end
+                for _, choice in pairs(spec.choices or {}) do
+                    recordDependencies(choice, out)
+                end
             elseif spec.kind == "tuple" then
-                for _, value in ipairs(spec.items or {}) do recordDependencies(value, out) end
+                for _, value in ipairs(spec.items or {}) do
+                    recordDependencies(value, out)
+                end
             elseif spec.kind == "shape" then
-                for _, field in ipairs(spec.fields or {}) do recordDependencies(field.type, out) end
+                for _, field in ipairs(spec.fields or {}) do
+                    recordDependencies(field.type, out)
+                end
             end
         end
+
         for _ = 1, #pending do
             local changed = false
             for _, item in ipairs(pending) do
+                if not probe(item.stat) then
+                    abortAll()
+                    ;
+                    return
+                end
                 item.dependencyFailures = item.dependencyFailures or {}
                 for _, field in ipairs(item.nominal.derivePlan and item.nominal.derivePlan.fields or {}) do
                     local node = item.fieldNodes and item.fieldNodes[field.name] or item.stat
@@ -640,11 +1129,21 @@ function derive.install(c: state.Checker): derive.Ops
                         local dependency = byKey[field.default.typeKey]
                         local reportKey = "Default:" .. field.name
                         if dependency and dependency.defaultFailed and not item.dependencyFailures[reportKey] then
-                            c.diag("NUPP2804", node,
-                                ("field %q depends on a Default derive that failed"):format(field.name), nil,
-                                {related = {c.related(origin(dependency, "Default"), "nested Default derive failed here")}})
+                            c.diag(
+                                "NUPP2804",
+                                node,
+                                ("field %q depends on a Default derive that failed"):format(field.name),
+                                nil,
+                                {
+                                    related = {
+                                        c.related(origin(dependency, "Default"), "nested Default derive failed here")
+                                    }
+                                }
+                            )
                             item.dependencyFailures[reportKey] = true
-                            if not item.defaultFailed then changed = true end
+                            if not item.defaultFailed then
+                                changed = true
+                            end
                             item.defaultFailed = true
                         end
                     end
@@ -655,11 +1154,21 @@ function derive.install(c: state.Checker): derive.Ops
                             local dependency = byKey[key]
                             local reportKey = "JSON:" .. field.name
                             if dependency and dependency.jsonFailed and not item.dependencyFailures[reportKey] then
-                                c.diag("NUPP2806", node,
-                                    ("field %q depends on a JSON derive that failed"):format(field.name), nil,
-                                    {related = {c.related(origin(dependency, "JSON"), "nested JSON derive failed here")}})
+                                c.diag(
+                                    "NUPP2806",
+                                    node,
+                                    ("field %q depends on a JSON derive that failed"):format(field.name),
+                                    nil,
+                                    {
+                                        related = {
+                                            c.related(origin(dependency, "JSON"), "nested JSON derive failed here")
+                                        }
+                                    }
+                                )
                                 item.dependencyFailures[reportKey] = true
-                                if not item.jsonFailed then changed = true end
+                                if not item.jsonFailed then
+                                    changed = true
+                                end
                                 item.jsonFailed = true
                                 break
                             end
@@ -667,8 +1176,120 @@ function derive.install(c: state.Checker): derive.Ops
                     end
                 end
             end
-            if not changed then break end
+            if not changed then
+                break
+            end
         end
+
+        -- Publish the derive contract explicitly. Consumers compare this envelope;
+        -- they do not infer behavior from mutable nominal member maps.
+        local interface = {}
+        local function memberLess(a, b)
+            return a.namespace < b.namespace or a.namespace == b.namespace and a.name < b.name
+        end
+
+        for _, item in ipairs(pending) do
+            local n = item.nominal
+            local members = {}
+            for name, definition in pairs(n.derivedDefinitions or {}) do
+                members[
+                    #members + 1
+                ] = {
+                    name = name,
+                    namespace = "instance",
+                    signature = T.tostring(definition.type),
+                    provider = definition.generatedBy,
+                }
+            end
+            for name, definition in pairs(n.derivedStaticDefinitions or {}) do
+                members[
+                    #members + 1
+                ] = {
+                    name = name,
+                    namespace = "static",
+                    signature = T.tostring(definition.type),
+                    provider = definition.generatedBy,
+                }
+            end
+            table.sort(members, memberLess)
+            local contracts = {}
+            for _, contract in ipairs(n.supertypes or {}) do
+                contracts[#contracts + 1] = T.tostring(contract)
+            end
+            table.sort(contracts)
+            local dependencies = {}
+            for _, field in ipairs(n.derivePlan and n.derivePlan.fields or {}) do
+                recordDependencies(field.default, dependencies)
+                recordDependencies(field.debugType, dependencies)
+                recordDependencies(field.jsonType, dependencies)
+            end
+            table.sort(dependencies)
+            interface[
+                #interface + 1
+            ] = {
+                identity = n.deriveKey,
+                providers = n.derivePlan and n.derivePlan.providerABI or {},
+                helpers = n.derivePlan and n.derivePlan.helperABI or {},
+                members = members,
+                contracts = contracts,
+                effects = item.requested.JSON and {"native.cjson", "stdlib.derives"} or {"stdlib.derives"},
+                behavior = n.derivePlan and n.derivePlan.fingerprint or nil,
+                dependencies = dependencies,
+            }
+        end
+        table.sort(interface, function(a, b)
+            return a.identity < b.identity
+        end)
+        c.result.deriveInterface = interface
+        local interfaceBytes = planCodec.canonical(interface)
+        c.moduleExports.deriveInterfaceFingerprint = #interface > 0 and hash.sha256(
+            "nupp.derive.interface\0v1\0" .. assert(interfaceBytes)
+        ) or nil
+
+        local observations = {}
+        for _, item in ipairs(pending) do
+            local memberCount = 0
+            for _ in pairs(item.nominal.derivedDefinitions or {}) do
+                memberCount = memberCount + 1
+            end
+            for _ in pairs(item.nominal.derivedStaticDefinitions or {}) do
+                memberCount = memberCount + 1
+            end
+            if memberCount > MAX_GENERATED_MEMBERS then
+                c.diag(
+                    "NUPP2808",
+                    item.stat,
+                    ("derive generated %d members; the limit is %d"):format(memberCount, MAX_GENERATED_MEMBERS)
+                )
+            end
+            for _, provider in ipairs(item.order) do
+                local providerMembers = 0
+                for _, definition in pairs(item.nominal.derivedDefinitions or {}) do
+                    if definition.generatedBy == provider then
+                        providerMembers = providerMembers + 1
+                    end
+                end
+                for _, definition in pairs(item.nominal.derivedStaticDefinitions or {}) do
+                    if definition.generatedBy == provider then
+                        providerMembers = providerMembers + 1
+                    end
+                end
+                observations[
+                    #observations + 1
+                ] = {provider = provider, owner = item.nominal.name, semanticFingerprint = item.nominal.derivePlan and item.nominal.derivePlan.fingerprint or nil, generatedMembers = providerMembers, canonicalBytes = item.canonicalBytes or 0, renderedBytes = item.renderedBytes or 0, effects = provider == "JSON" and {
+                    "native.cjson",
+                    "stdlib.derives"
+                } or {
+                    "stdlib.derives"
+                }, cached = item.planCached and true or false, durationMs = math.floor(
+                    (os.clock() - item.startedAt) * 1000000 + 0.5
+                ) / 1000,
+                    -- Closed recipes allocate exactly these maxima regardless of
+                    -- field count: two setup locals and at most one captured entry.
+                    generatedLocals = 2, maxGeneratedUpvalues = 1,}
+            end
+        end
+        c.result.deriveObservations = observations
     end
 
     return ops

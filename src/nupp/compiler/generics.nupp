@@ -363,8 +363,7 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
             applied[parameter] = substWith(argument, map, unmapped)
         end
         for j, parameter in ipairs(origin.packParams or {}) do
-            local argument = t.packArgs and t.packArgs[j]
-                or T.pack({}, {kind = "unknown", type = T.any})
+            local argument = t.packArgs and t.packArgs[j] or T.pack({}, {kind = "unknown", type = T.any})
             applied[parameter] = substPackWith(argument, map, unmapped)
         end
         for j, parameter in ipairs(origin.constParams or {}) do
@@ -384,8 +383,14 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
             end
         end
         return T.func(params, rets, t.vararg, t.paramModes, t.predicate, t.typeParams, bounds, t.borrowsParam, t.borrowsSelf, t.borrowsParams, t.ffiOut, t.varargType and substWith(
-            t.varargType, map, unmapped) or nil, t.noreturn, paramPack, retPack, t.packParams, t.yieldPack and substPackWith(
-            t.yieldPack, map, unmapped) or nil, t.resumePack and substPackWith(t.resumePack, map, unmapped) or nil,
+            t.varargType,
+            map,
+            unmapped
+        ) or nil, t.noreturn, paramPack, retPack, t.packParams, t.yieldPack and substPackWith(
+            t.yieldPack,
+            map,
+            unmapped
+        ) or nil, t.resumePack and substPackWith(t.resumePack, map, unmapped) or nil,
             -- Substitution changes what a function takes and answers, never whether
             -- calling it may suspend. Dropping the qualifier here would silently
             -- downgrade every generic call site to may-yield.
@@ -536,7 +541,11 @@ function generics.normalize(t: Type): generics.Normalized
 end
 
 --- What normalizing a value sequence produced.
-type generics.NormalizedPack = {pack: T.Pack, gradual: {string}, cycle: {string}?}
+type generics.NormalizedPack = {
+    pack: T.Pack,
+    gradual: {string},
+    cycle: {string}?
+}
 
 --- `generics.normalize` for a value sequence.
 function generics.normalizePack(pack: T.Pack): generics.NormalizedPack
@@ -551,11 +560,7 @@ function generics.normalizePack(pack: T.Pack): generics.NormalizedPack
         tail = {kind = "homogeneous", type = (normalize(tail.type, memo, budget)), mode = tail.mode}
     end
 
-    return {
-        pack = T.pack(head, tail, pack.modes),
-        gradual = budget.gradual,
-        cycle = budget.cycle,
-    }
+    return {pack = T.pack(head, tail, pack.modes), gradual = budget.gradual, cycle = budget.cycle,}
 end
 
 --- Rebuilds `t` with the binders `map` names replaced, and every other binder left
@@ -639,6 +644,7 @@ local type ReductionMemo = {[Type]: ReductionMemoEntry}
 type generics.ReductionControl = {
     cancelled: function(): boolean
 }
+
 --- One evaluation's state.
 ---
 --- Neutral reduction and associated projection are one traversal because they nest:
@@ -665,7 +671,10 @@ local type ReductionBudget = {
     --- The chain, innermost last, each entry carrying the identity it was keyed by as
     --- well as what it displays: slicing a loop by identity is what keeps two
     --- declarations that show one name from reporting each other's cycle.
-    path: {{key: string, label: string}},
+    path: {{
+        key: string,
+        label: string
+    }},
 
     --- Projections whose head reduced to `any`, in the order met. What later tells a
     --- lint that the `any` came from a projection rather than from somebody writing
@@ -717,6 +726,7 @@ local function aliasTrace(budget: ReductionBudget, next: string?): string
     if next then
         entries[#entries + 1] = next
     end
+
     return #entries > 0 and "; expansion: " .. table.concat(entries, " -> ") or ""
 end
 
@@ -731,6 +741,7 @@ local function aliasLabel(header: T.AliasHeader, typeArgs: {Type}, packArgs: {T.
     for _, argument in ipairs(constArgs) do
         arguments[#arguments + 1] = T.tostringConst(argument)
     end
+
     return header.name .. (#arguments > 0 and "<" .. table.concat(arguments, ", ") .. ">" or "")
 end
 
@@ -941,6 +952,7 @@ local function reduceTypeError(t: T.Neutral, memo: ReductionMemo, budget: Reduct
     if err then
         return T.any, err
     end
+
     return T.neutral("typeError", message)
 end
 
@@ -980,6 +992,7 @@ local function reduceTupleConcat(t: T.Neutral, memo: ReductionMemo, budget: Redu
     if T.hasTypevar(tail) or tail.tag == "neutral" then
         return T.neutral("tupleConcat", prefix, tail)
     end
+
     return T.any, ("tuple unpack must reduce to a tuple, got %s"):format(T.tostring(tail))
 end
 
@@ -1720,7 +1733,12 @@ type generics.Evaluated = {
 --- A pack is the authoritative sequence at a call, so it is evaluated once, as a pack,
 --- and its observations come back with it. Evaluating the scalar views instead and
 --- then taking the pack's heads would discard whatever the tail said.
-type generics.EvaluatedPack = {pack: T.Pack, error: string?, gradual: {string}, cycle: {string}?}
+type generics.EvaluatedPack = {
+    pack: T.Pack,
+    error: string?,
+    gradual: {string},
+    cycle: {string}?
+}
 
 function generics.evaluatePack(pack: T.Pack, control: generics.ReductionControl?): generics.EvaluatedPack
     local budget = newBudget(control)
@@ -1739,13 +1757,7 @@ function generics.evaluate(t: Type, map: Bindings?, control: generics.ReductionC
     local rebound = map and substWith(t, map, PRESERVE) or t
     local reduced, err = normalize(rebound, {}, budget)
 
-    return {
-        type = reduced,
-        error = err,
-        gradual = budget.gradual,
-        cycle = budget.cycle,
-        cycleKeys = budget.cycleKeys,
-    }
+    return {type = reduced, error = err, gradual = budget.gradual, cycle = budget.cycle, cycleKeys = budget.cycleKeys,}
 end
 
 function generics.reduce(
@@ -1909,11 +1921,7 @@ local fillingInstantiations: {[string]: boolean} = {}
 --- Copies the declaration's current member surface onto an instantiation. A generic
 --- can instantiate itself while its declaration is still being populated; revisiting
 --- that cached identity must therefore pick up members declared afterward.
-local function fillInstantiationMembers(
-    inst: T.Nominal,
-    declaration: T.Nominal,
-    map: Bindings
-)
+local function fillInstantiationMembers(inst: T.Nominal, declaration: T.Nominal, map: Bindings)
     for name, ft in pairs(declaration.byname) do
         inst.byname[name] = substWith(ft, map, PRESERVE)
     end
@@ -1985,6 +1993,9 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     inst.deriveProviders = n.deriveProviders
     inst.deriveKey = n.deriveKey
     inst.derivePlan = n.derivePlan
+    inst.derivedDefinitions = n.derivedDefinitions
+    inst.derivedStaticDefinitions = n.derivedStaticDefinitions
+    inst.derivedContracts = n.derivedContracts
     inst.selfType = n.selfType
     inst.supertypes = {}
     for j, parent in ipairs(n.supertypes or {}) do
@@ -2122,6 +2133,7 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     end
 
     fillingInstantiations[key] = nil
+
     return inst
 end
 
@@ -2214,10 +2226,12 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
         end
     elseif tag == "shape" then
         local staticOwner = arg.tag == "metatable" and arg.of and arg.of.tag == "nominal" and arg.of or nil
-        local reads = arg.tag == "shape" and arg.byname or (arg.tag == "nominal" and arg.byname)
-            or staticOwner and staticOwner.staticByname
-        local writes = arg.tag == "shape" and arg.writeByname or (arg.tag == "nominal" and arg.writeByname)
-            or staticOwner and staticOwner.staticWriteByname
+        local reads = arg.tag == "shape" and arg.byname or (
+            arg.tag == "nominal" and arg.byname
+        ) or staticOwner and staticOwner.staticByname
+        local writes = arg.tag == "shape" and arg.writeByname or (
+            arg.tag == "nominal" and arg.writeByname
+        ) or staticOwner and staticOwner.staticWriteByname
         if reads or writes then
             for _, f in ipairs(param.fields) do
                 local read = reads and reads[f.name]
@@ -2257,6 +2271,7 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
 
                 return nil
             end
+
             local nominalArg = view(arg, {})
             local ao = nominalArg and (nominalArg.origin or nominalArg) or arg.origin or arg
             if po == ao then
@@ -2337,7 +2352,8 @@ function generics.specializeSelf(owner: Type?, ft: Type, receiver: Type?): Type
     local binder = owner and owner.tag == "nominal" and (owner as T.Nominal).selfType or nil
     if not binder then
         -- No binder, nothing to rebind. An intersection took the long way here: it
-        -- rebound each member to itself and handed the results back to `T.intersection`,
+        -- rebound each member to itself and handed the results back to
+        -- `T.intersection`,
         -- which interned them to the intersection it already had.
         return ft
     end
@@ -2429,10 +2445,13 @@ function generics.dropSelf(ft: Type): Type
                 borrowsParams[#borrowsParams + 1] = source - 1
             end
         end
-        return T.func(params, ft.rets, ft.vararg, modes, nil, ft.typeParams, ft.typeBounds, borrowsParam, borrowsSelf, next(borrowsParams) and borrowsParams or nil, ft.ffiOut, ft.varargType, ft.noreturn, paramPack, ft.retPack, ft.packParams, ft.yieldPack, ft.resumePack,
+        return T.func(params, ft.rets, ft.vararg, modes, nil, ft.typeParams, ft.typeBounds, borrowsParam, borrowsSelf, next(
+            borrowsParams
+        )
+            and borrowsParams
+            or nil, ft.ffiOut, ft.varargType, ft.noreturn, paramPack, ft.retPack, ft.packParams, ft.yieldPack, ft.resumePack,
             -- Adjusting the receiver rewrites a parameter list, not an effect.
-            ft.noYield, names, next(preserves) and preserves or nil, ft.foreign,
-            ft.constParams, ft.paramKinds)
+            ft.noYield, names, next(preserves) and preserves or nil, ft.foreign, ft.constParams, ft.paramKinds)
     end
 
     return ft
@@ -2469,41 +2488,17 @@ function generics.addSelf(ft: Type, selfType: Type, selfMode: string?): Type
     end
     local paramPack = T.pack(params, ft.paramPack.tail, modes)
 
-    return T.func(
-        params,
-        ft.rets,
-        ft.vararg,
-        modes,
-        ft.predicate,
-        ft.typeParams,
-        ft.typeBounds,
-        ft.borrowsParam,
-        ft.borrowsSelf,
-        ft.borrowsParams,
-        ft.ffiOut,
-        ft.varargType,
-        ft.noreturn,
-        paramPack,
-        ft.retPack,
-        ft.packParams,
-        ft.yieldPack,
-        ft.resumePack,
-        ft.noYield,
-        names,
-        (function()
-            local shifted = {}
-            for result = 1, #ft.rets do
-                local source = ft.preservesResults and ft.preservesResults[result]
-                if source then
-                    shifted[result] = source + 1
-                end
+    return T.func(params, ft.rets, ft.vararg, modes, ft.predicate, ft.typeParams, ft.typeBounds, ft.borrowsParam, ft.borrowsSelf, ft.borrowsParams, ft.ffiOut, ft.varargType, ft.noreturn, paramPack, ft.retPack, ft.packParams, ft.yieldPack, ft.resumePack, ft.noYield, names, (function()
+        local shifted = {}
+        for result = 1, #ft.rets do
+            local source = ft.preservesResults and ft.preservesResults[result]
+            if source then
+                shifted[result] = source + 1
             end
-            return next(shifted) and shifted or nil
-        end)(),
-        ft.foreign,
-        ft.constParams,
-        ft.paramKinds
-    )
+        end
+
+        return next(shifted) and shifted or nil
+    end)(), ft.foreign, ft.constParams, ft.paramKinds)
 end
 
 return generics

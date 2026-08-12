@@ -192,46 +192,14 @@ end
 --- Renders the closed, data-only derive plan as one Lua expression. Keys are sorted so
 --- equal semantic plans produce byte-identical output regardless of table iteration.
 --- @raises when a compiler-owned plan contains a non-data value or a cycle
-function literal.derive(value, active)
-    local kind = type(value)
-    if value == nil then
-        return "nil"
+function literal.derive(value: any): string
+    local derivePlan = require("nupp.compiler.derive_plan")
+    local rendered, why = derivePlan.render(value)
+    if not rendered then
+        error("invalid derive plan: " .. tostring(why))
     end
-    if kind == "boolean" then
-        return tostring(value)
-    elseif kind == "string" then
-        return ("%q"):format(value)
-    elseif kind == "number" then
-        if value == 0 and 1 / value < 0 then
-            return "-0.0"
-        end
-        return ("%.17g"):format(value)
-    end
-    if kind ~= "table" then
-        error("invalid derive-plan value: " .. kind)
-    end
-    active = active or {}
-    if active[value] then
-        error("derive plan contains a cycle")
-    end
-    active[value] = true
-    local parts = {}
-    for index = 1, #value do
-        parts[#parts + 1] = literal.derive(value[index], active)
-    end
-    local keys = {}
-    for key in pairs(value) do
-        if type(key) == "string" then
-            keys[#keys + 1] = key
-        end
-    end
-    table.sort(keys)
-    for _, key in ipairs(keys) do
-        parts[#parts + 1] = "[" .. literal.derive(key, active) .. "]=" .. literal.derive(value[key], active)
-    end
-    active[value] = nil
 
-    return "{" .. table.concat(parts, ",") .. "}"
+    return rendered
 end
 
 -- The runtime name of a declaration written with a qualified name, which is an ordinary
@@ -1680,12 +1648,25 @@ function gen.generate(
             end
             emitInheritedDefaults(x, runtimeName)
             if x.derivePlan then
+                local derivePlan = require("nupp.compiler.derive_plan")
                 local plan = x.derivePlan
+                local renderedPlan, renderError = derivePlan.render(plan, {limit = derivePlan.MAX_OUTPUT_BYTES,})
+                if not renderedPlan then
+                    diag(
+                        x.name,
+                        "NUPP2808",
+                        renderError == "limit" and (
+                            "derive output exceeds %d rendered bytes"
+                        ):format(derivePlan.MAX_OUTPUT_BYTES) or "derive output plan is invalid",
+                        "split the record or write the generated behavior explicitly"
+                    )
+                    return
+                end
                 needRuntimeEffect("stdlib.derives")
                 if plan.providers.JSON then
                     needRuntimeEffect("native.cjson")
                 end
-                e(";do local __nuppDerived=" .. literal.derive(plan))
+                e(";do local __nuppDerived=" .. renderedPlan)
                 e(
                     (
                         ";local __nuppDerivedEntry=_G.nupp.__derive.register(%q,%s,__nuppDerived)"
