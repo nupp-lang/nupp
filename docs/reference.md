@@ -1610,6 +1610,7 @@ says more.
 - **NUPP2807**: A derive dependency cycle has no valid lowering.
 - **NUPP2808**: A derive exceeds a compiler generation limit.
 - **NUPP3001**: `is` has nothing to test against this type.
+- **NUPP3005**: Generated code that a Lua VM will not load.
 
 ## CLI
 

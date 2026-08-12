@@ -3911,6 +3911,48 @@ function gen.generate(
     end
     local metadata = coverageOn and {path = coveragePath, sites = (coverageSites or {}) as {any}} or nil
 
+    -- Generated Lua that will not load is a bug in this file, and it should say so here
+    -- rather than wherever the module is first required.
+    --
+    -- LuaJIT caps a function at 60 upvalues and refuses to parse one that exceeds it, so
+    -- the count cannot be read back -- the refusal is the only signal there is. Which
+    -- makes this the general check rather than a count: parse what was just written, and
+    -- report anything that will not parse. The upvalue cap is one way to trip it and any
+    -- other malformed emission is another, and both used to surface as a load error from
+    -- a generated line, in whichever command happened to require the module first. A
+    -- coverage build found the last one, because it instruments the largest function in
+    -- the compiler and tips it over.
+    --
+    -- Line numbers survive generation one to one, so the line LuaJIT names is the line
+    -- that was written.
+    if loadstring then
+        local chunk, reason = loadstring(code, "@" .. tostring(filename or "generated"))
+        if not chunk then
+            local text = tostring(reason)
+            -- The upvalue refusal names the function's own line; a syntax error names
+            -- where it gave up. Prefer the former, which is the thing to change.
+            local line = tonumber(text:match("function at line (%d+)"))
+                or tonumber(text:match("^[^:]*:(%d+):"))
+                or 0
+            -- Two different failures reach here and they are not the same news. Capturing
+            -- past the cap is this file's own doing and has a way out; anything else is
+            -- this compiler emitting Lua it should not have.
+            local cap = text:match("more than (%d+) upvalues")
+            local message, help
+            if cap then
+                message = ("this function captures more than %s names from around it, "
+                    .. "which is more than a Lua function can hold"):format(cap)
+                help = "pass some of them as arguments, or gather what it reads into one "
+                    .. "value and capture that"
+            else
+                message = "generated code does not load: " .. (text:gsub("^[^:]*:%d+:%s*", ""))
+                help = "this is a bug in the compiler rather than in this file; `nupp bc "
+                    .. tostring(filename or "") .. "` shows what it generated"
+            end
+            diag({line = line, col = 1, offset = 0, text = ""}, "NUPP3005", message, help)
+        end
+    end
+
     return code, diags, metadata, emittedFeatureEffects
 end
 
