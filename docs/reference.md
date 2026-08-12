@@ -263,7 +263,7 @@ local events: Events<{
     name: string
 }> = nil as any
 local callback: function(value: string): nil = events.nameChanged
-local deep: DeepElement<{{integer}}> = 1
+local deep: DeepElement({{integer}}) = 1
 print(callback, deep)
 
 return m
