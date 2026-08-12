@@ -724,6 +724,7 @@ function control.install(c: state.Checker): state.StatHandlers
         c.numericOperand(st, from, "for")
         c.numericOperand(et, to, "for")
         c.pushScope()
+        c.scope.completionScope = stat.body
         c.bindVar(var.text, (isA(st, T.integer) and isA(et, T.integer)) and T.integer or T.number, false, var)
         c.loops.push(stat.body)
         c.checkBlock(stat.body, true)
@@ -766,6 +767,7 @@ function control.install(c: state.Checker): state.StatHandlers
             stat.builtinIpairs = {operand = operand, type = operandType}
         end
         c.pushScope()
+        c.scope.completionScope = stat.body
         for j, nameTok in ipairs(stat.names) do
             local vt = T.any
             if iterT and iterT.tag == "func" and iterT.rets[j] then

@@ -106,6 +106,7 @@ function cdef.install(
     end
 
     handlers.cdefFunc = function(stat: cst.CdefFunc)
+        c.raises.checkParams(stat, stat.params or {})
         local params, paramModes, paramNames = {}, {}, {}
         local outputByName = {}
         for _, output in ipairs(stat.ownedOuts or {}) do
@@ -260,14 +261,10 @@ function cdef.install(
         if not cdefName then
             return
         end
+        c.cDefinedFunctions[cdefName.text] = cdefType
         c.bindVar(cdefName.text, cdefType, true, cdefName, "function")
         if stat.dropContract then
-            registerDefaultDropOperation(
-                cdefType,
-                cdefName.text,
-                stat.dropTok or stat,
-                stat.cleanupRegistrationNode
-            )
+            registerDefaultDropOperation(cdefType, cdefName.text, stat.dropTok or stat, stat.cleanupRegistrationNode)
         end
         if cdefName.definition then
             cdefName.definition.cdef = true

@@ -127,6 +127,16 @@ local ENTRIES: {
     related = {"NUPP1004"},
     docs = "docs/diagnostics.md#code-families",
 }, {
+    code = "NUPP1007",
+    summary = "A docblock parameter does not exist",
+    rule = "An @param line documents one parameter of the declaration below it. "
+    .. "Spell that parameter's source name exactly, or remove the line; otherwise "
+    .. "generated documentation promises an argument the function does not accept.",
+    wrong = "--- @param valeu the value\nlocal function keep(value: integer): integer\n    return value\nend\nreturn keep(1)\n",
+    right = "--- @param value the value\nlocal function keep(value: integer): integer\n    return value\nend\nreturn keep(1)\n",
+    related = {"NUPP2506"},
+    docs = "docs/reference.md#docblocks",
+}, {
     code = "NUPP1006",
     summary = "The typed layer appears in a plain Lua file",
     rule = "A `.lua` file is Lua. The toolchain will require, build and run "

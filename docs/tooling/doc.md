@@ -3,6 +3,7 @@
 ```bash
 nupp doc site -o build/docs src
 nupp doc markdown -o docs/api.md src
+nupp doc json -o build/docs.json src
 nupp doc both -o build/docs
 ```
 
@@ -13,7 +14,7 @@ code generator, so a documentation build costs parsing and rendering alone.
 Unchanged output files are left untouched.
 
 ```
-nupp doc [site|markdown|both] [-o PATH] [--title TITLE] [--all] [path...]
+nupp doc [site|markdown|json|both] [-o PATH] [--title TITLE] [--all] [path...]
 ```
 
 The format is a positional word rather than a flag, and `md` is accepted for
@@ -108,7 +109,8 @@ claim the checker cannot verify.
 Tags are read wherever a function is declared, including the typed bindings and
 function-typed record fields that declaration files are written with, so
 `local ipairs: function<V>(t: {V}): ...` documents its arguments like any other
-function.
+function. The checker reports `NUPP1007` when an `@param` name does not match a
+real parameter.
 
 ## Public surface
 
@@ -399,11 +401,19 @@ and headings together with modules, declarations, and members.
 **`markdown`** writes one file: a section per module, with signature blocks and
 tables for type parameters, arguments, returns, methods, fields, and values.
 
+**`json`** writes the parse-only documentation model for external generators.
+The top-level `schemaVersion` lets a consumer reject a model shape it does not
+understand; `modules` contains the same declarations, members, doc tags, and
+signatures that the built-in renderers consume. This positional format is
+separate from `--json`, which controls the command's own success report.
+
 **`both`** writes the site plus `api.md` inside the output directory.
 
 Every page also emits a colocated `llms.txt` holding its Markdown. The output
 root adds an `llms.txt` index and `llms-full.txt`, the whole reference
-concatenated.
+concatenated. A successful site build records the files it owns and removes any
+that the next successful build no longer produces, including pages whose route
+changed or whose source disappeared.
 
 ## As a build target
 

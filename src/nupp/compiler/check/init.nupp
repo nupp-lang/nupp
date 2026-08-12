@@ -609,6 +609,7 @@ function checkMod.check(
         pending = {},
         automaticOwners = {},
         depth = 0,
+        completionScope = result.root,
         parent = nil
     }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, dropOperationFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, handledDepth = 0, functionDepth = 0, functionBodies = {}, jitHazards = {}, scopedCaptureDepth = 0, closureCaptureStack = {}, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, activeAlias = nil, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldDefs = {}, moduleFieldConst = {}, moduleFieldValues = {}, nominalEffectOwners = {}, nominalEffectEntries = {}, constModulePaths = {}, moduleLocalAnnotated = false)
     c.rootScope = c.scope
@@ -617,6 +618,7 @@ function checkMod.check(
     -- file-local, and because the alternative is process state deciding what a
     -- program means.
     c.cDeclared = {}
+    c.cDefinedFunctions = {}
     c.recordEffect = function(effect: string)
         result.effects[effect] = true
     end
@@ -894,6 +896,13 @@ function checkMod.check(
         if kind and (not def.kind or def.kind == "variable") then
             def.kind = kind
         end
+        if c.scope and c.scope.completionScope then
+            local first = cst.firstToken(c.scope.completionScope)
+            local last = cst.lastToken(c.scope.completionScope)
+            def.scopeFrom = first and first.offset or nil
+            def.scopeTo = last and last.offset + #last.text or nil
+            def.scopeDepth = c.scope.depth or 0
+        end
         if tok.deprecation then
             def.deprecated = tok.deprecation
             def.documentationTrivia = tok.deprecationTrivia
@@ -951,6 +960,7 @@ function checkMod.check(
         local def = tok and c.definition(tok, kind) or old and old.definition or nil
         if def then
             def.type = t
+            def.lexical = true
             def.constant = constant == true or (tok == nil and old and old.constant) or false
             if not def.kind or def.kind == "variable" then
                 def.kind = kind
@@ -996,6 +1006,7 @@ function checkMod.check(
         local def = tok and c.definition(tok, kind) or c.scope.typeDefs[name]
         if def then
             def.type, def.kind = t, kind
+            def.lexical = true
         end
         c.scope.typeDefs[name] = def
         c.markToken(tok, def, t, kind)
@@ -1005,6 +1016,7 @@ function checkMod.check(
         local def = tok and c.definition(tok, "typeParameter") or c.scope.typeDefs[name]
         if def then
             def.type, def.kind = p, "typeParameter"
+            def.lexical = true
         end
         c.scope.typeDefs[name] = def
         c.markToken(tok, def, nil, "typeParameter")
@@ -1163,6 +1175,9 @@ function checkMod.check(
 
             return nil
         end, c.cDeclared)
+        for name, t in pairs(c.cDefinedFunctions) do
+            decls[name] = t
+        end
         local fields = {}
         for name, t in pairs(decls) do
             fields[#fields + 1] = {name = name, type = t}
@@ -1657,6 +1672,7 @@ function checkMod.check(
         end
         if block and block.kind == "block" then
             c.scope.block = block
+            c.scope.completionScope = c.scope.completionScope or block
         end
         hoistDeclarations(block)
         local stats = block and block.kind == "block" and block.stats or {}
@@ -1808,6 +1824,7 @@ function checkMod.check(
         return a.offset < b.offset
     end)
     result.moduleExports = c.moduleExports
+    result.cNamespaceType = c.cNamespaceType()
 
     return c.diags, c.moduleType, c.moduleExports
 end

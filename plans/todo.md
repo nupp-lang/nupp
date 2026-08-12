@@ -113,45 +113,18 @@ work makes sense in.
 
 ## Editor and docs tooling
 
-- [ ] **Completion is receiver-correct but scope-blind.** After a `.` or `:`
-      the answer is already what that receiver holds and nothing else. What is
-      left: lexical-scope filtering of the ambient list —
-      `src/nupp/compiler/lsp/complete.nupp:470`
-      filters by source offset alone, so every file symbol is offered
-      regardless of enclosing block; the synthesized `ffi.C` namespace, which
-      `resolveReceiver` cannot reach even though cdef structs already carry
-      `byname`; callable snippets, which need `insertTextFormat` and are absent
-      entirely; and module-path completion inside a `require` string. Required
-      project modules themselves are now included in the ambient list.
-- [ ] **Cancellation, stale results and multi-root.** `$/cancelRequest` is
-      registered as a no-op (`src/nupp/compiler/lsp/init.nupp:916`), so it is understood
-      only in the sense of not erroring; cancelling work in flight needs input
-      readable without blocking, which this loop does not have. Graceful
-      stale-request results need request-id tracking, which nothing does.
-      Workspace folders are read and re-root correctly but collapse into one
-      session, so real multi-root remains: one env, one cache and one
-      diagnostic set per folder, and a request routed by the folder its file
-      belongs to.
-- [ ] **Doc comments as checked grammar.** `@param` parses
-      (`src/nupp/compiler/docblock.nupp:23`) and renders, but nothing verifies the names
-      against the real parameter list — `@raises` is the only tag any checker
-      reads. Symbol cross-references have landed using Markdown's
-      `[](symbol)` form rather than the proposed `[[Type]]` spelling.
-- [ ] **Docgen JSON output mode.** Static HTML landed (`nupp doc site`,
-      `src/nupp/compiler/doc/html.nupp`). What external site generators need is a
-      doc-model JSON emitter; `--format json` today is only the CLI's own
-      report shape, which `src/nupp/compiler/cli/doc.nupp:40` says outright.
-- [ ] **`nupp doc` never removes what it stopped writing.** A module build
-      records its outputs and deletes the ones a later build did not produce
-      (`src/nupp/compiler/build/project.nupp:188`); the docs target returns at line 161,
-      before any of that runs. So a page keeps its rendered HTML after its
-      route changes or its source is deleted. Restructuring this site left a
-      whole `build/docs/guide/` tree behind, still serving pages whose links
-      pointed at files that had moved — a link checker run over the output
-      found them and they looked real, which is worse than a 404. The list is
-      already in hand: `doc.files.collect` (`src/nupp/compiler/doc/files.nupp:25`)
-      records every written path for `--json`. The docs path needs to store it
-      and remove the difference.
+- [ ] **Stale LSP results and true multi-root.** Cancellation is no longer a
+      no-op: the stdio transport reads through a child process, harvests
+      `$/cancelRequest` while work is in flight, returns `RequestCancelled` for
+      canceled request IDs, and lets a comptime worker stop through the same
+      host (`src/nupp/compiler/lsp/init.nupp`, `src/nupp/compiler/comptime_worker.nupp`).
+      Long synchronous compiler work outside that worker still has no
+      cooperative cancellation checkpoints. Requests also do not retain the
+      document version they began against, so a response cannot be discarded
+      explicitly when a newer edit has arrived. Workspace folders re-root the
+      incremental graph correctly, but all folders still share one environment
+      and configuration; independent per-root sessions and result provenance
+      remain.
 
 ## Build, codegen and distribution
 

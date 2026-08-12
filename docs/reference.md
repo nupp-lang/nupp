@@ -1022,8 +1022,12 @@ An adjacent `---` run documents the declaration under it. `@param`, `@return`,
 `@internal` declaration stays out of public output but remains in private
 documentation builds. `nupp doc` renders them.
 
+An `@param` name must be one of the declaration's real parameters. A typo is
+**NUPP1007**, so generated documentation cannot quietly publish an argument the
+function does not accept.
+
 `@raises` says what makes a function raise, one line per condition. It is the
-one docblock tag the checker reads as well as renders: a documented function
+other docblock tag the checker reads as well as renders: a documented function
 that calls `error` without one is `undocumented-raise`. Raising is part of how a
 function is called, and Lua has no signature to find it out from.
 
@@ -1047,7 +1051,7 @@ end
 return m
 ```
 
-Reports: `NUPP2506`. `nupp explain <code>` says more.
+Reports: `NUPP1007`, `NUPP2506`. `nupp explain <code>` says more.
 
 ### Modules
 
@@ -1551,6 +1555,7 @@ says more.
 - **NUPP0001**: A source file could not be read.
 - **NUPP1002**: A required token is missing.
 - **NUPP1006**: The typed layer appears in a plain Lua file.
+- **NUPP1007**: A docblock parameter does not exist.
 - **NUPP2001**: A value does not fit the type it is bound to.
 - **NUPP2002**: A returned value does not fit the declared result.
 - **NUPP2004**: The field does not exist on that type.

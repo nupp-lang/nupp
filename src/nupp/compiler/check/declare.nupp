@@ -1314,6 +1314,9 @@ function declare.install(
             local localMembers, localMetamethods = {}, {}
             for _, e in ipairs(stat.entries) do
                 if e.kind == "fieldDecl" then
+                    if e.type and e.type.kind == "tfunc" then
+                        c.raises.checkParams(e, (e.type as any).params or {})
+                    end
                     local isDropOperation = false
                     local ownedApplication = nil
                     for _, application in ipairs(e.annotations or {}) do

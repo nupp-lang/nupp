@@ -453,6 +453,18 @@ function navigate.install(s: navigate.Session): navigate.Api
         if not checked then
             return nil
         end
+        if path[1] == "ffi" and path[2] == "C" then
+            local t = checked.cNamespaceType
+            for index = 3, #path do
+                local member = t and membersOf(t)[path[index]]
+                t = member and member.type or nil
+                if not t then
+                    return nil
+                end
+            end
+
+            return t
+        end
         local base = nil
         for _, def in ipairs(checked.symbols or {}) do
             if def.name == path[1] and (def.type or def.requiredModule) then

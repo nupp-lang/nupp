@@ -1599,6 +1599,74 @@ function M.completionAfterAValueDotOffersItsFields()
       "and not the fields, which cannot be")
 end
 
+function M.completionFiltersLexicalScopesAndBuildsCallableSnippets()
+   local projectDir = makeDir()
+   local source = table.concat({
+      "local function top(value: number): number return value end",
+      "do",
+      "   local hidden = 1",
+      "end",
+      "local answer = top(1)",
+   }, "\n") .. "\n"
+   local uri = "file://" .. projectDir .. "/main.nupp"
+   local out = runSession({
+      {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
+      {jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = {uri = uri, languageId = "nupp", version = 1,
+            text = source}}},
+      {jsonrpc = "2.0", id = 10, method = "textDocument/completion", params = {
+         textDocument = {uri = uri}, position = {line = 4, character = 19}}},
+      {jsonrpc = "2.0", id = 2, method = "shutdown"},
+      {jsonrpc = "2.0", method = "exit"},
+   }, projectDir)
+   os.execute("rm -rf '" .. projectDir .. "'")
+
+   local byName = {}
+   for _, item in ipairs(responseWithId(out, 10).result) do byName[item.label] = item end
+   assert(not byName.hidden, "a local from a closed sibling block was offered")
+   assert(byName.top, "a file-scope function was not offered")
+   assert(byName.top.insertText == "top(${1:value})$0", byName.top.insertText)
+   assert(byName.top.insertTextFormat == 2, "callable completion is not a snippet")
+end
+
+function M.completionOffersCdefMembersAndRequirePaths()
+   local projectDir = makeDir()
+   writeInto(projectDir, "lib/math.nupp", "return {}\n")
+   local source = table.concat({
+      "cdef function magnitude(value: int32): int32",
+      "local value = ffi.C.magnitude(1)",
+      'local math = require("lib.math")',
+   }, "\n") .. "\n"
+   local cTyping = source:gsub("ffi%.C%.magnitude%(1%)", "ffi.C.")
+   local requireTyping = source:gsub('require%("lib%.math"%)', 'require("lib.')
+   local uri = "file://" .. projectDir .. "/main.nupp"
+   local out = runSession({
+      {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
+      {jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = {uri = uri, languageId = "nupp", version = 1,
+            text = source}}},
+      {jsonrpc = "2.0", method = "textDocument/didChange", params = {
+         textDocument = {uri = uri, version = 2}, contentChanges = {{text = cTyping}}}},
+      {jsonrpc = "2.0", id = 10, method = "textDocument/completion", params = {
+         textDocument = {uri = uri}, position = {line = 1, character = 20}}},
+      {jsonrpc = "2.0", method = "textDocument/didChange", params = {
+         textDocument = {uri = uri, version = 3}, contentChanges = {{text = requireTyping}}}},
+      {jsonrpc = "2.0", id = 11, method = "textDocument/completion", params = {
+         textDocument = {uri = uri}, position = {line = 2, character = 26}}},
+      {jsonrpc = "2.0", id = 2, method = "shutdown"},
+      {jsonrpc = "2.0", method = "exit"},
+   }, projectDir)
+   os.execute("rm -rf '" .. projectDir .. "'")
+
+   local cMembers = {}
+   for _, item in ipairs(responseWithId(out, 10).result) do cMembers[item.label] = item end
+   assert(cMembers.magnitude, "ffi.C did not offer the file's cdef function")
+   assert(cMembers.magnitude.insertTextFormat == 2, "C function completion is not a snippet")
+   local modules = {}
+   for _, item in ipairs(responseWithId(out, 11).result) do modules[item.label] = item end
+   assert(modules["lib.math"], "require string did not offer the project module")
+end
+
 -- A type annotation is a place only a type can stand, so only types are offered
 -- there. A local in scope is a name, and naming it would complete to a refusal.
 function M.completionInATypePositionOffersOnlyTypes()

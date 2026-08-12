@@ -870,7 +870,7 @@ The exit code is the task command's own. See [tasks.md](tasks.md).
 Generate API documentation from source comments
 
 Usage:
-  nupp doc [site|markdown|both] [-o PATH] [--title TITLE] [--all] [--format text|json] [path...]
+  nupp doc [site|markdown|json|both] [-o PATH] [--title TITLE] [--all] [--format text|json] [path...]
 
 Options:
   -o, --output PATH  Output file or directory
@@ -884,7 +884,7 @@ Options:
   --no-color         Never colour output; the same as --color=never
   -h, --help         Show this help
 
-The first argument may name the format: site, markdown (or md), or both.
+The first argument may name the format: site, markdown (or md), json, or both.
 With none, the manifest's configured format is used, and site if it has none.
 
 --format names the shape of this command's own report and is unrelated to the

@@ -44,6 +44,9 @@ function bindings.install(c: state.Checker): state.StatHandlers
     handlers.localStmt = function(stat: cst.LocalStmt)
         local initializers = stat.exprs or {}
         local annotations = {}
+        if #stat.names == 1 and stat.types and stat.types[1] and stat.types[1].kind == "tfunc" then
+            c.raises.checkParams(stat, (stat.types[1] as any).params or {})
+        end
         for index, typeNode in ipairs(stat.types or {}) do
             local annotation = c.resolveType(typeNode)
             annotations[index] = annotation
@@ -74,11 +77,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
             if ann and init then
                 local ok, why = isA(init, ann)
                 if not ok then
-                    c.diag(
-                        "NUPP2001",
-                        initializers[j] or stat,
-                        ("cannot initialize %s: %s"):format(nameTok.text, why)
-                    )
+                    c.diag("NUPP2001", initializers[j] or stat, ("cannot initialize %s: %s"):format(nameTok.text, why))
                 end
                 -- The annotation is the target here, so it says whose metatable this is
                 -- as readily as a parameter would.
@@ -92,7 +91,8 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 end
             end
             -- Inferred types are hints, not shackles — mutable unannotated bindings
-            -- widen so common Lua idioms keep checking: literal shapes stay OPEN ("local M =
+            -- widen so common Lua idioms keep checking: literal shapes stay OPEN
+            -- ("local M =
             -- {a=1}; M.b = 2") —
             --     but shapes RETURNED by calls (modules!) keep their type,
             -- integer widens ("local i = 1; i = i / 2"), nil init means "declared,
@@ -350,10 +350,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                         local tests = {}
                         for slotIndex, slotType in ipairs(alternative.head or {}) do
                             if slotIndex ~= resultIndex and slotType.tag == "literal" then
-                                tests[#tests + 1] = {
-                                    index = slotIndex,
-                                    constant = slotType.constant,
-                                }
+                                tests[#tests + 1] = {index = slotIndex, constant = slotType.constant,}
                             end
                         end
                         if #tests == 0 then
@@ -525,14 +522,15 @@ function bindings.install(c: state.Checker): state.StatHandlers
                         else
                             local prior = container.movedFieldTypes and container.movedFieldTypes[field]
                             if prior and prior.id ~= et.id then
-                                c.diag("NUPP2602", written or stat, "reinitialized field must keep its exact cleanup contract")
+                                c.diag(
+                                    "NUPP2602",
+                                    written or stat,
+                                    "reinitialized field must keep its exact cleanup contract"
+                                )
                             end
                             moveExpression(written, et, "affine field reinitialization", "owned")
                             if written and container.automaticOwner then
-                                written.automaticOwnerReinit = {
-                                    owner = container.automaticOwner,
-                                    field = field,
-                                }
+                                written.automaticOwnerReinit = {owner = container.automaticOwner, field = field,}
                             end
                             container.movedFields[field] = nil
                             container.movedFieldTypes[field] = et

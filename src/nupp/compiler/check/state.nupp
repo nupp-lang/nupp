@@ -395,6 +395,7 @@ record state.Checker
 
     recordCDeclarations: function({[string]: any}?)
     cDeclared: {[string]: boolean}
+    cDefinedFunctions: {[string]: Type}
 
     --- `t` without nil, which is what a truthiness test leaves.
     minusNil: function(t: Type): Type

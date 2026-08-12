@@ -383,16 +383,14 @@ function expr.install(c: state.Checker): nil
                         node.borrowOwner = capture.root
                         capturedType = T.borrowed(rawType(entry.t))
                     elseif not node.ownershipCaptureReported then
-                    -- The branch above is what proves it has one.
-                    local capturedKind = c.ownershipKind(entry.t) as string
+                        -- The branch above is what proves it has one.
+                        local capturedKind = c.ownershipKind(entry.t) as string
                         c.diag(
                             "NUPP2603",
                             node,
                             ("%s value %q has no closure borrow contract"):format(capturedKind, nameText),
                             nil,
-                            {
-                                help = "name the source in borrows (...) or let an expression closure infer it"
-                            }
+                            {help = "name the source in borrows (...) or let an expression closure infer it"}
                         )
                         node.ownershipCaptureReported = true
                     end
@@ -631,6 +629,7 @@ function expr.install(c: state.Checker): nil
             return inferred
         elseif kind == "shortfn" then
             c.pushScope()
+            c.scope.completionScope = node.body or node
             local params, paramNames = {}, {}
             local vararg = false
             local expectedParams: {Type}? = nil
@@ -739,11 +738,11 @@ function expr.install(c: state.Checker): nil
                     return valueT
                 end
                 if not node.affineAggregateContext then
-                c.diag(
-                    "NUPP2603",
-                    value,
-                    (c.ownershipKind(valueT) as string) .. " value cannot be stored in a table"
-                )
+                    c.diag(
+                        "NUPP2603",
+                        value,
+                        (c.ownershipKind(valueT) as string) .. " value cannot be stored in a table"
+                    )
                     return rawType(valueT)
                 end
                 node.affineAggregate = true

@@ -39,6 +39,9 @@ local undocumentedraise = {}
 --- What the walk calls into this judgement with: one call per named function body, at
 --- the three places one is declared with a `---` run to read.
 type undocumentedraise.Ops = {
+    --- Reports an @param name that the documented callable does not declare.
+    checkParams: function(stat: any, params: {any}),
+
     --- Reports when a documented function raises and its documentation does not say so.
     check: function(stat: any, body: any)
 }
@@ -77,9 +80,45 @@ end
 function undocumentedraise.install(c: state.Checker): undocumentedraise.Ops
     local ops = {}
 
-    --- Reports `undocumented-raise` when a documented function raises and its run does
-    --- not say so. The three places that call it are the three places a function body
-    --- is declared with a name to document.
+    function ops.checkParams(stat: any, params: {any})
+        local info, documented = docblock.of(stat)
+        if not documented then
+            return
+        end
+        local parameters = {}
+        for _, param in ipairs(params or {}) do
+            local name = param.name and param.name.text or (param[1] and param[1].kind == "..." and "..." or nil)
+            -- `self` is also a type name, so a receiver in a function type is parsed
+            -- as an unnamed parameter whose type is the contextual `self` binder.
+            if not name and param.type and param.type.kind == "tname" and (
+                param.type as any
+            ).base and (param.type as any).base.text == "self" then
+                name = "self"
+            end
+            if name then
+                parameters[name] = true
+            end
+        end
+        for name in pairs(info.params) do
+            if not parameters[name] then
+                local label = stat.name and (
+                    stat.name.text or cst.textOf(stat.name):gsub("%s+", "")
+                ) or "this declaration"
+                c.diag(
+                    "NUPP1007",
+                    stat.name and cst.lastToken(stat.name) or stat,
+                    ("@param %s names no parameter of %s"):format(name, label),
+                    nil,
+                    {help = "remove the @param line or spell a declared parameter's name"}
+                )
+            end
+        end
+    end
+
+    --- Checks the docblock against the function it describes, then reports
+    --- `undocumented-raise` when a documented function raises and its run does not say
+    --- so. The three places that call it are the three places a function body is
+    --- declared with a name to document.
     ---
     --- @param stat the declaration, which is what carries the `---` run
     --- @param body its funcbody
@@ -87,12 +126,10 @@ function undocumentedraise.install(c: state.Checker): undocumentedraise.Ops
         if not stat or not body then
             return
         end
-        local raiseTok = raisesAt(body.body)
-        if not raiseTok then
-            return
-        end
+        ops.checkParams(stat, body.params or {})
         local info, documented = docblock.of(stat)
-        if not documented or #info.raises > 0 then
+        local raiseTok = raisesAt(body.body)
+        if not raiseTok or not documented or #info.raises > 0 then
             return
         end
         local label = stat.name and (cst.textOf(stat.name):gsub("%s+", "")) or "this function"

@@ -24,6 +24,12 @@ local function lint(src, config)
    return found
 end
 
+local function diagnosticsOf(src)
+   local result = parser.parse(src, "test.g.nupp")
+   assertEq(#result.errors, 0, "syntax errors in test source")
+   return check.check(result, "test.g.nupp", envMod.new("."), {})
+end
+
 local function assertFlagged(src, label)
    local found = lint(src)
    assertEq(#found, 1, (label or "expected one report") .. "\n" .. src)
@@ -40,6 +46,33 @@ local function assertQuiet(src, label)
 end
 
 local M = {}
+
+function M.rejectsDocblocksNamingMissingParameters()
+   local diags = diagnosticsOf(table.concat({
+      "--- @param valeu the value",
+      "local function keep(value: integer): integer",
+      "   return value",
+      "end",
+      "return keep(1)",
+   }, "\n"))
+   assert(#diags == 1 and diags[1].code == "NUPP1007",
+      "misspelled @param did not report NUPP1007")
+   assert(diags[1].msg:find("valeu", 1, true), diags[1].msg)
+end
+
+function M.acceptsTheContextualSelfParameterInFunctionTypes()
+   local diags = diagnosticsOf(table.concat({
+      "record Matcher",
+      "   --- @param self the matcher",
+      "   --- @param subject text to match",
+      "   match: function(self, subject: string): boolean",
+      "end",
+      "return Matcher",
+   }, "\n"))
+   for _, diag in ipairs(diags) do
+      assert(diag.code ~= "NUPP1007", diag.msg)
+   end
+end
 
 function M.flagsADocumentedFunctionThatRaises()
    local at = assertFlagged([[

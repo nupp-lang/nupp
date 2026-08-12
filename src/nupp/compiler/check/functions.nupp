@@ -493,6 +493,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         c.functionDepth = c.functionDepth + 1
         c.functionBodies[#c.functionBodies + 1] = body
         c.pushScope()
+        c.scope.completionScope = body.body or body
         local captureContext = {body = body, allowed = {}}
         for _, capture in ipairs(borrows) do
             captureContext.allowed[capture.name] = capture

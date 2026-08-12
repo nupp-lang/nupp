@@ -1095,7 +1095,7 @@ with written members. Derive augments a declaration; comptime produces values.
 
     new reference.Section(
         title = "Docblocks",
-        codes = {"NUPP2506"},
+        codes = {"NUPP1007", "NUPP2506"},
         body = [=[
 A leading `@!internal` inner annotation keeps a file out of public generated
 documentation. On `init.nupp`, it also hides every descendant module; private
@@ -1106,8 +1106,12 @@ An adjacent `---` run documents the declaration under it. `@param`, `@return`,
 `@internal` declaration stays out of public output but remains in private
 documentation builds. `nupp doc` renders them.
 
+An `@param` name must be one of the declaration's real parameters. A typo is
+**NUPP1007**, so generated documentation cannot quietly publish an argument the
+function does not accept.
+
 `@raises` says what makes a function raise, one line per condition. It is the
-one docblock tag the checker reads as well as renders: a documented function
+other docblock tag the checker reads as well as renders: a documented function
 that calls `error` without one is `undocumented-raise`. Raising is part of how a
 function is called, and Lua has no signature to find it out from.
 ]=],

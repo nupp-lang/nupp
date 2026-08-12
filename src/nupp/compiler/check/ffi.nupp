@@ -45,16 +45,17 @@ type ffi.Intrinsic = function(
     argStr: any
 ): Type?
 
+--- The text inside a string literal, whichever way it was quoted.
+local function cdefBody(text: string): string?
+    return text:match(
+        "^%[%[(.*)%]%]$"
+    ) or text:match('^"(.*)"$') or text:match("^'(.*)'$") or text:match("^%[=+%[(.*)%]=+%]$")
+end
+
 --- Installs the FFI intrinsics on one run.
 ---
 --- @param c the run's state
 --- @return the intrinsic dispatch the call path asks first
---- The text inside a string literal, whichever way it was quoted.
-local function cdefBody(text: string): string?
-    return text:match("^%[%[(.*)%]%]$") or text:match('^"(.*)"$')
-        or text:match("^'(.*)'$") or text:match("^%[=+%[(.*)%]=+%]$")
-end
-
 function ffi.install(c: state.Checker): ffi.Intrinsic
 
     --- The type an intrinsic call has, or nil when this call is not one and the
@@ -211,12 +212,9 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                 return T.any
             end
             node.carrayElem = elemT.name
-            local count = countT.tag == "literal"
-                and type(countT.constant) == "number"
-                and countT.constant >= 0
-                and countT.constant % 1 == 0
-                and countT.constant
-                or nil
+            local count = countT.tag == "literal" and type(
+                countT.constant
+            ) == "number" and countT.constant >= 0 and countT.constant % 1 == 0 and countT.constant or nil
             return T.carray(elemT, count as integer?)
 
         -- layoutof(Struct) answers how one is laid out in C memory: the fields in
@@ -366,11 +364,18 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
         if calleeName == "pcall" or calleeName == "xpcall" then
             local callee = argExprs[1]
             local subject = argExprs[calleeName == "pcall" and 2 or 3]
-            if callee and callee.kind == "dotIndex" and callee.name
-                and callee.name.text == "cdef" and callee.obj
-                and callee.obj.kind == "name" and callee.obj.token
+            if callee
+                and callee.kind == "dotIndex"
+                and callee.name
+                and callee.name.text == "cdef"
+                and callee.obj
+                and callee.obj.kind == "name"
+                and callee.obj.token
                 and callee.obj.token.text == "ffi"
-                and subject and subject.kind == "string" and subject.token then
+                and subject
+                and subject.kind == "string"
+                and subject.token
+            then
                 local body = cdefBody(subject.token.text)
                 if body then
                     local ok, _, names = require("nupp.compiler.cheader").declare(body)

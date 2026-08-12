@@ -1499,6 +1499,43 @@ function M.docsBuildTargetWritesSiteAndMarkdown()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.jsonDocumentationExposesTheParseOnlyModel()
+   local json = require("cjson").new()
+   local dir = tempProject({["src/math.nupp"] = SOURCE})
+   assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}},
+      {format = "json", output = "api.json"}) == 0)
+   local model = json.decode(readFile(dir .. "/api.json"))
+   assert(model.schemaVersion == 1, "documentation model version missing")
+   assert(model.modules[1].name == "math", "module name missing from JSON model")
+   assert(model.modules[1].items[1].name == "add", "declaration missing from JSON model")
+   assert(model.modules[1].items[1].params[1].name == "left",
+      "parameter missing from JSON model")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.siteBuildRemovesFilesItNoLongerProduces()
+   local dir = tempProject({
+      ["src/math.nupp"] = SOURCE,
+      ["docs/guide.md"] = "# Guide\n",
+   })
+   local config = {include = {"src"}}
+   local first = {sources = {"src"}, pages = {
+      {path = "guide/old", title = "Old guide", source = "docs/guide.md"},
+   }}
+   assert(doc.build(dir, config, first, {format = "site", output = "site"}) == 0)
+   assert(io.open(dir .. "/site/guide/old/index.html", "rb"), "first route missing")
+
+   assert(doc.build(dir, config, {sources = {"src"}},
+      {format = "site", output = "site"}) == 0)
+   assert(not io.open(dir .. "/site/guide/old/index.html", "rb"),
+      "a route omitted by the next successful build survived")
+   assert(not io.open(dir .. "/site/guide/old", "rb"),
+      "the empty route directory survived")
+   assert(io.open(dir .. "/site/modules/math/index.html", "rb"),
+      "the new site lost a current output")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.siteMatchesTheNuppdocPageModel()
    local dir = tempProject({
       ["nupp.lua"] = [[return {

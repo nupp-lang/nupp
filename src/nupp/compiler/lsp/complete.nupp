@@ -317,6 +317,7 @@ complete.completionKinds = {
     variable = 6,
     parameter = 6,
     property = 10,
+    module = 9,
     keyword = 14,
     type = 25,
     struct = 22,
@@ -378,6 +379,20 @@ complete.completionWords = {
 -- Kinds that can stand where a type is expected. A value's name there completes to
 -- something the checker will refuse, so it is not offered.
 local TYPE_KINDS = {type = true, struct = true, interface = true, typeParameter = true,}
+
+--- The module path being written in a short quoted `require` argument. Nil everywhere
+--- else. Completion is asked before the string or call necessarily parses, so this is
+--- deliberately a lexical question over the current line.
+function complete.requirePrefix(source: string, offset: integer): string?
+    local before = source:sub(1, math.max(0, offset - 1))
+    local line = before:match("([^\n]*)$") or ""
+    local at, _, prefix = line:match("()%f[%a]require%s*%(%s*([\"'])([^\"']*)$")
+    if not at then
+        return nil
+    end
+
+    return prefix
+end
 
 --- Installs the completion questions that need a session.
 ---
@@ -448,6 +463,38 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
                 end
             end
         end
+        local function callableSnippet(label, kind, t): string
+            local ft = t
+            if type(ft) == "table" then
+                ft = T.unwrapOwnership(ft)
+            end
+            if type(ft) == "table" and ft.tag == "intersection" then
+                for _, candidate in ipairs(ft.members) do
+                    if candidate.tag == "func" then
+                        ft = candidate
+                        break
+                    end
+                end
+            end
+            local arguments = {}
+            if type(ft) == "table" and ft.tag == "func" then
+                for index in ipairs(ft.params or {}) do
+                    local name = ft.paramNames and ft.paramNames[index] or ""
+                    if not (kind == "method" and index == 1 and name == "self") then
+                        if name == "" then
+                            name = "arg" .. tostring(index)
+                        end
+                        arguments[#arguments + 1] = "${" .. tostring(#arguments + 1) .. ":" .. name .. "}"
+                    end
+                end
+                if ft.vararg then
+                    arguments[#arguments + 1] = "${" .. tostring(#arguments + 1) .. ":...}"
+                end
+            end
+
+            return label .. "(" .. table.concat(arguments, ", ") .. ")$0"
+        end
+
         local function add(label, kind, t, def, priority)
             if not label or seen[label] then
                 return
@@ -473,7 +520,24 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
             if docs then
                 item.documentation = docs
             end
+            if kind == "function" or kind == "method" then
+                item.insertText = callableSnippet(label, kind, t)
+                item.insertTextFormat = 2
+            end
             items[#items + 1] = item
+        end
+
+        local requirePrefix = complete.requirePrefix(doc.text, offset)
+        if requirePrefix then
+            for name in pairs(s.inc.projectIndex().modules or {}) do
+                if name:sub(1, #requirePrefix) == requirePrefix then
+                    add(name, "module", nil, nil, 1)
+                end
+            end
+            table.sort(items, function(a, b)
+                return a.label < b.label
+            end)
+            return items
         end
 
         -- After a dot the answer is exactly what that receiver holds. Offering the
@@ -517,11 +581,25 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
             return items
         end
 
+        local definitions = {}
         for _, def in ipairs(doc.result.symbols or {}) do
-            if (not inComptime or inComptimeScope(def)) and (not def.token or def.token.offset <= offset) then
-                -- a member is written as the path it was declared under
-                add(def.qualifiedName or def.name, def.kind, def.type, def, 1)
+            local inScope = not def.scopeFrom or not def.scopeTo or offset >= def.scopeFrom and offset <= def.scopeTo
+            if def.lexical and inScope and (
+                not inComptime or inComptimeScope(def)
+            ) and (not def.token or def.token.offset <= offset) then
+                definitions[#definitions + 1] = def
             end
+        end
+        table.sort(definitions, function(a, b)
+            if (a.scopeDepth or 0) ~= (b.scopeDepth or 0) then
+                return (a.scopeDepth or 0) > (b.scopeDepth or 0)
+            end
+
+            return (a.token and a.token.offset or 0) > (b.token and b.token.offset or 0)
+        end)
+        for _, def in ipairs(definitions) do
+            -- a member is written as the path it was declared under
+            add(def.qualifiedName or def.name, def.kind, def.type, def, 1)
         end
         for name, entry in pairs(s.inc.env.globals or {}) do
             if not inComptime or COMPTIME_GLOBALS[name] then
