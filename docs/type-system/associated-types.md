@@ -24,7 +24,7 @@ the type parameter:
 local function collect<T is Reader>(source: T): {T.Item}
 ```
 
-## Four declarations, and what each promises
+## Four declarations
 
 Where the member is written, and which operator it uses, is the whole of what it
 means.

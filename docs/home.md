@@ -7,6 +7,8 @@
 
 ## Getting started
 
+Start here and you have run a program by the end of the second page:
+
 - [Installation](start/installation.md): requirements, a checkout, and a first
   project.
 - [A tour of Nupp](start/tour.md): the whole language in one pass.
@@ -17,6 +19,8 @@
 - [Nupp syntax](start/syntax.md): the syntax, and what LuaJIT 2.1 carries.
 
 ## API docs
+
+For looking something up rather than learning it:
 
 - [The language reference](reference.md): every construct and the codes that
   report getting it wrong, generated from the compiler.

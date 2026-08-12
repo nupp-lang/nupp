@@ -210,6 +210,8 @@ See [narrowing](narrowing.md) for the rest.
 
 ## Choosing between them
 
+What the alternatives carry decides which of the two you want:
+
 - The alternatives are values, and nothing rides along: a union of literals.
 - The alternatives carry different data: a tagged union of records.
 - The alternatives are unrelated existing types, told apart by `is`: a plain

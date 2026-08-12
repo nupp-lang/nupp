@@ -70,6 +70,8 @@ occasional use-after-free.
 
 ## Ownership syntax
 
+The whole surface, in one place:
+
 - `@owned(cleanup...)`: the first result is a new affine owner with this ordered
   cleanup list.
 - `@owned`: use the result type's one inherited `@drop` operation.
@@ -882,6 +884,9 @@ callee contract, an owner or borrow may not cross it. Convert through
 `intoRaw` in `unsafe` only when abandoning the guarantee is intentional.
 
 ## Non-goals and limits
+
+The model is deliberately smaller than Rust's, and these are the places
+that shows:
 
 - No typestate. The checker tracks whether a resource obligation is live,
   moved, borrowed, retained, or discharged, not arbitrary states such as

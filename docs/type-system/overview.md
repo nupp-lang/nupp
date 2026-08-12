@@ -64,7 +64,7 @@ call* keeps its type, because only mutable literal initializers widen.
 The practical reading: annotate when you want the constraint, leave it off when
 you want the Lua behavior. Both are supported positions.
 
-## Strict floor, and which files hold it
+## Strict floor
 
 Strict adds exactly three things:
 
@@ -104,7 +104,7 @@ annotation written here changes what LuaJIT accepts.
 nupp check --strict
 ```
 
-## `any`, and the escape hatches
+## Gradual escape hatches
 
 `any` is compatible with everything in both directions. Reading a field of `any`
 gives `any`; calling it gives `any` with no arity or argument checks. It also
@@ -141,6 +141,8 @@ Each is a place where the checker chose compatibility. Knowing which four they
 are is more useful than pretending they do not exist.
 
 ## Type-system guides
+
+One page per idea, in the order they build on each other:
 
 - [Primitive types](primitives.md): the builtin names, unions, optionals,
   collections, and aliases.

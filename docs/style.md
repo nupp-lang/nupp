@@ -17,6 +17,12 @@ Every page opens the same way.
 2. **One to three sentences of intro.** What it is, and why a reader would
    reach for it. Not history, not motivation, not a promise about later
    sections.
+
+   Sentences, with a subject and a verb. "How a Nupp program becomes one file
+   somebody can run." is a description of the page rather than a statement
+   about the subject, and it leaves the reader exactly where the title did.
+   Write what is true instead: "A distributed program is a stub with a payload
+   appended to it."
 3. **A code example inside the first screen.** Before any subheading. If a
    concept cannot be shown in fifteen lines, show the smallest useful part of
    it and layer the rest.
@@ -96,6 +102,19 @@ The same applies to a title naming the document rather than its subject:
 A section that genuinely covers a boundary is titled for the boundary, as
 "Limits", rather than for the negation, as "What it will not do".
 
+**A title does not append a clause about itself.** "Signing, and what macOS
+does about it" names its subject and then explains why the section exists,
+which is the intro's job. Name the subject and stop.
+
+| Banned | Write instead |
+| --- | --- |
+| Signing, and what macOS does about it | Signing for macOS |
+| Strict floor, and which files hold it | Strict floor |
+| Four declarations, and what each promises | Four declarations |
+
+A title listing several subjects is not this. "Writes, shapes, and metatables"
+enumerates what the section covers, and that is what a title is for.
+
 **A title never opens with an article.** "The", "A" and "An" carry nothing and
 push the identifying word off the front, which is where a reader scanning an
 outline looks. This holds for a declarative title too: state the fact starting
@@ -115,6 +134,16 @@ Sentence case. No trailing colons or question marks. A question as a heading
 is a fact you have not committed to yet, so skip FAQ framing. Stop at H3;
 reaching H4 usually means the page should split.
 
+## Openings
+
+A section opens with a sentence, not with a list. A reader arriving at a
+heading needs to know what the list is a list of before the first item means
+anything, and one sentence is usually the whole cost.
+
+`## Diagnostics` and `## Next` are the exceptions, because the guide already
+fixes their shape: one is the codes a page's rules produce and the other is two
+or three links, and neither wants a sentence saying so on every page.
+
 ## Layering
 
 Do not explain a concept completely and then illustrate it. Alternate.
@@ -131,6 +160,9 @@ comes first, the escape hatch last. `unsafe do` is at the bottom of the
 ownership page for a reason.
 
 ## Code examples
+
+An example is the page's evidence, so it is held to the same standard as
+the prose around it:
 
 - Tag every fence: `nupp`, `lua`, `bash`, `c`, `json`.
 - Show generated Lua when the lowering is the point, in a code group:
@@ -266,6 +298,8 @@ the guarantee.
 
 ## Words
 
+The vocabulary is fixed so a reader meets one word per idea:
+
 - American spelling: color, behavior, initialize.
 - **The tools have names**: the checker, the compiler, the formatter, the
   language server, the documentation generator, the profiler. Commands are
@@ -313,6 +347,8 @@ local function openSession(id: uint64): Session
   module is for, in one sentence, and link the page that owns the concept.
 
 ## Mechanics
+
+The rest is formatting, and none of it is negotiable per page:
 
 - Hard-wrap prose at 80 columns. Do not reflow a paragraph you did not touch.
 - One blank line between blocks, none at the top of a section.

@@ -116,6 +116,8 @@ member that is not literally `true` or `false` is `NUPP2112`.
 
 ### Path-valued members
 
+Each of these names a set of rooted paths the call may touch:
+
 - `reads`: state the function may observe through a rooted path.
 - `writes`: existing state the function may write through a rooted path.
 - `shapes`: tables whose key set or dense-array boundary may change.
@@ -126,6 +128,8 @@ member that is not literally `true` or `false` is `NUPP2112`.
 - `returns`: result positions that alias an input path.
 
 ### Boolean members
+
+Each of these answers yes or no for the whole call:
 
 - `allocates`: may allocate a table, closure, or other modeled object.
 - `yields`: may suspend the current coroutine.

@@ -161,6 +161,8 @@ compatibility with how Lua is actually written.
 
 ## Where to start
 
+In this order:
+
 - [Installation](installation.md), then [a tour of Nupp](tour.md).
 - [Nupp syntax](syntax.md) if you already know Lua and want the delta.
 - [Suspension](suspension.md) for waiting with or without a scheduler.

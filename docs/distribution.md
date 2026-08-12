@@ -1,7 +1,5 @@
 # Distribution: stubs and payloads
 
-How a Nupp program becomes one file somebody can run.
-
 A distributed program is a **stub** with a **payload** appended to it. The stub
 is an ordinary executable, a host that embeds LuaJIT and knows how to find and
 run a payload. The payload is one Lua chunk carrying everything the program
@@ -124,7 +122,7 @@ into it, and what makes `nupp` itself usable during development.
 Everything else a stub does is its own business. A game engine's stub may open a
 window and own an event loop before step 6; Nupp's own does none of that.
 
-## Signing, and what macOS does about it
+## Signing for macOS
 
 **The signature is not touched, and on macOS that is the whole trick.**
 
@@ -198,6 +196,8 @@ by somebody else:
   `package.preload`, because the compiler requires it before it does anything.
 
 ## Limits
+
+Four things a distributed binary deliberately is not:
 
 - **It does not replace the bootstrap.** `bootstrap/nupp.lua` exists so a source
   checkout can build a compiler; a distributed binary is what comes out the
