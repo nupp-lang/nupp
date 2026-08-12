@@ -2,6 +2,7 @@
 /build/
 /editors/playground/node_modules
 /.rocks
+/.nupp-cache/
 .claude/
 .DS_Store
 scratch/

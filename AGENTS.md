@@ -13,23 +13,19 @@ lines under 72 characters.
 
 ### Worktree setup
 
-The local `.rocks` dependency directory is ignored, so Git does not populate it
-in a new worktree. Create the worktree from the originating checkout, then link
-the worktree to that checkout's dependencies before running `./bin/nupp`:
+Use the repository helper so a new worktree links the ignored `.rocks`
+dependencies, seeds the content-validated compiler cache and test timings, and
+reuses the repository-wide native Cargo target:
 
 ```sh
-nupp_origin=/absolute/path/to/nupp
-nupp_task_tree=/private/tmp/nupp-example-task
-git -C "$nupp_origin" worktree add -b example-task "$nupp_task_tree" main
-if [ -d "$nupp_origin/.rocks" ] && [ ! -e "$nupp_task_tree/.rocks" ]; then
-    ln -s "$nupp_origin/.rocks" "$nupp_task_tree/.rocks"
-fi
+./scripts/worktree example-task /private/tmp/nupp-example-task main
 ```
 
 Use task-specific branch and directory names. Never replace an existing
-`.rocks` path; inspect it instead. Run subsequent Nupp commands from the task
-worktree. Removing the completed worktree also removes its symlink, not the
-originating checkout's dependency directory.
+cache or `.rocks` path; inspect it instead. Run subsequent Nupp commands from
+the task worktree. Removing the completed worktree removes its `.rocks`
+symlink and local seeded caches, not the originating checkout's dependencies or
+the repository-wide native cache.
 
 ## Responding to prompts
 
@@ -89,3 +85,9 @@ This means a slow command is worth reading rather than waiting out. A check
 that takes a second is one that had to redo the project, and the usual reason
 is an edit to an exported type declaration — that invalidates every module,
 where an edit to a function body invalidates one.
+
+The first full test run in a helper-created worktree also starts with the
+originating checkout's suite timings, so its parallel shards are balanced from
+the outset. Run focused suites while editing and the full suite before
+committing. Run `fixpoint` near completion when compiler sources changed; it is
+a self-hosting verification, not part of the inner edit/check loop.

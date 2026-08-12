@@ -63,7 +63,30 @@ export NUPP_NATIVE_LIBRARY="$LUA_ROOT/build/lib/$NATIVE_FILENAME"
 # listing the sources it is about to compile, so there is no ordering in which
 # the compiler builds it for itself first.
 NATIVE_MANIFEST="$ROOT/runtime/native/Cargo.toml"
-NATIVE_TARGET="$ROOT/build/native/nupp_native"
+# Rust compilation is content-addressed, but a target directory inside `build`
+# makes every Git worktree pay the cold dependency build again. Keep this fixed
+# development feature set beside the repository's common Git directory, which
+# all of its worktrees resolve to the same place. A source archive with no Git
+# metadata retains the old checkout-local fallback, and callers may name an
+# explicit cache (CI commonly does) without having to imitate the layout.
+if [ -n "${NUPP_NATIVE_TARGET_DIR:-}" ]; then
+    case "$NUPP_NATIVE_TARGET_DIR" in
+        /*) NATIVE_TARGET="$NUPP_NATIVE_TARGET_DIR" ;;
+        *)  NATIVE_TARGET="$ROOT/$NUPP_NATIVE_TARGET_DIR" ;;
+    esac
+else
+    NATIVE_COMMON_DIR=$(git -C "$ROOT" rev-parse --git-common-dir 2>/dev/null || true)
+    if [ -n "$NATIVE_COMMON_DIR" ]; then
+        case "$NATIVE_COMMON_DIR" in
+            /*) ;;
+            *) NATIVE_COMMON_DIR="$ROOT/$NATIVE_COMMON_DIR" ;;
+        esac
+        NATIVE_REPOSITORY_ROOT=$(dirname "$NATIVE_COMMON_DIR")
+        NATIVE_TARGET="$NATIVE_REPOSITORY_ROOT/.nupp-cache/native-dev-files-process-http-uri"
+    else
+        NATIVE_TARGET="$ROOT/build/native/nupp_native"
+    fi
+fi
 build_native() {
     command -v cargo >/dev/null 2>&1 || {
         echo "nupp: cargo is not on PATH, and the compiler needs the native" \

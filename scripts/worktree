@@ -1,0 +1,89 @@
+#!/bin/sh
+# Create a Nupp task worktree and seed only caches safe to carry across it.
+
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+
+usage() {
+    echo "usage: scripts/worktree BRANCH PATH [START_POINT]" >&2
+    exit 2
+}
+
+[ "$#" -ge 2 ] && [ "$#" -le 3 ] || usage
+BRANCH=$1
+TASK_PATH=$2
+START_POINT=${3:-HEAD}
+
+git -C "$ROOT" worktree add -b "$BRANCH" "$TASK_PATH" "$START_POINT"
+TASK_ROOT=$(git -C "$TASK_PATH" rev-parse --show-toplevel)
+
+if [ -d "$ROOT/.rocks" ] && [ ! -e "$TASK_ROOT/.rocks" ]; then
+    ln -s "$ROOT/.rocks" "$TASK_ROOT/.rocks"
+fi
+
+mkdir -p "$TASK_ROOT/build"
+
+copy_if_absent() {
+    SOURCE=$1
+    DESTINATION=$2
+    if [ -e "$SOURCE" ] && [ ! -e "$DESTINATION" ]; then
+        mkdir -p "$(dirname "$DESTINATION")"
+        cp -Rp "$SOURCE" "$DESTINATION"
+    fi
+}
+
+# These stores validate their own content keys. A stale entry is a miss, so copying
+# them can save work but cannot change an answer.
+copy_if_absent "$ROOT/build/cache" "$TASK_ROOT/build/cache"
+copy_if_absent "$ROOT/build/.nupp-test-times.json" "$TASK_ROOT/build/.nupp-test-times.json"
+
+# Generated compiler output is reusable only when it represents this exact revision
+# and the originating checkout itself considers it current. Touching the copied stamp
+# is then sound: the fresh worktree's source mtimes describe checkout time, not edits.
+ORIGIN_HEAD=$(git -C "$ROOT" rev-parse HEAD)
+TASK_HEAD=$(git -C "$TASK_ROOT" rev-parse HEAD)
+ORIGIN_STAMP="$ROOT/build/.nupp-complete"
+ORIGIN_BUILT="$ROOT/build/nupp/compiler/main.lua"
+NEWER_SOURCE=""
+if [ -f "$ORIGIN_STAMP" ]; then
+    NEWER_SOURCE=$(find "$ROOT/src" -type f -newer "$ORIGIN_STAMP" -print -quit 2>/dev/null || true)
+    if [ -z "$NEWER_SOURCE" ] && [ "$ROOT/nupp.lua" -nt "$ORIGIN_STAMP" ]; then
+        NEWER_SOURCE="$ROOT/nupp.lua"
+    fi
+fi
+ORIGIN_SOURCE_CHANGES=$(git -C "$ROOT" status --porcelain --untracked-files=normal -- src nupp.lua runtime/native)
+if [ "$ORIGIN_HEAD" = "$TASK_HEAD" ] && [ -f "$ORIGIN_STAMP" ] \
+    && [ -f "$ORIGIN_BUILT" ] && [ -z "$NEWER_SOURCE" ] \
+    && [ -z "$ORIGIN_SOURCE_CHANGES" ]; then
+    copy_if_absent "$ROOT/build/nupp" "$TASK_ROOT/build/nupp"
+    copy_if_absent "$ROOT/build/nupp.lua" "$TASK_ROOT/build/nupp.lua"
+    copy_if_absent "$ROOT/build/lib" "$TASK_ROOT/build/lib"
+    copy_if_absent "$ROOT/build/.nupp-state.json" "$TASK_ROOT/build/.nupp-state.json"
+    copy_if_absent "$ORIGIN_STAMP" "$TASK_ROOT/build/.nupp-complete"
+    touch "$TASK_ROOT/build/.nupp-complete"
+fi
+
+# Migrate an existing checkout-local Cargo target once. bin/nupp subsequently uses
+# this common target directly, so later worktrees neither copy it nor compile it cold.
+if [ -n "${NUPP_NATIVE_TARGET_DIR:-}" ]; then
+    case "$NUPP_NATIVE_TARGET_DIR" in
+        /*) SHARED_NATIVE="$NUPP_NATIVE_TARGET_DIR" ;;
+        *) SHARED_NATIVE="$ROOT/$NUPP_NATIVE_TARGET_DIR" ;;
+    esac
+else
+    COMMON_DIR=$(git -C "$ROOT" rev-parse --git-common-dir)
+    case "$COMMON_DIR" in
+        /*) ;;
+        *) COMMON_DIR="$ROOT/$COMMON_DIR" ;;
+    esac
+    REPOSITORY_ROOT=$(dirname "$COMMON_DIR")
+    SHARED_NATIVE="$REPOSITORY_ROOT/.nupp-cache/native-dev-files-process-http-uri"
+fi
+if [ ! -e "$SHARED_NATIVE" ] && [ -d "$ROOT/build/native/nupp_native" ]; then
+    mkdir -p "$(dirname "$SHARED_NATIVE")"
+    cp -Rp "$ROOT/build/native/nupp_native" "$SHARED_NATIVE"
+fi
+
+echo "created $TASK_ROOT"
+echo "seeded compiler, test scheduling, and native build caches where available"

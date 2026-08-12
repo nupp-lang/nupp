@@ -40,6 +40,14 @@ cd nupp
 compiler first when it does not. An edit to the compiler is picked up by the
 next command rather than by the next person who remembers to build.
 
+Git worktrees share the native Rust target in a repository cache derived from
+Git's common directory, so each worktree does not rebuild the same
+dependencies. Set
+`NUPP_NATIVE_TARGET_DIR` to override that location; a relative value is resolved
+from the checkout root. `scripts/worktree BRANCH PATH [START_POINT]` also seeds
+the new worktree with content-validated compiler caches and the test runner's
+last suite timings. Generated outputs remain local to each worktree.
+
 The one thing it cannot do is start from nothing, since compiling Nupp needs a
 Nupp compiler. `bootstrap/nupp.lua` is that compiler, tracked in the
 repository, and it is what a fresh clone uses for its first build.
