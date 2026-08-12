@@ -212,6 +212,46 @@ local HERO_ACTION_KEYS = {"text", "path", "theme"}
 local FEATURE_KEYS = {"icon", "image", "imageAlt", "title", "details", "code", "codeLanguage"}
 local TASK_KEYS = {"description", "argv", "build", "env"}
 
+-- The rest of the manifest, closed for the same reason the docs target is: a key
+-- nothing reads takes effect silently, and `dependencie` or `entires` is a build that
+-- does something other than what its author wrote down. Every name here is read
+-- somewhere -- the sections by the checks below, a target's by
+-- `nupp.compiler.build.project`, a dependency's by its provider in
+-- `nupp.compiler.build.deps` -- so this list is also the inventory of what a manifest
+-- can say.
+local CONFIG_KEYS = {"name", "include", "fmt", "lints", "dependencies", "build", "test", "tasks", "selfHost", "docs"}
+
+-- What any build target takes, whatever its kind. A docs target is checked against
+-- DOCS_KEYS instead, which spells out these same keys plus the generator's own.
+local TARGET_KEYS = {"kind", "description", "outDir", "output", "stub", "entries", "sources", "resources", "dependencies", "nativeFeatures", "layoutTarget", "format", "title", "name", "targetName"}
+
+-- The build section itself, which is either one target inline or the table the named
+-- ones hang off. A target inherits every key here that is not one of the two.
+local BUILD_KEYS = {"targets", "default"}
+
+for _, key in ipairs(TARGET_KEYS) do
+    BUILD_KEYS[#BUILD_KEYS + 1] = key
+end
+
+local TEST_KEYS = {"argv", "build", "env"}
+local SELF_HOST_KEYS = {"target", "bootstrap", "binary"}
+
+-- A dependency's keys are its provider's, and the providers have almost nothing in
+-- common: what a C build takes and what a rock takes overlap in `path` and nothing
+-- else. So each kind is closed against what its own provider reads.
+-- `rust` and `cargo` name the same provider, so they take the same keys.
+local CARGO_KEYS = {"kind", "dependencies", "manifest", "path", "cargo", "target", "targetDir", "profile", "library", "artifactPath", "features", "locked", "offline", "out", "load", "header", "bindings", "cc", "cppflags"}
+
+local DEPENDENCY_KEYS: {[string]: {string}} = {
+    c = {"kind", "dependencies", "source", "path", "sources", "headers", "includeDirs", "cc", "cflags", "cppflags", "ldflags", "pkgConfig", "out", "load", "header", "bindings"},
+    cargo = CARGO_KEYS,
+    rust = CARGO_KEYS,
+    luarocks = {"kind", "dependencies", "rock", "version", "rockspec", "path", "tree", "luaVersion", "server", "luaDir", "luarocks", "bundle"},
+}
+
+-- The generated FFI binding a C or Cargo dependency asks for by naming a header.
+local BINDING_KEYS = {"header", "library", "out"}
+
 local function validateKeys(value, known, label)
     if type(value) ~= "table" then
         return true
@@ -222,7 +262,10 @@ local function validateKeys(value, known, label)
     end
     local unknown = {}
     for key in pairs(value) do
-        if type(key) == "string" and not allowed[key] then
+        -- An underscored key is the build's own: `nupp.compiler.build.project` folds the
+        -- options a command was given into the config it hashes, so a validated manifest
+        -- is not the only table these checks ever see.
+        if type(key) == "string" and not allowed[key] and key:sub(1, 1) ~= "_" then
             unknown[#unknown + 1] = key
         end
     end
@@ -292,6 +335,12 @@ local function validateTarget(target, label, dependencies)
     local kind = target.kind or "modules"
     if kind ~= "modules" and kind ~= "docs" and kind ~= "bundle" and kind ~= "binary" then
         return nil, label .. ".kind must be \"modules\", \"bundle\", \"binary\", or \"docs\""
+    end
+    if kind ~= "docs" then
+        local valid, err = validateKeys(target, TARGET_KEYS, label)
+        if not valid then
+            return nil, err
+        end
     end
     if kind == "binary" and target.stub == nil then
         return nil, label
@@ -470,6 +519,12 @@ local function validateManifest(config: manifest.Config): boolean?, string?
             .. "Rename the files that are not ready, or pass --strict to hold "
             .. "every file to it regardless"
     end
+    -- After `strict`, so the key that was retired by name keeps saying what replaced it
+    -- rather than being answered with a guess at the nearest spelling.
+    valid, err = validateKeys(config, CONFIG_KEYS, "nupp.lua")
+    if not valid then
+        return nil, err
+    end
 
     if config.fmt ~= nil then
         if type(config.fmt) ~= "table" then
@@ -514,8 +569,22 @@ local function validateManifest(config: manifest.Config): boolean?, string?
         if type(dep) ~= "table" then
             return nil, "dependencies." .. name .. " must be a table"
         end
-        if dep.kind ~= "c" and dep.kind ~= "cargo" and dep.kind ~= "rust" and dep.kind ~= "luarocks" then
+        local kind = dep.kind or ""
+        if kind ~= "c" and kind ~= "cargo" and kind ~= "rust" and kind ~= "luarocks" then
             return nil, "dependencies." .. name .. ".kind must be \"c\", \"cargo\", \"rust\", or \"luarocks\""
+        end
+        valid, err = validateKeys(dep, DEPENDENCY_KEYS[kind], "dependencies." .. name)
+        if not valid then
+            return nil, err
+        end
+        if dep.bindings ~= nil then
+            if type(dep.bindings) ~= "table" then
+                return nil, "dependencies." .. name .. ".bindings must be a table"
+            end
+            valid, err = validateKeys(dep.bindings, BINDING_KEYS, "dependencies." .. name .. ".bindings")
+            if not valid then
+                return nil, err
+            end
         end
         valid, err = validateArray(dep.dependencies, "dependencies." .. name .. ".dependencies", "string")
         if not valid then
@@ -566,6 +635,14 @@ local function validateManifest(config: manifest.Config): boolean?, string?
     end
     local build = config.build
     if build then
+        -- Only when the targets are named: a `build` that is one target inline is
+        -- checked as that target, and against the target keys, further down.
+        if build.targets ~= nil then
+            valid, err = validateKeys(build, BUILD_KEYS, "build")
+            if not valid then
+                return nil, err
+            end
+        end
         if build.outDir ~= nil then
             valid, err = validateString(build.outDir, "build.outDir")
             if not valid then
@@ -628,6 +705,10 @@ local function validateManifest(config: manifest.Config): boolean?, string?
         end
         if not build then
             return nil, "test requires build configuration"
+        end
+        valid, err = validateKeys(config.test, TEST_KEYS, "test")
+        if not valid then
+            return nil, err
         end
         valid, err = validateArray(config.test.argv, "test.argv", "string", true)
         if not valid then
@@ -717,6 +798,10 @@ local function validateManifest(config: manifest.Config): boolean?, string?
         end
         if not build then
             return nil, "selfHost requires build configuration"
+        end
+        valid, err = validateKeys(config.selfHost, SELF_HOST_KEYS, "selfHost")
+        if not valid then
+            return nil, err
         end
         if config.selfHost.target ~= nil then
             valid, err = validateString(config.selfHost.target, "selfHost.target")

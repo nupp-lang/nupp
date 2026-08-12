@@ -40,19 +40,23 @@ dependency kinds, named target and dependency references, and dependency
 cycles. Configuration errors name the invalid field before any build work
 starts.
 
-A `docs` target is checked more closely than the rest, because most of what it
-configures is read by the documentation generator rather than by the build, and
-a key nothing reads would otherwise take effect silently. Its keys and its
-pages' keys are a closed set, and one that is not in it is refused by name:
+Every table in the manifest takes a closed set of keys, and one that is not in
+it is refused by name, with the nearest spelling when there is one:
 
 ```text
 nupp: build.targets.site has no key "custmCss"; did you mean "customCss"?
 ```
 
-A page's keys are checked the same way, and so are the keys of its
-`heroActions` and `features` entries.
+A key nothing reads would otherwise take effect silently, which is the one way
+a configuration file can lie to the person who wrote it: `custmCss` rendered a
+site with the default theme and exited cleanly. The sets cover the top level,
+the build section, every target, a docs target's pages and their `heroActions`
+and `features` entries, `test`, `tasks`, `selfHost`, `fmt`, and each dependency
+— a dependency against the keys its own kind reads, since what a C build takes
+and what a rock takes have almost nothing in common.
 
-Elsewhere in the manifest an unrecognized key is still ignored.
+Keys beginning with `_` are the build's own, folded in from a command's
+options; a manifest has no reason to write one.
 
 The implementation lives under the internal `nupp.compiler.build.*` submodule
 namespace in `src/nupp/compiler/build/`: `project` owns orchestration, `hash`
