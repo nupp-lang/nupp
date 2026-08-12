@@ -29,23 +29,6 @@ work makes sense in.
       a CLI without knowing which it is in. The open work is effect-interface
       precision for nominal methods and permitting structured exits from a
       handled region without weakening cleanup.
-- [x] **Closure capture** ([design](closure-capture.md)): a closure states what
-      it `takes (...)` and borrows everything else. Ordinary copyable closures
-      may borrow owners; `takes (...)` moves captures into an affine closure
-      whose call or lexical drop discharges them. `Buffer`, `ByteView`, `Reader`
-      and `Writer` now carry `@drop` on `close` without forcing their capturing
-      call sites to use unsafe code.
-- [ ] **Files adoption** ([design](files.md)): `nupp.io.files`, its native
-      provider, bounded request lane, suspension integration, and compiler
-      adoption have landed. The remaining project is tecs adoption: delete
-      `io/files`, `internal/fileasync`, `platform/storagebackend` and its
-      atomic-write worker in favor of the shared facility.
-  - [ ] F4b: tecs adoption, deferred as its own integration project. `tecs`
-        is Teal and `nupp.io.files` is an ambient global rather than a module a
-        `.tl` file can require, so it needs the bootstrap chunk in tecs's
-        runtime, a `.d.tl` surface, the cdylib, `nupp/suspension.lua` staged for
-        a consumer nothing stages it for, and its already-landed suspension
-        adapter joined to the files readiness source.
 - [ ] **HTTP client** ([design](http.md)): optional `nupp.io.http` over a
       feature-gated Reqwest/Tokio provider. Preserve direct string, byte-view,
       buffer and file paths; make responses progressive `Reader` values; use
@@ -229,17 +212,10 @@ work makes sense in.
 Design in plan.md §Dialect interop. Nothing is implemented: no `.tl` handling
 in module resolution, no translator subcommand, no `.tl` build input mode.
 
-- [ ] declaration reader (.d.tl subset → interned types, wired into module
-      resolution)
 - [ ] source translator CLI (eject model, visible residue comments, `any`
       fallbacks), translating metamethod declarations, `record X is Y`,
       bounded generics, nested type namespaces, and `self` directly into their
       landed nupp forms
-- [ ] build-system `.tl` input mode for mixed trees
-- [ ] expose macroexp-produced protocol declarations explicitly during
-      translation; tecs's generated `DoubleArray.__len` must become a visible
-      contract rather than being attributed to comptime
-- [ ] runtime-equivalence verification against the tecs subsystem corpus
 
 ## Diagnostics
 
@@ -505,3 +481,14 @@ what checked clean.
       registration, late `__call` installation, generic `__index`/`__newindex`,
       and arithmetic contracts (`tests/gentest.lua:152`,
       `tests/checktest.lua:276`).
+- [ ] **Files adoption** ([design](files.md)): `nupp.io.files`, its native
+      provider, bounded request lane, suspension integration, and compiler
+      adoption have landed. The remaining project is tecs adoption: delete
+      `io/files`, `internal/fileasync`, `platform/storagebackend` and its
+      atomic-write worker in favor of the shared facility.
+  - [ ] F4b: tecs adoption, deferred as its own integration project. `tecs`
+        is Teal and `nupp.io.files` is an ambient global rather than a module a
+        `.tl` file can require, so it needs the bootstrap chunk in tecs's
+        runtime, a `.d.tl` surface, the cdylib, `nupp/suspension.lua` staged for
+        a consumer nothing stages it for, and its already-landed suspension
+        adapter joined to the files readiness source.
