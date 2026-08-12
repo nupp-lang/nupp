@@ -188,7 +188,24 @@ None of this is enforced, and there is no naming lint, but it is what the
 compiler's own sources and the generated documentation assume.
 
 Use camelCase for functions, methods, locals, parameters, and fields. Use
-PascalCase for nominal types: `User`, `HttpClient`, `ReadBuffer`. Names imported
+PascalCase for nominal types: `User`, `HttpClient`, `ReadBuffer`.
+
+```nupp
+local m = {}
+
+record m.ReadBuffer
+    byteCount: integer
+    sourcePath: string
+end
+
+function m.newReadBuffer(sourcePath: string, byteCount: integer): m.ReadBuffer
+    return new m.ReadBuffer(byteCount = byteCount, sourcePath = sourcePath)
+end
+
+return m
+```
+
+Names imported
 from C keep the spelling of the C API, because those identify ABI symbols; a
 camelCase local holding the module
 (`local miniApi = require("native.mini")`) marks the boundary without
@@ -231,10 +248,59 @@ rather than claiming privacy.
 
 Type resolution runs over declarations, not over loaded modules: a declaration
 is nameable as soon as its header is parsed, before any body is checked. Two
-modules may therefore refer to each other's types freely. The runtime `require`
-is a separate matter and follows ordinary Lua rules, so a genuine load-time
-cycle, meaning two modules constructing each other's records while loading, is
-still a genuine cycle, and is reported as one.
+files may therefore refer to each other's `global` types, neither requiring the
+other, because a global needs no module to reach it.
+
+::: code-group
+
+```nupp:static [order.nupp]
+local order = {}
+
+global record Order
+    id: integer
+    buyer: Customer
+end
+
+return order
+```
+
+```nupp:static [customer.nupp]
+local customer = {}
+
+global record Customer
+    name: string
+    latest: Order?
+end
+
+return customer
+```
+
+:::
+
+A module member is different, because reaching `order.Order` means requiring
+`order`. Two modules that each require the other to name a type report
+**NUPP2101**, since neither module's exports are settled while the other is
+being resolved:
+
+```nupp:static [customer.nupp]
+local order = require("order")
+
+local customer = {}
+
+record customer.Customer
+    name: string
+    latest: order.Order?          -- NUPP2101 when order requires customer
+end
+
+return customer
+```
+
+One direction is fine. When both need it, make the shared types `global`, or
+move them to a third module that neither requires back.
+
+The runtime `require` is a separate matter and follows ordinary Lua rules, so a
+genuine load-time cycle, meaning two modules constructing each other's records
+while loading, is still a genuine cycle and is reported as one.
 
 This is also what keeps rebuilds cheap: a file's interface is derived from its
 declaration headers, so editing a function body cannot change it, and

@@ -70,6 +70,38 @@ occasional use-after-free.
 
 ## Ownership syntax
 
+Three of these carry most programs: `@owned` on the producer, `borrows` on a
+reader, and nothing at all on the caller, which lets the local reach its scope
+boundary.
+
+```nupp
+local m = {}
+
+local record Session
+    open: boolean
+end
+
+local function closeSession(s: Session): nil
+    s.open = false
+end
+
+@owned(closeSession)
+function m.connect(): Session
+    return new Session(open = true)
+end
+
+function m.describe(borrows s: Session): string
+    return s.open and "open" or "closed"
+end
+
+function m.run(): string
+    local session = m.connect()
+    return m.describe(session)
+end
+
+return m
+```
+
 The whole surface, in one place:
 
 - `@owned(cleanup...)`: the first result is a new affine owner with this ordered
