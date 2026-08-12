@@ -1703,6 +1703,17 @@ function declare.install(
                     entryGroups[name] = entries
                     if receiver then
                         e.methodEntry = entry
+                        -- The member type callers read was computed from the annotations
+                        -- alone, before this body was checked, and that earlier pass does
+                        -- not work out what a `borrows` result borrows from. Take the
+                        -- signature checking the body just produced instead of teaching a
+                        -- second place to derive the same thing: one method, one
+                        -- signature. An overload set is assembled from all its entries
+                        -- further down and is left alone here.
+                        if not n.overloadedMethods[name] and #entries == 1 then
+                            n.byname[name] = ft
+                            n.writeByname[name] = ft
+                        end
                     end
 
                     -- An interface body implements this exact overload. It is emitted

@@ -746,6 +746,52 @@ function M.aMethodBorrowedReturnElidesToTheReceiver()
    }, "\n")), "NUPP2602")
 end
 
+-- The member type callers read was derived from the annotations before the body was
+-- checked, and that pass never worked out what a `borrows` result borrows from. The
+-- result kept its qualifier and lost its source, so a call had nothing to tie the value
+-- to and handed back the raw one, which reported at the first dereference instead of at
+-- the method.
+function M.anInlineMethodsBorrowedResultKeepsItsSource()
+   assertEq(codes(POOL .. table.concat({
+      "",
+      "local record Holder",
+      "   items: {Res}",
+      "   function first(self): Res borrows (self)",
+      "      return self.items[1]",
+      "   end",
+      "end",
+      "local function close_holder(h: Holder) end",
+      "@owned(close_holder)",
+      "local function open_holder(): Holder return new Holder(items = {}) end",
+      "local h = open_holder()",
+      "local item = h:first()",
+      "drop(h)",
+      "print(item.name)",
+   }, "\n")), "NUPP2602")
+end
+
+-- The same method declared and defined apart, which always carried its source. Both
+-- spellings have to agree, since the difference is where the body is written.
+function M.aDeclaredMethodsBorrowedResultKeepsItsSource()
+   assertEq(codes(POOL .. table.concat({
+      "",
+      "local record Holder",
+      "   items: {Res}",
+      "   first: function(self: Holder): Res borrows (self)",
+      "end",
+      "function Holder.first(self): Res borrows (self)",
+      "   return self.items[1]",
+      "end",
+      "local function close_holder(h: Holder) end",
+      "@owned(close_holder)",
+      "local function open_holder(): Holder return new Holder(items = {}) end",
+      "local h = open_holder()",
+      "local item = h:first()",
+      "drop(h)",
+      "print(item.name)",
+   }, "\n")), "NUPP2602")
+end
+
 function M.aMethodReturningAPlainValueDoesNotBorrow()
    assertClean(POOL .. table.concat({
       "",

@@ -64,9 +64,19 @@ record resources.Set
     --- @param terminal what discharges an opaque owner, which carries no contract
     --- @return the adopted value, borrowed from the set
     --- @raises when the set is already closed, or adoption carries no witness
-    --- Declared rather than defined here: an inline method whose body returns through
-    --- a cast loses its `borrows` result, and the caller receives the raw value.
-    adopt: function<T>(self: resources.Set, takes value: T, terminal: function(takes value: T)?): T borrows (self)
+    --- @param value the owner the set takes responsibility for
+    --- @param terminal what discharges an opaque owner, which carries no contract
+    --- @return the adopted value, borrowed from the set
+    --- @raises when the set is already closed, or adoption carries no witness
+    function adopt<T>(self, takes value: T, terminal: function(takes value: T)?): T borrows (self)
+        assert(not self._closed, "resource set is closed")
+        unsafe do
+            local witness = nupp.intoRaw(terminal)
+            assert(type(witness) == "function", "resource adoption needs a discharge witness")
+            self._entries[#self._entries + 1] = new Entry(value = nupp.intoRaw(value), cleanup = witness)
+            return self._entries[#self._entries].value as T
+        end
+    end
 
     --- Deletes one registration and returns the original capability exactly once.
     ---
@@ -122,28 +132,6 @@ function resources.Set.close(takes self)
             error(tostring(first) .. " (suppressed " .. tostring(suppressed) .. " cleanup failure(s))", 0)
         end
         error(first, 0)
-    end
-end
-
---- Moves an owner in and returns a borrow tied to the set.
----
---- The second argument is the discharge witness. A caller never writes it: the checker
---- reifies the adopted value's own cleanup contract at the call site, and asks for an
---- explicit terminal consumer only where there is no contract to reify.
----
---- @export
---- @param self the set taking responsibility
---- @param value the owner the set takes responsibility for
---- @param terminal what discharges an opaque owner, which carries no contract
---- @return the adopted value, borrowed from the set
---- @raises when the set is already closed, or adoption carries no witness
-function resources.Set.adopt<T>(self, takes value: T, terminal: function(takes value: T)?): T borrows (self)
-    assert(not self._closed, "resource set is closed")
-    unsafe do
-        local witness = nupp.intoRaw(terminal)
-        assert(type(witness) == "function", "resource adoption needs a discharge witness")
-        self._entries[#self._entries + 1] = new Entry(value = nupp.intoRaw(value), cleanup = witness)
-        return self._entries[#self._entries].value as T
     end
 end
 

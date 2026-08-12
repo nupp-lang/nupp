@@ -1183,21 +1183,27 @@ function lsp.run(rootDir: string?): integer
     end,}
 
     local session = lsp.newSession(rootDir, send, host)
-    while session.running() do
+    -- One exit, so the relay is closed once. Two `close` calls on paths that cannot both
+    -- run is still two discharges of one owner as far as the checker can see, and it is
+    -- right to say so: nothing here proves the reader ending is the end of the loop.
+    local ended = false
+    while session.running() and not ended do
         pump()
         while #queued == 0 do
             local chunk = reader:next()
             if chunk == nil then
-                relay:close()
-                return 0
+                ended = true
+                break
             end
             buffered = buffered .. chunk
             harvest()
         end
-        local msg = table.remove(queued, 1)
-        host.currentId = msg.id
-        session.dispatch(msg)
-        host.currentId = nil
+        if not ended then
+            local msg = table.remove(queued, 1)
+            host.currentId = msg.id
+            session.dispatch(msg)
+            host.currentId = nil
+        end
     end
     relay:close()
 

@@ -4,26 +4,6 @@ Grouped by the part of the system a change lands in. Nothing here is
 prioritised by tier; the ordering inside a section is roughly the order the
 work makes sense in.
 
-## Type system
-
-- [ ] **An inline method's `borrows` result is lost when its body returns
-      through a cast.** Two records, the same signature
-      `lend: function(self: H): thing* borrows (self)` and the same body
-      `return self.slot as thing*`. Declared as a member and defined below it,
-      a caller gets a borrow. Written as an inline `function lend(self)`, the
-      caller gets the raw value and its first dereference reports NUPP2604.
-      Nothing points at the method.
-
-      The parts that look guilty are not. `nupp lsp inspect` prints the same
-      member type both ways, `function(self: H): borrowed<thing*>`, so the
-      recorded signature is right. Generics are not involved. Neither is the
-      method being inline on its own: an inline body returning `self.slot`
-      without a cast keeps the borrow. It is the combination, and the call site
-      is where the qualifier goes missing, so look at how a method call types its
-      result when the callee is an inline definition rather than a declared
-      member. `resources.Set.adopt` is declared and defined apart because of
-      this; its sibling `remove`, which returns no borrow, is inline.
-
 ## Editor and docs tooling
 
 - [ ] **Stale LSP results and true multi-root.** Cancellation is no longer a
