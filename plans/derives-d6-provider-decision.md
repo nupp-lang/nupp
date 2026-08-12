@@ -80,3 +80,11 @@ Reconsider a public provider only when an external consumer has a differential
 corpus for a result the built-ins cannot express and the result still fits a
 closed semantic recipe. A need for arbitrary source, token, AST, CST or lowering
 construction is grounds to reject that provider, not to widen the derive system.
+
+The proposed successor architecture is
+[`comptime-derive-recipes.md`](comptime-derive-recipes.md). It keeps this
+decision's rejection of the prototype ABI, supplies runtime forwarding as the
+missing closed operation, and requires a new external proving corpus before any
+public provider surface lands. More powerful parsed-source or syntax facilities
+remain separate recipe capabilities rather than implicit authority granted to a
+semantic derive provider.

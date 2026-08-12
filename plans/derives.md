@@ -1090,6 +1090,14 @@ effects, ownership, cancellation and cache contract have not been proven by an
 external differential corpus. The prototype protocol is a test artifact, not a
 compatibility promise.
 
+The proposed successor design is
+[`comptime-derive-recipes.md`](comptime-derive-recipes.md). It retains the D6
+rejection, makes checked runtime forwarding the durable escape hatch, and sets
+an external-workload gate before `@derive(provider)` can become public. It also
+defines more powerful parsed-source or syntax facilities as separate,
+versioned capabilities so semantic derives do not freeze the compiler's private
+AST or CST.
+
 A later proposal must settle provider import identity, package trust, isolated
 worker distribution, semantic type handles in result envelopes, helper
 registration, capability limits and cache ABI compatibility. It may expose only

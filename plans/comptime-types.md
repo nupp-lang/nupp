@@ -57,6 +57,11 @@ derive may augment one explicitly written declaration through the constrained
 semantic plan in [`derives.md`](derives.md), but it does not create that
 declaration or any nested nominal declaration.
 
+The proposed bridge from ordinary comptime to declaration augmentation is
+[`comptime-derive-recipes.md`](comptime-derive-recipes.md). A provider returns a
+closed semantic recipe and forwards runtime behavior to ordinary Nupp helpers;
+it does not broaden type functions or let them manufacture declarations.
+
 ## Why replace type-level inference
 
 The current language has two ways to write a compile-time algorithm. Value
