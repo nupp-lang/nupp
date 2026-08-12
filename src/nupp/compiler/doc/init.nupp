@@ -20,6 +20,7 @@ local urlsMod = require("nupp.compiler.doc.urls")
 local apiMod = require("nupp.compiler.doc.api")
 local pageMod = require("nupp.compiler.doc.page")
 local diagnosticsMod = require("nupp.compiler.doc.diagnostics")
+local stdlibMod = require("nupp.compiler.doc.stdlib")
 local json = require("cjson").new()
 
 local trim, htmlEscape = stringsMod.trim, stringsMod.htmlEscape
@@ -93,8 +94,19 @@ type doc.Settings = {
     pages: {doc.Page}?,
     public: string?,
     sources: {string}?,
+    stdlib: stdlibMod.Settings?,
     targetName: string?,
     title: string?
+}
+
+--- A page the compiler generated: the route it asked for, its title, and its markdown.
+--- Both the diagnostic index and the standard library index answer with one of these,
+--- because a page assembled from what the compiler knows is configured by nothing but
+--- where it should live.
+type doc.Generated = {
+    markdown: string,
+    path: string,
+    title: string
 }
 
 --- The manifest, as much of it as documentation reads.
@@ -444,20 +456,39 @@ local function configuredPages(root, settings, title)
             published[configured.source] = true
         end
     end
-    -- The diagnostic index is generated rather than configured: the codes are the
-    -- compiler's, so a manifest that had to list them would be a copy that goes stale
-    -- the first time one is added.
-    local generated = diagnosticsMod.page(settings.diagnostics, published)
-    if generated then
-        local generatedRoute = cleanRoute(generated.path)
-        if not generatedRoute then
-            return nil, "invalid diagnostic index path"
+    -- A generated page is one the compiler writes rather than one the manifest spells
+    -- out. The diagnostic codes and the standard library declarations are both the
+    -- compiler's own, so a manifest carrying either would be a copy that goes stale the
+    -- first time the compiler changed.
+    local function addGenerated(generated: doc.Generated?, what: string): boolean?, string?
+        if not generated then
+            return true
         end
-        if seen[generatedRoute] then
-            return nil, "diagnostic index collides with a configured page: " .. generatedRoute
+        local route = cleanRoute(generated.path)
+        if not route then
+            return nil, "invalid " .. what .. " path"
         end
-        seen[generatedRoute] = true
-        pages[#pages + 1] = {path = generatedRoute, title = generated.title, markdown = generated.markdown}
+        if seen[route] then
+            return nil, what .. " collides with a configured page: " .. route
+        end
+        seen[route] = true
+        pages[
+            #pages + 1
+        ] = {
+            path = route,
+            title = generated.title,
+            markdown = generated.markdown
+        }
+
+        return true
+    end
+    local added, addErr = addGenerated(diagnosticsMod.page(settings.diagnostics, published), "diagnostic index")
+    if not added then
+        return nil, addErr
+    end
+    added, addErr = addGenerated(stdlibMod.page(settings.stdlib), "standard library index")
+    if not added then
+        return nil, addErr
     end
     if not home then
         table.insert(

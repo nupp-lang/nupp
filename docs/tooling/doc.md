@@ -322,6 +322,32 @@ The area reference a code carries is linked when the docs target publishes that
 file and named as a path when it does not, so a page the site does not build
 never becomes a dead link.
 
+## Standard library index
+
+`stdlib` generates a page holding the LuaJIT standard library, at the route it
+names:
+
+```lua
+stdlib = {path = "luajit", title = "LuaJIT standard library"},
+```
+
+The page is the compiler's own declarations: the prelude it loads into every
+check, and the declaration files behind `require("ffi")`,
+`require("string.buffer")` and the `jit` submodules. A signature on the page is
+the signature the checker enforces, because the two read the same file.
+
+The ambient globals come first, then one section per library table — `string`,
+`table`, `math` and the rest — then the modules `require` loads, then the types
+those signatures name. A global's anchor is the name a program writes, so
+`#print` and `#string.format` both address what they look like they address.
+
+What `nupp` itself provides is not on the page. Those are modules with pages of
+their own, and the prelude declares them only so that checked code can see them.
+
+The page needs no `sources` entry, and a project's own manifest cannot point it
+at other files: the declarations belong to the compiler rendering the site, which
+is what makes the page true of the toolchain a reader is holding.
+
 ## Cross-references
 
 A Markdown link whose target names something the documentation knows resolves

@@ -142,6 +142,14 @@ return {
                path = "reference/diagnostic-index",
                title = "Diagnostic index",
             },
+            -- The LuaJIT surface on one page, read from the declarations the
+            -- checker itself loads. The prelude is public API written in a
+            -- private tree, so without this the one library every program uses
+            -- is the one the site never shows.
+            stdlib = {
+               path = "reference/luajit",
+               title = "LuaJIT standard library",
+            },
             pages = {
                {
                   path = "",

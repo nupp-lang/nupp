@@ -92,9 +92,18 @@ type extract.Module = {
 }
 
 --- What a caller wants included beyond the public surface a module hands out.
+---
+--- `shapesAsModules` is for a file whose declarations are globals rather than a module's
+--- exports: every shape-typed global comes back as a module of its own name, holding the
+--- shape's fields, and the file's remaining declarations stay items of the file itself.
+--- That is `string`, `table` and the rest of the LuaJIT standard library, which a reader
+--- meets as `string.format` and never as a member of the file that declares it. A global
+--- carrying `@namespace` is left out entirely under this option: it names modules of its
+--- own, which an ordinary run documents already.
 type extract.Options = {
     includeAll: boolean?,
-    includePrivate: boolean?
+    includePrivate: boolean?,
+    shapesAsModules: boolean?
 }
 
 local function firstToken(node)
@@ -213,11 +222,17 @@ end
 local function structureSignature(node, includePrivate)
     local parts: {string} = {}
     local dropped = hiddenNodes(node, includePrivate)
+    -- Leading trivia belongs to whatever the declaration follows rather than to the
+    -- declaration, so a signature starts at its own first token. A file's header comment
+    -- is the case that shows: it sits on the first token of the first statement, and a
+    -- structure declared there would otherwise carry the whole header into its code
+    -- block, where the page has already rendered it as the module's prose.
+    local leading = true
     local function walk(child)
         if cst.isToken(child) then
             local triviaParts: {string} = {}
             local removedDocumentation = false
-            for _, trivia in ipairs(child.trivia) do
+            for _, trivia in ipairs(leading and {} or child.trivia) do
                 if trivia.kind == "comment" and trivia.text:match("^%-%-%-") then
                     removedDocumentation = true
                 else
@@ -237,6 +252,7 @@ local function structureSignature(node, includePrivate)
             end
             parts[#parts + 1] = triviaText
             parts[#parts + 1] = child.text
+            leading = false
         else
             -- A hidden node leaves with the trivia its first token owns, which is the
             -- blank line and the `---` run written above it, so removing one from the
@@ -588,12 +604,6 @@ local function recordNamed(blocks, targetName)
     return nil
 end
 
--- The modules `@namespace` implies: one per field of the tagged shape, named `prefix.
--- field`, holding that field's own fields as top-level items. A field inside one of
--- those modules may carry `@namespace` itself, which moves it from the parent's values
--- into a child module by the same rule. An inline shape reads its fields directly; a
--- field spelled as a name is followed to the record of that name in the same file, when
--- there is one. A field answering to neither is left out rather than guessed at.
 local function byKindThenName(left, right)
     if left.kind == right.kind then
         return left.name < right.name
@@ -603,71 +613,103 @@ end
 
 local declarationItem: function(any, string, boolean, boolean, boolean): extract.Item?
 
-local function namespaceChildren(shape, prefix, path, blocks, includePrivate)
-    local modules = {}
-    local expanding: {[any]: boolean} = {}
-    local function entriesOf(field)
-        if field.type and field.type.kind == "tshape" then
-            return field.type.fields
-        elseif field.type and field.type.kind == "tname" then
-            local record = recordNamed(blocks, syntax(field.type))
-            return record and record.entries
-        end
-
-        return nil
+-- What a shape-typed thing holds: an inline shape's own fields, or the fields of the
+-- record a field spelled as a name refers to, when the same file declares one. A field
+-- answering to neither is left out rather than guessed at.
+local function shapeEntries(field, blocks)
+    if field.type and field.type.kind == "tshape" then
+        return field.type.fields
+    elseif field.type and field.type.kind == "tname" then
+        local record = recordNamed(blocks, syntax(field.type))
+        return record and record.entries
     end
 
-    local function addModule(field, parentName)
-        local entries = entriesOf(field)
-        if not entries or expanding[entries] then
-            return
-        end
-        local childName = parentName .. "." .. field.name.text
-        if not includePrivate and internalModuleName(childName) then
-            return
-        end
-        expanding[entries] = true
-        local items = {}
-        for _, entry in ipairs(entries) do
-            if entry.kind == "fieldDecl" or entry.kind == "tshapeField" then
-                local info = entryDoc(entry)
-                if info.tags.namespace and entriesOf(entry) then
-                    addModule(entry, childName)
-                else
-                    local item = fieldItem(entry, childName, includePrivate)
-                    if item then
-                        items[#items + 1] = item
-                    end
-                end
-            elseif entry.kind == "typeAlias" or entry.kind == "recordDecl" then
-                local item = declarationItem(entry, childName, true, true, includePrivate)
+    return nil
+end
+
+-- One module read out of a shape's entries, appended to `modules`. `expanding` is the
+-- set of shapes above it, so a shape that reaches itself stops rather than recurring
+-- forever.
+local function shapeModule(name, entries, text, path, blocks, includePrivate, expanding, modules)
+    if not entries or expanding[entries] then
+        return
+    end
+    if not includePrivate and internalModuleName(name) then
+        return
+    end
+    expanding[entries] = true
+    local items = {}
+    for _, entry in ipairs(entries) do
+        if entry.kind == "fieldDecl" or entry.kind == "tshapeField" then
+            local info = entryDoc(entry)
+            local nested = shapeEntries(entry, blocks)
+            if info.tags.namespace and nested then
+                shapeModule(
+                    name .. "." .. entry.name.text,
+                    nested,
+                    info.text,
+                    path,
+                    blocks,
+                    includePrivate,
+                    expanding,
+                    modules
+                )
+            else
+                local item = fieldItem(entry, name, includePrivate)
                 if item then
-                    -- This declaration is an item of the namespace module, not an
-                    -- independently qualified module declaration to route again.
-                    item.module = nil
-                    item.path = childName .. "." .. item.name
-                    for _, member in ipairs(item.members) do
-                        member.path = item.path .. "." .. member.name
-                    end
                     items[#items + 1] = item
                 end
             end
+        elseif entry.kind == "typeAlias" or entry.kind == "recordDecl" then
+            local item = declarationItem(entry, name, true, true, includePrivate)
+            if item then
+                -- This declaration is an item of the namespace module, not an
+                -- independently qualified module declaration to route again.
+                item.module = nil
+                item.path = name .. "." .. item.name
+                for _, member in ipairs(item.members) do
+                    member.path = item.path .. "." .. member.name
+                end
+                items[#items + 1] = item
+            end
         end
-        table.sort(items, byKindThenName)
-        modules[#modules + 1] = {
-            name = childName,
-            path = path,
-            text = entryDoc(field).text,
-            items = items,
-        }
-        expanding[entries] = nil
     end
+    table.sort(items, byKindThenName)
+    modules[#modules + 1] = {name = name, path = path, text = text, items = items}
+    expanding[entries] = nil
+end
 
+-- The modules `@namespace` implies: one per field of the tagged shape, named
+-- `prefix.field`, holding that field's own fields as top-level items. A field inside
+-- one of those modules may carry `@namespace` itself, which moves it from the parent's
+-- values into a child module by the same rule.
+local function namespaceChildren(shape, prefix, path, blocks, includePrivate)
+    local modules = {}
+    local expanding: {[any]: boolean} = {}
     for _, field in ipairs(shape.fields or {}) do
         if field.kind == "tshapeField" and not hiddenEntry(field, includePrivate) then
-            addModule(field, prefix)
+            shapeModule(
+                prefix .. "." .. field.name.text,
+                shapeEntries(field, blocks),
+                entryDoc(field).text,
+                path,
+                blocks,
+                includePrivate,
+                expanding,
+                modules
+            )
         end
     end
+
+    return modules
+end
+
+-- The module a shape-typed global itself is: its own name, holding the shape's fields
+-- as items. A global's name is the whole name a caller writes -- `string.format`, never
+-- `<file>.string.format` -- so nothing goes in front of it.
+local function globalModules(name, shape, text, path, blocks, includePrivate)
+    local modules = {}
+    shapeModule(name, shape.fields, text, path, blocks, includePrivate, {}, modules)
 
     return modules
 end
@@ -1011,6 +1053,7 @@ function extract.extract(
             local shape = stat.kind == "localStmt" and #(
                 stat.names or {}
             ) == 1 and stat.types[1] and stat.types[1].kind == "tshape" and stat.types[1] or nil
+            local shapeName = shape and stat.kind == "localStmt" and stat.names[1].text or nil
             local shapePublic = opts.includeAll or declarationFile or info.tags.export or info.tags.public
             if info.tags["local"] then
                 shapePublic = opts.includeAll
@@ -1019,9 +1062,24 @@ function extract.extract(
                 shapePublic = false
             end
             if shape and info.tags.namespace and shapePublic then
-                local prefix = info.tags.namespace == true and name or info.tags.namespace
+                if not opts.shapesAsModules then
+                    local prefix = info.tags.namespace == true and name or info.tags.namespace
+                    for _, module in ipairs(
+                        namespaceChildren(shape, prefix, path, parsed.root.blocks, opts.includePrivate)
+                    ) do
+                        extraModules[#extraModules + 1] = module
+                    end
+                end
+            elseif shape and opts.shapesAsModules and shapePublic then
                 for _, module in ipairs(
-                    namespaceChildren(shape, prefix, path, parsed.root.blocks, opts.includePrivate)
+                    globalModules(
+                        shapeName,
+                        shape,
+                        info.text,
+                        path,
+                        parsed.root.blocks,
+                        opts.includePrivate
+                    )
                 ) do
                     extraModules[#extraModules + 1] = module
                 end

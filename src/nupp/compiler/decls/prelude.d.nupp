@@ -2424,8 +2424,13 @@ local _VERSION: string
 -- `string.format` derives its trailing parameter pack from a literal first argument.
 -- These aliases are deliberately private implementation vocabulary: the public
 -- surface is the ordinary function below, and a nonliteral format reduces to `any`.
+-- `@local` is what keeps them out of the documented surface, which a declaration file
+-- otherwise hands out whole.
+
+--- @local
 local type __NuppFormatError<Seen, Rest> = typeerror<`invalid string.format directive starting at "%${Seen}${Rest}"`>
 
+--- @local
 local type __NuppFormatBuild<
     State
     > = match State when {
@@ -2675,6 +2680,7 @@ end when {
 end else typeerror<'invalid string.format parser state'>
 end
 
+--- @local
 local type __NuppFormatArguments<
     Format
     > = match Format when `${infer Literal}` then __NuppFormatBuild<{'scan', Literal}> else any

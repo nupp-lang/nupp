@@ -215,6 +215,31 @@ local function renderMarkdownItem(out, item, constructorPattern, level)
     renderMarkdownMembers(out, item.members, level + 1)
 end
 
+--- Renders declarations as sections, for a page that writes its own headings around
+--- them.
+---
+--- A module's page gets its headings from the module; a generated page that gathers
+--- declarations from several files under headings of its own needs the same sections
+--- without them, which is what this is. `level` is the depth an item's own name is
+--- written at, so a page grouping under `##` passes 3.
+---
+--- @param items the declarations to render, in the order they should be read
+--- @param level the heading depth of an item's name, 3 by default
+--- @param constructorPattern what names a constructor, for the kind beside the name
+--- @return the markdown, or the empty string when there is nothing to render
+function markdown.items(
+    items: {nupp.compiler.doc.extract.Item},
+    level: integer?,
+    constructorPattern: string?
+): string
+    local out = {}
+    for _, item in ipairs(items) do
+        renderMarkdownItem(out, item, constructorPattern, level or 3)
+    end
+
+    return table.concat(out, "\n")
+end
+
 --- Renders modules as one markdown document.
 ---
 --- `all` is every module the run documented. A page renders one module at a time but

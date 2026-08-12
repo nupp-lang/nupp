@@ -1,0 +1,68 @@
+--[[
+The declarations the compiler carries with it.
+
+A build leaves them on disk beside the compiled modules. The stage-0 bundle
+cannot: it is one file, and one file cannot bring a directory along, so it
+carries them inside itself as a preloaded module of path -> source. One read
+answers for both.
+
+Deliberately only the compiler's own declarations, and deliberately not a general
+virtual filesystem layered under every read. A VFS would let an in-memory entry
+shadow a real file the user wrote at the same path, and then which one wins is a
+question the language would have to answer forever. This answers a much smaller
+one: where the compiler keeps its own prelude.
+
+A module of its own because two callers want it and they are on opposite sides of
+the compiler. The checker loads the prelude through it, and documentation renders
+the same declarations through it; a shared leaf is what keeps the second from
+importing the first.
+]]
+
+local bundled = {}
+
+local function moduleDir(): string
+    local source = debug.getinfo(1, "S").source
+    return source:match("^@(.*)[/\\]") or "."
+end
+
+local function readFile(path: string): string?
+    local file = io.open(path, "rb")
+    if not file then
+        return nil
+    end
+    local content = file:read("*a")
+    file:close()
+
+    return content
+end
+
+local embedded: any = nil
+
+--- The source of one declaration the compiler carries, or nil when it carries no such
+--- file.
+---
+--- `relative` is the path under the compiled modules, leading slash and all:
+--- `/decls/prelude.d.nupp`.
+---
+--- @param relative the path under the compiled modules, beginning with a slash
+--- @return the source, or nil when this compiler carries no file by that name
+function bundled.source(relative: string): string?
+    if embedded == nil then
+        local preloaded = package.preload["nupp.embedded"]
+        embedded = preloaded and preloaded() or false
+    end
+    if embedded and embedded[relative] then
+        return embedded[relative]
+    end
+
+    return readFile(moduleDir() .. relative)
+end
+
+--- The directory the compiled compiler modules were loaded from.
+---
+--- @return the directory, without a trailing separator, or "." when there is none
+function bundled.moduleDir(): string
+    return moduleDir()
+end
+
+return bundled

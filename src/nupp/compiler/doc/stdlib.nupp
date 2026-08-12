@@ -1,0 +1,199 @@
+--[[
+The LuaJIT standard library: every global and bundled module the checker knows,
+on one page.
+
+The declarations are the compiler's own. `nupp` reads them to decide what a
+program is allowed to call and what each call returns, and this reads the same
+files, so the page and the checker cannot disagree about a signature. A
+handwritten page beside them would be a second copy that goes stale the first
+time an argument changes.
+
+One page rather than one per library, because that is how the library is used:
+a reader looking for `string.format` is as likely to be looking for
+`table.concat` next, and the browser's own find reaches both at once.
+
+The ambient globals come first, then the libraries a program names without
+requiring anything, then the modules `require` loads. What `nupp` itself
+provides is not here: it has module pages of its own.
+]]
+
+local bundledMod = require("nupp.compiler.bundled")
+local extractMod = require("nupp.compiler.doc.extract")
+local markdownMod = require("nupp.compiler.doc.markdown")
+
+local stdlib = {}
+
+--- The generated page: the route it is written to, its title, and its markdown.
+type stdlib.Page = {
+    markdown: string,
+    path: string,
+    title: string
+}
+
+--- Where a manifest asked the page to live, and what to call it.
+type stdlib.Settings = {
+    path: string?,
+    title: string?
+}
+
+--- One declaration file the page renders, and how a program reaches what it declares.
+---
+--- `required` is the name that loads it, and its absence is what says the declarations
+--- are ambient: the prelude's globals are there before a program asks for anything.
+local record Source
+    file: string
+    required: string?
+end
+
+-- The compiler's own declarations, in reading order. Paths are the ones
+-- [](nupp.compiler.bundled.source) answers to, so a stamped binary renders the same
+-- page as a checkout without either knowing which it is.
+local SOURCES: {Source} = {
+    new Source(file = "/decls/prelude.d.nupp"),
+    new Source(file = "/decls/ffi.d.nupp", required = "ffi"),
+    new Source(file = "/decls/stringbuffer.d.nupp", required = "string.buffer"),
+    new Source(file = "/decls/jit/util.d.nupp", required = "jit.util"),
+    new Source(file = "/decls/jit/profile.d.nupp", required = "jit.profile"),
+    new Source(file = "/decls/jit/zone.d.nupp", required = "jit.zone"),
+}
+
+local INTRO = "Every name a checked program can use without declaring it, and every "
+    .. "module LuaJIT loads by name, as the compiler itself declares them. `nupp` "
+    .. "reads these files to decide what a call means, so a signature here is the "
+    .. "signature the checker enforces."
+
+local GLOBALS = "The functions and values a program can name anywhere. Their "
+    .. "declarations are loaded before any source is checked, so nothing requires them "
+    .. "and nothing can shadow them by accident."
+
+local TYPES = "The types the declarations above name in their signatures. They are "
+    .. "written by the prelude rather than by a program, which is why they have no "
+    .. "module of their own to be documented from."
+
+-- A value is a global, a type is a type, and everything else on this page is a library
+-- of its own. `item.module` is set on a declaration whose name qualifies it into another
+-- module -- `record nupp.data` is written in the prelude and belongs to `nupp` -- and
+-- that module documents it already.
+local function isGlobal(item: extractMod.Item): boolean
+    return not item.module and (item.kind == "function" or item.kind == "variable")
+end
+
+local function isType(item: extractMod.Item): boolean
+    return not item.module and item.kind ~= "function" and item.kind ~= "variable"
+end
+
+local function only(items: {extractMod.Item}, wanted: function(extractMod.Item): boolean): {extractMod.Item}
+    local kept = {}
+    for _, item in ipairs(items) do
+        if wanted(item) then
+            kept[#kept + 1] = item
+        end
+    end
+
+    return kept
+end
+
+-- A global's anchor is the name a program writes. `print` is not a member of the file
+-- that declares it, and a link that said so would be naming an implementation detail a
+-- reader has no other reason to learn. The types the prelude declares are named the
+-- same way, for the same reason.
+local function anchorByName(items: {extractMod.Item})
+    for _, item in ipairs(items) do
+        item.path = item.name
+        for _, member in ipairs(item.members) do
+            member.path = item.path .. "." .. member.name
+        end
+    end
+end
+
+-- A declaration file's library is the record it hands back, and the binding underneath
+-- it -- `local util: JitUtil` -- adds a second entry that repeats the first. The record
+-- carries the documentation, so the binding goes.
+local function withoutRedeclaredBindings(items: {extractMod.Item}): {extractMod.Item}
+    local types: {[string]: boolean} = {}
+    for _, item in ipairs(items) do
+        if isType(item) then
+            types[item.name] = true
+        end
+    end
+
+    return only(items, function(item: extractMod.Item): boolean
+        return not (item.kind == "variable" and types[item.signature:match(": ([%w_]+)$") or ""])
+    end)
+end
+
+local function section(out: {string}, title: string, text: string?, items: {extractMod.Item}?)
+    if items and #items == 0 then
+        return
+    end
+    out[#out + 1] = "## " .. title
+    out[#out + 1] = ""
+    if text and text ~= "" then
+        out[#out + 1] = text
+        out[#out + 1] = ""
+    end
+    if items then
+        out[#out + 1] = markdownMod.items(items)
+    end
+end
+
+--- The whole standard library as one page, or nil when the manifest asked for no page.
+---
+--- A declaration this compiler does not carry is left out rather than reported: the
+--- page describes the surface the binary rendering it actually checks against, and a
+--- build that carries fewer declarations checks against fewer.
+---
+--- @param settings where the manifest asked the page to live, or nil for no page
+--- @return the page, or nil when no page was asked for
+function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
+    if not settings then
+        return nil
+    end
+    local title = settings.title or "LuaJIT standard library"
+    local out = {"# " .. title, "", INTRO, ""}
+    local types: {extractMod.Item} = {}
+    for _, source in ipairs(SOURCES) do
+        local text = bundledMod.source(source.file)
+        if text then
+            local path = source.file:gsub("^/", "")
+            local module, _, libraries = extractMod.extract(
+                text,
+                path,
+                source.required or "globals",
+                {shapesAsModules = source.required == nil}
+            )
+            if module then
+                if source.required then
+                    section(
+                        out,
+                        "`" .. source.required .. "`",
+                        module.text,
+                        withoutRedeclaredBindings(module.items)
+                    )
+                else
+                    local globals = only(module.items, isGlobal)
+                    anchorByName(globals)
+                    section(out, "Globals", GLOBALS, globals)
+                    for _, item in ipairs(only(module.items, isType)) do
+                        types[#types + 1] = item
+                    end
+                end
+            end
+            -- Each shape-typed global is a library of its own, in the order the
+            -- declarations give them.
+            for _, library in ipairs(libraries or {}) do
+                section(out, "`" .. library.name .. "`", library.text, library.items)
+            end
+        end
+    end
+    anchorByName(types)
+    section(out, "Types", TYPES, types)
+
+    return {
+        path = settings.path or "luajit",
+        title = title,
+        markdown = table.concat(out, "\n")
+    }
+end
+
+return stdlib

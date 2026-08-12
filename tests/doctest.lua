@@ -2161,6 +2161,113 @@ function M.diagnosticIndexOnlyLinksWhatExists()
    assert(seen > 0, "no related code was linked at all")
 end
 
+-- The standard library page is generated from the declarations the checker itself
+-- loads, so it holds a section for every library the compiler carries without a
+-- manifest naming one of them.
+function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
+   local stdlib = require("nupp.compiler.doc.stdlib")
+
+   assert(stdlib.page(nil) == nil)
+
+   local page = assert(stdlib.page({path = "luajit"}))
+   assert(page.path == "luajit")
+   assert(page.title == "LuaJIT standard library")
+   local sections = {
+      "Globals", "`string`", "`table`", "`math`", "`os`", "`package`", "`io`",
+      "`coroutine`", "`bit`", "`jit`", "`debug`", "`ffi`", "`string.buffer`",
+      "`jit.util`", "`jit.profile`", "`jit.zone`", "Types",
+   }
+   for _, section in ipairs(sections) do
+      assert(page.markdown:find("\n## " .. section .. "\n", 1, true), "no section for " .. section)
+   end
+   assert(page.markdown:find("### `format`", 1, true), "no member of a library table")
+   assert(page.markdown:find("### `print`", 1, true), "no ambient global")
+end
+
+-- A global's anchor is the name a program writes. `print` is not a member of the file
+-- that declares it, and `string.format` is not a member of the page's own name.
+function M.stdlibIndexAnchorsEveryNameTheWayItIsWritten()
+   local stdlib = require("nupp.compiler.doc.stdlib")
+   local page = assert(stdlib.page({path = "luajit"}))
+
+   assert(page.markdown:find('<a id="print"></a>', 1, true), "print anchored as a member")
+   assert(page.markdown:find('<a id="string.format"></a>', 1, true), "string.format lost its anchor")
+   assert(not page.markdown:find('<a id="globals.', 1, true), "anchored a global to its file")
+end
+
+-- What the prelude declares for the compiler rather than for a program stays off the
+-- page: `nupp` has module pages of its own, and the aliases behind `string.format`'s
+-- parameter pack are private vocabulary with no section to land on. The pack still
+-- names one in the signature, because that is what the declaration says and a signature
+-- the checker does not enforce would be worse than an unfamiliar name.
+function M.stdlibIndexLeavesTheCompilersOwnDeclarationsOut()
+   local stdlib = require("nupp.compiler.doc.stdlib")
+   local page = assert(stdlib.page({path = "luajit"}))
+
+   assert(not page.markdown:find("### `__Nupp", 1, true), "documented private vocabulary")
+   assert(not page.markdown:find('<a id="__Nupp', 1, true), "anchored private vocabulary")
+   assert(not page.markdown:find("\n## `nupp`", 1, true), "documented the nupp namespace")
+   assert(not page.markdown:find("### `nupp.", 1, true), "documented a nupp declaration")
+end
+
+-- A manifest that asks for the page gets it at the route it named.
+function M.stdlibIndexIsWrittenWhereTheManifestAsked()
+   local dir = tempProject({["src/math.nupp"] = SOURCE})
+   local config = {include = {"src"}}
+   assert(doc.build(dir, config, {sources = {"src"}, stdlib = {path = "reference/luajit"}},
+      {format = "site", output = "site"}) == 0)
+   local page = readFile(dir .. "/site/reference/luajit/index.html")
+   assert(page:find("LuaJIT standard library", 1, true), page:sub(1, 400))
+   assert(page:find("string.format", 1, true), "the page rendered without its declarations")
+
+   local dir2 = tempProject({["src/math.nupp"] = SOURCE})
+   assert(doc.build(dir2, config, {sources = {"src"}}, {format = "site", output = "site"}) == 0)
+   assert(not io.open(dir2 .. "/site/reference/luajit/index.html", "rb"),
+      "a manifest that asked for no page got one")
+   os.execute("rm -rf '" .. dir .. "' '" .. dir2 .. "'")
+end
+
+-- A declaration file whose bindings are globals documents each shape-typed one as the
+-- library it is: `strings.format` is what a reader writes, and the file the binding was
+-- declared in is no part of that name. A binding carrying `@namespace` is left alone,
+-- because it names modules an ordinary run documents already.
+function M.shapeTypedGlobalsDocumentAsTheirOwnLibraries()
+   local source = table.concat({
+      "--- Text handling.",
+      "local strings: {",
+      "    --- Formats a value.",
+      "    format: function(fmt: string): string",
+      "}",
+      "",
+      "--- Prints a value.",
+      "local say: function(v: any)",
+      "",
+      "--- Compiler facilities.",
+      "--- @namespace demo",
+      "local demo: {",
+      "    --- Data handling.",
+      "    data: {",
+      "        --- Encodes a value.",
+      "        encode: function(v: any): string",
+      "    }",
+      "}",
+   }, "\n") .. "\n"
+
+   local module, errors, libraries = doc.extract(
+      source, "prelude.d.nupp", "globals", {shapesAsModules = true})
+   assert(module, errors and errors[1] and errors[1].msg)
+   assert(#module.items == 1 and module.items[1].name == "say", "a global was consumed")
+   assert(#libraries == 1, #libraries .. " libraries for one shape-typed global")
+   assert(libraries[1].name == "strings", libraries[1].name)
+   assert(libraries[1].text == "Text handling.", libraries[1].text)
+   assert(#libraries[1].items == 1 and libraries[1].items[1].name == "format")
+   assert(libraries[1].items[1].path == "strings.format", libraries[1].items[1].path)
+
+   local plain, _, namespaces = doc.extract(source, "prelude.d.nupp", "globals")
+   assert(plain, "the same file must still document as one module")
+   assert(#namespaces == 1 and namespaces[1].name == "demo.data", "@namespace stopped working")
+end
+
 -- A route a page used to answer at keeps answering, by way of a stub that names
 -- where the page went. An overview's redirects have to survive being folded onto
 -- the module's own page, which is the one that answers there afterwards.
