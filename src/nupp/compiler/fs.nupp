@@ -135,7 +135,15 @@ end
 --- A directory that cannot be read contributes nothing rather than failing: a
 --- project may name an include root it has not created yet, and the shell-out
 --- this replaced answered the same way.
-local function listFiles(path: string): {string}
+---
+--- `skipDirectory` is asked about each directory's own name before the walk
+--- descends into it, and a true answer prunes it and everything under it. A
+--- caller that discards those files afterwards gets the same answer either way,
+--- and discarding them afterwards means having walked them first: on this
+--- compiler the unpruned walk found eight hundred files to keep a hundred,
+--- because a checkout's own root holds a version-control store and possibly a
+--- nest of worktrees.
+local function listFiles(path: string, skipDirectory: (function(name: string): boolean?)?): {string}
     local files: {string} = {}
     local pending = {path}
     while #pending > 0 do
@@ -148,7 +156,9 @@ local function listFiles(path: string): {string}
                 kind = resolved and resolved.kind or "other"
             end
             if kind == "directory" then
-                pending[#pending + 1] = child
+                if not (skipDirectory and skipDirectory(entry.name)) then
+                    pending[#pending + 1] = child
+                end
             elseif kind == "file" then
                 files[#files + 1] = normalize(child)
             end

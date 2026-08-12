@@ -95,8 +95,15 @@ type cache.DependencyRecord = {
 
 --- Everything one build wrote down about what it did.
 ---
---- `compilerHash`, `configHash` and `projectIndexHash` are absent from a state that has
---- just been emptied and filled in by the run that is about to compare them.
+--- `compilerHash` and `configHash` are absent from a state that has just been emptied
+--- and filled in by the run that is about to compare them.
+---
+--- There used to be a `projectIndexHash` beside them, a digest of every declaration of
+--- every project header. It gated reuse for the whole project, so an edit to any
+--- exported type rechecked every module. Each module now records the project queries it
+--- actually read (`incremental.projectDependencies`), which invalidates the readers of a
+--- changed declaration and nobody else, and the whole-project digest became a hash
+--- computed on every command and compared by nothing.
 type cache.State = {
     version: integer,
     modules: {[string]: cache.ModuleRecord},
@@ -108,8 +115,7 @@ type cache.State = {
     targets: {[string]: {string}},
 
     compilerHash: string?,
-    configHash: string?,
-    projectIndexHash: string?
+    configHash: string?
 }
 
 local function jsonArray<T>(items: {T}): {T}

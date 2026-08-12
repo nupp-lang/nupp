@@ -77,6 +77,19 @@ type modules.Result = {
     effects: {[string]: any}?
 }
 
+--- A check asked about named files rather than about the project.
+---
+--- `paths` is what it was asked about, and `unchecked` is filled in with the ones this
+--- walk cannot reach: a declaration file, a `.lua`, a file from outside the project.
+--- Those are still worth checking and the caller still has to, so they are handed back
+--- rather than refused. It is filled in as they are found, not on the way out, because
+--- a run whose named files have errors returns early and the caller needs the list
+--- either way.
+type modules.Narrow = {
+    paths: {string},
+    unchecked: {string}
+}
+
 --- Canonical binder numbering for one fingerprint: the number each binder was given,
 --- and how many have been handed out. Numbering by first encounter rather than by
 --- name is what makes two binders that shadow each other compare unequal, and what
@@ -464,28 +477,6 @@ local function resourceOutput(
     return resourceRelative(config, source, root)
 end
 
-local function projectIndexFingerprint(inc)
-    local headers = {}
-    for _, path in ipairs(inc.projectFiles()) do
-        local header = inc.projectHeader(path)
-        local declarations = {}
-        for _, declaration in ipairs(header.declarations or {}) do
-            declarations[
-                #declarations + 1
-            ] = {
-                name = declaration.name,
-                kind = declaration.kind,
-                statKind = declaration.statKind,
-                visibility = declaration.visibility,
-                signature = declaration.signature,
-            }
-        end
-        headers[#headers + 1] = {path = header.path, moduleName = header.moduleName, declarations = declarations,}
-    end
-
-    return hash.digest(stable(headers))
-end
-
 local function copyModuleRecord(record)
     local dependencies = jsonArray({})
     for _, name in ipairs(record.dependencies or {}) do
@@ -529,7 +520,12 @@ local function buildModules(
     strict: boolean?,
     stats: modules.Stats?,
     diagnostics: {any}?,
-    checkState: nupp.compiler.build.store.Value?
+    checkState: nupp.compiler.build.store.Value?,
+
+    --- Set when a check was asked about named files rather than about the project. Only
+    --- a check narrows: a build compiles the whole source set, because a module nobody
+    --- requires is still part of the program.
+    narrow: modules.Narrow?
 ): modules.Result?, string?
     local envConfig = {}
     for key, value in pairs(config) do
@@ -545,7 +541,6 @@ local function buildModules(
         root,
         {config = envConfig, strict = strict, typeRoots = rocks and rocks.typeRoots or {},}
     )
-    newState.projectIndexHash = projectIndexFingerprint(inc)
     -- A check reuses on the same terms a build does. It used to be excluded, and had to
     -- be: reuse produced no diagnostics, so the second `nupp check` over a project with
     -- an error would have said nothing was wrong. Now a record carries what the file
@@ -578,33 +573,54 @@ local function buildModules(
         queue[#queue + 1] = {name = name, path = path}
     end
 
-    for _, entry in ipairs(target.entries or {}) do
-        local path, name
-        if entry:match("%.nupp$") or entry:find("[/\\]") then
-            path = join(root, entry)
-            name = envMod.moduleNameForPath(inc.env, path)
-        else
-            name = entry
-            path = inc.modulePath(entry)
+    -- A check of named files is that same walk started somewhere smaller. What it
+    -- reaches from there -- what the file requires, and what those require -- is checked
+    -- and recorded the way a whole-project run would, because the named file's answer
+    -- depends on them. What it never reaches is left alone: unmentioned, unreported, and
+    -- still in the stored state, which is what `asked` carries down to the two places
+    -- that would otherwise treat "not visited" as "not there".
+    local asked = nil
+    if checkOnly and narrow and #narrow.paths > 0 then
+        asked = {}
+        for _, path in ipairs(narrow.paths) do
+            local file = normalize(path)
+            local name = envMod.moduleNameForPath(inc.env, file)
+            if name then
+                asked[name] = true
+                seed(name, file)
+            else
+                narrow.unchecked[#narrow.unchecked + 1] = path
+            end
         end
-        if not path then
-            return nil, "entry not found: " .. entry
-        end
-        if not name then
-            return nil, "cannot determine module name for " .. path
-        end
-        seed(name, path)
-    end
-    if #queue == 0 then
-        return nil, "build.entries must contain at least one entry"
-    end
-
-    -- An entry may live outside the include roots — a file named on the command line
-    -- does — so it is seeded first and the source set is added around it.
-    for _, path in ipairs(envMod.listSourceFiles(inc.env, false)) do
-        local name = envMod.moduleNameForPath(inc.env, path)
-        if name then
+    else
+        for _, entry in ipairs(target.entries or {}) do
+            local path, name
+            if entry:match("%.nupp$") or entry:find("[/\\]") then
+                path = join(root, entry)
+                name = envMod.moduleNameForPath(inc.env, path)
+            else
+                name = entry
+                path = inc.modulePath(entry)
+            end
+            if not path then
+                return nil, "entry not found: " .. entry
+            end
+            if not name then
+                return nil, "cannot determine module name for " .. path
+            end
             seed(name, path)
+        end
+        if #queue == 0 then
+            return nil, "build.entries must contain at least one entry"
+        end
+
+        -- An entry may live outside the include roots — a file named on the command line
+        -- does — so it is seeded first and the source set is added around it.
+        for _, path in ipairs(envMod.listSourceFiles(inc.env, false)) do
+            local name = envMod.moduleNameForPath(inc.env, path)
+            if name then
+                seed(name, path)
+            end
         end
     end
 
@@ -857,6 +873,19 @@ local function buildModules(
     inc.persist()
     if checkOnly and checkState then
         local checked = {}
+        -- A run that looked at the whole source set keeps only what it looked at, which
+        -- is how a module that was deleted stops being remembered. A run asked about
+        -- named files looked at a corner of the project on purpose, so it carries the
+        -- rest of the last run's record forward untouched -- dropping it would make one
+        -- narrow check throw away the work of every earlier one, and the next
+        -- whole-project check would start cold. Nothing stale survives either way: a
+        -- carried record is re-validated against its source and its dependencies before
+        -- anything is reused from it.
+        if asked then
+            for name, record in pairs(oldState.modules or {}) do
+                checked[name] = record
+            end
+        end
         for _, name in ipairs(order) do
             checked[name] = records[name]
         end
@@ -868,10 +897,17 @@ local function buildModules(
     -- Everything gathered is said, in the order the modules were reached, so the report
     -- reads the same whether a module was checked this run or read back from the last
     -- one.
+    --
+    -- A check of named files says what is wrong with those files. It reached their
+    -- dependencies and has opinions about them, and reporting those would answer a
+    -- question nobody asked -- name one file, hear about thirty. Whether the project as
+    -- a whole is well typed is what `nupp check` with no files means.
     local errors = {}
     for _, name in ipairs(order) do
-        for _, diag in ipairs(said[name] or {}) do
-            errors[#errors + 1] = diag
+        if not asked or asked[name] then
+            for _, diag in ipairs(said[name] or {}) do
+                errors[#errors + 1] = diag
+            end
         end
     end
     local fatal, checkFailed = false, false

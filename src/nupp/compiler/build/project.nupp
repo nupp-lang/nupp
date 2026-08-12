@@ -42,6 +42,15 @@ type project.BuildOptions = {
     --- Check without generating or writing anything.
     checkOnly: boolean?,
 
+    --- Check these files, and whatever they require, rather than the project. Only a
+    --- check narrows: a build compiles the whole source set whatever it was asked about.
+    ---
+    --- A named file the project does not reach -- a declaration file, a `.lua`, a file
+    --- from outside -- is appended to `unchecked` rather than refused, for the caller to
+    --- check on its own.
+    paths: {string}?,
+    unchecked: {string}?,
+
     --- Build instrumented for coverage. Folded into the build key, so an ordinary cache
     --- entry can never satisfy a coverage run.
     coverage: boolean?,
@@ -235,7 +244,8 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
         strict,
         opts.stats,
         opts.diagnostics,
-        checkState
+        checkState,
+        opts.paths and {paths = opts.paths, unchecked = opts.unchecked or {},} or nil
     )
     if not result then
         if buildErr ~= "project has errors" and buildErr ~= "code generation failed" then

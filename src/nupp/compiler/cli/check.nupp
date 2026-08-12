@@ -1,9 +1,16 @@
 --[[
 `nupp check`: type-check without emitting anything.
 
-With files named, each is parsed and checked on its own. With none, the project
-is the subject and the manifest decides what that means. `--json` reports the
-same diagnostics in the form meant for a program; see `docs/diagnostics.md`.
+With no files, the project is the subject and the manifest decides what that
+means. With files named, each is checked as the project's own module where it is
+one, so it is judged by the manifest a build would judge it by and reuses what
+the last check worked out about it; a file the project does not reach -- a
+declaration file, a `.lua`, a file from outside, or anything at all when there is
+no manifest here -- is parsed and checked on its own. Either way what is reported
+is the named files, not their dependencies.
+
+`--json` reports the same diagnostics in the form meant for a program; see
+`docs/diagnostics.md`.
 ]]
 
 local spec = require("nupp.compiler.cli.spec")
@@ -51,11 +58,18 @@ local function run(parsed: any): integer
     local parser = require("nupp.compiler.parser")
     local check = require("nupp.compiler.check")
     local diagnosticMod = require("nupp.compiler.diagnostics")
-    local env = require("nupp.compiler.env").new(".")
     local failed = false
+
+    -- A file that cannot be read is answered here, before anything else is asked to
+    -- account for it. Below, an unreadable path would reach the project walk as a module
+    -- with no source, which is indistinguishable from a module that is simply fine.
+    local readable, sources = {}, {}
     for _, path in ipairs(paths) do
         local source, err = fs.readFile(path)
-        if not source then
+        if source then
+            readable[#readable + 1] = path
+            sources[path] = source
+        else
             if asJson then
                 diagnostics[
                     #diagnostics + 1
@@ -73,29 +87,94 @@ local function run(parsed: any): integer
                 io.stderr:write("nupp: " .. tostring(err) .. "\n")
             end
             failed = true
-        else
-            local result = parser.parse(source, path)
-            if #result.errors > 0 then
-                if asJson then
-                    for _, diagnostic in ipairs(result.errors) do
-                        diagnostics[#diagnostics + 1] = diagnostic
-                    end
-                else
-                    diagnosticMod.report(result.errors)
-                end
+        end
+    end
+
+    -- A named file is checked through the project when it is one of the project's own
+    -- modules, which is what gives it the reuse a whole-project check has: unchanged
+    -- source, unchanged dependencies, and the file's diagnostics are replayed from the
+    -- last run rather than worked out again. It also means the file is checked the way
+    -- the project checks it -- same manifest, same strictness, same dependencies -- and
+    -- not the way a file that happens to be lying there would be.
+    --
+    -- What is left over is a declaration file, a `.lua`, a file from outside the
+    -- project, or every file when there is no project here at all. Those are parsed and
+    -- checked on their own below, which is what every named file used to get.
+    local remaining = readable
+    local config = #readable > 0 and require("nupp.compiler.build.manifest").load(".") or nil
+    if config then
+        local envMod = require("nupp.compiler.env")
+        local roots = envMod.projectRoots(".", config as {[string]: any})
+        local mine = {}
+        for _, path in ipairs(readable) do
+            if envMod.moduleNameInRoots(roots, path) then
+                mine[#mine + 1] = path
+            end
+        end
+        -- Nothing here belongs to the project, so there is nothing to ask the project
+        -- about. Asking anyway would resolve the project's dependencies and walk its
+        -- source set to answer a question about a file somewhere else entirely.
+        if #mine > 0 then
+            local project = require("nupp.compiler.build.project")
+            local unchecked = {}
+            local code = project.check(
+                ".",
+                {
+                    strict = values.strict,
+                    paths = mine,
+                    unchecked = unchecked,
+                    diagnostics = asJson and diagnostics or nil,
+                }
+            )
+            if code ~= 0 then
                 failed = true
-            else
-                local diags = check.check(result, path, env as {[string]: any}, {strict = values.strict})
-                if asJson then
-                    for _, diagnostic in ipairs(diags) do
-                        diagnostics[#diagnostics + 1] = diagnostic
-                        if reportMod.fatal(diagnostic) then
-                            failed = true
-                        end
-                    end
-                elseif diagnosticMod.report(diags) then
-                    failed = true
+            end
+            remaining = {}
+            local handled = {}
+            for _, path in ipairs(mine) do
+                handled[path] = true
+            end
+            for _, path in ipairs(unchecked) do
+                handled[path] = nil
+            end
+            for _, path in ipairs(readable) do
+                if not handled[path] then
+                    remaining[#remaining + 1] = path
                 end
+            end
+        end
+    end
+    if #remaining == 0 then
+        if asJson then
+            reportMod.json(diagnostics)
+        end
+
+        return failed and 1 or 0
+    end
+
+    local env = require("nupp.compiler.env").new(".")
+    for _, path in ipairs(remaining) do
+        local result = parser.parse(sources[path] as string, path)
+        if #result.errors > 0 then
+            if asJson then
+                for _, diagnostic in ipairs(result.errors) do
+                    diagnostics[#diagnostics + 1] = diagnostic
+                end
+            else
+                diagnosticMod.report(result.errors)
+            end
+            failed = true
+        else
+            local diags = check.check(result, path, env as {[string]: any}, {strict = values.strict})
+            if asJson then
+                for _, diagnostic in ipairs(diags) do
+                    diagnostics[#diagnostics + 1] = diagnostic
+                    if reportMod.fatal(diagnostic) then
+                        failed = true
+                    end
+                end
+            elseif diagnosticMod.report(diags) then
+                failed = true
             end
         end
     end

@@ -252,45 +252,59 @@ headers are stored between commands (`nupp.compiler.build.store`, plain data via
 `string.buffer`, in the gitignored build directory), `nupp check` reuses
 unchanged modules and replays their diagnostics, bundled module declarations are
 checked when something asks for one, `nupp fmt` stores each file's formatting
-verdict, the editor session writes what it worked out on shutdown, and the
-project scan prunes dot-directories instead of walking the whole checkout and
-discarding it.
+verdict, the editor session writes what it worked out on shutdown, the project
+scan prunes dot-directories instead of walking the whole checkout and discarding
+it, the cross-process cutoff runs off what a dependent actually read rather than
+off the whole project index, a warm command spawns no processes of its own, and
+`nupp check FILE` reuses what the last check worked out about that file.
+
+The cutoff used to be the largest item here. A module records the project queries
+it asked and the fingerprint each answered with (`inc.projectDependencies`,
+`src/nupp/compiler/incremental.nupp`), and reuse compares those one by one, so an
+edit to an exported type declaration invalidates the modules that read that
+declaration instead of every module in the project. The digest is
+`declarationSignature` (`src/nupp/compiler/env.nupp`), which walks tokens and so
+carries no trivia: reformatting a docblock above a record changes nothing.
+`typeFingerprint` still declines to expand a nominal's members, which is correct,
+and the keyed project dependency is what notices the changed record. Its
+predecessor, a whole-project `projectIndexHash`, is gone rather than merely
+unused: it was digesting every declaration of every header on every command and
+being compared by nobody.
+
+Discovery walks `nupp.io.files` on every platform now, pruning dot-directories at
+the directory rather than at the path, and each root is listed once per
+environment rather than once per question asked about it. That was eight `find`
+subprocesses on a warm no-op check, four on `lsp inspect`, two on `check FILE`.
+`process.capture`'s `os.tmpname` file turned out never to have been on this path
+-- every caller is dependency resolution, native building or packaging. What is
+left is `bin/nupp`'s own `find | head`, which stays: it is a shell script asking
+whether any source is newer than the build stamp before it decides whether to
+run the compiler at all, and there is no portable shell answer to that question
+that is not `find`.
+
+`nupp check FILE` goes through the project's own incremental check, seeded at the
+named files rather than at the source set (`modules.Narrow`). It reuses records
+on the same terms a whole-project check does, reports the named files rather than
+everything the walk reached, and carries the rest of the stored state forward
+untouched so that one narrow check does not throw away what the last full one
+learned. A file the project does not reach -- a declaration file, a `.lua`, a
+file from outside, or every file when there is no manifest -- is still parsed and
+checked on its own.
+
+What that bought, measured on a loaded machine and so in CPU time rather than
+wall clock: a second `nupp check src/nupp/compiler/env.nupp` costs 0.22 s where
+the August 7 note has the old path costing 0.82--0.93 s on every warm run. The
+first one costs more than it used to, because it now checks and records the
+file's whole dependency closure, and that warms the project check as well.
 
 Historical August 7 measurements, before native file adoption and the later
 type-system work: whole-project check 0.15 s against 1.26 s cold; `fmt --check`
 0.15 s; no-op build 0.18 s; `lsp inspect` 0.13 s. The measured startup floor was
-23 ms, against 2 ms for a bare `luajit -e ""`. Remeasure before using these as
-current priorities.
+23 ms, against 2 ms for a bare `luajit -e ""`. These are stale; remeasure on an
+otherwise idle machine before using them as current priorities.
 
-What is left, in the order the numbers justify:
+What is left:
 
-- [ ] **Remeasure and remove the remaining warm-command subprocesses.** Native
-      file adoption removed `nupp.compiler.fs` listing and `mkdir` shell-outs,
-      so the old count of seven subprocesses and six `find` calls is obsolete.
-      Project discovery still shells out in `env.nupp`, its source and project
-      views can still list separately, `bin/nupp` still uses `find | head` while
-      locating inputs, and `process.capture` still creates and removes an
-      `os.tmpname` file per call. Measure the new floor before deciding whether
-      caching or a native discovery path is worth its invalidation cost.
-- [ ] **`nupp check FILE` has no per-module reuse at all.**
-      `src/nupp/compiler/cli/check.nupp:50` re-parses and re-checks the named file
-      unconditionally; only the header index is cached. On August 7 the 0.14 s
-      figure was the startup-plus-index floor measured on a small file, while
-      `src/nupp/compiler/env.nupp` cost 0.82–0.93 s on every warm run. Remeasure
-      the cost, but the missing reuse mechanism remains.
-- [ ] **Cross-process cutoff is at the module, not the interface.** A body edit
-      stops at an unchanged interface, because the interface digest is recorded
-      and compared. But any edit to an exported *type declaration* changes
-      `projectIndexHash`, which disables reuse for the whole project: the digest
-      covers each declaration's `cst.textOf` (`src/nupp/compiler/env.nupp:569`), which
-      emits leading trivia, so reformatting a docblock above a record rechecks
-      everything. The other half of the same mechanism is `typeFingerprint`,
-      which describes a nominal by its declaration kind and name and
-      deliberately does not expand members (`src/nupp/compiler/build/modules.nupp:151`) —
-      correct in itself, but it means the interface digest leans entirely on
-      `projectIndexHash` to notice a changed record. Narrow the digest to what
-      a dependent can actually observe and make the two one mechanism rather
-      than two that happen to cover each other.
 - [ ] **The prelude image, if its cost becomes worth it.** `env.new` measured
       11.7 ms on August 7, all of it parsing and checking `prelude.d.nupp` on
       every command. Storing the result means storing a cyclic type graph, which

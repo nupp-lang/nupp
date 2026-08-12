@@ -1046,6 +1046,101 @@ return {
    remove(dir)
 end
 
+-- Checking a named file is the project's own check started somewhere smaller,
+-- so it has to reuse like one, answer like one, and cost the whole-project
+-- check that follows it nothing.
+function M.checkOfNamedFilesReusesAndReportsOnlyThem()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   build = {outDir = "out", entries = {"main"}},
+}
+]],
+      ["src/main.nupp"] = table.concat({
+         "local lib = require('lib')",
+         "local value: number = lib.answer()",
+         "return value",
+      }, "\n"),
+      ["src/lib.nupp"] = table.concat({
+         "local function answer(): number",
+         "   return 1",
+         "end",
+         "return { answer = answer }",
+      }, "\n"),
+      -- Nothing requires this one, and it is wrong.
+      ["src/loose.nupp"] = table.concat({
+         "local loose = {}",
+         "local x: number = 'text'",
+         "return loose",
+      }, "\n"),
+   })
+
+   -- What the named file requires is checked, because the named file's answer
+   -- depends on it. What nothing asked about is not.
+   local cold = {}
+   local coldDiags = {}
+   assertEq(project.check(dir, {paths = {dir .. "/src/main.nupp"},
+      stats = cold, diagnostics = coldDiags}), 0,
+      "a named file that is well typed passes though the project is not")
+   assertEq(cold.checkedModules, 2, "the named file and what it requires")
+   assertEq(#coldDiags, 0, "the loose module's error is not this question")
+
+   local warm = {}
+   assertEq(project.check(dir, {paths = {dir .. "/src/main.nupp"},
+      stats = warm, diagnostics = {}}), 0)
+   assertEq(warm.checkedModules, 0, "a second narrow check checks nothing")
+   assertEq(warm.reusedModules, 2, "and reuses what the first one recorded")
+
+   -- Naming the broken file is how you hear about it.
+   local named = {}
+   local namedDiags = {}
+   assert(project.check(dir, {paths = {dir .. "/src/loose.nupp"},
+      stats = named, diagnostics = namedDiags}) ~= 0,
+      "naming the broken module fails")
+   local errors = 0
+   for _, d in ipairs(namedDiags) do
+      if d.severity == "error" then errors = errors + 1 end
+   end
+   assert(errors > 0, "and says what is wrong with it")
+
+   -- The narrow runs recorded what they checked and left the rest of the stored
+   -- state alone, so the whole-project check that follows starts warm rather
+   -- than from nothing.
+   local whole = {}
+   assert(project.check(dir, {stats = whole, diagnostics = {}}) ~= 0,
+      "the project still has the loose module's error in it")
+   assertEq(whole.checkedModules, 0,
+      "and every module was already recorded by the narrow checks")
+   assertEq(whole.reusedModules, 3, "all three of them")
+
+   remove(dir)
+end
+
+-- A path the project does not reach is not an error, it is a different
+-- question: the caller gets it back to ask on its own terms.
+function M.checkOfNamedFilesHandsBackWhatTheProjectDoesNotReach()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   build = {outDir = "out", entries = {"main"}},
+}
+]],
+      ["src/main.nupp"] = "return 1",
+      ["src/surface.d.nupp"] = "declare function elsewhere(): integer\n",
+   })
+
+   local unchecked = {}
+   assertEq(project.check(dir, {
+      paths = {dir .. "/src/main.nupp", dir .. "/src/surface.d.nupp"},
+      unchecked = unchecked, diagnostics = {}}), 0)
+   assertEq(#unchecked, 1, "the declaration file is not a module of the walk")
+   assertEq(unchecked[1], dir .. "/src/surface.d.nupp", "and it is named back")
+
+   remove(dir)
+end
+
 -- A cache is only ever an optimization, so every way of damaging it has to
 -- land on the same answer as not having one.
 function M.checkSurvivesADamagedCache()
