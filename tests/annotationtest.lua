@@ -204,7 +204,9 @@ end
 
 function M.attachmentTargetsAreChecked()
     assertEq(diagsOf("@jit local x = 1"), "NUPP2112")
-    assertEq(diagsOf("@comptime function f() end"), "NUPP2112")
+    -- Named functions are a valid attachment target because exported helpers use
+    -- `function M.f()`. A bare global is rejected by the comptime declaration rule.
+    assertEq(diagsOf("@comptime function f() end"), "NUPP2411")
 end
 
 function M.argumentContractsAreChecked()
