@@ -102,7 +102,7 @@ local function ready()
 end
 
 local function endpoint(path)
-   return assert(_G.nupp.io.newURI("http://127.0.0.1:" .. port .. path))
+   return assert(_G.nupp.io.URI.new("http://127.0.0.1:" .. port .. path))
 end
 
 local function readAll(body, chunkSize)

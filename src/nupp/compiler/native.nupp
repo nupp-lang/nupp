@@ -36,28 +36,7 @@ local FEATURES: {
     "native.cjson"
 ] = {
     name = "cjson",
-    globals = {
-        "nupp.data.encodeJSON",
-        "nupp.data.decodeJSON",
-        "nupp.data.newJSON",
-        "nupp.data.null",
-        "nupp.data.emptyArray",
-        "nupp.data.arrayMt",
-        "nupp.data.emptyArrayMt",
-        "nupp.data.encodeEmptyTableAsObject",
-        "nupp.data.decodeArrayWithArrayMt",
-        "nupp.data.decodeAllowComment",
-        "nupp.data.encodeSparseArray",
-        "nupp.data.encodeMaxDepth",
-        "nupp.data.decodeMaxDepth",
-        "nupp.data.encodeNumberPrecision",
-        "nupp.data.encodeKeepBuffer",
-        "nupp.data.encodeInvalidNumbers",
-        "nupp.data.decodeInvalidNumbers",
-        "nupp.data.encodeEscapeForwardSlash",
-        "nupp.data.encodeSkipUnsupportedValueTypes",
-        "nupp.data.encodeIndent",
-    },
+    globals = {"nupp.data.json"},
     modules = {"cjson", "cjson.safe"},
     host = "cjson",
     binary = true,
@@ -125,12 +104,12 @@ local FEATURES: {
     "stdlib.checksums"
 ] = {
     name = "checksums",
-    globals = {"nupp.data.adler32", "nupp.data.crc32"},
+    globals = {"nupp.data.crc32"},
 }, [
     "native.path"
 ] = {
     name = "path",
-    globals = {"nupp.io.newPath", "nupp.io.currentDirectory", "nupp.io.separator"},
+    globals = {"nupp.io.Path.new", "nupp.io.Path.currentDirectory", "nupp.io.Path.separator"},
     cargo = "runtime/native/Cargo.toml",
     cargoFeature = "path",
     library = "nupp_native",
@@ -139,7 +118,7 @@ local FEATURES: {
     "native.uri"
 ] = {
     name = "uri",
-    globals = {"nupp.io.newURI", "nupp.io.validate", "nupp.io.isURI"},
+    globals = {"nupp.io.URI.new", "nupp.io.URI.validate", "nupp.io.URI.isURI"},
     cargo = "runtime/native/Cargo.toml",
     cargoFeature = "uri",
     library = "nupp_native",
@@ -243,7 +222,7 @@ function native.forGlobal(path: string): string?
 end
 
 --- Marks the prelude's exact member types with their runtime effects. The identity
---- follows aliases, so `local json = nupp.data; json.encodeJSON(...)` remains as
+--- follows aliases, so `local data = nupp.data; data.json.encodeJSON(...)` remains as
 --- precise as spelling the ambient path directly.
 function native.decorateGlobals(globals: {[string]: any}): {[any]: {[string]: string}}
     local effects = {}
@@ -271,7 +250,10 @@ function native.decorateGlobals(globals: {[string]: any}): {[any]: {[string]: st
                 local qualified = globals[table.concat(parts, ".", 1, index - 1)]
                 decorate(qualified and qualified.t, parts[index], effect)
             end
-            t = t and t.byname and t.byname[parts[index]] or nil
+            -- A static reached through the type that owns it -- `nupp.io.Path.separator`
+            -- -- steps through a nested declaration rather than a field, so the walk
+            -- asks `nestedTypes` wherever `byname` has nothing.
+            t = t and (t.byname and t.byname[parts[index]] or t.nestedTypes and t.nestedTypes[parts[index]]) or nil
         end
     end
 

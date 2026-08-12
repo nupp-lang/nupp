@@ -1511,16 +1511,29 @@ globalTypes ,
 globalTypeDefs
 )
 local schemas = {
-default = "nupp.__DefaultAnnotation" ,
-json = "nupp.__JSONAnnotation" ,
-debug = "nupp.__DebugAnnotation" ,
+default = "nupp.derive.DefaultOptions" ,
+json = "nupp.derive.JSONOptions" ,
+debug = "nupp.derive.DebugOptions" ,
 deprecated = "nupp.__DeprecatedAnnotation" ,
 }
+local function resolve ( path )
+local segments = { }
+for segment in path : gmatch ( "[^.]+" ) do
+segments [ # segments + 1 ] = segment
+end
+local schema = globalTypes and globalTypes [ segments [ 1 ] .. "." .. ( segments [ 2 ] or "" ) ]
+for index = 3 , # segments do
+schema = schema and schema . nestedTypes and schema . nestedTypes [ segments [ index ] ]
+end
+
+return schema
+end
+
 for annotationName , typeName in pairs ( schemas ) do
 local definition = registry : get ( annotationName )
-local schema = globalTypes and globalTypes [ typeName ]
+local schema = resolve ( typeName )
 if definition and schema then
-definition . declaration = globalTypeDefs and globalTypeDefs [ typeName ] or nil
+definition . declaration = schema . definition or globalTypeDefs and globalTypeDefs [ typeName ] or nil
 for name , member in pairs ( definition . members or { } ) do
 member . definition = schema . fieldDefs and schema . fieldDefs [ name ] or nil
 end
@@ -2145,7 +2158,7 @@ return associated
 
 end
 package.preload["nupp.compiler.build.cache"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end;
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -2174,6 +2187,7 @@ local readFile , writeFile = fs . readFile , fs . writeFile
 local listFiles = fs . listFiles
 
 local cache = { }
+
 
 
 
@@ -2425,7 +2439,7 @@ return cache
 
 end
 package.preload["nupp.compiler.build.deps"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end;
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -6254,7 +6268,7 @@ return process
 
 end
 package.preload["nupp.compiler.build.project"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end;
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -7305,7 +7319,7 @@ return store
 
 end
 package.preload["nupp.compiler.build.tasks"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end;
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -19010,21 +19024,26 @@ end
 package.preload["nupp.compiler.check.derive"] = function(...)
 local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
-
 local T = require ( "nupp.compiler.types" )
 local cst = require ( "nupp.compiler.cst" )
 local relations = require ( "nupp.compiler.relations" )
 local generics = require ( "nupp.compiler.generics" )
 local hash = require ( "nupp.compiler.build.hash" )
-local planCodec = require ( "nupp.compiler.derive_plan" )
+local recipeCodec = require ( "nupp.compiler.materialize.codec" )
 local reflection = require ( "nupp.compiler.reflection" )
 local comptime = require ( "nupp.compiler.comptime" )
+
+
 local state = require ( "nupp.compiler.check.state" )
 
 local derive = { }
 
-local PROVIDERS = { Debug = true , Default = true , From = true , JSON = true }
-local PROVIDER_ABI = { Debug = 1 , Default = 1 , From = 1 , JSON = 1 }
+local INTERNAL_PROVIDERS = {
+[ "nupp.derive.Debug" ] = { name = "Debug" , operation = "debug.v1" , contract = "nupp.Debug" } ,
+[ "nupp.derive.Default" ] = { name = "Default" , operation = "default.v1" } ,
+[ "nupp.derive.From" ] = { name = "From" , operation = "from.v1" } ,
+[ "nupp.derive.JSON" ] = { name = "JSON" , operation = "json.v1" , contract = "nupp.data.json.JSONEncodable" } ,
+}
 local HELPER_ABI = { debug = 1 , default = 1 , from = 1 , json = 1 }
 local NUMERIC = {
 number = true ,
@@ -19047,11 +19066,11 @@ uint16 = { 0 , 65535 } ,
 uint32 = { 0 , 4294967295 } ,
 integer = { - 9007199254740991 , 9007199254740991 } ,
 }
-local MAX_FIELDS , MAX_PLAN_NODES = 2048 , 16384
+local MAX_FIELDS , MAX_RECIPE_NODES = 2048 , 16384
 local MAX_GENERATED_MEMBERS = 6
 
 derive . MAX_FIELDS = MAX_FIELDS
-derive . MAX_PLAN_NODES = MAX_PLAN_NODES
+derive . MAX_RECIPE_NODES = MAX_RECIPE_NODES
 derive . MAX_GENERATED_MEMBERS = MAX_GENERATED_MEMBERS
 
 derive.Ops = {} derive.Ops.__index = derive.Ops
@@ -19059,21 +19078,6 @@ derive.Ops = {} derive.Ops.__index = derive.Ops
 
 
 
-
-local function argumentName ( arg )
-local expr = arg and arg . expr
-if not expr then
-return nil
-end
-if expr . kind == "name" then
-return expr . token and expr . token . text or nil
-elseif expr . kind == "string" then
-local text = expr . token and expr . token . text or ""
-return # text >= 2 and text : sub ( 2 , - 2 ) or nil
-end
-
-return nil
-end
 
 local function constant ( expr )
 if not expr then
@@ -19192,7 +19196,7 @@ c . result . deriveObservations = nil
 c . result . deriveInterface = nil
 local pending = { }
 local ops = setmetatable({ }, derive.Ops)
-local planNodes , planLimitAt , planLimitReported = 0 , nil , false
+local recipeNodes , recipeLimitAt , recipeLimitReported = 0 , nil , false
 local currentItem = nil
 local keyOccurrences = { }
 local aborted , abortReason = false , nil
@@ -19200,9 +19204,9 @@ local budget = c . opts and c . opts . deriveBudget or nil
 local budgetReported = false
 local configuredLimits = c . opts and c . opts . deriveLimits or { }
 local maxFields = configuredLimits . fields or MAX_FIELDS
-local maxPlanNodes = configuredLimits . nodes or MAX_PLAN_NODES
-local maxCanonicalBytes = configuredLimits . canonicalBytes or planCodec . MAX_CANONICAL_BYTES
-local maxOutputBytes = configuredLimits . outputBytes or planCodec . MAX_OUTPUT_BYTES
+local maxRecipeNodes = configuredLimits . nodes or MAX_RECIPE_NODES
+local maxCanonicalBytes = configuredLimits . canonicalBytes or recipeCodec . MAX_CANONICAL_BYTES
+local maxOutputBytes = configuredLimits . outputBytes or recipeCodec . MAX_OUTPUT_BYTES
 local providerMemo = { }
 local addDefinition
 
@@ -19222,10 +19226,50 @@ end
 return nil
 end
 
+local function namedType ( path )
+local segments = { }
+for segment in path : gmatch ( "[^.]+" ) do
+segments [ # segments + 1 ] = segment
+end
+local contract = c . env and c . env . globalTypes and c . env . globalTypes [ segments [ 1 ] .. "." .. ( segments [ 2 ] or "" ) ]
+for index = 3 , # segments do
+contract = contract and contract . tag == "nominal" and contract . nestedTypes and contract . nestedTypes [
+segments [ index ]
+]
+end
+
+return contract
+end
+
+local function internalProvider ( path , specification )
+local entry = "__nuppInternalDerive"
+local identity = hash . sha256 ( "nupp.derive.internal-provider\0v1\0" .. path )
+local source = ( "local function %s(info) return nupp.derive.internal(info) end" ) : format ( entry )
+local contract = specification . contract and namedType ( specification . contract ) or nil
+
+return {
+sealedTypeFunction = true ,
+deriveProvider = true ,
+deriveInterface = contract ,
+deriveInterfaceIdentity = contract and contract . id or nil ,
+identity = identity ,
+main = entry ,
+serializedHelpers = { [ entry ] = { source = source , line = 1 , column = 1 } , } ,
+runtimeHelpers = { } ,
+providerModule = "nupp.derive" ,
+internalOperation = specification . operation ,
+internalName = specification . name ,
+}
+end
+
 local function resolveProvider ( arg )
 local path = expressionPath ( arg and arg . expr )
 if not path or not path : find ( "." , 1 , true ) then
 return nil
+end
+local builtIn = INTERNAL_PROVIDERS [ path ]
+if builtIn then
+return internalProvider ( path , builtIn ) , "nupp.derive" , path
 end
 local parts = { }
 for part in path : gmatch ( "[^.]+" ) do
@@ -19265,8 +19309,6 @@ seen [ super ] = true
 end
 for _ , application in ipairs ( stat . deriveApplications or { } ) do
 for _ , arg in ipairs ( application . annotationArgs or { } ) do
-local builtin = argumentName ( arg )
-if not ( builtin and PROVIDERS [ builtin ] ) then
 local provider , _ , spelling = resolveProvider ( arg )
 if not provider then
 c . diag (
@@ -19288,8 +19330,9 @@ if contract then
 local base = spelling and spelling : match ( "^(.*)%.[^.]+$" ) or nil
 stat . deriveInterfaceRuntimeNames [
 contract
-] = base and ( base .. "." .. contract . name ) or contract . name
-end
+] = provider . internalOperation and contract . name or (
+base and ( base .. "." .. contract . name ) or contract . name
+)
 end
 end
 end
@@ -19312,9 +19355,9 @@ budgetReported = true
 c . diag (
 "NUPP2808" ,
 at ,
-"derive planning exhausted its cooperative work budget" ,
+"derive recipe construction exhausted its cooperative work budget" ,
 nil ,
-{ help = "split the declaration or increase the compiler-owned derive budget" }
+{ help = "split the declaration or increase the derive recipe budget" }
 )
 end
 return false
@@ -19329,16 +19372,16 @@ local function takePlanNode ( at )
 if not probe ( at ) then
 return false
 end
-planNodes = planNodes + 1
-if planNodes <= maxPlanNodes then
+recipeNodes = recipeNodes + 1
+if recipeNodes <= maxRecipeNodes then
 return true
 end
-if not planLimitReported then
-planLimitReported = true
+if not recipeLimitReported then
+recipeLimitReported = true
 c . diag (
 "NUPP2808" ,
-at or planLimitAt ,
-( "derive plan exceeds %d semantic nodes" ) : format ( maxPlanNodes ) ,
+at or recipeLimitAt ,
+( "derive recipe exceeds %d semantic nodes" ) : format ( maxRecipeNodes ) ,
 nil ,
 { help = "split the record or replace part of the derive with a written implementation" }
 )
@@ -19464,7 +19507,7 @@ ownerIdentity = input . ownerIdentity ,
 annotations = input . annotations ,
 hasConstructor = input . hasConstructor ,
 owner = input . ownerType . descriptor . fingerprint ,
-interface = input . interfaceType . descriptor . fingerprint ,
+interface = input . interfaceType and input . interfaceType . descriptor . fingerprint or "none" ,
 fields = { } ,
 }
 for index , field in ipairs ( input . fields ) do
@@ -19483,7 +19526,7 @@ for claimIndex , claim in ipairs ( field . claims or { } ) do
 fingerprintInput . fields [ index ] . claims [ claimIndex ] = claim . descriptor . fingerprint
 end
 end
-input . fingerprint = hash . sha256 ( assert ( planCodec . canonical ( fingerprintInput ) ) )
+input . fingerprint = hash . sha256 ( assert ( recipeCodec . canonical ( fingerprintInput ) ) )
 local helperKeys , helperFingerprints = { } , { }
 for key in pairs ( provider . sealed . runtimeHelpers or { } ) do
 helperKeys [ # helperKeys + 1 ] = key
@@ -19511,8 +19554,8 @@ cached
 ) == "table" and cached . provider == "derive" and cached . schema == 1 and (
 cached . family == "Result" or cached . family == "Error"
 ) then
-local canonical = planCodec . canonical ( cached . payload )
-local prefix = cached . family == "Result" and "nupp.derive.result\0v1\0" or "nupp.derive.error\0v1\0"
+local canonical = recipeCodec . canonical ( cached . payload )
+local prefix = cached . family == "Result" and "nupp.derive.result\0v2\0" or "nupp.derive.error\0v1\0"
 if canonical and cached . fingerprint == hash . sha256 (
 prefix .. canonical
 )
@@ -19536,7 +19579,8 @@ input ,
 provider . sealed . runtimeHelpers or { } ,
 provider . sealed . providerModule ,
 executable ,
-c . env and c . env . comptimeHost or nil
+c . env and c . env . comptimeHost or nil ,
+provider . internalOperation
 )
 else
 envelope , evaluationFailure = comptime . evaluateDeriveProviderDirect (
@@ -19544,7 +19588,8 @@ provider . sealed ,
 input ,
 c . comptimeFunctions ,
 provider . sealed . runtimeHelpers or { } ,
-provider . sealed . providerModule
+provider . sealed . providerModule ,
+provider . internalOperation
 )
 end
 if envelope then
@@ -19589,7 +19634,7 @@ end
 if envelope . family ~= "Result"
 or envelope . schema ~= 1
 or not envelope . payload
-or envelope . payload . version ~= "nupp.derive.result.v1"
+or envelope . payload . version ~= "nupp.derive.result.v2"
 or envelope . payload . requestFingerprint ~= input . fingerprint
 or envelope . payload . providerIdentity ~= provider . identity
 or envelope . payload . ownerIdentity ~= n . deriveKey
@@ -19601,8 +19646,24 @@ provider . site . arg . expr or provider . site . arg ,
 )
 return
 end
-plan . forwarding = plan . forwarding or { }
-local diagnosticCount , addedMethods = # c . diags , { }
+if provider . internalOperation then
+local operations = envelope . payload . operations or { }
+if # operations ~= 1 or operations [ 1 ] . kind ~= provider . internalOperation then
+c . diag (
+"NUPP2810" ,
+provider . site . arg . expr or provider . site . arg ,
+"internal provider returned the wrong recipe"
+)
+return
+end
+plan . operations = plan . operations or { }
+plan . operations [ provider . internalOperation ] = true
+plan . providerABI [ provider . label ] = 1
+local helper = provider . internalName : lower ( )
+plan . helperABI [ helper ] = HELPER_ABI [ helper ]
+return
+end
+local diagnosticCount , addedMembers = # c . diags , { }
 local existingMembers , requestedMembers = 0 , 0
 for _ in pairs ( n . derivedDefinitions or { } ) do
 existingMembers = existingMembers + 1
@@ -19611,6 +19672,9 @@ for _ in pairs ( n . derivedStaticDefinitions or { } ) do
 existingMembers = existingMembers + 1
 end
 for _ in pairs ( envelope . payload . methods or { } ) do
+requestedMembers = requestedMembers + 1
+end
+for _ in pairs ( envelope . payload . statics or { } ) do
 requestedMembers = requestedMembers + 1
 end
 if existingMembers + requestedMembers > MAX_GENERATED_MEMBERS then
@@ -19623,38 +19687,47 @@ provider . site . arg . expr or provider . site . arg ,
 )
 return
 end
-for methodName , recipe in pairs ( envelope . payload . methods or { } ) do
-local requirement = contract . byname and contract . byname [ methodName ] or nil
+local function validateForwards ( recipes , isStatic )
+local requirements = isStatic and contract . staticByname or contract . byname
+local generated = isStatic and n . derivedStaticDefinitions or n . derivedDefinitions
+local written = isStatic and n . staticFieldDefs or n . fieldDefs
+local namespace = isStatic and "static" or "method"
+for methodName , recipe in pairs ( recipes or { } ) do
+local requirement = requirements and requirements [ methodName ] or nil
 if not requirement or requirement . tag ~= "func" then
 c . diag (
 "NUPP2811" ,
 provider . site . arg . expr or provider . site . arg ,
-( "%s is not a bodyless callable requirement of %s" ) : format ( methodName , contract . name )
+(
+"%s is not a bodyless callable %s requirement of %s"
+) : format ( methodName , namespace , contract . name )
 )
-elseif contract . defaults and contract . defaults [ methodName ] then
+elseif not isStatic and contract . defaults and contract . defaults [ methodName ] then
 c . diag (
 "NUPP2811" ,
 provider . site . arg . expr or provider . site . arg ,
 "a derive cannot replace an interface default"
 )
-elseif contract . overloadedMethods and contract . overloadedMethods [ methodName ] then
+elseif (
+not isStatic and contract . overloadedMethods and contract . overloadedMethods [ methodName ]
+) or requirement . tag == "intersection" then
 c . diag (
 "NUPP2811" ,
 provider . site . arg . expr or provider . site . arg ,
 "forward.v1 cannot select an overloaded requirement"
 )
-elseif n . derivedDefinitions and n . derivedDefinitions [ methodName ] then
+elseif generated and generated [ methodName ] then
 c . diag (
 "NUPP2802" ,
 provider . site . arg . expr or provider . site . arg ,
 (
 "derive providers %s and %s both generate %s"
-) : format ( tostring ( n . derivedDefinitions [ methodName ] . generatedBy ) , provider . label , methodName )
+) : format ( tostring ( generated [ methodName ] . generatedBy ) , provider . label , methodName )
 )
-elseif n . fieldDefs and n . fieldDefs [ methodName ] then
+elseif written and written [ methodName ] and not written [ methodName ] . generatedBy then
 c . diag (
 "NUPP2802" ,
-n . fieldDefs [ methodName ] . token or item . stat ,
+written [ methodName ] . token or item . stat ,
 "a derive cannot replace a written member"
 )
 else
@@ -19662,12 +19735,21 @@ local callable = generics . specializeSelf ( contract , requirement , n )
 local argumentTypes , valid = { } , true
 local parameterTypes = { }
 for index , parameterName in ipairs ( callable . paramNames or { } ) do
-if index > 1 and parameterName ~= "" then
+if index > ( isStatic and 0 or 1 ) and parameterName ~= "" then
 parameterTypes [ parameterName ] = callable . params [ index ]
 end
 end
 local function argumentType ( argument )
 if argument . kind == "receiver" then
+if isStatic then
+c . diag (
+"NUPP2812" ,
+provider . site . arg . expr or provider . site . arg ,
+"a static recipe has no receiver"
+)
+valid = false
+return T . unknown
+end
 return n
 elseif argument . kind == "argument" then
 local found = parameterTypes [ argument . name ]
@@ -19750,7 +19832,11 @@ c . diag (
 provider . site . arg . expr or provider . site . arg ,
 (
 "forwarded argument %d does not fit helper parameter %s%s"
-) : format ( index , T . tostring ( helperType . params [ index ] ) , why and ( ": " .. why ) or "" )
+) : format (
+index ,
+T . tostring ( helperType . params [ index ] ) ,
+why and ( ": " .. why ) or ""
+)
 )
 valid = false
 end
@@ -19783,9 +19869,9 @@ n ,
 methodName ,
 callable ,
 provider . site . arg . expr or provider . site . arg ,
-"method" ,
+isStatic and "function" or "method" ,
 providerName ,
-false ,
+isStatic ,
 nil ,
 true
 ) then
@@ -19796,10 +19882,24 @@ recipe . paramNames = callable . paramNames
 if recipe . helper . module == c . result . moduleName and c . moduleLocal then
 recipe . helper . localPath = c . moduleLocal .. "." .. recipe . helper . member
 end
-plan . forwarding [ methodName ] = recipe
-addedMethods [ # addedMethods + 1 ] = methodName
+local generatedMember = {
+name = methodName ,
+namespace = isStatic and "static" or "instance" ,
+operation = "forward.v1" ,
+helper = recipe . helper ,
+arguments = recipe . arguments ,
+paramNames = recipe . paramNames ,
+provider = recipe . provider ,
+interface = recipe . interface ,
+signature = recipe . signature ,
+}
+plan . members [ # plan . members + 1 ] = generatedMember
+addedMembers [
+# addedMembers + 1
+] = { name = methodName , static = isStatic , member = generatedMember }
 plan . helperABI [ recipe . helper . module .. "." .. recipe . helper . member ] = 1
-local definition = n . derivedDefinitions and n . derivedDefinitions [ methodName ]
+local definitions = isStatic and n . derivedStaticDefinitions or n . derivedDefinitions
+local definition = definitions and definitions [ methodName ]
 if definition then
 definition . generatedInterface = contract . name
 definition . generatedInterfaceDefinition = contract . definition
@@ -19810,22 +19910,35 @@ end
 end
 end
 end
+end
+
+validateForwards ( envelope . payload . methods , false )
+validateForwards ( envelope . payload . statics , true )
 if # c . diags > diagnosticCount then
-for _ , methodName in ipairs ( addedMethods ) do
-local inherited = contract . byname and contract . byname [ methodName ] or nil
+for _ , added in ipairs ( addedMembers ) do
+local methodName , isStatic = added . name , added . static
+local requirements = isStatic and contract . staticByname or contract . byname
+local inherited = requirements and requirements [ methodName ] or nil
 inherited = inherited and generics . specializeSelf ( contract , inherited , n ) or nil
-n . byname [ methodName ] = inherited
-n . writeByname [ methodName ] = inherited
-n . derivedByname [ methodName ] = nil
-n . derivedDefinitions [ methodName ] = nil
-n . fieldDefs [ methodName ] = nil
-n . writeFieldDefs [ methodName ] = nil
-plan . forwarding [ methodName ] = nil
+local reads = isStatic and n . staticByname or n . byname
+local writes = isStatic and n . staticWriteByname or n . writeByname
+local derived = isStatic and n . derivedStaticByname or n . derivedByname
+local definitions = isStatic and n . derivedStaticDefinitions or n . derivedDefinitions
+local fieldDefs = isStatic and n . staticFieldDefs or n . fieldDefs
+local writeFieldDefs = isStatic and n . staticWriteFieldDefs or n . writeFieldDefs
+reads [ methodName ] , writes [ methodName ] = inherited , inherited
+derived [ methodName ] , definitions [ methodName ] = nil , nil
+fieldDefs [ methodName ] , writeFieldDefs [ methodName ] = nil , nil
+for index = # plan . members , 1 , - 1 do
+if plan . members [ index ] == added . member then
+table . remove ( plan . members , index )
+break
+end
+end
 end
 relations . invalidate ( )
 return
 end
-plan . providers [ provider . label ] = true
 plan . providerABI [ provider . label ] = 1
 end
 
@@ -20008,8 +20121,8 @@ end
 local function abortAll ( )
 for _ , item in ipairs ( pending ) do
 clearGeneratedMembers ( item . nominal )
-item . nominal . derivePlan = nil
-item . stat . derivePlan = nil
+item . nominal . deriveRecipe = nil
+item . stat . deriveRecipe = nil
 end
 local symbols = { }
 for _ , definition in ipairs ( c . result . symbols or { } ) do
@@ -20043,45 +20156,46 @@ if # applications == 0 then
 return
 end
 clearGeneratedMembers ( n )
-local requested , origins , order , providerSites = { } , { } , { } , { }
-local customProviders , customIdentities = { } , { }
+local requested , origins , order , providerSites , providerLabels = { } , { } , { } , { } , { }
+local providers , providerIdentities = { } , { }
 for _ , application in ipairs ( applications ) do
 for _ , arg in ipairs ( application . annotationArgs or { } ) do
-local name = argumentName ( arg )
-local at = arg . expr and ( arg . expr . token or arg . expr ) or arg
-local custom = arg . deriveProvider
-local customIdentity = custom and custom . identity or nil
-if custom and customIdentities [ customIdentity ] then
-c . diag ( "NUPP2801" , at , "the same derive provider was requested twice" )
-elseif custom then
-customIdentities [ customIdentity ] = true
-local label = arg . deriveProviderSpelling or customIdentity
+local at = arg . expr and ( arg . expr . token or cst . firstToken ( arg . expr ) or arg . expr ) or arg
+local provider = arg . deriveProvider
+if not provider then
+local resolved , _ , spelling = resolveProvider ( arg )
+provider = resolved
+arg . deriveProvider = resolved
+arg . deriveProviderSpelling = spelling
+end
+local providerIdentity = provider and provider . identity or nil
+if provider and providerIdentities [ providerIdentity ] then
+local label = arg . deriveProviderSpelling or providerIdentity
+local remove = removeProviderFix ( application , arg , label , true )
+c . diag ( "NUPP2801" , at , "the same derive provider was requested twice" , remove and { remove } or nil )
+elseif provider then
+providerIdentities [ providerIdentity ] = true
+local label = arg . deriveProviderSpelling or providerIdentity
 origins [ label ] = at
 providerSites [ label ] = { application = application , arg = arg }
 order [ # order + 1 ] = label
-customProviders [
-# customProviders + 1
+if provider . internalName then
+requested [ provider . internalName ] = true
+origins [ provider . internalName ] = at
+providerSites [ provider . internalName ] = providerSites [ label ]
+providerLabels [ provider . internalName ] = label
+end
+providers [
+# providers + 1
 ] = {
-identity = customIdentity ,
+identity = providerIdentity ,
 label = label ,
-sealed = custom ,
-contract = custom . deriveInterface ,
+sealed = provider ,
+contract = provider . deriveInterface ,
+internalName = provider . internalName ,
+internalOperation = provider . internalOperation ,
 site = providerSites [ label ] ,
 }
-elseif name and not PROVIDERS [ name ] then
-c . diag ( "NUPP2801" , at , ( "unknown derive provider %q" ) : format ( name ) )
-elseif name and requested [ name ] then
-local remove = removeProviderFix ( application , arg , name , true )
-c . diag (
-"NUPP2801" ,
-at ,
-( "derive provider %q was requested twice" ) : format ( name ) ,
-remove and { remove } or nil
-)
-elseif name then
-requested [ name ] , origins [ name ] = true , at
-providerSites [ name ] = { application = application , arg = arg }
-order [ # order + 1 ] = name
 end
 end
 end
@@ -20098,7 +20212,12 @@ if requested . JSON then
 stat . compilerFeatureEffects [ # stat . compilerFeatureEffects + 1 ] = "native.cjson"
 end
 
-n . deriveProviders = requested
+n . deriveOperations = {
+[ "debug.v1" ] = requested . Debug and true or nil ,
+[ "default.v1" ] = requested . Default and true or nil ,
+[ "from.v1" ] = requested . From and true or nil ,
+[ "json.v1" ] = requested . JSON and true or nil ,
+}
 local moduleIdentity = c . result . moduleName or "<chunk>"
 local declarationIdentity = n . runtimePath or n . name
 local keyBase = moduleIdentity .. ":" .. declarationIdentity
@@ -20111,15 +20230,23 @@ requested = requested ,
 origins = origins ,
 order = order ,
 providerSites = providerSites ,
-customProviders = customProviders ,
+providerLabels = providerLabels ,
+providers = providers ,
 startedAt = os . clock ( ) ,
 }
-table . sort ( customProviders , function ( left , right )
+table . sort ( providers , function ( left , right )
 return left . identity < right . identity
 end )
 item . ownerDescriptor = reflection . describe ( n , nil , true )
 item . ownerDescriptor . sources = nil
 pending [ # pending + 1 ] = item
+
+local writtenMembers = { }
+for _ , entry in ipairs ( stat . entries or { } ) do
+if ( entry . kind == "fieldDecl" or entry . kind == "inlineMethod" ) and entry . name then
+writtenMembers [ entry . name . text ] = true
+end
+end
 
 if requested . Debug then
 if addDefinition (
@@ -20128,9 +20255,10 @@ n ,
 T . func ( { n } , { T . string } ) ,
 origin ( item , "Debug" ) ,
 "method" ,
-"Debug" ,
+providerLabels . Debug ,
 false ,
-providerSites . Debug
+providerSites . Debug ,
+not writtenMembers . debug
 ) then
 addContract ( n , "nupp.Debug" )
 end
@@ -20142,7 +20270,7 @@ n ,
 T . func ( { } , { n } ) ,
 origin ( item , "Default" ) ,
 "function" ,
-"Default" ,
+providerLabels . Default ,
 true ,
 providerSites . Default
 )
@@ -20156,7 +20284,7 @@ n ,
 T . func ( { source } , { n } ) ,
 origin ( item , "From" ) ,
 "function" ,
-"From" ,
+providerLabels . From ,
 true ,
 providerSites . From
 )
@@ -20168,11 +20296,12 @@ n ,
 T . func ( { n } , { T . string } ) ,
 origin ( item , "JSON" ) ,
 "method" ,
-"JSON" ,
+providerLabels . JSON ,
 false ,
-providerSites . JSON
+providerSites . JSON ,
+not writtenMembers . toJSON
 ) then
-addContract ( n , "nupp.data.JSONEncodable" )
+addContract ( n , "nupp.data.json.JSONEncodable" )
 end
 addDefinition (
 n ,
@@ -20180,7 +20309,7 @@ n ,
 T . func ( { T . string } , { T . union ( { n , T . nil_ } ) , T . union ( { T . string , T . nil_ } ) } ) ,
 origin ( item , "JSON" ) ,
 "function" ,
-"JSON" ,
+providerLabels . JSON ,
 true ,
 providerSites . JSON
 )
@@ -20195,7 +20324,7 @@ n ,
 T . func ( { } , { codecType } ) ,
 origin ( item , "JSON" ) ,
 "function" ,
-"JSON" ,
+providerLabels . JSON ,
 true ,
 providerSites . JSON
 )
@@ -20235,7 +20364,7 @@ return { kind = "shape" , fields = shapeFields ( t , function ( member )
 return debugSpec ( member , at , active )
 end ) }
 elseif t . tag == "nominal" and t . declKind == "record" then
-if t . deriveProviders and t . deriveProviders . Debug and t . deriveKey then
+if t . deriveOperations and t . deriveOperations [ "debug.v1" ] and t . deriveKey then
 return { kind = "record" , typeKey = t . deriveKey }
 end
 if t . byname and t . byname . debug then
@@ -20291,12 +20420,9 @@ return defaultSpec ( member , at )
 end )
 return fields and { kind = "shape" , fields = fields } or nil
 end
-if t . tag == "nominal"
-and t . declKind == "record"
-and t . deriveProviders
-and t . deriveProviders . Default
-and t . deriveKey
-then
+if t . tag == "nominal" and t . declKind == "record" and t . deriveOperations and t . deriveOperations [
+"default.v1"
+] and t . deriveKey then
 return { kind = "record" , typeKey = t . deriveKey }
 end
 c . diag (
@@ -20374,7 +20500,9 @@ fieldName
 ] or nil
 if not tagType or tagType . tag ~= "literal" or seen [
 tagType . constant
-] or not ( member . deriveProviders and member . deriveProviders . JSON and member . deriveKey ) then
+] or not (
+member . deriveOperations and member . deriveOperations [ "json.v1" ] and member . deriveKey
+) then
 valid = false
 break
 end
@@ -20403,12 +20531,9 @@ if currentItem then
 currentItem . jsonFailed = true
 end
 return nil
-elseif t . tag == "nominal"
-and t . declKind == "record"
-and t . deriveProviders
-and t . deriveProviders . JSON
-and t . deriveKey
-then
+elseif t . tag == "nominal" and t . declKind == "record" and t . deriveOperations and t . deriveOperations [
+"json.v1"
+] and t . deriveKey then
 return { kind = "record" , typeKey = t . deriveKey }
 end
 c . diag ( "NUPP2806" , at , ( "type %s is not supported by JSON" ) : format ( T . tostring ( t ) ) )
@@ -20426,7 +20551,7 @@ return
 end
 local byKey = { }
 local function serializationProbe ( )
-return probe ( planLimitAt )
+return probe ( recipeLimitAt )
 end
 
 for _ , requested in ipairs ( pending ) do
@@ -20440,32 +20565,35 @@ return
 end
 local stat , n = item . stat , item . nominal
 currentItem = item
-planNodes , planLimitAt , planLimitReported = 0 , origin ( item , item . order [ 1 ] ) , false
+recipeNodes , recipeLimitAt , recipeLimitReported = 0 , origin ( item , item . order [ 1 ] ) , false
 local nodes = fieldNodes ( stat )
 item . fieldNodes = nodes
 local plan = {
 key = n . deriveKey ,
 name = n . name ,
-providers = { } ,
 providerABI = { } ,
 helperABI = { } ,
 fields = { } ,
+members = { } ,
 }
+if item . requested . Debug then
+plan . members [ # plan . members + 1 ] = { name = "debug" , namespace = "instance" , operation = "debug.v1" }
+end
+if item . requested . Default then
+plan . members [ # plan . members + 1 ] = { name = "default" , namespace = "static" , operation = "default.v1" }
+end
+if item . requested . JSON then
+plan . members [ # plan . members + 1 ] = { name = "toJSON" , namespace = "instance" , operation = "json.v1" }
+plan . members [ # plan . members + 1 ] = { name = "fromJSON" , namespace = "static" , operation = "json.v1" }
+plan . members [ # plan . members + 1 ] = { name = "fieldCodec" , namespace = "static" , operation = "json.v1" }
+end
 if # ( n . fieldOrder or { } ) > maxFields then
 c . diag (
 "NUPP2808" ,
-planLimitAt ,
+recipeLimitAt ,
 ( "derive target has %d fields; the limit is %d" ) : format ( # n . fieldOrder , maxFields )
 )
 end
-for _ , provider in ipairs ( item . order ) do
-if PROVIDERS [ provider ] then
-plan . providers [ provider ] = true
-plan . providerABI [ provider ] = PROVIDER_ABI [ provider ]
-plan . helperABI [ provider : lower ( ) ] = HELPER_ABI [ provider : lower ( ) ]
-end
-end
-
 if item . requested . From then
 if # ( n . fieldOrder or { } ) ~= 1 or # ( n . constructorEntries or { } ) > 0 then
 c . diag (
@@ -20483,6 +20611,9 @@ nodes [ plan . fromField ] or stat ,
 "From does not infer an ownership transfer policy"
 )
 plan . fromField = nil
+end
+if plan . fromField then
+plan . members [ # plan . members + 1 ] = { name = "from" , namespace = "static" , operation = "from.v1" }
 end
 end
 end
@@ -20602,7 +20733,7 @@ end
 end
 end
 if # ( n . fieldOrder or { } ) <= maxFields then
-for _ , provider in ipairs ( item . customProviders or { } ) do
+for _ , provider in ipairs ( item . providers or { } ) do
 if not probe ( provider . site . arg . expr or provider . site . arg ) then
 abortAll ( )
 return
@@ -20610,7 +20741,7 @@ end
 evaluateProvider ( item , provider , plan , nodes )
 end
 end
-local canonical , canonicalError = planCodec . canonicalRoot (
+local canonical , canonicalError = recipeCodec . canonicalRoot (
 plan ,
 { limit = maxCanonicalBytes , probe = serializationProbe , }
 )
@@ -20618,8 +20749,8 @@ if not canonical then
 if canonicalError == "limit" then
 c . diag (
 "NUPP2808" ,
-planLimitAt ,
-( "derive plan exceeds %d canonical bytes" ) : format ( maxCanonicalBytes )
+recipeLimitAt ,
+( "derive recipe exceeds %d canonical bytes" ) : format ( maxCanonicalBytes )
 )
 aborted , abortReason = true , "limit"
 end
@@ -20628,13 +20759,16 @@ return
 end
 item . canonicalBytes = # canonical
 plan . fingerprint = hash . sha256 ( "nupp.derive\0v2\0" .. canonical )
-local rendered , renderError = planCodec . render ( plan , { limit = maxOutputBytes , probe = serializationProbe , } )
+local rendered , renderError = recipeCodec . render (
+plan ,
+{ limit = maxOutputBytes , probe = serializationProbe , }
+)
 if not rendered then
 if renderError == "limit" then
 c . diag (
 "NUPP2808" ,
-planLimitAt ,
-( "derive output plan exceeds %d rendered bytes" ) : format ( maxOutputBytes )
+recipeLimitAt ,
+( "derive output recipe exceeds %d rendered bytes" ) : format ( maxOutputBytes )
 )
 aborted , abortReason = true , "limit"
 end
@@ -20642,17 +20776,17 @@ abortAll ( )
 return
 end
 item . renderedBytes = # rendered
-if c . env and c . env . internDerivePlan then
-plan , item . planCached = c . env . internDerivePlan ( c . env , plan )
+if c . env and c . env . internDeriveRecipe then
+plan , item . recipeCached = c . env . internDeriveRecipe ( c . env , plan )
 end
-stat . derivePlan = plan
-n . derivePlan = plan
+stat . deriveRecipe = plan
+n . deriveRecipe = plan
 for _ , definition in pairs ( n . derivedDefinitions or { } ) do
-definition . generatedPlanFingerprint = plan . fingerprint
+definition . generatedRecipeFingerprint = plan . fingerprint
 definition . generatedContributingFields = nodes
 end
 for _ , definition in pairs ( n . derivedStaticDefinitions or { } ) do
-definition . generatedPlanFingerprint = plan . fingerprint
+definition . generatedRecipeFingerprint = plan . fingerprint
 definition . generatedContributingFields = nodes
 end
 end
@@ -20683,7 +20817,7 @@ end
 visiting [ key ] = true
 path [ # path + 1 ] = item . nominal . name
 local ok = true
-for _ , field in ipairs ( item . nominal . derivePlan and item . nominal . derivePlan . fields or { } ) do
+for _ , field in ipairs ( item . nominal . deriveRecipe and item . nominal . deriveRecipe . fields or { } ) do
 local spec = field . default
 if spec and spec . kind == "record" then
 local dependency = byKey [ spec . typeKey ]
@@ -20747,7 +20881,7 @@ abortAll ( )
 return
 end
 item . dependencyFailures = item . dependencyFailures or { }
-for _ , field in ipairs ( item . nominal . derivePlan and item . nominal . derivePlan . fields or { } ) do
+for _ , field in ipairs ( item . nominal . deriveRecipe and item . nominal . deriveRecipe . fields or { } ) do
 local node = item . fieldNodes and item . fieldNodes [ field . name ] or item . stat
 if item . requested . Default and field . default and field . default . kind == "record" then
 local dependency = byKey [ field . default . typeKey ]
@@ -20842,7 +20976,7 @@ contracts [ # contracts + 1 ] = T . tostring ( contract )
 end
 table . sort ( contracts )
 local dependencies = { }
-for _ , field in ipairs ( n . derivePlan and n . derivePlan . fields or { } ) do
+for _ , field in ipairs ( n . deriveRecipe and n . deriveRecipe . fields or { } ) do
 recordDependencies ( field . default , dependencies )
 recordDependencies ( field . debugType , dependencies )
 recordDependencies ( field . jsonType , dependencies )
@@ -20852,12 +20986,12 @@ interface [
 # interface + 1
 ] = {
 identity = n . deriveKey ,
-providers = n . derivePlan and n . derivePlan . providerABI or { } ,
-helpers = n . derivePlan and n . derivePlan . helperABI or { } ,
+providers = n . deriveRecipe and n . deriveRecipe . providerABI or { } ,
+helpers = n . deriveRecipe and n . deriveRecipe . helperABI or { } ,
 members = members ,
 contracts = contracts ,
 effects = item . requested . JSON and { "native.cjson" , "stdlib.derives" } or { "stdlib.derives" } ,
-behavior = n . derivePlan and n . derivePlan . fingerprint or nil ,
+behavior = n . deriveRecipe and n . deriveRecipe . fingerprint or nil ,
 dependencies = dependencies ,
 }
 end
@@ -20865,7 +20999,7 @@ table . sort ( interface , function ( a , b )
 return a . identity < b . identity
 end )
 c . result . deriveInterface = interface
-local interfaceBytes = planCodec . canonical ( interface )
+local interfaceBytes = recipeCodec . canonical ( interface )
 c . moduleExports . deriveInterfaceFingerprint = # interface > 0 and hash . sha256 (
 "nupp.derive.interface\0v1\0" .. assert ( interfaceBytes )
 ) or nil
@@ -20900,12 +21034,12 @@ end
 end
 observations [
 # observations + 1
-] = { provider = provider , owner = item . nominal . name , semanticFingerprint = item . nominal . derivePlan and item . nominal . derivePlan . fingerprint or nil , generatedMembers = providerMembers , canonicalBytes = item . canonicalBytes or 0 , renderedBytes = item . renderedBytes or 0 , effects = provider == "JSON" and {
+] = { provider = provider , owner = item . nominal . name , semanticFingerprint = item . nominal . deriveRecipe and item . nominal . deriveRecipe . fingerprint or nil , generatedMembers = providerMembers , canonicalBytes = item . canonicalBytes or 0 , renderedBytes = item . renderedBytes or 0 , effects = provider == item . providerLabels . JSON and {
 "native.cjson" ,
 "stdlib.derives"
 } or {
 "stdlib.derives"
-} , cached = item . planCached and true or false , durationMs = math . floor (
+} , cached = item . recipeCached and true or false , durationMs = math . floor (
 ( os . clock ( ) - item . startedAt ) * 1000000 + 0.5
 ) / 1000 ,
 
@@ -24497,7 +24631,10 @@ nil ,
 { help = "call it with `:` so the arguments select one body" }
 )
 end
-local featureFields = c . env and c . env . featureEffects and c . env . featureEffects [ base ] or nil
+
+
+local effects = c . env and c . env . featureEffects or nil
+local featureFields = effects and ( effects [ base ] or staticOwner and effects [ staticOwner ] ) or nil
 local effect = featureFields and featureFields [ memberName ] or nil
 if effect and c . recordEffect then
 ( node ) . compilerFeatureEffect = effect
@@ -30433,7 +30570,7 @@ return cli
 
 end
 package.preload["nupp.compiler.cli.ast"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end;
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -30584,7 +30721,7 @@ return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.bc"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end;
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -30723,12 +30860,39 @@ end
 
 
 
+
+
+
+
+
+
+
+
+
+
 local function markLoops ( instructions )
 for _ , ins in ipairs ( instructions ) do
 if BACK_EDGE [ ins . op ] and ins . jump then
 for _ , other in ipairs ( instructions ) do
 if other . pc >= ins . jump - 1 and other . pc <= ins . pc then
 other . inLoop = true
+end
+end
+end
+end
+
+
+
+
+
+
+for index , ins in ipairs ( instructions ) do
+local previous = instructions [ index - 1 ]
+local conditional = ins . op == "JMP" and previous ~= nil and previous . op : sub ( 1 , 2 ) == "IS"
+if conditional and ins . jump and ins . jump - 1 > ins . pc then
+for _ , other in ipairs ( instructions ) do
+if other . pc > ins . pc and other . pc < ins . jump - 1 then
+other . skippable = true
 end
 end
 end
@@ -30760,7 +30924,7 @@ local info = util . funcinfo ( fn )
 local instructions = instructionsOf ( util , bc , fn )
 markLoops ( instructions )
 for _ , ins in ipairs ( instructions ) do
-if ins . inLoop then
+if ins . inLoop and not ins . skippable then
 ins . unrecordable = UNRECORDABLE [ ins . op ]
 end
 end
@@ -30974,7 +31138,7 @@ required = {
 } ,
 derives = {
 type = "array" ,
-description = "Compiler-owned derive plans and their bounded generation facts." ,
+description = "Closed derive recipes and their bounded generation facts." ,
 items = {
 type = "object" ,
 properties = {
@@ -31048,9 +31212,9 @@ end
 
 for _ , path in ipairs ( paths ) do
 if not nupp . io . files . isFile ( path ) and configuredTarget ( path ) then
-return command : usageError ( (
-"%s names a build target rather than a source file; build it with --target %s"
-) : format ( path , path ) )
+return command : usageError (
+( "%s names a build target rather than a source file; build it with --target %s" ) : format ( path , path )
+)
 end
 end
 local reportMod = require ( "nupp.compiler.cli.report" )
@@ -32824,7 +32988,7 @@ return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.lsp"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end;
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -34491,7 +34655,7 @@ return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.report"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end;
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -37647,7 +37811,8 @@ helper ,
 input ,
 helpers ,
 runtimeHelpers ,
-providerModule
+providerModule ,
+internalProvider
 )
 if helper and helper . sealedTypeFunction then
 local parsedHelpers = { }
@@ -37705,6 +37870,7 @@ local env , libraries = buildEnvironment ( state )
 state . env , state . libraries = env , libraries
 state . deriveHelpers = runtimeHelpers or { }
 state . deriveProviderModule = providerModule
+state . deriveInternalProvider = internalProvider
 local available = { }
 for helperName , supplied in pairs ( helpers or { } ) do
 available [ helperName ] = supplied
@@ -37872,7 +38038,7 @@ return comptime
 
 end
 package.preload["nupp.compiler.comptime_worker"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end;
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -38044,7 +38210,8 @@ program . main ,
 request . input ,
 program . helpers ,
 request . runtimeHelpers ,
-request . providerModule
+request . providerModule ,
+request . internalProvider
 )
 if failure then
 return { ok = false , code = failure . code , message = failure . message , help = failure . help }
@@ -38390,7 +38557,8 @@ input ,
 runtimeHelpers ,
 providerModule ,
 executable ,
-host
+host ,
+internalProvider
 )
 local main = program . helper
 local mainName = program . main or main and main . name and main . name . text or nil
@@ -38413,6 +38581,7 @@ helpers = helpers ,
 input = input ,
 runtimeHelpers = runtimeHelpers ,
 providerModule = providerModule ,
+internalProvider = internalProvider ,
 } ,
 executable ,
 host
@@ -38620,7 +38789,7 @@ return consteval
 
 end
 package.preload["nupp.compiler.coverage"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end;
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -41853,191 +42022,6 @@ end
 return cst
 
 end
-package.preload["nupp.compiler.derive_plan"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
-
-
-local MAX_CANONICAL_BYTES = 1048576
-local MAX_OUTPUT_BYTES = 2097152
-
-local function allowed ( opts )
-return not opts or not opts . probe or opts . probe ( )
-end
-
-local function within ( text , opts )
-return not opts or not opts . limit or # text <= opts . limit
-end
-
-local canonicalValue
-canonicalValue = function ( value , opts , active )
-if not allowed ( opts ) then
-return nil , "cancelled"
-end
-local kind = type ( value )
-local scalar
-if kind == "nil" then
-scalar = "n"
-elseif kind == "boolean" then
-scalar = value and "t" or "f"
-elseif kind == "number" then
-scalar = "d" .. string . format ( "%.17g" , value )
-elseif kind == "string" then
-scalar = "s" .. # value .. ":" .. value
-elseif kind ~= "table" then
-return nil , "invalid"
-end
-if scalar then
-return within ( scalar , opts ) and scalar or nil , within ( scalar , opts ) and nil or "limit"
-end
-if active [ value ] then
-return nil , "cycle"
-end
-active [ value ] = true
-local keys = { }
-for key in pairs ( value ) do
-keys [ # keys + 1 ] = key
-end
-table . sort ( keys , function ( a , b )
-return tostring ( a ) < tostring ( b )
-end )
-local out = { "{" }
-local size = 1
-for _ , key in ipairs ( keys ) do
-local encodedKey , keyError = canonicalValue ( key , opts , active )
-if not encodedKey then
-active [ value ] = nil
-;
-return nil , keyError
-end
-local encodedValue , valueError = canonicalValue ( value [ key ] , opts , active )
-if not encodedValue then
-active [ value ] = nil
-;
-return nil , valueError
-end
-out [ # out + 1 ] = encodedKey
-out [ # out + 1 ] = encodedValue
-size = size + # encodedKey + # encodedValue
-if opts and opts . limit and size + 1 > opts . limit then
-active [ value ] = nil
-return nil , "limit"
-end
-end
-out [ # out + 1 ] = "}"
-active [ value ] = nil
-local encoded = table . concat ( out )
-
-return within ( encoded , opts ) and encoded or nil , within ( encoded , opts ) and nil or "limit"
-end
-
-
-
-local function canonical ( value , opts )
-return canonicalValue ( value , opts or { } , { } )
-end
-
-local function canonicalRoot ( value , opts )
-local projected = { }
-for key , field in pairs ( value ) do
-if key ~= "key" and key ~= "fingerprint" then
-projected [ key ] = field
-end
-end
-
-return canonicalValue ( projected , opts or { } , { } )
-end
-
-local renderValue
-renderValue = function ( value , opts , active )
-if not allowed ( opts ) then
-return nil , "cancelled"
-end
-local kind = type ( value )
-local scalar
-if value == nil then
-scalar = "nil"
-elseif kind == "boolean" then
-scalar = tostring ( value )
-elseif kind == "string" then
-scalar = ( "%q" ) : format ( value )
-elseif kind == "number" then
-scalar = value == 0 and 1 / value < 0 and "-0.0" or ( "%.17g" ) : format ( value )
-elseif kind ~= "table" then
-return nil , "invalid"
-end
-if scalar then
-return within ( scalar , opts ) and scalar or nil , within ( scalar , opts ) and nil or "limit"
-end
-if active [ value ] then
-return nil , "cycle"
-end
-active [ value ] = true
-local parts = { }
-local size = 2
-for index = 1 , # value do
-local rendered , why = renderValue ( value [ index ] , opts , active )
-if not rendered then
-active [ value ] = nil
-;
-return nil , why
-end
-parts [ # parts + 1 ] = rendered
-size = size + # rendered + ( # parts > 1 and 1 or 0 )
-if opts and opts . limit and size > opts . limit then
-active [ value ] = nil
-return nil , "limit"
-end
-end
-local keys = { }
-for key in pairs ( value ) do
-if type ( key ) == "string" then
-keys [ # keys + 1 ] = key
-end
-end
-table . sort ( keys )
-for _ , key in ipairs ( keys ) do
-local renderedKey , keyError = renderValue ( key , opts , active )
-if not renderedKey then
-active [ value ] = nil
-;
-return nil , keyError
-end
-local renderedValue , valueError = renderValue ( value [ key ] , opts , active )
-if not renderedValue then
-active [ value ] = nil
-;
-return nil , valueError
-end
-local entry = "[" .. renderedKey .. "]=" .. renderedValue
-parts [ # parts + 1 ] = entry
-size = size + # entry + ( # parts > 1 and 1 or 0 )
-if opts and opts . limit and size > opts . limit then
-active [ value ] = nil
-return nil , "limit"
-end
-end
-active [ value ] = nil
-local rendered = "{" .. table . concat ( parts , "," ) .. "}"
-
-return within ( rendered , opts ) and rendered or nil , within ( rendered , opts ) and nil or "limit"
-end
-
-
-local function render ( value , opts )
-return renderValue ( value , opts or { } , { } )
-end
-
-local derivePlan = {
-MAX_CANONICAL_BYTES = MAX_CANONICAL_BYTES ,
-MAX_OUTPUT_BYTES = MAX_OUTPUT_BYTES ,
-canonical = canonical ,
-canonicalRoot = canonicalRoot ,
-render = render ,
-}
-
-return derivePlan
-
-end
 package.preload["nupp.compiler.diagnostics"] = function(...)
 local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
@@ -42193,7 +42177,7 @@ return diagnostics
 
 end
 package.preload["nupp.compiler.doc"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end;
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -44338,6 +44322,12 @@ extract.Member = {} extract.Member.__index = extract.Member
 
 
 
+
+
+
+
+
+
 local function firstToken ( node )
 if not node then
 return nil
@@ -44395,9 +44385,11 @@ end
 
 
 
+
 local function internalModuleName ( name )
 return ( "." .. tostring ( name or "" ) .. "." ) : find ( ".internal." , 1 , true ) ~= nil
 end
+
 
 
 
@@ -44459,6 +44451,7 @@ local dropped = hiddenNodes ( node , includePrivate )
 
 
 
+
 local leading = true
 local function walk ( child )
 if cst . isToken ( child ) then
@@ -44513,6 +44506,7 @@ end
 
 
 
+
 local function annotationText ( node )
 local name = node and node . name and node . name . text
 if not name then
@@ -44530,6 +44524,7 @@ walk ( nested )
 end
 end
 end
+
 walk ( arg )
 args [ # args + 1 ] = trim ( table . concat ( parts ) )
 end
@@ -44539,6 +44534,7 @@ end
 
 return "@" .. name .. "(" .. table . concat ( args , ", " ) .. ")"
 end
+
 
 
 
@@ -44659,10 +44655,7 @@ text = info . params [ name ] or "" ,
 end
 local returns = stat . body and stat . body . rets or ( stat . ret and { stat . ret } or { } )
 for index , value in ipairs ( returns or { } ) do
-details . returns [ # details . returns + 1 ] = {
-type = documentedResultType ( value ) ,
-text = info . returns [ index ] or "" ,
-}
+details . returns [ # details . returns + 1 ] = { type = documentedResultType ( value ) , text = info . returns [ index ] or "" , }
 end
 
 return details
@@ -44672,8 +44665,33 @@ end
 
 
 
+
+
+
+
+
+
 local function typeFunction ( node )
-return node and node . kind == "tfunc" and node or nil
+if not node then
+return nil
+end
+if node . kind == "tfunc" then
+return node
+end
+if node . kind ~= "tintersection" then
+return nil
+end
+local widest = nil
+for _ , member in ipairs ( node . types or { } ) do
+if member . kind ~= "tfunc" then
+return nil
+end
+if not widest or # ( member . params or { } ) > # ( widest . params or { } ) then
+widest = member
+end
+end
+
+return widest
 end
 
 local function typeFunctionDetails ( node , info )
@@ -44734,6 +44752,7 @@ end
 
 return item
 end
+
 
 
 
@@ -44893,6 +44912,24 @@ items [ # items + 1 ] = item
 end
 end
 elseif entry . kind == "typeAlias" or entry . kind == "recordDecl" then
+local info = entryDoc ( entry )
+if entry . kind == "recordDecl" and info . tags . namespace then
+
+
+
+
+
+shapeModule (
+name .. "." .. entry . name . text ,
+entry . entries ,
+info . text ,
+path ,
+blocks ,
+includePrivate ,
+expanding ,
+modules
+)
+else
 local item = declarationItem ( entry , name , true , true , includePrivate )
 if item then
 
@@ -44903,6 +44940,7 @@ for _ , member in ipairs ( item . members ) do
 member . path = item . path .. "." .. member . name
 end
 items [ # items + 1 ] = item
+end
 end
 end
 end
@@ -45153,6 +45191,8 @@ end
 
 
 
+
+
 local function memberNamed ( item , name )
 for _ , member in ipairs ( item . members ) do
 if member . name == name then
@@ -45304,14 +45344,7 @@ end
 end
 elseif shape and opts . shapesAsModules and shapePublic then
 for _ , module in ipairs (
-globalModules (
-shapeName ,
-shape ,
-info . text ,
-path ,
-parsed . root . blocks ,
-opts . includePrivate
-)
+globalModules ( shapeName , shape , info . text , path , parsed . root . blocks , opts . includePrivate )
 ) do
 extraModules [ # extraModules + 1 ] = module
 end
@@ -45328,6 +45361,7 @@ table . sort ( result . items , byKindThenName )
 
 return result , { } , extraModules
 end
+
 
 
 
@@ -49217,15 +49251,20 @@ return env . formatStore
 end
 
 function envMod . typeFunctionStore ( env )
-if env . typeFunctionStoreOpened then return env . typeFunctionStore end
+if env . typeFunctionStoreOpened then
+return env . typeFunctionStore
+end
 env . typeFunctionStoreOpened = true
-if env . cacheDisabled then return nil end
+if env . cacheDisabled then
+return nil
+end
 local storeMod = require ( "nupp.compiler.build.store" )
 local cacheMod = require ( "nupp.compiler.build.cache" )
 env . typeFunctionStore = storeMod . open (
 ( env . cacheDir or ( outDirFor ( env ) .. "/cache" ) ) .. "/type-functions.buf" ,
 cacheMod . toolFingerprint ( )
 )
+
 return env . typeFunctionStore
 end
 
@@ -49670,15 +49709,15 @@ resolveModule = envMod . resolveModule , resolveModuleExports = envMod . resolve
 
 
 cacheDisabled = opts and opts . cache == false or nil , cacheDir = opts and opts . cacheDir or nil , }
-local derivePlans = { }
-env . internDerivePlan = function ( _ , plan )
-local prior = derivePlans [ plan . fingerprint ]
+local deriveRecipes = { }
+env . internDeriveRecipe = function ( _ , recipe )
+local prior = deriveRecipes [ recipe . fingerprint ]
 if prior then
-return plan , true
+return recipe , true
 end
-derivePlans [ plan . fingerprint ] = true
+deriveRecipes [ recipe . fingerprint ] = true
 
-return plan , false
+return recipe , false
 end
 annotationMod . hydrateBuiltins ( env . annotations , T )
 
@@ -50521,7 +50560,7 @@ docs = "docs/reference.md#owned-resources" ,
 } , {
 code = "NUPP2801" ,
 summary = "A derive provider name is unknown or duplicated" ,
-rule = "Each @derive argument names a built-in provider or one resolved exported "
+rule = "Each @derive argument names a compiler-shipped provider or one resolved exported "
 .. "@comptime provider, and an identity may occur only once across every derive "
 .. "annotation on the record." ,
 related = { "NUPP2113" , "NUPP2802" } ,
@@ -50552,7 +50591,7 @@ docs = "docs/derives.md#default" ,
 } , {
 code = "NUPP2805" ,
 summary = "A record is not an unambiguous From conversion" ,
-rule = "The built-in From derive is the newtype case: exactly one stored field "
+rule = "The shipped From provider is the newtype case: exactly one stored field "
 .. "and no written constructor. Multi-field and fallible conversions remain "
 .. "written functions." ,
 related = { "NUPP2802" } ,
@@ -50571,7 +50610,7 @@ summary = "A derive dependency cycle has no valid lowering" ,
 rule = "Recursive Debug and JSON graphs are supported, but a required Default " .. "cycle never reaches a value. Make an edge optional or provide an explicit " .. "terminating literal default." ,
 related = { "NUPP2803" , "NUPP2804" , "NUPP2806" } ,
 docs = "docs/derives.md" ,
-} , { code = "NUPP2808" , summary = "A derive exceeds a compiler generation limit" , rule = "Generated plans, expressions, locals, upvalues, and emitted output are " .. "bounded compiler resources. Reduce the derived declaration or split the " .. "schema rather than depending on an unbounded generated function." , related = { "NUPP2807" } , docs = "docs/derives.md" , } , { code = "NUPP2809" , summary = "A comptime derive provider declaration or reference is invalid" , rule = "A public derive provider is an exported, nongeneric @comptime function " .. "with the exact shape function(nupp.derive.Info): nupp.derive.Result<I>, where " .. "I is one existing interface. @derive must name that resolved export." , related = { "NUPP2411" , "NUPP2801" } , docs = "docs/derives.md#comptime-providers" , } , { code = "NUPP2810" , summary = "A comptime derive provider failed or returned an invalid blueprint" , rule = "Providers execute in the bounded comptime worker and must return only " .. "nupp.derive.implement or nupp.derive.error. Closed builders reject foreign, " .. "cyclic, malformed, stale, and over-limit recipe graphs." , related = { "NUPP2412" , "NUPP2808" } , docs = "docs/derives.md#comptime-providers" , } , { code = "NUPP2811" , summary = "A derive recipe does not name an implementable interface requirement" , rule = "forward.v1 fills only a bodyless, unoverloaded instance-callable " .. "requirement of the provider's Result<I> interface. It cannot add arbitrary " .. "members, replace defaults, or choose signatures." , related = { "NUPP2118" , "NUPP2802" } , docs = "docs/derives.md#closed-forwarding-recipes" , } , { code = "NUPP2812" , summary = "A forwarding argument does not exist on the generated method" , rule = "A forwarding recipe may pass its receiver, a named method parameter, a " .. "readable stored field, a bounded frozen constant, or a fresh array of those. " .. "Every name is resolved against the written owner and interface requirement." , related = { "NUPP2004" , "NUPP2811" } , docs = "docs/derives.md#closed-forwarding-recipes" , } , { code = "NUPP2813" , summary = "A runtime forwarding helper does not satisfy the generated call" , rule = "The helper must be an ordinary exported Nupp function. Forwarded argument " .. "types must fit its parameters, its result pack must satisfy the interface " .. "requirement, and it may not suspend where the requirement cannot." , related = { "NUPP2001" , "NUPP2701" , "NUPP2812" } , docs = "docs/derives.md#runtime-helpers" , } , { code = "NUPP2701" , summary = "A non-suspending region can reach suspension" , rule = "A `nosuspend` region and every cleanup contract must finish without " .. "parking the current coroutine. Remove the yielding call, move it before " .. "the protected region, or call an operation whose type or visible body " .. "proves that it cannot suspend." , wrong = "local function wait(): nil\n    coroutine.yield()\nend\n\n" .. "nosuspend do\n    wait()\nend\n" , right = "local function finish(): nil\nend\n\n" .. "nosuspend do\n    finish()\nend\n" , related = { "NUPP2602" , "NUPP2603" } , docs = "docs/reference.md#suspension-regions" , } , { code = "NUPP2702" , summary = "A non-yieldable C callback can reach suspension" , rule = "LuaJIT cannot yield through every C frame. Make the callback and every " .. "call it reaches non-suspending, or invoke it from a yieldable Lua boundary." , wrong = "table.sort({2, 1}, function(a, b): boolean\n" .. "    coroutine.yield()\n    return a < b\nend)\n" , right = "table.sort({2, 1}, function(a, b): boolean\n" .. "    return a < b\nend)\n" , related = { "NUPP2701" } , docs = "docs/reference.md#suspension-regions" , } , { code = "NUPP2706" , summary = "Control cannot jump into a handled suspension region" , rule = "Entering a `handle suspension` body from outside would bypass handler " .. "installation and its cleanup obligation. Move the label outside the region " .. "or move the jump inside it. Structured exits from the region are allowed." , wrong = "goto inside\nhandle suspension with handler do\n" .. "    ::inside::\nend\n" , right = "handle suspension with handler do\nend\n::outside::\n" , related = { "NUPP2701" , "NUPP2702" } , docs = "docs/reference.md#suspension-regions" , } , { code = "NUPP2206" , summary = "Only a record or a struct can be constructed" , rule = "`new` names a type and builds a value of it, so the operand " .. "has to be a declaration with something to build. An interface " .. "declares a contract and has no runtime table to stamp; an enum " .. "value is one of its declared strings, written directly. The " .. "operand is answered as a type rather than through whatever " .. "value stands under the name, because an interface binds none." , wrong = "local interface Named\n    name: string\nend\n\n" .. "local n = new Named(name = \"ada\")\n\nreturn n\n" , right = "local interface Named\n    name: string\nend\n\n" .. "local record User is Named\n    name: string\nend\n\n" .. "local n = new User(name = \"ada\")\n\nreturn n\n" , related = { "NUPP2202" } , docs = "docs/reference.md#records" , } , { code = "NUPP2207" , summary = "A binding is read before it holds a value" , rule = "`local v: Vec2` used to construct one where it was declared, " .. "which was a construction the source did not say. It no longer " .. "does, so the binding holds nil until something assigns to it, " .. "and reading it before that indexes nil at run time rather than " .. "yielding a value of the declared type. Assign it first, or " .. "declare it optional if it is meant to start empty. A " .. "declaration file states what exists elsewhere and assigns " .. "nothing, so it is exempt." , wrong = "local record Point\n    x: integer\nend\n\n" .. "local p: Point\n\nreturn p.x\n" , right = "local record Point\n    x: integer\nend\n\n" .. "local p: Point = new Point(x = 0)\n\nreturn p.x\n" , related = { "NUPP2202" , "NUPP2206" } , docs = "docs/reference.md#records" , } , { code = "NUPP2512" , summary = "A record is built by field order rather than by naming its fields" , rule = "A record without a declared constructor may be built either way, " .. "and both build the same table. Naming the fields says at the call " .. "site which value lands where; leaving it to the order says it in " .. "the declaration, so a reader has to go there, and adding a field " .. "silently changes what an existing call means. A struct is exempt: " .. "it is its C layout, and that order is the layout's rather than the " .. "program's to name. Turn it off by name or by its `style` category, " .. "or write `@allow(\"positional-record-construction\")`." , wrong = "local record Point\n    x: integer\n    y: integer\nend\n\n" .. "local p = new Point(1, 2)\n\nreturn p\n" , right = "local record Point\n    x: integer\n    y: integer\nend\n\n" .. "local p = new Point(x = 1, y = 2)\n\nreturn p\n" , related = { "NUPP2202" , "NUPP2208" } , docs = "docs/lints.md" , } , { code = "NUPP2513" , summary = "An API marked deprecated is used" , rule = "`@deprecated` keeps an API available while telling callers to move " .. "away from it. The optional reason explains why and the replacement names " .. "what to use instead. The annotation changes tooling only: it reports this " .. "suppressible lint at use sites and emits no runtime behavior." , wrong = "local function current(): integer return 1 end\n\n" .. "@deprecated(replacement = \"current\")\n" .. "local function legacy(): integer return current() end\n\nreturn legacy()\n" , right = "local function current(): integer return 1 end\n\n" .. "@deprecated(replacement = \"current\")\n" .. "local function legacy(): integer return current() end\n\nreturn current()\n" , related = { "NUPP2115" } , docs = "docs/lints.md" , } , { code = "NUPP2208" , summary = "A constructor does not hold up its declaration" , rule = "A `constructor(self, ...)` body is what `new T(...)` runs. The " .. "instance is made before it and returned after it, so its whole " .. "job is to fill the fields in — and every field that cannot hold " .. "nil has to be filled, or the value handed back does not match " .. "the declaration it claims. That guarantee is the reason to " .. "prefer a constructor over a literal, so declaring one closes " .. "the literal form for that declaration. An interface builds " .. "nothing and cannot carry one, and there is one constructor per " .. "declaration until overloads arrive with intersection types." , wrong = "local record Account\n    name: string\n    balance: number\n" .. "\n    constructor(self, name: string)\n        self.name = name\n" .. "    end\nend\n\nreturn Account\n" , right = "local record Account\n    name: string\n    balance: number\n" .. "\n    constructor(self, name: string)\n        self.name = name\n" .. "        self.balance = 0\n    end\nend\n\nreturn Account\n" , related = { "NUPP2202" , "NUPP2207" } , docs = "docs/reference.md#records" , } , { code = "NUPP3005" , summary = "Generated code that a Lua VM will not load" , rule = "The generator writes Lua and this is that Lua refusing to parse. Almost always it is one limit: a function may capture at most sixty names from around it, and one that reaches past that cannot be loaded at all. A function reading that many things from its scope is usually reading a record it could take as one argument instead — pass what varies, or gather what it reads into one value and capture that.\n\nAny other spelling of this is a bug in the compiler rather than in the program, and `nupp bc FILE` shows the code it wrote. It is reported where the file is built rather than where the module is first required, because the line a VM would name belongs to generated text and the line here is the one that was written." , related = { "NUPP3004" } , docs = "docs/diagnostics.md#code-families" , } , { code = "NUPP3001" , summary = "`is` has nothing to test against this type" , rule = "A record is identified by the metatable it stamps and a struct " .. "by its ctype, so both answer `is` exactly. An interface has " .. "neither, by design — it is conformance rather than provenance — " .. "so something has to stand in for one.\n\n" .. "Three things can. A literal-typed field is a tag, and the test " .. "is read off it with nothing written. A `satisfies` declaration " .. "says the test outright, for a shape no tag describes. And a subject " .. "whose own type declares the interface needs no test at all: the " .. "declaration already answered, so the `is` compiles to `true`. " .. "An alias has none of these and never will." , wrong = "local interface Drawable\n    width: number\nend\n\n" .. "local record Sprite is Drawable\n    width: number\nend\n\n" .. "local unknown: any = new Sprite(width = 1)\n\n" .. "return unknown is Drawable\n" , right = "local interface Drawable\n    kind: \"drawable\"\n" .. "    width: number\nend\n\n" .. "local record Sprite is Drawable\n    kind: \"drawable\"\n" .. "    width: number\nend\n\n" .. "local unknown: any = new Sprite(kind = \"drawable\", width = 1)\n\n" .. "return unknown is Drawable\n" , related = { "NUPP2122" } , docs = "docs/type-system/interfaces.md" , } , }
+} , { code = "NUPP2808" , summary = "A derive exceeds a compiler generation limit" , rule = "Generated recipes, expressions, locals, upvalues, and emitted output are " .. "bounded compiler resources. Reduce the derived declaration or split the " .. "schema rather than depending on an unbounded generated function." , related = { "NUPP2807" } , docs = "docs/derives.md" , } , { code = "NUPP2809" , summary = "A comptime derive provider declaration or reference is invalid" , rule = "A public derive provider is an exported, nongeneric @comptime function " .. "with the exact shape function(nupp.derive.Info): nupp.derive.Result<I>, where " .. "I is one existing interface. @derive must name that resolved export." , related = { "NUPP2411" , "NUPP2801" } , docs = "docs/derives.md#comptime-providers" , } , { code = "NUPP2810" , summary = "A comptime derive provider failed or returned an invalid blueprint" , rule = "Providers execute in the bounded comptime worker and must return only " .. "nupp.derive.implement or nupp.derive.error. Closed builders reject foreign, " .. "cyclic, malformed, stale, and over-limit recipe graphs." , related = { "NUPP2412" , "NUPP2808" } , docs = "docs/derives.md#comptime-providers" , } , { code = "NUPP2811" , summary = "A derive recipe does not name an implementable interface requirement" , rule = "forward.v1 fills only a bodyless, unoverloaded callable instance or static " .. "requirement of the provider's Result<I> interface. It cannot add arbitrary " .. "members, replace defaults, or choose signatures." , related = { "NUPP2118" , "NUPP2802" } , docs = "docs/derives.md#closed-forwarding-recipes" , } , { code = "NUPP2812" , summary = "A forwarding argument does not exist on the generated method" , rule = "A forwarding recipe may pass its receiver, a named method parameter, a " .. "readable stored field, a bounded frozen constant, or a fresh array of those. " .. "Every name is resolved against the written owner and interface requirement." , related = { "NUPP2004" , "NUPP2811" } , docs = "docs/derives.md#closed-forwarding-recipes" , } , { code = "NUPP2813" , summary = "A runtime forwarding helper does not satisfy the generated call" , rule = "The helper must be an ordinary exported Nupp function. Forwarded argument " .. "types must fit its parameters, its result pack must satisfy the interface " .. "requirement, and it may not suspend where the requirement cannot." , related = { "NUPP2001" , "NUPP2701" , "NUPP2812" } , docs = "docs/derives.md#runtime-helpers" , } , { code = "NUPP2701" , summary = "A non-suspending region can reach suspension" , rule = "A `nosuspend` region and every cleanup contract must finish without " .. "parking the current coroutine. Remove the yielding call, move it before " .. "the protected region, or call an operation whose type or visible body " .. "proves that it cannot suspend." , wrong = "local function wait(): nil\n    coroutine.yield()\nend\n\n" .. "nosuspend do\n    wait()\nend\n" , right = "local function finish(): nil\nend\n\n" .. "nosuspend do\n    finish()\nend\n" , related = { "NUPP2602" , "NUPP2603" } , docs = "docs/reference.md#suspension-regions" , } , { code = "NUPP2702" , summary = "A non-yieldable C callback can reach suspension" , rule = "LuaJIT cannot yield through every C frame. Make the callback and every " .. "call it reaches non-suspending, or invoke it from a yieldable Lua boundary." , wrong = "table.sort({2, 1}, function(a, b): boolean\n" .. "    coroutine.yield()\n    return a < b\nend)\n" , right = "table.sort({2, 1}, function(a, b): boolean\n" .. "    return a < b\nend)\n" , related = { "NUPP2701" } , docs = "docs/reference.md#suspension-regions" , } , { code = "NUPP2706" , summary = "Control cannot jump into a handled suspension region" , rule = "Entering a `handle suspension` body from outside would bypass handler " .. "installation and its cleanup obligation. Move the label outside the region " .. "or move the jump inside it. Structured exits from the region are allowed." , wrong = "goto inside\nhandle suspension with handler do\n" .. "    ::inside::\nend\n" , right = "handle suspension with handler do\nend\n::outside::\n" , related = { "NUPP2701" , "NUPP2702" } , docs = "docs/reference.md#suspension-regions" , } , { code = "NUPP2206" , summary = "Only a record or a struct can be constructed" , rule = "`new` names a type and builds a value of it, so the operand " .. "has to be a declaration with something to build. An interface " .. "declares a contract and has no runtime table to stamp; an enum " .. "value is one of its declared strings, written directly. The " .. "operand is answered as a type rather than through whatever " .. "value stands under the name, because an interface binds none." , wrong = "local interface Named\n    name: string\nend\n\n" .. "local n = new Named(name = \"ada\")\n\nreturn n\n" , right = "local interface Named\n    name: string\nend\n\n" .. "local record User is Named\n    name: string\nend\n\n" .. "local n = new User(name = \"ada\")\n\nreturn n\n" , related = { "NUPP2202" } , docs = "docs/reference.md#records" , } , { code = "NUPP2207" , summary = "A binding is read before it holds a value" , rule = "`local v: Vec2` used to construct one where it was declared, " .. "which was a construction the source did not say. It no longer " .. "does, so the binding holds nil until something assigns to it, " .. "and reading it before that indexes nil at run time rather than " .. "yielding a value of the declared type. Assign it first, or " .. "declare it optional if it is meant to start empty. A " .. "declaration file states what exists elsewhere and assigns " .. "nothing, so it is exempt." , wrong = "local record Point\n    x: integer\nend\n\n" .. "local p: Point\n\nreturn p.x\n" , right = "local record Point\n    x: integer\nend\n\n" .. "local p: Point = new Point(x = 0)\n\nreturn p.x\n" , related = { "NUPP2202" , "NUPP2206" } , docs = "docs/reference.md#records" , } , { code = "NUPP2512" , summary = "A record is built by field order rather than by naming its fields" , rule = "A record without a declared constructor may be built either way, " .. "and both build the same table. Naming the fields says at the call " .. "site which value lands where; leaving it to the order says it in " .. "the declaration, so a reader has to go there, and adding a field " .. "silently changes what an existing call means. A struct is exempt: " .. "it is its C layout, and that order is the layout's rather than the " .. "program's to name. Turn it off by name or by its `style` category, " .. "or write `@allow(\"positional-record-construction\")`." , wrong = "local record Point\n    x: integer\n    y: integer\nend\n\n" .. "local p = new Point(1, 2)\n\nreturn p\n" , right = "local record Point\n    x: integer\n    y: integer\nend\n\n" .. "local p = new Point(x = 1, y = 2)\n\nreturn p\n" , related = { "NUPP2202" , "NUPP2208" } , docs = "docs/lints.md" , } , { code = "NUPP2513" , summary = "An API marked deprecated is used" , rule = "`@deprecated` keeps an API available while telling callers to move " .. "away from it. The optional reason explains why and the replacement names " .. "what to use instead. The annotation changes tooling only: it reports this " .. "suppressible lint at use sites and emits no runtime behavior." , wrong = "local function current(): integer return 1 end\n\n" .. "@deprecated(replacement = \"current\")\n" .. "local function legacy(): integer return current() end\n\nreturn legacy()\n" , right = "local function current(): integer return 1 end\n\n" .. "@deprecated(replacement = \"current\")\n" .. "local function legacy(): integer return current() end\n\nreturn current()\n" , related = { "NUPP2115" } , docs = "docs/lints.md" , } , { code = "NUPP2208" , summary = "A constructor does not hold up its declaration" , rule = "A `constructor(self, ...)` body is what `new T(...)` runs. The " .. "instance is made before it and returned after it, so its whole " .. "job is to fill the fields in — and every field that cannot hold " .. "nil has to be filled, or the value handed back does not match " .. "the declaration it claims. That guarantee is the reason to " .. "prefer a constructor over a literal, so declaring one closes " .. "the literal form for that declaration. An interface builds " .. "nothing and cannot carry one, and there is one constructor per " .. "declaration until overloads arrive with intersection types." , wrong = "local record Account\n    name: string\n    balance: number\n" .. "\n    constructor(self, name: string)\n        self.name = name\n" .. "    end\nend\n\nreturn Account\n" , right = "local record Account\n    name: string\n    balance: number\n" .. "\n    constructor(self, name: string)\n        self.name = name\n" .. "        self.balance = 0\n    end\nend\n\nreturn Account\n" , related = { "NUPP2202" , "NUPP2207" } , docs = "docs/reference.md#records" , } , { code = "NUPP3005" , summary = "Generated code that a Lua VM will not load" , rule = "The generator writes Lua and this is that Lua refusing to parse. Almost always it is one limit: a function may capture at most sixty names from around it, and one that reaches past that cannot be loaded at all. A function reading that many things from its scope is usually reading a record it could take as one argument instead — pass what varies, or gather what it reads into one value and capture that.\n\nAny other spelling of this is a bug in the compiler rather than in the program, and `nupp bc FILE` shows the code it wrote. It is reported where the file is built rather than where the module is first required, because the line a VM would name belongs to generated text and the line here is the one that was written." , related = { "NUPP3004" } , docs = "docs/diagnostics.md#code-families" , } , { code = "NUPP3001" , summary = "`is` has nothing to test against this type" , rule = "A record is identified by the metatable it stamps and a struct " .. "by its ctype, so both answer `is` exactly. An interface has " .. "neither, by design — it is conformance rather than provenance — " .. "so something has to stand in for one.\n\n" .. "Three things can. A literal-typed field is a tag, and the test " .. "is read off it with nothing written. A `satisfies` declaration " .. "says the test outright, for a shape no tag describes. And a subject " .. "whose own type declares the interface needs no test at all: the " .. "declaration already answered, so the `is` compiles to `true`. " .. "An alias has none of these and never will." , wrong = "local interface Drawable\n    width: number\nend\n\n" .. "local record Sprite is Drawable\n    width: number\nend\n\n" .. "local unknown: any = new Sprite(width = 1)\n\n" .. "return unknown is Drawable\n" , right = "local interface Drawable\n    kind: \"drawable\"\n" .. "    width: number\nend\n\n" .. "local record Sprite is Drawable\n    kind: \"drawable\"\n" .. "    width: number\nend\n\n" .. "local unknown: any = new Sprite(kind = \"drawable\", width = 1)\n\n" .. "return unknown is Drawable\n" , related = { "NUPP2122" } , docs = "docs/type-system/interfaces.md" , } , }
 
 ENTRIES [
 # ENTRIES + 1
@@ -53030,10 +53069,10 @@ end
 
 
 function literal . derive ( value )
-local derivePlan = require ( "nupp.compiler.derive_plan" )
-local rendered , why = derivePlan . render ( value )
+local recipeCodec = require ( "nupp.compiler.materialize.codec" )
+local rendered , why = recipeCodec . render ( value )
 if not rendered then
-error ( "invalid derive plan: " .. tostring ( why ) )
+error ( "invalid derive recipe: " .. tostring ( why ) )
 end
 
 return rendered
@@ -53550,6 +53589,124 @@ e ( ( "%s = %s:tostring()" ) : format ( x . concatBuffer . target , x . concatBu
 end
 end
 
+local function emitDerivedMembers ( x , runtimeName )
+local recipe = x . deriveRecipe
+if not recipe then
+return
+end
+local recipeCodec = require ( "nupp.compiler.materialize.codec" )
+local renderedRecipe , renderError = recipeCodec . render ( recipe , { limit = recipeCodec . MAX_OUTPUT_BYTES , } )
+if not renderedRecipe then
+diag (
+x . name ,
+"NUPP2808" ,
+renderError == "limit" and (
+"derive output exceeds %d rendered bytes"
+) : format ( recipeCodec . MAX_OUTPUT_BYTES ) or "derive output recipe is invalid" ,
+"split the record or write the generated behavior explicitly"
+)
+return
+end
+needRuntimeEffect ( "stdlib.derives" )
+if recipe . operations and recipe . operations [ "json.v1" ] then
+needRuntimeEffect ( "native.cjson" )
+end
+e ( ";do local __nuppDerived=" .. renderedRecipe )
+e ( ( ";local __nuppDerivedEntry=_G.nupp.__derive.register(%q,%s,__nuppDerived)" ) : format ( recipe . key , runtimeName ) )
+
+local function forwardingArgument ( argument , parameters )
+if argument . kind == "receiver" then
+return "self"
+elseif argument . kind == "argument" then
+return parameters [ argument . name ] or error ( "invalid derived member argument " .. tostring ( argument . name ) )
+elseif argument . kind == "field" then
+return ( "self[%q]" ) : format ( argument . name )
+elseif argument . kind == "constant" then
+local rendered , why = recipeCodec . render ( argument . value , { limit = recipeCodec . MAX_OUTPUT_BYTES , } )
+if not rendered then
+error ( "invalid derived constant: " .. tostring ( why ) )
+end
+return rendered
+elseif argument . kind == "array" then
+local children = { }
+for index , child in ipairs ( argument . values or { } ) do
+children [ index ] = forwardingArgument ( child , parameters )
+end
+return "{" .. table . concat ( children , "," ) .. "}"
+end
+error ( "unknown derived forwarding argument " .. tostring ( argument . kind ) )
+end
+
+for _ , member in ipairs ( recipe . members or { } ) do
+if member . operation == "debug.v1" then
+e (
+(
+";%s[%q]=function(self)return _G.nupp.__derive.debug(self,__nuppDerived)end"
+) : format ( runtimeName , member . name )
+)
+elseif member . operation == "default.v1" then
+e (
+(
+";%s[%q]=function()return _G.nupp.__derive.default(__nuppDerivedEntry)end"
+) : format ( runtimeName , member . name )
+)
+elseif member . operation == "from.v1" then
+e (
+(
+";%s[%q]=function(value)return _G.setmetatable({[%q]=value},%s)end"
+) : format ( runtimeName , member . name , recipe . fromField , runtimeName )
+)
+elseif member . operation == "json.v1" and member . name == "toJSON" then
+e (
+(
+";%s[%q]=function(self)return _G.nupp.__derive.toJSON(self,__nuppDerivedEntry)end"
+) : format ( runtimeName , member . name )
+)
+elseif member . operation == "json.v1" and member . name == "fromJSON" then
+e (
+(
+";%s[%q]=function(text)return _G.nupp.__derive.fromJSON(text,__nuppDerivedEntry)end"
+) : format ( runtimeName , member . name )
+)
+elseif member . operation == "json.v1" and member . name == "fieldCodec" then
+e ( ( ";%s[%q]=function()return __nuppDerivedEntry.codec end" ) : format ( runtimeName , member . name ) )
+elseif member . operation == "forward.v1" then
+local names , parameters = { } , { }
+local first = 1
+if member . namespace == "instance" then
+names [ 1 ] = "self"
+first = 2
+end
+for index = first , # ( member . paramNames or { } ) do
+local declared = member . paramNames [ index ]
+local runtimeParameter = declared ~= "" and declared or ( "argument" .. tostring ( index - first + 1 ) )
+names [ # names + 1 ] = runtimeParameter
+if declared ~= "" then
+parameters [ declared ] = runtimeParameter
+end
+end
+local arguments = { }
+for index , argument in ipairs ( member . arguments or { } ) do
+arguments [ index ] = forwardingArgument ( argument , parameters )
+end
+local helper = member . helper . localPath or (
+"_G.require(" .. string . format (
+"%q" ,
+member . helper . module
+) .. ")[" .. string . format ( "%q" , member . helper . member ) .. "]"
+)
+e (
+(
+";%s[%q]=function(%s)return %s(%s)end"
+) : format ( runtimeName , member . name , table . concat ( names , "," ) , helper , table . concat ( arguments , "," ) )
+)
+else
+error ( "unknown derived member operation " .. tostring ( member . operation ) )
+end
+end
+e ( " end" )
+end
+
 local emit
 
 local function sourceLine ( node )
@@ -53583,7 +53740,7 @@ end
 
 
 
-local pluck = { plans = { } , statementActive = { } , helpers = helpers , declareHelper = declareHelper , loweredFunction = loweredFunction ,
+local pluck = { plans = { } , statementActive = { } , helpers = helpers , declareHelper = declareHelper , loweredFunction = loweredFunction , emitDerivedMembers = emitDerivedMembers ,
 
 
 
@@ -54589,135 +54746,7 @@ emit ( entry )
 end
 end
 emitInheritedDefaults ( x , runtimeName )
-if x . derivePlan then
-local derivePlan = require ( "nupp.compiler.derive_plan" )
-local plan = x . derivePlan
-local renderedPlan , renderError = derivePlan . render ( plan , { limit = derivePlan . MAX_OUTPUT_BYTES , } )
-if not renderedPlan then
-diag (
-x . name ,
-"NUPP2808" ,
-renderError == "limit" and (
-"derive output exceeds %d rendered bytes"
-) : format ( derivePlan . MAX_OUTPUT_BYTES ) or "derive output plan is invalid" ,
-"split the record or write the generated behavior explicitly"
-)
-return
-end
-needRuntimeEffect ( "stdlib.derives" )
-if plan . providers . JSON then
-needRuntimeEffect ( "native.cjson" )
-end
-e ( ";do local __nuppDerived=" .. renderedPlan )
-e (
-(
-";local __nuppDerivedEntry=_G.nupp.__derive.register(%q,%s,__nuppDerived)"
-) : format ( plan . key , runtimeName )
-)
-if plan . providers . Debug then
-e (
-(
-";%s.debug=function(self)return _G.nupp.__derive.debug(self,__nuppDerived)end"
-) : format ( runtimeName )
-)
-end
-if plan . providers . Default then
-e (
-(
-";%s.default=function()return _G.nupp.__derive.default(__nuppDerivedEntry)end"
-) : format ( runtimeName )
-)
-end
-if plan . providers . From and plan . fromField then
-e (
-(
-";%s.from=function(value)return _G.setmetatable({[%q]=value},%s)end"
-) : format ( runtimeName , plan . fromField , runtimeName )
-)
-end
-if plan . providers . JSON then
-e (
-(
-";%s.toJSON=function(self)return _G.nupp.__derive.toJSON(self,__nuppDerivedEntry)end"
-) : format ( runtimeName )
-)
-e (
-(
-";%s.fromJSON=function(text)return _G.nupp.__derive.fromJSON(text,__nuppDerivedEntry)end"
-) : format ( runtimeName )
-)
-e ( ( ";%s.fieldCodec=function()return __nuppDerivedEntry.codec end" ) : format ( runtimeName ) )
-end
-if plan . forwarding then
-local function forwardingArgument ( argument , parameters )
-if argument . kind == "receiver" then
-return "self"
-elseif argument . kind == "argument" then
-return parameters [
-argument . name
-] or error ( "invalid derived method argument " .. tostring ( argument . name ) )
-elseif argument . kind == "field" then
-return ( "self[%q]" ) : format ( argument . name )
-elseif argument . kind == "constant" then
-local rendered , why = derivePlan . render (
-argument . value ,
-{ limit = derivePlan . MAX_OUTPUT_BYTES , }
-)
-if not rendered then
-error ( "invalid derived constant: " .. tostring ( why ) )
-end
-return rendered
-elseif argument . kind == "array" then
-local children = { }
-for index , child in ipairs ( argument . values or { } ) do
-children [ index ] = forwardingArgument ( child , parameters )
-end
-return "{" .. table . concat ( children , "," ) .. "}"
-end
-error ( "unknown derived forwarding argument " .. tostring ( argument . kind ) )
-end
-
-local methodNames = { }
-for methodName in pairs ( plan . forwarding ) do
-methodNames [ # methodNames + 1 ] = methodName
-end
-table . sort ( methodNames )
-for _ , methodName in ipairs ( methodNames ) do
-local recipe = plan . forwarding [ methodName ]
-local names , parameters = { "self" } , { }
-for index = 2 , # ( recipe . paramNames or { } ) do
-local declared = recipe . paramNames [ index ]
-local runtimeParameter = declared ~= "" and declared or ( "argument" .. tostring ( index - 1 ) )
-names [ # names + 1 ] = runtimeParameter
-if declared ~= "" then
-parameters [ declared ] = runtimeParameter
-end
-end
-local arguments = { }
-for index , argument in ipairs ( recipe . arguments or { } ) do
-arguments [ index ] = forwardingArgument ( argument , parameters )
-end
-local helper = recipe . helper . localPath or (
-"_G.require(" .. string . format (
-"%q" ,
-recipe . helper . module
-) .. ")[" .. string . format ( "%q" , recipe . helper . member ) .. "]"
-)
-e (
-(
-";%s[%q]=function(%s)return %s(%s)end"
-) : format (
-runtimeName ,
-methodName ,
-table . concat ( names , "," ) ,
-helper ,
-table . concat ( arguments , "," )
-)
-)
-end
-end
-e ( " end" )
-end
+pluck . emitDerivedMembers ( x , runtimeName )
 return
 end
 
@@ -57139,17 +57168,20 @@ if t . op == "comptimeCall" then
 local arguments = { }
 for position , argument in ipairs ( t . comptimeArguments or { } ) do
 if argument . kind == "type" then
-arguments [ position ] = {
-kind = "type" , value = substWith ( argument . value , map , unmapped ) ,
-}
+arguments [
+position
+] = { kind = "type" , value = substWith ( argument . value , map , unmapped ) , }
 elseif argument . kind == "typepack" then
-arguments [ position ] = {
-kind = "typepack" , value = substPackWith ( argument . value , map , unmapped ) ,
+arguments [
+position
+] = {
+kind = "typepack" ,
+value = substPackWith ( argument . value , map , unmapped ) ,
 }
 else
-arguments [ position ] = {
-kind = "const" , value = substConst ( argument . value , map ) ,
-}
+arguments [
+position
+] = { kind = "const" , value = substConst ( argument . value , map ) , }
 end
 end
 return T . comptimeCall (
@@ -57569,13 +57601,7 @@ end
 
 
 newBudget = function ( control )
-return {
-visits = 0 ,
-control = control ,
-active = { } ,
-path = { } ,
-gradual = { } ,
-}
+return { visits = 0 , control = control , active = { } , path = { } , gradual = { } , }
 end
 
 
@@ -57889,11 +57915,15 @@ end
 elseif t . tag == "typeHandle" then
 local bound
 bound , err = normalize ( t . bound , memo , budget )
-if not err then out = T . typeHandle ( bound ) end
+if not err then
+out = T . typeHandle ( bound )
+end
 elseif t . tag == "packResult" then
 local pack
 pack , err = normalizeReductionPack ( t . pack , memo , budget )
-if not err then out = T . packResult ( pack ) end
+if not err then
+out = T . packResult ( pack )
+end
 elseif t . tag == "neutral" then
 if t . op == "comptimeCall" then
 local arguments , open = { } , false
@@ -57901,13 +57931,17 @@ for position , argument in ipairs ( t . comptimeArguments or { } ) do
 if argument . kind == "type" then
 local reduced
 reduced , err = normalize ( argument . value , memo , budget )
-if err then break end
+if err then
+break
+end
 arguments [ position ] = { kind = "type" , value = reduced }
 open = open or T . hasTypevar ( reduced ) or T . hasProjection ( reduced ) or reduced . tag == "neutral"
 elseif argument . kind == "typepack" then
 local reduced
 reduced , err = normalizeReductionPack ( argument . value , memo , budget )
-if err then break end
+if err then
+break
+end
 arguments [ position ] = { kind = "typepack" , value = reduced }
 local wrapped = T . packResult ( reduced )
 open = open or T . hasTypevar ( wrapped ) or T . hasProjection ( wrapped )
@@ -57917,8 +57951,12 @@ end
 else
 local reduced
 reduced , err = consteval . reduce ( argument . value )
-if err then break end
-arguments [ position ] = { kind = "value" , value = reduced . tag == "constLiteral" and reduced . value or reduced }
+if err then
+break
+end
+arguments [
+position
+] = { kind = "value" , value = reduced . tag == "constLiteral" and reduced . value or reduced }
 open = open or reduced . tag ~= "constLiteral"
 end
 end
@@ -58309,11 +58347,7 @@ end
 
 
 
-function generics . instantiateFunction (
-t ,
-map ,
-control
-)
+function generics . instantiateFunction ( t , map , control )
 local evaluated = generics . evaluate ( substWith ( t , map , MATERIALIZE ) , nil , control )
 local concrete = evaluated . type
 if evaluated . error then
@@ -58488,9 +58522,9 @@ inst . fieldDefs = n . fieldDefs
 inst . writeFieldDefs = n . writeFieldDefs
 inst . staticFieldDefs = n . staticFieldDefs
 inst . staticWriteFieldDefs = n . staticWriteFieldDefs
-inst . deriveProviders = n . deriveProviders
+inst . deriveOperations = n . deriveOperations
 inst . deriveKey = n . deriveKey
-inst . derivePlan = n . derivePlan
+inst . deriveRecipe = n . deriveRecipe
 inst . derivedDefinitions = n . derivedDefinitions
 inst . derivedStaticDefinitions = n . derivedStaticDefinitions
 inst . derivedContracts = n . derivedContracts
@@ -59913,13 +59947,13 @@ end
 
 
 
-q : define ( "planDerives" , function ( _ , fingerprint )
+q : define ( "materializeDerives" , function ( _ , fingerprint )
 return fingerprint
 end )
-local function internDerivePlan ( self , plan )
-local executions = q . stats . planDerives or 0
-q : get ( "planDerives" , plan . fingerprint )
-return plan , ( q . stats . planDerives or 0 ) == executions
+local function internDeriveRecipe ( self , plan )
+local executions = q . stats . materializeDerives or 0
+q : get ( "materializeDerives" , plan . fingerprint )
+return plan , ( q . stats . materializeDerives or 0 ) == executions
 end
 
 q : define ( "checkModule" , function ( self , path )
@@ -59951,7 +59985,7 @@ end , openTypeFunctionStore = function ( )
 
 
 return envMod . typeFunctionStore ( env )
-end , internDerivePlan = internDerivePlan , } , { __index = env } )
+end , internDeriveRecipe = internDeriveRecipe , } , { __index = env } )
 local external = envMod . isDependencyTypePath ( env , path )
 local diags , moduleType , exports = check . check ( result , path , qenv , { moduleName = envMod . moduleNameForPath (
 env ,
@@ -60208,9 +60242,9 @@ end
 
 function inc . deriveStats ( )
 return {
-executions = q . stats . planDerives or 0 ,
-cacheHits = q . hits . planDerives or 0 ,
-equalCutoffs = q . cutoffs . planDerives or 0 ,
+executions = q . stats . materializeDerives or 0 ,
+cacheHits = q . hits . materializeDerives or 0 ,
+equalCutoffs = q . cutoffs . materializeDerives or 0 ,
 downstreamChecks = q . stats . checkModule or 0 ,
 }
 end
@@ -61492,8 +61526,8 @@ end
 if def . generatedHelper then
 value = value .. "\n\nForwards to `" .. def . generatedHelper .. "`."
 end
-if def . generatedPlanFingerprint then
-value = value .. "\n\nPlan fingerprint: `" .. def . generatedPlanFingerprint .. "`."
+if def . generatedRecipeFingerprint then
+value = value .. "\n\nRecipe fingerprint: `" .. def . generatedRecipeFingerprint .. "`."
 end
 end
 local automatic = def and def . automaticCleanup
@@ -61607,7 +61641,7 @@ deprecated = def and def . deprecated or nil ,
 generatedBy = def and def . generatedBy or nil ,
 generatedOwner = def and def . generatedOwner or nil ,
 generatedNamespace = def and def . generatedNamespace or nil ,
-generatedPlanFingerprint = def and def . generatedPlanFingerprint or nil ,
+generatedRecipeFingerprint = def and def . generatedRecipeFingerprint or nil ,
 }
 )
 end
@@ -63606,8 +63640,8 @@ end
 if def . generatedHelper then
 value = value .. "\n\nForwards to `" .. def . generatedHelper .. "`."
 end
-if def . generatedPlanFingerprint then
-value = value .. "\n\nPlan fingerprint: `" .. def . generatedPlanFingerprint .. "`."
+if def . generatedRecipeFingerprint then
+value = value .. "\n\nRecipe fingerprint: `" .. def . generatedRecipeFingerprint .. "`."
 end
 end
 local automatic = def and def . automaticCleanup
@@ -63721,7 +63755,7 @@ deprecated = def and def . deprecated or nil ,
 generatedBy = def and def . generatedBy or nil ,
 generatedOwner = def and def . generatedOwner or nil ,
 generatedNamespace = def and def . generatedNamespace or nil ,
-generatedPlanFingerprint = def and def . generatedPlanFingerprint or nil ,
+generatedRecipeFingerprint = def and def . generatedRecipeFingerprint or nil ,
 }
 )
 end
@@ -64581,6 +64615,9 @@ end
 
 local function declarationIndex ( def , source , tokens )
 local tok = def . token
+if not tok or not tok . text then
+return nil
+end
 local found
 if source : sub ( tok . offset , tok . offset + # tok . text - 1 ) == tok . text then
 found = tok . offset
@@ -64603,6 +64640,13 @@ end
 local function resolveDefinition ( def )
 if not def or not def . token or not def . filename then
 return nil
+end
+if def . generatedBy and def . generatedOrigin then
+def = {
+token = def . generatedOrigin ,
+filename = def . generatedOrigin . filename or def . filename ,
+documentationTrivia = def . documentationTrivia ,
+}
 end
 local source = definitionSource ( def )
 if not source then
@@ -66335,7 +66379,7 @@ return tree
 
 end
 package.preload["nupp.compiler.lsp.wire"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end;
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -66366,13 +66410,198 @@ end
 return wire
 
 end
+package.preload["nupp.compiler.materialize.codec"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+local MAX_CANONICAL_BYTES = 1048576
+local MAX_OUTPUT_BYTES = 2097152
+
+local function allowed ( opts )
+return not opts or not opts . probe or opts . probe ( )
+end
+
+local function within ( text , opts )
+return not opts or not opts . limit or # text <= opts . limit
+end
+
+local canonicalValue
+canonicalValue = function ( value , opts , active )
+if not allowed ( opts ) then
+return nil , "cancelled"
+end
+local kind = type ( value )
+local scalar
+if kind == "nil" then
+scalar = "n"
+elseif kind == "boolean" then
+scalar = value and "t" or "f"
+elseif kind == "number" then
+scalar = "d" .. string . format ( "%.17g" , value )
+elseif kind == "string" then
+scalar = "s" .. # value .. ":" .. value
+elseif kind ~= "table" then
+return nil , "invalid"
+end
+if scalar then
+return within ( scalar , opts ) and scalar or nil , within ( scalar , opts ) and nil or "limit"
+end
+if active [ value ] then
+return nil , "cycle"
+end
+active [ value ] = true
+local keys = { }
+for key in pairs ( value ) do
+keys [ # keys + 1 ] = key
+end
+table . sort ( keys , function ( a , b )
+return tostring ( a ) < tostring ( b )
+end )
+local out = { "{" }
+local size = 1
+for _ , key in ipairs ( keys ) do
+local encodedKey , keyError = canonicalValue ( key , opts , active )
+if not encodedKey then
+active [ value ] = nil
+;
+return nil , keyError
+end
+local encodedValue , valueError = canonicalValue ( value [ key ] , opts , active )
+if not encodedValue then
+active [ value ] = nil
+;
+return nil , valueError
+end
+out [ # out + 1 ] = encodedKey
+out [ # out + 1 ] = encodedValue
+size = size + # encodedKey + # encodedValue
+if opts and opts . limit and size + 1 > opts . limit then
+active [ value ] = nil
+return nil , "limit"
+end
+end
+out [ # out + 1 ] = "}"
+active [ value ] = nil
+local encoded = table . concat ( out )
+
+return within ( encoded , opts ) and encoded or nil , within ( encoded , opts ) and nil or "limit"
+end
+
+
+
+local function canonical ( value , opts )
+return canonicalValue ( value , opts or { } , { } )
+end
+
+local function canonicalRoot ( value , opts )
+local projected = { }
+for key , field in pairs ( value ) do
+if key ~= "key" and key ~= "fingerprint" then
+projected [ key ] = field
+end
+end
+
+return canonicalValue ( projected , opts or { } , { } )
+end
+
+local renderValue
+renderValue = function ( value , opts , active )
+if not allowed ( opts ) then
+return nil , "cancelled"
+end
+local kind = type ( value )
+local scalar
+if value == nil then
+scalar = "nil"
+elseif kind == "boolean" then
+scalar = tostring ( value )
+elseif kind == "string" then
+scalar = ( "%q" ) : format ( value )
+elseif kind == "number" then
+scalar = value == 0 and 1 / value < 0 and "-0.0" or ( "%.17g" ) : format ( value )
+elseif kind ~= "table" then
+return nil , "invalid"
+end
+if scalar then
+return within ( scalar , opts ) and scalar or nil , within ( scalar , opts ) and nil or "limit"
+end
+if active [ value ] then
+return nil , "cycle"
+end
+active [ value ] = true
+local parts = { }
+local size = 2
+for index = 1 , # value do
+local rendered , why = renderValue ( value [ index ] , opts , active )
+if not rendered then
+active [ value ] = nil
+;
+return nil , why
+end
+parts [ # parts + 1 ] = rendered
+size = size + # rendered + ( # parts > 1 and 1 or 0 )
+if opts and opts . limit and size > opts . limit then
+active [ value ] = nil
+return nil , "limit"
+end
+end
+local keys = { }
+for key in pairs ( value ) do
+if type ( key ) == "string" then
+keys [ # keys + 1 ] = key
+end
+end
+table . sort ( keys )
+for _ , key in ipairs ( keys ) do
+local renderedKey , keyError = renderValue ( key , opts , active )
+if not renderedKey then
+active [ value ] = nil
+;
+return nil , keyError
+end
+local renderedValue , valueError = renderValue ( value [ key ] , opts , active )
+if not renderedValue then
+active [ value ] = nil
+;
+return nil , valueError
+end
+local entry = "[" .. renderedKey .. "]=" .. renderedValue
+parts [ # parts + 1 ] = entry
+size = size + # entry + ( # parts > 1 and 1 or 0 )
+if opts and opts . limit and size > opts . limit then
+active [ value ] = nil
+return nil , "limit"
+end
+end
+active [ value ] = nil
+local rendered = "{" .. table . concat ( parts , "," ) .. "}"
+
+return within ( rendered , opts ) and rendered or nil , within ( rendered , opts ) and nil or "limit"
+end
+
+
+local function render ( value , opts )
+return renderValue ( value , opts or { } , { } )
+end
+
+local codec = {
+MAX_CANONICAL_BYTES = MAX_CANONICAL_BYTES ,
+MAX_OUTPUT_BYTES = MAX_OUTPUT_BYTES ,
+canonical = canonical ,
+canonicalRoot = canonicalRoot ,
+render = render ,
+}
+
+return codec
+
+end
 package.preload["nupp.compiler.materialize.derive"] = function(...)
 local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
+
 local hash = require ( "nupp.compiler.build.hash" )
-local planCodec = require ( "nupp.compiler.derive_plan" )
+local recipeCodec = require ( "nupp.compiler.materialize.codec" )
 
 const deriveProvider = {} deriveProvider.__index = deriveProvider
 
@@ -66509,20 +66738,42 @@ provenance ( at , "forward.v1" )
 end )
 install ( "implement" , function ( at , args )
 local specification = args [ 1 ]
-if args . n ~= 1 or not hasOnly ( specification , { methods = true } ) or type ( specification . methods ) ~= "table" then
+if args . n ~= 1 or not hasOnly (
+specification ,
+{ methods = true , statics = true }
+) or type ( specification . methods or { } ) ~= "table" or type ( specification . statics or { } ) ~= "table" then
 return nil , failure (
 "NUPP2810" ,
 (
-"derive.implement needs a methods table (arguments=%d, value=%s, methods=%s)"
-) : format (
-args . n ,
-type ( specification ) ,
-type ( type ( specification ) == "table" and specification . methods or nil )
-)
+"derive.implement needs methods and optional statics tables (arguments=%d, value=%s)"
+) : format ( args . n , type ( specification ) )
 )
 end
 
-return opaque ( "derive" , "Result" , { methods = specification . methods } , provenance ( at , "implement" ) )
+return opaque (
+"derive" ,
+"Result" ,
+{ methods = specification . methods or { } , statics = specification . statics or { } , operations = { } , } ,
+provenance ( at , "implement" )
+)
+end )
+install ( "internal" , function ( at , args )
+local info = args [ 1 ] and entryOf ( args [ 1 ] ) or nil
+if not state . deriveInternalProvider
+or args . n ~= 1
+or not info
+or info . provider ~= "derive"
+or info . family ~= "Info"
+then
+return nil , failure ( "NUPP2810" , "derive.internal is available only to compiler-shipped providers" )
+end
+
+return opaque (
+"derive" ,
+"Result" ,
+{ methods = { } , statics = { } , operations = { { kind = state . deriveInternalProvider } , } , } ,
+provenance ( at , state . deriveInternalProvider )
+)
 end )
 install ( "error" , function ( at , args )
 local reference = args [ 2 ] and entryOf ( args [ 2 ] ) or nil
@@ -66772,7 +67023,7 @@ requestFingerprint = state . deriveRequest and state . deriveRequest . fingerpri
 providerIdentity = state . deriveRequest and state . deriveRequest . providerIdentity ,
 ownerIdentity = state . deriveRequest and state . deriveRequest . ownerIdentity ,
 }
-local canonical = assert ( planCodec . canonical ( payload ) )
+local canonical = assert ( recipeCodec . canonical ( payload ) )
 return {
 kind = "materialized" ,
 provider = "derive" ,
@@ -66837,17 +67088,18 @@ active [ handle ] = nil
 return out
 end
 
+local function forwards ( source , namespace )
 local methods = { }
-for name , handle in pairs ( rootEntry . payload . methods ) do
+for name , handle in pairs ( source or { } ) do
 if not takeNode ( ) then
 return nil , failure ( "NUPP2810" , "recipe exceeds its node limit" )
 end
 if type ( name ) ~= "string" or name == "" then
-return nil , failure ( "NUPP2810" , "derive method names must be non-empty strings" )
+return nil , failure ( "NUPP2810" , "derive member names must be non-empty strings" )
 end
 local entry = state . opaque [ handle ]
 if not entry or entry . provider ~= "derive" or entry . family ~= "Forward" then
-return nil , failure ( "NUPP2810" , "derive method " .. name .. " is not a forward recipe" )
+return nil , failure ( "NUPP2810" , "derive " .. namespace .. " " .. name .. " is not a forward recipe" )
 end
 if not takeNode ( ) then
 return nil , failure ( "NUPP2810" , "recipe exceeds its node limit" )
@@ -66862,14 +67114,28 @@ end
 end
 methods [ name ] = { operation = "forward.v1" , helper = entry . payload . helper , arguments = arguments , }
 end
+
+return methods
+end
+
+local methods , methodsFailure = forwards ( rootEntry . payload . methods , "method" )
+if not methods then
+return nil , methodsFailure
+end
+local statics , staticsFailure = forwards ( rootEntry . payload . statics , "static" )
+if not statics then
+return nil , staticsFailure
+end
 local payload = {
-version = "nupp.derive.result.v1" ,
+version = "nupp.derive.result.v2" ,
 requestFingerprint = state . deriveRequest and state . deriveRequest . fingerprint ,
 providerIdentity = state . deriveRequest and state . deriveRequest . providerIdentity ,
 ownerIdentity = state . deriveRequest and state . deriveRequest . ownerIdentity ,
 methods = methods ,
+statics = statics ,
+operations = rootEntry . payload . operations or { } ,
 }
-local canonical , why = planCodec . canonical ( payload )
+local canonical , why = recipeCodec . canonical ( payload )
 if not canonical then
 return nil , failure ( "NUPP2810" , "derive result is not canonical: " .. tostring ( why ) )
 end
@@ -66880,7 +67146,7 @@ provider = "derive" ,
 schema = 1 ,
 family = "Result" ,
 payload = payload ,
-fingerprint = hash . sha256 ( "nupp.derive.result\0v1\0" .. canonical ) ,
+fingerprint = hash . sha256 ( "nupp.derive.result\0v2\0" .. canonical ) ,
 }
 end
 
@@ -72217,28 +72483,7 @@ modules = { "lpeg" , "re" } ,
 "native.cjson"
 ] = {
 name = "cjson" ,
-globals = {
-"nupp.data.encodeJSON" ,
-"nupp.data.decodeJSON" ,
-"nupp.data.newJSON" ,
-"nupp.data.null" ,
-"nupp.data.emptyArray" ,
-"nupp.data.arrayMt" ,
-"nupp.data.emptyArrayMt" ,
-"nupp.data.encodeEmptyTableAsObject" ,
-"nupp.data.decodeArrayWithArrayMt" ,
-"nupp.data.decodeAllowComment" ,
-"nupp.data.encodeSparseArray" ,
-"nupp.data.encodeMaxDepth" ,
-"nupp.data.decodeMaxDepth" ,
-"nupp.data.encodeNumberPrecision" ,
-"nupp.data.encodeKeepBuffer" ,
-"nupp.data.encodeInvalidNumbers" ,
-"nupp.data.decodeInvalidNumbers" ,
-"nupp.data.encodeEscapeForwardSlash" ,
-"nupp.data.encodeSkipUnsupportedValueTypes" ,
-"nupp.data.encodeIndent" ,
-} ,
+globals = { "nupp.data.json" } ,
 modules = { "cjson" , "cjson.safe" } ,
 host = "cjson" ,
 binary = true ,
@@ -72306,12 +72551,12 @@ globals = { "nupp.data.fnv1a64" } ,
 "stdlib.checksums"
 ] = {
 name = "checksums" ,
-globals = { "nupp.data.adler32" , "nupp.data.crc32" } ,
+globals = { "nupp.data.crc32" } ,
 } , [
 "native.path"
 ] = {
 name = "path" ,
-globals = { "nupp.io.newPath" , "nupp.io.currentDirectory" , "nupp.io.separator" } ,
+globals = { "nupp.io.Path.new" , "nupp.io.Path.currentDirectory" , "nupp.io.Path.separator" } ,
 cargo = "runtime/native/Cargo.toml" ,
 cargoFeature = "path" ,
 library = "nupp_native" ,
@@ -72320,7 +72565,7 @@ binary = true ,
 "native.uri"
 ] = {
 name = "uri" ,
-globals = { "nupp.io.newURI" , "nupp.io.validate" , "nupp.io.isURI" } ,
+globals = { "nupp.io.URI.new" , "nupp.io.URI.validate" , "nupp.io.URI.isURI" } ,
 cargo = "runtime/native/Cargo.toml" ,
 cargoFeature = "uri" ,
 library = "nupp_native" ,
@@ -72452,7 +72697,10 @@ decorate ( t , parts [ index ] , effect )
 local qualified = globals [ table . concat ( parts , "." , 1 , index - 1 ) ]
 decorate ( qualified and qualified . t , parts [ index ] , effect )
 end
-t = t and t . byname and t . byname [ parts [ index ] ] or nil
+
+
+
+t = t and ( t . byname and t . byname [ parts [ index ] ] or t . nestedTypes and t . nestedTypes [ parts [ index ] ] ) or nil
 end
 end
 
@@ -78406,47 +78654,42 @@ return m
 "Owned resources" ,  codes =
 { "NUPP2603" , "NUPP2615" } ,  body =
 [=[
-`@owned(cleanup)` says a result carries a cleanup obligation. An ordinary local
-with known cleanup is destroyed automatically at its lexical scope boundary.
-Dropping it, passing it to a `takes` parameter, returning it as an owner, or
-converting it with `intoRaw` ends or transfers that responsibility exactly once.
-An opaque or otherwise unresolved owner still requires an explicit terminal;
-forgetting that choice is a compile error, not a leak.
+`@owned(cleanup)` gives a result a cleanup obligation. A known local is destroyed
+at scope exit. Drop, `takes`, an owning return, or `intoRaw` ends or transfers it
+once. An unresolved owner needs an explicit terminal; forgetting is an error,
+not a leak.
 
-Parameter modes say what a call does with what it is given: `takes` consumes,
-`borrows` does not (and the borrow cannot escape), `exclusive` borrows with no
-other view live, and `retains`/`releases` describe C holding a pointer across a
-call.
+Parameter modes describe calls: `takes` consumes; `borrows` is call-scoped;
+`exclusive` also requires sole access; `retains`/`releases` describe C holding a
+pointer across calls.
 
-`T preserves value` on a result transports the exact capability of that
-parameter through scalar generic narrowing. `T borrows (source)` ties a result,
-or a nominal record field, to its named root. A closure literal borrows captured
-ownership values by default; its callable capability is borrowed and its exact
-roots travel as value-flow provenance. `borrows (source)` declares or pins that
-relation. `takes (source)` instead moves the owner into an affine, single-shot
-closure whose call or lexical drop discharges the capture. A `scoped` callback
-parameter accepts a borrow-carrying closure because its callee proves that
-callback cannot escape. `@owned(cleanup)` may decorate a function-valued record
-or interface field so a bodyless API can declare a fresh owning result without
-a wrapper.
+`T preserves value` transports a parameter's exact capability through scalar
+generic narrowing. `T borrows (source)` ties a result or nominal field to a
+root. Closures borrow captured owners by default; `borrows (source)` declares
+that relation. `takes (source)` moves an owner into an affine, single-shot
+closure whose call or drop discharges it. A `scoped` callback proves borrowed
+captures cannot escape. `@owned(cleanup)` on a callable field declares a fresh
+owning result.
 
-Affine nominal fields have path-sensitive state. `nupp.resources.Set` holds a
-dynamic number of owners. `nupp.span` provides rooted generic `Span<T>` and
-affine `WriteSpan<T>` views; `nupp.heap.allocate` provides owned malloc-backed
-`Array<T>` values whose immutable count moves with their private pointer. Raw
-or unknown suspension cannot cross an obligation; checked handled
-suspension may only through its cancellation contract.
+Affine nominal fields have path-sensitive state. `nupp.resources.Set` holds
+dynamic owners. `nupp.span` gives rooted `Span<T>` and affine `WriteSpan<T>`
+views; `nupp.heap.allocate` gives `Array<T>` whose immutable count moves with its
+private pointer. Raw or unknown suspension cannot cross an obligation; handled
+suspension requires its cancellation contract.
+
+`WriteSpan.splitAt(mid)` produces disjoint sibling regions. `countedBy(count)`
+maps borrowed cdef pointer/count parameters to checked spans. The wrapper checks
+shared lengths, projects slice-adjusted pointers, and calls C once even at zero
+count. Const pointers use `Span<T>`; mutable pointers use `WriteSpan<T>`.
 
 Lifetime alone does not prove a C pointer index is in bounds. Direct pointer or
 variable-length C-array indexing therefore requires `unsafe`; use `nupp.span`
 when a runtime count is available. A fixed C array rejects a statically
 out-of-range literal and inserts a runtime guard for a non-literal index.
 
-The ownership intrinsics live under the always-available `nupp` global:
-`nupp.drop`, `nupp.borrow`, `nupp.intoRaw`, `nupp.fromRaw`,
-`nupp.borrowFrom`, and `nupp.pin`. The old bare spellings remain aliases and
-lower identically. Either spelling is shadowed by a binding of that name,
-`nupp` included.
+Ownership intrinsics are `nupp.drop`, `nupp.borrow`, `nupp.intoRaw`,
+`nupp.fromRaw`, `nupp.borrowFrom`, and `nupp.pin`. Bare aliases lower identically.
+Any local spelling, including `nupp`, shadows them.
 ]=] ,  example =
 [=[
 local m = {}
@@ -78580,9 +78823,7 @@ return m
 "NUPP2813" ,
 } ,  body =
 [=[
-`@derive` adds `Debug`, `Default`, `From`, `JSON`, or an exported `@comptime`
-provider. Providers map immutable `Info` to `Result<I>`, claim `I`, and forward
-methods to checked runtime helpers. They cannot generate declarations or syntax.
+`@derive` applies closed comptime recipes.
 ]=] }, reference.Section)
 , setmetatable({ title =
 
@@ -81506,8 +81747,8 @@ local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{}
 
 local JSON = compact (
 [=[
-local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end
-for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
+local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end
+__nuppLazy(__nuppData,"json",__nuppLoadJSON)
 ]=]
 )
 
@@ -81610,8 +81851,7 @@ __nuppLazy(__nuppData,"fnv1a64",function()local bit=require("bit");return functi
 
 local CHECKSUMS = compact (
 [=[
-local function __nuppChecksums()local bit=require("bit");local crcTable={};for n=0,255 do local c=n;for _=1,8 do c=bit.bxor(bit.rshift(c,1),bit.band(c,1)~=0 and 0xedb88320 or 0)end;crcTable[n]=c end;local function bytes(value)return type(value)=="string"and value or value:getString()end;local function seed(value,name,default)if value==nil then return default end;if type(value)~="number"or value~=math.floor(value)or value<0 or value>4294967295 then error("nupp: "..name.." previous checksum must be an unsigned 32-bit integer",3)end;return value end;__nuppData.adler32=function(value,previous)local s=bytes(value);previous=seed(previous,"adler32",1);local a,b=previous%65536,math.floor(previous/65536)%65536;for i=1,#s do a=(a+s:byte(i))%65521;b=(b+a)%65521 end;return b*65536+a end;__nuppData.crc32=function(value,previous)local c=bit.bnot(seed(previous,"crc32",0));local s=bytes(value);for i=1,#s do c=bit.bxor(bit.rshift(c,8),crcTable[bit.band(bit.bxor(c,s:byte(i)),255)])end;local out=bit.bnot(c);return out<0 and out+4294967296 or out end;return __nuppData end
-for _,__name in ipairs({"adler32","crc32"})do __nuppLazy(__nuppData,__name,function(name)__nuppChecksums();return rawget(__nuppData,name)end)end
+__nuppLazy(__nuppData,"crc32",function()local bit=require("bit");local crcTable={};for n=0,255 do local c=n;for _=1,8 do c=bit.bxor(bit.rshift(c,1),bit.band(c,1)~=0 and 0xedb88320 or 0)end;crcTable[n]=c end;return function(value,previous)if previous==nil then previous=0 elseif type(previous)~="number"or previous~=math.floor(previous)or previous<0 or previous>4294967295 then error("nupp: crc32 previous checksum must be an unsigned 32-bit integer",2)end;local c=bit.bnot(previous);local s=type(value)=="string"and value or value:getString();for i=1,#s do c=bit.bxor(bit.rshift(c,8),crcTable[bit.band(bit.bxor(c,s:byte(i)),255)])end;local out=bit.bnot(c);return out<0 and out+4294967296 or out end end)
 ]=]
 )
 
@@ -82138,10 +82378,10 @@ local __nuppDecodeValue
 local function __nuppDecodeObject(value,entry,path)
 if type(value)~="table"then return false,nil,path..": expected object"end;local schema=entry.schema;local known={};local out={};for _,field in ipairs(schema.fields)do if not field.omit then local key=field.jsonName or field.name;known[key]=true;local raw=rawget(value,key);if raw==nil then if field.default then local ok,result=pcall(__nuppDefaultValue,field.default);if not ok then return false,nil,path.."."..key..": "..tostring(result)end;if result~=nil then out[field.name]=result end elseif field.jsonType and field.jsonType.kind=="optional"then else return false,nil,path.."."..key..": required field is absent"end else local ok,result,err=__nuppDecodeValue(raw,field.jsonType,entry,path.."."..key);if not ok then return false,nil,err end;if result~=nil then out[field.name]=result end end elseif field.default then local result=__nuppDefaultValue(field.default);if result~=nil then out[field.name]=result end end end;if schema.unknown~="ignore"then for key in pairs(value)do if not known[key]then return false,nil,path..": unknown field "..string.format("%q",tostring(key))end end end;return true,setmetatable(out,entry.mt),nil end
 __nuppDecodeValue=function(value,spec,entry,path)
-local kind=spec and spec.kind;if kind=="optional"then if value==entry.decoder.null then return true,nil,nil end;return __nuppDecodeValue(value,spec.value,entry,path)elseif value==entry.decoder.null then return false,nil,path..": null is not allowed"elseif kind=="union"then if type(value)~="table"then return false,nil,path..": expected discriminated object"end;local tag=rawget(value,spec.jsonTag);local selected=spec.choices[tag];if not selected then return false,nil,path.."."..spec.jsonTag..": unknown discriminant"end;return __nuppDecodeValue(value,selected,entry,path)elseif kind=="record"then local nested=__nuppDeriveTypes[spec.typeKey];if not nested then return false,nil,path..": derived JSON dependency is not loaded"end;return __nuppDecodeObject(value,nested,path)elseif kind=="string"then return type(value)=="string",value,type(value)=="string"and nil or path..": expected string"elseif kind=="boolean"then return type(value)=="boolean",value,type(value)=="boolean"and nil or path..": expected boolean"elseif kind=="literal"then return value==spec.value,value,value==spec.value and nil or path..": literal value does not match"elseif kind=="number"or kind=="float"or kind=="integer"then if type(value)~="number"or not __nuppFinite(value)then return false,nil,path..": expected finite number"end;if kind=="integer"and(value%1~=0 or spec.minimum and value<spec.minimum or spec.maximum and value>spec.maximum)then return false,nil,path..": expected integer in range"end;return true,value,nil end
+local kind=spec and spec.kind;if kind=="optional"then if value==entry.decoder.NULL then return true,nil,nil end;return __nuppDecodeValue(value,spec.value,entry,path)elseif value==entry.decoder.NULL then return false,nil,path..": null is not allowed"elseif kind=="union"then if type(value)~="table"then return false,nil,path..": expected discriminated object"end;local tag=rawget(value,spec.jsonTag);local selected=spec.choices[tag];if not selected then return false,nil,path.."."..spec.jsonTag..": unknown discriminant"end;return __nuppDecodeValue(value,selected,entry,path)elseif kind=="record"then local nested=__nuppDeriveTypes[spec.typeKey];if not nested then return false,nil,path..": derived JSON dependency is not loaded"end;return __nuppDecodeObject(value,nested,path)elseif kind=="string"then return type(value)=="string",value,type(value)=="string"and nil or path..": expected string"elseif kind=="boolean"then return type(value)=="boolean",value,type(value)=="boolean"and nil or path..": expected boolean"elseif kind=="literal"then return value==spec.value,value,value==spec.value and nil or path..": literal value does not match"elseif kind=="number"or kind=="float"or kind=="integer"then if type(value)~="number"or not __nuppFinite(value)then return false,nil,path..": expected finite number"end;if kind=="integer"and(value%1~=0 or spec.minimum and value<spec.minimum or spec.maximum and value>spec.maximum)then return false,nil,path..": expected integer in range"end;return true,value,nil end
 if type(value)~="table"then return false,nil,path..": expected table"end;if kind=="array"then local out={};local count=#value;for key in pairs(value)do if type(key)~="number"or key%1~=0 or key<1 or key>count then return false,nil,path..": expected dense array"end end;for i=1,count do local ok,result,err=__nuppDecodeValue(value[i],spec.value,entry,path.."["..i.."]");if not ok then return false,nil,err end;out[i]=result end;return true,out,nil elseif kind=="tuple"then if#value~=#spec.items then return false,nil,path..": tuple length does not match"end;local out={};for i,item in ipairs(spec.items)do local ok,result,err=__nuppDecodeValue(value[i],item,entry,path.."["..i.."]");if not ok then return false,nil,err end;out[i]=result end;return true,out,nil elseif kind=="map"then local out={};for key,item in pairs(value)do if type(key)~="string"then return false,nil,path..": expected string map key"end;local ok,result,err=__nuppDecodeValue(item,spec.value,entry,path.."."..key);if not ok then return false,nil,err end;out[key]=result end;return true,out,nil elseif kind=="shape"then local fake={schema={fields=spec.fields,unknown=spec.unknown or"reject"},mt=nil,decoder=entry.decoder};local ok,result,err=__nuppDecodeObject(value,fake,path);if ok then setmetatable(result,nil)end;return ok,result,err end;return false,nil,path..": unsupported JSON value"end
 function __nuppDerive.register(key,mt,schema)
-local entry={key=key,mt=mt,schema=schema};rawset(mt,"__nuppDeriveKey",key);if schema.providers.JSON then local decoder=__nuppData.newJSON();decoder.decodeArrayWithArrayMt(false);decoder.decodeMaxDepth(128);decoder.decodeInvalidNumbers(false);entry.decoder=decoder;local codec={fingerprint="derive-json-v1|emit=1|decode=cjson|arraymt=false|maxdepth=128|invalid=false|schema="..schema.fingerprint};function codec:encode(value)local out={};for _,field in ipairs(schema.fields)do if not field.omit then local item=rawget(value,field.name);local empty=item==nil or item==""or item==false or type(item)=="table"and next(item)==nil;if item~=nil and not(field.omitEmpty and empty)then out[field.jsonName or field.name]=item end end end;return out end;function codec:decode(value)local ok,result,err=__nuppDecodeObject(value,entry,"$");if ok then return result,nil end;return nil,err end;entry.codec=codec end;__nuppDeriveTypes[key]=entry;return entry end
+local entry={key=key,mt=mt,schema=schema};rawset(mt,"__nuppDeriveKey",key);if schema.operations and schema.operations["json.v1"]then local decoder=__nuppData.json.newJSON();decoder.decodeArrayWithArrayMt(false);decoder.decodeMaxDepth(128);decoder.decodeInvalidNumbers(false);entry.decoder=decoder;local codec={fingerprint="derive-json-v1|emit=1|decode=cjson|arraymt=false|maxdepth=128|invalid=false|schema="..schema.fingerprint};function codec:encode(value)local out={};for _,field in ipairs(schema.fields)do if not field.omit then local item=rawget(value,field.name);local empty=item==nil or item==""or item==false or type(item)=="table"and next(item)==nil;if item~=nil and not(field.omitEmpty and empty)then out[field.jsonName or field.name]=item end end end;return out end;function codec:decode(value)local ok,result,err=__nuppDecodeObject(value,entry,"$");if ok then return result,nil end;return nil,err end;entry.codec=codec end;__nuppDeriveTypes[key]=entry;return entry end
 function __nuppDerive.toJSON(value,entry)local buf=__nuppBufferNew();__nuppWriteObject(value,entry.schema.fields,entry.schema.unknown,buf,{active={},depth=0},"$");return buf:tostring()end
 function __nuppDerive.fromJSON(text,entry)local ok,value=pcall(entry.decoder.decodeJSON,text);if not ok then return nil,tostring(value)end;local valid,result,err=__nuppDecodeObject(value,entry,"$");if not valid then return nil,err end;return result,nil end
 ]=]
@@ -82165,7 +82405,9 @@ local NATIVE_BYTES_HELPER = "local function bytes(value,optional)if value==nil t
 .. "local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));"
 .. "C.nuppBytesDestroy(value);return out end;"
 local NATIVE_CDEFS = {
-[ "native.path" ] = "typedef struct{const uint8_t*data;size_t length;}NuppStringView;"
+[
+"native.path"
+] = "typedef struct{const uint8_t*data;size_t length;}NuppStringView;"
 .. "NuppBytes*nuppPathJoin(const NuppStringView*,size_t);"
 .. "NuppBytes*nuppPathNormalize(const uint8_t*,size_t);"
 .. "NuppBytes*nuppPathAbsolute(const uint8_t*,size_t);"
@@ -82174,7 +82416,9 @@ local NATIVE_CDEFS = {
 .. "NuppBytes*nuppPathPart(const uint8_t*,size_t,uint32_t);"
 .. "NuppBytes*nuppPathWith(const uint8_t*,size_t,const uint8_t*,size_t,bool);"
 .. "bool nuppPathIsAbsolute(const uint8_t*,size_t);" ,
-[ "native.uri" ] = "typedef struct NuppUri NuppUri;"
+[
+"native.uri"
+] = "typedef struct NuppUri NuppUri;"
 .. "NuppUri*nuppUriParse(const uint8_t*,size_t);"
 .. "const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);"
 .. "bool nuppUriPort(const NuppUri*,uint16_t*);"
@@ -82186,7 +82430,9 @@ local NATIVE_CDEFS = {
 .. "void nuppUriDestroy(NuppUri*);" ,
 [ "native.uuid" ] = "bool nuppUuid4(char*);bool nuppUuid7(char*);" ,
 [ "native.sha256" ] = "bool nuppSha256(const uint8_t*,size_t,char*);" ,
-[ "native.files" ] = "typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;"
+[
+"native.files"
+] = "typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;"
 .. "bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);"
 .. "NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);"
 .. "bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);"
@@ -82210,7 +82456,9 @@ local NATIVE_CDEFS = {
 .. "size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);"
 .. "bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);"
 .. "size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);" ,
-[ "native.process" ] = "typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;"
+[
+"native.process"
+] = "typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;"
 .. "typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);"
 .. "bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);"
 .. "bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);"
@@ -82228,8 +82476,12 @@ local NATIVE_CDEFS = {
 .. "size_t nuppProcessUncollectedTotal(void);" ,
 }
 local NATIVE_CDEF_ORDER = {
-"native.path" , "native.uri" , "native.uuid" , "native.sha256" ,
-"native.files" , "native.process" ,
+"native.path" ,
+"native.uri" ,
+"native.uuid" ,
+"native.sha256" ,
+"native.files" ,
+"native.process" ,
 }
 
 local function nativeRuntime ( effects )
@@ -82274,11 +82526,12 @@ function Path:withFileName(name)return returned(C.nuppPathWith(self._text,#self.
 function Path:withExtension(extension)return returned(C.nuppPathWith(self._text,#self._text,extension,#extension,true))end
 function Path:isAbsolute()return C.nuppPathIsAbsolute(self._text,#self._text)end
 function Path:isRelative()return not self:isAbsolute()end
-__nuppIO.newPath=function(first,...)return path(first):join(...)end
-__nuppIO.currentDirectory=function()local out=C.nuppPathAbsolute("",0);if out==nil then return nil,native.error()end;return returned(out)end
-__nuppIO.separator=function()return package.config:sub(1,1)end
+Path.new=function(first,...)return path(first):join(...)end
+Path.currentDirectory=function()local out=C.nuppPathAbsolute("",0);if out==nil then return nil,native.error()end;return returned(out)end
+Path.separator=function()return package.config:sub(1,1)end
+__nuppIO.Path=Path
 return __nuppIO end
-for _,__name in ipairs({"newPath","currentDirectory","separator"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallPath();return rawget(__nuppIO,name)end)end
+__nuppLazy(__nuppIO,"Path",function()__nuppInstallPath();return rawget(__nuppIO,"Path")end)
 ]=]
 )
 
@@ -82298,12 +82551,13 @@ function URI:withPort(port)if port~=nil and(type(port)~="number"or port~=math.fl
 function URI:concatPath(path)path=required(path,"URI path");if path==""then return self end;return changed(C.nuppUriConcatPath(self._handle,path,#path))end
 function URI:resolve(reference)if type(reference)~="string"then return nil,"nupp: URI reference needs a string"end;return wrap(C.nuppUriResolve(self._handle,reference,#reference))end
 function URI:withEndpoint(endpoint)if type(endpoint)~="table"or getmetatable(endpoint)~=URI then error("nupp: URI endpoint must be an io.URI",2)end;return changed(C.nuppUriWithEndpoint(self._handle,endpoint._handle))end
-local function compose(c)if type(c)~="table"then return nil,"nupp: io.newURI needs absolute text or URI components"end;if type(c.scheme)~="string"or c.scheme==""then return nil,"nupp: URI components need a non-empty scheme"end;for _,name in ipairs({"userInfo","host","path","query","fragment"})do if c[name]~=nil and type(c[name])~="string"then return nil,"nupp: URI component "..name.." must be a string or nil"end end;if c.port~=nil and(type(c.port)~="number"or c.port~=math.floor(c.port)or c.port<0 or c.port>65535)then return nil,"nupp: URI component port must be an integer from 0 through 65535 or nil"end;local out=c.scheme..":";if c.host or c.userInfo or c.port then out=out.."//";if c.userInfo then out=out..c.userInfo.."@"end;out=out..(c.host or"");if c.port then out=out..":"..c.port end end;out=out..(c.path or"");if c.query then out=out.."?"..c.query end;if c.fragment then out=out.."#"..c.fragment end;return out end
-__nuppIO.newURI=function(value)local text,problem;if type(value)=="string"then text=value else text,problem=compose(value);if not text then return nil,problem end end;return wrap(C.nuppUriParse(text,#text))end
-__nuppIO.validate=function(text)if type(text)~="string"then return false,"nupp: io.validate needs a string"end;local handle=C.nuppUriParse(text,#text);if handle==nil then return false,native.error()end;C.nuppUriDestroy(handle);return true end
-__nuppIO.isURI=function(value)return type(value)=="table"and getmetatable(value)==URI end
+local function compose(c)if type(c)~="table"then return nil,"nupp: io.URI.new needs absolute text or URI components"end;if type(c.scheme)~="string"or c.scheme==""then return nil,"nupp: URI components need a non-empty scheme"end;for _,name in ipairs({"userInfo","host","path","query","fragment"})do if c[name]~=nil and type(c[name])~="string"then return nil,"nupp: URI component "..name.." must be a string or nil"end end;if c.port~=nil and(type(c.port)~="number"or c.port~=math.floor(c.port)or c.port<0 or c.port>65535)then return nil,"nupp: URI component port must be an integer from 0 through 65535 or nil"end;local out=c.scheme..":";if c.host or c.userInfo or c.port then out=out.."//";if c.userInfo then out=out..c.userInfo.."@"end;out=out..(c.host or"");if c.port then out=out..":"..c.port end end;out=out..(c.path or"");if c.query then out=out.."?"..c.query end;if c.fragment then out=out.."#"..c.fragment end;return out end
+URI.new=function(value)local text,problem;if type(value)=="string"then text=value else text,problem=compose(value);if not text then return nil,problem end end;return wrap(C.nuppUriParse(text,#text))end
+URI.validate=function(text)if type(text)~="string"then return false,"nupp: io.URI.validate needs a string"end;local handle=C.nuppUriParse(text,#text);if handle==nil then return false,native.error()end;C.nuppUriDestroy(handle);return true end
+URI.isURI=function(value)return type(value)=="table"and getmetatable(value)==URI end
+__nuppIO.URI=URI
 return __nuppIO end
-for _,__name in ipairs({"newURI","validate","isURI"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallURI();return rawget(__nuppIO,name)end)end
+__nuppLazy(__nuppIO,"URI",function()__nuppInstallURI();return rawget(__nuppIO,"URI")end)
 ]=]
 )
 
@@ -82540,6 +82794,8 @@ return backend end
 
 
 
+
+
 local LOG = compact (
 [=[
 local __nuppLog=rawget(__nupp,"log")or{};rawset(__nupp,"log",__nuppLog)
@@ -82684,8 +82940,11 @@ out [ # out + 1 ] = DERIVES
 end
 local hasNative = effects [
 "native.path"
-] or effects [ "native.uri" ] or effects [ "native.uuid" ] or effects [ "native.sha256" ]
-or effects [ "native.files" ] or effects [ "native.process" ] or effects [ "native.http" ]
+] or effects [
+"native.uri"
+] or effects [
+"native.uuid"
+] or effects [ "native.sha256" ] or effects [ "native.files" ] or effects [ "native.process" ] or effects [ "native.http" ]
 if hasNative then
 out [ # out + 1 ] = nativeRuntime ( effects )
 end
@@ -82712,6 +82971,7 @@ out [ # out + 1 ] = SHA256
 end
 
 local code = table . concat ( out , " " )
+
 return code : sub ( - 1 ) == ";" and code or code .. ";"
 end
 
@@ -86056,7 +86316,7 @@ return heap
 
 end
 package.preload["nupp.io.http"] = function(...)
-const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppInstallIO()local ffi=require("ffi");local Buffer,View,Reader,Writer={},{},{},{};Buffer.__index=Buffer;View.__index=View;Reader.__index=Reader;Writer.__index=Writer local __nuppBytes=ffi.typeof("uint8_t[?]");local SMALLEST=32 local function integer(value,what,level)if type(value)~="number"or value~=math.floor(value)or value<0 then error("nupp: "..what.." must be a non-negative integer",level)end;return value end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: "..what.." must be an integer",level)end;return value end local function opened(self,what,level)if self._closed then error("nupp: "..what.." is closed",level)end end local function range(length,offset,count,what,level)offset=integer(offset or 0,what.." offset",level);if offset>length then error("nupp: "..what.." offset is past the end",level)end;count=integer(count==nil and length-offset or count,what.." count",level);if offset+count>length then error("nupp: "..what.." range is past the end",level)end;return offset,count end local function reserve(self,minimum)if minimum<=self._capacity then return end;local capacity=self._capacity*2;if capacity<minimum then capacity=minimum end;if capacity<SMALLEST then capacity=SMALLEST end;local data=__nuppBytes(capacity);if self._length>0 then ffi.copy(data,self._data,self._length)end;self._data=data;self._capacity=capacity end local function bytesAt(self,offset,count)if count==0 then return""end;return ffi.string(self._data+offset,count)end function View:length()opened(self,"io.ByteView",2);return #self._bytes end;function View:getString()opened(self,"io.ByteView",2);return self._bytes end;function View:newReader()opened(self,"io.ByteView",2);return setmetatable({_bytes=self._bytes,_at=1,_closed=false},Reader)end;function View:view(offset,count)opened(self,"io.ByteView",2);offset,count=range(#self._bytes,offset,count,"io.ByteView",2);return setmetatable({_bytes=self._bytes:sub(offset+1,offset+count),_closed=false},View)end;function View:isReleased()return self._closed end;function View:close()self._closed=true;self._bytes="";return true end function Buffer:length()opened(self,"io.Buffer",2);return self._length end;function Buffer:capacity()opened(self,"io.Buffer",2);return self._capacity end;function Buffer:clear()opened(self,"io.Buffer",2);self._length=0 end;function Buffer:ensureCapacity(minimum)opened(self,"io.Buffer",2);reserve(self,integer(minimum,"io.Buffer capacity",2))end function Buffer:resize(length)opened(self,"io.Buffer",2);length=integer(length,"io.Buffer length",2);if length>self._length then reserve(self,length);ffi.fill(self._data+self._length,length-self._length,0)end;self._length=length end function Buffer:getString(offset,count)opened(self,"io.Buffer",2);offset,count=range(self._length,offset,count,"io.Buffer",2);return bytesAt(self,offset,count)end function Buffer:setString(bytes,offset)opened(self,"io.Buffer",2);if type(bytes)~="string"then error("nupp: io.Buffer bytes must be a string",2)end;offset=integer(offset or 0,"io.Buffer offset",2);local ending=offset+#bytes;reserve(self,ending);if offset>self._length then ffi.fill(self._data+self._length,offset-self._length,0)end;if #bytes>0 then ffi.copy(self._data+offset,bytes,#bytes)end;if ending>self._length then self._length=ending end end function Buffer:view(offset,count)opened(self,"io.Buffer",2);offset,count=range(self._length,offset,count,"io.Buffer",2);return setmetatable({_bytes=bytesAt(self,offset,count),_closed=false},View)end;function Buffer:isReleased()return self._closed end;function Buffer:close()self._closed=true;self._data=nil;self._length=0;self._capacity=0;return true end function Reader:read(count)if self._closed then return nil,"the reader is closed"end;count=whole(count,"Reader:read count",2);if self._at>#self._bytes then return ""end;local taking=math.min(math.max(1,count),#self._bytes-self._at+1);local out=self._bytes:sub(self._at,self._at+taking-1);self._at=self._at+taking;return out end function Reader:readInto(destination,offset,count)if self._closed then return nil,"the reader is closed"end;offset=integer(offset or 0,"Reader:readInto offset",2);count=integer(count or 65536,"Reader:readInto count",2);if self._at>#self._bytes or count==0 then return 0 end;local taking=math.min(count,#self._bytes-self._at+1);destination:setString(self._bytes:sub(self._at,self._at+taking-1),offset);self._at=self._at+taking;return taking end function Reader:transferTo(destination)if self._closed then return nil,"the reader is closed"end;local remaining=self._bytes:sub(self._at);local ok,reason=destination:write(remaining);if not ok then return nil,reason end;self._at=#self._bytes+1;return #remaining end;function Reader:close()self._closed=true;self._bytes="";return true end local function slice(source,offset,count,what)offset,count=range(source:length(),offset,count,what,3);return source:getString(offset,count),count end function Writer:write(bytes)if self._closed then return false,"the writer is closed"end;if self._buffer:isReleased()then return false,"the destination buffer is closed"end;self._buffer:setString(bytes,self._at);self._at=self._at+#bytes;return true end function Writer:writeFrom(source,offset,count)if self._closed then return nil,"the writer is closed"end;if source==self._buffer then return nil,"cannot write a buffer into itself"end;local bytes,n=slice(source,offset,count,"io.Buffer");local ok,reason=self:write(bytes);if not ok then return nil,reason end;return n end function Writer:writeView(source,offset,count)if self._closed then return nil,"the writer is closed"end;offset,count=range(source:length(),offset,count,"io.ByteView",2);local ok,reason=self:write(source:getString():sub(offset+1,offset+count));if not ok then return nil,reason end;return count end;function Writer:flush()if self._closed then return false,"the writer is closed"end;return true end;function Writer:close()self._closed=true;return not self._buffer:isReleased(),self._buffer:isReleased()and"the destination buffer is closed"or nil end function Buffer:newReader()opened(self,"io.Buffer",2);return setmetatable({_bytes=bytesAt(self,0,self._length),_at=1,_closed=false},Reader)end;function Buffer:newWriter()opened(self,"io.Buffer",2);self:clear();return setmetatable({_buffer=self,_at=0,_closed=false},Writer)end local function newBuffer(initial)if initial~=nil and type(initial)~="number"and type(initial)~="string"then error("nupp: io.newBuffer initial value must be bytes or a capacity",2)end;local bytes=type(initial)=="string"and initial or"";local capacity=type(initial)=="number"and integer(initial,"io.newBuffer capacity",2)or#bytes;local self=setmetatable({_data=capacity>0 and __nuppBytes(capacity)or nil,_length=0,_capacity=capacity,_closed=false},Buffer);if#bytes>0 then ffi.copy(self._data,bytes,#bytes);self._length=#bytes end;return self end local ByteQueue,ScalarReader,ScalarWriter={},{},{};ByteQueue.__index=ByteQueue;ScalarReader.__index=ScalarReader;ScalarWriter.__index=ScalarWriter function ByteQueue:read(count)if self._closed then return nil,"the reader is closed"end;count=whole(count,"Reader:read count",2);local have=#self._source;if have==0 then return""end;return self._source:get(math.min(math.max(1,count),have))end function ByteQueue:readInto(destination,offset,count)if self._closed then return nil,"the reader is closed"end;offset=integer(offset or 0,"Reader:readInto offset",2);count=integer(count or 65536,"Reader:readInto count",2);local have=#self._source;if have==0 or count==0 then return 0 end;local taking=math.min(count,have);destination:setString(self._source:get(taking),offset);return taking end function ByteQueue:transferTo(destination)if self._closed then return nil,"the reader is closed"end;local rest=self._source:get();local ok,reason=destination:write(rest);if not ok then return nil,reason end;return #rest end function ByteQueue:close()self._closed=true;self._source=nil;return true end local function fill(self,need)local failure;if self._reader then while #self._pending<need do local chunk,reason=self._reader:read(need-#self._pending);if chunk==nil then failure=reason;break end;if chunk==""then break end;self._pending=self._pending..chunk end elseif self._queue then local want=need-#self._pending;local have=want>0 and #self._queue or 0;if have>0 then self._pending=self._pending..self._queue:get(math.min(want,have))end end;return #self._pending,failure end local function taken(self,need)if self._closed then error("nupp: io.ScalarReader is closed",3)end;local have,failure=fill(self,need);if failure then error("nupp: io.ScalarReader source failed: "..tostring(failure),3)end;if have<need then error(("nupp: io.ScalarReader needs %d bytes, has %d"):format(need,have),3)end;local out=self._pending:sub(1,need);self._pending=self._pending:sub(need+1);return out end function ScalarReader:remaining()if self._closed then error("nupp: io.ScalarReader is closed",2)end;if self._reader then return nil end;if self._queue then return #self._pending+#self._queue end;return #self._pending end function ScalarReader:atEnd()if self._closed then error("nupp: io.ScalarReader is closed",2)end;local have,failure=fill(self,1);if failure then error("nupp: io.ScalarReader source failed: "..tostring(failure),2)end;return have<1 end function ScalarReader:skip(count)taken(self,integer(count,"io.ScalarReader count",2));return self end function ScalarReader:readBytes(count)return taken(self,integer(count,"io.ScalarReader count",2))end function ScalarReader:close()self._closed=true;self._pending="";self._queue=nil;local reader=self._reader;self._reader=nil;if reader then return reader:close()end;return true end local function scalarRead(ctype,size)local pointer=ffi.typeof(ctype);return function(self)local raw=taken(self,size);return ffi.cast(pointer,raw)[0]end end ScalarReader.readUint8=scalarRead("uint8_t*",1);ScalarReader.readInt8=scalarRead("int8_t*",1);ScalarReader.readUint16=scalarRead("uint16_t*",2);ScalarReader.readInt16=scalarRead("int16_t*",2);ScalarReader.readUint32=scalarRead("uint32_t*",4);ScalarReader.readInt32=scalarRead("int32_t*",4);ScalarReader.readUint64=scalarRead("uint64_t*",8);ScalarReader.readInt64=scalarRead("int64_t*",8);ScalarReader.readFloat32=scalarRead("float*",4);ScalarReader.readFloat64=scalarRead("double*",8) local function put(self,bytes)if self._closed then error("nupp: io.ScalarWriter is closed",3)end;if self._buffer then self._buffer:setString(bytes,self._buffer:length());return self end;local ok,reason=self._writer:write(bytes);if not ok then error("nupp: io.ScalarWriter destination failed: "..tostring(reason),3)end;return self end function ScalarWriter:writeBytes(bytes)if type(bytes)~="string"then error("nupp: io.ScalarWriter bytes must be a string",2)end;return put(self,bytes)end function ScalarWriter:buffer()return self._buffer end function ScalarWriter:flush()if self._closed then return false,"the writer is closed"end;if self._writer then return self._writer:flush()end;return true end function ScalarWriter:close()self._closed=true;local writer=self._writer;self._writer=nil;if writer then return writer:close()end;return true end local function scalarWrite(ctype,size)local holder=ffi.new(ctype);return function(self,value)holder[0]=value;return put(self,ffi.string(holder,size))end end ScalarWriter.writeUint8=scalarWrite("uint8_t[1]",1);ScalarWriter.writeInt8=scalarWrite("int8_t[1]",1);ScalarWriter.writeUint16=scalarWrite("uint16_t[1]",2);ScalarWriter.writeInt16=scalarWrite("int16_t[1]",2);ScalarWriter.writeUint32=scalarWrite("uint32_t[1]",4);ScalarWriter.writeInt32=scalarWrite("int32_t[1]",4);ScalarWriter.writeUint64=scalarWrite("uint64_t[1]",8);ScalarWriter.writeInt64=scalarWrite("int64_t[1]",8);ScalarWriter.writeFloat32=scalarWrite("float[1]",4);ScalarWriter.writeFloat64=scalarWrite("double[1]",8) local BADSOURCE="nupp: io.newScalarReader needs bytes, a snapshot, a buffer, a reader or a byte queue" local function queueLike(value)local kind=type(value);if kind=="table"then return value.get~=nil end;if kind~="userdata"and kind~="cdata"then return false end;local ok,getter=pcall(function()return value.get end);return ok and getter~=nil end local function newQueueReader(source)if not queueLike(source)then error("nupp: io.newQueueReader needs a byte queue",2)end;return setmetatable({_source=source,_closed=false},ByteQueue)end local function newScalarReader(source)local self=setmetatable({_pending="",_closed=false},ScalarReader);local kind=type(source);if kind=="string"then self._pending=source elseif kind=="table"and source.read~=nil then self._reader=source elseif kind=="table"and source.getString~=nil then self._pending=source:getString()elseif queueLike(source)then self._queue=source else error(BADSOURCE,2)end;return self end local function newScalarWriter(destination)local self=setmetatable({_closed=false},ScalarWriter);if destination==nil then self._buffer=newBuffer()elseif type(destination)=="table"and destination.write~=nil then self._writer=destination elseif type(destination)=="table"and destination.setString~=nil then self._buffer=destination else error("nupp: io.newScalarWriter needs a buffer, a writer, or nothing",2)end;return self end __nuppIO.newBuffer=newBuffer;__nuppIO.newQueueReader=newQueueReader;__nuppIO.newScalarReader=newScalarReader;__nuppIO.newScalarWriter=newScalarWriter;__nuppIO.newStringReader=function(text)if type(text)~="string"then error("nupp: io.newStringReader needs a string",2)end;return setmetatable({_bytes=text,_at=1,_closed=false},Reader)end;return __nuppIO end for _,__name in ipairs({"newBuffer","newQueueReader","newScalarReader","newScalarWriter","newStringReader"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallIO();return rawget(__nuppIO,name)end)end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppUri NuppUri;NuppUri*nuppUriParse(const uint8_t*,size_t);const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);bool nuppUriPort(const NuppUri*,uint16_t*);NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);NuppUri*nuppUriWithPort(const NuppUri*,int32_t);NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);void nuppUriDestroy(NuppUri*);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;__nuppNativeValue={ffi=ffi,C=C,error=errorText};return __nuppNativeValue end local function __nuppInstallURI() local native=__nuppNative();local ffi,C=native.ffi,native.C;local URI={};URI.__index=URI;URI.__tostring=function(self)return self:toString()end;URI.__eq=function(a,b)return a:toString()==b:toString()end local function wrap(handle)if handle==nil then return nil,native.error()end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end local function changed(handle)if handle==nil then error("nupp: cannot modify URI: "..native.error(),3)end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end local function part(self,kind)local length=ffi.new("size_t[1]");local data=C.nuppUriPart(self._handle,kind,length);if data==nil then return nil end;return ffi.string(data,tonumber(length[0]))end function URI:toString()return part(self,0)end;function URI:scheme()return part(self,1)end;function URI:authority()return part(self,2)end;function URI:username()return part(self,3)end;function URI:password()return part(self,4)end;function URI:host()return part(self,5)end;function URI:path()return part(self,6)end;function URI:query()return part(self,7)end;function URI:fragment()return part(self,8)end function URI:userInfo()local username=self:username();local password=self:password();if username==""and password==nil then return nil end;return password and(username..":"..password)or username end function URI:port()local value=ffi.new("uint16_t[1]");return C.nuppUriPort(self._handle,value)and tonumber(value[0])or nil end local function required(value,what)if type(value)~="string"then error("nupp: "..what.." needs a string",3)end;return value end local kinds={withScheme={0,"scheme",true},withUserInfo={1,"userInfo"},withHost={2,"host"},withPath={3,"path",true},withQuery={4,"query"},withFragment={5,"fragment"}};for name,spec in pairs(kinds)do URI[name]=function(self,value)if spec[3]then value=required(value,"URI "..spec[2])elseif value~=nil then value=required(value,"URI "..spec[2])end;if value==self[spec[2]](self)then return self end;return changed(C.nuppUriWithText(self._handle,spec[1],value or"",value and#value or 0,value~=nil))end end function URI:withPort(port)if port~=nil and(type(port)~="number"or port~=math.floor(port)or port<0 or port>65535)then error("nupp: URI port must be an integer from 0 through 65535 or nil",2)end;if port==self:port()then return self end;return changed(C.nuppUriWithPort(self._handle,port or-1))end function URI:concatPath(path)path=required(path,"URI path");if path==""then return self end;return changed(C.nuppUriConcatPath(self._handle,path,#path))end function URI:resolve(reference)if type(reference)~="string"then return nil,"nupp: URI reference needs a string"end;return wrap(C.nuppUriResolve(self._handle,reference,#reference))end function URI:withEndpoint(endpoint)if type(endpoint)~="table"or getmetatable(endpoint)~=URI then error("nupp: URI endpoint must be an io.URI",2)end;return changed(C.nuppUriWithEndpoint(self._handle,endpoint._handle))end local function compose(c)if type(c)~="table"then return nil,"nupp: io.newURI needs absolute text or URI components"end;if type(c.scheme)~="string"or c.scheme==""then return nil,"nupp: URI components need a non-empty scheme"end;for _,name in ipairs({"userInfo","host","path","query","fragment"})do if c[name]~=nil and type(c[name])~="string"then return nil,"nupp: URI component "..name.." must be a string or nil"end end;if c.port~=nil and(type(c.port)~="number"or c.port~=math.floor(c.port)or c.port<0 or c.port>65535)then return nil,"nupp: URI component port must be an integer from 0 through 65535 or nil"end;local out=c.scheme..":";if c.host or c.userInfo or c.port then out=out.."//";if c.userInfo then out=out..c.userInfo.."@"end;out=out..(c.host or"");if c.port then out=out..":"..c.port end end;out=out..(c.path or"");if c.query then out=out.."?"..c.query end;if c.fragment then out=out.."#"..c.fragment end;return out end __nuppIO.newURI=function(value)local text,problem;if type(value)=="string"then text=value else text,problem=compose(value);if not text then return nil,problem end end;return wrap(C.nuppUriParse(text,#text))end __nuppIO.validate=function(text)if type(text)~="string"then return false,"nupp: io.validate needs a string"end;local handle=C.nuppUriParse(text,#text);if handle==nil then return false,native.error()end;C.nuppUriDestroy(handle);return true end __nuppIO.isURI=function(value)return type(value)=="table"and getmetatable(value)==URI end return __nuppIO end for _,__name in ipairs({"newURI","validate","isURI"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallURI();return rawget(__nuppIO,name)end)end;local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppT75;__nuppT75=function(value) local cleanup=__nuppCleanups["nupp.io.http#destroyBody@13910"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io.http#destroyBody@13910") end;__nuppT75=cleanup;return cleanup(value) end;const __nuppCleanup1 = function(__nuppV) return __nuppV:close() end; const __nuppCleanup2 = function(__nuppV) return __nuppV:__drop() end; 
+const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppInstallIO()local ffi=require("ffi");local Buffer,View,Reader,Writer={},{},{},{};Buffer.__index=Buffer;View.__index=View;Reader.__index=Reader;Writer.__index=Writer local __nuppBytes=ffi.typeof("uint8_t[?]");local SMALLEST=32 local function integer(value,what,level)if type(value)~="number"or value~=math.floor(value)or value<0 then error("nupp: "..what.." must be a non-negative integer",level)end;return value end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: "..what.." must be an integer",level)end;return value end local function opened(self,what,level)if self._closed then error("nupp: "..what.." is closed",level)end end local function range(length,offset,count,what,level)offset=integer(offset or 0,what.." offset",level);if offset>length then error("nupp: "..what.." offset is past the end",level)end;count=integer(count==nil and length-offset or count,what.." count",level);if offset+count>length then error("nupp: "..what.." range is past the end",level)end;return offset,count end local function reserve(self,minimum)if minimum<=self._capacity then return end;local capacity=self._capacity*2;if capacity<minimum then capacity=minimum end;if capacity<SMALLEST then capacity=SMALLEST end;local data=__nuppBytes(capacity);if self._length>0 then ffi.copy(data,self._data,self._length)end;self._data=data;self._capacity=capacity end local function bytesAt(self,offset,count)if count==0 then return""end;return ffi.string(self._data+offset,count)end function View:length()opened(self,"io.ByteView",2);return #self._bytes end;function View:getString()opened(self,"io.ByteView",2);return self._bytes end;function View:newReader()opened(self,"io.ByteView",2);return setmetatable({_bytes=self._bytes,_at=1,_closed=false},Reader)end;function View:view(offset,count)opened(self,"io.ByteView",2);offset,count=range(#self._bytes,offset,count,"io.ByteView",2);return setmetatable({_bytes=self._bytes:sub(offset+1,offset+count),_closed=false},View)end;function View:isReleased()return self._closed end;function View:close()self._closed=true;self._bytes="";return true end function Buffer:length()opened(self,"io.Buffer",2);return self._length end;function Buffer:capacity()opened(self,"io.Buffer",2);return self._capacity end;function Buffer:clear()opened(self,"io.Buffer",2);self._length=0 end;function Buffer:ensureCapacity(minimum)opened(self,"io.Buffer",2);reserve(self,integer(minimum,"io.Buffer capacity",2))end function Buffer:resize(length)opened(self,"io.Buffer",2);length=integer(length,"io.Buffer length",2);if length>self._length then reserve(self,length);ffi.fill(self._data+self._length,length-self._length,0)end;self._length=length end function Buffer:getString(offset,count)opened(self,"io.Buffer",2);offset,count=range(self._length,offset,count,"io.Buffer",2);return bytesAt(self,offset,count)end function Buffer:setString(bytes,offset)opened(self,"io.Buffer",2);if type(bytes)~="string"then error("nupp: io.Buffer bytes must be a string",2)end;offset=integer(offset or 0,"io.Buffer offset",2);local ending=offset+#bytes;reserve(self,ending);if offset>self._length then ffi.fill(self._data+self._length,offset-self._length,0)end;if #bytes>0 then ffi.copy(self._data+offset,bytes,#bytes)end;if ending>self._length then self._length=ending end end function Buffer:view(offset,count)opened(self,"io.Buffer",2);offset,count=range(self._length,offset,count,"io.Buffer",2);return setmetatable({_bytes=bytesAt(self,offset,count),_closed=false},View)end;function Buffer:isReleased()return self._closed end;function Buffer:close()self._closed=true;self._data=nil;self._length=0;self._capacity=0;return true end function Reader:read(count)if self._closed then return nil,"the reader is closed"end;count=whole(count,"Reader:read count",2);if self._at>#self._bytes then return ""end;local taking=math.min(math.max(1,count),#self._bytes-self._at+1);local out=self._bytes:sub(self._at,self._at+taking-1);self._at=self._at+taking;return out end function Reader:readInto(destination,offset,count)if self._closed then return nil,"the reader is closed"end;offset=integer(offset or 0,"Reader:readInto offset",2);count=integer(count or 65536,"Reader:readInto count",2);if self._at>#self._bytes or count==0 then return 0 end;local taking=math.min(count,#self._bytes-self._at+1);destination:setString(self._bytes:sub(self._at,self._at+taking-1),offset);self._at=self._at+taking;return taking end function Reader:transferTo(destination)if self._closed then return nil,"the reader is closed"end;local remaining=self._bytes:sub(self._at);local ok,reason=destination:write(remaining);if not ok then return nil,reason end;self._at=#self._bytes+1;return #remaining end;function Reader:close()self._closed=true;self._bytes="";return true end local function slice(source,offset,count,what)offset,count=range(source:length(),offset,count,what,3);return source:getString(offset,count),count end function Writer:write(bytes)if self._closed then return false,"the writer is closed"end;if self._buffer:isReleased()then return false,"the destination buffer is closed"end;self._buffer:setString(bytes,self._at);self._at=self._at+#bytes;return true end function Writer:writeFrom(source,offset,count)if self._closed then return nil,"the writer is closed"end;if source==self._buffer then return nil,"cannot write a buffer into itself"end;local bytes,n=slice(source,offset,count,"io.Buffer");local ok,reason=self:write(bytes);if not ok then return nil,reason end;return n end function Writer:writeView(source,offset,count)if self._closed then return nil,"the writer is closed"end;offset,count=range(source:length(),offset,count,"io.ByteView",2);local ok,reason=self:write(source:getString():sub(offset+1,offset+count));if not ok then return nil,reason end;return count end;function Writer:flush()if self._closed then return false,"the writer is closed"end;return true end;function Writer:close()self._closed=true;return not self._buffer:isReleased(),self._buffer:isReleased()and"the destination buffer is closed"or nil end function Buffer:newReader()opened(self,"io.Buffer",2);return setmetatable({_bytes=bytesAt(self,0,self._length),_at=1,_closed=false},Reader)end;function Buffer:newWriter()opened(self,"io.Buffer",2);self:clear();return setmetatable({_buffer=self,_at=0,_closed=false},Writer)end local function newBuffer(initial)if initial~=nil and type(initial)~="number"and type(initial)~="string"then error("nupp: io.newBuffer initial value must be bytes or a capacity",2)end;local bytes=type(initial)=="string"and initial or"";local capacity=type(initial)=="number"and integer(initial,"io.newBuffer capacity",2)or#bytes;local self=setmetatable({_data=capacity>0 and __nuppBytes(capacity)or nil,_length=0,_capacity=capacity,_closed=false},Buffer);if#bytes>0 then ffi.copy(self._data,bytes,#bytes);self._length=#bytes end;return self end local ByteQueue,ScalarReader,ScalarWriter={},{},{};ByteQueue.__index=ByteQueue;ScalarReader.__index=ScalarReader;ScalarWriter.__index=ScalarWriter function ByteQueue:read(count)if self._closed then return nil,"the reader is closed"end;count=whole(count,"Reader:read count",2);local have=#self._source;if have==0 then return""end;return self._source:get(math.min(math.max(1,count),have))end function ByteQueue:readInto(destination,offset,count)if self._closed then return nil,"the reader is closed"end;offset=integer(offset or 0,"Reader:readInto offset",2);count=integer(count or 65536,"Reader:readInto count",2);local have=#self._source;if have==0 or count==0 then return 0 end;local taking=math.min(count,have);destination:setString(self._source:get(taking),offset);return taking end function ByteQueue:transferTo(destination)if self._closed then return nil,"the reader is closed"end;local rest=self._source:get();local ok,reason=destination:write(rest);if not ok then return nil,reason end;return #rest end function ByteQueue:close()self._closed=true;self._source=nil;return true end local function fill(self,need)local failure;if self._reader then while #self._pending<need do local chunk,reason=self._reader:read(need-#self._pending);if chunk==nil then failure=reason;break end;if chunk==""then break end;self._pending=self._pending..chunk end elseif self._queue then local want=need-#self._pending;local have=want>0 and #self._queue or 0;if have>0 then self._pending=self._pending..self._queue:get(math.min(want,have))end end;return #self._pending,failure end local function taken(self,need)if self._closed then error("nupp: io.ScalarReader is closed",3)end;local have,failure=fill(self,need);if failure then error("nupp: io.ScalarReader source failed: "..tostring(failure),3)end;if have<need then error(("nupp: io.ScalarReader needs %d bytes, has %d"):format(need,have),3)end;local out=self._pending:sub(1,need);self._pending=self._pending:sub(need+1);return out end function ScalarReader:remaining()if self._closed then error("nupp: io.ScalarReader is closed",2)end;if self._reader then return nil end;if self._queue then return #self._pending+#self._queue end;return #self._pending end function ScalarReader:atEnd()if self._closed then error("nupp: io.ScalarReader is closed",2)end;local have,failure=fill(self,1);if failure then error("nupp: io.ScalarReader source failed: "..tostring(failure),2)end;return have<1 end function ScalarReader:skip(count)taken(self,integer(count,"io.ScalarReader count",2));return self end function ScalarReader:readBytes(count)return taken(self,integer(count,"io.ScalarReader count",2))end function ScalarReader:close()self._closed=true;self._pending="";self._queue=nil;local reader=self._reader;self._reader=nil;if reader then return reader:close()end;return true end local function scalarRead(ctype,size)local pointer=ffi.typeof(ctype);return function(self)local raw=taken(self,size);return ffi.cast(pointer,raw)[0]end end ScalarReader.readUint8=scalarRead("uint8_t*",1);ScalarReader.readInt8=scalarRead("int8_t*",1);ScalarReader.readUint16=scalarRead("uint16_t*",2);ScalarReader.readInt16=scalarRead("int16_t*",2);ScalarReader.readUint32=scalarRead("uint32_t*",4);ScalarReader.readInt32=scalarRead("int32_t*",4);ScalarReader.readUint64=scalarRead("uint64_t*",8);ScalarReader.readInt64=scalarRead("int64_t*",8);ScalarReader.readFloat32=scalarRead("float*",4);ScalarReader.readFloat64=scalarRead("double*",8) local function put(self,bytes)if self._closed then error("nupp: io.ScalarWriter is closed",3)end;if self._buffer then self._buffer:setString(bytes,self._buffer:length());return self end;local ok,reason=self._writer:write(bytes);if not ok then error("nupp: io.ScalarWriter destination failed: "..tostring(reason),3)end;return self end function ScalarWriter:writeBytes(bytes)if type(bytes)~="string"then error("nupp: io.ScalarWriter bytes must be a string",2)end;return put(self,bytes)end function ScalarWriter:buffer()return self._buffer end function ScalarWriter:flush()if self._closed then return false,"the writer is closed"end;if self._writer then return self._writer:flush()end;return true end function ScalarWriter:close()self._closed=true;local writer=self._writer;self._writer=nil;if writer then return writer:close()end;return true end local function scalarWrite(ctype,size)local holder=ffi.new(ctype);return function(self,value)holder[0]=value;return put(self,ffi.string(holder,size))end end ScalarWriter.writeUint8=scalarWrite("uint8_t[1]",1);ScalarWriter.writeInt8=scalarWrite("int8_t[1]",1);ScalarWriter.writeUint16=scalarWrite("uint16_t[1]",2);ScalarWriter.writeInt16=scalarWrite("int16_t[1]",2);ScalarWriter.writeUint32=scalarWrite("uint32_t[1]",4);ScalarWriter.writeInt32=scalarWrite("int32_t[1]",4);ScalarWriter.writeUint64=scalarWrite("uint64_t[1]",8);ScalarWriter.writeInt64=scalarWrite("int64_t[1]",8);ScalarWriter.writeFloat32=scalarWrite("float[1]",4);ScalarWriter.writeFloat64=scalarWrite("double[1]",8) local BADSOURCE="nupp: io.newScalarReader needs bytes, a snapshot, a buffer, a reader or a byte queue" local function queueLike(value)local kind=type(value);if kind=="table"then return value.get~=nil end;if kind~="userdata"and kind~="cdata"then return false end;local ok,getter=pcall(function()return value.get end);return ok and getter~=nil end local function newQueueReader(source)if not queueLike(source)then error("nupp: io.newQueueReader needs a byte queue",2)end;return setmetatable({_source=source,_closed=false},ByteQueue)end local function newScalarReader(source)local self=setmetatable({_pending="",_closed=false},ScalarReader);local kind=type(source);if kind=="string"then self._pending=source elseif kind=="table"and source.read~=nil then self._reader=source elseif kind=="table"and source.getString~=nil then self._pending=source:getString()elseif queueLike(source)then self._queue=source else error(BADSOURCE,2)end;return self end local function newScalarWriter(destination)local self=setmetatable({_closed=false},ScalarWriter);if destination==nil then self._buffer=newBuffer()elseif type(destination)=="table"and destination.write~=nil then self._writer=destination elseif type(destination)=="table"and destination.setString~=nil then self._buffer=destination else error("nupp: io.newScalarWriter needs a buffer, a writer, or nothing",2)end;return self end __nuppIO.newBuffer=newBuffer;__nuppIO.newQueueReader=newQueueReader;__nuppIO.newScalarReader=newScalarReader;__nuppIO.newScalarWriter=newScalarWriter;__nuppIO.newStringReader=function(text)if type(text)~="string"then error("nupp: io.newStringReader needs a string",2)end;return setmetatable({_bytes=text,_at=1,_closed=false},Reader)end;return __nuppIO end for _,__name in ipairs({"newBuffer","newQueueReader","newScalarReader","newScalarWriter","newStringReader"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallIO();return rawget(__nuppIO,name)end)end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppUri NuppUri;NuppUri*nuppUriParse(const uint8_t*,size_t);const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);bool nuppUriPort(const NuppUri*,uint16_t*);NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);NuppUri*nuppUriWithPort(const NuppUri*,int32_t);NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);void nuppUriDestroy(NuppUri*);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;__nuppNativeValue={ffi=ffi,C=C,error=errorText};return __nuppNativeValue end local function __nuppInstallURI() local native=__nuppNative();local ffi,C=native.ffi,native.C;local URI={};URI.__index=URI;URI.__tostring=function(self)return self:toString()end;URI.__eq=function(a,b)return a:toString()==b:toString()end local function wrap(handle)if handle==nil then return nil,native.error()end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end local function changed(handle)if handle==nil then error("nupp: cannot modify URI: "..native.error(),3)end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end local function part(self,kind)local length=ffi.new("size_t[1]");local data=C.nuppUriPart(self._handle,kind,length);if data==nil then return nil end;return ffi.string(data,tonumber(length[0]))end function URI:toString()return part(self,0)end;function URI:scheme()return part(self,1)end;function URI:authority()return part(self,2)end;function URI:username()return part(self,3)end;function URI:password()return part(self,4)end;function URI:host()return part(self,5)end;function URI:path()return part(self,6)end;function URI:query()return part(self,7)end;function URI:fragment()return part(self,8)end function URI:userInfo()local username=self:username();local password=self:password();if username==""and password==nil then return nil end;return password and(username..":"..password)or username end function URI:port()local value=ffi.new("uint16_t[1]");return C.nuppUriPort(self._handle,value)and tonumber(value[0])or nil end local function required(value,what)if type(value)~="string"then error("nupp: "..what.." needs a string",3)end;return value end local kinds={withScheme={0,"scheme",true},withUserInfo={1,"userInfo"},withHost={2,"host"},withPath={3,"path",true},withQuery={4,"query"},withFragment={5,"fragment"}};for name,spec in pairs(kinds)do URI[name]=function(self,value)if spec[3]then value=required(value,"URI "..spec[2])elseif value~=nil then value=required(value,"URI "..spec[2])end;if value==self[spec[2]](self)then return self end;return changed(C.nuppUriWithText(self._handle,spec[1],value or"",value and#value or 0,value~=nil))end end function URI:withPort(port)if port~=nil and(type(port)~="number"or port~=math.floor(port)or port<0 or port>65535)then error("nupp: URI port must be an integer from 0 through 65535 or nil",2)end;if port==self:port()then return self end;return changed(C.nuppUriWithPort(self._handle,port or-1))end function URI:concatPath(path)path=required(path,"URI path");if path==""then return self end;return changed(C.nuppUriConcatPath(self._handle,path,#path))end function URI:resolve(reference)if type(reference)~="string"then return nil,"nupp: URI reference needs a string"end;return wrap(C.nuppUriResolve(self._handle,reference,#reference))end function URI:withEndpoint(endpoint)if type(endpoint)~="table"or getmetatable(endpoint)~=URI then error("nupp: URI endpoint must be an io.URI",2)end;return changed(C.nuppUriWithEndpoint(self._handle,endpoint._handle))end local function compose(c)if type(c)~="table"then return nil,"nupp: io.URI.new needs absolute text or URI components"end;if type(c.scheme)~="string"or c.scheme==""then return nil,"nupp: URI components need a non-empty scheme"end;for _,name in ipairs({"userInfo","host","path","query","fragment"})do if c[name]~=nil and type(c[name])~="string"then return nil,"nupp: URI component "..name.." must be a string or nil"end end;if c.port~=nil and(type(c.port)~="number"or c.port~=math.floor(c.port)or c.port<0 or c.port>65535)then return nil,"nupp: URI component port must be an integer from 0 through 65535 or nil"end;local out=c.scheme..":";if c.host or c.userInfo or c.port then out=out.."//";if c.userInfo then out=out..c.userInfo.."@"end;out=out..(c.host or"");if c.port then out=out..":"..c.port end end;out=out..(c.path or"");if c.query then out=out.."?"..c.query end;if c.fragment then out=out.."#"..c.fragment end;return out end URI.new=function(value)local text,problem;if type(value)=="string"then text=value else text,problem=compose(value);if not text then return nil,problem end end;return wrap(C.nuppUriParse(text,#text))end URI.validate=function(text)if type(text)~="string"then return false,"nupp: io.URI.validate needs a string"end;local handle=C.nuppUriParse(text,#text);if handle==nil then return false,native.error()end;C.nuppUriDestroy(handle);return true end URI.isURI=function(value)return type(value)=="table"and getmetatable(value)==URI end __nuppIO.URI=URI return __nuppIO end __nuppLazy(__nuppIO,"URI",function()__nuppInstallURI();return rawget(__nuppIO,"URI")end);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppT75;__nuppT75=function(value) local cleanup=__nuppCleanups["nupp.io.http#destroyBody@13911"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io.http#destroyBody@13911") end;__nuppT75=cleanup;return cleanup(value) end;const __nuppCleanup1 = function(__nuppV) return __nuppV:close() end; const __nuppCleanup2 = function(__nuppV) return __nuppV:__drop() end; 
 
 
 
@@ -86149,7 +86409,7 @@ if text == "" or text : find ( "[/?#@*]" ) ~= nil then
 error ( "nupp: HTTP insecureHosts entries must be exact host names or IP literals" , level )
 end
 local spelling = text : sub ( - 1 ) == "." and text : sub ( 1 , - 2 ) or text
-local uri = nupp . io . newURI ( "https://" .. spelling .. "/" )
+local uri = nupp . io . URI . new ( "https://" .. spelling .. "/" )
 if uri == nil or uri : username ( ) ~= "" or uri : password ( ) ~= nil or uri : port ( ) ~= nil or uri : path ( ) ~= "/" then
 error ( "nupp: HTTP insecureHosts entries must not contain a scheme, port, path, or user information" , level )
 end
@@ -86463,9 +86723,9 @@ body . _closed = true
 local transfer = body . _transfer
 transfer : close ( )
 end
-end ;__nuppCleanups["nupp.io.http#destroyBody@13910"]=destroyBody
+end ;__nuppCleanups["nupp.io.http#destroyBody@13911"]=destroyBody
 
-__nuppCleanups["nupp.io.http#destroyBody@13910"]=destroyBody;
+__nuppCleanups["nupp.io.http#destroyBody@13911"]=destroyBody;
 local function makeBody ( client , transfer )
 return setmetatable({ _client =  client ,  _transfer =  transfer ,  _closed =  false ,  _reading =  false }, http.Body)
 end
@@ -86882,7 +87142,7 @@ if not bodyReady then
 transfer : close ( )
 return nil , bodyReason
 end
-local effective = head . url == nil and given . url or nupp . io . newURI ( head . url )
+local effective = head . url == nil and given . url or nupp . io . URI . new ( head . url )
 if effective == nil then
 transfer : close ( )
 return nil , "the HTTP provider returned an invalid effective URL"
@@ -92448,12 +92708,12 @@ local nupp: {
     --- Byte offset of one field under the build target's declared C ABI.
     offsetof: function(typeName: any, fieldName: string): integer,
 
-    --- Calls the static factory generated by `@derive(Default)`.
+    --- Calls the static factory generated by `@derive(nupp.derive.Default)`.
     default: function<T>(factory: {
         readonly default: function(): T
     }): T,
 
-    --- Converts through the static factory generated by `@derive(From)`.
+    --- Converts through the static factory generated by `@derive(nupp.derive.From)`.
     into: function<T, U>(value: T, factory: {
         readonly from: function(value: T): U
     }): U,
@@ -92499,6 +92759,34 @@ end
 
 --- Compiler-only builders available while an `@comptime` derive provider runs.
 record nupp.derive
+    --- A comptime-only provider symbol accepted by `@derive`.
+    record Provider
+    end
+
+    --- Compiler-shipped providers use the same recipe boundary as package providers.
+    Debug: Provider
+
+    Default: Provider
+    From: Provider
+    JSON: Provider
+
+    --- Semantic configuration visible to providers as `Info` annotations.
+    interface DefaultOptions
+        value: any
+    end
+
+    interface JSONOptions
+        unknown: ("reject" | "ignore")?
+        name: string?
+        omit: boolean?
+        omitEmpty: boolean?
+    end
+
+    interface DebugOptions
+        skip: boolean?
+        redact: boolean?
+    end
+
     --- An opaque reference which a provider may attach to a diagnostic.
     record Reference
     end
@@ -92545,7 +92833,10 @@ record nupp.derive
     record Result<I>
     end
 
+    --- Returns forwarding implementations. `methods` fills instance requirements and
+    --- `statics` fills static interface requirements.
     implement: function(specification: any): any
+
     error: function(message: string, reference: Reference?): any
     forward: function(specification: any): Forward
     helper: function(module: any, name: string): RuntimeHelper
@@ -92980,28 +93271,6 @@ record TypeInfo
     readonly fingerprint: string
 end
 
---- Internal typed schema for the compiler-owned @default annotation.
---- @internal
-interface nupp.__DefaultAnnotation
-    value: any
-end
-
---- Internal typed schema for the compiler-owned @json annotation.
---- @internal
-interface nupp.__JSONAnnotation
-    unknown: ("reject" | "ignore")?
-    name: string?
-    omit: boolean?
-    omitEmpty: boolean?
-end
-
---- Internal typed schema for the compiler-owned @debug annotation.
---- @internal
-interface nupp.__DebugAnnotation
-    skip: boolean?
-    redact: boolean?
-end
-
 --- Internal typed schema for the compiler-owned @deprecated annotation.
 --- @internal
 interface nupp.__DeprecatedAnnotation
@@ -93033,13 +93302,127 @@ end
 
 --- JSON, UTF-8, UUIDs, hashes and checksums.
 record nupp.data
-    --- Values that can encode themselves as JSON text.
-    interface JSONEncodable
-        toJSON: function(self): string
-    end
+    --- JSON encoding and decoding, and the values a Lua table cannot express by
+    --- itself.
+    --- @namespace
+    record json
+        --- Values that can encode themselves as JSON text.
+        interface JSONEncodable
+            toJSON: function(self): string
+        end
 
-    --- One independently configured JSON encoder and decoder.
-    interface JSON
+        --- One independently configured JSON encoder and decoder.
+        interface JSON
+            --- Encodes a Lua value as JSON text.
+            --- @param value the value to encode
+            --- @return the encoded JSON document
+            encodeJSON: function(value: any): string
+
+            --- Decodes one JSON document into Lua values.
+            --- @param text the JSON document to decode
+            --- @return the decoded value
+            decodeJSON: function(text: string): any
+
+            --- Sentinel that decodes from and encodes as JSON null.
+            NULL: any
+
+            --- Sentinel that always encodes as an empty JSON array.
+            EMPTY_ARRAY: any
+
+            --- Metatable marking a table to encode as a JSON array.
+            ARRAY_MT: metatable<{any}>
+
+            --- Metatable marking a table to encode as an empty JSON array.
+            EMPTY_ARRAY_MT: metatable<{any}>
+
+            --- Sets whether an empty table encodes as an object, or reads the current
+            --- setting when omitted.
+            --- @param setting true or "on" for `{}`, false or "off" for `[]`
+            --- @return whether empty tables encode as objects
+            encodeEmptyTableAsObject: function(setting: boolean | string?): boolean
+
+            --- Sets whether decoded arrays carry `ARRAY_MT`, or reads the current setting
+            --- when omitted.
+            --- @param setting the new setting
+            --- @return whether decoded arrays carry `ARRAY_MT`
+            decodeArrayWithArrayMt: function(setting: boolean | string?): boolean
+
+            --- Sets whether the decoder accepts comments, or reads the current setting
+            --- when omitted.
+            --- @param setting the new setting
+            --- @return whether comments are accepted
+            decodeAllowComment: function(setting: boolean | string?): boolean
+
+            --- Configures how excessively sparse arrays are encoded, or reads the current
+            --- settings when every argument is omitted.
+            --- @param convert whether sparse arrays become JSON objects instead of raising
+            --- @param ratio the maximum ratio between the highest index and item count
+            --- @param safe the array size below which sparsity is always accepted
+            --- @return whether sparse arrays are converted
+            --- @return the current ratio limit
+            --- @return the current safe size
+            encodeSparseArray: function(
+                convert: boolean?,
+                ratio: integer?,
+                safe: integer?
+            ): (boolean, integer, integer)
+
+            --- Sets the maximum nested-container depth accepted by the encoder, or reads
+            --- the current limit when omitted.
+            --- @param depth the new maximum depth
+            --- @return the current maximum depth
+            encodeMaxDepth: function(depth: integer?): integer
+
+            --- Sets the maximum nested-container depth accepted by the decoder, or reads
+            --- the current limit when omitted.
+            --- @param depth the new maximum depth
+            --- @return the current maximum depth
+            decodeMaxDepth: function(depth: integer?): integer
+
+            --- Sets the significant-digit precision used to encode numbers, or reads the
+            --- current precision when omitted.
+            --- @param precision the new number of significant digits
+            --- @return the current precision
+            encodeNumberPrecision: function(precision: integer?): integer
+
+            --- Sets whether the encoder reuses its internal buffer, or reads the current
+            --- setting when omitted.
+            --- @param keep the new setting
+            --- @return whether the internal buffer is retained
+            encodeKeepBuffer: function(keep: boolean | string?): boolean
+
+            --- Configures encoding of NaN and infinities, or reads the current setting
+            --- when omitted.
+            --- @param setting false to reject them, true to emit them, or "null" to emit
+            ---     null
+            --- @return the active invalid-number setting
+            encodeInvalidNumbers: function(setting: boolean | string?): boolean | string
+
+            --- Sets whether the decoder accepts NaN and infinities, or reads the current
+            --- setting when omitted.
+            --- @param setting the new setting
+            --- @return whether invalid numbers are accepted
+            decodeInvalidNumbers: function(setting: boolean | string?): boolean
+
+            --- Sets whether `/` is escaped in JSON strings, or reads the current setting
+            --- when omitted.
+            --- @param setting the new setting
+            --- @return whether forward slashes are escaped
+            encodeEscapeForwardSlash: function(setting: boolean | string?): boolean
+
+            --- Sets whether unsupported values are skipped instead of raising, or reads the
+            --- current setting when omitted.
+            --- @param setting the new setting
+            --- @return whether unsupported values are skipped
+            encodeSkipUnsupportedValueTypes: function(setting: boolean | string?): boolean
+
+            --- Sets the indentation used for encoded containers, or reads the current
+            --- indentation when omitted.
+            --- @param indent the indentation string
+            --- @return the current indentation string
+            encodeIndent: function(indent: string?): string
+        end
+
         --- Encodes a Lua value as JSON text.
         --- @param value the value to encode
         --- @return the encoded JSON document
@@ -93050,17 +93433,21 @@ record nupp.data
         --- @return the decoded value
         decodeJSON: function(text: string): any
 
+        --- Creates an independent JSON codec with its own settings.
+        --- @return the new codec
+        newJSON: function(): JSON
+
         --- Sentinel that decodes from and encodes as JSON null.
-        null: any
+        NULL: any
 
         --- Sentinel that always encodes as an empty JSON array.
-        emptyArray: any
+        EMPTY_ARRAY: any
 
         --- Metatable marking a table to encode as a JSON array.
-        arrayMt: metatable<{any}>
+        ARRAY_MT: metatable<{any}>
 
         --- Metatable marking a table to encode as an empty JSON array.
-        emptyArrayMt: metatable<{any}>
+        EMPTY_ARRAY_MT: metatable<{any}>
 
         --- Sets whether an empty table encodes as an object, or reads the current
         --- setting when omitted.
@@ -93068,10 +93455,10 @@ record nupp.data
         --- @return whether empty tables encode as objects
         encodeEmptyTableAsObject: function(setting: boolean | string?): boolean
 
-        --- Sets whether decoded arrays carry `arrayMt`, or reads the current setting
+        --- Sets whether decoded arrays carry `ARRAY_MT`, or reads the current setting
         --- when omitted.
         --- @param setting the new setting
-        --- @return whether decoded arrays carry `arrayMt`
+        --- @return whether decoded arrays carry `ARRAY_MT`
         decodeArrayWithArrayMt: function(setting: boolean | string?): boolean
 
         --- Sets whether the decoder accepts comments, or reads the current setting
@@ -93088,7 +93475,11 @@ record nupp.data
         --- @return whether sparse arrays are converted
         --- @return the current ratio limit
         --- @return the current safe size
-        encodeSparseArray: function(convert: boolean?, ratio: integer?, safe: integer?): (boolean, integer, integer)
+        encodeSparseArray: function(
+            convert: boolean?,
+            ratio: integer?,
+            safe: integer?
+        ): (boolean, integer, integer)
 
         --- Sets the maximum nested-container depth accepted by the encoder, or reads
         --- the current limit when omitted.
@@ -93146,115 +93537,6 @@ record nupp.data
         encodeIndent: function(indent: string?): string
     end
 
-    --- Encodes a Lua value as JSON text.
-    --- @param value the value to encode
-    --- @return the encoded JSON document
-    encodeJSON: function(value: any): string
-
-    --- Decodes one JSON document into Lua values.
-    --- @param text the JSON document to decode
-    --- @return the decoded value
-    decodeJSON: function(text: string): any
-
-    --- Creates an independent JSON codec with its own settings.
-    --- @return the new codec
-    newJSON: function(): JSON
-
-    --- Sentinel that decodes from and encodes as JSON null.
-    null: any
-
-    --- Sentinel that always encodes as an empty JSON array.
-    emptyArray: any
-
-    --- Metatable marking a table to encode as a JSON array.
-    arrayMt: metatable<{any}>
-
-    --- Metatable marking a table to encode as an empty JSON array.
-    emptyArrayMt: metatable<{any}>
-
-    --- Sets whether an empty table encodes as an object, or reads the current
-    --- setting when omitted.
-    --- @param setting true or "on" for `{}`, false or "off" for `[]`
-    --- @return whether empty tables encode as objects
-    encodeEmptyTableAsObject: function(setting: boolean | string?): boolean
-
-    --- Sets whether decoded arrays carry `arrayMt`, or reads the current setting
-    --- when omitted.
-    --- @param setting the new setting
-    --- @return whether decoded arrays carry `arrayMt`
-    decodeArrayWithArrayMt: function(setting: boolean | string?): boolean
-
-    --- Sets whether the decoder accepts comments, or reads the current setting
-    --- when omitted.
-    --- @param setting the new setting
-    --- @return whether comments are accepted
-    decodeAllowComment: function(setting: boolean | string?): boolean
-
-    --- Configures how excessively sparse arrays are encoded, or reads the current
-    --- settings when every argument is omitted.
-    --- @param convert whether sparse arrays become JSON objects instead of raising
-    --- @param ratio the maximum ratio between the highest index and item count
-    --- @param safe the array size below which sparsity is always accepted
-    --- @return whether sparse arrays are converted
-    --- @return the current ratio limit
-    --- @return the current safe size
-    encodeSparseArray: function(convert: boolean?, ratio: integer?, safe: integer?): (boolean, integer, integer)
-
-    --- Sets the maximum nested-container depth accepted by the encoder, or reads
-    --- the current limit when omitted.
-    --- @param depth the new maximum depth
-    --- @return the current maximum depth
-    encodeMaxDepth: function(depth: integer?): integer
-
-    --- Sets the maximum nested-container depth accepted by the decoder, or reads
-    --- the current limit when omitted.
-    --- @param depth the new maximum depth
-    --- @return the current maximum depth
-    decodeMaxDepth: function(depth: integer?): integer
-
-    --- Sets the significant-digit precision used to encode numbers, or reads the
-    --- current precision when omitted.
-    --- @param precision the new number of significant digits
-    --- @return the current precision
-    encodeNumberPrecision: function(precision: integer?): integer
-
-    --- Sets whether the encoder reuses its internal buffer, or reads the current
-    --- setting when omitted.
-    --- @param keep the new setting
-    --- @return whether the internal buffer is retained
-    encodeKeepBuffer: function(keep: boolean | string?): boolean
-
-    --- Configures encoding of NaN and infinities, or reads the current setting
-    --- when omitted.
-    --- @param setting false to reject them, true to emit them, or "null" to emit
-    ---     null
-    --- @return the active invalid-number setting
-    encodeInvalidNumbers: function(setting: boolean | string?): boolean | string
-
-    --- Sets whether the decoder accepts NaN and infinities, or reads the current
-    --- setting when omitted.
-    --- @param setting the new setting
-    --- @return whether invalid numbers are accepted
-    decodeInvalidNumbers: function(setting: boolean | string?): boolean
-
-    --- Sets whether `/` is escaped in JSON strings, or reads the current setting
-    --- when omitted.
-    --- @param setting the new setting
-    --- @return whether forward slashes are escaped
-    encodeEscapeForwardSlash: function(setting: boolean | string?): boolean
-
-    --- Sets whether unsupported values are skipped instead of raising, or reads the
-    --- current setting when omitted.
-    --- @param setting the new setting
-    --- @return whether unsupported values are skipped
-    encodeSkipUnsupportedValueTypes: function(setting: boolean | string?): boolean
-
-    --- Sets the indentation used for encoded containers, or reads the current
-    --- indentation when omitted.
-    --- @param indent the indentation string
-    --- @return the current indentation string
-    encodeIndent: function(indent: string?): string
-
     --- UTF-8 codepoint operations over strings and byte views.
     --- @namespace
     utf8: nupp.UTF8Library
@@ -93276,12 +93558,6 @@ record nupp.data
     --- @param value the bytes to hash
     --- @return the lowercase hexadecimal digest
     sha256: function(value: string | nupp.io.ByteView): string
-
-    --- Computes or continues an Adler-32 checksum.
-    --- @param value the bytes to checksum
-    --- @param previous a previous Adler-32 value, or 1 to start
-    --- @return the unsigned 32-bit checksum
-    adler32: function(value: string | nupp.io.ByteView, previous: integer?): integer
 
     --- Computes or continues a CRC-32 checksum.
     --- @param value the bytes to checksum
@@ -94102,6 +94378,37 @@ record nupp.io
 
     --- An immutable platform-native UTF-8 filesystem path.
     record Path
+        --- Creates a path by joining one or more components.
+        ---
+        --- #### Examples
+        ---
+        --- Build a path from components:
+        ---
+        --- ```nupp
+        --- local source = nupp.io.Path.new("src", "main.nupp")
+        --- assert(source:toString() == "src" .. nupp.io.Path.separator() .. "main.nupp")
+        --- ```
+        ---
+        --- Normalize the path after joining its components:
+        ---
+        --- ```nupp
+        --- local source = nupp.io.Path.new("src", "app", "..", "main.nupp"):normalize()
+        --- assert(source:fileName() == "main.nupp")
+        --- ```
+        --- @param first the first path component
+        --- @param ... the remaining path components
+        --- @return the new path
+        new: function(first: string, ...: string): Path
+
+        --- Reads the process's current working directory.
+        --- @return the current directory, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        currentDirectory: function(): (Path?, string?)
+
+        --- Returns the current platform's primary path separator.
+        --- @return the path separator
+        separator: function(): string
+
         --- Returns the native UTF-8 path text.
         --- @param self this path
         --- @return the path text
@@ -94189,6 +94496,23 @@ record nupp.io
 
     --- An immutable normalized absolute URI.
     record URI
+        --- Parses and normalizes an absolute URI.
+        --- @param value URI text or its individual components
+        --- @return the parsed URI, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        new: function(value: string | URI.Components): (URI?, string?)
+
+        --- Checks whether text is a valid absolute URI without retaining an object.
+        --- @param text the URI text to validate
+        --- @return whether the text is valid
+        --- @return a failure reason, when invalid
+        validate: function(text: string): (boolean, string?)
+
+        --- Reports whether a value is a URI object.
+        --- @param value the value to inspect
+        --- @return whether the value is a URI
+        isURI: function(value: any): boolean
+
         --- Components accepted when constructing an absolute URI.
         record Components
             --- The required URI scheme.
@@ -94329,54 +94653,6 @@ record nupp.io
         --- @return a failure reason, when unsuccessful
         resolve: function(self: URI, reference: string): (URI?, string?)
     end
-
-    --- Creates a path by joining one or more components.
-    ---
-    --- #### Examples
-    ---
-    --- Build a path from components:
-    ---
-    --- ```nupp
-    --- local source = nupp.io.newPath("src", "main.nupp")
-    --- assert(source:toString() == "src" .. nupp.io.separator() .. "main.nupp")
-    --- ```
-    ---
-    --- Normalize the path after joining its components:
-    ---
-    --- ```nupp
-    --- local source = nupp.io.newPath("src", "app", "..", "main.nupp"):normalize()
-    --- assert(source:fileName() == "main.nupp")
-    --- ```
-    --- @param first the first path component
-    --- @param ... the remaining path components
-    --- @return the new path
-    newPath: function(first: string, ...: string): Path
-
-    --- Reads the process's current working directory.
-    --- @return the current directory, or nil on failure
-    --- @return a failure reason, when unsuccessful
-    currentDirectory: function(): (Path?, string?)
-
-    --- Returns the current platform's primary path separator.
-    --- @return the path separator
-    separator: function(): string
-
-    --- Parses and normalizes an absolute URI.
-    --- @param value URI text or its individual components
-    --- @return the parsed URI, or nil on failure
-    --- @return a failure reason, when unsuccessful
-    newURI: function(value: string | URI.Components): (URI?, string?)
-
-    --- Checks whether text is a valid absolute URI without retaining an object.
-    --- @param text the URI text to validate
-    --- @return whether the text is valid
-    --- @return a failure reason, when invalid
-    validate: function(text: string): (boolean, string?)
-
-    --- Reports whether a value is a URI object.
-    --- @param value the value to inspect
-    --- @return whether the value is a URI
-    isURI: function(value: any): boolean
 
     --- Creates an owned growable byte buffer.
     --- @param initial initial bytes, an initial capacity, or nothing for an empty
@@ -96267,7 +96543,7 @@ local function canonicalHost(text: string, level: integer): string
         error("nupp: HTTP insecureHosts entries must be exact host names or IP literals", level)
     end
     local spelling = text:sub(-1) == "." and text:sub(1, -2) or text
-    local uri = nupp.io.newURI("https://" .. spelling .. "/")
+    local uri = nupp.io.URI.new("https://" .. spelling .. "/")
     if uri == nil or uri:username() ~= "" or uri:password() ~= nil or uri:port() ~= nil or uri:path() ~= "/" then
         error("nupp: HTTP insecureHosts entries must not contain a scheme, port, path, or user information", level)
     end
@@ -97000,7 +97276,7 @@ function http.Client:send(request: http.Request): (http.Response?, string?)
             transfer:close()
             return nil, bodyReason
         end
-        local effective = head.url == nil and given.url or nupp.io.newURI(head.url)
+        local effective = head.url == nil and given.url or nupp.io.URI.new(head.url)
         if effective == nil then
             transfer:close()
             return nil, "the HTTP provider returned an invalid effective URL"

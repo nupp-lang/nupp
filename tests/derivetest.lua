@@ -85,7 +85,7 @@ end
 local user: User = nupp.default(User)
 local id: UserId = nupp.into(42, UserId)
 local printable: nupp.Debug = user
-local encodable: nupp.data.JSONEncodable = user
+local encodable: nupp.data.json.JSONEncodable = user
 local text = encodable:toJSON()
 local decoded, err = User.fromJSON(text)
 assert(decoded and not err)
@@ -149,10 +149,10 @@ local record Payload
 end
 
 -- A process-visible setting must not alter the private derived decoder.
-local previousDepth = nupp.data.decodeMaxDepth()
-nupp.data.decodeMaxDepth(1)
+local previousDepth = nupp.data.json.decodeMaxDepth()
+nupp.data.json.decodeMaxDepth(1)
 local decoded, err = Payload.fromJSON('{"labels":[],"extra":{"nested":true}}')
-nupp.data.decodeMaxDepth(previousDepth)
+nupp.data.json.decodeMaxDepth(previousDepth)
 local codec = Payload.fieldCodec()
 local checked, checkedErr = codec:decode({name = "ok", labels = {"a"}})
 local payload = new Payload(name = "x", secret = "hidden", labels = {})

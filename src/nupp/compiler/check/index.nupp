@@ -312,7 +312,10 @@ function index.install(c: state.Checker): state.ExprHandlers
                 {help = "call it with `:` so the arguments select one body"}
             )
         end
-        local featureFields = c.env and c.env.featureEffects and c.env.featureEffects[base] or nil
+        -- A declaration table reads as `metatable<T>`, so a static's feature effect is
+        -- recorded against the declaration `T` and found through it.
+        local effects = c.env and c.env.featureEffects or nil
+        local featureFields = effects and (effects[base] or staticOwner and effects[staticOwner]) or nil
         local effect = featureFields and featureFields[memberName] or nil
         if effect and c.recordEffect then
             (node as any).compilerFeatureEffect = effect

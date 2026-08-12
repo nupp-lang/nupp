@@ -12,17 +12,13 @@ A path is platform-native UTF-8 text. Constructing joins components using the
 current platform's rules:
 
 ```nupp
-local source = nupp.io.newPath("src", "app", "..", "main.nupp"):normalize()
-assert(source:toString() == "src" .. nupp.io.separator() .. "main.nupp")
+local source = nupp.io.Path.new("src", "app", "..", "main.nupp"):normalize()
+assert(source:toString() == "src" .. nupp.io.Path.separator() .. "main.nupp")
 local name, stem, extension = source:fileName(), source:stem(), source:extension()
 assert(name == "main.nupp")
 assert(stem == "main")
 assert(extension == "nupp")
 ```
-
-`nupp.io.newPath` is a constructor on `nupp.io` rather than a static on the
-`Path` type itself: `Path` is a nested type, and its statics would otherwise
-share a name with it.
 
 `join` appends components. `normalize` removes lexical `.` and `..` components
 without touching the filesystem. `absolute` resolves against the current working
@@ -37,14 +33,14 @@ component and reject separators in the replacement. `isAbsolute` and
 `isRelative` classify without accessing the filesystem.
 
 ```nupp
-local current, reason = nupp.io.currentDirectory()
+local current, reason = nupp.io.Path.currentDirectory()
 assert(current, reason)
 local log = current:join("var", "app.log"):withExtension("jsonl")
 ```
 
-- `newPath(first, parts...)`: `nupp.io.Path`.
-- `currentDirectory()`: `nupp.io.Path?, reason?`.
-- `separator()`: platform separator string.
+- `Path.new(first, parts...)`: `nupp.io.Path`.
+- `Path.currentDirectory()`: `nupp.io.Path?, reason?`.
+- `Path.separator()`: platform separator string.
 - `toString()`, `tostring(path)`: native UTF-8 path string.
 - `join(parts...)`, `normalize()`: `nupp.io.Path`.
 - `absolute()`, `resolve(parts...)`, `canonicalize()`: `nupp.io.Path?, reason?`.
@@ -59,12 +55,12 @@ are equivalent.
 
 ## URIs
 
-`nupp.io.newURI` parses and normalizes one absolute URI. It returns `nil,
-reason` for malformed input. `nupp.io.validate` checks without retaining an
-object; `nupp.io.isURI` distinguishes URI objects from strings and records.
+`nupp.io.URI.new` parses and normalizes one absolute URI. It returns `nil,
+reason` for malformed input. `nupp.io.URI.validate` checks without retaining an
+object; `nupp.io.URI.isURI` distinguishes URI objects from strings and records.
 
 ```nupp
-local endpoint, reason = nupp.io.newURI("https://user:pass@example.com:8443/api?q=1#top")
+local endpoint, reason = nupp.io.URI.new("https://user:pass@example.com:8443/api?q=1#top")
 assert(endpoint, reason)
 assert(endpoint:scheme() == "https")
 assert(endpoint:host() == "example.com")
@@ -87,7 +83,8 @@ assert(avatar, resolveReason)
 
 A malformed replacement passed to `withScheme`, `withUserInfo`, `withHost`,
 `withPort`, `withPath`, `withQuery`, `withFragment`, `concatPath`, or
-`withEndpoint` raises at the call site. Use `newURI`, `validate`, and `resolve`
+`withEndpoint` raises at the call site. Use `URI.new`, `URI.validate`, and
+`resolve`
 when the text came from an untrusted source and must be handled as a fallible
 value. Ports must be integers from 0 through 65535. Supplying a component equal
 to its current normalized value returns the receiver itself.
@@ -102,7 +99,7 @@ A component record can be passed instead of text:
 
 ```nupp:static
 local uri = assert(
-    nupp.io.newURI({
+    nupp.io.URI.new({
         scheme = "https",
         userInfo = "reader:secret",
         host = "example.com",
@@ -112,13 +109,13 @@ local uri = assert(
 )
 ```
 
-The input record type is `nupp.io.URI.Components`, the one type still nested
-inside `URI` itself. Components are URI text, not filesystem paths. Use
+The input record type is `nupp.io.URI.Components`. Components are URI text, not
+filesystem paths. Use
 [Path](#paths) for filesystem semantics and URI for network/resource identity.
 
-- `newURI(textOrComponents)`: `nupp.io.URI?, reason?`.
-- `validate(text)`: `boolean, reason?`.
-- `isURI(value)`: `boolean`.
+- `URI.new(textOrComponents)`: `nupp.io.URI?, reason?`.
+- `URI.validate(text)`: `boolean, reason?`.
+- `URI.isURI(value)`: `boolean`.
 - `toString()`, `tostring(uri)`: normalized absolute URI string.
 - `scheme()`, `username()`, `path()`: required component string.
 - `authority()`, `userInfo()`, `password()`, `host()`: optional component

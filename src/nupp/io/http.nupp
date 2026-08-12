@@ -91,7 +91,7 @@ local function canonicalHost(text: string, level: integer): string
         error("nupp: HTTP insecureHosts entries must be exact host names or IP literals", level)
     end
     local spelling = text:sub(-1) == "." and text:sub(1, -2) or text
-    local uri = nupp.io.newURI("https://" .. spelling .. "/")
+    local uri = nupp.io.URI.new("https://" .. spelling .. "/")
     if uri == nil or uri:username() ~= "" or uri:password() ~= nil or uri:port() ~= nil or uri:path() ~= "/" then
         error("nupp: HTTP insecureHosts entries must not contain a scheme, port, path, or user information", level)
     end
@@ -824,7 +824,7 @@ function http.Client:send(request: http.Request): (http.Response?, string?)
             transfer:close()
             return nil, bodyReason
         end
-        local effective = head.url == nil and given.url or nupp.io.newURI(head.url)
+        local effective = head.url == nil and given.url or nupp.io.URI.new(head.url)
         if effective == nil then
             transfer:close()
             return nil, "the HTTP provider returned an invalid effective URL"

@@ -561,22 +561,41 @@ function M.standardDataApiHasCompleteDocumentation()
       end
    end
 
-   -- JSON now nests inside nupp.data, so it shows up as one of the synthesized
-   -- module's own items rather than a top-level module.items entry.
+   -- JSON is a namespace nested inside nupp.data, so it synthesizes a module of
+   -- its own rather than appearing among nupp.data's items.
    local json
-   for _, item in ipairs(data.items) do
-      if item.name == "JSON" then json = item end
+   for _, candidate in ipairs(extra or {}) do
+      if candidate.name == "nupp.data.json" then json = candidate end
    end
-   assert(json, "the prelude did not document nupp.data.JSON")
-   for _, member in ipairs(json.members) do
-      assert(member.text ~= "", "nupp.data.JSON." .. member.name .. " has no documentation")
-      for _, param in ipairs(member.params) do
-         assert(param.text ~= "", "nupp.data.JSON." .. member.name .. " parameter "
+   assert(json, "the prelude did not synthesize nupp.data.json")
+   for _, item in ipairs(data.items) do
+      assert(item.name ~= "json", "nupp.data.json stayed an item of nupp.data")
+   end
+
+   local codec
+   for _, item in ipairs(json.items) do
+      assert(item.doc.text ~= "", "nupp.data.json." .. item.name .. " has no documentation")
+      for _, param in ipairs(item.params) do
+         assert(param.text ~= "", "nupp.data.json." .. item.name .. " parameter "
             .. param.name .. " has no documentation")
       end
-      for index, result in ipairs(member.returns) do
-         assert(result.text ~= "", "nupp.data.JSON." .. member.name .. " return "
+      for index, result in ipairs(item.returns) do
+         assert(result.text ~= "", "nupp.data.json." .. item.name .. " return "
             .. index .. " has no documentation")
+      end
+      if item.name == "JSON" then codec = item end
+   end
+   assert(codec, "the prelude did not document nupp.data.json.JSON")
+   for _, member in ipairs(codec.members) do
+      local prefix = "nupp.data.json.JSON." .. member.name
+      assert(member.text ~= "", prefix .. " has no documentation")
+      for _, param in ipairs(member.params) do
+         assert(param.text ~= "", prefix .. " parameter " .. param.name
+            .. " has no documentation")
+      end
+      for index, result in ipairs(member.returns) do
+         assert(result.text ~= "", prefix .. " return " .. index
+            .. " has no documentation")
       end
    end
 end
@@ -597,19 +616,18 @@ function M.standardIOApiHasCompleteDocumentation()
    end
    assert(io, "the prelude did not document nupp.io")
 
-   -- Buffer, ByteView, Reader and Writer nest without a rename; Path, URI and
-   -- Files nest too, but Path and URI additionally flatten their statics onto
-   -- nupp.io itself (newPath/currentDirectory/separator,
-   -- newURI/validate/isURI) since a nested type and a same-named sibling
-   -- field would otherwise silently clobber each other.
+   -- Buffer, ByteView, Reader, Writer, Path, URI and Files all nest without a
+   -- rename. Path and URI carry their own statics (new/currentDirectory/
+   -- separator, new/validate/isURI), reached through the type that owns them
+   -- rather than flattened onto nupp.io beside it.
    local expectedTypes = {
       Buffer = true, ByteView = true, Reader = true, Writer = true,
       Path = true, URI = true, Files = true,
    }
-   local expectedFunctions = {
-      newBuffer = true, newStringReader = true,
-      newPath = true, currentDirectory = true, separator = true,
-      newURI = true, validate = true, isURI = true,
+   local expectedFunctions = {newBuffer = true, newStringReader = true,}
+   local expectedStatics = {
+      Path = {new = true, currentDirectory = true, separator = true},
+      URI = {new = true, validate = true, isURI = true},
    }
    local foundTypes, foundFunctions = {}, {}
    local path, uri
@@ -621,8 +639,25 @@ function M.standardIOApiHasCompleteDocumentation()
          if member.name == "Path" then path = member end
          if member.name == "URI" then uri = member end
          assert(member.text ~= "", prefix .. " has no documentation")
+         local statics = expectedStatics[member.name] or {}
          for _, sub in ipairs(member.members or {}) do
             assert(sub.text ~= "", prefix .. "." .. sub.name .. " has no documentation")
+            if statics[sub.name] then
+               statics[sub.name] = nil
+               assert(sub.isFunction, prefix .. "." .. sub.name
+                  .. " must document as a static function")
+               for _, param in ipairs(sub.params) do
+                  assert(param.text ~= "", prefix .. "." .. sub.name .. " parameter "
+                     .. param.name .. " has no documentation")
+               end
+               for index, result in ipairs(sub.returns) do
+                  assert(result.text ~= "", prefix .. "." .. sub.name .. " return "
+                     .. index .. " has no documentation")
+               end
+            end
+         end
+         for name in pairs(statics) do
+            error("the prelude did not document " .. prefix .. "." .. name)
          end
       elseif expectedFunctions[member.name] then
          foundFunctions[member.name] = true
@@ -646,12 +681,12 @@ function M.standardIOApiHasCompleteDocumentation()
 
    assert(path, "the prelude did not document nupp.io.Path")
    for _, sub in ipairs(path.members or {}) do
-      assert(sub.name ~= "Library", "Path's library type must flatten onto nupp.io")
+      assert(sub.name ~= "Library", "Path's statics belong on Path itself")
    end
    assert(uri, "the prelude did not document nupp.io.URI")
    local uriHasComponents = false
    for _, sub in ipairs(uri.members or {}) do
-      assert(sub.name ~= "Library", "URI's library type must flatten onto nupp.io")
+      assert(sub.name ~= "Library", "URI's statics belong on URI itself")
       if sub.name == "Components" then uriHasComponents = true end
    end
    assert(uriHasComponents, "nupp.io.URI must nest Components")
@@ -733,8 +768,8 @@ function M.standardLibraryBackingRecordsStayInternal()
       error("the prelude did not synthesize " .. name)
    end
 
-   -- Path and URI flatten their statics onto nupp.io and nest no Library of
-   -- their own; newPath carries the examples that used to live on Path.new.
+   -- Path and URI carry their statics themselves and nest no Library of their
+   -- own; Path.new carries the constructor's examples.
    local io
    for _, item in ipairs(module.items) do
       if item.name == "io" and item.kind == "record" then io = item end
@@ -744,20 +779,20 @@ function M.standardLibraryBackingRecordsStayInternal()
    assert(io, "the prelude did not document nupp.io")
    local newPath
    for _, member in ipairs(io.members) do
-      if member.name == "newPath" then newPath = member end
       if member.name == "Path" or member.name == "URI" then
          for _, sub in ipairs(member.members or {}) do
             assert(sub.name ~= "Library", "nupp.io." .. member.name
                .. ".Library leaked into public docs")
+            if member.name == "Path" and sub.name == "new" then newPath = sub end
          end
       end
    end
-   assert(newPath, "the prelude did not document nupp.io.newPath")
-   assert(newPath.text:find("#### Examples", 1, true), "nupp.io.newPath has no examples")
-   assert(newPath.text:find('nupp.io.newPath("src", "main.nupp")', 1, true),
-      "nupp.io.newPath has no component-joining example")
+   assert(newPath, "the prelude did not document nupp.io.Path.new")
+   assert(newPath.text:find("#### Examples", 1, true), "nupp.io.Path.new has no examples")
+   assert(newPath.text:find('nupp.io.Path.new("src", "main.nupp")', 1, true),
+      "nupp.io.Path.new has no component-joining example")
    assert(newPath.text:find(":normalize()", 1, true),
-      "nupp.io.newPath has no normalization example")
+      "nupp.io.Path.new has no normalization example")
 
    local private = assert(doc.extract(source,
       "src/nupp/compiler/decls/prelude.d.nupp", "nupp.compiler.decls.prelude",

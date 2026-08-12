@@ -6,22 +6,22 @@ providers remain hidden.
 
 ## JSON
 
-`encodeJSON` and `decodeJSON` use the mature cjson implementation without
-exposing its module name:
+`nupp.data.json` holds the whole JSON surface. `encodeJSON` and `decodeJSON` use
+the mature cjson implementation without exposing its module name:
 
 ```nupp
-local encoded = nupp.data.encodeJSON({name = "Nupp", ready = true})
-local decoded = nupp.data.decodeJSON(encoded)
+local encoded = nupp.data.json.encodeJSON({name = "Nupp", ready = true})
+local decoded = nupp.data.json.decodeJSON(encoded)
 assert(decoded.name == "Nupp")
 ```
 
-`null`, `emptyArray`, `arrayMt`, and `emptyArrayMt` preserve distinctions Lua
+`NULL`, `EMPTY_ARRAY`, `ARRAY_MT`, and `EMPTY_ARRAY_MT` preserve distinctions Lua
 tables cannot express by themselves. The configuration methods match cjson's
-established semantics, but live on `nupp.data`. `newJSON()` returns an
-independent `nupp.data.JSON` encoder/decoder with its own settings:
+established semantics, but live on `nupp.data.json`. `newJSON()` returns an
+independent `nupp.data.json.JSON` encoder/decoder with its own settings:
 
 ```nupp
-local compact = nupp.data.newJSON()
+local compact = nupp.data.json.newJSON()
 compact.encodeKeepBuffer(false)
 local text = compact.encodeJSON({1, 2, 3})
 ```
@@ -33,12 +33,12 @@ recommended.
 | --- | --- | --- |
 | `encodeJSON(value)` | string | Encode one Lua value. |
 | `decodeJSON(text)` | any | Decode one JSON document. |
-| `newJSON()` | nupp.data.JSON | Create a separately configured codec. |
-| `null`, `emptyArray` | sentinel values | JSON values plain Lua cannot express. |
-| `arrayMt`, `emptyArrayMt` | metatables | Mark array-shaped tables explicitly. |
+| `newJSON()` | nupp.data.json.JSON | Create a separately configured codec. |
+| `NULL`, `EMPTY_ARRAY` | sentinel values | JSON values plain Lua cannot express. |
+| `ARRAY_MT`, `EMPTY_ARRAY_MT` | metatables | Mark array-shaped tables explicitly. |
 
-Both `nupp.data` and an object returned by `newJSON` provide the configuration
-methods `encodeEmptyTableAsObject`, `decodeArrayWithArrayMt`,
+Both `nupp.data.json` and an object returned by `newJSON` provide the
+configuration methods `encodeEmptyTableAsObject`, `decodeArrayWithArrayMt`,
 `decodeAllowComment`, `encodeSparseArray`, `encodeMaxDepth`,
 `decodeMaxDepth`, `encodeNumberPrecision`, `encodeKeepBuffer`,
 `encodeInvalidNumbers`, `decodeInvalidNumbers`,
@@ -113,12 +113,12 @@ checksum = nupp.data.crc32(body, checksum)
 
 `fnv1a64` is a fast non-cryptographic identity rendered as 16 lowercase
 hexadecimal digits. `sha256` is a cryptographic digest rendered as 64 lowercase
-hexadecimal digits. `adler32` and `crc32` return unsigned 32-bit numbers and
-accept a previous result for incremental checksumming. Checksums detect
-accidental damage; they do not authenticate data. A supplied previous checksum
-must itself be an unsigned 32-bit integer.
+hexadecimal digits. `crc32` returns an unsigned 32-bit number and accepts a
+previous result for incremental checksumming. Checksums detect accidental
+damage; they do not authenticate data. A supplied previous checksum must itself
+be an unsigned 32-bit integer.
 
-FNV-1a, Adler-32 and CRC-32 are pure generated Lua. SHA-256 is independently
+FNV-1a and CRC-32 are pure generated Lua. SHA-256 is independently
 gated in the shared Rust provider. See [automatic native
 selection](tooling/build.md#compiler-native-features).
 
@@ -128,5 +128,4 @@ selection](tooling/build.md#compiler-native-features).
 | `uuid7()` | canonical UUID string | shared provider, uuid feature |
 | `fnv1a64(value)` | 16 lowercase hex digits | none |
 | `sha256(value)` | 64 lowercase hex digits | shared provider, sha256 feature |
-| adler32(value, previous?) | unsigned 32-bit number | none |
 | crc32(value, previous?) | unsigned 32-bit number | none |

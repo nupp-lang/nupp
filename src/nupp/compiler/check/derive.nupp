@@ -18,7 +18,7 @@ local INTERNAL_PROVIDERS = {
     ["nupp.derive.Debug"] = {name = "Debug", operation = "debug.v1", contract = "nupp.Debug"},
     ["nupp.derive.Default"] = {name = "Default", operation = "default.v1"},
     ["nupp.derive.From"] = {name = "From", operation = "from.v1"},
-    ["nupp.derive.JSON"] = {name = "JSON", operation = "json.v1", contract = "nupp.data.JSONEncodable"},
+    ["nupp.derive.JSON"] = {name = "JSON", operation = "json.v1", contract = "nupp.data.json.JSONEncodable"},
 }
 local HELPER_ABI = {debug = 1, default = 1, from = 1, json = 1}
 local NUMERIC = {
@@ -1021,9 +1021,9 @@ function derive.install(c: state.Checker): derive.Ops
 
     local function addContract(n, name)
         -- `globalTypes` only indexes one qualified level, so a contract nested deeper
-        -- (`nupp.data.JSONEncodable`) walks the rest through `nestedTypes`, the same
-        -- way
-        -- the field-codec lookup below reaches `nupp.fieldcodec.KeyedCodec`.
+        -- (`nupp.data.json.JSONEncodable`) walks the rest through `nestedTypes`, the
+        -- same way the field-codec lookup below reaches
+        -- `nupp.fieldcodec.KeyedCodec`.
         local segments = {}
         for segment in name:gmatch("[^.]+") do
             segments[#segments + 1] = segment
@@ -1277,7 +1277,7 @@ function derive.install(c: state.Checker): derive.Ops
                 providerSites.JSON,
                 not writtenMembers.toJSON
             ) then
-                addContract(n, "nupp.data.JSONEncodable")
+                addContract(n, "nupp.data.json.JSONEncodable")
             end
             addDefinition(
                 n,

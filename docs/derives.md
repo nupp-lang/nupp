@@ -33,7 +33,7 @@ The four compiler-shipped comptime providers are:
 - `nupp.derive.Default`: static `default(): T` and `nupp.default(T)` support.
 - `nupp.derive.From`: static `from(value): T` and `nupp.into(value, T)` support.
 - `nupp.derive.JSON`: `toJSON`, static `fromJSON`, `fieldCodec`, and
-  `nupp.data.JSONEncodable` conformance.
+  `nupp.data.json.JSONEncodable` conformance.
 
 Generated members participate in normal member lookup, generic inference, and
 interface checking. A written member of the same name is a compile-time
@@ -323,7 +323,7 @@ A conversion that can fail stays an ordinary function returning `T?, string?`.
 ## JSON
 
 `JSON` generates `toJSON`, a static `fromJSON`, a `fieldCodec`, and
-`nupp.data.JSONEncodable` conformance. Encoding is deterministic: record and
+`nupp.data.json.JSONEncodable` conformance. Encoding is deterministic: record and
 shape fields follow declaration order and string map keys sort by byte order, so
 the same value always produces the same bytes.
 
@@ -423,10 +423,10 @@ Strings must be valid UTF-8, and a cycle or nesting beyond 128 containers fails
 with the JSON path that reached it. Encoding neither reads nor mutates cjson
 settings.
 
-Decoding uses a private `nupp.data.newJSON()` with array metatables disabled,
-depth 128, and invalid numbers disabled. Generated validation checks the raw
-value before the record is returned, so mutating `nupp.data` or another JSON
-instance cannot alter a derived codec.
+Decoding uses a private `nupp.data.json.newJSON()` with array metatables
+disabled, depth 128, and invalid numbers disabled. Generated validation checks
+the raw value before the record is returned, so mutating `nupp.data.json` or
+another JSON instance cannot alter a derived codec.
 
 ## Relationship to comptime
 

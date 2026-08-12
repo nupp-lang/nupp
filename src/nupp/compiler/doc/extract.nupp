@@ -449,8 +449,33 @@ end
 -- function<V>(t: {V}): ...` — and a record writes its methods as fields, so the
 -- parameters and results live in a `tfunc` type node instead of a function body. They
 -- carry the same annotations and document the same way.
+--
+-- An overloaded binding writes an intersection of those nodes rather than one, and it
+-- is still a function to whoever calls it. The widest overload speaks for the set: a
+-- doc block names every parameter any overload takes, so choosing a narrower one would
+-- leave some of them with nowhere to attach. The rendered signature still shows every
+-- overload, because that comes from the whole written type.
 local function typeFunction(node)
-    return node and node.kind == "tfunc" and node or nil
+    if not node then
+        return nil
+    end
+    if node.kind == "tfunc" then
+        return node
+    end
+    if node.kind ~= "tintersection" then
+        return nil
+    end
+    local widest = nil
+    for _, member in ipairs(node.types or {}) do
+        if member.kind ~= "tfunc" then
+            return nil
+        end
+        if not widest or #(member.params or {}) > #(widest.params or {}) then
+            widest = member
+        end
+    end
+
+    return widest
 end
 
 local function typeFunctionDetails(node, info)
@@ -671,16 +696,35 @@ local function shapeModule(name, entries, text, path, blocks, includePrivate, ex
                 end
             end
         elseif entry.kind == "typeAlias" or entry.kind == "recordDecl" then
-            local item = declarationItem(entry, name, true, true, includePrivate)
-            if item then
-                -- This declaration is an item of the namespace module, not an
-                -- independently qualified module declaration to route again.
-                item.module = nil
-                item.path = name .. "." .. item.name
-                for _, member in ipairs(item.members) do
-                    member.path = item.path .. "." .. member.name
+            local info = entryDoc(entry)
+            if entry.kind == "recordDecl" and info.tags.namespace then
+                -- A nested declaration is usually a type this module holds. Tagged
+                -- `@namespace` it is a namespace instead -- its statics are what a
+                -- caller reaches through it -- so it becomes a module of its own, the
+                -- same as a `@namespace` field does, and the types nested inside it
+                -- travel along as that module's items.
+                shapeModule(
+                    name .. "." .. entry.name.text,
+                    entry.entries,
+                    info.text,
+                    path,
+                    blocks,
+                    includePrivate,
+                    expanding,
+                    modules
+                )
+            else
+                local item = declarationItem(entry, name, true, true, includePrivate)
+                if item then
+                    -- This declaration is an item of the namespace module, not an
+                    -- independently qualified module declaration to route again.
+                    item.module = nil
+                    item.path = name .. "." .. item.name
+                    for _, member in ipairs(item.members) do
+                        member.path = item.path .. "." .. member.name
+                    end
+                    items[#items + 1] = item
                 end
-                items[#items + 1] = item
             end
         end
     end

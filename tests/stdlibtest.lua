@@ -174,13 +174,13 @@ function M.nativeFeaturesAreResolvedEffects()
    }, "\n"))
    assert(not shadowed["native.sha256"], "a local nupp is not the global facility")
 
-   -- Same shadow, through a qualified declaration nested one level deeper
-   -- (nupp.io.newPath) rather than an ordinary field (nupp.data.sha256) --
+   -- Same shadow, through a qualified declaration nested deeper
+   -- (nupp.io.Path.new) rather than an ordinary field (nupp.data.sha256) --
    -- the qualified-declaration shortcut in dotIndex used to trust the path
    -- text alone and ignore the shadow entirely.
    local shadowedIO = effectsOf(table.concat({
-      "local nupp = {io = {newPath = function() end}}",
-      "nupp.io.newPath()",
+      "local nupp = {io = {Path = {new = function() end}}}",
+      "nupp.io.Path.new()",
    }, "\n"))
    assert(not shadowedIO["native.path"], "a local nupp.io is not the global facility")
 
@@ -192,16 +192,16 @@ function M.nativeFeaturesAreResolvedEffects()
       "a local require is not the compatibility module loader")
 
    local expected = {
-      ["nupp.data.encodeJSON({answer = 42})"] = "native.cjson",
-      ["nupp.data.encodeKeepBuffer(false)"] = "native.cjson",
+      ["nupp.data.json.encodeJSON({answer = 42})"] = "native.cjson",
+      ["nupp.data.json.encodeKeepBuffer(false)"] = "native.cjson",
       ["nupp.data.utf8.length('hello')"] = "native.lua_utf8",
       ["nupp.io.newBuffer('hello')"] = "stdlib.io",
       ["nupp.math.lerp(10, 20, 0.25)"] = "stdlib.math",
       ["nupp.math.vec2.length(3, 4)"] = "stdlib.math",
       ["nupp.data.fnv1a64('hello')"] = "stdlib.fnv1a64",
       ["nupp.data.crc32('hello')"] = "stdlib.checksums",
-      ["nupp.io.newPath('hello')"] = "native.path",
-      ["nupp.io.newURI('https://example.com')"] = "native.uri",
+      ["nupp.io.Path.new('hello')"] = "native.path",
+      ["nupp.io.URI.new('https://example.com')"] = "native.uri",
       ["nupp.data.uuid7()"] = "native.uuid",
       ["nupp.data.sha256('hello')"] = "native.sha256",
    }
@@ -214,9 +214,9 @@ function M.nativeFeaturesAreResolvedEffects()
    end
 
    assertClean(table.concat({
-      "local newPath: function(first: string, ...: string): nupp.io.Path = nupp.io.newPath",
+      "local newPath: function(first: string, ...: string): nupp.io.Path = nupp.io.Path.new",
       "local components: nupp.io.URI.Components = nil as any",
-      "local newURI: function(value: string | nupp.io.URI.Components): (nupp.io.URI?, string?) = nupp.io.newURI",
+      "local newURI: function(value: string | nupp.io.URI.Components): (nupp.io.URI?, string?) = nupp.io.URI.new",
       "local uri: nupp.io.URI? = newURI(components)",
    }, "\n"))
 
@@ -348,7 +348,6 @@ function M.compilerProvidedPureLibraries()
       assert(nupp.math.lerp(10, 20, 1) == 20)
       assert(nupp.math.lerp(10, 20, 1.5) == 25)
       assert(nupp.data.fnv1a64("hello") == "a430d84680aabd0b")
-      assert(nupp.data.adler32("Wikipedia") == 300286872)
       assert(nupp.data.crc32("123456789") == 3421780262)
       assert(not pcall(nupp.data.crc32, "bytes", 4294967296))
    ]]))
@@ -436,14 +435,15 @@ function M.hiddenDataDependenciesLoadLazily()
    local chunk = assert(loadstring(bootstrap .. [=[
       assert(package.loaded.cjson == nil)
       assert(package.loaded["lua-utf8"] == nil)
-      assert(nupp.data.encodeJSON({answer = 42}):find('"answer":42', 1, true))
-      local codec = nupp.data.newJSON()
+      assert(nupp.data.json.encodeJSON({answer = 42}):find('"answer":42', 1, true))
+      local codec = nupp.data.json.newJSON()
       local cjson = require("cjson")
       local cjsonCodec = cjson.new()
       local renamed = {
-         {"emptyArray", "empty_array"},
-         {"arrayMt", "array_mt"},
-         {"emptyArrayMt", "empty_array_mt"},
+         {"NULL", "null"},
+         {"EMPTY_ARRAY", "empty_array"},
+         {"ARRAY_MT", "array_mt"},
+         {"EMPTY_ARRAY_MT", "empty_array_mt"},
          {"encodeEmptyTableAsObject", "encode_empty_table_as_object"},
          {"decodeArrayWithArrayMt", "decode_array_with_array_mt"},
          {"decodeAllowComment", "decode_allow_comment"},
@@ -459,8 +459,8 @@ function M.hiddenDataDependenciesLoadLazily()
          {"encodeIndent", "encode_indent"},
       }
       for _, names in ipairs(renamed) do
-         assert(nupp.data[names[1]] == cjson[names[2]], names[1])
-         assert(nupp.data[names[2]] == nil, names[2])
+         assert(nupp.data.json[names[1]] == cjson[names[2]], names[1])
+         assert(nupp.data.json[names[2]] == nil, names[2])
          assert((codec[names[1]] ~= nil) == (cjsonCodec[names[2]] ~= nil), names[1])
          assert(codec[names[2]] == nil, names[2])
       end
@@ -477,25 +477,25 @@ end
 
 function M.nativeGlobalMembersLoadOnFirstAccess()
    local bootstrap = stdlib.bootstrap({["native.path"] = true})
-   assert(bootstrap:find('ipairs({"newPath"', 1, true),
-      "newPath is registered as a lazy global member")
+   assert(bootstrap:find('__nuppLazy(__nuppIO,"Path"', 1, true),
+      "Path is registered as a lazy global member")
    local previous = rawget(_G, "nupp")
    local loadedFFI = package.loaded.ffi
    _G.nupp = nil
    package.loaded.ffi = nil
    local chunk = assert(loadstring(bootstrap
-      .. " return nupp, rawget(nupp.io, 'newPath')"))
-   local namespace, newPath = chunk()
+      .. " return nupp, rawget(nupp.io, 'Path')"))
+   local namespace, Path = chunk()
    assert(type(namespace) == "table", "nupp is always present")
-   assertEq(newPath, nil, "registering newPath does not load its Rust provider")
+   assertEq(Path, nil, "registering Path does not load its Rust provider")
    assertEq(package.loaded.ffi, nil, "native FFI initializes only on first access")
 
    package.loaded.ffi = {
       cdef = function() end,
       load = function() return {} end,
    }
-   assert(type(_G.nupp.io.newPath) == "function",
-      "reading newPath dispatches its registered lazy loader")
+   assert(type(_G.nupp.io.Path.new) == "function",
+      "reading Path dispatches its registered lazy loader")
    package.loaded.ffi = loadedFFI
    _G.nupp = previous
 end
