@@ -169,6 +169,7 @@ function resolve.install(c: state.Checker): nil
             constArgument(nil, alias.constParams[j], node)
         end
         c.validateTypeBounds(alias.typeParams, alias.typeBounds, map, node)
+
         return map
     end
 
@@ -184,6 +185,7 @@ function resolve.install(c: state.Checker): nil
         for j, parameter in ipairs(header.constParams) do
             constArgs[j] = map[parameter] or parameter
         end
+
         return T.aliasCall(header, typeArgs, packArgs, constArgs)
     end
 
@@ -232,8 +234,7 @@ function resolve.install(c: state.Checker): nil
             elseif kind == "pack" then
                 local pv = t.packParams and t.packParams[packAt]
                 if pv then
-                    map[pv] = arg and c.resolvePack(arg)
-                        or T.pack({}, {kind = "unknown", type = T.any})
+                    map[pv] = arg and c.resolvePack(arg) or T.pack({}, {kind = "unknown", type = T.any})
                 end
                 packAt = packAt + 1
             end
@@ -351,10 +352,7 @@ function resolve.install(c: state.Checker): nil
                     children[j] = compilePattern(child, binders)
                 end
             end
-            return T.matchPattern(
-                "nominal", nil, expected, children, nil, nil, nil, nil, nil, nil,
-                nominalPackBinders
-            )
+            return T.matchPattern("nominal", nil, expected, children, nil, nil, nil, nil, nil, nil, nominalPackBinders)
         elseif kind == "tfunc" then
             local children = {}
             local paramPackBinder, retPackBinder
@@ -458,6 +456,7 @@ function resolve.install(c: state.Checker): nil
                 out[#out + 1] = definition
             end
         end
+
         -- Several contracts may fix one name compatibly, and none of them is the
         -- deciding one -- each is a place the reader may want to be.
         for _, promise in ipairs(found.fixed) do
@@ -668,8 +667,10 @@ function resolve.install(c: state.Checker): nil
                         return applyTypeArgs(lexical, node)
                     end
                 end
-                -- A declaration answers its associated types through `associatedAnswers`
-                -- and never through `nestedTypes`: a private nested alias sharing a name
+                -- A declaration answers its associated types through
+                -- `associatedAnswers`
+                -- and never through `nestedTypes`: a private nested alias sharing a
+                -- name
                 -- with somebody's associated type answers nothing. Asked after the
                 -- lexical walk, so an ordinary nested declaration still wins.
                 if lexical == nil and #names >= 1 then
@@ -760,18 +761,13 @@ function resolve.install(c: state.Checker): nil
                     c.diag(
                         "NUPP2133",
                         node,
-                        ("mutually recursive aliases are not supported: %s refers to %s"):format(
-                            c.activeAlias and c.activeAlias.name or "an alias",
-                            name
-                        )
+                        (
+                            "mutually recursive aliases are not supported: %s refers to %s"
+                        ):format(c.activeAlias and c.activeAlias.name or "an alias", name)
                     )
                     return T.any
                 elseif recursiveArmDepth == 0 or recursiveBlockedDepth > 0 then
-                    c.diag(
-                        "NUPP2133",
-                        node,
-                        ("recursive reference to %q must appear beneath a match arm"):format(name)
-                    )
+                    c.diag("NUPP2133", node, ("recursive reference to %q must appear beneath a match arm"):format(name))
                     return T.any
                 end
                 c.markToken(base, resolving.definition, nil, "type")
@@ -1241,11 +1237,16 @@ function resolve.install(c: state.Checker): nil
             if node.generics then
                 c.popScope()
             end
-            return T.func(params, rets, vararg, paramModes, nil, typeParams, typeBounds, borrowsParam, borrowsSelf, borrowsParams, nil, varargType, nil, paramPack, retPack, packParams, yieldPack, resumePack,
+            local callable = T.func(params, rets, vararg, paramModes, nil, typeParams, typeBounds, borrowsParam, borrowsSelf, borrowsParams, nil, varargType, nil, paramPack, retPack, packParams, yieldPack, resumePack,
                 -- `nosuspend function(...)`: the one way to state the guarantee about
                 -- something whose body is never seen here.
-                node.noSuspend, paramNames, next(preservesResults) and preservesResults or nil, nil,
-                constParams, paramKinds)
+                node.noSuspend, paramNames, next(
+                preservesResults
+            ) and preservesResults or nil, nil, constParams, paramKinds)
+            if node.captureBorrows then
+                return T.borrowed(callable)
+            end
+            return callable
         elseif kind == "tparen" then
             return c.resolveType(node.inner)
         end
@@ -1322,10 +1323,7 @@ function resolve.install(c: state.Checker): nil
         local typeParams, typeBounds, packParams, constParams, paramKinds = {}, {}, {}, {}, {}
         if decl and decl.generics then
             c.pushScope()
-            typeParams, typeBounds, packParams, constParams, paramKinds = c.bindGenerics(
-                decl.generics,
-                "type-alias"
-            )
+            typeParams, typeBounds, packParams, constParams, paramKinds = c.bindGenerics(decl.generics, "type-alias")
         end
         local identity = (c.filename or "<source>") .. ":" .. tostring(waiting.tok.offset) .. ":" .. name
         local header = T.aliasHeader(identity, name, typeParams, typeBounds, packParams, constParams, paramKinds)

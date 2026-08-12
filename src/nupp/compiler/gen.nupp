@@ -63,34 +63,11 @@ local COVERAGE_STATEMENTS = {
 }
 
 -- Node kinds that exist only in the type layer: emitted as nothing.
-local TYPE_KINDS = {
-    tname = true,
-    topt = true,
-    tptr = true,
-    tunion = true,
-    tintersection = true,
-    tarray = true,
-    tmap = true,
-    ttuple = true,
-    tshape = true,
-    tshapeField = true,
-    tfunc = true,
-    tfuncParam = true,
-    tparen = true,
-    errorType = true,
-    tpredicate = true,
-    tborrows = true,
-    tpreserves = true,
-    tliteral = true,
-    tconst = true,
-    tcarray = true,
-    generics = true,
+local TYPE_KINDS = {tname = true, topt = true, tptr = true, tunion = true, tintersection = true, tarray = true, tmap = true, ttuple = true, tshape = true, tshapeField = true, tfunc = true, tfuncParam = true, tparen = true, errorType = true, tpredicate = true, tborrows = true, tpreserves = true, tliteral = true, tconst = true, tcarray = true, generics = true,
     -- A pack reaches here whole when it has a tail -- `...integer`, `T...` -- since
     -- only tailless packs are spliced. Its `...` is as much type material as the type
     -- beside it, and without this the token was emitted into the function's body.
-    tpack = true,
-    tpackUnion = true,
-}
+    tpack = true, tpackUnion = true, captureClause = true,}
 
 -- Erased declarations. recordDecl is conditional: declKind == "struct" reifies to
 -- ffi.typeof instead (M3).
@@ -217,16 +194,26 @@ end
 --- @raises when a compiler-owned plan contains a non-data value or a cycle
 function literal.derive(value, active)
     local kind = type(value)
-    if value == nil then return "nil" end
-    if kind == "boolean" then return tostring(value)
-    elseif kind == "string" then return ("%q"):format(value)
+    if value == nil then
+        return "nil"
+    end
+    if kind == "boolean" then
+        return tostring(value)
+    elseif kind == "string" then
+        return ("%q"):format(value)
     elseif kind == "number" then
-        if value == 0 and 1 / value < 0 then return "-0.0" end
+        if value == 0 and 1 / value < 0 then
+            return "-0.0"
+        end
         return ("%.17g"):format(value)
     end
-    if kind ~= "table" then error("invalid derive-plan value: " .. kind) end
+    if kind ~= "table" then
+        error("invalid derive-plan value: " .. kind)
+    end
     active = active or {}
-    if active[value] then error("derive plan contains a cycle") end
+    if active[value] then
+        error("derive plan contains a cycle")
+    end
     active[value] = true
     local parts = {}
     for index = 1, #value do
@@ -234,13 +221,16 @@ function literal.derive(value, active)
     end
     local keys = {}
     for key in pairs(value) do
-        if type(key) == "string" then keys[#keys + 1] = key end
+        if type(key) == "string" then
+            keys[#keys + 1] = key
+        end
     end
     table.sort(keys)
     for _, key in ipairs(keys) do
         parts[#parts + 1] = "[" .. literal.derive(key, active) .. "]=" .. literal.derive(value[key], active)
     end
     active[value] = nil
+
     return "{" .. table.concat(parts, ",") .. "}"
 end
 
@@ -652,6 +642,10 @@ function gen.generate(
     -- Advance the cursor to `line` (never backward).
     local function sync(line)
         while line and curLine < line do
+            local tail = out[#out]
+            if tail then
+                out[#out] = tail:gsub("[ \t]+$", "")
+            end
             raw("\n")
         end
     end
@@ -1204,21 +1198,25 @@ function gen.generate(
             local stat = stats[index]
             local owners = stat.automaticOwners or {}
             local ownerCount = 0
-            for j = 1, #(stat.names or {}) do
+            local ownerNames = stat.names or (stat.name and {stat.name}) or {}
+            for j = 1, #ownerNames do
                 if owners[j] and owners[j].lowerable then
                     ownerCount = ownerCount + 1
                 end
             end
-            if stat.kind == "localStmt" and ownerCount > 0 then
+            if (
+                stat.kind == "localStmt" or stat.kind == "localFuncStmt" and stat.affineInitializer
+            ) and ownerCount > 0 then
                 local group = {}
-                for j = 1, #(stat.names or {}) do
+                local names = stat.names or (stat.name and {stat.name}) or {}
+                local exprs = stat.exprs or (stat.affineInitializer and {stat.affineInitializer}) or {}
+                for j = 1, #names do
                     local owner = owners[j]
                     if owner and owner.lowerable then
-                        local exprs = stat.exprs or {}
                         local expr = exprs[j] or exprs[#exprs]
                         local binding = {
                             kind = "cleanupBinding",
-                            name = stat.names[j],
+                            name = names[j],
                             expr = expr,
                             declarationIndex = j,
                             ownerCleanups = owner.cleanups,
@@ -1229,7 +1227,7 @@ function gen.generate(
                         group[#group + 1] = binding
                     end
                 end
-                local simple = #(stat.names or {}) == 1 and #(stat.exprs or {}) == 1
+                local simple = #names == 1 and #exprs == 1
                 sequence[#sequence + 1] = simple and {bindings = group} or {declaration = stat, bindings = group}
             else
                 sequence[#sequence + 1] = {stat = stat}
@@ -1304,6 +1302,80 @@ function gen.generate(
         end
 
         return nil
+    end
+
+    -- `emit` is already near LuaJIT's upvalue limit under coverage
+    -- instrumentation. Keep this emitter on state it already captures instead of
+    -- adding one more direct upvalue to the main dispatch closure.
+    emitDepth.affineFunction = function(x)
+        local body = x.body
+        local captures = body and body.takenCaptures or {}
+        local active = nextTemp()
+        local callable = nextTemp()
+        local wrapper = nextTemp()
+        local line = sourceLine(x)
+        local names = {}
+        for _, capture in ipairs(captures) do
+            names[#names + 1] = capture.name
+        end
+        e(("(function(%s) local %s=true; "):format(table.concat(names, ","), active), line)
+        for _, capture in ipairs(captures) do
+            local outerActive = activeWith(capture.move)
+            if outerActive then
+                e(("%s=false; "):format(outerActive))
+            end
+        end
+        e(("local %s=function"):format(callable))
+        local enclosingCleanupStack = cleanupStack
+        cleanupStack = {}
+        emit(body)
+        cleanupStack = enclosingCleanupStack
+        e(("; local %s={}; "):format(wrapper))
+        e(("%s.__drop=function() if not %s then return end; %s=false; "):format(wrapper, active, active))
+        local errors = nextTemp()
+        local errorCount = nextTemp()
+        e(("local %s={}; local %s=0; "):format(errors, errorCount))
+        for captureIndex = #captures, 1, -1 do
+            local capture = captures[captureIndex]
+            for _, cleanup in ipairs(capture.type.cleanups or {}) do
+                local call = protectedCleanupCall(cleanup, capture.name, cleanupGlobals.pcall)
+                if call then
+                    local ok, reason = nextTemp(), nextTemp()
+                    e(
+                        (
+                            "local %s,%s=%s; if not %s then %s=%s+1; %s[%s]=%s end; "
+                        ):format(ok, reason, call, ok, errorCount, errorCount, errors, errorCount, reason)
+                    )
+                end
+            end
+        end
+        e(
+            (
+                "if %s>0 then if %s>1 then %s(%s(%s[1],%s,2),0) " .. "else %s(%s[1],0) end end end; "
+            ):format(
+                errorCount,
+                errorCount,
+                cleanupGlobals.error,
+                cleanupFailureName,
+                errors,
+                errors,
+                cleanupGlobals.error,
+                errors
+            )
+        )
+        e(
+            (
+                "return setmetatable(%s,{__call=function(_,...) if not %s then %s(%q,2) end; "
+            ):format(wrapper, active, cleanupGlobals.error, "nupp: affine closure was already called or dropped")
+        )
+        e(("%s=false; return %s(...) end}) end)("):format(active, callable))
+        for j, capture in ipairs(captures) do
+            if j > 1 then
+                e(",")
+            end
+            e(capture.name, capture.token and capture.token.line or line)
+        end
+        e(")")
     end
 
     local function emitPackedReturn(ctx, x)
@@ -1602,19 +1674,43 @@ function gen.generate(
                     needRuntimeEffect("native.cjson")
                 end
                 e(";do local __nuppDerived=" .. literal.derive(plan))
-                e((";local __nuppDerivedEntry=_G.nupp.__derive.register(%q,%s,__nuppDerived)"):format(plan.key, runtimeName))
+                e(
+                    (
+                        ";local __nuppDerivedEntry=_G.nupp.__derive.register(%q,%s,__nuppDerived)"
+                    ):format(plan.key, runtimeName)
+                )
                 if plan.providers.Debug then
-                    e((";%s.debug=function(self)return _G.nupp.__derive.debug(self,__nuppDerived)end"):format(runtimeName))
+                    e(
+                        (
+                            ";%s.debug=function(self)return _G.nupp.__derive.debug(self,__nuppDerived)end"
+                        ):format(runtimeName)
+                    )
                 end
                 if plan.providers.Default then
-                    e((";%s.default=function()return _G.nupp.__derive.default(__nuppDerivedEntry)end"):format(runtimeName))
+                    e(
+                        (
+                            ";%s.default=function()return _G.nupp.__derive.default(__nuppDerivedEntry)end"
+                        ):format(runtimeName)
+                    )
                 end
                 if plan.providers.From and plan.fromField then
-                    e((";%s.from=function(value)return _G.setmetatable({[%q]=value},%s)end"):format(runtimeName, plan.fromField, runtimeName))
+                    e(
+                        (
+                            ";%s.from=function(value)return _G.setmetatable({[%q]=value},%s)end"
+                        ):format(runtimeName, plan.fromField, runtimeName)
+                    )
                 end
                 if plan.providers.JSON then
-                    e((";%s.toJSON=function(self)return _G.nupp.__derive.toJSON(self,__nuppDerivedEntry)end"):format(runtimeName))
-                    e((";%s.fromJSON=function(text)return _G.nupp.__derive.fromJSON(text,__nuppDerivedEntry)end"):format(runtimeName))
+                    e(
+                        (
+                            ";%s.toJSON=function(self)return _G.nupp.__derive.toJSON(self,__nuppDerivedEntry)end"
+                        ):format(runtimeName)
+                    )
+                    e(
+                        (
+                            ";%s.fromJSON=function(text)return _G.nupp.__derive.fromJSON(text,__nuppDerivedEntry)end"
+                        ):format(runtimeName)
+                    )
                     e((";%s.fieldCodec=function()return __nuppDerivedEntry.codec end"):format(runtimeName))
                 end
                 e(" end")
@@ -1933,6 +2029,10 @@ function gen.generate(
                 e("true")
             end
 
+        elseif kind == "funcExpr" and x.body and #(x.body.takenCaptures or {}) > 0 then
+            emitDepth.affineFunction(x)
+            return
+
         elseif kind == "shortfn" then
             -- The pipes and the arrow survive; only the parameter annotations go. A
             -- named vararg does not: the runtime has no `...name`, so that one form
@@ -2094,13 +2194,11 @@ function gen.generate(
             local exprs = call.args and call.args.exprs or {}
             -- Reached through the compiler-module registry rather than a binding of its
             -- own, because `emit` sits at Lua's 60-upvalue ceiling and an instrumented
-            -- build spends one more. The name it answers is bound to a view that already
+            -- build spends one more. The name it answers is bound to a view that
+            -- already
             -- knows the module, so a site carries only its severity and its line.
             local logName = compilerModuleName("nupp.log")
-            e(
-                ("if %s.on[%d] then %s.emit(%d,%d,"):format(logName, severity, logName, severity, line),
-                line
-            )
+            e(("if %s.on[%d] then %s.emit(%d,%d,"):format(logName, severity, logName, severity, line), line)
             if #exprs > 1 then
                 e("string.format(")
             end
@@ -2135,9 +2233,9 @@ function gen.generate(
             if op == "push" then
                 local depthName = nextTemp()
                 e(
-                    ("if %s.__nuppActive then const %s=%s.__nuppDepth+1;%s.__nuppDepth=%s;%s.__nuppStack[%s]="):format(
-                        zoneName, depthName, zoneName, zoneName, depthName, zoneName, depthName
-                    )
+                    (
+                        "if %s.__nuppActive then const %s=%s.__nuppDepth+1;%s.__nuppDepth=%s;%s.__nuppStack[%s]="
+                    ):format(zoneName, depthName, zoneName, zoneName, depthName, zoneName, depthName)
                 )
                 local exprs = call.args and call.args.exprs or {}
                 emit(exprs[1])
@@ -2149,7 +2247,15 @@ function gen.generate(
                         "if %s.__nuppActive and %s.__nuppDepth>0 then const %s=%s.__nuppDepth;"
                         .. "%s.__nuppStack[%s]=nil;%s.__nuppDepth=%s-1;%s.__nuppVersion=%s.__nuppVersion+1 end"
                     ):format(
-                        zoneName, zoneName, depthName, zoneName, zoneName, depthName, zoneName, depthName, zoneName,
+                        zoneName,
+                        zoneName,
+                        depthName,
+                        zoneName,
+                        zoneName,
+                        depthName,
+                        zoneName,
+                        depthName,
+                        zoneName,
                         zoneName
                     )
                 )

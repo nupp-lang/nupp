@@ -204,7 +204,10 @@ local function addSource(
     poll: function(): integer,
     wait: (function(integer): integer)?
 ): any
-    local source = setmetatable({name = name, priority = priority, poll = poll, wait = wait, released = false}, SourceMT)
+    local source = setmetatable(
+        {name = name, priority = priority, poll = poll, wait = wait, released = false},
+        SourceMT
+    )
     sources[#sources + 1] = source
     sortSources()
 
@@ -591,7 +594,8 @@ record suspension.Installed
         -- shutdown raises would otherwise strand every park it accepted.
         --
         -- Abandoning unsubscribes *and* wakes the park with a cancellation, so the
-        -- suspended stack resumes, `suspend` raises, and every cleanup region between there and
+        -- suspended stack resumes, `suspend` raises, and every cleanup region between
+        -- there and
         -- the park runs its cleanup.
         for ticket in pairs(self.parks or {}) do
             attempt(ticket.abandon, "the handled extent ended")
@@ -782,18 +786,17 @@ local ABANDONED = {}
 
 --- Runs `bodies` concurrently, at most `limit` at a time, and reports what each did.
 ---
---- The shared machinery. `stopEarly` is asked after each branch settles whether the rest
+--- The shared machinery. `stopEarly` is asked after each branch settles whether the
+--- rest
 --- are still wanted; the four public forms differ only in that and in what they return.
 ---
 --- @param bodies what to run
 --- @param limit how many may be in flight, or nil for all of them
 --- @param stopEarly asked after each branch settles; true abandons the remainder
 --- @return per-branch values, per-branch errors, and which branch settled first
-local function drive<T>(
-    bodies: {function(): T},
-    limit: integer?,
-    stopEarly: (function(): boolean)?
-): {T?}, {any}, integer?
+local function drive<
+    T
+    >(bodies: {function(): T}, limit: integer?, stopEarly: (function(): boolean)?): {T?}, {any}, integer?
     local count = #bodies
     local values: {T?} = {}
     local errors: {any} = {}
@@ -801,6 +804,7 @@ local function drive<T>(
     local indexOf: any = setmetatable({}, {__mode = "k"})
     local runnable: {[integer]: boolean} = {}
     local abandoned: {[integer]: boolean} = {}
+    local entered: {[integer]: boolean} = {}
     local started: integer = 0
     local finished: integer = 0
     local first: integer? = nil
@@ -817,13 +821,17 @@ local function drive<T>(
         end
     end
 
-    local branchHandler = new suspension.Handler(
-        park = function(_: suspension.Handler, waiting: suspension.Waiting, cancel: function(): nil): nil
+    local branchHandler = new suspension.Handler(park = function(
+        _: suspension.Handler,
+        waiting: suspension.Waiting,
+        cancel: function(): nil
+    ): nil
             local index = indexOf[running()] as integer
             local function markRunnable(): nil
                 runnable[index] = true
                 nudge()
             end
+
             while not waiting:ready() do
                 waiting:onResume(markRunnable)
                 -- It may have completed between subscribing and yielding, and yielding
@@ -837,15 +845,13 @@ local function drive<T>(
                     error(ABANDONED, 0)
                 end
             end
-        end,
-        canPark = function(_: suspension.Handler): boolean
+    end, canPark = function(_: suspension.Handler): boolean
             return true
-        end,
-        shutdown = function(_: suspension.Handler): nil
-        end
-    )
+    end, shutdown = function(_: suspension.Handler): nil
+    end)
 
-    --- Starts the next body that has not been started. Counting inside is what keeps the
+    --- Starts the next body that has not been started. Counting inside is what keeps
+    --- the
     --- index an integer rather than one arithmetic step away from being one.
     local function startNext()
         started = started + 1
@@ -855,6 +861,7 @@ local function drive<T>(
             local produced: T
             do
                 local handling = suspension.install(branchHandler)
+                entered[index] = true
                 produced = body()
             end
 
@@ -908,9 +915,22 @@ local function drive<T>(
                             local victim = threads[other]
                             if victim ~= nil then
                                 abandoned[other] = true
+                                if entered[other] then
                                 coroutine.resume(victim)
+                                else
+                                    local victimBody = bodies[other] as any
+                                    if type(victimBody) == "table" and victimBody.__drop then
+                                        victimBody.__drop()
+                                    end
+                                end
                                 threads[other] = nil
                                 finished = finished + 1
+                            end
+                        end
+                        for other = started + 1, count do
+                            local victimBody = bodies[other] as any
+                            if type(victimBody) == "table" and victimBody.__drop then
+                                victimBody.__drop()
                             end
                         end
                         finished = finished + (count - started)
@@ -925,7 +945,8 @@ local function drive<T>(
             break
         end
         if not ran then
-            -- Nothing can run and something is still waiting, so the driver waits too --
+            -- Nothing can run and something is still waiting, so the driver waits too
+            -- --
             -- on the handler above it, which is what lets this nest inside a frame.
             suspension.suspend("suspension.all", parkDriver)
         end
@@ -975,11 +996,15 @@ end
 --- @param bodies what to run
 --- @return the winner's value, and which body won
 --- @raises the winner's error, when the first to settle settled by failing
-function suspension.race<T>(bodies: {function(): T}): T?, integer?
-    if #bodies == 0 then
+local function raceImpl<T>(takes bodies: {function(): T}): T?, integer?
+    local rawBodies: {function(): T}
+    unsafe do
+        rawBodies = intoRaw(bodies)
+    end
+    if #rawBodies == 0 then
         return nil, nil
     end
-    local values, errors, first = drive(bodies, nil, function(): boolean
+    local values, errors, first = drive(rawBodies, nil, function(): boolean
         return true
     end)
     if first ~= nil and errors[first] ~= nil then
@@ -989,7 +1014,18 @@ function suspension.race<T>(bodies: {function(): T}): T?, integer?
     return first ~= nil and values[first] or nil, first
 end
 
---- Runs every body concurrently with at most `limit` in flight, and answers their values
+local race: function<
+    T
+    >(scoped bodies: {function(): T}): (T?, integer?) & function<T>(takes bodies: {function(): T}): (T?, integer?)
+unsafe do
+    -- Both contracts execute synchronously. The owning arm additionally lets
+    -- `raceImpl` call or drop every affine body exactly once.
+    race = raceImpl as any
+end
+suspension.race = race
+
+--- Runs every body concurrently with at most `limit` in flight, and answers their
+--- values
 --- in order.
 ---
 --- `all` with a ceiling, for fanning out over more work than the thing underneath will

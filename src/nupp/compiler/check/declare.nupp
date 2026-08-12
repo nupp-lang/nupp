@@ -256,7 +256,8 @@ function declare.install(
     --- failure keeps NUPP2122, which now means "this refinement cannot be enforced"
     --- rather than "no refinement is".
     local function checkRefinement(stat: any, n: any, clause: any)
-        local help = "a refinement tests the declaration's own fields: " .. "`satisfies |self| -> self.kind == \"circle\"`"
+        local help = "a refinement tests the declaration's own fields: "
+            .. "`satisfies |self| -> self.kind == \"circle\"`"
 
         -- A record's identity is the metatable `new` stamps, and a struct's is its
         -- ctype. Both already answer `is` exactly, so a refinement beside one would be
@@ -282,7 +283,8 @@ function declare.install(
         if not test then
             local said = shape == "parameter"
                 and "a refinement takes the value it tests, and only that"
-                or shape == "body" and "a refinement is one test, so its body is one `return`"
+                or shape == "body"
+                and "a refinement is one test, so its body is one `return`"
                 or "a refinement needs a test"
             c.diag("NUPP2122", clause, said, nil, {help = help})
             return
@@ -484,11 +486,9 @@ function declare.install(
                     c.diag(
                         "NUPP2116",
                         e.value,
-                        ("%s does not fit the bound %s declares for %q"):format(
-                            T.tostring(value),
-                            stat.name.text,
-                            name
-                        ),
+                        (
+                            "%s does not fit the bound %s declares for %q"
+                        ):format(T.tostring(value), stat.name.text, name),
                         nil,
                         {help = "a default has to satisfy the bound beside it"}
                     )
@@ -547,12 +547,7 @@ function declare.install(
         n.associatedAnswers = n.associatedAnswers or {}
         n.associatedAnswers[
             name
-        ] = new T.AssociatedAnswer(
-            type = value,
-            selfBinder = n.selfType,
-            kind = "answer",
-            definition = definition
-        )
+        ] = new T.AssociatedAnswer(type = value, selfBinder = n.selfType, kind = "answer", definition = definition)
 
         return name
     end
@@ -592,11 +587,7 @@ function declare.install(
                     c.diag(
                         "NUPP2135",
                         declared[name] and declared[name].name or stat.name,
-                        ("%s answers %q through itself: %s"):format(
-                            n.name,
-                            name,
-                            loop
-                        ),
+                        ("%s answers %q through itself: %s"):format(n.name, name, loop),
                         nil,
                         {help = "an associated type has to be answered with a type that does not reach it"}
                     )
@@ -665,10 +656,9 @@ function declare.install(
                 c.diag(
                     "NUPP2116",
                     declared[name] and declared[name].value or stat.name,
-                    ("%s does not fit what %q is bounded by"):format(
-                        found.resolved and T.tostring(found.resolved) or "the answer",
-                        name
-                    ),
+                    (
+                        "%s does not fit what %q is bounded by"
+                    ):format(found.resolved and T.tostring(found.resolved) or "the answer", name),
                     nil,
                     {help = found.bound and ("it has to be a " .. T.tostring(found.bound)) or nil}
                 )
@@ -1335,7 +1325,15 @@ function declare.install(
                     end
                     local ft = c.resolveType(e.type)
                     if ownedApplication then
-                        if ft.tag ~= "func" or not ft.rets[1] or ft.retPack.alternatives then
+                        local ownedMembers = ft.tag == "intersection" and ft.members or {ft}
+                        local fixedResults = true
+                        for _, member in ipairs(ownedMembers) do
+                            if member.tag ~= "func" or not member.rets[1] or member.retPack.alternatives then
+                                fixedResults = false
+                                break
+                            end
+                        end
+                        if not fixedResults then
                             c.diag("NUPP2602", ownedApplication, "@owned field requires a callable with a fixed result")
                         else
                             local cleanupNames, opaque = {}, false
@@ -1394,27 +1392,42 @@ function declare.install(
                                     "@owned(opaque = true) cannot also declare cleanup functions"
                                 )
                             end
-                            local cleanups = c.own.resolvedOwnedCleanups(
-                                ft.rets[1],
-                                cleanupNames,
-                                opaque,
-                                ownedApplication,
-                                ownedApplication
-                            )
-                            c.own.validateCleanups(ft.rets[1], cleanups, ownedApplication)
-                            ft = T.withFirstResult(ft, T.owned(ft.rets[1], cleanups))
+                            local wrapped = {}
+                            for _, member in ipairs(ownedMembers) do
+                                local callable = member as T.Func
+                                local resultType = callable.rets[1]
+                                local cleanups = c.own.resolvedOwnedCleanups(
+                                    resultType,
+                                    cleanupNames,
+                                    opaque,
+                                    ownedApplication,
+                                    ownedApplication
+                                )
+                                c.own.validateCleanups(resultType, cleanups, ownedApplication)
+                                wrapped[#wrapped + 1] = T.withFirstResult(
+                                    callable,
+                                    T.owned(resultType, cleanups)
+                                )
+                            end
+                            ft = #wrapped == 1 and wrapped[1] or T.intersection(wrapped)
                         end
                     end
-                    if e.type and e.type.kind == "tborrows" then
+                    local fieldBorrowRelation: any = e.type and (
+                        e.type.kind == "tborrows" and e.type or e.type.kind == "tfunc" and e.type.captureBorrows
+                    ) or nil
+                    if fieldBorrowRelation then
+                        local sources = fieldBorrowRelation.params or fieldBorrowRelation.names or {
+                            fieldBorrowRelation.param
+                        }
                         if stat.declKind ~= "record" then
                             c.diag("NUPP2602", e, "borrowed field relations are available only on nominal records")
-                        elseif not e.type.param then
+                        elseif not sources[1] then
                             c.diag("NUPP2602", e, "a borrowed field must name its sibling root field")
                         else
                             n.fieldBorrowSources = n.fieldBorrowSources or {}
                             n.borrowedRootFields = n.borrowedRootFields or {}
-                            n.fieldBorrowSources[e.name.text] = e.type.param.text
-                            n.borrowedRootFields[e.type.param.text] = true
+                            n.fieldBorrowSources[e.name.text] = sources[1].text
+                            n.borrowedRootFields[sources[1].text] = true
                             ft = T.borrowed(ft)
                         end
                     elseif e.type and e.type.kind == "tpreserves" then
@@ -1949,7 +1962,9 @@ function declare.install(
                         or settled.reason ~= nil
                         or settled.gradual == true
                         or resolvedTo == T.any
-                        or (resolvedTo ~= nil and resolvedTo.tag == "projection")
+                        or (
+                        resolvedTo ~= nil and resolvedTo.tag == "projection"
+                    )
                     if unsettled then
                         c.diag(
                             "NUPP2122",

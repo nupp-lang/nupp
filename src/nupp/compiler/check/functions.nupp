@@ -233,6 +233,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                 end
             end
         end
+
         walk(body and body.body)
 
         local function directParameter(expr)
@@ -267,7 +268,11 @@ function functions.install(c: state.Checker): state.StatHandlers
             local source = results[result]
             if source and used[source] then
                 if explicit[result] and report then
-                    c.diag("NUPP2602", body.rets[result], "one parameter capability cannot be preserved into two results")
+                    c.diag(
+                        "NUPP2602",
+                        body.rets[result],
+                        "one parameter capability cannot be preserved into two results"
+                    )
                 end
                 results[result] = nil
                 results[used[source]] = nil
@@ -325,6 +330,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                 end
             end
         end
+
         walk(body and body.body, nil)
         if report then
             for _, p in ipairs(body and body.params or {}) do
@@ -337,13 +343,132 @@ function functions.install(c: state.Checker): state.StatHandlers
                 end
             end
         end
+
         return candidates
+    end
+
+    local function takenCaptures(body)
+        if body.takenCaptures then
+            return body.takenCaptures
+        end
+        local captures, seen = {}, {}
+        local clause = body.captureTakes
+        if not clause then
+            body.takenCaptures = captures
+            return captures
+        end
+        if #(clause.names or {}) == 0 then
+            c.diag("NUPP2602", clause, "takes () moves nothing; name what the closure takes or drop the clause")
+        end
+        for _, token in ipairs(clause.names or {}) do
+            if seen[token.text] then
+                c.diag("NUPP2602", token, ("closure capture %q is repeated"):format(token.text))
+            else
+                seen[token.text] = true
+                local entry = c.lookupEntry(token.text)
+                local state = c.ownershipState(entry)
+                local valueType = state and state.t or nil
+                if not state then
+                    c.diag("NUPP2109", token, ("%s names no value to capture"):format(token.text))
+                elseif c.ownershipKind(valueType) ~= "owned" then
+                    c.diag(
+                        "NUPP2602",
+                        token,
+                        (
+                            "only an owner can be taken; %q is %s"
+                        ):format(token.text, valueType and T.tostring(valueType) or "unknown")
+                    )
+                elseif #(valueType.cleanups or {}) == 0 then
+                    c.diag(
+                        "NUPP2602",
+                        token,
+                        ("opaque owner %q cannot be dropped by an uncalled closure"):format(token.text)
+                    )
+                else
+                    local moveNode = {kind = "name", token = token}
+                    c.moveExpression(moveNode, valueType, "closure capture", "owned")
+                    captures[
+                        #captures + 1
+                    ] = {
+                        name = token.text,
+                        token = token,
+                        type = valueType,
+                        outer = state,
+                        move = moveNode.automaticOwnerMove,
+                    }
+                end
+            end
+        end
+        body.takenCaptures = captures
+
+        return captures
+    end
+
+    local function borrowedCaptures(body)
+        if body.borrowCaptures then
+            return body.borrowCaptures
+        end
+        local captures, seen = {}, {}
+        local clause = body.captureBorrows
+        local names = clause and (clause.names or clause.params) or {}
+        for _, token in ipairs(names) do
+            if seen[token.text] then
+                c.diag("NUPP2602", token, ("closure capture %q is repeated"):format(token.text))
+            else
+                seen[token.text] = true
+                local entry = c.lookupEntry(token.text)
+                local state = c.ownershipState(entry)
+                if not state then
+                    c.diag("NUPP2109", token, ("%s names no value to borrow"):format(token.text))
+                elseif not c.ownershipKind(state.t) then
+                    c.diag("NUPP2602", token, ("closure capture %q has no ownership lifetime"):format(token.text))
+                else
+                    captures[
+                        #captures + 1
+                    ] = {name = token.text, token = token, root = c.borrowRoot(state), outer = state,}
+                end
+            end
+        end
+        if clause and #names == 0 then
+            c.diag("NUPP2602", clause, "borrows () retains nothing; name the closure's sources or drop the clause")
+        end
+        body.borrowCaptures = captures
+
+        return captures
+    end
+
+    local function disambiguateBorrowCapture(body)
+        local candidate = body.captureBorrowsCandidate
+        if not candidate or body.captureBorrows then
+            return
+        end
+        for _, source in ipairs(candidate.params or {}) do
+            local entry = c.lookupEntry(source.text)
+            local state = c.ownershipState(entry)
+            if not state or not c.ownershipKind(state.t) then
+                return
+            end
+        end
+        body.captureBorrows = candidate
+        local inner = candidate.type
+        if inner then
+            if body.rets and body.rets[1] == candidate then
+                body.rets[1] = inner
+            end
+            local pack = body.returnPack
+            if pack and pack.kind == "tpack" and pack.types and pack.types[1] == candidate then
+                pack.types[1] = inner
+            end
+        end
     end
 
     -- Builds the function type from a funcbody, binds params, checks the body, and
     -- returns the resulting type.
     c.checkFuncbody = function(body, selfType)
         local params, rets, paramModes, paramNames = {}, {}, {}, {}
+        disambiguateBorrowCapture(body)
+        local captures = takenCaptures(body)
+        local borrows = borrowedCaptures(body)
         -- Inline methods may spell their implicit receiver as the first
         -- parameter. It is still the receiver rather than an ordinary
         -- argument: bind that spelling to the owner type and leave it out of
@@ -367,9 +492,25 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
         c.functionDepth = c.functionDepth + 1
         c.pushScope()
+        local captureContext = {body = body, allowed = {}}
+        for _, capture in ipairs(borrows) do
+            captureContext.allowed[capture.name] = capture
+        end
+        c.closureCaptureStack[#c.closureCaptureStack + 1] = captureContext
         if body.generics then
             typeParams, typeBounds, packParams, constParams, paramKinds = c.bindGenerics(body.generics, "function")
         end
+        for _, capture in ipairs(captures) do
+            c.bindVar(capture.name, capture.type, true, capture.token, "variable")
+            local entry = c.scope.vars[capture.name]
+            if entry and entry.automaticOwner then
+                entry.automaticOwner.lowerable = true
+                entry.automaticOwner.capture = true
+                capture.inner = entry
+                capture.automaticOwner = entry.automaticOwner
+            end
+        end
+        body.takenCaptures = captures
         if selfType then
             c.bindVar(
                 "self",
@@ -401,10 +542,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                 params[#params + 1] = pt
                 paramNames[#params] = p.name.text
                 local mode = inferredModes[#params] or "borrows"
-                if not declaredModes[#params]
-                    and scopedCandidates[p.name.text]
-                    and rawType(pt).tag == "func"
-                then
+                if not declaredModes[#params] and scopedCandidates[p.name.text] and rawType(pt).tag == "func" then
                     mode = "scoped"
                 end
                 if not declaredModes[
@@ -539,6 +677,33 @@ function functions.install(c: state.Checker): state.StatHandlers
         -- what excuses this function, not what its own body happens to do.
         local wasReturning = c.loops.setReturning(false)
         c.checkBlock(body.body, true) -- scope already pushed
+        c.closureCaptureStack[#c.closureCaptureStack] = nil
+        if #captures > 0 and body.body and not body.captureBindingStat then
+            local captureStat = {
+                kind = "localStmt",
+                names = {},
+                types = {},
+                exprs = {},
+                automaticOwners = {},
+                syntheticCapture = true,
+            }
+            for j, capture in ipairs(captures) do
+                local value = {kind = "name", token = capture.token, captureValue = true}
+                value[1] = capture.token
+                captureStat.names[j] = capture.token
+                captureStat.exprs[j] = value
+                captureStat.automaticOwners[j] = capture.automaticOwner
+                if capture.automaticOwner then
+                    capture.automaticOwner.stat = captureStat
+                    capture.automaticOwner.index = j
+                    capture.automaticOwner.expr = value
+                    capture.automaticOwner.type = capture.type
+                end
+            end
+            body.captureBindingStat = captureStat
+            table.insert(body.body.stats, 1, captureStat)
+            table.insert(body.body, 1, captureStat)
+        end
         c.loops.setReturning(wasReturning)
         c.loops.finish(loopClosure, body)
         -- A generic input pack may contain affine slots. Its body therefore has to
@@ -706,7 +871,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
 
         local preservesResults = preservationResults(body, paramNames, typeParams ~= nil, true)
-        return T.func(
+        local callable = T.func(
             params,
             rets,
             vararg,
@@ -732,6 +897,11 @@ function functions.install(c: state.Checker): state.StatHandlers
             constParams,
             paramKinds
         )
+        if #captures > 0 then
+            return T.owned(callable, {T.methodCleanup("__drop")})
+        end
+
+        return callable
     end
 
     -- A function's type as its annotations give it, without checking the body. Enough
@@ -764,10 +934,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             elseif p.name and not p.namedVararg then
                 local pt = p.type and c.resolveType(p.type) or T.any
                 local mode = inferredModes[sourceIndex] or "borrows"
-                if not declaredModes[sourceIndex]
-                    and scopedCandidates[p.name.text]
-                    and rawType(pt).tag == "func"
-                then
+                if not declaredModes[sourceIndex] and scopedCandidates[p.name.text] and rawType(pt).tag == "func" then
                     mode = "scoped"
                 end
                 if not declaredModes[
@@ -807,6 +974,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         c.popScope()
 
         local preservesResults = preservationResults(body, paramNames, typeParams ~= nil, false)
+
         return T.func(
             params,
             rets,
@@ -862,6 +1030,20 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
         local ft = c.checkFuncbody(body)
         c.bindVar(nameTok.text, ft)
+        if ft.tag == "owned" then
+            local entry = c.scope.vars[nameTok.text]
+            local automatic = entry and entry.automaticOwner
+            local initializer = {kind = "funcExpr", body = body, affineLocal = true}
+            stat.affineInitializer = initializer
+            if automatic then
+                automatic.lowerable = true
+                automatic.stat = stat
+                automatic.index = 1
+                automatic.expr = initializer
+                automatic.type = ft
+                stat.automaticOwners = {automatic}
+            end
+        end
         -- After the refining bind, so the entry registered is the one that survives.
         -- The body has already been checked, so a function that only calls itself has
         -- recorded that read and is not mistaken for one nothing uses.

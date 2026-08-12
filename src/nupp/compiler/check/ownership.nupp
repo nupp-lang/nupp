@@ -45,7 +45,13 @@ type ownership.Ops = {
     validateCleanups: function(valueT: Type?, cleanups: any, at: any, code: string?),
 
     --- The cleanups an `@owned` carries once an inherited `@drop` has been read.
-    resolvedOwnedCleanups: function(valueT: Type?, cleanups: any, opaque: any, at: any, registrationNode: any?): {T.Cleanup},
+    resolvedOwnedCleanups: function(
+        valueT: Type?,
+        cleanups: any,
+        opaque: any,
+        at: any,
+        registrationNode: any?
+    ): {T.Cleanup},
 
     --- Resolves free cleanup names once, where their contract is declared.
     resolveCleanups: function(cleanups: any, at: any, registrationNode: any?): {T.Cleanup},
@@ -55,6 +61,9 @@ type ownership.Ops = {
 
     --- Adds a resolved default cleanup to a nominal, idempotently across rechecks.
     addDefaultDropOperation: function(resourceT: Type?, cleanup: T.Cleanup),
+
+    --- Reports bare producers whose result never acquired one default drop operation.
+    finalizeDefaultCleanups: function(),
 
     --- The binding an expression's ownership is recorded on, and the name it was
     --- reached through.
@@ -69,7 +78,13 @@ type ownership.Ops = {
     liveSuspensionObligation: function(): string?,
 
     --- Records that an expression's owner has been handed over.
-    moveExpression: function(expr: any, t: Type?, reason: string, expectedKind: string?, allowPartial: boolean?): boolean
+    moveExpression: function(
+        expr: any,
+        t: Type?,
+        reason: string,
+        expectedKind: string?,
+        allowPartial: boolean?
+    ): boolean
 }
 
 --- Installs the ownership bookkeeping on one run.
@@ -78,6 +93,7 @@ type ownership.Ops = {
 --- @return the operations the walk calls
 function ownership.install(c: state.Checker): ownership.Ops
     local own = {}
+    local pendingDefaultCleanups = {}
 
     function own.ownershipKind(t)
         return t and (t.tag == "owned" or t.tag == "borrowed" or t.tag == "pinned") and t.tag or nil
@@ -218,11 +234,7 @@ function ownership.install(c: state.Checker): ownership.Ops
                     }
                 )
             elseif cleanupT and cleanupT ~= T.any and (not firstParam or not isA(cleanupValue, firstParam)) then
-                c.diag(
-                    code,
-                    at,
-                    ("@owned cleanup %q must accept %s"):format(cleanup.name, T.tostring(cleanupValue))
-                )
+                c.diag(code, at, ("@owned cleanup %q must accept %s"):format(cleanup.name, T.tostring(cleanupValue)))
             elseif cleanupFunc and j < #(cleanups or {}) and cleanupFunc.paramModes[1] == "takes" then
                 c.diag("NUPP2615", at, ("@owned cleanup %q takes before the final step"):format(cleanup.name))
             end
@@ -252,6 +264,7 @@ function ownership.install(c: state.Checker): ownership.Ops
         local base = resource
         local defaults = base.tag == "nominal" and base.defaultDropOperations or nil
         if not defaults or #defaults == 0 then
+            if base.tag ~= "nominal" then
             c.diag(
                 "NUPP2602",
                 at,
@@ -259,6 +272,11 @@ function ownership.install(c: state.Checker): ownership.Ops
                 .. "use @owned(cleanup) or @owned(opaque = true)"
             )
             return {}
+            end
+            defaults = defaults or {}
+            base.defaultDropOperations = defaults
+            pendingDefaultCleanups[#pendingDefaultCleanups + 1] = {at = at, defaults = defaults}
+            return defaults
         elseif #defaults > 1 then
             c.diag(
                 "NUPP2602",
@@ -269,6 +287,25 @@ function ownership.install(c: state.Checker): ownership.Ops
         end
 
         return {defaults[1]}
+    end
+
+    function own.finalizeDefaultCleanups()
+        for _, pending in ipairs(pendingDefaultCleanups) do
+            if #pending.defaults == 0 then
+                c.diag(
+                    "NUPP2602",
+                    pending.at,
+                    "bare @owned needs exactly one inherited @drop operation; "
+                    .. "use @owned(cleanup) or @owned(opaque = true)"
+                )
+            elseif #pending.defaults > 1 then
+                c.diag(
+                    "NUPP2602",
+                    pending.at,
+                    "bare @owned has multiple inherited @drop operations; choose one with @owned(cleanup)"
+                )
+            end
+        end
     end
 
     function own.addDefaultDropOperation(resourceT, cleanup)
@@ -294,10 +331,7 @@ function ownership.install(c: state.Checker): ownership.Ops
             c.diag("NUPP2602", at, "@drop requires a function whose first parameter takes " .. "the resource")
             return
         end
-        own.addDefaultDropOperation(
-            ft.params[1],
-            resolvedFunctionCleanup(path, at, registrationNode, true, ft)
-        )
+        own.addDefaultDropOperation(ft.params[1], resolvedFunctionCleanup(path, at, registrationNode, true, ft))
     end
 
     function own.ownershipEntry(expr)
@@ -472,13 +506,10 @@ function ownership.install(c: state.Checker): ownership.Ops
             if aggregate
                 and aggregate.tag == "nominal"
                 and aggregate.borrowedRootFields
-                and aggregate.borrowedRootFields[field]
-            then
-                c.diag(
-                    "NUPP2602",
-                    expr,
-                    ("owned field %q cannot move while a sibling field borrows it"):format(field)
-                )
+                and aggregate.borrowedRootFields[
+                field
+            ] then
+                c.diag("NUPP2602", expr, ("owned field %q cannot move while a sibling field borrows it"):format(field))
                 return false
             end
             if (container.activeBorrows or 0) > 0 then

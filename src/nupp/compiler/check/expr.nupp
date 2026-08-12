@@ -196,6 +196,7 @@ function expr.install(c: state.Checker): nil
                 collectComptimeFacts(child)
             end
         end
+
         collectComptimeFacts(node.body)
         local quoted, resultType, failure, envelope = comptime.evaluate(
             untypedNode,
@@ -332,8 +333,10 @@ function expr.install(c: state.Checker): nil
             end
             local nameText = nameTok.text
             local entry = c.lookupEntry(nameText)
-            if entry and entry.definition and entry.definition.comptimeFunction
-                and (c.comptimeDepth or 0) == 0 and (c.comptimeFunctionDepth or 0) == 0 then
+            local capturedType = nil
+            if entry and entry.definition and entry.definition.comptimeFunction and (
+                c.comptimeDepth or 0
+            ) == 0 and (c.comptimeFunctionDepth or 0) == 0 then
                 c.diag(
                     "NUPP2415",
                     node,
@@ -364,17 +367,29 @@ function expr.install(c: state.Checker): nil
                         }
                     )
                     node.ownershipUseReported = true
-                elseif c.ownershipKind(entry.t)
-                    and (entry.functionDepth or 0) < c.functionDepth
-                    and not (c.ownershipKind(entry.t) == "borrowed" and c.scopedCaptureDepth > 0)
-                then
+                elseif c.ownershipKind(
+                    entry.t
+                ) and (
+                    entry.functionDepth or 0
+                ) < c.functionDepth and not (c.ownershipKind(entry.t) == "borrowed" and c.scopedCaptureDepth > 0) then
+                    local context = c.closureCaptureStack[#c.closureCaptureStack]
+                    local capture = context and context.allowed[nameText] or nil
+                    if context and not capture and not context.body.captureBorrows then
+                        capture = {name = nameText, token = nameTok, root = c.borrowRoot(state), outer = state,}
+                        context.allowed[nameText] = capture
+                        context.body.borrowCaptures[#context.body.borrowCaptures + 1] = capture
+                    end
+                    if capture then
+                        node.borrowOwner = capture.root
+                        capturedType = T.borrowed(rawType(entry.t))
+                    elseif not node.ownershipCaptureReported then
                     -- The branch above is what proves it has one.
                     local capturedKind = c.ownershipKind(entry.t) as string
-                    if not node.ownershipCaptureReported then
-                        c.diag("NUPP2603", node, ("%s value %q cannot be captured by a closure"):format(
-                            capturedKind,
-                            nameText
-                        ))
+                        c.diag(
+                            "NUPP2603",
+                            node,
+                            ("%s value %q cannot be captured by a closure"):format(capturedKind, nameText)
+                        )
                         node.ownershipCaptureReported = true
                     end
                 end
@@ -479,7 +494,7 @@ function expr.install(c: state.Checker): nil
                 -- and the second report adds nothing to the first.
                 entry.unassigned = nil
             end
-            return entry and entry.t or T.any -- unknown names are any unless --strict
+            return capturedType or (entry and entry.t or T.any) -- unknown names are any unless --strict
         elseif kind == "paren" then
             local inner = node.expr
             local out = inner and c.infer(inner) or T.any
@@ -592,8 +607,24 @@ function expr.install(c: state.Checker): nil
             end
             return T.boolean
         elseif kind == "funcExpr" then
-            local body = node.body
-            return body and c.checkFuncbody(body) or T.any
+            local body = node.body as cst.Funcbody
+            local inferred = body and c.checkFuncbody(body) or T.any
+            local captures = body and body.borrowCaptures or {}
+            if #captures > 0 then
+                local roots = {}
+                for _, capture in ipairs(captures) do
+                    roots[#roots + 1] = capture.root
+                end
+                if #roots == 1 then
+                    node.borrowOwner = roots[1]
+                else
+                    node.borrowOwners = roots
+                end
+                if not c.ownershipKind(inferred) then
+                    inferred = T.borrowed(inferred)
+                end
+            end
+            return inferred
         elseif kind == "shortfn" then
             c.pushScope()
             local params, paramNames = {}, {}
@@ -678,6 +709,12 @@ function expr.install(c: state.Checker): nil
             return T.string
         elseif kind == "tableExpr" then
             local positional, named = {}, {}
+            local aggregateMoves, aggregateRoots = {}, {}
+            local ownsElements = false
+            local rootSeen = {}
+            if node.affineAggregateContext then
+                node.affineAggregate = true
+            end
             -- A positional entry widens: an array built from literals is an array of
             -- their base type, or writing to it later would fail against the one value
             -- it was built from. A named field keeps its literal, which is the only way
@@ -693,15 +730,52 @@ function expr.install(c: state.Checker): nil
 
             -- An owner stored in a table escapes the checking that tracks it, whichever
             -- way the entry was written.
-            local function refuseOwner(value: Node, valueT: Type)
+            local function tableValue(value: Node, valueT: Type): Type
                 if not c.ownershipKind(valueT) then
-                    return
+                    return valueT
                 end
+                if not node.affineAggregateContext then
                 c.diag(
                     "NUPP2603",
                     value,
                     (c.ownershipKind(valueT) as string) .. " value cannot be stored in a table"
                 )
+                    return rawType(valueT)
+                end
+                node.affineAggregate = true
+                if c.ownershipKind(valueT) == "owned" then
+                    ownsElements = true
+                    c.moveExpression(value, valueT, "affine aggregate element", "owned")
+                    if value.automaticOwnerMove then
+                        aggregateMoves[#aggregateMoves + 1] = value.automaticOwnerMove
+                    end
+                else
+                    local roots = value.borrowOwners or (value.borrowOwner and {value.borrowOwner}) or {}
+                    for _, root in ipairs(roots) do
+                        if not rootSeen[root] then
+                            rootSeen[root] = true
+                            aggregateRoots[#aggregateRoots + 1] = root
+                        end
+                    end
+                end
+                node.automaticOwnerMoves = aggregateMoves
+
+                return rawType(valueT)
+            end
+
+            local function aggregateType(valueT: Type): Type
+                if ownsElements then
+                    return T.owned(valueT, {})
+                elseif #aggregateRoots > 0 then
+                    if #aggregateRoots == 1 then
+                        node.borrowOwner = aggregateRoots[1]
+                    else
+                        node.borrowOwners = aggregateRoots
+                    end
+                    return T.borrowed(valueT)
+                end
+
+                return valueT
             end
 
             for _, f in ipairs(node.fields) do
@@ -709,14 +783,13 @@ function expr.install(c: state.Checker): nil
                     local value = f.value
                     if value then
                         local valueT = c.infer(value)
-                        refuseOwner(value, valueT)
-                        positional[#positional + 1] = widened(valueT)
+                        positional[#positional + 1] = widened(tableValue(value, valueT))
                     end
                 elseif f.kind == "fieldNamed" then
                     local value, fieldName = f.value, f.name
                     if value and fieldName then
                         local valueT = c.infer(value)
-                        refuseOwner(value, valueT)
+                        valueT = tableValue(value, valueT)
                         -- A string literal in a named field is kept: that is how a
                         -- discriminant is written, and keeping it is the only way to
                         -- build a value of a discriminated union. Numbers widen, since
@@ -735,19 +808,19 @@ function expr.install(c: state.Checker): nil
                         c.infer(f.key)
                     end
                     if value then
-                        refuseOwner(value, c.infer(value))
+                        tableValue(value, c.infer(value))
                     end
-                    return T.table_ -- computed keys: generic table in v0
+                    return aggregateType(T.table_) -- computed keys: generic table in v0
                 end
             end
             if #named > 0 and #positional == 0 then
-                return T.shape(named, nil, true)
+                return aggregateType(T.shape(named, nil, true))
             elseif #positional > 0 and #named == 0 then
-                return T.array(T.union(positional))
+                return aggregateType(T.array(T.union(positional)))
             elseif #positional == 0 and #named == 0 then
                 return T.table_ -- {} is compatible with any table type
             end
-            return T.table_
+            return aggregateType(T.table_)
         elseif kind == "errorExpr" then
             return T.any
         end
@@ -789,7 +862,23 @@ function expr.install(c: state.Checker): nil
             expectedShortfns[node] = nil
             return inferred
         elseif node.kind == "funcExpr" and node.body then
-            return c.apply.checkFuncbodyExpected(node.body, expected)
+            local inferred = c.apply.checkFuncbodyExpected(node.body, expected)
+            local captures = (node.body as cst.Funcbody).borrowCaptures or {}
+            if #captures > 0 then
+                local roots = {}
+                for _, capture in ipairs(captures) do
+                    roots[#roots + 1] = capture.root
+                end
+                if #roots == 1 then
+                    node.borrowOwner = roots[1]
+                else
+                    node.borrowOwners = roots
+                end
+                if not c.ownershipKind(inferred) then
+                    inferred = T.borrowed(inferred)
+                end
+            end
+            return inferred
         end
 
         return c.infer(node)

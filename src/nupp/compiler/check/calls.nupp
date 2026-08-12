@@ -21,9 +21,9 @@ local calls = {}
 local isA = relations.isA
 local rawType = T.unwrapOwnership
 
-
 -- A call site has run inference: a binder nothing reached becomes `any`, which
 -- leaves the application gradual rather than leaking a binder into the caller.
+
 --- Materializes and reduces in one evaluation, and reports what the reduction saw.
 ---
 --- The observations have to come from the same evaluation as the type. Reducing
@@ -174,6 +174,12 @@ local function probeArm(ft: T.Func, argPack: T.Pack, cdefCall: boolean?): T.Func
         if cdefCall and actual.tag == "pinned" then
             actual = rawType(actual)
         end
+        local mode = specialized.paramModes and specialized.paramModes[j] or "plain"
+        if mode == "takes" and actual.tag ~= "owned" then
+            return nil, ("argument %d requires an owned value"):format(j)
+        elseif mode == "scoped" and (actual.tag == "owned" or actual.tag == "pinned") then
+            return nil, ("argument %d cannot borrow an affine value as a repeatable callback"):format(j)
+        end
         local ok, why = isA(actual, params.head[j])
         if not ok then
             return nil, ("argument %d: %s"):format(j, why or "mismatch")
@@ -311,12 +317,15 @@ function calls.install(c: state.Checker): calls.Ops
             end
             gap = gap or trivia
         end
-        local opening = gap
-            and {offset = gap.offset, length = open.offset + #open.text - gap.offset, newText = "("}
-            or c.edits.replaceToken(open, "(")
+        local opening = gap and {
+            offset = gap.offset,
+            length = open.offset + #open.text - gap.offset,
+            newText = "("
+        } or c.edits.replaceToken(open, "(")
         local edits = {opening, c.edits.replaceToken(close, ")")}
         for _, separator in ipairs(separators) do
-            -- A `;` separates table fields and nothing else, and the last one before the
+            -- A `;` separates table fields and nothing else, and the last one before
+            -- the
             -- brace separates a field from nothing at all.
             if separator == trailing then
                 edits[#edits + 1] = {offset = separator.offset, length = #separator.text, newText = ""}
@@ -423,7 +432,8 @@ function calls.install(c: state.Checker): calls.Ops
                 return nil
             end
             -- The member is read off the bound's surface unspecialized, because
-            -- asking `fieldWriteType` for it would already have replaced `self` with the
+            -- asking `fieldWriteType` for it would already have replaced `self` with
+            -- the
             -- bound and left nothing to rebind to the projection.
             local entry = members.lookup(bound, name)
             if not entry or not entry.writeType then
@@ -899,9 +909,9 @@ function calls.install(c: state.Checker): calls.Ops
                     ("%s is constructed from arguments, not from a table"):format(declared),
                     tableConstructionFix(tbl),
                     {
-                        help = isRecord
-                        and ("write new %s(field = value, ...)"):format(declared)
-                        or ("write new %s(...) with one value per field, in order"):format(declared),
+                        help = isRecord and (
+                            "write new %s(field = value, ...)"
+                        ):format(declared) or ("write new %s(...) with one value per field, in order"):format(declared),
                     }
                 )
                 c.infer(tbl)
@@ -982,7 +992,12 @@ function calls.install(c: state.Checker): calls.Ops
                             local fieldDef = calleeT.writeFieldDefs and calleeT.writeFieldDefs[
                                 fname
                             ] or (calleeT.fieldDefs and calleeT.fieldDefs[fname] or nil)
-                            c.markToken(arg.name, fieldDef, calleeT.writeByname[fname] or calleeT.byname[fname], "property")
+                            c.markToken(
+                                arg.name,
+                                fieldDef,
+                                calleeT.writeByname[fname] or calleeT.byname[fname],
+                                "property"
+                            )
                         end
                         bindField(fname, arg.value or arg, arg, ("field %q"):format(fname or "?"))
                     end
@@ -1063,8 +1078,9 @@ function calls.install(c: state.Checker): calls.Ops
                         )
                     end
                     local sourceType = calleeT.byname[source]
-                    local internalRoot = c.ownershipKind(sourceType) == "owned"
-                        or c.ownershipKind(sourceType) == "pinned"
+                    local internalRoot = c.ownershipKind(
+                        sourceType
+                    ) == "owned" or c.ownershipKind(sourceType) == "pinned"
                     if not internalRoot then
                         for _, root in ipairs(actual) do
                             if not rootSeen[root] then
@@ -1143,11 +1159,7 @@ function calls.install(c: state.Checker): calls.Ops
                 if not cst.isToken(arg) then
                     local value = (arg.kind == "namedArg" or arg.kind == "pluckArg") and arg.value or arg
                     if arg.kind == "namedArg" or arg.kind == "pluckArg" then
-                        c.diag(
-                            "NUPP2006",
-                            arg,
-                            "named and plucked arguments require a statically known callable"
-                        )
+                        c.diag("NUPP2006", arg, "named and plucked arguments require a statically known callable")
                     end
                     local argumentType = c.infer(value)
                     if c.ownershipKind(argumentType) then
@@ -1351,7 +1363,9 @@ function calls.install(c: state.Checker): calls.Ops
                     if entry then
                         types[j] = entry.type
                         nodes[j] = entry.node
-                        lowered[j] = entry.field and {
+                        lowered[
+                            j
+                        ] = entry.field and {
                             generatedKind = "field",
                             source = entry.node,
                             name = entry.field,
@@ -1434,7 +1448,20 @@ function calls.install(c: state.Checker): calls.Ops
             ats[1] = args[1].kind == "string" and T.string or T.any
             argPack = T.pack(ats)
         else
-            argPack = c.inferListPack(args, calleeT.paramModes)
+            local inferenceModes = calleeT.paramModes
+            if overloads then
+                inferenceModes = {}
+                for _, candidate in ipairs(overloads) do
+                    for j, mode in ipairs(candidate.paramModes or {}) do
+                        if mode == "takes" or mode == "scoped" then
+                            -- A table literal may carry affine or borrowed callbacks
+                            -- while overload selection decides which contract applies.
+                            inferenceModes[j] = "takes"
+                        end
+                    end
+                end
+            end
+            argPack = c.inferListPack(args, inferenceModes)
             ats = argPack.head
         end
         node.argumentPack = argPack
@@ -1741,15 +1768,21 @@ function calls.install(c: state.Checker): calls.Ops
                     )
                 else
                     local movedNode = cst.isToken(argNodes[j]) and node or argNodes[j]
-                    c.moveExpression(
-                        movedNode,
-                        ats[j],
-                        ("argument %d"):format(j)
-                    )
+                    local sourceArg = args[j]
+                    if movedNode.affineAggregate then
+                        node.automaticOwnerMoves = node.automaticOwnerMoves or {}
+                        for _, move in ipairs(
+                            (sourceArg and sourceArg.automaticOwnerMoves) or movedNode.automaticOwnerMoves or {}
+                        ) do
+                            node.automaticOwnerMoves[#node.automaticOwnerMoves + 1] = move
+                        end
+                    else
+                        c.moveExpression(movedNode, ats[j], ("argument %d"):format(j))
                     if movedNode.automaticOwnerMove then
                         node.automaticOwnerMoves = node.automaticOwnerMoves or {}
                         node.automaticOwnerMoves[#node.automaticOwnerMoves + 1] = movedNode.automaticOwnerMove
                     end
+                end
                 end
             elseif preservationResult then
                 local kind = c.ownershipKind(ats[j])
@@ -1780,7 +1813,13 @@ function calls.install(c: state.Checker): calls.Ops
                 end
             elseif mode == "scoped" then
                 local callback = rawType(ats[j])
-                if callback ~= T.any and callback ~= T.unknown and callback.tag ~= "func" and callback.tag ~= "intersection" then
+                local callbackArray = callback.tag == "array" and rawType(callback.elem).tag == "func"
+                if callback ~= T.any
+                    and callback ~= T.unknown
+                    and callback.tag ~= "func"
+                    and callback.tag ~= "intersection"
+                    and not callbackArray
+                then
                     c.diag("NUPP2602", argNodes[j] or node, "a scoped parameter requires a callback value")
                 end
             elseif mode == "exclusive" then
@@ -1883,10 +1922,7 @@ function calls.install(c: state.Checker): calls.Ops
             entry = c.ownershipState(entry)
             if entry then
                 node.returnOwnershipStates = node.returnOwnershipStates or {}
-                node.returnOwnershipStates[result] = {
-                    retained = entry.retained or nil,
-                    ownershipOrigin = entry,
-                }
+                    node.returnOwnershipStates[result] = {retained = entry.retained or nil, ownershipOrigin = entry,}
             end
             end
         end

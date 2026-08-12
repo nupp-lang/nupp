@@ -33,7 +33,9 @@ local dropSelf = generics.dropSelf
 local specializeSelf = generics.specializeSelf
 local specializeReceiver = generics.specializeReceiver
 
-local callexpr = {}
+local callexpr: {
+    install: function(state.Checker): state.ExprHandlers
+} = {}
 
 -- Which ownership intrinsic a callee is, once the names in it have been resolved.
 --
@@ -159,6 +161,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         if pattern and pattern.tag == "nominal" and pattern.lpegPattern then
             return pattern
         end
+
         return nil
     end
 
@@ -181,6 +184,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
             return lpegUnknown
         end
+
         return #values == 0 and lpegEmpty or T.tuple(values)
     end
 
@@ -189,11 +193,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         return parameter and generics.instantiate(origin, {[parameter] = captures}) or origin
     end
 
-    local function specializeLpegCall(
-        callee: Node?,
-        memberName: string,
-        argumentPack: T.Pack?
-    ): Type?
+    local function specializeLpegCall(callee: Node?, memberName: string, argumentPack: T.Pack?): Type?
         local origin = lpegPatternOrigin(callee)
         if not origin or not argumentPack then
             return nil
@@ -209,14 +209,15 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             local callback = T.packAt(argumentPack, 1)
             if callback and callback.tag == "func" then
                 return lpegPattern(origin, lpegCapturesFromPack(callback.retPack, 1))
-            elseif callback and callback.tag == "nominal"
-                and ((callback.origin or callback) as T.Nominal).lpegPattern then
+            elseif callback and callback.tag == "nominal" and (
+                (callback.origin or callback) as T.Nominal
+            ).lpegPattern then
                 return callback
-            elseif callback and (isA(callback, T.string) or isA(callback, T.number)
-                or isA(callback, T.boolean)) then
+            elseif callback and (isA(callback, T.string) or isA(callback, T.number) or isA(callback, T.boolean)) then
                 return lpegPattern(origin, lpegEmpty)
             end
         end
+
         return nil
     end
 
@@ -251,7 +252,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             for _, member in ipairs(t.members) do
                 if member ~= T.nil_ then
                     local field = readableField(member, name)
-                    if field then members[#members + 1] = field end
+                    if field then
+                        members[#members + 1] = field
+                    end
                 end
             end
 
@@ -262,13 +265,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
     end
 
     local function pegCompilePath(callee: Node?): boolean
-        if not callee or callee.kind ~= "dotIndex" or not callee.name
-            or callee.name.text ~= "compile" then
+        if not callee or callee.kind ~= "dotIndex" or not callee.name or callee.name.text ~= "compile" then
             return false
         end
         local pegPath = callee.obj
-        if not pegPath or pegPath.kind ~= "dotIndex" or not pegPath.name
-            or pegPath.name.text ~= "peg" then
+        if not pegPath or pegPath.kind ~= "dotIndex" or not pegPath.name or pegPath.name.text ~= "peg" then
             return false
         end
         local root = pegPath.obj
@@ -276,7 +277,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local global = c.env and c.env.globals and c.env.globals.nupp
         local resolved = token and c.lookupEntry(token.text) or nil
 
-        return token ~= nil and token.text == "nupp" and global ~= nil and resolved ~= nil
+        return token ~= nil
+            and token.text == "nupp"
+            and global ~= nil
+            and resolved ~= nil
             and resolved.definition == global.definition
     end
 
@@ -312,6 +316,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         else
             return nil
         end
+
         return "__nuppPegReplace" .. (name == "replaceAll" and "All" or "") .. suffix
     end
 
@@ -330,7 +335,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
     end
 
     -- Resolves an expression-shaped type path without inferring it as a runtime value.
-    -- `nupp.reflect` and the layout intrinsics share this spelling and dependency behavior.
+    -- `nupp.reflect` and the layout intrinsics share this spelling and dependency
+    -- behavior.
     local function concreteTypePath(argument: Node?, typePosition: boolean?): string?, Type?
         if argument and typePosition then
             local key = cst.textOf(argument):gsub("%s+", "")
@@ -353,12 +359,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     local firstName = first as string
                     moduleName = holder.requiredModule .. moduleName:sub(#firstName + 1)
                 end
-                resolved = c.env.resolveQualifiedType(
-                    c.env,
-                    c.filename,
-                    moduleName,
-                    typeName
-                )
+                resolved = c.env.resolveQualifiedType(c.env, c.filename, moduleName, typeName)
             end
         end
 
@@ -399,8 +400,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             argTable = callArgs.table
         end
         local comptimeIntrinsic, intrinsicQualified = cst.comptimeTypeIntrinsicSpelling(callee)
-        local layoutIntrinsic = intrinsicQualified and comptimeIntrinsic ~= "reflect"
-            and comptimeIntrinsic or nil
+        local layoutIntrinsic = intrinsicQualified and comptimeIntrinsic ~= "reflect" and comptimeIntrinsic or nil
         if layoutIntrinsic and not argStr and not argTable then
             if (c.comptimeDepth or 0) == 0 then
                 c.diag("NUPP2419", node, "nupp." .. layoutIntrinsic .. " is available only inside a comptime block")
@@ -413,19 +413,12 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 c.diag(
                     "NUPP2419",
                     node,
-                    ("nupp.%s expects %d argument%s"):format(
-                        layoutIntrinsic,
-                        expected,
-                        expected == 1 and "" or "s"
-                    )
+                    ("nupp.%s expects %d argument%s"):format(layoutIntrinsic, expected, expected == 1 and "" or "s")
                 )
                 return T.any
             end
             local typeArgument = callArgs and callArgs.typeArg or argExprs[1]
-            local key, subject = concreteTypePath(
-                typeArgument,
-                callArgs and callArgs.typeArg ~= nil
-            )
+            local key, subject = concreteTypePath(typeArgument, callArgs and callArgs.typeArg ~= nil)
             if not key or not subject then
                 c.diag(
                     "NUPP2419",
@@ -452,19 +445,16 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 c.diag(
                     "NUPP2419",
                     argExprs[1] or node,
-                    ("%s has no layout for %s: %s"):format(
-                        key,
-                        target,
-                        tostring(why)
-                    )
+                    ("%s has no layout for %s: %s"):format(key, target, tostring(why))
                 )
                 return T.any
             end
             if layoutIntrinsic == "offsetof" then
                 local fieldType = argExprs[2] and c.infer(argExprs[2]) or nil
                 local fieldName = literalString(argExprs[2])
-                if not fieldName and fieldType and fieldType.tag == "literal"
-                    and type(fieldType.constant) == "string" then
+                if not fieldName and fieldType and fieldType.tag == "literal" and type(
+                    fieldType.constant
+                ) == "string" then
                     fieldName = fieldType.constant
                 end
                 if not fieldName then
@@ -476,11 +466,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     return T.any
                 end
                 if measured.offsets[fieldName] == nil then
-                    c.diag(
-                        "NUPP2419",
-                        argExprs[2] or node,
-                        ("%s has no field %q"):format(key, fieldName)
-                    )
+                    c.diag("NUPP2419", argExprs[2] or node, ("%s has no field %q"):format(key, fieldName))
                     return T.any
                 end
             end
@@ -488,8 +474,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
 
             return T.integer
         end
-        if comptimeIntrinsic == "reflect" and intrinsicQualified
-            and #argExprs == 1 and not argStr and not argTable then
+        if comptimeIntrinsic == "reflect" and intrinsicQualified and #argExprs == 1 and not argStr and not argTable then
             if (c.comptimeDepth or 0) == 0 then
                 c.diag("NUPP2418", node, "nupp.reflect is available only inside a comptime block")
                 return T.any
@@ -497,10 +482,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             local globals = c.env and c.env.globals
             local stable = globals and c.lookupEntry("nupp") == globals.nupp
             local typeArgument = callArgs and callArgs.typeArg or argExprs[1]
-            local key, reflected = concreteTypePath(
-                typeArgument,
-                callArgs and callArgs.typeArg ~= nil
-            )
+            local key, reflected = concreteTypePath(typeArgument, callArgs and callArgs.typeArg ~= nil)
             if not stable or not reflected then
                 c.diag(
                     "NUPP2418",
@@ -656,15 +638,16 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     c.diag(
                         "NUPP2602",
                         args[1] or node,
-                        "drop needs @owned cleanup functions; transfer this owner "
-                        .. "to a declared takes parameter"
+                        "drop needs @owned cleanup functions; transfer this owner " .. "to a declared takes parameter"
                     )
                 end
                 node.ownershipIntrinsic = "drop"
                 node.ownerCleanups = {}
                 local state = args[1] and c.ownershipState((c.ownershipEntry(args[1]))) or nil
                 for _, cleanup in ipairs(dropped.cleanups or {}) do
-                    if not (cleanup.kind == "field" and state and state.movedFields and state.movedFields[cleanup.field]) then
+                    if not (
+                        cleanup.kind == "field" and state and state.movedFields and state.movedFields[cleanup.field]
+                    ) then
                         node.ownerCleanups[#node.ownerCleanups + 1] = cleanup
                     end
                 end
@@ -722,6 +705,21 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             callee.callCallee = true
         end
         local calleeT = callee and c.infer(callee) or T.any
+        if callee and c.ownershipKind(calleeT) == "owned" and rawType(calleeT).tag == "func" then
+            if node.kind == "safeCall" then
+                c.diag("NUPP2602", callee, "an affine closure call cannot be conditional; narrow it first")
+            else
+                c.moveExpression(callee, calleeT, "affine closure call", "owned")
+                if callee.automaticOwnerMove then
+                    node.automaticOwnerMoves = node.automaticOwnerMoves or {}
+                    node.automaticOwnerMoves[#node.automaticOwnerMoves + 1] = callee.automaticOwnerMove
+                end
+            end
+            node.affineClosureCall = true
+            calleeT = rawType(calleeT)
+        elseif c.ownershipKind(calleeT) == "borrowed" and rawType(calleeT).tag == "func" then
+            calleeT = rawType(calleeT)
+        end
         if calleeT.tag == "func" and calleeT.foreign then
             node.cdefCall = true
         end
@@ -1209,14 +1207,12 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         if node.kind == "call" and pegCompilePath(callee) then
             local source = literalString(argExprs[1]) or literalToken(argStr)
             local sourceType = node.argumentPack and T.packAt(node.argumentPack, 1) or nil
-            if not source and sourceType and sourceType.tag == "literal"
-                and type(sourceType.constant) == "string" then
+            if not source and sourceType and sourceType.tag == "literal" and type(sourceType.constant) == "string" then
                 source = sourceType.constant
             end
             if source then
                 local options = node.argumentPack and T.packAt(node.argumentPack, 2) or nil
-                local definitions = readableField(options, "definitions")
-                    or readableField(options, "actions")
+                local definitions = readableField(options, "definitions") or readableField(options, "actions")
                 local result = pegTyping.inferSourceResult(source, definitions)
                 local matcher = result and pegMatcher(result)
                 if matcher then
@@ -1361,11 +1357,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
             if receiverMode == "takes" then
                 if node.safeObj or node.safeMethod then
-                    c.diag(
-                        "NUPP2602",
-                        receiver,
-                        "a conditional method call cannot take its receiver; narrow it first"
-                    )
+                    c.diag("NUPP2602", receiver, "a conditional method call cannot take its receiver; narrow it first")
                 else
                     c.moveExpression(receiver, ot, "method receiver")
                     if receiver.automaticOwnerMove then

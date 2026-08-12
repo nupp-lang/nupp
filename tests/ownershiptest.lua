@@ -295,19 +295,19 @@ function M.scopedCallbacksMayCaptureABorrow()
       "local value = resource_new()",
       "do",
       "   local view = borrow(value)",
-      "   pcall(function() print(view.value) end)",
+      "   pcall(function() borrows (view) print(view.value) end)",
       "end",
       "drop(value)",
    }, "\n"))
 end
 
-function M.scopedCallbacksStillCannotCaptureOwners()
-   assertEq(codes(table.concat({
+function M.callbackCapturesBorrowOwnersByDefault()
+   assertClean(table.concat({
       RESOURCE,
       "local value = resource_new()",
       "pcall(function() print(value.value) end)",
       "drop(value)",
-   }, "\n")), "NUPP2603")
+   }, "\n"))
 end
 
 function M.coroutineChildrenCannotCaptureAParentBorrow()
@@ -806,6 +806,23 @@ function M.defaultDropOperationsAreInheritedFromInterfaces()
       "   return new File(closed = false)",
       "end",
       "do local file = openFile(); print(file.closed) end",
+   }, "\n"))
+end
+
+function M.ownedFieldsApplyToEveryOverload()
+   assertClean(table.concat({
+      "local interface Closeable",
+      "   @drop",
+      "   close: function(takes value: self): nil",
+      "end",
+      "local record File is Closeable end",
+      "local record Library",
+      "   @owned",
+      "   open: function(name: string): File & function(id: integer): File",
+      "end",
+      "local library = nil as any as Library",
+      "do local named = library.open('name') end",
+      "do local numbered = library.open(1) end",
    }, "\n"))
 end
 
@@ -2025,6 +2042,236 @@ function M.aQualifiedIntrinsicGivesItsParameterTheSameMode()
       "release(value)",
       "release(value)",
    }, "\n")))
+end
+
+local CLOSURE_RESOURCE = table.concat({
+   "local calls = 0",
+   "local record ClosureResource",
+   "   value: integer",
+   "end",
+   "local function closeClosureResource(value: ClosureResource)",
+   "   calls = calls + 1",
+   "end",
+   "@owned(closeClosureResource)",
+   "local function openClosureResource(value: integer): ClosureResource",
+   "   return new ClosureResource(value = value)",
+   "end",
+}, "\n")
+
+function M.aTakingClosureMovesItsCaptureAndIsSingleShot()
+   assertEq(codes(CLOSURE_RESOURCE .. table.concat({
+      "",
+      "local resource = openClosureResource(7)",
+      "local callback = function(): integer takes (resource)",
+      "   return resource.value",
+      "end",
+      "print(resource.value)",
+      "print(callback())",
+      "print(callback())",
+   }, "\n")), "NUPP2601 NUPP2601",
+      "construction moves the capture and invocation moves the closure")
+end
+
+function M.aCalledTakingClosureCleansItsCapture()
+   local source = CLOSURE_RESOURCE .. table.concat({
+      "",
+      "local resource = openClosureResource(7)",
+      "local callback = function(): integer takes (resource)",
+      "   return resource.value",
+      "end",
+      "local answer = callback()",
+      "return answer, calls",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-test")
+   assertEq(#genDiags, 0)
+   local chunk, loadErr = loadstring(code, "@taking-closure-call")
+   assert(chunk, tostring(loadErr) .. "\n" .. code)
+   local answer, calls = chunk()
+   assertEq(answer, 7)
+   assertEq(calls, 1, "a called closure releases its capture once")
+end
+
+function M.anUncalledTakingClosureCleansItsCapture()
+   local source = CLOSURE_RESOURCE .. table.concat({
+      "",
+      "do",
+      "   local resource = openClosureResource(7)",
+      "   local callback = function(): integer takes (resource)",
+      "      return resource.value",
+      "   end",
+      "end",
+      "return calls",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-test")
+   assertEq(#genDiags, 0)
+   local chunk, loadErr = loadstring(code, "@taking-closure-drop")
+   assert(chunk, tostring(loadErr) .. "\n" .. code)
+   assertEq(chunk(), 1, "an uncalled closure releases its capture once")
+end
+
+function M.aBorrowingClosureKeepsItsSourceLive()
+   assertEq(codes(CLOSURE_RESOURCE .. table.concat({
+      "",
+      "local resource = openClosureResource(7)",
+      "local callback = function() borrows (resource)",
+      "   print(resource.value)",
+      "end",
+      "drop(resource)",
+      "callback()",
+   }, "\n")), "NUPP2602",
+      "the source cannot be released while its closure remains live")
+end
+
+function M.aBorrowingClosureEndsItsBorrowWithItsScope()
+   assertClean(CLOSURE_RESOURCE .. table.concat({
+      "",
+      "local resource = openClosureResource(7)",
+      "do",
+      "   local callback = function() borrows (resource)",
+      "      print(resource.value)",
+      "   end",
+      "   callback()",
+      "end",
+      "drop(resource)",
+   }, "\n"))
+end
+
+function M.borrowedClosureTypesNameTheirSiblingSource()
+   assertClean(CLOSURE_RESOURCE .. table.concat({
+      "",
+      "local record ClosureHolder",
+      "   source: owned<ClosureResource>",
+      "   callback: function(): integer borrows (source)",
+      "end",
+   }, "\n"))
+end
+
+function M.aResultAnnotatedClosureInfersItsBorrowCapture()
+   assertClean(CLOSURE_RESOURCE .. table.concat({
+      "",
+      "local resource = openClosureResource(7)",
+      "do",
+      "   local callback = function(): integer",
+      "      return resource.value",
+      "   end",
+      "   print(callback())",
+      "end",
+      "drop(resource)",
+   }, "\n"))
+end
+
+function M.resultAnnotatedClosuresComposeTakingAndBorrowedCaptures()
+   assertClean(CLOSURE_RESOURCE .. table.concat({
+      "",
+      "local taken = openClosureResource(7)",
+      "local borrowed = openClosureResource(5)",
+      "local callback = function(): integer takes (taken) borrows (borrowed)",
+      "   return taken.value + borrowed.value",
+      "end",
+      "print(callback())",
+      "drop(borrowed)",
+   }, "\n"))
+end
+
+function M.aTakingClosureMayBeReturned()
+   assertClean(CLOSURE_RESOURCE .. table.concat({
+      "",
+      "local function make(): owned<function(): integer>",
+      "   local resource = openClosureResource(7)",
+      "   return function(): integer takes (resource)",
+      "      return resource.value",
+      "   end",
+      "end",
+      "local callback = make()",
+      "print(callback())",
+   }, "\n"))
+end
+
+function M.aTakesCallbackCannotEraseBorrowedClosureProvenance()
+   assertEq(codes(CLOSURE_RESOURCE .. table.concat({
+      "",
+      "local function retain(takes callback: function(): any): owned<function(): any>",
+      "   return callback",
+      "end",
+      "local resource = openClosureResource(7)",
+      "local retained = retain(function(): any borrows (resource)",
+      "   print(resource.value)",
+      "end)",
+      "drop(resource)",
+      "retained()",
+   }, "\n")), "NUPP2602",
+      "only a scoped overload may accept a borrowed callback")
+end
+
+function M.pcallConsumesATakingClosure()
+   local source = CLOSURE_RESOURCE .. table.concat({
+      "",
+      "local resource = openClosureResource(7)",
+      "local ok, answer = pcall(function(): integer takes (resource)",
+      "   return resource.value",
+      "end)",
+      "return ok, answer, calls",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-test")
+   assertEq(#genDiags, 0)
+   local chunk, loadErr = loadstring(code, "@taking-closure-pcall")
+   assert(chunk, tostring(loadErr) .. "\n" .. code)
+   local ok, answer, calls = chunk()
+   assertEq(ok, true)
+   assertEq(answer, 7)
+   assertEq(calls, 1, "pcall's invoked closure releases its capture")
+end
+
+function M.raceDropsATakingLoserThatWasNeverEntered()
+   local source = CLOSURE_RESOURCE .. table.concat({
+      "",
+      "local suspension = require('nupp.suspension')",
+      "local entered = 0",
+      "local first = openClosureResource(1)",
+      "local second = openClosureResource(2)",
+      "local answer, winner = suspension.race({",
+      "   function(): integer takes (first)",
+      "      return first.value",
+      "   end,",
+      "   function(): integer takes (second)",
+      "      entered = entered + 1",
+      "      return second.value",
+      "   end,",
+      "})",
+      "return answer, winner, entered, calls",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-test")
+   assertEq(#genDiags, 0)
+   local chunk, loadErr = loadstring(code, "@taking-closure-race")
+   assert(chunk, tostring(loadErr) .. "\n" .. code)
+   local answer, winner, entered, calls = chunk()
+   assertEq(answer, 1)
+   assertEq(winner, 1)
+   assertEq(entered, 0, "race did not enter the losing closure")
+   assertEq(calls, 2, "race cleaned both the winner and unentered loser")
+end
+
+function M.raceAcceptsBorrowedClosuresWithoutRetainingThem()
+   assertClean(CLOSURE_RESOURCE .. table.concat({
+      "",
+      "local suspension = require('nupp.suspension')",
+      "local resource = openClosureResource(7)",
+      "local answer = suspension.race({",
+      "   function(): integer borrows (resource)",
+      "      return resource.value",
+      "   end,",
+      "})",
+      "print(answer)",
+      "drop(resource)",
+   }, "\n"))
 end
 
 return M

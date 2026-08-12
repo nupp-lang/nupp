@@ -604,7 +604,8 @@ function http.Client:send(request: http.Request): (http.Response?, string?)
             error("nupp: HTTP method is not a valid token", 2)
         end
         local requestBody = given.body
-        local body, bodyKind, bodyLength, reader = requestBody, 0, nil, nil
+        local body, bodyKind, bodyLength = requestBody, 0, nil
+        local reader: nupp.io.Reader? = nil
         local contentType = nil
         if body ~= nil then
             local concrete: any = body
@@ -684,7 +685,10 @@ function http.Client:send(request: http.Request): (http.Response?, string?)
         local head, problem
         if reader ~= nil then
             local scratch = nupp.io.newBuffer(UPLOAD_SIZE)
-            local function uploadAndWait(): any
+            local uploadTransfer = transfer as {
+                offer: function(any, borrows source: nupp.io.Buffer, boolean, integer): string
+            }
+            local function uploadAndWait(): any takes(scratch)
                 local transferred: integer = 0
                 while true do
                     scratch:clear()
@@ -713,7 +717,7 @@ function http.Client:send(request: http.Request): (http.Response?, string?)
                     local offered = scratch:length()
                     if offered > 0 then
                         while true do
-                            local accepted = transfer:offer(scratch, false, offered)
+                            local accepted = uploadTransfer:offer(scratch, false, offered)
                             if accepted == "accepted" then
                                 break
                             elseif accepted == "closed" then
@@ -738,11 +742,12 @@ function http.Client:send(request: http.Request): (http.Response?, string?)
                     end
                 end
             end
-            local ok, value = pcall(function(): any
-                local answer = suspension.race({uploadAndWait, function(): any return waitHead(self, transfer, false) end})
+            local ok, value = pcall(function(): any takes(uploadAndWait)
+                local answer = suspension.race({uploadAndWait, function(): any
+                    return waitHead(self, transfer, false)
+                end})
                 return answer
             end)
-            scratch:close()
             if not ok then
                 transfer:cancel()
                 transfer:close()

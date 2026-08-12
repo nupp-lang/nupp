@@ -1,10 +1,9 @@
 # Closure capture: a design record
 
-Status: proposed. Nothing below is built. It depends on no unlanded work, and
-[ownership hardening](ownership-hardening.md) is the plan it amends: that
-record lists "ordinary owner-capturing closures remain rejected" among its
-deliberate limits, and this one keeps that sentence true while making the
-capability it withholds expressible under a different name.
+Status: implemented. This record amends
+[ownership hardening](ownership-hardening.md): ordinary captures now borrow
+their sources with tracked provenance, while `takes (...)` creates an affine
+callable that owns and discharges the named captures.
 
 ## Decision
 
@@ -75,24 +74,22 @@ sees the surprising thing and nothing else.
 
 ### The theorem is not weakened
 
-The limit ownership hardening records is that an *ordinary copyable* closure may
-not capture an owner, because a copyable value can be called twice, never
-called, or stored past the scope that was to discharge it, and none of those are
-visible in control flow. That stays true. A closure with a `takes` list is not
-an ordinary copyable closure: it is affine, and affine values already have the
-discharge discipline the proof needs. The rule that moves is:
+An ordinary copyable closure may not *own* a captured owner, because it can be
+called twice, never called, or stored past the scope that was to discharge it.
+It may hold a tracked borrow of that owner. A closure with a `takes` list is not
+copyable: it is affine, and affine values already have the discharge discipline
+the proof needs. The rule that moves is:
 
 | Fact | Before | After |
 | --- | --- | --- |
-| Ordinary closure captures an owner | Rejected | Rejected |
+| Ordinary closure reads an owner | Rejected | Allowed as a provenance-tracked borrow |
 | Ordinary closure captures a borrow | Rejected outside `scoped` | Allowed, provenance-tracked |
 | Affine closure captures an owner | Inexpressible | `takes (...)`, discharge travels |
 
-Only the middle row is a loosening, and it is the row that carries the risk. A
-`scoped` parameter blesses exactly this capture today on the strength of the
-callee proving non-escape; giving the closure a `borrows (...)` type is meant to
-replace that narrow proof with the general one Nupp runs on every other borrow.
-Two things about it are settled and one is not.
+A `scoped` parameter admits a borrow-carrying closure on the strength of the
+callee proving non-escape. Giving the closure a `borrows (...)` type extends
+that proof through the general provenance rules Nupp runs on every other
+borrow.
 
 Settled: a **nominal** record may hold the closure, because a record may hold a
 declared borrow and is transitively constrained by it, and the provenance names
@@ -101,8 +98,8 @@ without naming anything out of scope. Settled: a runtime number of them has a
 container, `resources.Set`, whose `adopt` moves an owner in and hands back a
 borrow tied to the set.
 
-Not settled: **anonymous** table storage stays rejected, and the motivating call
-site passes a table literal.
+Anonymous table storage stays rejected. The motivating table literal is instead
+a contextual ephemeral aggregate consumed immediately by `race`:
 
 ```nupp
 suspension.race({function(): any
@@ -110,11 +107,9 @@ suspension.race({function(): any
 end, ...})
 ```
 
-What that table becomes is the question, and it is a question for the ownership
-model rather than for the grammar: an affine or borrow-carrying aggregate needs
-provenance and a promise the callee will not retain it, which argument position
-alone does not give. The shapes available are set out under
-[what the model has to say](#how-affinity-travels-through-an-aggregate).
+Its type retains affinity or borrowed provenance while overload selection picks
+the `takes` or `scoped` contract. It cannot be bound as an ordinary table and
+then passed later.
 
 ### Only `takes` needs saying, where there is a default
 
@@ -227,10 +222,10 @@ cancelled and unwound so its frame runs its own cleanup. `drive` already does
 the latter for a parked loser, but it does not distinguish a coroutine that has
 never entered: resuming that loser can run its body instead of dropping it.
 
-## What the model has to say
+## Implemented model
 
 An affine callable is a new kind of owning value, not an ordinary Lua function with
-restrictions bolted on. Four things need defining before any of it is built.
+restrictions bolted on. Four rules define it.
 
 ### The state of a closure that took something
 
@@ -247,24 +242,17 @@ return, error and cancellation, and moving a capture into the result deactivates
 cleanup the way any other move does. That last part rests on per-arm move tracking,
 which is why it landed first.
 
-`owned<function(...)>` may be a compiler-known affine callable rather than a literal
-nominal record, but the value has to carry each capture's producer-specific cleanup
+`owned<function(...)>` is a compiler-known affine callable rather than a literal
+nominal record, and the value carries each capture's producer-specific cleanup
 witness. A record field's cleanup is known from its declared type; a capture's is not,
 and the lowering must preserve it.
 
 ### How affinity travels through an aggregate
 
-The motivating call site puts affine closures in a table, so the model must say what
-that table becomes. Three shapes are available:
-
-- an ephemeral affine aggregate that must move into a `takes` parameter immediately;
-- a general affine collection with linear operations;
-- a purpose-built owning collection that `race` accepts.
-
-None of them requires allowing arbitrary affine table storage: construction and
-immediate consumption of an affine literal can be permitted while aliasable mutable
-storage stays rejected. **A stage that produces affine closures which cannot reach
-their consumer is not finished**, so this belongs with the clause rather than after it.
+The motivating call site puts affine closures in a table. It becomes an ephemeral
+affine aggregate that must move into a `takes` parameter immediately. The borrowed
+form analogously reaches a `scoped` parameter. Arbitrary affine table storage remains
+rejected.
 
 ### Two kinds of loser
 
@@ -277,10 +265,9 @@ their consumer is not finished**, so this belongs with the clause rather than af
 
 Dropping a suspended coroutine is not enough, because collecting one does not unwind
 its frame; resuming an uncalled loser merely to cancel it runs user code for no reason.
-`drive` has to know which state each callable is in and choose. Today it tracks
-`abandoned` and correctly unwinds a body parked in its handler, but a created coroutine
-that has not entered begins running when resumed as a loser. It never drops that
-callable.
+`drive` records whether each callable entered. It resumes an entered loser to cancel
+and unwind it, and invokes `__drop` on a never-entered affine loser without running its
+body.
 
 ### What a callback parameter promises
 
@@ -292,8 +279,8 @@ or retain it. For `pcall` the owning form is roughly
 pcall(takes f: owned<function(A...): R...>, A...)
 ```
 
-alongside the existing copyable form. Whether overloads suffice or callback-capability
-polymorphism is needed is the question the stage-0 measurement answers.
+alongside the existing copyable form. Overloads suffice: copyable and borrowed values
+select `scoped`, while affine values select `takes`.
 
 ### What is in the type and what is not
 
@@ -314,17 +301,14 @@ So four things need separating, and the plan previously ran them together:
  borrowed provenance              must stay visible in the type
 ```
 
-The last two are in tension with the first: provenance has to survive into the type
-without the type naming a caller's local. Sibling-field provenance answers this for a
-record field and does not answer it for a closure value, which is the open half.
-
-Whether an affine closure may be **returned** should be decided here rather than left
-to fall out. A first-class movable `owned<function>` supports returning a cleanup thunk
-naturally, so forbidding it needs a reason.
+Local borrowed provenance travels as value-flow metadata without becoming part of
+interned type identity. A record field spells sibling provenance in its declared
+`borrows (...)` type. Affine closure values carry cleanup witnesses separately from
+both, and may be returned as `owned<function>`.
 
 ## Diagnostics
 
-Most of the reports exist; the new work is inference and two messages.
+The implementation reuses the ownership reports and adds capture-specific messages.
 
 | Rule | Report |
 | --- | --- |
@@ -339,14 +323,14 @@ Most of the reports exist; the new work is inference and two messages.
 `takes ()` is a report rather than "moves nothing" because a silent whole-closure
 move is the case this design exists to make visible.
 
-## Staging
+## Implementation stages
 
 Explicit ownership capture comes before borrow-by-default, because the second
 loosens an existing rule while the first only adds one. The measurement comes
 before both, because what a callback parameter may promise decides the type
 spelling everything else is written in.
 
-0. **Normalise `borrows (...)`.** The syntax alone, with a regression test for
+0. **Completed — normalise `borrows (...)`.** The syntax alone, with a regression test for
    the shape that reads worst — a source list closing just before the separator
    of a result pack.
 
@@ -354,28 +338,38 @@ spelling everything else is written in.
    local ref: function(borrows b: Buf): (Buf borrows (b), integer)
    ```
 
-1. **Measure higher-order propagation.** Audit `pcall`, `xpcall`, `race` and
-   every other callback consumer in the prelude. Output is concrete: the
-   affected declarations, the affected call sites, and a decision between
-   overloads and callback-capability polymorphism. This is a gate, not a
-   spike — stage 2 is written in whatever spelling it chooses.
+1. **Completed — measure higher-order propagation.** The audit selected
+   ownership-sensitive overloads: `scoped` for copyable or borrowed callbacks,
+   and `takes` for affine callbacks. A general relaxation of `takes` was
+   rejected because it could erase borrowed closure provenance.
 
-2. **Define and implement affine callables.** Capture cleanup witnesses, the
-   ready/called/dropped transition, move diagnostics, consumption by call,
-   drop lowering, returns, and viral affinity through containment.
+   The audited surface was `pcall`, `xpcall`, `suspension.race`, and the other
+   callback consumers in the prelude. Only the first callback of `pcall` and
+   `xpcall`, plus the bodies passed to `race`, require the owning overload.
 
-3. **Aggregate transport and cancellation.** Whatever shape lets an affine
-   closure reach `race`, plus `drive` distinguishing a never-entered body it
-   drops from a suspended one it must cancel and unwind. Stage 2 is not usable
-   without this, which is why it is not deferred behind the I/O change.
+2. **Completed — define and implement affine callables.** Capture cleanup
+   witnesses, the ready/called/dropped transition, move diagnostics,
+   consumption by call, drop lowering, returns, and viral affinity through
+   containment are implemented.
 
-4. **Apply the I/O ownership annotations.** `@drop` on the four closeables,
-   `@owned` on their nine producers, and `takes (...)` written at the capture
-   sites that migrate.
+3. **Completed — aggregate transport and cancellation.** A contextual
+   ephemeral aggregate carries affine or borrowed callbacks directly into a
+   `takes` or `scoped` overload. Arbitrary affine table storage remains
+   rejected. `drive` distinguishes a never-entered loser, which it drops, from
+   a suspended loser, which it cancels and unwinds.
 
-5. **Borrowed closure capture.** Provenance-bearing callable types and the
-   aggregate no-escape contract, after which capture borrows by default and the
-   clauses added in stage 4 become optional wherever a closure only reads.
+4. **Completed — apply the I/O ownership annotations.** `@drop` is present on
+   the four original closeables, `@owned` on their nine producers, and the HTTP
+   upload path explicitly transfers its scratch buffer into its affine closure.
+   Scalar readers and writers follow the same rule: their constructors are
+   owning overloads, buffer inputs borrow, reader and writer inputs transfer,
+   and `close` is their drop operation.
+
+5. **Completed — borrowed closure capture.** Callable values retain borrow
+   roots as value-flow provenance. Expression closures infer borrowed captures;
+   type position spells sibling sources with `borrows (...)`. Borrow-carrying
+   callback aggregates reach only the `scoped` overload of a synchronous
+   consumer.
 
 Stage 4 is the user-visible standard-library API migration. Stages 2 and 3 are
 what make it cost a line at a call site rather than a rewrite.
@@ -389,38 +383,29 @@ what make it cost a line at a call site rather than a rewrite.
   Without this a closure body could not conditionally discharge what it took.
 - **Annotations in documentation.** `@drop` and `@owned` render on the member
   they annotate, and a parameter's mode is spelled beside its name, so `takes
-  self` reads as consuming. Stage 2 changes what the four closeables promise;
-  before this, the promise was invisible to a reader of the generated docs.
+  self` reads as consuming. Stage 4 changes what the closeables promise; before
+  this, the promise was invisible to a reader of the generated docs.
 
-## Open questions
+## Resolved decisions and remaining limits
 
-- **What contract lets a borrow-carrying aggregate reach its callee?** Stage 5
-  needs a table of closures that borrow locals to carry provenance and a
-  guarantee the callee does not retain it. Argument position does not establish
-  that on its own, so the answer belongs in the ownership model — a scoped
-  aggregate parameter whose implementation is proven not to retain its contents,
-  an ephemeral borrow-carrying aggregate, or a nominal container naming its
-  roots. A syntax-shaped exception for "a table literal written at the call" is
-  the answer to avoid: it would make the rule depend on where a value was
-  spelled rather than on what is done with it.
-- **Own and repeat has no spelling.** Affine means called at most once, which is
-  what makes the discharge exactly once and what rules `takes` out for a
-  repeatedly invoked callback — a visitor, a loop body, `forEachMatch`. Borrow
-  instead is the answer where the closure only reads. A closure that must own
-  something *and* run more than once has no form here, and the plan should
-  either give it one or say why it cannot exist.
-- **Whether an affine closure may be returned.** A first-class movable
-  `owned<function>` supports handing back a cleanup thunk, so forbidding it
-  wants a reason. Decided in stage 2 rather than left to fall out.
+- **Borrow-carrying aggregate contract.** The implemented aggregate is
+  ephemeral and contextual: it can be constructed only where a selected
+  `scoped` or `takes` callback-container contract consumes it immediately.
+  Borrowed aggregates select `scoped`; affine aggregates select `takes`.
+  Binding the same table or storing its elements through an ordinary table
+  remains an ownership error.
+- **Callback capability.** `pcall`, `xpcall`, and `race` expose paired
+  ownership-sensitive overloads. A user-defined `takes callback` accepts only
+  an owner; it cannot retain a borrowed closure and relabel it as owned.
+- **Affine closures may be returned.** The returned value remains
+  `owned<function(...)>` and carries its concrete cleanup witnesses. An opaque
+  owner whose producer-specific cleanup has already been erased at a function
+  boundary cannot be taken into an uncalled closure.
 
 ## Deferred deliberately
 
 - **Bare `takes name` without parentheses.** It reads well and adds a grammar
   branch, and it changes nothing about soundness or expressiveness. Not before
   the model is complete.
-- **`@drop` on the four closeables ahead of the closure work.** Tempting,
-  because today `nupp.io.newStringReader` is not `@owned` and so a reader cannot
-  be closed at all by the code that made it — a user-visible gap independent of
-  closures. It is staged at 4 anyway, because doing it earlier forces exactly
-  the call-site rewrites this design exists to avoid. Worth revisiting only if
-  that gap starts costing someone.
+- **Own and repeat.** An affine closure is single-shot. A repeatable callback
+  may borrow captures, but no closure form owns a resource and runs repeatedly.

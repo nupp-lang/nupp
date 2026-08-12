@@ -61,10 +61,17 @@ local value = flow_open()
 local stored: {string: flow_resource*} = {}
 stored.value = value
 ]]},
-   {"closure capture", false, [[
+   {"borrowed closure capture", true, [[
 local value = flow_open()
-local function escaped() print(value.value) end
+local function scoped() print(value.value) end
+scoped()
 drop(value)
+]]},
+   {"borrowed closure escape", false, [[
+local function leak()
+   local value = flow_open()
+   return function() print(value.value) end
+end
 ]]},
    {"unknown call", false, [[
 local value = flow_open()

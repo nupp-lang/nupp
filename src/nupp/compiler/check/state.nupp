@@ -201,6 +201,9 @@ record state.Checker
     --- Nonzero while checking an inline closure passed to a scoped callback slot.
     scopedCaptureDepth: integer
 
+    --- Ownership-capture contracts for the nested functions currently being checked.
+    closureCaptureStack: {any}
+
     --- Whether an analyzed cleanup body has reached out of its own scope.
     captureWatches: {any}
 
@@ -379,6 +382,7 @@ record state.Checker
 
     --- The `ffi.C` namespace as the program has declared it.
     cNamespaceType: function(): Type
+
     recordCDeclarations: function({[string]: any}?)
     cDeclared: {[string]: boolean}
 

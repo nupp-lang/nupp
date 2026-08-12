@@ -287,7 +287,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return r
     end
 
-    local parseExp, parseBlock, parseSuffixedexp, parseTableconstructor, parseFuncbody, parseType, parsePosttype, parseTypePack, parseStatement, parseReturnType, parseIstring
+    local parseExp, parseBlock, parseSuffixedexp, parseTableconstructor, parseFuncbody, parseType, parsePosttype, parseTypePack, parseStatement, parseReturnType, parseIstring, parseCaptureClause
     local typePatternDepth = 0
 
     -- Tokens that can begin a type expression.
@@ -597,10 +597,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 add(n, advance()).generic = true
                 local packArgs = n.base and n.base.text == "thread"
                 local function argument()
-                    local explicitPack = cur().kind == "..." or cur().kind == "name"
-                        and tokens[i + 1] and tokens[i + 1].kind == "..."
+                    local explicitPack = cur().kind == "..." or cur().kind == "name" and tokens[
+                        i + 1
+                    ] and tokens[i + 1].kind == "..."
                     return (packArgs or explicitPack) and parseTypePack(false) or parseType()
                 end
+
                 n.typeArgs = {add(n, argument())}
                 while cur().kind == "," do
                     add(n, advance())
@@ -838,6 +840,33 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     add(n, returnPack)
                 end
                 n.rets = returnPack.kind == "tpack" and returnPack.types or {}
+                local returns = n.rets or {}
+                local firstResult = returns[1]
+                if firstResult and firstResult.kind == "tborrows" then
+                    local borrowed = firstResult as cst.Tborrows
+                    local parameterNames = {self = true}
+                    for _, parameter in ipairs(n.params) do
+                        if parameter.name then
+                            parameterNames[parameter.name.text] = true
+                        end
+                    end
+                    local external = false
+                    for _, source in ipairs(borrowed.params or {}) do
+                        external = external or not parameterNames[source.text]
+                    end
+                    if external then
+                        n.captureBorrows = borrowed
+                        if borrowed.type then
+                            returns[1] = borrowed.type
+                            if returnPack.kind == "tpack" then
+                                returnPack.types[1] = borrowed.type
+                            end
+                        end
+                    end
+                end
+            end
+            if cur().kind == "name" and cur().text == "borrows" and tokens[i + 1] and tokens[i + 1].kind == "(" then
+                n.captureBorrows = add(n, parseCaptureClause())
             end
             if cur().kind == "name" and cur().text == "yields" then
                 add(n, advance())
@@ -1072,7 +1101,11 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             j = j + 2
         end
 
-        return tokens[j] ~= nil and tokens[j].kind == ")" and tokens[
+        return tokens[
+            j
+        ] ~= nil and tokens[
+            j
+        ].kind == ")" and tokens[
             j + 1
         ] ~= nil and tokens[j + 1].kind == "="
     end
@@ -1615,6 +1648,25 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return e
     end
 
+    parseCaptureClause = function(): cst.CaptureClause
+        local n = new cst.CaptureClause(kind = "captureClause", names = {})
+        n.mode = add(n, advance())
+        n.mode.contextualOp = true
+        add(n, expect("(", "to open closure captures"))
+        if cur().kind ~= ")" then
+            repeat
+                n.names[#n.names + 1] = add(n, expectName("as closure capture"))
+                if cur().kind ~= "," then
+                    break
+                end
+                add(n, advance())
+            until false
+        end
+        add(n, expect(")", "to close closure captures"))
+
+        return n
+    end
+
     --- Parameters, return annotation and body of a function.
     parseFuncbody = function(): Node
         local n = new cst.Funcbody(kind = "funcbody")
@@ -1687,6 +1739,40 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 add(n, returnPack)
             end
             n.rets = returnPack.kind == "tpack" and returnPack.types or {}
+            local returns = n.rets or {}
+            local firstResult = returns[1]
+            if firstResult and firstResult.kind == "tborrows" then
+                local borrowed = firstResult as cst.Tborrows
+                local parameterNames = {self = true}
+                for _, parameter in ipairs(n.params) do
+                    if parameter.name then
+                        parameterNames[parameter.name.text] = true
+                    end
+                end
+                local external = false
+                for _, source in ipairs(borrowed.params or {}) do
+                    external = external or not parameterNames[source.text]
+                end
+                if external then
+                    n.captureBorrowsCandidate = borrowed
+                end
+            end
+        end
+        while cur().kind == "name" and (
+            cur().text == "takes" or cur().text == "borrows"
+        ) and tokens[i + 1] and tokens[i + 1].kind == "(" do
+            local clause = parseCaptureClause()
+            if clause.mode and clause.mode.text == "takes" then
+                if n.captureTakes then
+                    errAt(clause.mode, "a closure has only one takes clause")
+                else
+                    n.captureTakes = add(n, clause)
+                end
+            elseif n.captureBorrows then
+                errAt(clause.mode or cur(), "a closure has only one borrows clause")
+            else
+                n.captureBorrows = add(n, clause)
+            end
         end
         if cur().kind == "name" and cur().text == "yields" then
             add(n, advance())
@@ -1725,9 +1811,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         end
         local result = parseType(nil, stopAtFunctionMember)
         -- `T preserves p`: the result transports the complete capability of `p`.
-        if cur().kind == "name" and cur().text == "preserves" and tokens[
-            i + 1
-        ] and tokens[i + 1].kind == "name" then
+        if cur().kind == "name" and cur().text == "preserves" and tokens[i + 1] and tokens[i + 1].kind == "name" then
             local n = new cst.Tpreserves(kind = "tpreserves")
             n.type = add(n, result)
             add(n, advance()) -- 'preserves'
@@ -1860,9 +1944,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 add(e, advance())
                 e.name = add(e, expectName("after 'function' in declaration"))
                 e.body = add(e, parseFuncbody())
-            elseif cur().kind == "name" and cur().text == "constructor" and tokens[i + 1] and (
-                tokens[i + 1].kind == "(" or startsShortfn(i + 1)
-            ) then
+            elseif cur().kind == "name" and cur().text == "constructor" and tokens[
+                i + 1
+            ] and (tokens[i + 1].kind == "(" or startsShortfn(i + 1)) then
                 -- Contextual, like every other word this grammar adds: a field named
                 -- `constructor` is followed by a colon, never a paren or a pipe.
                 e = new cst.ConstructorDecl(kind = "constructorDecl")
@@ -1876,7 +1960,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 else
                     e.body = add(e, parseFuncbody())
                 end
-            elseif cur().kind == "name" and cur().text == "satisfies" and tokens[i + 1] and tokens[i + 1].kind ~= ":" then
+            elseif cur().kind == "name" and cur().text == "satisfies" and tokens[
+                i + 1
+            ] and tokens[i + 1].kind ~= ":" then
                 -- Contextual: a field named `satisfies` is followed by a colon, because
                 -- every field states its own type.
                 e = new cst.SatisfiesDecl(kind = "satisfiesDecl")

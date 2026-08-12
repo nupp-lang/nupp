@@ -63,6 +63,23 @@ function M.lineCountInvariant()
     end
 end
 
+function M.generatedLinesHaveNoTrailingWhitespace()
+    local code = generate(table.concat({
+        "local record Section",
+        "   title: string",
+        "   codes: {string}",
+        "end",
+        "local sections = {",
+        "   new Section(",
+        "      title = 'Language',",
+        "      codes = {}",
+        "   )",
+        "}",
+        "return sections",
+    }, "\n"))
+    assert(not code:find("[ \t]+\n"), "generated Lua has trailing whitespace:\n" .. code)
+end
+
 function M.returnPacksEraseEntirely()
    -- A return annotation is type material and must leave nothing behind. A pack got
    -- this wrong in two ways at once: a parenthesized one was spliced into the function

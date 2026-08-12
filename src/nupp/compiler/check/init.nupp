@@ -446,7 +446,7 @@ function checkMod.check(
         automaticOwners = {},
         depth = 0,
         parent = nil
-    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, dropOperationFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, handledDepth = 0, functionDepth = 0, scopedCaptureDepth = 0, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, activeAlias = nil, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldConst = {}, moduleFieldValues = {}, constModulePaths = {}, moduleLocalAnnotated = false)
+    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, dropOperationFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, handledDepth = 0, functionDepth = 0, scopedCaptureDepth = 0, closureCaptureStack = {}, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, activeAlias = nil, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldConst = {}, moduleFieldValues = {}, constModulePaths = {}, moduleLocalAnnotated = false)
     c.rootScope = c.scope
     -- What this file has declared to the FFI. Per file, because a cdef binding is
     -- file-local, and because the alternative is process state deciding what a
@@ -1055,6 +1055,9 @@ function checkMod.check(
         for j, e in ipairs(exprs) do
             c.lastCallRets = nil
             local priorScoped = c.scopedCaptureDepth
+            if paramModes and paramModes[j] == "takes" and e.kind == "tableExpr" then
+                e.affineAggregateContext = true
+            end
             if paramModes and paramModes[j] == "scoped" then
                 c.scopedCaptureDepth = priorScoped + 1
             end
@@ -1519,6 +1522,7 @@ function checkMod.check(
         c.checkBlock(block, true)
     end
     c.derives.finalize()
+    own.finalizeDefaultCleanups()
     auditScope(c.rootScope)
 
     -- A module's type is what it returned. Declarations that carry a runtime value put
