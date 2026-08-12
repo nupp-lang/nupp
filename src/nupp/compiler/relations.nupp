@@ -149,6 +149,7 @@ disjoint = function(a: Type, b: Type): string?
     if a.tag == "nominal"
         and b.tag == "nominal"
         and a ~= b
+        and a.id ~= b.id
         and a.declKind ~= "interface"
         and b.declKind ~= "interface"
     then
@@ -1113,6 +1114,11 @@ end
 --- @param a the type a value has
 --- @param b the type the position wants
 isA = function(a: Type, b: Type): boolean, string?
+    -- Incremental/module-summary loading can materialize the same interned type in
+    -- two Lua tables. Type ids are the stable identity across that boundary.
+    if a == b or a.id == b.id then
+        return true
+    end
     if cachedAt ~= generation then
         cache = setmetatable({}, {__mode = "k"})
         cachedAt = generation

@@ -302,6 +302,7 @@ function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
    local source = assert(io.open(dir .. "/surface.g.nupp", "wb"))
    source:write(table.concat({
       "cdef function lookup(borrows key: const char*): void* @borrowed(key)",
+      "cdef function visit(borrows values: const int32* countedBy(count), count: uint64)",
       "unsafe do",
       "   local raw = lookup('key')",
       "   print(raw)",
@@ -325,13 +326,19 @@ function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
 
    local report = json.decode(capture(("ownership-audit --json '%s/surface.g.nupp'")
       :format(dir)))
-   assert(#report.foreign == 1, "one foreign declaration is reported")
+   assert(#report.foreign == 2, "both foreign declarations are reported")
    assert(report.foreign[1].name == "lookup", "the trusted function is named")
    assert(report.foreign[1].parameters[1].contract == "borrows",
       "the pointer parameter contract survives checking")
    assert(#report.foreign[1].results == 1,
       "the derived pointer result is included")
-   assert(#report.unsafe == 2 and report.unsafe[1].line == 2,
+   assert(report.foreign[2].countedBy[1].pointer == "values"
+      and report.foreign[2].countedBy[1].count == "count"
+      and report.foreign[2].countedBy[1].access == "read",
+      "counted pointer relationships survive checking")
+   assert(report.foreign[2].zeroCount:find("calls once", 1, true),
+      "the audit reports the foreign zero-count promise")
+   assert(#report.unsafe == 2 and report.unsafe[1].line == 3,
       "the explicit unsafe boundary and operation are enumerable")
    assert(report.unsafe[2].kind == "unchecked C memory indexing",
       "the report names the trusted raw operation")

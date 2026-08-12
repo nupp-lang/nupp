@@ -23,6 +23,7 @@ git clone --depth 1 --branch v2.1 https://github.com/LuaJIT/LuaJIT.git /tmp/luaj
 DYNASM_ROOT=/tmp/luajit/dynasm bench/kernel-spike/build.sh
 luajit bench/kernel-spike/main.lua
 ./bin/nupp check bench/kernel-spike/checked.nupp
+bench/kernel-spike/performance-gate.sh
 ```
 
 This spike was tested with LuaJIT revision
@@ -64,11 +65,11 @@ the generated instructions are genuinely competitive with an optimizing C
 compiler there. Kernel generation took tens of microseconds and emitted 112
 bytes of integrate code.
 
-Nupp can already put a useful checked boundary around the call: the public
-wrapper requires an exclusive position view, borrows velocities, and rejects
-incompatible counts. The low-level private C declaration must remain a borrow;
-putting `exclusive` on both declarations correctly fails because the inner
-call creates another live view.
+Nupp now puts a bounds-carrying checked boundary around the call.
+`countedBy(count)` turns each physical borrowed pointer/count declaration into a logical
+`WriteSpan<Position>`, `Span<Velocity>`, and `float` wrapper, checks equal
+logical lengths, projects adjusted pointers, and performs one physical call.
+The raw binding is hidden in generated Lua.
 
 ## What did not
 
@@ -81,11 +82,15 @@ speed tier. For Tecs' 28-byte `Transform2D` stride, the runtime-specialized
 DynASM loop remained scalar. It removed dynamic stride and offset work but was
 only about three percent faster than scalar C in that large run.
 
-The checked wrapper also takes separate pointers and counts. Nupp cannot yet
-express a generic `Span<T>` whose length is coupled to its pointer, prove that
-two subranges do not overlap, dispatch by CPU feature, or validate a generated
-instruction stream. Those are the pieces a real checked-kernel API would need;
-DynASM alone supplies none of them.
+Nupp can recursively partition one writable token into sibling regions, but it
+still does not prove arbitrary independently obtained ranges disjoint, dispatch
+by CPU feature, or validate a generated instruction stream. DynASM alone
+supplies none of those remaining pieces.
 
 DynASM is from LuaJIT and is MIT licensed. Its source is not vendored here;
 `DYNASM_ROOT` makes the exact toolchain input explicit.
+
+`performance-gate.sh` performs two clean optimized Nupp builds. Each run
+alternates generated/handwritten order, warms four times, takes 15 paired
+samples with at least 100 ms per batch, enforces a 1.05 median ratio at 262,144
+and 1,048,576 rows, and caps the zero-count added median at 50 ns per call.

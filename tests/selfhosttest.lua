@@ -43,6 +43,72 @@ end
 
 local M = {}
 
+function M.privateRecordFieldsBelongToTheirCanonicalModule()
+   local source = table.concat({
+      "local m = {}",
+      "record m.Secret<T>",
+      "   private readonly value: T",
+      "   readonly label: string",
+      "end",
+      "function m.read<T>(secret: m.Secret<T>): T",
+      "   return secret.value",
+      "end",
+      "local secret = new m.Secret(value = 7, label = 'seven')",
+      "local value: number = m.read(secret)",
+      "print(value)",
+      "return m",
+   }, "\n")
+   assertEq(diagsOf(source), "", "the declaring module reads and constructs private fields")
+end
+
+-- Hoisting a nominal also hoists the identity of its generic binders. Otherwise a
+-- reference to a later generic record sees the raw declaration and leaves `T` in its
+-- fields instead of substituting the concrete application.
+function M.forwardGenericNominalsPreserveTheirApplications()
+   assertEq(diagsOf(table.concat({
+      "local m = {}",
+      "record m.Left<T>",
+      "   readonly right: m.Right<T>?",
+      "end",
+      "record m.Right<T>",
+      "   readonly left: m.Left<T>?",
+      "   readonly value: T",
+      "end",
+      "local right = new m.Right(left = nil, value = 7)",
+      "local left = new m.Left(right = right)",
+      "if left.right then",
+      "   local value: integer = left.right.value",
+      "   print(value)",
+      "end",
+      "return m",
+   }, "\n")), "", "forward generic applications substitute both records")
+end
+
+function M.inlineMethodsPreserveExplicitReceiverModes()
+   local declaration = table.concat({
+      "local record Box",
+      "   value: integer",
+      "   function mutate(exclusive self: Box): nil",
+      "      self.value = self.value + 1",
+      "   end",
+      "end",
+   }, "\n")
+   assertEq(diagsOf(declaration .. table.concat({
+      "",
+      "local mutate: function(exclusive self: Box): nil = Box.mutate",
+      "local box = new Box(value = 1)",
+      "mutate(box)",
+   }, "\n")), "", "an inline method exports its exclusive receiver")
+   assertEq(diagsOf(declaration
+      .. "\nlocal plain: function(self: Box): nil = Box.mutate\nprint(plain)"),
+      "NUPP2001", "receiver ownership is part of the exported callable")
+end
+
+function M.privateIsAFieldModifierOnlyForRecords()
+   assertEq(diagsOf("local struct S\n   private value: int32\nend"), "NUPP2209")
+   assertEq(diagsOf("local interface I\n   private value: int32\nend"), "NUPP2209")
+end
+
 -- A field whose type admits nil need not be there at all: an absent field
 -- reads as nil, which is what makes `missing: boolean?` optional.
 function M.aNilAdmittingFieldIsOptional()

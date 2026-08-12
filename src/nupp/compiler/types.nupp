@@ -383,6 +383,9 @@ record types.Func
     --- that result transports. A nil entry is a fresh or unrestricted result.
     preservesResults: {integer}?
 
+    --- Aggregate field region suffixes proven for each fixed result slot.
+    partitionResults: {[integer]: {[string]: string}}?
+
     --- Whether this callable crosses the C boundary, including indirect pointers and
     --- aliases whose declaration token is no longer available at the call site.
     foreign: boolean?
@@ -692,6 +695,12 @@ record types.Nominal
     fieldBorrowSources: {[string]: string}?
 
     borrowedRootFields: {[string]: boolean}?
+
+    --- Fields visible only while checking the canonical declaring module.
+    privateFields: {[string]: boolean}?
+
+    --- Canonical module that may access private fields.
+    moduleName: string?
 
     --- The audited dynamic discharge container shipped by the standard library.
     resourceSet: boolean?
@@ -1230,7 +1239,8 @@ function types.union(members: {types.Type}): types.Type
                     prior.preservesResults,
                     prior.foreign,
                     prior.constParams,
-                    prior.paramKinds
+                    prior.paramKinds,
+                    prior.partitionResults
                 )
                 seen[prior] = nil
                 seen[merged] = true
@@ -1783,7 +1793,8 @@ function types.func(
     preservesResults: {integer}?,
     foreign: boolean?,
     constParams: {types.ConstVar}?,
-    paramKinds: {string}?
+    paramKinds: {string}?,
+    partitionResults: {[integer]: {[string]: string}}?
 ): types.Type
     -- A single declared result of `never` is a promise the call never comes back, the
     -- same promise `noreturn` records; deriving it here means a signature only has to
@@ -1877,6 +1888,21 @@ function types.func(
             end
         end
     end
+    if partitionResults then
+        for result = 1, #rets do
+            local fields = partitionResults[result]
+            if fields then
+                local fieldNames = {}
+                for name in pairs(fields) do
+                    fieldNames[#fieldNames + 1] = name
+                end
+                table.sort(fieldNames)
+                for _, name in ipairs(fieldNames) do
+                    key = key .. "|partition" .. tostring(result) .. ":" .. name .. "=" .. tostring(fields[name])
+                end
+            end
+        end
+    end
     if noreturn then
         key = key .. "|noreturn"
     end
@@ -1908,6 +1934,7 @@ function types.func(
             borrowsSelf = borrowsSelf,
             borrowsParams = borrowsParams,
             preservesResults = preservesResults,
+            partitionResults = partitionResults,
             foreign = foreign or nil,
             ffiOut = ffiOut,
             noreturn = noreturn or nil,
@@ -1968,7 +1995,8 @@ function types.withYields(ft: types.Type, mayYield: boolean): types.Type
         fn.preservesResults,
         fn.foreign,
         fn.constParams,
-        fn.paramKinds
+        fn.paramKinds,
+        fn.partitionResults
     )
 end
 
@@ -2006,7 +2034,8 @@ function types.foreignFunction(ft: types.Type): types.Type
         fn.preservesResults,
         true,
         fn.constParams,
-        fn.paramKinds
+        fn.paramKinds,
+        fn.partitionResults
     )
 end
 
@@ -2046,7 +2075,8 @@ function types.withFirstResult(ft: types.Type, first: types.Type): types.Type
         fn.preservesResults,
         fn.foreign,
         fn.constParams,
-        fn.paramKinds
+        fn.paramKinds,
+        fn.partitionResults
     )
 end
 
@@ -2269,14 +2299,58 @@ function types.hasTypevar(t: types.Type): boolean
     end
 
     -- A nominal is not interned, so it inherits no mark and the arguments above are
-    -- where its variables show. Everything else carries its parts' marks; see
-    -- `inheritedMarks`. A projection's mark is deliberately not one of these.
-
-    return t.id:find(
+    -- where its variables show. An interned wrapper normally carries its parts' marks;
+    -- see `inheritedMarks`. A wrapper around an instantiated nominal is the exception:
+    -- the nominal's identity is intentionally opaque, so its type arguments are not in
+    -- its id and the wrapper cannot inherit their marks. Fall back to its structural
+    -- parts only when the fast summary did not answer.
+    local marked = t.id:find(
         MARK_TYPEVAR,
         1,
         true
     ) ~= nil or t.id:find(MARK_PACKVAR, 1, true) ~= nil or t.id:find(MARK_CONSTVAR, 1, true) ~= nil
+    if marked then
+        return true
+    end
+
+    local tag = t.tag
+    if tag == "owned" or tag == "borrowed" or tag == "pinned" or tag == "const" then
+        return types.hasTypevar(t.inner)
+    elseif tag == "ctype" or tag == "metatable" then
+        return types.hasTypevar(t.of)
+    elseif tag == "ptr" or tag == "carray" or tag == "array" then
+        return types.hasTypevar(t.elem)
+    elseif tag == "typeHandle" then
+        return types.hasTypevar(t.bound)
+    elseif tag == "map" then
+        return (t.key and types.hasTypevar(t.key))
+            or (t.value and types.hasTypevar(t.value))
+            or (t.writeKey and types.hasTypevar(t.writeKey))
+            or (t.writeValue and types.hasTypevar(t.writeValue))
+            or false
+    elseif tag == "tuple" then
+        for _, member in ipairs(t.elems) do
+            if types.hasTypevar(member) then return true end
+        end
+    elseif tag == "shape" then
+        for _, field in ipairs(t.fields) do
+            if field.read and types.hasTypevar(field.read) then return true end
+            if field.write and types.hasTypevar(field.write) then return true end
+        end
+    elseif tag == "union" or tag == "intersection" then
+        for _, member in ipairs(t.members) do
+            if types.hasTypevar(member) then return true end
+        end
+    elseif tag == "func" then
+        for _, member in ipairs(t.params) do
+            if types.hasTypevar(member) then return true end
+        end
+        for _, member in ipairs(t.rets) do
+            if types.hasTypevar(member) then return true end
+        end
+    end
+
+    return false
 end
 
 ---------------------------------------------------------------------------

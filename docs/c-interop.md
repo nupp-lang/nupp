@@ -187,12 +187,11 @@ library allocation and immediately give it bounds:
 
 ```nupp
 local heap = require("nupp.heap")
-local span = require("nupp.span")
 
 local values = heap.allocate(ffi.typeof<int32>(), 1000000)
-local writable = span.writeCarray(values, 1000000)
+local writable = values:write()
 writable:set(1, 42 as int32)
-span.commit(writable)
+writable:commit()
 ```
 
 ## C unions and bitfields
@@ -309,6 +308,32 @@ Use `borrows` when C only observes a resource for the duration of a call, and
 `releases` for pointers C stores beyond a call. Do not use `unsafe` merely to
 silence a contract error; use it only where the program must state a fact the
 checker cannot prove.
+
+## Counted pointer adapters
+
+`countedBy(count)` relates a call-duration borrowed C pointer to its physical
+element count. The qualifier does not change the C ABI given to LuaJIT FFI,
+while checked callers see spans:
+
+```nupp
+cdef function transform(
+    borrows output: Item* countedBy(count),
+    borrows input: const Item* countedBy(count),
+    count: uint64
+)
+```
+
+The logical parameters are `exclusive output: span.WriteSpan<Item>` and
+`borrows input: span.Span<Item>`; `count` is supplied from the spans. Pointers
+sharing a count must have equal logical lengths. The wrapper checks equality
+before projecting either pointer and calls C exactly once, including at count
+zero. The foreign implementation must not dereference a mapped pointer when
+its count is zero.
+
+Const pointers become shared spans and mutable pointers become writable spans.
+Counted pointers must use `borrows`, and counts currently use plain `uint64`.
+Strides, byte counts, capacities, prefixes, sentinel termination, output
+pointers, and retained pointers require handwritten `ref()` wrappers.
 
 ## Build native dependencies reproducibly
 

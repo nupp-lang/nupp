@@ -274,6 +274,17 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
         local applied = {}
         for j, parameter in ipairs(origin.typeParams or {}) do
             local argument = t.typeArgs and t.typeArgs[j] or T.any
+            -- A module summary can materialize the enclosing function binder and
+            -- the binder stored in this nested nominal argument as separate tables.
+            -- Match that one argument by its serialized id before substituting it.
+            if argument.tag == "typevar" and not map[argument] then
+                for binder, replacement in pairs(map) do
+                    if binder.tag == "typevar" and binder.id == argument.id then
+                        argument = replacement
+                        break
+                    end
+                end
+            end
             applied[parameter] = substWith(argument, map, unmapped)
         end
         for j, parameter in ipairs(origin.packParams or {}) do
@@ -308,7 +319,7 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
             -- Substitution changes what a function takes and answers, never whether
             -- calling it may suspend. Dropping the qualifier here would silently
             -- downgrade every generic call site to may-yield.
-            t.noYield, t.paramNames, t.preservesResults, t.foreign, t.constParams, t.paramKinds)
+            t.noYield, t.paramNames, t.preservesResults, t.foreign, t.constParams, t.paramKinds, t.partitionResults)
     end
 
     return t
@@ -1171,7 +1182,8 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
                 t.preservesResults,
                 t.foreign,
                 t.constParams,
-                t.paramKinds
+                t.paramKinds,
+                t.partitionResults
             )
         end
     elseif t.tag == "shape" then
@@ -1383,7 +1395,10 @@ function generics.instantiateFunction(
         concrete.noYield,
         concrete.paramNames,
         concrete.preservesResults,
-        concrete.foreign
+        concrete.foreign,
+        nil,
+        nil,
+        concrete.partitionResults
     ) as T.Func
 end
 
@@ -1501,6 +1516,13 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     end
     inst.paramKinds = n.paramKinds
     inst.fieldOrder = n.fieldOrder
+    inst.privateFields = n.privateFields
+    inst.moduleName = n.moduleName
+    inst.defaultDropOperations = n.defaultDropOperations
+    inst.affineResource = n.affineResource
+    inst.affineFields = n.affineFields
+    inst.fieldBorrowSources = n.fieldBorrowSources
+    inst.borrowedRootFields = n.borrowedRootFields
     inst.arrayOf = n.arrayOf and substWith(n.arrayOf, map, PRESERVE) or nil
     inst.fieldDefs = n.fieldDefs
     inst.writeFieldDefs = n.writeFieldDefs
@@ -1773,7 +1795,8 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
                     return nil
                 end
                 seen[candidate] = true
-                if (candidate.origin or candidate) == po then
+                local candidateOrigin = candidate.origin or candidate
+                if candidateOrigin == po or candidateOrigin.id == po.id then
                     return candidate
                 end
                 for _, parent in ipairs(candidate.supertypes or {}) do
@@ -1790,7 +1813,11 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
 
             local nominalArg = view(arg, {})
             local ao = nominalArg and (nominalArg.origin or nominalArg) or arg.origin or arg
-            if po == ao then
+            -- Module summaries may materialize the same exported nominal on both
+            -- sides of a forwarding API. Its stable nominal id, not Lua table
+            -- identity, is the cross-summary identity used by the rest of the type
+            -- system.
+            if po == ao or po.id == ao.id then
                 for j, p in ipairs(param.typeArgs or {}) do
                     local a = nominalArg and nominalArg.typeArgs and nominalArg.typeArgs[j]
                     if a then
@@ -1967,7 +1994,7 @@ function generics.dropSelf(ft: Type): Type
             and borrowsParams
             or nil, ft.ffiOut, ft.varargType, ft.noreturn, paramPack, ft.retPack, ft.packParams, ft.yieldPack, ft.resumePack,
             -- Adjusting the receiver rewrites a parameter list, not an effect.
-            ft.noYield, names, next(preserves) and preserves or nil, ft.foreign, ft.constParams, ft.paramKinds)
+            ft.noYield, names, next(preserves) and preserves or nil, ft.foreign, ft.constParams, ft.paramKinds, ft.partitionResults)
     end
 
     return ft
@@ -2014,7 +2041,7 @@ function generics.addSelf(ft: Type, selfType: Type, selfMode: string?): Type
         end
 
         return next(shifted) and shifted or nil
-    end)(), ft.foreign, ft.constParams, ft.paramKinds)
+    end)(), ft.foreign, ft.constParams, ft.paramKinds, ft.partitionResults)
 end
 
 return generics

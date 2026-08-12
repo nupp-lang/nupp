@@ -37,6 +37,15 @@ function M.serializesRecursiveTypesAsAcyclicIndexedGraphs()
    assert(reachesRoot, "the recursive edge refers back to the root index")
 end
 
+function M.omitsPrivateFieldsFromSemanticReflection()
+   local node = recursiveNode(T.string)
+   node.privateFields = {next = true}
+   node.moduleName = "models"
+   local descriptor = reflection.describe(node, "Node")
+   assertEq(#descriptor.fields, 1, "only the public field is reflected")
+   assertEq(descriptor.fields[1].name, "value", "the reflected field is public")
+end
+
 function M.fingerprintsSemanticsRatherThanNominalAllocationIdentity()
    local first = reflection.describe(recursiveNode(T.string), "Node")
    local second = reflection.describe(recursiveNode(T.string), "Node")

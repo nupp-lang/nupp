@@ -1,7 +1,9 @@
 local parser = require("nupp.compiler.parser")
 local check = require("fragment")
 local gen = require("nupp.compiler.gen")
+local envMod = require("nupp.compiler.env")
 local windows = require("ffi").os == "Windows"
+local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 
 local function assertEq(got, want, label)
    if got ~= want then
@@ -14,7 +16,7 @@ local function compile(src)
    local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax errors"
       .. (result.errors[1] and (": " .. result.errors[1].msg) or ""))
-   local diags = check.check(result, "test.g.nupp")
+   local diags = check.check(result, "test.g.nupp", envMod.new(HERE .. "/.."))
    local code, genDiags = gen.generate(result, "test")
    return code, diags, genDiags
 end
@@ -58,6 +60,59 @@ function M.cdefFunctionTyping()
       "cdef function bad(t: {number}): int32")), "NUPP2203:1")
    assertEq((diagsOf(
       "cdef function bad2(): {[string]: number}")), "NUPP2203:1")
+end
+
+function M.countedPointersBuildOneCheckedWrapperOverThePhysicalBinding()
+   local source = table.concat({
+      "local spans = require('nupp.span')",
+      "cdef struct CountedPosition",
+      "   x: float",
+      "end",
+      "cdef struct CountedVelocity",
+      "   x: float",
+      "end",
+      "local count = 'not the parameter'",
+      "cdef function counted_integrate(",
+      "   borrows positions: CountedPosition* countedBy(count),",
+      "   borrows velocities: const CountedVelocity* countedBy(count),",
+      "   count: uint64, dt: float",
+      ")",
+      "local p = ffi.new<CountedPosition[4]>()",
+      "local v = ffi.new<CountedVelocity[4]>()",
+      "local writable = spans.writeCarray(p, 4)",
+      "local readable = spans.fromCarray(v, 4)",
+      "counted_integrate(writable, readable, 0.5 as float)",
+      "writable:commit()",
+   }, "\n")
+   assertClean(source)
+   local code, diags, genDiags = compile(source)
+   assertEq(#diags, 0)
+   assertEq(#genDiags, 0)
+   assert(code:find("positions.count~=velocities.count", 1, true), code)
+   assert(code:find("positions:ref()", 1, true), code)
+   assert(code:find("velocities:ref()", 1, true), code)
+   assert(code:find("__nuppFfi.C.counted_integrate", 1, true), code)
+   assert(not code:find("if positions.count==0", 1, true), "zero count must still call C:\n" .. code)
+end
+
+function M.countedPointersRejectContractsTheyCannotLowerSafely()
+   local function one(declaration)
+      local got = diagsOf(declaration)
+      assert(got:find("NUPP2630", 1, true), got .. "\n" .. declaration)
+   end
+   one("cdef function bad(borrows values: int32 countedBy(count), count: uint64)")
+   one("cdef function bad(borrows values: const int32* countedBy(missing), count: uint64)")
+   one("cdef function bad(values: const int32* countedBy(count), count: uint64)")
+   one("cdef function bad(borrows values: const int32* countedBy(count), count: uint32)")
+   one("cdef function bad(borrows values: const int32* countedBy(count), exclusive count: uint64)")
+   one("cdef function bad(borrows values: const int32* countedBy(count), count: uint64, ...)")
+   one("cdef function bad(out values: int32** countedBy(count), count: uint64)")
+end
+
+function M.spanAbiAnnotationWasRemoved()
+   local got = diagsOf("@spanabi(read = { values = 'count' })\n"
+      .. "cdef function old(borrows values: const int32*, count: uint64)")
+   assert(got:find("NUPP2111", 1, true), got)
 end
 
 function M.cdefCallbackParameter()

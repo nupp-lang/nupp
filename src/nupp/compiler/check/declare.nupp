@@ -1087,6 +1087,13 @@ function declare.install(
             n.annotations = stat.semanticAnnotations or {}
             -- bind the name first so fields may reference the type recursively
             c.bindDeclaredType(stat, n)
+            -- A record's runtime table exists before its method functions are
+            -- installed. Bind that value at the same point as its type so an inline
+            -- method can construct another instance, including through a qualified
+            -- declaration name such as `module.Record`.
+            if stat.declKind == "record" and not stat.isAnnotationDefinition then
+                c.bindDeclaredVar(stat, T.metatable(n))
+            end
             -- Every declaration has a private type scope: `self`, generic binders, and
             -- nested type names must not leak beside it.
             c.pushScope()
@@ -1104,14 +1111,17 @@ function declare.install(
             if c.qualifierOf(stat) then
                 c.bindType(stat.name.text, n, nil)
             end
-            n.typeParams, n.typeBounds = nil, nil
             if stat.generics then
                 local nominalTypes, nominalBounds, nominalPacks, nominalConsts, nominalKinds = c.bindGenerics(
                     stat.generics,
-                    "nominal"
+                    "nominal",
+                    n
                 )
                 n.typeParams, n.typeBounds, n.packParams = nominalTypes, nominalBounds, nominalPacks
                 n.constParams, n.paramKinds = nominalConsts, nominalKinds
+            else
+                n.typeParams, n.typeBounds, n.packParams = nil, nil, nil
+                n.constParams, n.paramKinds = nil, nil
             end
             n.fieldOrder = {}
             n.fieldDefs = {}
@@ -1119,6 +1129,7 @@ function declare.install(
             n.staticFieldDefs = {}
             n.staticWriteFieldDefs = {}
             stat.resolvedType = n
+            n.moduleName = c.result.moduleName
             if c.result.moduleName == "nupp.resources" and n.name == "Set" then
                 n.resourceSet = true
             end
@@ -1351,6 +1362,9 @@ function declare.install(
             local localMembers, localMetamethods = {}, {}
             for _, e in ipairs(stat.entries) do
                 if e.kind == "fieldDecl" then
+                    if e.privacy and stat.declKind ~= "record" then
+                        c.diag("NUPP2209", e.privacy, "private fields are available only on records")
+                    end
                     if e.type and e.type.kind == "tfunc" then
                         c.raises.checkParams(e, (e.type as any).params or {})
                     end
@@ -1502,6 +1516,10 @@ function declare.install(
                         end
                     end
                     local name = e.name.text
+                    if e.privacy and stat.declKind == "record" then
+                        n.privateFields = n.privateFields or {}
+                        n.privateFields[name] = true
+                    end
                     local state = localMembers[name]
                     if not state then
                         state = {}
@@ -1700,7 +1718,11 @@ function declare.install(
                         e.body.dropMethod = true
                     end
                     local checked = c.checkFuncbody(e.body, receiver and n or nil)
-                    local ft = receiver and addSelf(checked, n, isDropOperation and "takes" or nil) or checked
+                    local ft = receiver and addSelf(
+                        checked,
+                        n,
+                        isDropOperation and "takes" or e.body.receiverMode
+                    ) or checked
                     c.raises.check(e, e.body)
                     local callable = (receiver and dropSelf(ft) or ft) as T.Func
                     local parameterKey = methodslots.parameters(callable)
@@ -2052,7 +2074,6 @@ function declare.install(
                 -- their metatable, so it has the type of one -- which is what keeps it
                 -- from standing where an instance is wanted, and an instance from
                 -- standing where it is.
-                c.bindDeclaredVar(stat, T.metatable(n))
                 suggestStruct(stat, n)
             else
                 -- Interfaces with defaults or statics have a declaration table at run

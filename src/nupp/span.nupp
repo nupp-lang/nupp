@@ -10,23 +10,73 @@ local span = {}
 
 --- A checked, shared view over contiguous elements.
 --- @export
-local record Span<T>
-    readonly anchor: any
-    readonly pointer: T[?] borrows (anchor)
-    readonly offset: integer
+record span.Span<T>
+    private readonly anchor: any
+    private readonly pointer: const T[?] borrows (anchor)
+    private readonly offset: integer
     readonly count: integer
+
+    --- Returns one element after checking the one-based index.
+    --- @raises when index is outside 1 through count
+    function get(self: Span<T>, index: integer): T
+        if index < 1 or index > self.count then
+            error("span index out of bounds", 2)
+        end
+        unsafe do
+            return self.pointer[self.offset + index - 1]
+        end
+    end
+
+    --- Returns a checked subspan, inclusive at both ends.
+    --- @raises when the requested range is outside this span
+    function slice(
+        self: Span<T>, first: integer, last: integer?
+    ): Span<T> borrows (self)
+        local finish = last or self.count
+        if first < 1 or finish < first - 1 or finish > self.count then
+            error("span slice out of bounds", 2)
+        end
+        return new span.Span(
+            anchor = self,
+            pointer = self.pointer as any,
+            offset = self.offset + first - 1,
+            count = finish - first + 1
+        ) as Span<T>
+    end
+
+    --- Exposes the checked range as a const pointer/count pair for a native call.
+    function ref(self: Span<T>): (const T[?] borrows (self), integer)
+        unsafe do
+            local pointer = (self.pointer as const T*) + self.offset
+            return borrowFrom(pointer as const T[?], self), self.count
+        end
+    end
+end
+
+--- Two sibling, non-overlapping writable regions borrowed from one parent writer.
+--- The representation is private so only this module can assert how the children
+--- relate to their anchor.
+--- @export
+record span.WriteSplit<T>
+    private readonly anchor: any
+    readonly left: span.WriteSpan<T> borrows (anchor)
+    readonly right: span.WriteSpan<T> borrows (anchor)
 end
 
 --- An affine checked write range. Its live token keeps the source under an
 --- incompatible-borrow barrier until `span.commit` or scope exit consumes it.
 --- @export
-local record WriteSpan<T>
-    readonly anchor: any
-    readonly pointer: T[?] borrows (anchor)
-    readonly offset: integer
+record span.WriteSpan<T>
+    private readonly anchor: any
+    private readonly pointer: T[?] borrows (anchor)
+    private readonly offset: integer
     readonly count: integer
 
-    function set(self: WriteSpan<T>, index: integer, value: T): nil
+    --- Ends this affine write range. It is also the automatic scope-exit drop.
+    @drop
+    commit: nosuspend function(takes self: WriteSpan<T>): nil
+
+    function set(exclusive self: WriteSpan<T>, index: integer, value: T): nil
         if index < 1 or index > self.count then
             error("write span index out of bounds", 2)
         end
@@ -34,76 +84,96 @@ local record WriteSpan<T>
             self.pointer[self.offset + index - 1] = value
         end
     end
+
+    --- Exposes the checked range as a mutable pointer/count pair for a native call.
+    function ref(exclusive self: WriteSpan<T>): (T[?] borrows (self), integer)
+        unsafe do
+            local pointer = (self.pointer as T*) + self.offset
+            return borrowFrom(pointer as T[?], self), self.count
+        end
+    end
+
+    --- Downgrades this writer to a shared view for the lifetime of the result.
+    function shared(borrows self: WriteSpan<T>): span.Span<T> borrows (self)
+        return new span.Span(
+            anchor = self,
+            pointer = self.pointer as any,
+            offset = self.offset,
+            count = self.count
+        ) as span.Span<T>
+    end
+
+    --- Partitions this range at a zero-based boundary count.
+    --- @raises when mid is negative or greater than count
+    function splitAt(
+        exclusive self: WriteSpan<T>, mid: integer
+    ): span.WriteSplit<T> borrows (self)
+        if mid < 0 or mid > self.count then
+            error("write span split point out of bounds", 2)
+        end
+        unsafe do
+            local left, right = nupp.partition(
+                self,
+                new span.WriteSpan(
+                    anchor = self,
+                    pointer = self.pointer as any,
+                    offset = self.offset,
+                    count = mid
+                ) as span.WriteSpan<T>,
+                new span.WriteSpan(
+                    anchor = self,
+                    pointer = self.pointer as any,
+                    offset = self.offset + mid,
+                    count = self.count - mid
+                ) as span.WriteSpan<T>
+            )
+            return new span.WriteSplit(anchor = self, left = left, right = right) as span.WriteSplit<T>
+        end
+    end
+
 end
 
---- The cleanup witness used by `writeCarray`. `span.commit` is the public spelling;
---- this erased terminal also discharges the static affine token at scope exit.
-local function finish_write(takes self: any): nil
+function span.WriteSpan.commit<T>(takes self: span.WriteSpan<T>): nil
     nosuspend do
         unsafe do
             local _raw = intoRaw(self)
         end
     end
 end
-local finish_write_nosuspend = finish_write as nosuspend function(takes self: any): nil
 
 --- Ends an affine write range and releases its exclusive-borrow barrier.
 --- @export
-function span.commit<T>(takes writable: WriteSpan<T>): nil
-    nosuspend do
-        unsafe do
-            local _raw = intoRaw(writable)
-        end
-    end
-end
-
---- Returns one element after checking the one-based index.
---- @raises when index is outside 1 through count
-function Span.get<T>(self: Span<T>, index: integer): T
-    if index < 1 or index > self.count then
-        error("span index out of bounds", 2)
-    end
-    unsafe do
-        return self.pointer[self.offset + index - 1]
-    end
-end
-
---- Returns a checked subspan, inclusive at both ends.
---- @raises when the requested range is outside this span
-function Span.slice<T>(self: Span<T>, first: integer, last: integer?): Span<T> borrows (self)
-    local finish = last or self.count
-    if first < 1 or finish < first - 1 or finish > self.count then
-        error("span slice out of bounds", 2)
-    end
-    return new Span(
-        anchor = self,
-        pointer = self.pointer as any,
-        offset = self.offset + first - 1,
-        count = finish - first + 1
-    ) as Span<T>
+function span.commit<T>(takes writable: span.WriteSpan<T>): nil
+    writable:commit()
 end
 
 --- Backwards-compatible names for the byte-specialized views.
 --- @export
-local type ByteSpan = Span<uint8>
+type span.ByteSpan = span.Span<uint8>
 --- @export
-local type ByteWriteSpan = WriteSpan<uint8>
+type span.ByteWriteSpan = span.WriteSpan<uint8>
 
 --- Creates a byte span over a Lua string and keeps that string rooted.
 --- @export
-function span.fromString(borrows source: string): ByteSpan borrows (source)
-    local pointer = ffi.cast<uint8[?]>(source)
-    return new Span(anchor = source, pointer = pointer as any, offset = 0, count = #source) as ByteSpan
+function span.fromString(borrows source: string): span.ByteSpan borrows (source)
+    local pointer = ffi.cast<const uint8[?]>(source)
+    return (new span.Span(
+        anchor = source, pointer = pointer as any, offset = 0, count = #source
+    )) as span.ByteSpan
 end
 
 --- Creates a checked shared span over a C array and an explicit logical count.
 --- @export
 --- @raises when count is negative
-function span.fromCarray<T>(borrows source: T[?], count: integer): Span<T> borrows (source)
+function span.fromCarray<T>(
+    borrows source: T[?], count: integer
+): span.Span<T> borrows (source)
     if count < 0 then
         error("span count cannot be negative", 2)
     end
-    return new Span(anchor = source, pointer = source as any, offset = 0, count = count) as Span<T>
+    return (new span.Span(
+        anchor = source, pointer = source as any, offset = 0, count = count
+    )) as span.Span<T>
 end
 
 --- Creates an affine write span. The source is exclusive during construction and the
@@ -111,16 +181,16 @@ end
 --- committed.
 --- @export
 --- @raises when count is negative
-@owned(finish_write_nosuspend)
-function span.writeCarray<T>(exclusive source: T[?], count: integer): WriteSpan<T> borrows (source)
+@owned
+function span.writeCarray<T>(
+    exclusive source: T[?], count: integer
+): span.WriteSpan<T> borrows (source)
     if count < 0 then
         error("write span count cannot be negative", 2)
     end
-    return new WriteSpan(anchor = source, pointer = source as any, offset = 0, count = count) as WriteSpan<T>
+    return (new span.WriteSpan(
+        anchor = source, pointer = source as any, offset = 0, count = count
+    )) as span.WriteSpan<T>
 end
 
-span.Span = Span
-span.WriteSpan = WriteSpan
-span.ByteSpan = Span
-span.ByteWriteSpan = WriteSpan
 return span

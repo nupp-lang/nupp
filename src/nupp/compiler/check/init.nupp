@@ -867,12 +867,7 @@ function checkMod.check(
     c.popScope = function()
         auditScope(c.scope)
         for _, entry in pairs(c.scope.vars or {}) do
-            if entry.borrowOwner then
-                entry.borrowOwner.activeBorrows = math.max(0, (entry.borrowOwner.activeBorrows or 1) - 1)
-            end
-            for _, owner in ipairs(entry.borrowOwners or {}) do
-                owner.activeBorrows = math.max(0, (owner.activeBorrows or 1) - 1)
-            end
+            c.releaseBorrowLinks(entry)
         end
         c.scope = c.scope.parent
     end
@@ -1189,7 +1184,7 @@ function checkMod.check(
 
     -- Binds a generic clause in its surrounding scope and resolves aligned upper bounds
     -- after each binder is visible.
-    c.bindGenerics = function(generics, role)
+    c.bindGenerics = function(generics, role, predeclared)
         local params, bounds, packParams, constParams, paramKinds = {}, {}, {}, {}, {}
         local sawPack = false
         for j, nameTok in ipairs(generics and generics.names or {}) do
@@ -1206,13 +1201,19 @@ function checkMod.check(
                     )
                     domain = "string"
                 end
-                local cv = c.constvarAt(nameTok, domain, role)
+                local cv = predeclared
+                    and predeclared.constParams
+                    and predeclared.constParams[#constParams + 1]
+                    or c.constvarAt(nameTok, domain, role)
                 constParams[#constParams + 1] = cv
                 paramKinds[j] = "const"
                 c.bindType(nameTok.text, consteval.singleton(cv), nameTok)
             elseif isPack then
                 sawPack = true
-                local pv = c.packvarAt(nameTok, role)
+                local pv = predeclared
+                    and predeclared.packParams
+                    and predeclared.packParams[#packParams + 1]
+                    or c.packvarAt(nameTok, role)
                 packParams[#packParams + 1] = pv
                 paramKinds[j] = "pack"
                 c.bindPack(nameTok.text, pv, nameTok)
@@ -1220,7 +1221,10 @@ function checkMod.check(
                 if sawPack then
                     c.diag("NUPP2121", nameTok, "an ordinary type parameter cannot follow a pack parameter")
                 end
-                local tv = c.typevarAt(nameTok, role)
+                local tv = predeclared
+                    and predeclared.typeParams
+                    and predeclared.typeParams[#params + 1]
+                    or c.typevarAt(nameTok, role)
                 params[#params + 1] = tv
                 paramKinds[j] = "type"
                 c.bindType(nameTok.text, tv, nameTok)
@@ -1708,6 +1712,35 @@ function checkMod.check(
                 local key = c.declKey(decl)
                 if c.qualifierOf(decl) then
                     n.runtimePath = key
+                end
+                -- A forward reference may apply this nominal before its body is
+                -- checked. Give generic binders their final source-position identity
+                -- while hoisting so `Later<T>` is an application rather than the raw
+                -- declaration. Full checking binds these same objects and resolves
+                -- bounds in the ordinary lexical scope.
+                if decl.generics then
+                    local typeParams, packParams, constParams, paramKinds = {}, {}, {}, {}
+                    for position, nameTok in ipairs(decl.generics.names or {}) do
+                        local isPack = decl.generics.packs and decl.generics.packs[position]
+                        local isConst = decl.generics.consts and decl.generics.consts[position]
+                        if isConst then
+                            local domainToken = decl.generics.domains and decl.generics.domains[position]
+                            local domain = domainToken and domainToken.text or "unknown"
+                            if domain ~= "string" and domain ~= "boolean" and domain ~= "integer" then
+                                domain = "string"
+                            end
+                            constParams[#constParams + 1] = c.constvarAt(nameTok, domain, "nominal")
+                            paramKinds[position] = "const"
+                        elseif isPack then
+                            packParams[#packParams + 1] = c.packvarAt(nameTok, "nominal")
+                            paramKinds[position] = "pack"
+                        else
+                            typeParams[#typeParams + 1] = c.typevarAt(nameTok, "nominal")
+                            paramKinds[position] = "type"
+                        end
+                    end
+                    n.typeParams, n.packParams, n.constParams = typeParams, packParams, constParams
+                    n.paramKinds = paramKinds
                 end
                 hoistNestedNominals(n, decl.entries)
                 c.bindType(key, n, nil)

@@ -478,6 +478,17 @@ function functions.install(c: state.Checker): state.StatHandlers
             explicitSelf = nil
         end
         local inferredModes, declaredModes = inferredParameterModes(body)
+        if explicitSelf then
+            local mode = inferredModes[1] or "borrows"
+            if not declaredModes[1]
+                and mode ~= "takes"
+                and not pointerShaped(selfType)
+                and not (selfType.tag == "nominal" and selfType.affineResource)
+            then
+                mode = "plain"
+            end
+            body.receiverMode = mode
+        end
         local scopedCandidates = scopedCallbackParameters(body, true)
         local vararg = false
         local varargType = nil
@@ -683,6 +694,8 @@ function functions.install(c: state.Checker): state.StatHandlers
         -- Judged before the flag is cleared, so that being the value of a `return` is
         -- what excuses this function, not what its own body happens to do.
         local wasReturning = c.loops.setReturning(false)
+        body.partitionResults = nil
+        body.partitionReturnSeen = {}
         c.checkBlock(body.body, true) -- scope already pushed
         c.closureCaptureStack[#c.closureCaptureStack] = nil
         if #captures > 0 and body.body and not body.captureBindingStat then
@@ -903,7 +916,8 @@ function functions.install(c: state.Checker): state.StatHandlers
             preservesResults,
             nil,
             constParams,
-            paramKinds
+            paramKinds,
+            body.partitionResults
         )
         if #captures > 0 then
             return T.owned(callable, {T.methodCleanup("__drop")})
@@ -930,7 +944,19 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
         if selfType then
             params[1] = selfType
-            modes[1] = "plain"
+            local mode = "plain"
+            if explicitSelf then
+                mode = inferredModes[1] or "borrows"
+                if not declaredModes[1]
+                    and mode ~= "takes"
+                    and not pointerShaped(selfType)
+                    and not (selfType.tag == "nominal" and selfType.affineResource)
+                then
+                    mode = "plain"
+                end
+                body.receiverMode = mode
+            end
+            modes[1] = mode
             paramNames[1] = "self"
         end
         local varargType = nil

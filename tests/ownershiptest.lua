@@ -501,7 +501,7 @@ function M.spansCarryBoundsRootsAndAnAffineWriteExtent()
       "do",
       "   local writable = spans.writeCarray(storage, 4)",
       "   writable:set(1, 65)",
-      "   spans.commit(writable)",
+      "   writable:commit()",
       "end",
    }, "\n"))
 end
@@ -520,15 +520,290 @@ function M.spansPreserveTheCArrayElementType()
    }, "\n"))
 end
 
+function M.spansExportANameableGenericWithoutTheirRepresentation()
+   assertClean(table.concat({
+      "local spans = require('nupp.span')",
+      "local function first(borrows view: spans.Span<int32>): int32",
+      "   return view:get(1)",
+      "end",
+      "local storage = ffi.new<int32[4]>()",
+      "local view = spans.fromCarray(storage, 4)",
+      "local value: int32 = first(view)",
+      "print(value)",
+   }, "\n"))
+
+   assertEq(codes(table.concat({
+      "local spans = require('nupp.span')",
+      "local storage = ffi.new<int32[4]>()",
+      "local view = spans.fromCarray(storage, 4)",
+      "print(view.pointer)",
+   }, "\n")), "NUPP2209", "an instantiated span keeps its field private")
+
+   assertEq(codes(table.concat({
+      "local spans = require('nupp.span')",
+      "local made = new spans.Span()",
+      "print(made)",
+   }, "\n")), "NUPP2209", "a private representation closes direct construction")
+end
+
+function M.spanRefsExposeOnlyTheCapabilityTheirViewOwns()
+   local cdecls = table.concat({
+      "cdef function read_values(borrows values: const int32*, count: integer)",
+      "cdef function write_values(borrows values: int32*, count: integer)",
+   }, "\n")
+   assertClean(table.concat({
+      cdecls,
+      "local spans = require('nupp.span')",
+      "local storage = ffi.new<int32[4]>()",
+      "do",
+      "   local view = spans.fromCarray(storage, 4):slice(2, 3)",
+      "   local pointer, count = view:ref()",
+      "   read_values(pointer, count)",
+      "end",
+      "do",
+      "   local writable = spans.writeCarray(storage, 4)",
+      "   do",
+      "      local pointer, count = writable:ref()",
+      "      write_values(pointer, count)",
+      "   end",
+      "   writable:set(1, 7 as int32)",
+      "   spans.commit(writable)",
+      "end",
+   }, "\n"))
+
+   assertEq(codes(table.concat({
+      cdecls,
+      "local spans = require('nupp.span')",
+      "local storage = ffi.new<int32[4]>()",
+      "local view = spans.fromCarray(storage, 4)",
+      "local pointer, count = view:ref()",
+      "write_values(pointer, count)",
+   }, "\n")), "NUPP2006", "a shared span cannot supply a mutable C parameter")
+end
+
+function M.writeSpanDowngradesAndRefsHoldItsExclusiveBarrier()
+   assertEq(codes(table.concat({
+      "local spans = require('nupp.span')",
+      "local storage = ffi.new<int32[4]>()",
+      "local writable = spans.writeCarray(storage, 4)",
+      "local pointer, count = writable:ref()",
+      "spans.commit(writable)",
+      "print(pointer, count)",
+   }, "\n")), "NUPP2602", "a live mutable ref blocks consuming its writer")
+
+   assertEq(codes(table.concat({
+      "local spans = require('nupp.span')",
+      "local storage = ffi.new<int32[4]>()",
+      "local writable = spans.writeCarray(storage, 4)",
+      "local shared = writable:shared()",
+      "writable:set(1, 1 as int32)",
+      "print(shared:get(1))",
+      "spans.commit(writable)",
+   }, "\n")), "NUPP2602 NUPP2602", "a shared downgrade blocks mutation and commit")
+end
+
 function M.heapArraysAreOwnedAndBecomeCheckedSpans()
    assertClean(table.concat({
       "local heap = require('nupp.heap')",
-      "local spans = require('nupp.span')",
       "local values = heap.allocate(ffi.typeof<int32>(), 1000000)",
-      "local writable = spans.writeCarray(values, 1000000)",
-      "writable:set(1, 42 as int32)",
-      "print(writable.count)",
-      "spans.commit(writable)",
+      "print(values.count)",
+      "do",
+      "   local writable = values:write()",
+      "   writable:set(1, 42 as int32)",
+      "   print(writable.count)",
+      "   writable:commit()",
+      "end",
+      "local readable = values:read()",
+      "local value: int32 = readable:get(1)",
+      "print(value, readable.count)",
+   }, "\n"))
+
+   assertEq(codes(table.concat({
+      "local heap = require('nupp.heap')",
+      "local values = heap.allocate(ffi.typeof<int32>(), 4)",
+      "local readable = values:read()",
+      "local writable = values:write()",
+      "print(readable, writable)",
+   }, "\n")), "NUPP2602", "a live array read blocks a writer")
+
+   assertEq(codes(table.concat({
+      "local heap = require('nupp.heap')",
+      "local values = heap.allocate(ffi.typeof<int32>(), 4)",
+      "local writable = values:write()",
+      "local readable = values:read()",
+      "print(readable, writable)",
+   }, "\n")), "NUPP2602", "a live array writer blocks a reader")
+
+   assertEq(codes(table.concat({
+      "local heap = require('nupp.heap')",
+      "local values = heap.allocate(ffi.typeof<int32>(), 4)",
+      "print(values.pointer)",
+   }, "\n")), "NUPP2209", "an array's allocation pointer is private")
+end
+
+function M.heapArraysPreserveCountsAndCleanUpAtRuntime()
+   local source = table.concat({
+      "local heap = require('nupp.heap')",
+      "local function exercise(count: integer): (integer, int32)",
+      "   local values = heap.allocate(ffi.typeof<int32>(), count)",
+      "   if count > 0 then",
+      "      local writable = values:write()",
+      "      writable:set(count, 73 as int32)",
+      "      writable:commit()",
+      "   end",
+      "   local readable = values:read()",
+      "   local value = count > 0 and readable:get(count) or 0 as int32",
+      "   return readable.count, value",
+      "end",
+      "local zero = exercise(0)",
+      "local one, value = exercise(1)",
+      "local negative = pcall(function()",
+      "   local values = heap.allocate(ffi.typeof<int32>(), -1)",
+      "   values:close()",
+      "end)",
+      "local overflow = pcall(function()",
+      "   local values = heap.allocate(ffi.typeof<int32>(), 9007199254740991 as integer)",
+      "   values:close()",
+      "end)",
+      "local unwound = pcall(function()",
+      "   local values = heap.allocate(ffi.typeof<int32>(), 2)",
+      "   local writable = values:write()",
+      "   writable:set(1, 1 as int32)",
+      "   error('unwind')",
+      "end)",
+      "return zero, one, value, negative, overflow, unwound",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-test")
+   assertEq(#genDiags, 0)
+   local chunk, loadErr = loadstring(code, "@ownership-heap-array")
+   assert(chunk, tostring(loadErr) .. "\n" .. code)
+   local zero, one, value, negative, overflow, unwound = chunk()
+   assertEq(zero, 0, "zero-length allocation retains count")
+   assertEq(one, 1, "one-element allocation retains count")
+   assertEq(tonumber(value), 73, "write and read views address the allocation")
+   assertEq(negative, false, "negative allocation is rejected")
+   assertEq(overflow, false, "overflowing allocation is rejected")
+   assertEq(unwound, false, "error unwinding discharges writer before array")
+end
+
+function M.writeSpansProveSiblingPartitionsAndRejectOverlap()
+   local prelude = table.concat({
+      "local spans = require('nupp.span')",
+      "local function pair(exclusive a: spans.WriteSpan<int32>, exclusive b: spans.WriteSpan<int32>): nil",
+      "   if a.count > 0 then a:set(1, 1 as int32) end",
+      "   if b.count > 0 then b:set(1, 2 as int32) end",
+      "end",
+      "local storage = ffi.new<int32[8]>()",
+      "local writable = spans.writeCarray(storage, 8)",
+      "local split = writable:splitAt(4)",
+   }, "\n")
+
+   assertClean(prelude .. "\npair(split.left, split.right)")
+   assertEq(codes(prelude .. "\npair(split.left, split.left)"), "NUPP2602", "one child is not two regions")
+   assertEq(codes(prelude .. "\nwritable:set(1, 1 as int32)"), "NUPP2602", "a split blocks its parent")
+   assertEq(codes(prelude .. table.concat({
+      "",
+      "local nested = split.left:splitAt(2)",
+      "pair(split.left, nested.right)",
+   }, "\n")), "NUPP2602 NUPP2602", "an ancestor overlaps its descendant")
+
+   assertClean(table.concat({
+      prelude,
+      "do",
+      "   local nested = split.right:splitAt(2)",
+      "   pair(nested.left, nested.right)",
+      "end",
+      "pair(split.left, split.right)",
+   }, "\n"))
+
+   assertClean(table.concat({
+      "local spans = require('nupp.span')",
+      "local storage = ffi.new<int32[2]>()",
+      "local writable = spans.writeCarray(storage, 2)",
+      "do",
+      "   local split = writable:splitAt(1)",
+      "   split.left:set(1, 1 as int32)",
+      "end",
+      "writable:set(2, 2 as int32)",
+      "writable:commit()",
+   }, "\n"))
+end
+
+function M.writeSpanPartitionsKeepCountsOffsetsAndBoundsAtRuntime()
+   local source = table.concat({
+      "local heap = require('nupp.heap')",
+      "local function exercise(mid: integer): (integer, integer, int32, int32)",
+      "   local values = heap.allocate(ffi.typeof<int32>(), 4)",
+      "   local leftCount: integer = -1 as integer",
+      "   local rightCount: integer = -1 as integer",
+      "   do",
+      "      local writable = values:write()",
+      "      do",
+      "         local split = writable:splitAt(mid)",
+      "         leftCount, rightCount = split.left.count, split.right.count",
+      "         if split.left.count > 0 then split.left:set(split.left.count, 11 as int32) end",
+      "         if split.right.count > 0 then split.right:set(1, 22 as int32) end",
+      "         if split.right.count > 1 then",
+      "            local nested = split.right:splitAt(1)",
+      "            nested.right:set(1, 33 as int32)",
+      "         end",
+      "      end",
+      "      writable:commit()",
+      "   end",
+      "   local readable = values:read()",
+      "   return leftCount, rightCount, readable:get(1), readable:get(4)",
+      "end",
+      "local l0, r0 = exercise(0)",
+      "local l1, r1 = exercise(1)",
+      "local l3, r3 = exercise(3)",
+      "local l4, r4, first4, last4 = exercise(4)",
+      "local low = pcall(function() exercise(-1) end)",
+      "local high = pcall(function() exercise(5) end)",
+      "return l0, r0, l1, r1, l3, r3, l4, r4, first4, last4, low, high",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-partitions")
+   assertEq(#genDiags, 0)
+   local chunk, loadErr = loadstring(code, "@ownership-partitions")
+   assert(chunk, tostring(loadErr) .. "\n" .. code)
+   local l0, r0, l1, r1, l3, r3, l4, r4, first4, last4, low, high = chunk()
+   assertEq(table.concat({l0, r0, l1, r1, l3, r3, l4, r4}, ","), "0,4,1,3,3,1,4,0")
+   assertEq(tonumber(first4), 0, "an empty right half writes nothing")
+   assertEq(tonumber(last4), 11, "the left boundary write reaches the original last element")
+   assertEq(low, false, "negative split points raise")
+   assertEq(high, false, "split points beyond count raise")
+end
+
+function M.tecsShapedColumnsPartitionIntoCheckedNativeKernelInputs()
+   assertClean(table.concat({
+      "local heap = require('nupp.heap')",
+      "cdef struct Transform2D",
+      "   x: float",
+      "   y: float",
+      "   rotation: float",
+      "   scaleX: float",
+      "   scaleY: float",
+      "   originX: float",
+      "   originY: float",
+      "end",
+      "cdef function update_transforms(",
+      "   borrows values: Transform2D* countedBy(count), count: uint64",
+      ")",
+      "local column = heap.allocate(ffi.typeof<Transform2D>(), 1024)",
+      "do",
+      "   local writable = column:write()",
+      "   do",
+      "      local halves = writable:splitAt(512)",
+      "      update_transforms(halves.left)",
+      "      update_transforms(halves.right)",
+      "   end",
+      "   writable:commit()",
+      "end",
+      "local readable = column:read()",
+      "print(readable.count)",
    }, "\n"))
 end
 

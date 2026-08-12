@@ -605,6 +605,37 @@ function M.definitionLocations()
    end
 end
 
+function M.countedByReferencesThePhysicalCountParameter()
+   local uri = "file://" .. ROOT .. "/counted-by-demo.nupp"
+   local source = table.concat({
+      "cdef function visit(",
+      "    borrows values: const int32* countedBy(count),",
+      "    count: uint64",
+      ")",
+   }, "\n")
+   local out = runSession({
+      {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
+      {jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = {uri = uri, languageId = "nupp", version = 1,
+            text = source}}},
+      {jsonrpc = "2.0", id = 10, method = "textDocument/definition", params = {
+         textDocument = {uri = uri}, position = {line = 1, character = 46}}},
+      {jsonrpc = "2.0", id = 11, method = "textDocument/rename", params = {
+         textDocument = {uri = uri}, position = {line = 1, character = 46},
+         newName = "length"}},
+      {jsonrpc = "2.0", id = 2, method = "shutdown"},
+      {jsonrpc = "2.0", method = "exit"},
+   })
+   local definition = responseWithId(out, 10).result
+   assert(definition.range.start.line == 2
+      and definition.range.start.character == 4,
+      "countedBy resolves to the physical count parameter")
+   local edits = responseWithId(out, 11).result.changes[uri]
+   assert(#edits == 2 and edits[1].newText == "length"
+      and edits[2].newText == "length",
+      "renaming the count updates its countedBy reference")
+end
+
 function M.languageFeaturesAndCdefTooling()
    local uri = "file://" .. ROOT .. "/tooling-demo.nupp"
    local formatUri = "file://" .. ROOT .. "/format-demo.nupp"

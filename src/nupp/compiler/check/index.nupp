@@ -176,6 +176,18 @@ function index.install(c: state.Checker): state.ExprHandlers
         else
             ft, fieldDef, fieldDefs = c.fieldType(base, memberName)
         end
+        local nominal = base.tag == "nominal" and base or nil
+        local declaration = nominal and (((nominal as T.Nominal).origin or nominal) as T.Nominal) or nil
+        if declaration and declaration.privateFields and declaration.privateFields[memberName]
+            and declaration.moduleName ~= c.result.moduleName
+        then
+            c.diag(
+                "NUPP2209",
+                member,
+                ("field %q is private to module %q"):format(memberName, declaration.moduleName or "?")
+            )
+            return T.any
+        end
         if not fieldDef and not writing then
             if holderName == c.moduleLocal then
                 fieldDef = c.moduleFieldDefs and c.moduleFieldDefs[memberName] or nil

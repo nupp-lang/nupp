@@ -148,7 +148,7 @@ end
 --- The named members of a type, as {name -> {type, kind}}. Only what can be written
 --- after a dot: a metamethod contract is a protocol the value fulfils, not a field
 --- anybody spells.
-function complete.membersOf(t: T.Type?): {[string]: complete.Member}
+function complete.membersOf(t: T.Type?, fromModule: string?): {[string]: complete.Member}
     local members = {}
     if type(t) ~= "table" then
         return members
@@ -163,7 +163,7 @@ function complete.membersOf(t: T.Type?): {[string]: complete.Member}
         local subject = t as T.Type
         local reduced = generics.normalize(subject).type
         if reduced ~= subject then
-            return complete.membersOf(reduced)
+            return complete.membersOf(reduced, fromModule)
         end
         local projection = t as T.Projection
         local found = associated.lookup(projection.of, projection.name)
@@ -171,7 +171,7 @@ function complete.membersOf(t: T.Type?): {[string]: complete.Member}
         if not effective then
             return members
         end
-        for name, entry in pairs(complete.membersOf(effective)) do
+        for name, entry in pairs(complete.membersOf(effective, fromModule)) do
             members[name] = {type = generics.specializeSelf(effective, entry.type, subject), kind = entry.kind}
         end
 
@@ -179,7 +179,7 @@ function complete.membersOf(t: T.Type?): {[string]: complete.Member}
     end
     if (t as T.Nominal).tag == "intersection" then
         for _, part in ipairs((t as T.Intersection).members) do
-            for name, entry in pairs(complete.membersOf(part)) do
+            for name, entry in pairs(complete.membersOf(part, fromModule)) do
                 local prior = members[name]
                 if prior then
                     local combined = T.intersection({prior.type, entry.type})
@@ -222,7 +222,10 @@ function complete.membersOf(t: T.Type?): {[string]: complete.Member}
                 }
             end
             for name, member in pairs(nominal.byname or {}) do
-                if not members[name] then
+                if not members[name]
+                    and not (nominal.privateFields and nominal.privateFields[name]
+                        and nominal.moduleName ~= fromModule)
+                then
                     members[
                         name
                     ] = {
@@ -242,13 +245,17 @@ function complete.membersOf(t: T.Type?): {[string]: complete.Member}
     -- is what tells either from a primitive.
     for name, member in pairs((t as T.Nominal).byname or {}) do
         local nominal = t as T.Nominal
-        members[
-            name
-        ] = {
-            type = member,
-            kind = type(member) == "table" and member.tag == "func" and "function" or "property",
-            definition = nominal.fieldDefs and nominal.fieldDefs[name] or nil,
-        }
+        if not (nominal.privateFields and nominal.privateFields[name]
+            and nominal.moduleName ~= fromModule)
+        then
+            members[
+                name
+            ] = {
+                type = member,
+                kind = type(member) == "table" and member.tag == "func" and "function" or "property",
+                definition = nominal.fieldDefs and nominal.fieldDefs[name] or nil,
+            }
+        end
     end
     for name, nested in pairs((t as T.Nominal).nestedTypes or {}) do
         members[name] = {type = nested, kind = "type"}
@@ -606,7 +613,7 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
                 local global = s.inc.env.globals and s.inc.env.globals[context.path[1]]
                 t = global and global.t or nil
                 for index = 2, #context.path do
-                    local member = membersOf(t)[context.path[index]]
+                    local member = membersOf(t, doc.result.moduleName)[context.path[index]]
                     t = member and member.type or nil
                     if not t then
                         break
@@ -616,7 +623,7 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
             if moduleName then
                 moduleCompletions(moduleName, add)
             else
-                for name, member in pairs(membersOf(t)) do
+                for name, member in pairs(membersOf(t, doc.result.moduleName)) do
                     -- `:` sends a message, so only what is callable answers it.
                     if not context.method or member.kind == "function" then
                         add(name, context.method and "method" or member.kind, member.type, member.definition, 1)

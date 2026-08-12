@@ -77,6 +77,14 @@ type ownership.Ops = {
     --- The obligation a coroutine suspension would strand, if any.
     liveSuspensionObligation: function(): string?,
 
+    --- Releases the lifetime counters held by a borrow or dependent owner.
+    releaseBorrowLinks: function(entry: any),
+
+    --- The root and binary region path an expression denotes.
+    regionOf: function(expr: any): (any, string?),
+
+    regionsOverlap: function(left: string?, right: string?): boolean,
+
     --- Records that an expression's owner has been handed over.
     moveExpression: function(
         expr: any,
@@ -345,6 +353,47 @@ function ownership.install(c: state.Checker): ownership.Ops
         return nil, expr
     end
 
+    function own.regionsOverlap(left, right)
+        left, right = left or "", right or ""
+        local common = math.min(#left, #right)
+        return left:sub(1, common) == right:sub(1, common)
+    end
+
+    function own.regionOf(expr)
+        while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
+            expr = expr.expr
+        end
+        if not expr then
+            return nil, nil
+        end
+        if expr.regionRoot then
+            return expr.regionRoot, expr.regionPath or ""
+        end
+        if expr.kind == "name" then
+            local entry = own.ownershipState(c.lookupEntry(expr.token.text))
+            if entry then
+                expr.regionExclusive = entry.exclusiveBorrow or nil
+                return entry.regionRoot or own.borrowRoot(entry.borrowOwner or entry), entry.regionPath or ""
+            end
+        elseif expr.kind == "dotIndex" or expr.kind == "safeIndex" then
+            local root, path = own.regionOf(expr.obj)
+            local fields = expr.obj.partitionFields
+            if not fields and expr.obj.kind == "name" then
+                local entry = own.ownershipState(c.lookupEntry(expr.obj.token.text))
+                fields = entry and entry.partitionFields or nil
+            end
+            local suffix = fields and fields[expr.name.text] or nil
+            if root and suffix then
+                expr.regionExclusive = true
+                return root, (path or "") .. suffix
+            end
+            return root, path
+        end
+
+        local owner = own.provenanceOwner(expr)
+        return owner, owner and "" or nil
+    end
+
     function own.provenanceOwner(expr)
         -- `new` wraps the construction it decides, and provenance is about where a
         -- value came from rather than how it was written, so it reads through the word
@@ -462,6 +511,48 @@ function ownership.install(c: state.Checker): ownership.Ops
         return nil
     end
 
+    --- Releases every lifetime link carried by a borrow or dependent owner. An
+    --- exclusive link is counted separately so a shared operation can distinguish a
+    --- live writer from another shared reader without weakening ordinary borrow
+    --- accounting.
+    function own.releaseBorrowLinks(entry)
+        if entry.regionRoot and entry.regionPath then
+            local active = entry.regionRoot.activeRegions
+            if active and active[entry.regionPath] then
+                active[entry.regionPath] = math.max(0, active[entry.regionPath] - 1)
+                if active[entry.regionPath] == 0 then
+                    active[entry.regionPath] = nil
+                end
+            end
+            if entry.exclusiveBorrow then
+                local exclusive = entry.regionRoot.activeExclusiveRegions
+                if exclusive and exclusive[entry.regionPath] then
+                    exclusive[entry.regionPath] = math.max(0, exclusive[entry.regionPath] - 1)
+                    if exclusive[entry.regionPath] == 0 then
+                        exclusive[entry.regionPath] = nil
+                    end
+                end
+            end
+        end
+        if entry.borrowOwner then
+            entry.borrowOwner.activeBorrows = math.max(0, (entry.borrowOwner.activeBorrows or 1) - 1)
+            if entry.exclusiveBorrow then
+                entry.borrowOwner.activeExclusiveBorrows = math.max(
+                    0, (entry.borrowOwner.activeExclusiveBorrows or 1) - 1
+                )
+            end
+            entry.borrowOwner = nil
+        end
+        for _, owner in ipairs(entry.borrowOwners or {}) do
+            owner.activeBorrows = math.max(0, (owner.activeBorrows or 1) - 1)
+            if entry.exclusiveBorrow then
+                owner.activeExclusiveBorrows = math.max(0, (owner.activeExclusiveBorrows or 1) - 1)
+            end
+        end
+        entry.borrowOwners = nil
+        entry.exclusiveBorrow = nil
+    end
+
     function own.moveExpression(expr, t, reason, expectedKind, allowPartial)
         expectedKind = expectedKind or "owned"
         local dropOperation = c.dropOperationFieldStack[#c.dropOperationFieldStack]
@@ -574,14 +665,7 @@ function ownership.install(c: state.Checker): ownership.Ops
             entry.movedAt = nameNode or expr
             -- An owner that retained a borrow releases it when it is discharged, so the
             -- source becomes free at that point rather than at the end of the scope.
-            if entry.borrowOwner then
-                entry.borrowOwner.activeBorrows = math.max(0, (entry.borrowOwner.activeBorrows or 1) - 1)
-                entry.borrowOwner = nil
-            end
-            for _, owner in ipairs(entry.borrowOwners or {}) do
-                owner.activeBorrows = math.max(0, (owner.activeBorrows or 1) - 1)
-            end
-            entry.borrowOwners = nil
+            own.releaseBorrowLinks(entry)
         end
         -- Owned temporaries (principally calls returning `own`) transfer directly and
         -- need no variable state update.
@@ -598,6 +682,9 @@ function ownership.install(c: state.Checker): ownership.Ops
     c.borrowRoot = own.borrowRoot
     c.ownershipEntry = own.ownershipEntry
     c.liveSuspensionObligation = own.liveSuspensionObligation
+    c.releaseBorrowLinks = own.releaseBorrowLinks
+    c.regionOf = own.regionOf
+    c.regionsOverlap = own.regionsOverlap
     c.validateCleanups = own.validateCleanups
 
     return own

@@ -58,6 +58,7 @@ interface cst.Hints
 
     --- Static JIT-boundary contracts attached while checking function bodies.
     jitDefinition: any
+
     jitDisabled: boolean?
     jitRequired: boolean?
 
@@ -394,6 +395,30 @@ interface cst.Hints
     --- The owners each returned borrow came from.
     returnBorrowOwners: any
 
+    --- Returned borrows that reserve exclusive access to those owners.
+    returnExclusiveBorrows: any
+
+    --- Disjoint writable region identities transported by returned values.
+    returnRegionPaths: any
+
+    --- Aggregate field partitions transported by returned values.
+    returnPartitionFields: any
+
+    regionRoot: any
+    regionPath: string?
+    regionExclusive: boolean?
+
+    --- Writable region suffixes carried by aggregate fields.
+    partitionFields: any
+
+    --- Aggregate field partitions proven for a function body's result slots.
+    partitionResults: any
+
+    partitionReturnSeen: any
+
+    --- Ownership mode of an inline method's implicit receiver.
+    receiverMode: string?
+
     --- Capability state transported by a `preserves` result, per result slot.
     returnOwnershipStates: any
 
@@ -705,6 +730,7 @@ record cst.FuncStmt is cst.Hints
 
     --- Compiler-only @comptime metadata; none of it reaches generated Lua.
     comptimeFunction: boolean?
+
     comptimeName: string?
     comptimeSignature: any
     comptimeDefinition: any
@@ -1067,6 +1093,9 @@ record cst.FieldDecl is cst.Hints
     --- `readonly` or `writeonly` when only that capability is granted.
     capability: lexer.Token?
 
+    --- `private` when only the declaration's canonical module may reach the field.
+    privacy: lexer.Token?
+
     --- Its type.
     type: cst.Node?
 
@@ -1161,6 +1190,11 @@ record cst.CdefFunc is cst.Hints
 
     --- The library named by a `from` clause.
     fromLib: lexer.Token?
+
+    --- Checked logical counted-pointer wrapper and its original physical C signature.
+    countedAbi: any
+
+    physicalSignatureType: any
 end
 
 --- `cdef struct Name ... end`.
@@ -1221,6 +1255,11 @@ record cst.Param is cst.Hints
 
     --- Its annotation, when one was written.
     type: cst.Node?
+
+    --- The physical count parameter named by a cdef pointer qualifier.
+    countedBy: lexer.Token?
+
+    countedByTok: lexer.Token?
 end
 
 --- The parameters, return annotation and block of a function.
@@ -2164,7 +2203,114 @@ end
 --- A node of the concrete syntax tree: one of the productions above, told apart by its
 --- `kind`. Reading a field that belongs to another kind is an error, which is what
 --- makes a dispatch loop check.
-type cst.Node = cst.Chunk | cst.Block | cst.EmptyStmt | cst.HandleStmt | cst.IfStmt | cst.IfClause | cst.ElseifClause | cst.ElseClause | cst.WhileStmt | cst.DoStmt | cst.UnsafeStmt | cst.NoSuspendStmt | cst.FornumStmt | cst.ForinStmt | cst.RepeatStmt | cst.FuncStmt | cst.Funcname | cst.LocalFuncStmt | cst.LocalStmt | cst.LabelStmt | cst.GotoStmt | cst.BreakStmt | cst.ContinueStmt | cst.ReturnStmt | cst.CompoundAssign | cst.AssignStmt | cst.CallStmt | cst.ErrorStmt | cst.PragmaStmt | cst.AnnotationApply | cst.AnnotationArg | cst.AssociatedDecl | cst.TypeAlias | cst.RecordDecl | cst.WhereClause | cst.FieldDecl | cst.IndexerDecl | cst.ArrayPart | cst.InlineMethod | cst.MetamethodDecl | cst.CdefFunc | cst.CdefStruct | cst.Generics | cst.Param | cst.Funcbody | cst.CaptureClause | cst.NameExpr | cst.NumberLit | cst.StringLit | cst.NilExpr | cst.TrueExpr | cst.FalseExpr | cst.Vararg | cst.Paren | cst.ComptimeExpr | cst.NewExpr | cst.ConstructorDecl | cst.SatisfiesDecl | cst.ErrorExpr | cst.DotIndex | cst.BracketIndex | cst.MethodCall | cst.SafeIndex | cst.SafeBracket | cst.SafeCall | cst.Call | cst.Args | cst.NamedArg | cst.PluckArg | cst.TableExpr | cst.FieldBracket | cst.FieldNamed | cst.FieldItem | cst.Shortfn | cst.Istring | cst.FuncExpr | cst.Unop | cst.Binop | cst.CastExpr | cst.IsExpr | cst.Ternary | cst.Tconst | cst.Tkeyof | cst.Twriteof | cst.Tliteral | cst.Tname | cst.Ttypecall | cst.Tparen | cst.Tmap | cst.Tshape | cst.TshapeField | cst.Tmapped | cst.Ttuple | cst.Tarray | cst.Tfunc | cst.Tpack | cst.TpackUnion | cst.TfuncParam | cst.Topt | cst.Tptr | cst.Tcarray | cst.Tmember | cst.Tunion | cst.Tintersection | cst.ErrorType | cst.Tpredicate | cst.Tborrows | cst.Tpreserves
+type cst.Node = cst.Chunk
+    | cst.Block
+    | cst.EmptyStmt
+    | cst.HandleStmt
+    | cst.IfStmt
+    | cst.IfClause
+    | cst.ElseifClause
+    | cst.ElseClause
+    | cst.WhileStmt
+    | cst.DoStmt
+    | cst.UnsafeStmt
+    | cst.NoSuspendStmt
+    | cst.FornumStmt
+    | cst.ForinStmt
+    | cst.RepeatStmt
+    | cst.FuncStmt
+    | cst.Funcname
+    | cst.LocalFuncStmt
+    | cst.LocalStmt
+    | cst.LabelStmt
+    | cst.GotoStmt
+    | cst.BreakStmt
+    | cst.ContinueStmt
+    | cst.ReturnStmt
+    | cst.CompoundAssign
+    | cst.AssignStmt
+    | cst.CallStmt
+    | cst.ErrorStmt
+    | cst.PragmaStmt
+    | cst.AnnotationApply
+    | cst.AnnotationArg
+    | cst.AssociatedDecl
+    | cst.TypeAlias
+    | cst.RecordDecl
+    | cst.WhereClause
+    | cst.FieldDecl
+    | cst.IndexerDecl
+    | cst.ArrayPart
+    | cst.InlineMethod
+    | cst.MetamethodDecl
+    | cst.CdefFunc
+    | cst.CdefStruct
+    | cst.Generics
+    | cst.Param
+    | cst.Funcbody
+    | cst.CaptureClause
+    | cst.NameExpr
+    | cst.NumberLit
+    | cst.StringLit
+    | cst.NilExpr
+    | cst.TrueExpr
+    | cst.FalseExpr
+    | cst.Vararg
+    | cst.Paren
+    | cst.ComptimeExpr
+    | cst.NewExpr
+    | cst.ConstructorDecl
+    | cst.SatisfiesDecl
+    | cst.ErrorExpr
+    | cst.DotIndex
+    | cst.BracketIndex
+    | cst.MethodCall
+    | cst.SafeIndex
+    | cst.SafeBracket
+    | cst.SafeCall
+    | cst.Call
+    | cst.Args
+    | cst.NamedArg
+    | cst.PluckArg
+    | cst.TableExpr
+    | cst.FieldBracket
+    | cst.FieldNamed
+    | cst.FieldItem
+    | cst.Shortfn
+    | cst.Istring
+    | cst.FuncExpr
+    | cst.Unop
+    | cst.Binop
+    | cst.CastExpr
+    | cst.IsExpr
+    | cst.Ternary
+    | cst.Tconst
+    | cst.Tkeyof
+    | cst.Twriteof
+    | cst.Tliteral
+    | cst.Tname
+    | cst.Ttypecall
+    | cst.Tparen
+    | cst.Tmap
+    | cst.Tshape
+    | cst.TshapeField
+    | cst.Tmapped
+    | cst.Ttuple
+    | cst.Tarray
+    | cst.Tfunc
+    | cst.Tpack
+    | cst.TpackUnion
+    | cst.TfuncParam
+    | cst.Topt
+    | cst.Tptr
+    | cst.Tcarray
+    | cst.Tmember
+    | cst.Tunion
+    | cst.Tintersection
+    | cst.ErrorType
+    | cst.Tpredicate
+    | cst.Tborrows
+    | cst.Tpreserves
 
 --- What a node holds: another node, or a token.
 type cst.Child = cst.Node | lexer.Token
@@ -2177,7 +2323,17 @@ type cst.Declaration = cst.TypeAlias | cst.RecordDecl
 type cst.Generic = cst.Funcbody | cst.Tfunc | cst.TypeAlias | cst.RecordDecl
 
 --- Statements and expressions whose nested block a pass walks into.
-type cst.Bodied = cst.UnsafeStmt | cst.DoStmt | cst.WhileStmt | cst.RepeatStmt | cst.FornumStmt | cst.ForinStmt | cst.IfClause | cst.ElseifClause | cst.ElseClause | cst.Funcbody | cst.Shortfn
+type cst.Bodied = cst.UnsafeStmt
+    | cst.DoStmt
+    | cst.WhileStmt
+    | cst.RepeatStmt
+    | cst.FornumStmt
+    | cst.ForinStmt
+    | cst.IfClause
+    | cst.ElseifClause
+    | cst.ElseClause
+    | cst.Funcbody
+    | cst.Shortfn
 
 --- True when `x` is a token rather than a node, which narrows it for the caller. Tokens
 --- are told apart by carrying trivia; this is the one place that test is asserted
@@ -2199,7 +2355,7 @@ cst.isToken = isToken
 --- thing and lower to the same code.
 local OWNERSHIP_INTRINSICS: {
     [string]: boolean
-} = {borrow = true, borrowFrom = true, drop = true, fromRaw = true, intoRaw = true, pin = true,}
+} = {borrow = true, borrowFrom = true, drop = true, fromRaw = true, intoRaw = true, partition = true, pin = true,}
 
 --- The ownership intrinsic a callee is written as, before anything asks what the names
 --- in it resolve to. Answers nil for a callee of any other shape.

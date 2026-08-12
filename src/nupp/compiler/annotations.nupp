@@ -279,6 +279,7 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
     }
     deprecated.memberOrder = {"reason", "replacement"}
     deprecated.singleValue = "reason"
+
 end
 
 --- Reads the normalized tooling contract from resolved semantic annotations.

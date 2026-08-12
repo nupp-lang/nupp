@@ -260,12 +260,21 @@ typeFingerprint = function(
         -- against, so a body that starts yielding has to invalidate a reuse of it. The
         -- interning key carries the same qualifier for the in-memory cutoff; these are
         -- two identity mechanisms and both need telling.
+        local partitions = {}
+        for result, fields in pairs(t.partitionResults or {}) do
+            for name, region in pairs(fields) do
+                partitions[#partitions + 1] = tostring(result) .. ":" .. name .. "=" .. region
+            end
+        end
+        table.sort(partitions)
         value = "fn(" .. table.concat(
             params,
             ","
         ) .. (
             t.vararg and ",..." or ""
-        ) .. ")->(" .. table.concat(returns, ",") .. ")" .. (t.noYield and "!noyield" or "")
+        ) .. ")->(" .. table.concat(returns, ",") .. ")" .. (
+            #partitions > 0 and "!partition(" .. table.concat(partitions, ",") .. ")" or ""
+        ) .. (t.noYield and "!noyield" or "")
     elseif tag == "array" or tag == "ptr" then
         value = tag .. "(" .. typeFingerprint(t.elem, active, binders) .. ")"
     elseif tag == "carray" then

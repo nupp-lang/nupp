@@ -938,6 +938,22 @@ function calls.install(c: state.Checker): calls.Ops
             -- position it stands in. Everything past the name is the same question --
             -- does this value belong in that field -- so it is asked in one place.
             local order = calleeT.fieldOrder or {}
+            local declaration = (calleeT.origin or calleeT) as T.Nominal
+            local privateFields = declaration.privateFields or {}
+            local outsidePrivate = declaration.moduleName ~= c.result.moduleName
+            local sealedConstruction = outsidePrivate and next(privateFields) ~= nil
+            if sealedConstruction then
+                c.diag(
+                    "NUPP2209",
+                    node,
+                    ("record %s has fields private to module %q"):format(
+                        calleeT.name,
+                        declaration.moduleName or "?"
+                    ),
+                    nil,
+                    {help = "use a public constructor declared by that module"}
+                )
+            end
             local bindings, bound = {}, {}
             local function bindField(fname: string?, value: any, site: any, label: string)
                 if not fname then
@@ -959,6 +975,14 @@ function calls.install(c: state.Checker): calls.Ops
                 bindings[#bindings + 1] = {name = fname, node = value}
                 local vt = c.infer(value)
                 constructionFields[fname] = {node = value, type = vt}
+                local _, regionPath = c.regionOf(value)
+                if regionPath and regionPath ~= "" then
+                    local suffix = regionPath:sub(-1)
+                    if suffix == "L" or suffix == "R" then
+                        node.partitionFields = node.partitionFields or {}
+                        node.partitionFields[fname] = suffix
+                    end
+                end
                 local borrowedRoot = calleeT.borrowedRootFields and calleeT.borrowedRootFields[fname]
                 local storesCapability = c.ownershipKind(ft) == "owned" or c.ownershipKind(ft) == "pinned"
                 if storesCapability and (c.ownershipKind(vt) == "owned" or c.ownershipKind(vt) == "pinned") then
@@ -1538,6 +1562,7 @@ function calls.install(c: state.Checker): calls.Ops
         -- it with the adjusted argument pack so substituting a generic pack can carry a
         -- borrowed slot back out without detaching it from its owner.
         local argumentBorrowOwners = {}
+        local exclusiveRegions = {}
         for j, source in ipairs(argNodes) do
             if not cst.isToken(source) then
                 local expandedIndex = 1
@@ -1889,6 +1914,20 @@ function calls.install(c: state.Checker): calls.Ops
             elseif mode == "exclusive" then
                 local entry, nameNode = c.ownershipEntry(argNodes[j])
                 entry = c.ownershipState(entry)
+                local regionRoot, regionPath = c.regionOf(argNodes[j])
+                if regionRoot and regionPath and regionPath ~= "" then
+                    for _, prior in ipairs(exclusiveRegions) do
+                        if prior.root == regionRoot and c.regionsOverlap(prior.path, regionPath) then
+                            c.diag(
+                                "NUPP2602",
+                                argNodes[j] or node,
+                                "exclusive arguments overlap the same writable region"
+                            )
+                            break
+                        end
+                    end
+                    exclusiveRegions[#exclusiveRegions + 1] = {root = regionRoot, path = regionPath}
+                end
                 if c.ownershipKind(ats[j]) == "borrowed" then
                     local roots = {}
                     if entry and entry.borrowOwner then
@@ -1902,6 +1941,23 @@ function calls.install(c: state.Checker): calls.Ops
                         -- another view exists and the borrow cannot be upgraded.
                         if (root.activeBorrows or 0) > 1 then
                             sole = false
+                        end
+                    end
+                    if regionPath and regionPath ~= "" then
+                        sole = true
+                        for activePath, count in pairs(regionRoot.activeRegions or {}) do
+                            local own = entry
+                                and entry.regionRoot == regionRoot
+                                and entry.regionPath == regionPath
+                                and 1
+                                or 0
+                            if (activePath == regionPath and count > own)
+                                or (activePath ~= regionPath
+                                    and c.regionsOverlap(activePath, regionPath)
+                                    and activePath:sub(1, #regionPath) == regionPath)
+                            then
+                                sole = false
+                            end
                         end
                     end
                     if not sole then
@@ -1918,8 +1974,44 @@ function calls.install(c: state.Checker): calls.Ops
                         "an exclusive parameter cannot invalidate a value while a " .. "derived borrow is live"
                     )
                 end
-            elseif mode == "borrows" and c.ownershipKind(ats[j]) == "borrowed" then
-            -- Reborrowing is valid and does not alter either lifetime.
+            elseif mode == "borrows" then
+                -- Reborrowing is valid and does not alter either lifetime, but a
+                -- shared use of the source itself cannot overlap a dependent writer.
+                local entry, nameNode = c.ownershipEntry(argNodes[j])
+                entry = c.ownershipState(entry)
+                if not (entry and entry.exclusiveBorrow) then
+                    local regionRoot, regionPath = c.regionOf(argNodes[j])
+                    local roots = entry and {entry} or c.own.provenanceOwners(argNodes[j])
+                    for _, root in ipairs(roots) do
+                        local blocked = (root.activeExclusiveBorrows or 0) > 0
+                        if regionRoot and regionPath and regionPath ~= "" then
+                            blocked = false
+                            for activePath, count in pairs(regionRoot.activeExclusiveRegions or {}) do
+                                local own = entry
+                                    and entry.regionRoot == regionRoot
+                                    and entry.regionPath == regionPath
+                                    and 1
+                                    or 0
+                                if (activePath == regionPath and count > own)
+                                    or (activePath ~= regionPath
+                                        and c.regionsOverlap(activePath, regionPath)
+                                        and activePath:sub(1, #regionPath) == regionPath)
+                                then
+                                    blocked = true
+                                    break
+                                end
+                            end
+                        end
+                        if blocked then
+                            c.diag(
+                                "NUPP2602",
+                                nameNode or argNodes[j] or node,
+                                "a shared argument cannot overlap a live exclusive view"
+                            )
+                            break
+                        end
+                    end
+                end
             elseif mode == "plain" and c.ownershipKind(ats[j]) then
                 c.diag(
                     "NUPP2603",
@@ -1990,6 +2082,10 @@ function calls.install(c: state.Checker): calls.Ops
             end
             end
         end
+        if calleeT and calleeT.tag == "func" and calleeT.partitionResults then
+            node.returnPartitionFields = calleeT.partitionResults
+            node.partitionFields = calleeT.partitionResults[1]
+        end
         -- A result declared `borrows p` is tied to whatever was passed for that
         -- parameter, so the call node carries the same borrow link a `borrow(owner)`
         -- expression would. Everything downstream — binding it, blocking a move of the
@@ -2010,7 +2106,22 @@ function calls.install(c: state.Checker): calls.Ops
             end
             local owners = {}
             for _, source in ipairs(sources) do
-                local found = source and c.own.provenanceOwners(source) or {}
+                -- A borrow derived from an affine dependent owner must keep that
+                -- intermediate owner alive, not jump through its retained source.
+                -- Otherwise `writer:ref()` would borrow the writer's backing array and
+                -- still allow the writer token itself to be consumed underneath the
+                -- returned pointer.
+                local sourceEntry = source and c.ownershipEntry(source) or nil
+                sourceEntry = c.own.ownershipState(sourceEntry)
+                local found
+                if sourceEntry and (
+                    c.ownershipKind(sourceEntry.t) == "owned"
+                    or c.ownershipKind(sourceEntry.t) == "pinned"
+                ) then
+                    found = {sourceEntry}
+                else
+                    found = source and c.own.provenanceOwners(source) or {}
+                end
                 if #found > 0 then
                     for _, root in ipairs(found) do
                         owners[#owners + 1] = root
@@ -2025,6 +2136,38 @@ function calls.install(c: state.Checker): calls.Ops
             elseif #owners > 1 then
                 node.borrowOwners = owners
                 node.returnBorrowOwners = {[1] = owners}
+            end
+            local exclusiveResult = calleeT.borrowsParam
+                and calleeT.paramModes[calleeT.borrowsParam] == "exclusive"
+            if not exclusiveResult then
+                for _, at in ipairs(calleeT.borrowsParams or {}) do
+                    if calleeT.paramModes[at] == "exclusive" then
+                        exclusiveResult = true
+                        break
+                    end
+                end
+            end
+            if exclusiveResult and #owners > 0 then
+                node.returnExclusiveBorrows = {[1] = true}
+            end
+            local resultRoot, resultPath, consistent = nil, nil, true
+            for _, source in ipairs(sources) do
+                local root, path
+                if source then
+                    root, path = c.regionOf(source)
+                end
+                if root then
+                    if not resultRoot then
+                        resultRoot, resultPath = root, path or ""
+                    elseif resultRoot ~= root or resultPath ~= (path or "") then
+                        consistent = false
+                    end
+                end
+            end
+            if consistent and resultRoot and resultPath and resultPath ~= "" then
+                node.regionRoot = resultRoot
+                node.regionPath = resultPath
+                node.returnRegionPaths = {[1] = resultPath}
             end
         end
         -- A pack used in both parameter and result position is a transparent forwarding

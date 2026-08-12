@@ -38,6 +38,11 @@ function M.spacingBasics()
    assertEq(fmt1("f{1,2}"), "f{1, 2}\n")
 end
 
+function M.countedCParameters()
+   assertEq(fmt1("cdef function visit(borrows values:const int32* countedBy(count),count:uint64)"),
+      "cdef function visit(borrows values: const int32* countedBy(count), count: uint64)\n")
+end
+
 function M.propertyCapabilities()
    assertEq(fmt1("local x:{readonly value:string,writeonly value:string|integer}"),
       "local x: {\n    readonly value: string,\n    writeonly value: string | integer\n}\n")

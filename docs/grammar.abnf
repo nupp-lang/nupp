@@ -329,8 +329,10 @@ cdefstat       = "cdef" ("struct" Name *fielddecl "end"
 cdeflib        = "from" LiteralString            ; resolve through ffi.load;
                                                  ; omitted = default namespace
 cdefparlist    = cdefparam *("," cdefparam)
-cdefparam      = [cdefmode] Name ":" type
+cdefparam      = [cdefmode] Name ":" type [cdefcountedby]
                / "..."                          ; C varargs, must be last
+cdefcountedby  = %s"countedBy" "(" Name ")"     ; element count for a borrowed pointer;
+                                                ; erased from the physical C ABI
 cdefret        = type
 cdefmode       = ownershipmode / %s"out"         ; out is logical in Lua and
                                                 ; remains positional in C

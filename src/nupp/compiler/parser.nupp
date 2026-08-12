@@ -1968,6 +1968,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 e.value = add(e, parseType())
             elseif cur().kind == "name" then
                 e = new cst.FieldDecl(kind = "fieldDecl")
+                if cur().text == "private" and tokens[i + 1] and tokens[i + 1].kind == "name" then
+                    e.privacy = add(e, advance())
+                end
                 if (
                     cur().text == "readonly" or cur().text == "writeonly"
                 ) and tokens[
@@ -2107,6 +2110,13 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     p.name = add(p, expectName("as cdef parameter"))
                     annotationColon(p, "in cdef parameter")
                     p.type = add(p, parseType())
+                    if cur().kind == "name" and cur().text == "countedBy" then
+                        p.countedByTok = add(p, advance())
+                        p.countedByTok.contextualOp = true
+                        add(p, expect("(", "after 'countedBy'"))
+                        p.countedBy = add(p, expectName("as the countedBy parameter"))
+                        add(p, expect(")", "to close countedBy"))
+                    end
                     n.params[#n.params + 1] = add(n, p)
                     if cur().kind ~= "," then
                         break

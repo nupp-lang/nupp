@@ -876,9 +876,18 @@ non-literal index. Conversion, unchecked indexing, and unknown pointer
 arithmetic remain inside the smallest possible `unsafe` block.
 
 `nupp.heap.allocate(ffi.typeof<T>(), count)` returns an affine malloc-backed
-`T[?]` for arrays too large for LuaJIT's GC allocation. Wrap it with
-`nupp.span.fromCarray` or `writeCarray` before indexing; the owner is freed at
-scope exit after the dependent span ends.
+`heap.Array<T>` for arrays too large for LuaJIT's GC allocation. Its immutable
+`count` moves with the private pointer. `read()` borrows a `Span<T>` and
+`write()` exclusively borrows a `WriteSpan<T>`; the owner is freed at scope
+exit after every dependent span ends.
+
+`WriteSpan.splitAt(mid)` divides one writable capability at a zero-based
+boundary. The returned `left` and `right` regions may be simultaneous exclusive
+arguments because their provenance is sibling-disjoint. Reusing the same child,
+combining a child with an ancestor, or operating on the parent while the split
+is live reports `NUPP2602`. Ending the split scope rejoins the parent. Custom
+partition constructors assert disjointness with `nupp.partition` inside
+`unsafe`; `ownership-audit` lists that assertion.
 
 ## Coroutines
 

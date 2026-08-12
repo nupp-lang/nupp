@@ -542,7 +542,9 @@ function expr.install(c: state.Checker): nil
                 c.diag("NUPP2206", call.obj or node, ("%s cannot be constructed"):format(named), nil, {help = why})
                 call.newReported = true
             end
-            return c.infer(call)
+            local result = c.infer(call)
+            node.partitionFields = call.partitionFields
+            return result
         elseif kind == "ternary" then
             local cond, ifTrue, ifFalse = node.cond, node.ifTrue, node.ifFalse
             if not cond or not ifTrue or not ifFalse then

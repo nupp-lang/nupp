@@ -71,17 +71,19 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
             out.fields = {}
             local view = members.view(t)
             for _, field in ipairs(view.ordered) do
-                local read, write = field.readType, field.writeType
-                out.fields[
-                    #out.fields + 1
-                ] = {
-                    name = field.name,
-                    read = intern(read),
-                    write = intern(write),
-                    readable = read ~= nil,
-                    writable = write ~= nil,
-                    annotations = reflectedAnnotations(field.annotations),
-                }
+                if not (t.privateFields and t.privateFields[field.name]) then
+                    local read, write = field.readType, field.writeType
+                    out.fields[
+                        #out.fields + 1
+                    ] = {
+                        name = field.name,
+                        read = intern(read),
+                        write = intern(write),
+                        readable = read ~= nil,
+                        writable = write ~= nil,
+                        annotations = reflectedAnnotations(field.annotations),
+                    }
+                end
             end
             out.staticFields = {}
             for _, name in ipairs(sortedNames(t.staticByname)) do

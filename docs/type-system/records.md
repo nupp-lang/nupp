@@ -87,6 +87,28 @@ in a table is not meaningful.
 Record fields may expose independent read and write views, including distinct
 types for the two operations. See [property capabilities](properties.md).
 
+### Private fields
+
+`private` keeps a record field inside the canonical module that declares the
+record. The declaring module may construct, read, and write it; another checked
+module sees the nominal type and its public operations but cannot access or
+initialize the field. Privacy applies through generic instantiation and module
+summaries. It is a checked-language abstraction boundary, not a runtime sandbox
+against generated Lua or explicit gradual/unsafe interop.
+
+```nupp
+record model.Box<T>
+    private value: T
+
+    function get(self: model.Box<T>): T
+        return self.value
+    end
+end
+```
+
+Records alone support private fields. Structs expose C layout and interfaces
+declare public contracts, so both reject the modifier.
+
 ### Inline methods and static functions
 
 An inline function whose first parameter is named `self` is an instance method

@@ -154,6 +154,59 @@ function control.install(c: state.Checker): state.StatHandlers
         local returnedPack = c.inferListPack(stat.exprs)
         local ts = returnedPack.head
         c.loops.setReturning(wasReturning)
+        local function returnedExpression(result: integer)
+            local exprs = stat.exprs or {}
+            if result <= #exprs then
+                return exprs[result]
+            end
+            local expanded = exprs[#exprs]
+            if expanded and expanded.returnPartitionFields then
+                return {partitionFields = expanded.returnPartitionFields[result - #exprs + 1]}
+            end
+            return nil
+        end
+        local function partitionFieldsOf(returned)
+            while returned and (returned.kind == "paren" or returned.kind == "castExpr") do
+                returned = returned.expr
+            end
+            return returned and returned.partitionFields or nil
+        end
+        local functionBody = c.functionBodies[#c.functionBodies]
+        if functionBody then
+            for result = 1, #ts do
+                local returned = returnedExpression(result)
+                local fields = partitionFieldsOf(returned)
+                local seen = functionBody.partitionReturnSeen or {}
+                functionBody.partitionReturnSeen = seen
+                local prior = seen[result]
+                if prior == nil then
+                    seen[result] = fields or false
+                elseif prior and fields then
+                    for name, region in pairs(prior) do
+                        if fields[name] ~= region then
+                            seen[result] = false
+                            break
+                        end
+                    end
+                    if seen[result] then
+                        for name, region in pairs(fields) do
+                            if prior[name] ~= region then
+                                seen[result] = false
+                                break
+                            end
+                        end
+                    end
+                else
+                    seen[result] = false
+                end
+                functionBody.partitionResults = functionBody.partitionResults or {}
+                if seen[result] then
+                    functionBody.partitionResults[result] = seen[result]
+                else
+                    functionBody.partitionResults[result] = nil
+                end
+            end
+        end
         for j, valueT in ipairs(ts) do
             local borrowContract = j == 1 and c.borrowReturnStack[#c.borrowReturnStack] or nil
             if borrowContract then

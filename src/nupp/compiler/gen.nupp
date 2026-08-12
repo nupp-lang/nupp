@@ -671,7 +671,8 @@ function gen.generate(
 
     -- Emits a function this compiler wrote, rather than one the source did.
     --
-    -- LuaJIT has no recording for the bytecode that builds a function. A loop containing
+    -- LuaJIT has no recording for the bytecode that builds a function. A loop
+    -- containing
     -- one aborts trace recording, is blacklisted after enough attempts, and then never
     -- compiles at all -- so a lowering that builds a function inside a loop costs that
     -- whole loop its trace, however hot it gets and whatever else is in it. Nothing
@@ -680,8 +681,10 @@ function gen.generate(
     -- bytecode afterwards. This is that rule enforced before the bytecode exists.
     --
     -- So a lowering building a function inside a loop has to say why it cannot be
-    -- declared once instead. Every reason passed today is the same one: the body assigns
-    -- a local belonging to its own site, and Lua gives no way to hand another function's
+    -- declared once instead. Every reason passed today is the same one: the body
+    -- assigns
+    -- a local belonging to its own site, and Lua gives no way to hand another
+    -- function's
     -- local over to be written. A lowering with any other reason does not have one --
     -- declare it for the module with `pluck.declareHelper` and call it.
     --
@@ -693,7 +696,10 @@ function gen.generate(
                 "gen: a lowering built a function inside a loop without saying why. "
                 .. "LuaJIT cannot record that, so the loop will never compile. Declare it "
                 .. "once with pluck.declareHelper and call it, or pass a reason when the "
-                .. "body assigns one of its own site's locals. Emitted: " .. tostring(text),
+                .. "body assigns one of its own site's locals. Emitted: "
+                .. tostring(
+                    text
+                ),
                 0
             )
         end
@@ -740,31 +746,30 @@ function gen.generate(
     -- `declareHelper` rides along here rather than being reached by name, for the
     -- reason
     -- this table exists at all: `emit` was already at exactly 60 upvalues, so one more
-    -- name reached from it is one too many. A coverage build finds that first, because it
-    -- instruments the largest function in the compiler and the module then will not load.
-    local pluck = {
-        plans = {},
-        statementActive = {},
-        helpers = helpers,
-        declareHelper = declareHelper,
-        loweredFunction = loweredFunction,
+    -- name reached from it is one too many. A coverage build finds that first, because
+    -- it
+    -- instruments the largest function in the compiler and the module then will not
+    -- load.
+    local pluck = {plans = {}, statementActive = {}, helpers = helpers, declareHelper = declareHelper, loweredFunction = loweredFunction,
         -- Why each lowering that still builds a function inside a loop cannot be
         -- declared once for the module instead. Every one is the same shape: the body
-        -- writes a local belonging to its own site, and Lua gives no way to hand another
-        -- function's local over to be written. Anything else has no reason and belongs in
+        -- writes a local belonging to its own site, and Lua gives no way to hand
+        -- another
+        -- function's local over to be written. Anything else has no reason and belongs
+        -- in
         -- `declareHelper`.
         --
         -- Named here rather than written at each site so the set can be read in one
-        -- place, and carried on this table because `emit` sits at exactly 60 upvalues and
+        -- place, and carried on this table because `emit` sits at exactly 60 upvalues
+        -- and
         -- reaching one more name from it will not load.
         reasons = {
-            capture = "the body sets this site's own capture flags",
-            reinit = "the body sets this site's own reinit flag",
-            move = "the body clears this site's own move flag",
-            cheader = "a C header is declared once where it is imported",
-            region = "the protected body reads and writes this region's own owners and flags",
-        },
-    }
+        capture = "the body sets this site's own capture flags",
+        reinit = "the body sets this site's own reinit flag",
+        move = "the body clears this site's own move flag",
+        cheader = "a C header is declared once where it is imported",
+        region = "the protected body reads and writes this region's own owners and flags",
+    },}
 
     local function dottedPathParts(node): string?, {string}?
         if not node or cst.isToken(node) then
@@ -1530,9 +1535,7 @@ function gen.generate(
                 local reinit = x.automaticOwnerReinit
                 local slot = not reinit.field and automaticSlot(reinit) or nil
                 x.automaticOwnerReinit = nil
-                pluck.loweredFunction(
-                    "(function(__p) ", sourceLine(x), pluck.reasons.reinit
-                )
+                pluck.loweredFunction("(function(__p) ", sourceLine(x), pluck.reasons.reinit)
                 if slot then
                     e(slot .. "=__p; ")
                 end
@@ -2094,7 +2097,61 @@ function gen.generate(
                 needsLibs = true
                 ns = ("__nuppLib(%s)"):format(x.fromLib.text)
             end
-            e(('pcall(__nuppFfi.cdef, %q) const %s = %s.%s'):format(sig, name, ns, name), line)
+            if x.countedAbi then
+                local rawName = nextTemp()
+                e(('pcall(__nuppFfi.cdef, %q) const %s = %s.%s'):format(sig, rawName, ns, name), line)
+                e((" const %s=function(%s) "):format(name, table.concat(x.countedAbi.logicalNames or {}, ",")))
+                local groups = {}
+                for _, mapping in ipairs(x.countedAbi.mappings or {}) do
+                    local group = groups[mapping.countIndex] or {}
+                    group[#group + 1] = mapping
+                    groups[mapping.countIndex] = group
+                end
+                local countIndexes = {}
+                for countIndex in pairs(groups) do
+                    countIndexes[#countIndexes + 1] = countIndex
+                end
+                table.sort(countIndexes)
+                for _, countIndex in ipairs(countIndexes) do
+                    local group = groups[countIndex]
+                    local first = group[1]
+                    for j = 2, #group do
+                        e(
+                            (
+                                "if %s.count~=%s.count then error(%q,2) end "
+                            ):format(
+                                first.pointerName,
+                                group[j].pointerName,
+                                "spans counted by " .. first.countName .. " must have equal lengths"
+                            )
+                        )
+                    end
+                end
+                local pointerValues, countValues = {}, {}
+                for _, mapping in ipairs(x.countedAbi.mappings or {}) do
+                    local pointerValue = nextTemp()
+                    local countValue = countValues[mapping.countIndex]
+                    if not countValue then
+                        countValue = nextTemp()
+                        countValues[mapping.countIndex] = countValue
+                        e(("const %s,%s=%s:ref() "):format(pointerValue, countValue, mapping.pointerName))
+                    else
+                        local ignoredCount = nextTemp()
+                        e(("const %s,%s=%s:ref() "):format(pointerValue, ignoredCount, mapping.pointerName))
+                    end
+                    pointerValues[mapping.pointerIndex] = pointerValue
+                end
+                e("return " .. rawName .. "(")
+                for physicalIndex, physicalName in ipairs(x.countedAbi.physicalNames or {}) do
+                    if physicalIndex > 1 then
+                        e(",")
+                    end
+                    e(pointerValues[physicalIndex] or countValues[physicalIndex] or physicalName)
+                end
+                e(") end")
+            else
+                e(('pcall(__nuppFfi.cdef, %q) const %s = %s.%s'):format(sig, name, ns, name), line)
+            end
             return
         end
 
@@ -2599,9 +2656,7 @@ function gen.generate(
                 x.ownershipIntrinsic == "drop" or x.ownershipIntrinsic == "intoRaw"
             )
             if wrapsMove then
-                pluck.loweredFunction(
-                    ("(function() %s=false; return "):format(movedActive), line, pluck.reasons.move
-                )
+                pluck.loweredFunction(("(function() %s=false; return "):format(movedActive), line, pluck.reasons.move)
             end
             if x.ownershipIntrinsic == "borrow" then
                 if args[1] then
@@ -2615,6 +2670,20 @@ function gen.generate(
                 else
                     e("nil", line)
                 end
+            elseif x.ownershipIntrinsic == "partition" then
+                e("(function() return ", line)
+                if args[2] then
+                    emit(args[2])
+                else
+                    e("nil")
+                end
+                e(",")
+                if args[3] then
+                    emit(args[3])
+                else
+                    e("nil")
+                end
+                e(" end)()")
             elseif x.ownershipIntrinsic == "pin" then
                 e("{pointer=", line)
                 if args[1] then
@@ -2780,9 +2849,7 @@ function gen.generate(
                 end
             end
             local callable = nextTemp()
-            pluck.loweredFunction(
-                ("(function(%s,...) "):format(callable), sourceLine(x), pluck.reasons.move
-            )
+            pluck.loweredFunction(("(function(%s,...) "):format(callable), sourceLine(x), pluck.reasons.move)
             for _, activeName in ipairs(activeNames) do
                 e(("%s=false; "):format(activeName))
             end
@@ -4007,11 +4074,15 @@ function gen.generate(
     -- Generated Lua that will not load is a bug in this file, and it should say so here
     -- rather than wherever the module is first required.
     --
-    -- LuaJIT caps a function at 60 upvalues and refuses to parse one that exceeds it, so
+    -- LuaJIT caps a function at 60 upvalues and refuses to parse one that exceeds it,
+    -- so
     -- the count cannot be read back -- the refusal is the only signal there is. Which
-    -- makes this the general check rather than a count: parse what was just written, and
-    -- report anything that will not parse. The upvalue cap is one way to trip it and any
-    -- other malformed emission is another, and both used to surface as a load error from
+    -- makes this the general check rather than a count: parse what was just written,
+    -- and
+    -- report anything that will not parse. The upvalue cap is one way to trip it and
+    -- any
+    -- other malformed emission is another, and both used to surface as a load error
+    -- from
     -- a generated line, in whichever command happened to require the module first. A
     -- coverage build found the last one, because it instruments the largest function in
     -- the compiler and tips it over.
@@ -4024,23 +4095,24 @@ function gen.generate(
             local text = tostring(reason)
             -- The upvalue refusal names the function's own line; a syntax error names
             -- where it gave up. Prefer the former, which is the thing to change.
-            local line = tonumber(text:match("function at line (%d+)"))
-                or tonumber(text:match("^[^:]*:(%d+):"))
-                or 0
-            -- Two different failures reach here and they are not the same news. Capturing
+            local line = tonumber(text:match("function at line (%d+)")) or tonumber(text:match("^[^:]*:(%d+):")) or 0
+            -- Two different failures reach here and they are not the same news.
+            -- Capturing
             -- past the cap is this file's own doing and has a way out; anything else is
             -- this compiler emitting Lua it should not have.
             local cap = text:match("more than (%d+) upvalues")
             local message, help
             if cap then
-                message = ("this function captures more than %s names from around it, "
-                    .. "which is more than a Lua function can hold"):format(cap)
-                help = "pass some of them as arguments, or gather what it reads into one "
-                    .. "value and capture that"
+                message = (
+                    "this function captures more than %s names from around it, "
+                    .. "which is more than a Lua function can hold"
+                ):format(cap)
+                help = "pass some of them as arguments, or gather what it reads into one " .. "value and capture that"
             else
                 message = "generated code does not load: " .. (text:gsub("^[^:]*:%d+:%s*", ""))
-                help = "this is a bug in the compiler rather than in this file; `nupp bc "
-                    .. tostring(filename or "") .. "` shows what it generated"
+                help = "this is a bug in the compiler rather than in this file; `nupp bc " .. tostring(
+                    filename or ""
+                ) .. "` shows what it generated"
             end
             diag({line = line, col = 1, offset = 0, text = ""}, "NUPP3005", message, help)
         end

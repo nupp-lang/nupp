@@ -417,31 +417,25 @@ One write token can be recursively partitioned into checked non-overlapping
 kernel inputs without copying data or solving range inequalities. Every custom
 partition constructor has one explicit audited unsafe assertion.
 
-## N4: Declarative span ABI adapters
+## N4: Counted C pointer adapters
 
 After N1 through N3 establish the handwritten pattern, add an explicit adapter
-contract to physical C declarations. The planned spelling uses symbolic table
-keys and string-valued parameter names:
+contract directly to physical C pointer types. `countedBy` names another
+parameter semantically rather than using annotation strings:
 
 ```nupp
-@spanabi(
-    write = { positions = "count" },
-    read = { velocities = "count" }
-)
 cdef function ks_integrate(
-    borrows positions: Position*,
-    borrows velocities: const Velocity*,
+    borrows positions: Position* countedBy(count),
+    borrows velocities: const Velocity* countedBy(count),
     count: uint64,
     dt: float
 ) from"kernel"
 ```
 
-Annotation arguments remain ordinary compile-time expressions. In the mapping,
-`positions` and `velocities` are table field labels and the strings are
-physical parameter names; none resolves through lexical value bindings. A
-local named `count` therefore cannot capture or change the map. The checker
-resolves every symbolic name only against this cdef's physical parameters and
-reports unknown or duplicate names at the annotation.
+The count reference resolves only against this cdef's physical parameters, so
+a lexical binding named `count` cannot capture it. Const pointers become
+logical shared spans; mutable pointers become logical writable spans. The
+qualifier is erased from the C declaration and has no ABI effect.
 
 The logical checked signature is:
 
@@ -493,16 +487,16 @@ symbol requires a separately declared foreign contract that remains visible to
 
 ### N4 implementation
 
-- Parse and normalize the symbolic map, then preserve physical and logical
+- Parse and resolve each dependent count reference, then preserve physical and logical
   signatures on the cdef definition.
 - Carry both signatures through checking, generation, aliases, module
   summaries, incremental hashes, hover, definition, completion, documentation,
   formatting, and schema output.
 - Generate/cache the hidden physical FFI binding exactly as an ordinary `from`
   declaration and emit the logical wrapper with guards before the call.
-- Report the physical symbol, span maps, zero-count promise, and remaining
+- Report the physical symbol, counted pointer maps, zero-count promise, and remaining
   trusted implementation in `ownership-audit`.
-- Replace the DynASM spike's handwritten equal-length wrapper with `@spanabi`;
+- Replace the DynASM spike's handwritten equal-length wrapper with `countedBy`;
   retain one handwritten prefix wrapper to demonstrate the deliberate limit.
 
 ### N4 tests

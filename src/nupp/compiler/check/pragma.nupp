@@ -128,11 +128,11 @@ function pragma.install(c: state.Checker): state.StatHandlers
             target.isAnnotationDefinition = true
         end
         local annotation, valid = validateAnnotation(stat, target)
+        local targetAny = target as any
 
         -- Statement annotations wrap declarations, so put the tooling metadata on the
         -- token that will become the declaration's durable definition before the
         -- underlying statement is checked.
-        local targetAny = target as any
         if written == "deprecated" and valid and target and targetAny.deprecation then
             local function deprecate(tok)
                 if tok then

@@ -7,10 +7,7 @@ local command = spec.command{
     name = "ownership-audit",
     summary = "List foreign pointer contracts and unsafe assertion sites",
     usage = {"nupp ownership-audit [--format text|json] [--regions] [file...]"},
-    options = optionsMod.join(
-        {name = "--regions", help = "Include automatic cleanup regions"},
-        optionsMod.format()
-    ),
+    options = optionsMod.join({name = "--regions", help = "Include automatic cleanup regions"}, optionsMod.format()),
     detail = "With no files, scans Nupp sources under src. The report enumerates trusted C contracts and explicit unsafe regions; it does not verify foreign implementations.",
     schema = {
         type = "object",
@@ -35,6 +32,7 @@ local function pointerShaped(t, T)
             end
         end
     end
+
     return false
 end
 
@@ -48,6 +46,7 @@ local function sourceFiles(paths, fs)
             found[#found + 1] = path
         end
     end
+
     return found
 end
 
@@ -74,6 +73,7 @@ local function run(parsed: any): integer
                 return found
             end
         end
+
         return nil
     end
 
@@ -85,6 +85,7 @@ local function run(parsed: any): integer
         elseif cleanup.kind == "field" then
             return cleanup.field .. " -> " .. cleanupName(cleanup.cleanup)
         end
+
         return cleanup.id or cleanup.kind
     end
 
@@ -101,7 +102,9 @@ local function run(parsed: any): integer
                         cleanups[#cleanups + 1] = cleanupName(cleanup)
                         cleanupIds[#cleanupIds + 1] = cleanup.id
                     end
-                    owners[#owners + 1] = {
+                    owners[
+                        #owners + 1
+                    ] = {
                         name = owner.name,
                         line = owner.token and owner.token.line or 0,
                         column = owner.token and owner.token.col or 0,
@@ -120,14 +123,16 @@ local function run(parsed: any): integer
                 for j = #owners, 1, -1 do
                     cleanup[#cleanup + 1] = owners[j].name
                 end
-                regions[#regions + 1] = {
+                regions[
+                    #regions + 1
+                ] = {
                     file = file,
                     line = owners[1].line,
                     column = owners[1].column,
                     lowering = node.automaticDirect and "direct" or #owners > 1 and "fused" or "general",
                     protection = node.automaticDirect
-                        and "elided: empty live interval and non-raising cleanup"
-                        or "raised exits and cleanup failures",
+                    and "elided: empty live interval and non-raising cleanup"
+                    or "raised exits and cleanup failures",
                     activationOrder = activation,
                     cleanupOrder = cleanup,
                     owners = owners,
@@ -135,11 +140,13 @@ local function run(parsed: any): integer
             end
         end
         if node.kind == "cdefFunc" and node.signatureType then
-            local ft = node.signatureType
+            local ft = node.physicalSignatureType or node.signatureType
             local params, results = {}, {}
             for j, param in ipairs(ft.params or {}) do
                 if pointerShaped(param, T) then
-                    params[#params + 1] = {
+                    params[
+                        #params + 1
+                    ] = {
                         index = j,
                         name = ft.paramNames and ft.paramNames[j] ~= "" and ft.paramNames[j] or nil,
                         type = T.tostring(param),
@@ -153,7 +160,7 @@ local function run(parsed: any): integer
                 end
             end
             if #params > 0 or #results > 0 or ft.vararg then
-                foreign[#foreign + 1] = {
+                local entry = {
                     file = file,
                     line = node.name and node.name.line or 0,
                     name = node.name and node.name.text or "<anonymous>",
@@ -162,20 +169,37 @@ local function run(parsed: any): integer
                     variadic = ft.vararg == true,
                     trusted = true,
                 }
+                if node.countedAbi then
+                    entry.countedBy = {}
+                    for _, mapping in ipairs(node.countedAbi.mappings or {}) do
+                        entry.countedBy[
+                            #entry.countedBy + 1
+                        ] = {access = mapping.kind, pointer = mapping.pointerName, count = mapping.countName,}
+                    end
+                    entry.zeroCount = "calls once; foreign implementation must not dereference"
+                end
+                foreign[#foreign + 1] = entry
             end
         elseif node.kind == "unsafeStmt" then
             local token = firstToken(node)
-            unsafeSites[#unsafeSites + 1] = {
+            unsafeSites[
+                #unsafeSites + 1
+            ] = {
                 file = file,
                 line = token and token.line or 0,
                 column = token and token.col or 0,
                 kind = "unsafe assertion region",
             }
             inUnsafe = true
-        elseif inUnsafe and node.ownershipIntrinsic and node.ownershipIntrinsic ~= "borrow"
-            and node.ownershipIntrinsic ~= "drop" then
+        elseif inUnsafe
+            and node.ownershipIntrinsic
+            and node.ownershipIntrinsic ~= "borrow"
+            and node.ownershipIntrinsic ~= "drop"
+        then
             local token = firstToken(node)
-            unsafeSites[#unsafeSites + 1] = {
+            unsafeSites[
+                #unsafeSites + 1
+            ] = {
                 file = file,
                 line = token and token.line or 0,
                 column = token and token.col or 0,
@@ -183,7 +207,9 @@ local function run(parsed: any): integer
             }
         elseif inUnsafe and node.unsafeOwnershipOperation then
             local token = firstToken(node)
-            unsafeSites[#unsafeSites + 1] = {
+            unsafeSites[
+                #unsafeSites + 1
+            ] = {
                 file = file,
                 line = token and token.line or 0,
                 column = token and token.col or 0,
@@ -221,9 +247,7 @@ local function run(parsed: any): integer
         return a.file == b.file and a.line < b.line or a.file < b.file
     end)
     table.sort(regions, function(a: any, b: any): boolean
-        return a.file == b.file and (
-            a.line == b.line and a.column < b.column or a.line < b.line
-        ) or a.file < b.file
+        return a.file == b.file and (a.line == b.line and a.column < b.column or a.line < b.line) or a.file < b.file
     end)
     local regionOrdinals = {}
     for _, region in ipairs(regions) do
@@ -244,12 +268,24 @@ local function run(parsed: any): integer
     else
         io.write("Foreign ownership contracts\n")
         for _, entry in ipairs(foreign) do
-            io.write(("  %s:%d  %s%s\n"):format(entry.file, entry.line, entry.name, entry.variadic and "  [variadic]" or ""))
+            io.write(
+                ("  %s:%d  %s%s\n"):format(entry.file, entry.line, entry.name, entry.variadic and "  [variadic]" or "")
+            )
             for _, param in ipairs(entry.parameters) do
-                io.write(("    parameter %d%s: %s  %s\n"):format(param.index, param.name and " " .. param.name or "", param.type, param.contract))
+                io.write(
+                    (
+                        "    parameter %d%s: %s  %s\n"
+                    ):format(param.index, param.name and " " .. param.name or "", param.type, param.contract)
+                )
             end
             for _, result in ipairs(entry.results) do
                 io.write(("    result %d: %s\n"):format(result.index, result.type))
+            end
+            for _, mapping in ipairs(entry.countedBy or {}) do
+                io.write(("    counted %s: %s by %s\n"):format(mapping.access, mapping.pointer, mapping.count))
+            end
+            if entry.zeroCount then
+                io.write("    zero count: " .. entry.zeroCount .. "\n")
             end
         end
         io.write("Unsafe assertion sites\n")
@@ -259,18 +295,17 @@ local function run(parsed: any): integer
         if parsed.values.regions then
             io.write("Automatic cleanup regions\n")
             for _, region in ipairs(regions) do
-                io.write(("  %s:%d:%d  %s  [%s]\n"):format(
-                    region.file,
-                    region.line,
-                    region.column,
-                    region.id,
-                    region.lowering
-                ))
+                io.write(
+                    (
+                        "  %s:%d:%d  %s  [%s]\n"
+                    ):format(region.file, region.line, region.column, region.id, region.lowering)
+                )
                 io.write("    activate: " .. table.concat(region.activationOrder, ", ") .. "\n")
                 io.write("    cleanup: " .. table.concat(region.cleanupOrder, ", ") .. "\n")
             end
         end
     end
+
     return failed and 1 or 0
 end
 

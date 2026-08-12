@@ -214,14 +214,29 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 boundEntry.coroutineStatusName = initNode.coroutineStatusName
             end
             local returnBorrowOwners = nil
+            local returnExclusiveBorrow = false
+            local returnRegionPath = nil
+            local returnPartitionFields = nil
             local returnOwnershipState = nil
             local exprCount = #initializers
             local expandedCall = exprCount > 0 and initializers[exprCount] or nil
+            if expandedCall and expandedCall.returnExclusiveBorrows and j >= exprCount then
+                returnExclusiveBorrow = expandedCall.returnExclusiveBorrows[j - exprCount + 1] or false
+            end
+            if expandedCall and expandedCall.returnRegionPaths and j >= exprCount then
+                returnRegionPath = expandedCall.returnRegionPaths[j - exprCount + 1]
+            end
+            if expandedCall and expandedCall.returnPartitionFields and j >= exprCount then
+                returnPartitionFields = expandedCall.returnPartitionFields[j - exprCount + 1]
+            end
             if expandedCall and expandedCall.returnBorrowOwners and j >= exprCount then
                 returnBorrowOwners = expandedCall.returnBorrowOwners[j - exprCount + 1]
             end
             if expandedCall and expandedCall.returnOwnershipStates and j >= exprCount then
                 returnOwnershipState = expandedCall.returnOwnershipStates[j - exprCount + 1]
+            end
+            if boundEntry then
+                boundEntry.partitionFields = returnPartitionFields or (initNode and initNode.partitionFields) or nil
             end
             -- `local v: Vec2` used to construct one, which was a construction the
             -- source did not say. It no longer does, so the binding holds nil until
@@ -276,16 +291,51 @@ function bindings.install(c: state.Checker): state.StatHandlers
             if boundEntry and expandedCall and expandedCall.resourceCapability and j == exprCount then
                 boundEntry.resourceCapability = expandedCall.resourceCapability
             end
+            if boundEntry and returnRegionPath then
+                local regionRoot = expandedCall and expandedCall.regionRoot
+                    or returnBorrowOwners and returnBorrowOwners[1]
+                boundEntry.regionRoot = regionRoot
+                boundEntry.regionPath = returnRegionPath
+                if regionRoot then
+                    regionRoot.activeRegions = regionRoot.activeRegions or {}
+                    regionRoot.activeRegions[returnRegionPath] = (
+                        regionRoot.activeRegions[returnRegionPath] or 0
+                    ) + 1
+                end
+            elseif boundEntry and initNode then
+                local regionRoot, regionPath = c.regionOf(initNode)
+                if regionRoot and regionPath and regionPath ~= "" then
+                    boundEntry.regionRoot = regionRoot
+                    boundEntry.regionPath = regionPath
+                    regionRoot.activeRegions = regionRoot.activeRegions or {}
+                    regionRoot.activeRegions[regionPath] = (regionRoot.activeRegions[regionPath] or 0) + 1
+                    if initNode.regionExclusive then
+                        returnExclusiveBorrow = true
+                    end
+                end
+            end
             if boundEntry and (
                 boundKind == "borrowed" or boundKind == "owned"
             ) and returnBorrowOwners and #returnBorrowOwners == 1 then
                 boundEntry.borrowOwner = returnBorrowOwners[1]
                 returnBorrowOwners[1].activeBorrows = (returnBorrowOwners[1].activeBorrows or 0) + 1
+                if returnExclusiveBorrow then
+                    boundEntry.exclusiveBorrow = true
+                    returnBorrowOwners[1].activeExclusiveBorrows = (
+                        returnBorrowOwners[1].activeExclusiveBorrows or 0
+                    ) + 1
+                end
             elseif boundEntry and (
                 boundKind == "borrowed" or boundKind == "owned"
             ) and initNode and initNode.borrowOwner then
                 boundEntry.borrowOwner = initNode.borrowOwner
                 initNode.borrowOwner.activeBorrows = (initNode.borrowOwner.activeBorrows or 0) + 1
+                if returnExclusiveBorrow then
+                    boundEntry.exclusiveBorrow = true
+                    initNode.borrowOwner.activeExclusiveBorrows = (
+                        initNode.borrowOwner.activeExclusiveBorrows or 0
+                    ) + 1
+                end
             end
             if boundEntry and (
                 boundKind == "borrowed" or boundKind == "owned"
@@ -293,14 +343,27 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 boundEntry.borrowOwners = returnBorrowOwners
                 for _, owner in ipairs(returnBorrowOwners) do
                     owner.activeBorrows = (owner.activeBorrows or 0) + 1
+                    if returnExclusiveBorrow then
+                        owner.activeExclusiveBorrows = (owner.activeExclusiveBorrows or 0) + 1
+                    end
                 end
+                boundEntry.exclusiveBorrow = returnExclusiveBorrow or nil
             elseif boundEntry and (
                 boundKind == "borrowed" or boundKind == "owned"
             ) and initNode and initNode.borrowOwners then
                 boundEntry.borrowOwners = initNode.borrowOwners
                 for _, owner in ipairs(initNode.borrowOwners) do
                     owner.activeBorrows = (owner.activeBorrows or 0) + 1
+                    if returnExclusiveBorrow then
+                        owner.activeExclusiveBorrows = (owner.activeExclusiveBorrows or 0) + 1
+                    end
                 end
+                boundEntry.exclusiveBorrow = returnExclusiveBorrow or nil
+            end
+            if boundEntry and boundEntry.regionRoot and boundEntry.regionPath and boundEntry.exclusiveBorrow then
+                local root, path = boundEntry.regionRoot, boundEntry.regionPath
+                root.activeExclusiveRegions = root.activeExclusiveRegions or {}
+                root.activeExclusiveRegions[path] = (root.activeExclusiveRegions[path] or 0) + 1
             end
             -- Last, so the entry is complete: which module it holds decides whether an
             -- unread binding is reported as a stale require or as a stale local.

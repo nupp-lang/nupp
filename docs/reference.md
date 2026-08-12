@@ -868,8 +868,17 @@ a wrapper.
 Affine nominal fields have path-sensitive state. `nupp.resources.Set` holds a
 dynamic number of owners. `nupp.span` provides rooted generic `Span<T>` and
 affine `WriteSpan<T>` views; `nupp.heap.allocate` provides owned malloc-backed
-arrays. Raw or unknown suspension cannot cross an obligation; checked handled
+`Array<T>` values whose immutable count moves with their private pointer. Raw
+or unknown suspension cannot cross an obligation; checked handled
 suspension may only through its cancellation contract.
+
+Writable spans support `splitAt(mid)`, where `mid` is a zero-based element
+count. It produces sibling `left` and `right` writable regions whose exclusive
+uses do not overlap; ancestors and descendants still do. `countedBy(count)` on
+a borrowed cdef pointer maps its physical pointer/count pair to a logical
+checked span parameter and emits equality checks, offset-aware projections, and
+one physical call. Const pointers become shared spans and mutable pointers
+become writable spans.
 
 Lifetime alone does not prove a C pointer index is in bounds. Direct pointer or
 variable-length C-array indexing therefore requires `unsafe`; use `nupp.span`
