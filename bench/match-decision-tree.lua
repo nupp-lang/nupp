@@ -182,6 +182,90 @@ for columns = 2, 8 do
       #result.structured, #result.jumped))
 end
 
+----------------------------------------------------------------------------------------
+-- Counting characters says nothing about whether either emission is valid Lua, and the
+-- goto one is the only reason to prefer it, so it is the one that has to be run. Both
+-- forms are compiled and asked for an answer on every combination of column values.
+----------------------------------------------------------------------------------------
+
+local BODY_RESULT = {fail = 0, Hit = 1, Both = 2, Miss = 3}
+
+-- The same two emitters, with bodies that return a value instead of calling into
+-- nothing, so the tree can be executed rather than only measured.
+local function emitRunnable(tree, out, indent, mode)
+   if tree.body then
+      out[#out + 1] = mode == "goto"
+         and (indent .. "goto B" .. tree.body)
+         or (indent .. "r = " .. BODY_RESULT[tree.body])
+      return
+   end
+   local keyword = "if"
+   for _, branch in ipairs(tree.branches) do
+      out[#out + 1] = ("%s%s v%d == %q then"):format(indent, keyword, tree.column, branch.constructor)
+      emitRunnable(branch.tree, out, indent .. "   ", mode)
+      keyword = "elseif"
+   end
+   out[#out + 1] = indent .. "else"
+   emitRunnable(tree.default, out, indent .. "   ", mode)
+   out[#out + 1] = indent .. "end"
+end
+
+local function buildRunnable(matrix, mode)
+   local columns = #matrix[1].patterns
+   local parameters = {}
+   for index = 1, columns do parameters[index] = "v" .. index end
+
+   local body = {}
+   emitRunnable(buildTree(matrix), body, "   ", mode)
+   if mode == "goto" then
+      for _, name in ipairs(bodiesOf(matrix)) do
+         body[#body + 1] = ("   ::B%s:: r = %d goto DONE"):format(name, BODY_RESULT[name])
+      end
+      body[#body + 1] = "   ::DONE::"
+   end
+
+   local source = ("return function(%s)\n   local r\n%s\n   return r\nend"):format(
+      table.concat(parameters, ", "), table.concat(body, "\n"))
+   local chunk, reason = loadstring(source)
+   if not chunk then return nil, reason, source end
+   return chunk(), nil, source
+end
+
+-- Every combination of column values, including tags no arm mentions, so the default
+-- edges are exercised too.
+local function checkAgreement(matrix)
+   local columns = #matrix[1].patterns
+   local structured, structuredError = buildRunnable(matrix, "structured")
+   local jumped, jumpedError = buildRunnable(matrix, "goto")
+   if not structured then return false, "if/elseif did not compile: " .. structuredError end
+   if not jumped then return false, "goto did not compile: " .. jumpedError end
+
+   local alphabet = {"A", "B", "C"}
+   local arguments, total = {}, (#alphabet) ^ columns
+   for combination = 0, total - 1 do
+      local rest = combination
+      for index = 1, columns do
+         arguments[index] = alphabet[(rest % #alphabet) + 1]
+         rest = math.floor(rest / #alphabet)
+      end
+      local expected = structured(unpack(arguments, 1, columns))
+      local actual = jumped(unpack(arguments, 1, columns))
+      if expected ~= actual then
+         return false, ("disagree on {%s}: if/elseif %s, goto %s"):format(
+            table.concat(arguments, ",", 1, columns), tostring(expected), tostring(actual))
+      end
+   end
+   return true, ("%d combinations agree"):format(total)
+end
+
+print("\nBoth emissions compiled and run over every combination of column values:\n")
+print(" Columns  Result")
+print(" ───────  ────────────────────────────────────")
+for columns = 2, 8 do
+   local ok, detail = checkAgreement(sharedBodyMatrix(columns))
+   print((" %7d  %s%s"):format(columns, ok and "" or "FAILED: ", detail))
+end
+
 print("\nThe three-column case, emitted both ways:\n")
 local sample = render(sharedBodyMatrix(3))
 print("-- if/elseif ------------------------------------------------")
