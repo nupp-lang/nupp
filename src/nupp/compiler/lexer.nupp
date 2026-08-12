@@ -125,6 +125,10 @@ type lexer.Token = {
     --- An operator a long expression may break before.
     breakOp: boolean?,
 
+    --- The `:` of a method call whose receiver is itself a call, so it continues a
+    --- chain rather than starting one. A long chain breaks before each of them.
+    chainStep: boolean?,
+
     --- A unary operator, which hugs its operand.
     unaryTok: boolean?,
 

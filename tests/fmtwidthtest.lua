@@ -199,6 +199,72 @@ function M.operatorFallbackWhenNoGroup()
          "    .. tail"))
 end
 
+-- A chain of method calls breaks between its steps, not inside the first call's
+-- arguments: the receiver keeps the call that heads the chain and every later
+-- step lines up under it.
+function M.methodChainsBreakBetweenTheirSteps()
+   check("local production = endpoint:withUserInfo(nil):withHost(\"api.example.com\")"
+      .. ":withPort(nil):withQuery(nil):withFragment(nil):withScheme(\"https\")\n",
+      lines("local production = endpoint:withUserInfo(nil)",
+         "    :withHost(\"api.example.com\")",
+         "    :withPort(nil)",
+         "    :withQuery(nil)",
+         "    :withFragment(nil)",
+         "    :withScheme(\"https\")"))
+end
+
+-- A call heading the chain is a step like any other, and indexing between two
+-- steps does not end the chain.
+function M.methodChainsHeadedByACallBreakTheSameWay()
+   check("local names = registry.lookup(\"identifier\"):resolve(context).entries"
+      .. ":filter(predicate):map(transform):collect(sink, extraArgument)\n",
+      lines("local names = registry.lookup(\"identifier\")",
+         "    :resolve(context).entries",
+         "    :filter(predicate)",
+         "    :map(transform)",
+         "    :collect(sink, extraArgument)"))
+end
+
+-- Inside a broken group a step must not land at the group's own indent, where it
+-- would read as another element rather than the rest of one.
+function M.methodChainStepsInsideAGroupTakeAContinuationIndent()
+   check("local wrapped = wrap(endpoint:withUserInfo(nil):withHost(\"api.example.com\")"
+      .. ":withPort(nil):withQuery(nil):withFragment(nil):withScheme(\"https\")"
+      .. ":withPath(\"/v1\"), fallbackValue)\n",
+      lines("local wrapped = wrap(",
+         "    endpoint:withUserInfo(nil)",
+         "        :withHost(\"api.example.com\")",
+         "        :withPort(nil)",
+         "        :withQuery(nil)",
+         "        :withFragment(nil)",
+         "        :withScheme(\"https\")",
+         "        :withPath(\"/v1\"),",
+         "    fallbackValue",
+         ")"))
+end
+
+-- An operator joining two operands is looser than the chain inside either of
+-- them, so it is where the line parts first.
+function M.operatorsOutrankTheChainTheyJoin()
+   check("local resolved = endpoint:withUserInfo(nil):withHost(\"api.example.com\")"
+      .. " or fallback:withPort(nil):withQuery(nil):withFragment(nil)\n",
+      lines("local resolved = endpoint:withUserInfo(nil):withHost(\"api.example.com\")",
+         "    or fallback:withPort(nil):withQuery(nil):withFragment(nil)"))
+end
+
+-- One method call is not a chain: its arguments are what breaks.
+function M.aLoneMethodCallStillBreaksItsArguments()
+   check("local computed = self:computeSomething(firstArgumentValue, secondArgumentValue,"
+      .. " thirdArgumentValue, fourthArgumentValue, fifthArgumentValue)\n",
+      lines("local computed = self:computeSomething(",
+         "    firstArgumentValue,",
+         "    secondArgumentValue,",
+         "    thirdArgumentValue,",
+         "    fourthArgumentValue,",
+         "    fifthArgumentValue",
+         ")"))
+end
+
 function M.carriedIfConditionsStartWithAnd()
    check(lines(
       "if calleeTok and calleeTok.text == \"ipairs\" and global",

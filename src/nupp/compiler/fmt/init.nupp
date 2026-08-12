@@ -8,6 +8,8 @@ Fixed, with two knobs:
   docblock text, unaffected by `opts.width`;
 - ordinary line breaks are soft, so short expressions and groups join;
 - an over-long line is broken, one element per group;
+- an over-long chain of method calls is broken between its steps, one call
+  per line, before anything inside a call is broken;
 - an `if` is broken across lines, however short its arms;
 - docblocks wrap only when an individual safe prose line exceeds their width,
   and are set off from what they document;
@@ -224,6 +226,47 @@ local function breakFunctionBody(n)
     end
 end
 
+-- Whether a receiver is itself a call, which is what makes the method call
+-- applied to it a step in a chain rather than the whole of it. Indexing in
+-- between, `a:b().c:d()`, still reads as one chain, so it looks through it.
+local function isChainedReceiver(n)
+    while n and not cst.isToken(n) do
+        local kind = n.kind
+        if kind == "call" or kind == "methodCall" or kind == "safeCall" then
+            return true
+        end
+        if kind ~= "dotIndex" and kind ~= "bracketIndex" and kind ~= "safeIndex" and kind ~= "safeBracket" then
+            return false
+        end
+        n = n.obj
+    end
+
+    return false
+end
+
+-- Chained method calls read as a sequence of steps, so an over-long chain breaks
+-- between them rather than inside the first call's arguments. The receiver keeps
+-- the first call, which heads the chain, and every later step lines up under it.
+-- The break goes before the `?.` when the step checks its receiver, since
+-- `obj?.:m()` cannot be parted.
+local function markChainStep(n)
+    if not isChainedReceiver(n.obj) then
+        return
+    end
+    local tok = n.safeObj
+    if not tok then
+        for _, child in ipairs(n) do
+            if cst.isToken(child) and child.kind == ":" then
+                tok = child
+                break
+            end
+        end
+    end
+    if tok then
+        tok.chainStep = true
+    end
+end
+
 -- Function declarations form a visual unit. Rendering suppresses the mark when the next
 -- line closes the surrounding scope, since that closing `end` belongs with it.
 local function markFunctionEnd(n)
@@ -259,6 +302,8 @@ local function annotate(root)
             if n.op and BREAK_OPS[n.op.kind] then
                 n.op.breakOp = true
             end
+        elseif kind == "methodCall" then
+            markChainStep(n)
         elseif kind == "ifStmt" then
             breakIfArms(n)
         elseif kind == "funcbody" then
@@ -738,7 +783,10 @@ local function computeIndents(lines)
                 g = g.parent
             end
             depth = depth + hang
-            if hang == 0 and not tok.startsStat and not CLOSERS[tok.kind] then
+            -- A chain step continues the line above it wherever the chain sits:
+            -- inside a broken group, a step at the group's own indent would read
+            -- as an element of it rather than as the rest of one.
+            if (hang == 0 or tok.chainStep) and not tok.startsStat and not CLOSERS[tok.kind] then
                 depth = depth + 1 -- continuation of the previous line
             end
             line.indent = depth
@@ -771,11 +819,72 @@ local function indexOfToken(items, tok)
     return nil
 end
 
--- Splits one over-long line. Prefers the leftmost (outermost) bracket group fully
--- present on the line, except parentheses that only wrap a table; falls back to
+-- The indices of the tokens `accepts` takes, seen at the line's own bracket depth: what
+-- is inside a group on the line is that group's business to break, not the line's.
+local function breakPoints(line, accepts)
+    local depth, points = 0, {}
+    for idx, item in ipairs(line.items) do
+        if item.kind == "token" then
+            local k = item.token.kind
+            if BRACKET_PAIR[k] and item.token.opensGroup then
+                depth = depth + 1
+            elseif (k == ")" or k == "]" or k == "}") and depth > 0 then
+                depth = depth - 1
+            elseif depth == 0 and idx > 1 and accepts(item.token) then
+                points[#points + 1] = idx
+            end
+        end
+    end
+
+    return points
+end
+
+-- Splits one over-long line. A chain of method calls breaks between its steps;
+-- otherwise the leftmost (outermost) bracket group fully present on the line is
+-- preferred, except parentheses that only wrap a table; and the last resort is
 -- breaking before low-precedence operators. Returns a list of lines, or nil when
 -- nothing can be split.
 local function splitLine(line)
+    local out = {}
+    local function emit(items, indent)
+        if #items > 0 then
+            out[#out + 1] = {items = items, indent = indent}
+        end
+    end
+
+    local function slice(from, to)
+        local part = {}
+        for j = from, to do
+            part[#part + 1] = line.items[j]
+        end
+
+        return part
+    end
+
+    -- Each break point starts a line, and every line after the first is a continuation.
+    local function breakBefore(points)
+        local start = 1
+        for _, at in ipairs(points) do
+            emit(slice(start, at - 1), start == 1 and line.indent or line.indent + 1)
+            start = at
+        end
+        emit(slice(start, #line.items), line.indent + 1)
+        if #out > 1 then
+            return out
+        end
+
+        return nil
+    end
+
+    -- A chain breaks between its steps before anything inside one of its calls breaks.
+    -- An operator joining two operands is looser still, so a chain that is only one of
+    -- those operands waits until the line is down to the chain.
+    local ops = breakPoints(line, |tok| -> tok.breakOp)
+    local chain = breakPoints(line, |tok| -> tok.chainStep)
+    if #chain > 0 then
+        return breakBefore(#ops > 0 and ops or chain)
+    end
+
     local openIdx, closeIdx, group
     for idx, item in ipairs(line.items) do
         if item.kind == "token" and item.token.opensGroup then
@@ -798,22 +907,6 @@ local function splitLine(line)
                 end
             end
         end
-    end
-
-    local out = {}
-    local function emit(items, indent)
-        if #items > 0 then
-            out[#out + 1] = {items = items, indent = indent}
-        end
-    end
-
-    local function slice(from, to)
-        local part = {}
-        for j = from, to do
-            part[#part + 1] = line.items[j]
-        end
-
-        return part
     end
 
     if group then
@@ -847,42 +940,20 @@ local function splitLine(line)
     end
 
     -- fallback: break before break-operators at bracket depth zero
-    local depth, breaks = 0, {}
-    for idx, item in ipairs(line.items) do
-        if item.kind == "token" then
-            local k = item.token.kind
-            if BRACKET_PAIR[k] and item.token.opensGroup then
-                depth = depth + 1
-            elseif (k == ")" or k == "]" or k == "}") and depth > 0 then
-                depth = depth - 1
-            elseif depth == 0 and item.token.breakOp and idx > 1 then
-                breaks[#breaks + 1] = idx
-            end
-        end
-    end
-    if #breaks == 0 then
+    if #ops == 0 then
         return nil
     end
     local header = lineFirstToken(line)
     if header and (header.kind == "if" or header.kind == "elseif") then
         for idx, item in ipairs(line.items) do
             if item.kind == "token" and item.token.kind == "then" then
-                breaks[#breaks + 1] = idx
+                ops[#ops + 1] = idx
                 break
             end
         end
     end
-    local start = 1
-    for _, at in ipairs(breaks) do
-        emit(slice(start, at - 1), start == 1 and line.indent or line.indent + 1)
-        start = at
-    end
-    emit(slice(start, #line.items), line.indent + 1)
-    if #out > 1 then
-        return out
-    end
 
-    return nil
+    return breakBefore(ops)
 end
 
 -- A group can become multiline because a docblock or another structural boundary

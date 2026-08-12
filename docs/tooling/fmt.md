@@ -51,6 +51,22 @@ points. An `if` is always broken across lines, however short it is, and an
 ordinary `function` body always has its own lines. `|| ->` is the one-line
 function spelling.
 
+A chain of method calls is a sequence of steps, so an over-long chain breaks
+between them rather than inside the first call's arguments. The receiver keeps
+the call that heads the chain and every later step lines up under it:
+
+```nupp
+local production = endpoint:withUserInfo(nil)
+    :withHost("api.example.com")
+    :withPort(nil)
+    :withQuery(nil)
+    :withFragment(nil)
+```
+
+An operator joining two operands is looser than the chain inside either of
+them, so a chain that is one operand of an `and` waits until the line is down
+to the chain itself. A single method call is not a chain: its arguments break.
+
 Blank runs collapse to one, leading blanks are stripped, trailing whitespace
 goes, and a file ends with exactly one newline.
 
