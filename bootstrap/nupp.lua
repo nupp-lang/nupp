@@ -1392,7 +1392,7 @@ local BUILTINS = {
 { name = "debug" , arguments = "typed" , targets = { "field" } , builtin = true , } ,
 { name = "deprecated" , arguments = "typed" , targets = { "declaration" , "field" , "c-declaration" } , builtin = true , } ,
 { name = "jit" , arguments = "none" , targets = { "function" } , } ,
-{ name = "comptime" , arguments = "none" , targets = { "local-function" } , } ,
+{ name = "comptime" , arguments = "none" , targets = { "local-function" , "function" } , } ,
 }
 
 function annotations . new ( withBuiltins )
@@ -4771,10 +4771,14 @@ elseif tag == "projection" then
 
 
 value = "proj(" .. typeFingerprint ( t . of , active , binders ) .. "," .. t . name .. ")"
+elseif tag == "typeHandle" then
+value = "typeHandle(" .. typeFingerprint ( t . bound , active , binders ) .. ")"
+elseif tag == "packResult" then
+value = "packResult(" .. packFingerprint ( t . pack , active , binders ) .. ")"
 elseif tag == "literal" then
 value = "literal(" .. stable ( t . constant ) .. ":" .. typeFingerprint ( t . base , active , binders ) .. ")"
 elseif tag == "neutral" then
-local templates , arms , aliasArguments = { } , { } , { }
+local templates , comptimeArguments = { } , { }
 for _ , part in ipairs ( t . templateParts or { } ) do
 templates [
 # templates + 1
@@ -4784,56 +4788,14 @@ part
 part
 ) .. ")" or typeFingerprint ( part , active , binders )
 end
-local function patternFingerprint ( pattern )
-local children , parts = { } , { }
-for j , child in ipairs ( pattern . children or { } ) do
-children [ j ] = patternFingerprint ( child )
+for _ , argument in ipairs ( t . comptimeArguments or { } ) do
+if argument . kind == "type" then
+comptimeArguments [ # comptimeArguments + 1 ] = "type=" .. typeFingerprint ( argument . value , active , binders )
+elseif argument . kind == "typepack" then
+comptimeArguments [ # comptimeArguments + 1 ] = "pack=" .. packFingerprint ( argument . value , active , binders )
+else
+comptimeArguments [ # comptimeArguments + 1 ] = "const=" .. constFingerprint ( argument . value , binders )
 end
-for j , part in ipairs ( pattern . templateParts or { } ) do
-parts [
-j
-] = type (
-part
-) == "string" and "text(" .. stable (
-part
-) .. ")" or patternFingerprint ( part )
-end
-
-return "pattern(" .. pattern . kind .. ":" .. (
-pattern . binder and binderFingerprint ( pattern . binder , binders , "infer" ) or "-"
-) .. ":" .. typeFingerprint (
-pattern . expected ,
-active ,
-binders
-) .. ":" .. table . concat (
-children ,
-","
-) .. ":" .. table . concat (
-parts ,
-","
-) .. ":" .. constFingerprint (
-pattern . countTerm ,
-binders
-) .. ":params=" .. tostring (
-pattern . paramCount or "-"
-) .. ":" .. (
-pattern . paramPackBinder and binderFingerprint ( pattern . paramPackBinder , binders , "inferpack" ) or "-"
-) .. ":returns=" .. (
-pattern . retPackBinder and binderFingerprint ( pattern . retPackBinder , binders , "inferpack" ) or "-"
-) .. ")"
-end
-
-for j , arm in ipairs ( t . matchArms or { } ) do
-arms [ j ] = patternFingerprint ( arm . pattern ) .. "=>" .. typeFingerprint ( arm . result , active , binders )
-end
-for _ , argument in ipairs ( t . aliasTypeArgs or { } ) do
-aliasArguments [ # aliasArguments + 1 ] = "type=" .. typeFingerprint ( argument , active , binders )
-end
-for _ , argument in ipairs ( t . aliasPackArgs or { } ) do
-aliasArguments [ # aliasArguments + 1 ] = "pack=" .. packFingerprint ( argument , active , binders )
-end
-for _ , argument in ipairs ( t . aliasConstArgs or { } ) do
-aliasArguments [ # aliasArguments + 1 ] = "const=" .. constFingerprint ( argument , binders )
 end
 value = "neutral#1(" .. t . op .. ":" .. tostring (
 t . capability or "-"
@@ -4867,14 +4829,11 @@ binders
 ) .. ":template=" .. table . concat (
 templates ,
 ","
-) .. ":match=" .. (
-t . matchEach and "each:" or "one:"
-) .. table . concat (
-arms ,
-","
-) .. ":alias=" .. (
-t . aliasHeader and t . aliasHeader . name or "-"
-) .. "<" .. table . concat ( aliasArguments , "," ) .. ">)"
+) .. ":comptime=" .. tostring (
+t . comptimeIdentity or "-"
+) .. "(" .. table . concat ( comptimeArguments , "," ) .. "):" .. (
+t . comptimeResultPack and "pack" or "type"
+) .. ")"
 elseif tag == "genericAlias" then
 local parameters = { }
 for _ , parameter in ipairs ( t . typeParams or { } ) do
@@ -5191,6 +5150,8 @@ result . exports
 result . exports . nominalEffectFingerprint or ""
 ) .. "\0derives:" .. (
 result . exports . deriveInterfaceFingerprint or ""
+) .. "\0comptime-functions:" .. (
+result . exports . comptimeFunctionFingerprint or ""
 ) .. ( external and ( "\0" .. sourceHash ) or "" )
 ) , artifactHash = artifactHash , dependencies = jsonArray (
 depNames
@@ -6015,6 +5976,16 @@ local process = { }
 
 
 
+
+
+
+
+
+
+
+
+
+
 local windows = package . config : sub ( 1 , 1 ) == "\\"
 
 
@@ -6243,6 +6214,32 @@ return "return",__nuppT1( 124 , table . concat ( chunks ) )
 end
 
 return "return",__nuppT1( exit . exitCode , table . concat ( chunks ) ) end; return "normal" end,__nuppT2); const __nuppT17={}; local __nuppT18=0; if __nuppT13>=1 and __nuppT20 and __nuppT19~=nil then  const __nuppT23,__nuppT24=__nuppT5(function() __nuppT19:close() end);  if not __nuppT23 then __nuppT18=__nuppT18+1; __nuppT17[__nuppT18]=__nuppT24 end; end; if not __nuppT14 then if __nuppT18>0 then __nuppT7(__nuppT3(__nuppT15,__nuppT17,1),0) else __nuppT7(__nuppT15,0) end end; if __nuppT18>0 then if __nuppT18>1 then __nuppT7(__nuppT3(__nuppT17[1],__nuppT17,2),0) else __nuppT7(__nuppT17[1],0) end end; if __nuppT15=="return" then  return __nuppT8(__nuppT16,1,__nuppT16.n)  end; end
+end
+
+
+
+
+function process . startIsolated ( argv , opts )
+opts = ( opts or { } )
+local args = isolatedArgs ( argv )
+if opts . memoryMb and not windows then
+local kilobytes = math . max ( 1 , math . floor ( opts . memoryMb * 1024 ) )
+args = {
+"/bin/sh" ,
+"-c" ,
+"ulimit -v " .. tostring ( kilobytes ) .. " 2>/dev/null || true; exec "
+.. process . command ( argv ) ,
+}
+end
+local native = require ( "nupp.io.process" )
+return native . new ( {
+args = args ,
+cwd = opts . cwd ,
+env = opts . env ,
+stdin = "pipe" ,
+stdout = "pipe" ,
+stderr = "stdout" ,
+} )
 end
 
 return process
@@ -8615,6 +8612,11 @@ local annotationMod = require ( "nupp.compiler.annotations" )
 local state = require ( "nupp.compiler.check.state" )
 local generics = require ( "nupp.compiler.generics" )
 local methodslots = require ( "nupp.compiler.methodslots" )
+local comptime = require ( "nupp.compiler.comptime" )
+local typeblueprint = require ( "nupp.compiler.typeblueprint" )
+local reflection = require ( "nupp.compiler.reflection" )
+local hash = require ( "nupp.compiler.build.hash" )
+local stable = require ( "nupp.compiler.build.cache" ) . stable
 
 local checkMod = { }
 
@@ -9140,7 +9142,7 @@ registry : removeSource ( filename )
 
 
 
-local c = setmetatable({ result =  result ,  filename =  filename ,  env =  env ,  opts =  opts ,  reducerMemo =  { } ,  comptimeDepth =  0 ,  comptimeFunctionDepth =  0 ,  comptimeFunctions =  { } ,  declarationFile =
+local c = setmetatable({ result =  result ,  filename =  filename ,  env =  env ,  opts =  opts ,  reducerMemo =  { } ,  comptimeDepth =  0 ,  comptimeFunctionDepth =  0 ,  comptimeFunctions =  { } ,  typeFunctionMemo =  { } ,  declarationFile =
 
 
 
@@ -9169,6 +9171,7 @@ types = { } ,
 typeDefs = { } ,
 values = { } ,
 valueDefs = { } ,
+comptimeFunctions = { } ,
 } ,  seenDefinitions =  { } ,  scope =  {
 vars = { } ,
 types = { } ,
@@ -9179,9 +9182,10 @@ automaticOwners = { } ,
 depth = 0 ,
 completionScope = result . root ,
 parent = nil
-} ,  retStack =  { } ,  retPackStack =  { } ,  ownReturnStack =  { } ,  borrowReturnStack =  { } ,  varargPackStack =  { } ,  yieldPackStack =  { } ,  resumePackStack =  { } ,  protocolStack =  { } ,  dropOperationFieldStack =  { } ,  validatedCleanupContracts =  { } ,  unsafeDepth =  0 ,  noSuspendDepth =  0 ,  handledDepth =  0 ,  functionDepth =  0 ,  functionBodies =  { } ,  jitHazards =  { } ,  scopedCaptureDepth =  0 ,  closureCaptureStack =  { } ,  captureWatches =  { } ,  allowed =  { } ,  nextStat =  nil ,  hoisting =  false ,  resolvingAlias =  { } ,  activeAlias =  nil ,  lastCallRets =  nil ,  moduleFields =  { } ,  moduleFieldTokens =  { } ,  moduleFieldDefs =  { } ,  moduleFieldConst =  { } ,  moduleFieldValues =  { } ,  nominalEffectOwners =  { } ,  nominalEffectEntries =  { } ,  constModulePaths =  { } ,  moduleLocalAnnotated =  false }, state.Checker)
+} ,  retStack =  { } ,  retPackStack =  { } ,  ownReturnStack =  { } ,  borrowReturnStack =  { } ,  varargPackStack =  { } ,  yieldPackStack =  { } ,  resumePackStack =  { } ,  protocolStack =  { } ,  dropOperationFieldStack =  { } ,  validatedCleanupContracts =  { } ,  unsafeDepth =  0 ,  noSuspendDepth =  0 ,  handledDepth =  0 ,  functionDepth =  0 ,  functionBodies =  { } ,  jitHazards =  { } ,  scopedCaptureDepth =  0 ,  closureCaptureStack =  { } ,  captureWatches =  { } ,  allowed =  { } ,  nextStat =  nil ,  hoisting =  false ,  resolvingAlias =  { } ,  lastCallRets =  nil ,  moduleFields =  { } ,  moduleFieldTokens =  { } ,  moduleFieldDefs =  { } ,  moduleFieldConst =  { } ,  moduleFieldValues =  { } ,  nominalEffectOwners =  { } ,  nominalEffectEntries =  { } ,  constModulePaths =  { } ,  moduleLocalAnnotated =  false }, state.Checker)
 c . rootScope = c . scope
 c . moduleExports . valueDefs = c . moduleExports . valueDefs or { }
+c . moduleExports . comptimeFunctions = c . moduleExports . comptimeFunctions or { }
 
 
 
@@ -9219,6 +9223,80 @@ c . raises = undocumentedraise . install ( c )
 c . unused = unused . install ( c )
 c . discard = discard . install ( c )
 c . nosuspend = nosuspendMod . install ( c )
+c . typeFunctionEvaluator = function ( helper , arguments , helpers )
+local program = comptime . typeFunctionProgram ( helper , helpers )
+local memo = c . typeFunctionMemo [ program . identity ]
+if not memo then
+memo = { }
+c . typeFunctionMemo [ program . identity ] = memo
+end
+local keyParts , transported , permitted = { program . identity } , { } , { }
+for position , argument in ipairs ( arguments ) do
+local value = argument . value
+if argument . kind == "type" or argument . kind == "typepack" then
+local descriptor = reflection . describe ( value , nil , true )
+keyParts [ # keyParts + 1 ] = argument . kind .. ":" .. descriptor . fingerprint
+for index , node in ipairs ( descriptor . types or { } ) do
+if node . nominal then
+permitted [
+"argument" .. tostring ( position ) .. ":" .. tostring ( index )
+] = {
+source = descriptor . sources [ index ] ,
+fingerprint = node . referenceFingerprint ,
+}
+end
+end
+descriptor . sources = nil
+transported [ position ] = { kind = argument . kind , descriptor = descriptor }
+else
+transported [ position ] = { kind = argument . kind , value = value }
+keyParts [ # keyParts + 1 ] = argument . kind .. ":" .. stable ( value )
+end
+end
+local key = hash . sha256 ( table . concat ( keyParts , "\0" ) )
+local cached = memo [ key ]
+if cached then return cached . result , cached . failure end
+local persistent = c . env and c . env . openTypeFunctionStore and c . env . openTypeFunctionStore ( c . env ) or nil
+local persisted = persistent and persistent . get ( key ) or nil
+if persisted then
+local persistedType = typeblueprint . validate ( persisted , permitted )
+if persistedType then
+memo [ key ] = { result = persistedType }
+return persistedType , nil
+end
+end
+local root = os . getenv ( "NUPP_COMPILER_ROOT" )
+local executable = root and root .. "/bin/nupp"
+or type ( arg ) == "table" and type ( arg [ 0 ] ) == "string" and arg [ 0 ]
+or nil
+local envelope , evaluationFailure
+if executable and not os . getenv ( "NUPP_COMPTIME_WORKER_CHILD" ) then
+local worker = require ( "nupp.compiler.comptime_worker" )
+
+
+envelope , evaluationFailure = worker . evaluateTypeFunction (
+program ,
+transported ,
+executable ,
+c . env and c . env . comptimeHost or nil
+)
+else
+envelope , evaluationFailure = comptime . evaluateTypeFunctionDirect ( helper , arguments , helpers )
+end
+if not envelope then
+memo [ key ] = { failure = evaluationFailure }
+return nil , evaluationFailure
+end
+local resultType , validationFailure = typeblueprint . validate ( envelope , permitted )
+if resultType and persistent then persistent . put ( key , envelope ) end
+memo [ key ] = { result = resultType , failure = validationFailure }
+return resultType , validationFailure
+end
+c . reductionControl = {
+evaluateTypeFunction = function ( helper , arguments )
+return c . typeFunctionEvaluator ( helper , arguments , c . comptimeFunctions )
+end
+}
 resolve . install ( c )
 local ownershipKind = own . ownershipKind
 
@@ -10398,6 +10476,14 @@ finalizeBoundary ( c )
 c . unused . sweep ( )
 c . discard . sweep ( analysis . queries ( facts ) )
 c . nosuspend . sweep ( analysis . queries ( facts ) )
+local comptimeNames , comptimeIdentities = { } , { }
+for name in pairs ( c . moduleExports . comptimeFunctions or { } ) do comptimeNames [ # comptimeNames + 1 ] = name end
+table . sort ( comptimeNames )
+for _ , name in ipairs ( comptimeNames ) do
+comptimeIdentities [ # comptimeIdentities + 1 ] = name .. "="
+.. tostring ( c . moduleExports . comptimeFunctions [ name ] . identity )
+end
+c . moduleExports . comptimeFunctionFingerprint = table . concat ( comptimeIdentities , "\0" )
 table . sort ( c . diags , function ( a , b )
 return a . offset < b . offset
 end )
@@ -11793,11 +11879,11 @@ return nil
 end
 
 local function lpegCapturesFromPack ( pack , skip )
-local evaluated = generics . evaluatePack ( pack )
+local evaluated = generics . evaluatePack ( pack , c . reductionControl )
 if evaluated . error or evaluated . pack . alternatives then
 return lpegUnknown
 end
-local concrete , why = generics . expandComputedPack ( evaluated . pack )
+local concrete , why = generics . expandComputedPack ( evaluated . pack , c . reductionControl )
 if why then
 return lpegUnknown
 end
@@ -13124,8 +13210,8 @@ local rawType = T . unwrapOwnership
 
 
 
-local function substType ( t , map , erased )
-local found = generics . evaluate ( generics . materialize ( t , map ) )
+local function substType ( t , map , erased , control )
+local found = generics . evaluate ( generics . materialize ( t , map ) , nil , control )
 if erased then
 for _ , name in ipairs ( found . gradual ) do
 erased [ # erased + 1 ] = name
@@ -13219,7 +13305,12 @@ end
 return nil
 end
 
-local function probeArm ( ft , argPack , cdefCall )
+local function probeArm (
+ft ,
+argPack ,
+cdefCall ,
+control
+)
 local map = { }
 if T . hasTypevar (
 ft
@@ -13251,7 +13342,7 @@ ft . constParams or { }
 ) > 0 or (
 ft . paramPack . tail and ft . paramPack . tail . kind == "computed"
 ) or ( ft . retPack . tail and ft . retPack . tail . kind == "computed" ) then
-specialized , specializationProblem = generics . instantiateFunction ( ft , map )
+specialized , specializationProblem = generics . instantiateFunction ( ft , map , control )
 end
 if specializationProblem then
 return nil , specializationProblem
@@ -13306,13 +13397,18 @@ end
 return specialized
 end
 
-local function probeSignature ( ft , argPack , cdefCall )
+local function probeSignature (
+ft ,
+argPack ,
+cdefCall ,
+control
+)
 if not argPack . alternatives then
-return probeArm ( ft , argPack , cdefCall )
+return probeArm ( ft , argPack , cdefCall , control )
 end
 local selected = nil
 for armIndex , arm in ipairs ( argPack . alternatives ) do
-local specialized , why = probeArm ( ft , arm , cdefCall )
+local specialized , why = probeArm ( ft , arm , cdefCall , control )
 if not specialized then
 return nil , ( "argument-pack alternative %d: %s" ) : format ( armIndex , why or "mismatch" )
 end
@@ -13680,7 +13776,7 @@ for j , tv in ipairs ( params or { } ) do
 local bound = bounds and bounds [ j ]
 local actual = map [ tv ]
 if bound and actual and actual ~= T . any then
-local ok , why = isA ( actual , substType ( bound , map ) )
+local ok , why = isA ( actual , substType ( bound , map , nil , c . reductionControl ) )
 if not ok then
 c . diag ( "NUPP2116" , node , ( "type argument %s for %s: %s" ) : format ( T . tostring ( actual ) , tv . name , why ) )
 end
@@ -13696,7 +13792,7 @@ if overloads then
 local survivors , rejections = { } , { }
 local argPack = T . pack ( ats )
 for _ , candidate in ipairs ( overloads ) do
-local specialized , why = probeSignature ( candidate , argPack )
+local specialized , why = probeSignature ( candidate , argPack , nil , c . reductionControl )
 if specialized then
 survivors [ # survivors + 1 ] = specialized
 else
@@ -13741,7 +13837,7 @@ for j , tv in ipairs ( ft . typeParams or { } ) do
 local bound = ft . typeBounds and ft . typeBounds [ j ]
 local actual = map [ tv ]
 if bound and actual then
-local ok , why = isA ( actual , substType ( bound , map ) )
+local ok , why = isA ( actual , substType ( bound , map , nil , c . reductionControl ) )
 if not ok then
 c . diag (
 "NUPP2116" ,
@@ -13754,22 +13850,22 @@ end
 local p2 , r2 = { } , { }
 local erasedProjections = { }
 for j , p in ipairs ( params ) do
-p2 [ j ] = substType ( p , map , erasedProjections )
+p2 [ j ] = substType ( p , map , erasedProjections , c . reductionControl )
 end
 for j , r in ipairs ( rets ) do
-r2 [ j ] = substType ( r , map , erasedProjections )
+r2 [ j ] = substType ( r , map , erasedProjections , c . reductionControl )
 end
 params , rets = p2 , r2
 paramPack , retPack = substPack ( paramPack , map ) , substPack ( retPack , map )
 if varargType then
-varargType = substType ( varargType , map , erasedProjections )
+varargType = substType ( varargType , map , erasedProjections , c . reductionControl )
 end
 reportGradualProjections ( c , site , erasedProjections )
 end
 local packProblem
-paramPack , packProblem = generics . expandComputedPack ( paramPack )
+paramPack , packProblem = generics . expandComputedPack ( paramPack , c . reductionControl )
 if not packProblem then
-retPack , packProblem = generics . expandComputedPack ( retPack )
+retPack , packProblem = generics . expandComputedPack ( retPack , c . reductionControl )
 end
 if packProblem then
 c . diag ( "NUPP2006" , site , operation .. " contract: " .. packProblem )
@@ -14478,7 +14574,7 @@ local choice , why = normalization ( ft )
 if not choice then
 return nil , nil , why
 end
-local specialized , rejected = probeSignature ( ft , choice . pack , node . cdefCall )
+local specialized , rejected = probeSignature ( ft , choice . pack , node . cdefCall , c . reductionControl )
 if specialized then
 return choice , specialized
 end
@@ -14581,7 +14677,7 @@ end
 if overloads and not advancedOverloadSelected then
 local survivors , originals , rejections = { } , { } , { }
 for _ , candidate in ipairs ( overloads ) do
-local specialized , why = probeSignature ( candidate , selectionPack , node . cdefCall )
+local specialized , why = probeSignature ( candidate , selectionPack , node . cdefCall , c . reductionControl )
 if specialized then
 survivors [ # survivors + 1 ] = specialized
 originals [ # originals + 1 ] = candidate
@@ -14652,6 +14748,7 @@ end
 local varargType = calleeT . varargType
 local computedParamTail = paramPack . tail and paramPack . tail . kind == "computed"
 local constInferenceFailed = false
+local packProblem
 
 
 
@@ -14680,7 +14777,7 @@ for j , tv in ipairs ( calleeT . typeParams or { } ) do
 local bound = calleeT . typeBounds and calleeT . typeBounds [ j ]
 local actual = map [ tv ]
 if bound and actual then
-local expected = substType ( bound , map )
+local expected = substType ( bound , map , nil , c . reductionControl )
 local ok , why = isA ( actual , expected )
 if not ok then
 c . diag (
@@ -14694,18 +14791,19 @@ end
 local p2 , r2 = { } , { }
 local erasedProjections = { }
 for j , p in ipairs ( params ) do
-p2 [ j ] = substType ( p , map , erasedProjections )
+p2 [ j ] = substType ( p , map , erasedProjections , c . reductionControl )
 end
 for j , r in ipairs ( rets ) do
-r2 [ j ] = substType ( r , map , erasedProjections )
+r2 [ j ] = substType ( r , map , erasedProjections , c . reductionControl )
 end
 
 
 
 
-local paramEval = generics . evaluatePack ( substPack ( paramPack , map ) )
-local retEval = generics . evaluatePack ( substPack ( retPack , map ) )
+local paramEval = generics . evaluatePack ( substPack ( paramPack , map ) , c . reductionControl )
+local retEval = generics . evaluatePack ( substPack ( retPack , map ) , c . reductionControl )
 paramPack , retPack = paramEval . pack , retEval . pack
+packProblem = paramEval . error or retEval . error
 for _ , name in ipairs ( paramEval . gradual ) do
 erasedProjections [ # erasedProjections + 1 ] = name
 end
@@ -14718,16 +14816,19 @@ reportGradualProjections ( c , node , erasedProjections )
 if paramPack . tail and paramPack . tail . kind == "homogeneous" then
 varargType = paramPack . tail . type
 elseif varargType then
-varargType = substType ( varargType , map )
+varargType = substType ( varargType , map , nil , c . reductionControl )
 end
 end
-local packProblem
-paramPack , packProblem = generics . expandComputedPack ( paramPack )
 if not packProblem then
-retPack , packProblem = generics . expandComputedPack ( retPack )
+paramPack , packProblem = generics . expandComputedPack ( paramPack , c . reductionControl )
 end
-if packProblem then
+if not packProblem then
+retPack , packProblem = generics . expandComputedPack ( retPack , c . reductionControl )
+end
+if packProblem and not constInferenceFailed then
 c . diag ( "NUPP2006" , node , packProblem , nil , callDetails ( node ) )
+paramPack = T . pack ( params , { kind = "unknown" , type = T . any } , paramPack . modes )
+elseif packProblem then
 paramPack = T . pack ( params , { kind = "unknown" , type = T . any } , paramPack . modes )
 end
 params , rets = paramPack . head , retPack . head
@@ -22660,6 +22761,11 @@ if memberDefinition then
 memberDefinition . type = ft
 c . markToken ( memberTok , memberDefinition , ft , memberDefinition . kind )
 end
+if stat . comptimeFunction then
+stat . comptimeSignature = ft
+stat . comptimeDefinition = memberDefinition
+return
+end
 
 
 if not fname . method and ownerKey == c . moduleLocal and memberTok then
@@ -24923,7 +25029,7 @@ return generics . instantiate ( origin , { [ parameter ] = captures } )
 end
 
 local function reducedCaptures ( t )
-local reduced = generics . evaluate ( t )
+local reduced = generics . evaluate ( t , nil , c . reductionControl )
 return reduced . error and lpegUnknown or reduced . type
 end
 
@@ -24945,11 +25051,11 @@ return lpegUnknown
 end
 
 local function capturesFromPack ( pack )
-local evaluated = generics . evaluatePack ( pack )
+local evaluated = generics . evaluatePack ( pack , c . reductionControl )
 if evaluated . error or evaluated . pack . alternatives then
 return lpegUnknown
 end
-local concrete , why = generics . expandComputedPack ( evaluated . pack )
+local concrete , why = generics . expandComputedPack ( evaluated . pack , c . reductionControl )
 if why then
 return lpegUnknown
 end
@@ -26069,7 +26175,8 @@ end
 return
 
 elseif written == "comptime" then
-if valid and target and target . kind == "localFuncStmt" and target . name and target . body then
+if valid and target and ( target . kind == "localFuncStmt" or target . kind == "funcStmt" )
+and target . name and target . body then
 local helper = target
 local body = helper . body
 if body . generics then
@@ -26082,14 +26189,35 @@ c . diag ( "NUPP2411" , rawParam , "@comptime functions cannot be variadic" )
 end
 end
 helper . comptimeFunction = true
-local helperName = helper . name
+local owner , member = nil , nil
+if target . kind == "funcStmt" then owner , member = c . funcOwner ( helper . name ) end
+local helperName = target . kind == "localFuncStmt" and helper . name or member
+if not helperName then
+c . diag ( "NUPP2411" , helper . name , "@comptime functions must be local or direct module members" )
+c . checkStat ( helper )
+return
+end
 local markedName = helperName
 markedName . comptimeFunction = true
+helper . comptimeName = markedName . text
 stat . eraseComptimeFunction = true
-c . comptimeFunctions [ markedName . text ] = helper
+local helperKey = owner and owner .. "." .. markedName . text or markedName . text
+if target . kind == "funcStmt" and owner ~= c . moduleLocal then
+c . diag ( "NUPP2411" , helper . name , "an exported @comptime function must be a direct member of this module" )
+end
+c . comptimeFunctions [ helperKey ] = helper
 c . comptimeFunctionDepth = c . comptimeFunctionDepth + 1
 c . checkStat ( helper )
 c . comptimeFunctionDepth = c . comptimeFunctionDepth - 1
+if target . kind == "funcStmt" and owner == c . moduleLocal and helper . comptimeSignature then
+local sealed = require ( "nupp.compiler.comptime" ) . sealTypeFunction (
+helper ,
+c . comptimeFunctions ,
+helper . comptimeSignature ,
+helper . comptimeDefinition
+)
+c . moduleExports . comptimeFunctions [ markedName . text ] = sealed
+end
 elseif stat . stat then
 c . checkStat ( stat . stat )
 end
@@ -26409,8 +26537,6 @@ local fix , insertBefore = edits . fix , edits . insertBefore
 local requiredAs , requireBindsName = edits . requiredAs , edits . requireBindsName
 local requireEdit = edits . requireEdit
 local pointerShaped = c . pointerShaped
-local recursiveArmDepth = 0
-local recursiveBlockedDepth = 0
 
 local function constBinding ( name )
 local found = c . lookupType ( name )
@@ -26542,22 +26668,6 @@ c . validateTypeBounds ( alias . typeParams , alias . typeBounds , map , node )
 return map
 end
 
-local function recursiveAliasCall ( header , node )
-local map = aliasArgumentMap ( header , node )
-local typeArgs , packArgs , constArgs = { } , { } , { }
-for j , parameter in ipairs ( header . typeParams ) do
-typeArgs [ j ] = map [ parameter ] or T . any
-end
-for j , parameter in ipairs ( header . packParams ) do
-packArgs [ j ] = map [ parameter ] or T . pack ( { } , { kind = "unknown" , type = T . any } )
-end
-for j , parameter in ipairs ( header . constParams ) do
-constArgs [ j ] = map [ parameter ] or parameter
-end
-
-return T . aliasCall ( header , typeArgs , packArgs , constArgs )
-end
-
 
 
 local function applyTypeArgs ( t , node )
@@ -26571,7 +26681,7 @@ end
 if t and t . tag == "genericAlias" then
 local map = aliasArgumentMap ( t , node )
 local rebound = generics . materialize ( t . body , map )
-local reduced , reductionError = generics . reduce ( rebound , { } , c . reducerMemo )
+local reduced , reductionError = generics . reduce ( rebound , { } , c . reducerMemo , c . reductionControl )
 if reductionError then
 c . diag (
 reductionError : find ( "recursive alias" , 1 , true ) and "NUPP2133" or "NUPP2130" ,
@@ -26616,192 +26726,6 @@ end
 c . validateTypeBounds ( t . typeParams , t . typeBounds , map , node )
 
 return instantiateNominal ( t , map )
-end
-
-local compilePattern
-compilePattern = function ( node , binders )
-if not node then
-return T . matchPattern ( "ordinary" , nil , T . any )
-end
-local kind = node . kind
-if kind == "tinfer" then
-local token = node . name
-local name = token and token . text or "_"
-if node . pack then
-c . diag ( "NUPP2132" , node , "pack inference is only valid in a function pattern" )
-end
-if name == "_" then
-return T . matchPattern ( "infer" )
-end
-local binder = binders [ name ]
-if binder and binder . tag ~= "typevar" then
-c . diag ( "NUPP2132" , token or node , "an inferred name cannot bind both a type and a pack" )
-return T . matchPattern ( "infer" )
-end
-if not binder then
-binder = c . typevarAt ( token , "match" )
-binders [ name ] = binder
-c . bindType ( name , binder , token )
-end
-return T . matchPattern ( "infer" , binder )
-elseif kind == "tparen" then
-return compilePattern ( node . inner , binders )
-elseif kind == "tarray" then
-return T . matchPattern ( "array" , nil , nil , { compilePattern ( node . element , binders ) } )
-elseif kind == "ttuple" then
-local children = { }
-for j , child in ipairs ( node . types ) do
-children [ j ] = compilePattern ( child , binders )
-end
-local tail = node . tail and compilePattern ( node . tail , binders ) or nil
-return T . matchPattern ( "tuple" , nil , nil , children , nil , nil , nil , nil , nil , tail )
-elseif kind == "tmap" then
-return T . matchPattern (
-"map" ,
-nil ,
-nil ,
-{ compilePattern ( node . key , binders ) , compilePattern ( node . value , binders ) }
-)
-elseif kind == "tptr" then
-return T . matchPattern ( "ptr" , nil , nil , { compilePattern ( node . inner , binders ) } )
-elseif kind == "tcarray" then
-local countTerm = nil
-if node . count then
-local countError
-countTerm , countError = consteval . parse ( node . count , constBinding )
-if countError then
-c . diag ( "NUPP2132" , node . count , countError )
-end
-end
-return T . matchPattern ( "carray" , nil , nil , { compilePattern ( node . element , binders ) } , nil , countTerm )
-elseif kind == "tconst" then
-return T . matchPattern ( "const" , nil , nil , { compilePattern ( node . inner , binders ) } )
-elseif kind == "tname" and node . typeArgs and # node . typeArgs > 0 then
-local name = node . base and node . base . text or ""
-local expected = T . builtins [ name ] or c . lookupType ( name )
-if not expected or expected . tag ~= "nominal" then
-c . diag ( "NUPP2132" , node , "generic type patterns require a nominal type constructor" )
-return T . matchPattern ( "ordinary" , nil , T . any )
-end
-local children = { }
-local nominalPackBinders = { }
-local typeAt , packAt = 1 , 1
-for position , parameterKind in ipairs ( expected . paramKinds or { } ) do
-local child = node . typeArgs [ position ]
-if parameterKind == "type" then
-children [ typeAt ] = compilePattern ( child , binders )
-typeAt = typeAt + 1
-elseif parameterKind == "pack" then
-if not child or child . kind ~= "tinfer" or not child . pack then
-c . diag ( "NUPP2132" , child or node , "a nominal pack pattern must use infer R..." )
-nominalPackBinders [ packAt ] = c . packvarAt ( nil , "match-nominal-pack-invalid" )
-else
-local token = child . name
-local binderName = token and token . text or "_"
-local binder = binderName ~= "_" and binders [ binderName ] or nil
-if binderName == "_" then
-binder = c . packvarAt ( token , "match-nominal-pack-anonymous" )
-elseif binder and binder . tag ~= "packvar" then
-c . diag ( "NUPP2132" , token or child , "an inferred name cannot bind both a type and a pack" )
-binder = c . packvarAt ( token , "match-nominal-pack-conflict" )
-elseif not binder then
-binder = c . packvarAt ( token , "match-nominal-pack" )
-binders [ binderName ] = binder
-c . bindPack ( binderName , binder , token )
-end
-nominalPackBinders [ packAt ] = binder
-end
-packAt = packAt + 1
-elseif parameterKind == "const" then
-c . diag ( "NUPP2132" , child or node , "const nominal arguments are not type-match patterns" )
-end
-end
-if # ( expected . paramKinds or { } ) == 0 then
-for j , child in ipairs ( node . typeArgs ) do
-children [ j ] = compilePattern ( child , binders )
-end
-end
-return T . matchPattern ( "nominal" , nil , expected , children , nil , nil , nil , nil , nil , nil , nominalPackBinders )
-elseif kind == "tfunc" then
-local children = { }
-local paramPackBinder , retPackBinder
-local function bindPackInfer ( inferred )
-local token = inferred . name
-local name = token and token . text or "_"
-if name == "_" then
-return c . packvarAt ( token , "match-pack-anonymous" )
-end
-local binder = binders [ name ]
-if binder and binder . tag ~= "packvar" then
-c . diag ( "NUPP2132" , token or inferred , "an inferred name cannot bind both a type and a pack" )
-return c . packvarAt ( token , "match-pack-conflict" )
-end
-if not binder then
-binder = c . packvarAt ( token , "match-pack" )
-binders [ name ] = binder
-c . bindPack ( name , binder , token )
-end
-
-return binder
-end
-
-for j , param in ipairs ( node . params or { } ) do
-if param . kind == "tfuncParam" then
-local inferred = param . type
-if inferred and inferred . kind == "tinfer" and inferred . pack then
-if j ~= # ( node . params or { } ) then
-c . diag ( "NUPP2132" , inferred , "an inferred parameter pack must be last" )
-end
-paramPackBinder = bindPackInfer ( inferred )
-elseif param . pack then
-c . diag ( "NUPP2132" , param , "a function pattern pack must use infer" )
-else
-children [ # children + 1 ] = compilePattern ( param . type , binders )
-end
-end
-end
-local paramCount = # children
-for j , result in ipairs ( node . rets or { } ) do
-if result . kind == "tinfer" and result . pack then
-if j ~= # ( node . rets or { } ) then
-c . diag ( "NUPP2132" , result , "an inferred result pack must be last" )
-end
-retPackBinder = bindPackInfer ( result )
-else
-children [ # children + 1 ] = compilePattern ( result , binders )
-end
-end
-return T . matchPattern ( "func" , nil , nil , children , nil , nil , paramCount , paramPackBinder , retPackBinder )
-elseif kind == "istring" then
-local parts = { }
-local previousHole = false
-for _ , child in ipairs ( node ) do
-if cst . isToken ( child ) then
-if child . kind == "istringOpen" or child . kind == "istringMid" then
-local literal = child . text : sub ( 2 , - 3 )
-parts [ # parts + 1 ] = literal
-if literal ~= "" then
-previousHole = false
-end
-elseif child . kind == "istringClose" then
-parts [ # parts + 1 ] = child . text : sub ( 2 , - 2 )
-end
-else
-local hole = compilePattern ( child , binders )
-if hole . kind ~= "infer" then
-c . diag ( "NUPP2132" , child , "template pattern holes must use infer" )
-end
-if previousHole then
-c . diag ( "NUPP2132" , child , "adjacent inferred template segments are ambiguous" )
-end
-parts [ # parts + 1 ] = hole
-previousHole = true
-end
-end
-return T . matchPattern ( "template" , nil , nil , nil , parts )
-end
-
-return T . matchPattern ( "ordinary" , nil , c . resolveType ( node ) )
 end
 
 
@@ -26880,37 +26804,169 @@ if not node then
 return T . any
 end
 local kind = node . kind
-if kind == "tmatch" then
-recursiveBlockedDepth = recursiveBlockedDepth + 1
-local scrutinee = c . resolveType ( node . scrutinee )
-recursiveBlockedDepth = recursiveBlockedDepth - 1
-local arms = { }
-for _ , child in ipairs ( node . arms or { } ) do
-if child . kind == "tmatchArm" then
-c . pushScope ( )
-recursiveBlockedDepth = recursiveBlockedDepth + 1
-local pattern = compilePattern ( child . pattern , { } )
-recursiveBlockedDepth = recursiveBlockedDepth - 1
-recursiveArmDepth = recursiveArmDepth + 1
-local result = c . resolveType ( child . result )
-recursiveArmDepth = recursiveArmDepth - 1
-c . popScope ( )
-arms [ # arms + 1 ] = T . matchArm ( pattern , result )
+if kind == "ttypecall" then
+local callee = node . callee
+local calleeName = callee and callee . kind == "tname" and callee or nil
+local calleeParts , calleeToken = { } , nil
+for _ , child in ipairs ( calleeName or { } ) do
+if cst . isToken ( child ) and child . kind == "name" then
+calleeParts [ # calleeParts + 1 ] = child . text
+calleeToken = child
 end
 end
-recursiveArmDepth = recursiveArmDepth + 1
-local fallback = node . fallback and c . resolveType ( node . fallback ) or T . never
-recursiveArmDepth = recursiveArmDepth - 1
-arms [ # arms + 1 ] = T . matchArm ( T . matchPattern ( "default" ) , fallback )
-local term = T . neutral ( "match" , scrutinee , nil , nil , nil , nil , nil , nil , nil , nil , node . each , arms )
-local reduced , reductionError = generics . reduce ( term , { } , c . reducerMemo )
-if reductionError then
-c . diag ( "NUPP2132" , node , reductionError )
+local name = table . concat ( calleeParts , "." )
+local helper = name ~= "" and c . comptimeFunctions [ name ] or nil
+local helperType , helperDefinition = nil , nil
+if helper then
+helperType , helperDefinition = c . lookupVar ( name )
+helperType = helperType or helper . comptimeSignature
+elseif # calleeParts > 1 and c . env and c . env . resolveModuleExports then
+local member = table . remove ( calleeParts )
+local moduleName = table . concat ( calleeParts , "." )
+if # calleeParts == 1 then
+local holder = c . lookupEntry ( calleeParts [ 1 ] )
+if holder and holder . requiredModule then moduleName = holder . requiredModule end
 end
-return reduced
-elseif kind == "tinfer" then
-c . diag ( "NUPP2132" , node , "infer is only valid inside a type-match pattern" )
+local exports = c . env . resolveModuleExports ( c . env , moduleName )
+helper = exports and exports . comptimeFunctions and exports . comptimeFunctions [ member ] or nil
+helperType = helper and helper . signature or nil
+helperDefinition = helper and helper . definition or nil
+end
+if not helper then
+c . diag ( "NUPP2421" , callee or node , "a type-position call must name a checked @comptime function" )
 return T . any
+end
+if calleeToken then
+c . markToken ( calleeToken , helperDefinition or helper . name , helperType or T . type_ , "function" )
+end
+if not helperType or helperType . tag ~= "func" then
+c . diag ( "NUPP2421" , callee or node , "a type-position call must resolve to a checked function signature" )
+return T . any
+end
+local body = helper . body
+local params = body and body . params or { }
+local parameterCount = # ( helperType . params or { } )
+if parameterCount ~= # ( node . arguments or { } ) then
+c . diag (
+"NUPP2421" ,
+node ,
+( "type function %q expects %d argument%s, got %d" ) : format (
+name ,
+parameterCount ,
+parameterCount == 1 and "" or "s" ,
+# ( node . arguments or { } )
+)
+)
+return T . any
+end
+local arguments = { }
+local deferredArguments = { }
+local open = false
+for position , argumentNode in ipairs ( node . arguments or { } ) do
+local parameter = params [ position ]
+local expected = helperType . params [ position ]
+if expected == T . type_ or expected . tag == "typeHandle" then
+local supplied = c . resolveType ( argumentNode )
+if expected . tag == "typeHandle" then
+local fits , why = relations . isA ( supplied , expected . bound )
+if not fits then
+c . diag ( "NUPP2421" , argumentNode , "type-function type argument violates its bound: " .. ( why or "not satisfied" ) )
+return T . any
+end
+end
+arguments [ position ] = { kind = "type" , value = supplied }
+deferredArguments [ position ] = {
+kind = "type" , value = supplied ,
+}
+open = open or T . hasTypevar ( supplied ) or T . hasProjection ( supplied ) or supplied . tag == "neutral"
+elseif expected == T . typepack then
+local packNode = argumentNode
+while packNode . kind == "tparen" and packNode . inner
+and ( packNode . inner . kind == "tpack" or packNode . inner . kind == "tpackUnion" ) do
+packNode = packNode . inner
+end
+local suppliedPack = c . resolvePack ( packNode )
+arguments [ position ] = { kind = "typepack" , value = suppliedPack }
+deferredArguments [ position ] = {
+kind = "typepack" , value = suppliedPack ,
+}
+local wrapped = T . packResult ( suppliedPack )
+open = open or T . hasTypevar ( wrapped ) or T . hasProjection ( wrapped )
+for _ , member in ipairs ( suppliedPack . head or { } ) do
+open = open or member . tag == "neutral"
+end
+elseif expected == T . string or expected == T . boolean or expected == T . integer then
+local supplied = c . resolveType ( argumentNode )
+local term = consteval . fromType ( supplied )
+local reduced , constFailure = nil , nil
+if term then reduced , constFailure = consteval . reduce ( term ) end
+local domain = reduced and ( reduced . tag == "constLiteral" or reduced . tag == "constVar" )
+and reduced . domain or nil
+if constFailure or not reduced or domain ~= expected . tag then
+c . diag ( "NUPP2421" , argumentNode , "a scalar type-function argument must be a literal or const binder in its declared domain" )
+return T . any
+end
+if reduced . tag == "constLiteral" then
+arguments [ position ] = { kind = "value" , value = reduced . value }
+else
+open = true
+end
+deferredArguments [ position ] = {
+kind = "const" , value = reduced ,
+}
+else
+c . diag ( "NUPP2421" , parameter and ( parameter . type or parameter ) or node , "type-function parameters must be type, typepack, string, boolean, or integer" )
+return T . any
+end
+end
+local declared = helperType . rets [ 1 ] or T . any
+if declared ~= T . type_ and declared ~= T . typepack and declared . tag ~= "typeHandle" then
+c . diag ( "NUPP2421" , body and body . rets and body . rets [ 1 ] or body or node , "a type-position @comptime function must return type or typepack" )
+return T . any
+end
+if open then
+local identity = require ( "nupp.compiler.comptime" )
+. typeFunctionProgram ( helper , c . comptimeFunctions ) . identity
+local term = T . comptimeCall (
+identity ,
+helper ,
+deferredArguments ,
+declared . tag == "typeHandle" and declared . bound or T . unknown ,
+declared == T . typepack
+)
+node . resolvedType = term
+return term
+end
+local result , evaluationFailure
+if c . typeFunctionEvaluator then
+result , evaluationFailure = c . typeFunctionEvaluator ( helper , arguments , c . comptimeFunctions )
+end
+if not result then
+c . diag (
+evaluationFailure and evaluationFailure . code or "NUPP2412" ,
+node ,
+evaluationFailure and evaluationFailure . message or "type-function evaluation failed"
+)
+return T . any
+end
+if declared == T . type_ and result . tag == "pack" or declared == T . typepack and result . tag ~= "pack" then
+c . diag ( "NUPP2421" , node , "type-function result does not match its declared type or typepack kind" )
+return T . any
+end
+if declared == T . typepack then
+local wrapped = T . packResult ( result )
+node . resolvedType = wrapped
+return wrapped
+end
+if declared . tag == "typeHandle" then
+local fits , why = relations . isA ( result , declared . bound )
+if not fits then
+c . diag ( "NUPP2421" , node , "generated type violates its declared result bound: " .. ( why or "not satisfied" ) )
+return T . any
+end
+end
+node . resolvedType = result
+return result
 elseif kind == "tname" then
 local base = node . base
 if not base then
@@ -27094,6 +27150,17 @@ local name = base . text
 if name == "ctype" and node . typeArgs and node . typeArgs [ 1 ] then
 return T . ctype ( c . resolveType ( node . typeArgs [ 1 ] ) )
 end
+if name == "type" and node . typeArgs then
+if ( c . comptimeDepth or 0 ) == 0 and ( c . comptimeFunctionDepth or 0 ) == 0 then
+c . diag ( "NUPP2421" , node , "type<Bound> is a compiler-only result type" )
+return T . any
+end
+if # node . typeArgs ~= 1 then
+c . diag ( "NUPP2421" , node , "type<Bound> needs exactly one result bound" )
+return T . typeHandle ( T . unknown )
+end
+return T . typeHandle ( c . resolveType ( node . typeArgs [ 1 ] ) )
+end
 if name == "metatable" and node . typeArgs and node . typeArgs [ 1 ] then
 return T . metatable ( c . resolveType ( node . typeArgs [ 1 ] ) )
 end
@@ -27126,21 +27193,8 @@ end
 
 local resolving = c . resolvingAlias [ name ]
 if resolving then
-if c . activeAlias ~= resolving then
-c . diag (
-"NUPP2133" ,
-node ,
-(
-"mutually recursive aliases are not supported: %s refers to %s"
-) : format ( c . activeAlias and c . activeAlias . name or "an alias" , name )
-)
+c . diag ( "NUPP2133" , node , ( "recursive type alias %q is not supported" ) : format ( name ) )
 return T . any
-elseif recursiveArmDepth == 0 or recursiveBlockedDepth > 0 then
-c . diag ( "NUPP2133" , node , ( "recursive reference to %q must appear beneath a match arm" ) : format ( name ) )
-return T . any
-end
-c . markToken ( base , resolving . definition , nil , "type" )
-return recursiveAliasCall ( resolving . header , node )
 end
 
 local t , def , lookupErr , moduleName , visibility , conflicts = T . builtins [ name ] , nil
@@ -27150,6 +27204,15 @@ end
 c . markToken ( base , def , t , def and def . kind or "type" )
 t = applyTypeArgs ( t , node )
 if t then
+if ( t == T . type_ or t == T . typepack or t . tag == "typeHandle" ) and ( c . comptimeDepth or 0 ) == 0
+and ( c . comptimeFunctionDepth or 0 ) == 0 then
+c . diag (
+"NUPP2421" ,
+node ,
+( "%s is a compiler-only value type and is available only inside comptime" ) : format ( name )
+)
+return T . any
+end
 
 
 if t . tag == "nominal" and t . declKind == "struct" then
@@ -27250,17 +27313,15 @@ return T . literal ( text : sub ( 2 , - 2 ) , T . string )
 elseif kind == "tkeyof" then
 local subject = c . resolveType ( node . inner )
 local term = T . neutral ( "keyof" , subject , nil , node . capability )
-local reduced , reductionError = generics . reduce ( term , { } , c . reducerMemo )
+local reduced , reductionError = generics . reduce ( term , { } , c . reducerMemo , c . reductionControl )
 if reductionError then
 c . diag ( "NUPP2130" , node , reductionError )
 end
 return reduced
-elseif kind == "ttypeerror" then
-return T . neutral ( "typeError" , c . resolveType ( node . message ) )
 elseif kind == "tmember" then
 local subject , key = c . resolveType ( node . object ) , c . resolveType ( node . key )
 local term = T . neutral ( "member" , subject , key , "read" )
-local reduced , reductionError = generics . reduce ( term , { } , c . reducerMemo )
+local reduced , reductionError = generics . reduce ( term , { } , c . reducerMemo , c . reductionControl )
 if reductionError then
 c . diag ( "NUPP2130" , node , reductionError )
 end
@@ -27273,7 +27334,7 @@ return T . any
 end
 local subject , key = c . resolveType ( indexed . object ) , c . resolveType ( indexed . key )
 local term = T . neutral ( "member" , subject , key , "write" )
-local reduced , reductionError = generics . reduce ( term , { } , c . reducerMemo )
+local reduced , reductionError = generics . reduce ( term , { } , c . reducerMemo , c . reductionControl )
 if reductionError then
 c . diag ( "NUPP2130" , node , reductionError )
 end
@@ -27364,9 +27425,7 @@ return T . indexer ( nil , nil , key , value )
 end
 return T . map ( key , value )
 elseif kind == "tmapped" then
-recursiveBlockedDepth = recursiveBlockedDepth + 1
 local keys = c . resolveType ( node . keys )
-recursiveBlockedDepth = recursiveBlockedDepth - 1
 local binderToken = node . binder
 if not binderToken then
 return T . any
@@ -27375,13 +27434,11 @@ c . pushScope ( )
 local binder = c . typevarAt ( binderToken , "mapped" )
 c . bindType ( binderToken . text , binder , binderToken )
 local value = c . resolveType ( node . value )
-recursiveBlockedDepth = recursiveBlockedDepth + 1
 local remap = node . remap and c . resolveType ( node . remap ) or nil
-recursiveBlockedDepth = recursiveBlockedDepth - 1
 c . popScope ( )
 local capability = node . capability and node . capability . propertyCapability or "read"
 local term = T . neutral ( "mapped" , nil , nil , capability , binder , keys , value , remap )
-local reduced , reductionError = generics . reduce ( term , { } , c . reducerMemo )
+local reduced , reductionError = generics . reduce ( term , { } , c . reducerMemo , c . reductionControl )
 if reductionError then
 c . diag ( "NUPP2130" , node , reductionError )
 end
@@ -27413,7 +27470,7 @@ parts [ # parts + 1 ] = hole
 end
 end
 local term = T . neutral ( "template" , nil , nil , nil , nil , nil , nil , nil , nil , parts )
-local reduced , reductionError = generics . reduce ( term , { } , c . reducerMemo )
+local reduced , reductionError = generics . reduce ( term , { } , c . reducerMemo , c . reductionControl )
 if reductionError then
 c . diag ( "NUPP2132" , node , reductionError )
 end
@@ -27431,7 +27488,7 @@ local term = T . neutral ( "tupleConcat" , prefix , c . resolveType ( node . tai
 if T . hasTypevar ( term ) then
 return term
 end
-local reduced , reductionError = generics . reduce ( term , { } , c . reducerMemo )
+local reduced , reductionError = generics . reduce ( term , { } , c . reducerMemo , c . reductionControl )
 if reductionError then
 c . diag ( "NUPP2132" , node . tail , reductionError )
 end
@@ -27695,19 +27752,12 @@ if decl and decl . generics then
 c . pushScope ( )
 typeParams , typeBounds , packParams , constParams , paramKinds = c . bindGenerics ( decl . generics , "type-alias" )
 end
-local identity = ( c . filename or "<source>" ) .. ":" .. tostring ( waiting . tok . offset ) .. ":" .. name
-local header = T . aliasHeader ( identity , name , typeParams , typeBounds , packParams , constParams , paramKinds )
-local context = { name = name , header = header , definition = c . scope . typeDefs [ name ] or owner . typeDefs [ name ] }
-local previousActive = c . activeAlias
-c . resolvingAlias [ name ] = context
-c . activeAlias = context
+c . resolvingAlias [ name ] = true
 local body = c . resolveType ( waiting . node )
-header . body = body
-c . activeAlias = previousActive
 c . resolvingAlias [ name ] = nil
 if decl and decl . generics then
 c . popScope ( )
-t = T . genericAlias ( name , body , typeParams , typeBounds , packParams , constParams , paramKinds , header )
+t = T . genericAlias ( name , body , typeParams , typeBounds , packParams , constParams , paramKinds )
 else
 t = body
 end
@@ -27817,7 +27867,15 @@ local state = { }
 
 
 
+
+
 state.Checker = {} state.Checker.__index = state.Checker
+
+
+
+
+
+
 
 
 
@@ -28784,6 +28842,12 @@ local worker = require ( "nupp.compiler.comptime_worker" )
 
 
 return worker . main ( rest )
+elseif name == "__comptime-worker-service" then
+local worker = require ( "nupp.compiler.comptime_worker" )
+
+
+
+return worker . serviceMain ( )
 elseif name == "__lsp-reader" then
 local server = require ( "nupp.compiler.lsp.init" )
 
@@ -34061,8 +34125,13 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 local cst = require ( "nupp.compiler.cst" )
 local T = require ( "nupp.compiler.types" )
 local materializeProviders = require ( "nupp.compiler.materialize.providers" )
+local reflection = require ( "nupp.compiler.reflection" )
+local hash = require ( "nupp.compiler.build.hash" )
 
 const comptime = {} comptime.__index = comptime
+
+
+
 
 
 
@@ -34076,6 +34145,93 @@ local MAX_STEPS = 100000
 local MAX_CALL_DEPTH = 128
 local MAX_RESULT_BYTES = 512 * 1024
 local MAX_RESULT_ITEMS = 10000
+
+local function canonicalNode ( node )
+local tokens = node and node or { }
+local parts = { }
+local function visit ( value )
+if cst . isToken ( value ) then
+parts [ # parts + 1 ] = value . kind .. ":" .. tostring ( # value . text ) .. ":" .. value . text
+elseif type ( value ) == "table" then
+for _ , child in ipairs ( value ) do visit ( child ) end
+end
+end
+visit ( tokens )
+return table . concat ( parts , "\0" )
+end
+
+
+
+
+function comptime . typeFunctionProgram ( helper , helpers )
+if helper and helper . sealedTypeFunction then return helper end
+local reachable , visiting = { } , { }
+local function collect ( current )
+if not current or visiting [ current ] then return end
+visiting [ current ] = true
+local names = { }
+local function scan ( value )
+if type ( value ) ~= "table" or cst . isToken ( value ) then return end
+if value . kind == "name" and value . token and helpers [ value . token . text ] then
+names [ value . token . text ] = true
+end
+for _ , child in ipairs ( value ) do scan ( child ) end
+end
+scan ( current . body or current )
+for name in pairs ( names ) do
+local dependency = helpers [ name ]
+if dependency and dependency ~= current then
+reachable [ name ] = dependency
+collect ( dependency )
+end
+end
+end
+collect ( helper )
+local names , parts = { } , { "nupp.type-function\0v1" , canonicalNode ( helper ) }
+for name in pairs ( reachable ) do names [ # names + 1 ] = name end
+table . sort ( names )
+for _ , name in ipairs ( names ) do
+parts [ # parts + 1 ] = name
+parts [ # parts + 1 ] = canonicalNode ( reachable [ name ] )
+end
+return {
+identity = hash . sha256 ( table . concat ( parts , "\0" ) ) ,
+helper = helper ,
+helpers = reachable ,
+}
+end
+
+function comptime . sealTypeFunction ( helper , helpers , signature , definition )
+local program = comptime . typeFunctionProgram ( helper , helpers )
+local mainName = helper and ( helper . comptimeName or helper . name and helper . name . text ) or ""
+local serialized = { }
+local function add ( name , node )
+local token = node and node . name
+if token then
+local source = cst . textOf ( node )
+if node . kind == "funcStmt" then
+source = source : gsub (
+"^([%s]*)function%s+[%w_%.]+" ,
+"%1local function " .. name ,
+1
+)
+end
+serialized [ name ] = {
+source = source , line = token . line , column = token . col ,
+}
+end
+end
+add ( mainName , helper )
+for name , dependency in pairs ( program . helpers or { } ) do add ( name , dependency ) end
+return {
+sealedTypeFunction = true ,
+identity = program . identity ,
+main = mainName ,
+serializedHelpers = serialized ,
+signature = signature ,
+definition = definition ,
+}
+end
 
 
 
@@ -34748,7 +34904,11 @@ local left = evalExpr ( state , node . lhs )
 if materializeProviders . isOpaque ( state , left ) then
 fail ( "NUPP2411" , node , "logical operators cannot observe an opaque comptime value" )
 end
-answer = left and evalExpr ( state , node . rhs ) or left
+if left then
+answer = evalExpr ( state , node . rhs )
+else
+answer = left
+end
 elseif op == "or" then
 local left = evalExpr ( state , node . lhs )
 if materializeProviders . isOpaque ( state , left ) then
@@ -35188,7 +35348,11 @@ stat ,
 "return a table holding them, until multi-value results are specified"
 )
 end
-state . result = # exprs == 1 and evalExpr ( state , exprs [ 1 ] ) or nil
+if # exprs == 1 then
+state . result = evalExpr ( state , exprs [ 1 ] )
+else
+state . result = nil
+end
 state . returned = true
 error ( RETURN , 0 )
 elseif kind == "breakStmt" then
@@ -35468,6 +35632,117 @@ end
 
 
 
+function comptime . evaluateTypeFunctionDirect ( helper , arguments , helpers )
+if helper and helper . sealedTypeFunction then
+local parsedHelpers = { }
+local function findLocalFunction ( value )
+if type ( value ) ~= "table" then return nil end
+if value . kind == "localFuncStmt" then return value end
+for _ , child in ipairs ( value ) do
+local found = findLocalFunction ( child )
+if found then return found end
+end
+return nil
+end
+for helperName , descriptor in pairs ( helper . serializedHelpers or { } ) do
+local parsed = type ( descriptor ) == "table" and type ( descriptor . source ) == "string"
+and require ( "nupp.compiler.parser" ) . parse (
+descriptor . source ,
+"=comptime-helper-" .. helperName
+) or nil
+local node = parsed and # ( parsed . errors or { } ) == 0
+and findLocalFunction ( parsed . root ) or nil
+if not node or not node . name or node . name . text ~= helperName then
+return nil , {
+code = "NUPP2412" ,
+message = "cannot load sealed comptime helper " .. helperName ,
+}
+end
+parsedHelpers [ helperName ] = {
+node = node , line = descriptor . line , column = descriptor . column ,
+}
+end
+local main = parsedHelpers [ helper . main ]
+if not main then
+return nil , {
+code = "NUPP2412" , message = "sealed type function has no entry helper" ,
+}
+end
+helper , helpers = main . node , parsedHelpers
+end
+local node = helper and helper . body or helper
+local name = helper and helper . name and helper . name . text or ""
+if not node or name == "" then
+return nil , { code = "NUPP2412" , message = "type function has no checked body" }
+end
+local state = newState ( )
+local env , libraries = buildEnvironment ( state )
+state . env , state . libraries = env , libraries
+local available = { }
+for helperName , supplied in pairs ( helpers or { } ) do available [ helperName ] = supplied end
+available [ name ] = helper
+installComptimeFunctions ( state , env , available )
+state . scope = scope ( nil )
+local values = { n = # arguments }
+for position , argument in ipairs ( arguments ) do
+if argument . kind == "type" or argument . kind == "typepack" then
+local descriptor = argument . descriptor or reflection . describe ( argument . value , nil , true )
+local handle , importFailure = materializeProviders . importTypeDescriptor (
+state ,
+descriptor ,
+argument . value ,
+"argument" .. tostring ( position )
+)
+if not handle then
+return nil , {
+code = importFailure and importFailure . code or "NUPP2415" ,
+node = helper ,
+message = importFailure and importFailure . message or "cannot import a type-function argument" ,
+}
+end
+values [ position ] = handle
+else
+values [ position ] = argument . value
+end
+end
+local token = env [ name ]
+local ok , produced = pcall ( callValues , state , helper , token , values )
+if not ok then
+if type ( produced ) == "table" and produced [ FAILURE ] then
+return nil , produced
+end
+return nil , { code = "NUPP2412" , node = helper , message = tostring ( produced ) }
+end
+local value = produced [ 1 ]
+if not materializeProviders . isOpaque ( state , value ) then
+return nil , {
+code = "NUPP2415" ,
+node = helper ,
+message = "a type function must return a type or type-pack handle" ,
+}
+end
+local envelope , finalFailure = materializeProviders . finalize ( state , value )
+if not envelope then
+return nil , {
+code = finalFailure and finalFailure . code or "NUPP2415" ,
+node = helper ,
+message = finalFailure and finalFailure . message or "cannot finalize a type-function result" ,
+help = finalFailure and finalFailure . help or nil ,
+}
+end
+if envelope . provider ~= "types" then
+return nil , {
+code = "NUPP2415" ,
+node = helper ,
+message = "a type function returned a non-type compiler blueprint" ,
+}
+end
+return envelope , nil
+end
+
+
+
+
 
 function comptime . evaluate (
 node ,
@@ -35554,6 +35829,8 @@ const worker = {} worker.__index = worker
 
 
 
+
+
 cjson . encode_empty_table_as_object ( false )
 cjson . encode_invalid_numbers ( false )
 
@@ -35579,6 +35856,17 @@ file : write ( text )
 file : close ( )
 
 return true
+end
+
+local function serializedHelper ( node )
+node = node and ( node . node or node )
+local token = node and node . name
+if not node or node . kind ~= "localFuncStmt" or not token then return nil end
+return {
+source = require ( "nupp.compiler.cst" ) . textOf ( node ) ,
+line = token . line ,
+column = token . col ,
+}
 end
 
 local function findComptime ( node )
@@ -35615,6 +35903,106 @@ end
 return nil
 end
 
+local parsedPrograms = { }
+
+local function parseHelpers ( request )
+if type ( request . program ) ~= "string" or type ( request . main ) ~= "string"
+or type ( request . helpers ) ~= "table" then
+return nil , { code = "NUPP2412" , message = "invalid type-function worker program" }
+end
+local cached = parsedPrograms [ request . program ]
+if cached then return cached , nil end
+local helpers = { }
+for name , descriptor in pairs ( request . helpers ) do
+if type ( name ) ~= "string" or type ( descriptor ) ~= "table"
+or type ( descriptor . source ) ~= "string" then
+return nil , { code = "NUPP2412" , message = "invalid comptime helper request" }
+end
+local helperParse = require ( "nupp.compiler.parser" ) . parse (
+descriptor . source ,
+"=comptime-helper-" .. name
+)
+local helper = # ( helperParse . errors or { } ) == 0 and findLocalFunction ( helperParse . root ) or nil
+if not helper or not helper . name or helper . name . text ~= name then
+return nil , {
+code = "NUPP2412" ,
+message = "the comptime worker could not parse checked helper " .. name ,
+}
+end
+helpers [ name ] = { node = helper , line = descriptor . line , column = descriptor . column }
+end
+local main = helpers [ request . main ]
+if not main then
+return nil , { code = "NUPP2412" , message = "type-function worker program has no entry helper" }
+end
+cached = { main = main . node , helpers = helpers }
+parsedPrograms [ request . program ] = cached
+return cached , nil
+end
+
+local function handleRequest ( request )
+if type ( request ) ~= "table" then
+return { ok = false , code = "NUPP2412" , message = "invalid worker request" }
+end
+if request . kind == "type-function" then
+local program , programFailure = parseHelpers ( request )
+if not program then
+local stopped = programFailure or {
+code = "NUPP2412" , message = "type-function worker program could not be loaded" ,
+}
+return { ok = false , code = stopped . code , message = stopped . message }
+end
+local comptime = require ( "nupp.compiler.comptime" )
+
+
+local envelope , failure = comptime . evaluateTypeFunctionDirect (
+program . main ,
+request . arguments or { } ,
+program . helpers
+)
+if failure then
+return { ok = false , code = failure . code , message = failure . message , help = failure . help }
+end
+return { ok = true , materialized = envelope }
+end
+if type ( request . source ) ~= "string" then
+return { ok = false , code = "NUPP2412" , message = "invalid worker request" }
+end
+local parsed = require ( "nupp.compiler.parser" ) . parse ( "return " .. request . source , "=comptime-worker" )
+if # ( parsed . errors or { } ) > 0 then
+return { ok = false , code = "NUPP2412" , message = "the comptime worker could not parse its checked request" }
+end
+local node = findComptime ( parsed . root )
+if not node then
+return { ok = false , code = "NUPP2412" , message = "worker request has no comptime block" }
+end
+local helperRequest = { program = "value:" .. request . source , main = "" , helpers = request . helpers or { } }
+local helpers = { }
+for name , descriptor in pairs ( helperRequest . helpers ) do
+local helperParse = type ( descriptor ) == "table" and type ( descriptor . source ) == "string"
+and require ( "nupp.compiler.parser" ) . parse ( descriptor . source , "=comptime-helper-" .. name )
+or nil
+local helper = helperParse and # ( helperParse . errors or { } ) == 0
+and findLocalFunction ( helperParse . root ) or nil
+if not helper or not helper . name or helper . name . text ~= name then
+return { ok = false , code = "NUPP2412" , message = "invalid comptime helper request" }
+end
+helpers [ name ] = { node = helper , line = descriptor . line , column = descriptor . column }
+end
+local comptime = require ( "nupp.compiler.comptime" )
+
+
+local quoted , _ , failure , envelope = comptime . evaluateDirect (
+node , node . body , request . reflections , request . layouts , helpers
+)
+if failure then
+return { ok = false , code = failure . code , message = failure . message , help = failure . help }
+elseif envelope then
+return { ok = true , materialized = envelope }
+end
+return { ok = true , quoted = quoted }
+end
+
 
 function worker . main ( argv )
 local requestPath = argv [ 1 ]
@@ -35632,75 +36020,34 @@ io . write ( cjson . encode ( { ok = false , code = "NUPP2416" , message = "comp
 return 0
 end
 local decoded , request = pcall ( cjson . decode , requestText )
-if not decoded or type ( request ) ~= "table" or type ( request . source ) ~= "string" then
+if not decoded or type ( request ) ~= "table" then
 io . write ( cjson . encode ( { ok = false , code = "NUPP2412" , message = "invalid worker request" } ) , "\n" )
 return 0
 end
-local parsed = require ( "nupp.compiler.parser" ) . parse ( "return " .. request . source , "=comptime-worker" )
-if # ( parsed . errors or { } ) > 0 then
-io . write ( cjson . encode ( {
-ok = false ,
-code = "NUPP2412" ,
-message = "the comptime worker could not parse its checked request" ,
-} ) , "\n" )
-return 0
-end
-local node = findComptime ( parsed . root )
-if not node then
-io . write ( cjson . encode ( { ok = false , code = "NUPP2412" , message = "worker request has no comptime block" } ) , "\n" )
+io . write ( cjson . encode ( handleRequest ( request ) ) , "\n" )
+
 return 0
 end
 
-local helpers = { }
-for name , descriptor in pairs ( request . helpers or { } ) do
-if type ( name ) ~= "string" or type ( descriptor ) ~= "table"
-or type ( descriptor . source ) ~= "string" then
-io . write ( cjson . encode ( { ok = false , code = "NUPP2412" , message = "invalid comptime helper request" } ) , "\n" )
-return 0
-end
-local helperParse = require ( "nupp.compiler.parser" ) . parse (
-descriptor . source ,
-"=comptime-helper-" .. name
-)
-local helper = # ( helperParse . errors or { } ) == 0 and findLocalFunction ( helperParse . root ) or nil
-if not helper or not helper . name or helper . name . text ~= name then
-io . write ( cjson . encode ( {
-ok = false ,
-code = "NUPP2412" ,
-message = "the comptime worker could not parse checked helper " .. name ,
-} ) , "\n" )
-return 0
-end
-helpers [ name ] = {
-node = helper ,
-line = descriptor . line ,
-column = descriptor . column ,
-}
-end
-
-local comptime = require ( "nupp.compiler.comptime" )
 
 
-local quoted , _ , failure , envelope = comptime . evaluateDirect (
-node ,
-node . body ,
-request . reflections ,
-request . layouts ,
-helpers
-)
-if failure then
-io . write ( cjson . encode ( {
-ok = false ,
-code = failure . code ,
-message = failure . message ,
-help = failure . help ,
-} ) , "\n" )
-elseif envelope then
-io . write ( cjson . encode ( { ok = true , materialized = envelope } ) , "\n" )
+function worker . serviceMain ( )
+for requestText in io . lines ( ) do
+local response
+if # requestText > MAX_PROTOCOL_BYTES then
+response = { ok = false , code = "NUPP2416" , message = "comptime worker request exceeds 2097152 bytes" }
 else
-io . write ( cjson . encode ( { ok = true , quoted = quoted } ) , "\n" )
+local decoded , request = pcall ( cjson . decode , requestText )
+response = decoded and handleRequest ( request )
+or { ok = false , code = "NUPP2412" , message = "invalid worker request" }
 end
-
+local encoded = cjson . encode ( response )
+if # encoded > MAX_PROTOCOL_BYTES then
+encoded = cjson . encode ( { ok = false , code = "NUPP2416" , message = "comptime worker response exceeds 2097152 bytes" } )
+end
+io . write ( encoded , "\n" )
+io . stdout : flush ( )
+end
 return 0
 end
 
@@ -35717,15 +36064,7 @@ host
 local requestPath = os . tmpname ( )
 local serializedHelpers = { }
 for name , supplied in pairs ( helpers or { } ) do
-local node = supplied . node or supplied
-local token = node and node . name
-if node and node . kind == "localFuncStmt" and token then
-serializedHelpers [ name ] = {
-source = require ( "nupp.compiler.cst" ) . textOf ( node ) ,
-line = token . line ,
-column = token . col ,
-}
-end
+serializedHelpers [ name ] = serializedHelper ( supplied )
 end
 local requestText = cjson . encode ( {
 source = source ,
@@ -35788,6 +36127,132 @@ return nil , nil , response . materialized
 end
 
 return response . quoted , nil , nil
+end
+
+local service = nil
+local serviceExecutable = nil
+local serviceBuffer = ""
+
+local function stopService ( force )
+local current = service
+service , serviceExecutable , serviceBuffer = nil , nil , ""
+if not current then return end
+if force and current : isRunning ( ) then current : kill ( true ) end
+current : close ( )
+end
+
+local function startService ( executable )
+if service and serviceExecutable == executable and service : isRunning ( ) then return service , nil end
+stopService ( true )
+local child , problem = process . startIsolated (
+{ executable , "__comptime-worker-service" } ,
+{ env = { NUPP_COMPTIME_WORKER_CHILD = "1" } , memoryMb = 256 }
+)
+if not child or not child . stdin or not child . stdout then
+if child then child : close ( ) end
+return nil , { code = "NUPP2412" , message = "cannot start comptime worker service: " .. tostring ( problem ) }
+end
+child . stdin : setTimeout ( 2000 )
+child . stdout : setTimeout ( 5 )
+do
+service = child
+end
+serviceExecutable = executable
+return service , nil
+end
+
+local function requestService ( request , executable , host )
+local encoded = cjson . encode ( request )
+if # encoded > MAX_PROTOCOL_BYTES then
+return nil , { code = "NUPP2416" , message = "comptime worker request exceeds 2097152 bytes" }
+end
+local child , startFailure = startService ( executable )
+if not child then return nil , startFailure end
+local wrote , writeFailure = child . stdin : write ( encoded .. "\n" )
+if not wrote then
+stopService ( true )
+return nil , { code = "NUPP2412" , message = "comptime worker service stopped accepting requests: " .. tostring ( writeFailure ) }
+end
+local deadline = child . backend : now ( ) + 2000
+while true do
+local newline = serviceBuffer : find ( "\n" , 1 , true )
+if newline then
+local line = serviceBuffer : sub ( 1 , newline - 1 )
+serviceBuffer = serviceBuffer : sub ( newline + 1 )
+if # line > MAX_PROTOCOL_BYTES then
+stopService ( true )
+return nil , { code = "NUPP2416" , message = "comptime worker response exceeds 2097152 bytes" }
+end
+local decoded , response = pcall ( cjson . decode , line )
+if not decoded or type ( response ) ~= "table" then
+stopService ( true )
+return nil , { code = "NUPP2412" , message = "comptime worker service returned an invalid response" }
+end
+return response , nil
+end
+if host and host . pump then host . pump ( ) end
+if host and host . cancelled and host . cancelled ( ) then
+stopService ( true )
+return nil , { code = "NUPP2412" , message = "comptime evaluation was cancelled" }
+end
+if child . backend : now ( ) >= deadline then
+stopService ( true )
+return nil , {
+code = "NUPP2412" ,
+message = "comptime evaluation exceeded the 2000 ms worker timeout" ,
+help = "make the computation smaller or move the unbounded work to run time" ,
+}
+end
+local chunk , readFailure = child . stdout : read ( 65536 )
+if chunk and # chunk > 0 then
+serviceBuffer = serviceBuffer .. chunk
+if # serviceBuffer > MAX_PROTOCOL_BYTES then
+stopService ( true )
+return nil , { code = "NUPP2416" , message = "comptime worker response exceeds 2097152 bytes" }
+end
+elseif not child : isRunning ( ) or child . stdout : isEOF ( ) then
+stopService ( true )
+return nil , {
+code = "NUPP2412" ,
+message = "the persistent comptime worker crashed: " .. tostring ( readFailure or "unexpected EOF" ) ,
+}
+end
+end
+end
+
+
+function worker . evaluateTypeFunction (
+program ,
+arguments ,
+executable ,
+host
+)
+local main = program . helper
+local mainName = program . main or main and main . name and main . name . text or nil
+if not mainName then
+return nil , { code = "NUPP2412" , message = "type function has no named program entry" }
+end
+local helpers = program . serializedHelpers or { }
+if not program . serializedHelpers then
+helpers [ mainName ] = serializedHelper ( main )
+for name , helper in pairs ( program . helpers or { } ) do helpers [ name ] = serializedHelper ( helper ) end
+end
+local response , protocolFailure = requestService ( {
+kind = "type-function" ,
+program = program . identity ,
+main = mainName ,
+helpers = helpers ,
+arguments = arguments ,
+} , executable , host )
+if not response then return nil , protocolFailure end
+if not response . ok then
+return nil , {
+code = response . code or "NUPP2412" ,
+message = response . message or "comptime type-function evaluation failed" ,
+help = response . help ,
+}
+end
+return response . materialized , nil
 end
 
 return worker
@@ -37295,6 +37760,12 @@ cst.FuncStmt = {} cst.FuncStmt.__index = cst.FuncStmt
 
 
 
+
+
+
+
+
+
 cst.Funcname = {} cst.Funcname.__index = cst.Funcname
 
 
@@ -38400,53 +38871,7 @@ cst.Tkeyof = {} cst.Tkeyof.__index = cst.Tkeyof
 
 
 
-cst.Ttypeerror = {} cst.Ttypeerror.__index = cst.Ttypeerror
-
-
-
-
-
-
-
-
 cst.Twriteof = {} cst.Twriteof.__index = cst.Twriteof
-
-
-
-
-
-
-
-
-cst.Tinfer = {} cst.Tinfer.__index = cst.Tinfer
-
-
-
-
-
-
-
-
-
-
-cst.TmatchArm = {} cst.TmatchArm.__index = cst.TmatchArm
-
-
-
-
-
-
-
-
-
-
-cst.Tmatch = {} cst.Tmatch.__index = cst.Tmatch
-
-
-
-
-
-
 
 
 
@@ -38470,6 +38895,17 @@ cst.Tname = {} cst.Tname.__index = cst.Tname
 
 
 
+
+
+
+
+
+
+
+
+
+
+cst.Ttypecall = {} cst.Ttypecall.__index = cst.Ttypecall
 
 
 
@@ -42834,7 +43270,6 @@ cdef = true ,
 comptime = true ,
 constructor = true ,
 continue = true ,
-each = true ,
 exclusive = true ,
 from = true ,
 takes = true ,
@@ -42842,10 +43277,8 @@ const = true ,
 global = true ,
 interface = true ,
 handle = true ,
-infer = true ,
 [ "is" ] = true ,
 keyof = true ,
-match = true ,
 satisfies = true ,
 [ "new" ] = true ,
 nosuspend = true ,
@@ -42855,9 +43288,7 @@ record = true ,
 metamethod = true ,
 scoped = true ,
 suspension = true ,
-typeerror = true ,
 unpackof = true ,
-when = true ,
 where = true ,
 with = true ,
 writekeyof = true ,
@@ -45799,6 +46230,15 @@ local envMod = { }
 
 
 
+
+
+
+
+
+
+
+
+
 local modulePatterns = {
 "/%s.d.nupp" ,
 "/%s.nupp" ,
@@ -46383,6 +46823,19 @@ cacheMod . toolFingerprint ( )
 return env . formatStore
 end
 
+function envMod . typeFunctionStore ( env )
+if env . typeFunctionStoreOpened then return env . typeFunctionStore end
+env . typeFunctionStoreOpened = true
+if env . cacheDisabled then return nil end
+local storeMod = require ( "nupp.compiler.build.store" )
+local cacheMod = require ( "nupp.compiler.build.cache" )
+env . typeFunctionStore = storeMod . open (
+( env . cacheDir or ( outDirFor ( env ) .. "/cache" ) ) .. "/type-functions.buf" ,
+cacheMod . toolFingerprint ( )
+)
+return env . typeFunctionStore
+end
+
 
 
 function envMod . persist ( env )
@@ -46391,6 +46844,9 @@ env . headerStore . save ( )
 end
 if env . formatStore then
 env . formatStore . save ( )
+end
+if env . typeFunctionStore then
+env . typeFunctionStore . save ( )
 end
 end
 
@@ -46516,7 +46972,7 @@ return findModulePath ( env , name , runtimeModulePatterns )
 end
 
 local function seededExports ( env , path )
-local exports = { types = { } , typeDefs = { } , values = { } , valueDefs = { } }
+local exports = { types = { } , typeDefs = { } , values = { } , valueDefs = { } , comptimeFunctions = { } }
 path = normalizePath ( path )
 local entries = env . projectPathEntries and env . projectPathEntries (
 env ,
@@ -46815,7 +47271,7 @@ end
 function envMod . new ( rootDir , opts )
 rootDir = rootDir or "."
 local env = { globals = { } , globalTypes = { } , globalTypeDefs = { } , annotations = annotationMod . new ( ) , loaded = { } , loadedPaths = { } , bundled = { } ,
-resolveModule = envMod . resolveModule , resolveModuleExports = envMod . resolveModuleExports , resolveProjectType = envMod . resolveProjectType , resolveProjectValue = envMod . resolveProjectValue , resolveProjectAnnotation = envMod . resolveProjectAnnotation , resolveQualifiedType = envMod . resolveQualifiedType , exportedNominal = envMod . exportedNominal , modulesNamed = envMod . modulesNamed , modulesExporting = envMod . modulesExporting , declarationType = envMod . declarationType , moduleNameForPath = envMod . moduleNameForPath , ensureProjectIndex = envMod . ensureProjectIndex , rootDir = rootDir ,
+resolveModule = envMod . resolveModule , resolveModuleExports = envMod . resolveModuleExports , resolveProjectType = envMod . resolveProjectType , resolveProjectValue = envMod . resolveProjectValue , resolveProjectAnnotation = envMod . resolveProjectAnnotation , resolveQualifiedType = envMod . resolveQualifiedType , exportedNominal = envMod . exportedNominal , modulesNamed = envMod . modulesNamed , modulesExporting = envMod . modulesExporting , declarationType = envMod . declarationType , moduleNameForPath = envMod . moduleNameForPath , ensureProjectIndex = envMod . ensureProjectIndex , openTypeFunctionStore = envMod . typeFunctionStore , rootDir = rootDir ,
 
 
 
@@ -47572,19 +48028,20 @@ related = { "NUPP2134" } ,
 docs = "docs/type-system/associated-types.md" ,
 } , {
 code = "NUPP2133" ,
-summary = "A recursive type alias is unsafe or exceeds its budget" ,
-rule = "A generic alias may refer directly to itself only beneath a match "
-.. "result. Each application is memoized by its canonical arguments. "
-.. "Unconditional and mutual recursion are rejected; repeating an active "
-.. "application or exhausting a deterministic reducer budget reports the "
-.. "bounded expansion trace." ,
+summary = "A recursive type alias is not supported" ,
+rule = "Type aliases describe finite type expressions and cannot refer to "
+.. "themselves, directly or mutually. Write an ordinary recursive "
+.. "@comptime helper that returns type or typepack when the computation "
+.. "needs control flow." ,
 wrong = "local type Loop<T> = Loop<T>\nreturn Loop\n" ,
-right = "local type DeepElement<T> = match T\n"
-.. "    when {infer Item} then DeepElement<Item>\n"
-.. "    else T\nend\n"
-.. "local value: DeepElement<{{integer}}> = 1\nreturn value\n" ,
+right = "@comptime\nlocal function DeepElement(T: type): type\n"
+.. "    while nupp.types.kind(T) == 'array' do\n"
+.. "        T = nupp.types.elements(T)[1]\n"
+.. "    end\n"
+.. "    return T\nend\n"
+.. "local value: DeepElement({{integer}}) = 1\nreturn value\n" ,
 related = { "NUPP2130" , "NUPP2132" } ,
-docs = "docs/type-system/type-level-computation.md#guarded-recursive-aliases" ,
+docs = "docs/type-system/type-level-computation.md#closed-and-generic-calls" ,
 } , {
 code = "NUPP2202" ,
 summary = "A declaration is built with 'new'" ,
@@ -53725,7 +54182,6 @@ local newBudget
 local reduceProjection
 
 local substWith
-local substPattern
 
 local function substConst ( term , map )
 if term . tag == "constVar" then
@@ -53742,84 +54198,6 @@ return T . constOp ( term . operation , operands )
 end
 
 return term
-end
-
-substPattern = function ( pattern , map , unmapped )
-local children , parts = nil , nil
-if pattern . children then
-children = { }
-for j , child in ipairs ( pattern . children ) do
-children [ j ] = substPattern ( child , map , unmapped )
-end
-end
-if pattern . templateParts then
-parts = { }
-for j , part in ipairs ( pattern . templateParts ) do
-parts [ j ] = type ( part ) == "string" and part or substPattern ( part , map , unmapped )
-end
-end
-
-return T . matchPattern (
-pattern . kind ,
-pattern . binder ,
-pattern . expected and substWith ( pattern . expected , map , unmapped ) or nil ,
-children ,
-parts ,
-pattern . countTerm and substConst ( pattern . countTerm , map ) or nil ,
-pattern . paramCount ,
-pattern . paramPackBinder ,
-pattern . retPackBinder ,
-pattern . tupleTail and substPattern ( pattern . tupleTail , map , unmapped ) or nil ,
-pattern . nominalPackBinders
-)
-end
-
-local function preservePatternBinders ( pattern , map )
-if pattern . binder then
-map [ pattern . binder ] = pattern . binder
-end
-if pattern . paramPackBinder then
-map [ pattern . paramPackBinder ] = T . pack ( { } , { kind = "generic" , var = pattern . paramPackBinder } )
-end
-if pattern . retPackBinder then
-map [ pattern . retPackBinder ] = T . pack ( { } , { kind = "generic" , var = pattern . retPackBinder } )
-end
-for _ , binder in ipairs ( pattern . nominalPackBinders or { } ) do
-map [ binder ] = T . pack ( { } , { kind = "generic" , var = binder } )
-end
-for _ , child in ipairs ( pattern . children or { } ) do
-preservePatternBinders ( child , map )
-end
-if pattern . tupleTail then
-preservePatternBinders ( pattern . tupleTail , map )
-end
-for _ , part in ipairs ( pattern . templateParts or { } ) do
-if type ( part ) ~= "string" then
-preservePatternBinders ( part , map )
-end
-end
-end
-
-
-
-
-
-
-
-
-
-
-local patternBindersMemo = setmetatable ( { } , { __mode = "k" } )
-
-local function patternBinders ( pattern )
-local found = patternBindersMemo [ pattern ]
-if not found then
-found = { }
-preservePatternBinders ( pattern , found )
-patternBindersMemo [ pattern ] = found
-end
-
-return found
 end
 
 
@@ -53930,18 +54308,30 @@ members [ j ] = substWith ( m , map , unmapped )
 end
 return T . intersection ( members )
 elseif tag == "neutral" then
-if t . op == "alias" then
-local typeArgs , packArgs , constArgs = { } , { } , { }
-for j , argument in ipairs ( t . aliasTypeArgs or { } ) do
-typeArgs [ j ] = substWith ( argument , map , unmapped )
+if t . op == "comptimeCall" then
+local arguments = { }
+for position , argument in ipairs ( t . comptimeArguments or { } ) do
+if argument . kind == "type" then
+arguments [ position ] = {
+kind = "type" , value = substWith ( argument . value , map , unmapped ) ,
+}
+elseif argument . kind == "typepack" then
+arguments [ position ] = {
+kind = "typepack" , value = substPackWith ( argument . value , map , unmapped ) ,
+}
+else
+arguments [ position ] = {
+kind = "const" , value = substConst ( argument . value , map ) ,
+}
 end
-for j , argument in ipairs ( t . aliasPackArgs or { } ) do
-packArgs [ j ] = substPackWith ( argument , map , unmapped )
 end
-for j , argument in ipairs ( t . aliasConstArgs or { } ) do
-constArgs [ j ] = substConst ( argument , map )
-end
-return T . aliasCall ( t . aliasHeader , typeArgs , packArgs , constArgs )
+return T . comptimeCall (
+t . comptimeIdentity ,
+t . comptimeHelper ,
+arguments ,
+t . comptimeBound and substWith ( t . comptimeBound , map , unmapped ) or T . unknown ,
+t . comptimeResultPack
+)
 end
 local innerMap = map
 if t . binder then
@@ -53958,27 +54348,6 @@ for j , part in ipairs ( t . templateParts ) do
 templateParts [ j ] = type ( part ) == "string" and part or substWith ( part , map , unmapped )
 end
 end
-local matchArms = nil
-if t . matchArms then
-matchArms = { }
-for j , arm in ipairs ( t . matchArms ) do
-local binders = patternBinders ( arm . pattern )
-
-local armMap = map
-if next ( binders ) then
-armMap = { }
-for variable , replacement in pairs ( map ) do
-armMap [ variable ] = replacement
-end
-for variable , replacement in pairs ( binders ) do
-armMap [ variable ] = replacement
-end
-end
-matchArms [
-j
-] = T . matchArm ( substPattern ( arm . pattern , armMap , unmapped ) , substWith ( arm . result , armMap , unmapped ) )
-end
-end
 local rebound = T . neutral (
 t . op ,
 t . subject and substWith ( t . subject , map , unmapped ) or nil ,
@@ -53989,14 +54358,16 @@ t . keys and substWith ( t . keys , map , unmapped ) or nil ,
 t . value and substWith ( t . value , innerMap , unmapped ) or nil ,
 t . remap and substWith ( t . remap , innerMap , unmapped ) or nil ,
 t . constTerm and substConst ( t . constTerm , map ) or nil ,
-templateParts ,
-t . matchEach ,
-matchArms
+templateParts
 )
 
 
 
 return rebound
+elseif tag == "typeHandle" then
+return T . typeHandle ( substWith ( t . bound , map , unmapped ) )
+elseif tag == "packResult" then
+return T . packResult ( substPackWith ( t . pack , map , unmapped ) )
 elseif tag == "ptr" then
 return T . ptr ( substWith ( t . elem , map , unmapped ) )
 elseif tag == "carray" then
@@ -54359,18 +54730,9 @@ end
 
 
 
-
-
-
-
 newBudget = function ( control )
 return {
 visits = 0 ,
-aliasDepth = 0 ,
-aliasSteps = 0 ,
-allocations = 0 ,
-activeAliases = { } ,
-aliasTrace = { } ,
 control = control ,
 active = { } ,
 path = { } ,
@@ -54387,38 +54749,6 @@ end
 
 local function blocked ( t )
 return T . hasTypevar ( t ) or t . tag == "neutral" or t . tag == "projection"
-end
-
-local MAX_RECURSIVE_ALIAS_DEPTH = 128
-local MAX_RECURSIVE_ALIAS_STEPS = 1024
-local MAX_RECURSIVE_TERM_ALLOCATIONS = 4096
-local MAX_RECURSIVE_RESULT_MEMBERS = 256
-
-local function aliasTrace ( budget , next )
-local entries = { }
-for j , entry in ipairs ( budget . aliasTrace ) do
-entries [ j ] = entry
-end
-if next then
-entries [ # entries + 1 ] = next
-end
-
-return # entries > 0 and "; expansion: " .. table . concat ( entries , " -> " ) or ""
-end
-
-local function aliasLabel ( header , typeArgs , packArgs , constArgs )
-local arguments = { }
-for _ , argument in ipairs ( typeArgs ) do
-arguments [ # arguments + 1 ] = T . tostring ( argument )
-end
-for _ , argument in ipairs ( packArgs ) do
-arguments [ # arguments + 1 ] = T . tostringPack ( argument )
-end
-for _ , argument in ipairs ( constArgs ) do
-arguments [ # arguments + 1 ] = T . tostringConst ( argument )
-end
-
-return header . name .. ( # arguments > 0 and "<" .. table . concat ( arguments , ", " ) .. ">" or "" )
 end
 
 local function reduceKeyof ( t , memo , budget )
@@ -54623,17 +54953,6 @@ end
 
 
 
-local function reduceTypeError ( t , memo , budget )
-local message , err = normalize ( t . subject , memo , budget )
-if err then
-return T . any , err
-end
-
-return T . neutral ( "typeError" , message )
-end
-
-
-
 local function reduceTupleConcat ( t , memo , budget )
 local prefix , prefixError = normalize ( t . subject , memo , budget )
 if prefixError then
@@ -54642,12 +54961,6 @@ end
 local tail , tailError = normalize ( t . key , memo , budget )
 if tailError then
 return T . any , tailError
-end
-if prefix . tag == "neutral" and prefix . op == "typeError" then
-return prefix
-end
-if tail . tag == "neutral" and tail . op == "typeError" then
-return tail
 end
 if prefix . tag ~= "tuple" then
 return T . any , "tuple unpack prefix did not reduce to a tuple"
@@ -54670,324 +54983,6 @@ return T . neutral ( "tupleConcat" , prefix , tail )
 end
 
 return T . any , ( "tuple unpack must reduce to a tuple, got %s" ) : format ( T . tostring ( tail ) )
-end
-
-local function bindPattern ( binder , actual , captures )
-if not binder then
-return true
-end
-local prior = captures [ binder ]
-if prior then
-return prior == actual
-end
-captures [ binder ] = actual
-
-return true
-end
-
-local function bindPackPattern ( binder , actual , captures )
-if not binder then
-return true
-end
-local prior = captures [ binder ]
-if prior then
-return prior == actual
-end
-captures [ binder ] = actual
-
-return true
-end
-
-local function fitsOrdinaryPattern ( actual , expected )
-if actual == expected or actual == T . any or expected == T . any then
-return true
-end
-if actual . tag == "literal" and actual . base == expected then
-return true
-end
-if actual . tag == "union" then
-for _ , member in ipairs ( actual . members ) do
-if not fitsOrdinaryPattern ( member , expected ) then
-return false
-end
-end
-return true
-end
-if expected . tag == "union" then
-for _ , member in ipairs ( expected . members ) do
-if fitsOrdinaryPattern ( actual , member ) then
-return true
-end
-end
-end
-if actual . tag == "nominal" and expected . tag == "nominal" then
-return ( actual . origin or actual ) == ( expected . origin or expected )
-end
-
-return false
-end
-
-local function matchTemplatePattern ( pattern , actual , captures )
-if actual . tag ~= "literal" or actual . base ~= T . string then
-return false
-end
-local source = actual . constant
-local at = 1
-local parts = pattern . templateParts or { }
-for j , part in ipairs ( parts ) do
-if type ( part ) == "string" then
-local literal = part
-if source : sub ( at , at + # literal - 1 ) ~= literal then
-return false
-end
-at = at + # literal
-else
-local hole = part
-if hole . kind ~= "infer" then
-return false , "template patterns only admit infer holes"
-end
-local following = parts [ j + 1 ]
-local finish
-if type ( following ) == "string" and following ~= "" then
-local found = source : find ( following , at , true )
-if not found then
-return false
-end
-finish = found - 1
-elseif j == # parts or ( following == "" and j + 1 == # parts ) then
-finish = # source
-else
-return false , "adjacent inferred template segments are ambiguous"
-end
-local value = T . literal ( source : sub ( at , finish ) , T . string )
-if not bindPattern ( hole . binder , value , captures ) then
-return false
-end
-at = finish + 1
-end
-end
-
-return at == # source + 1
-end
-
-local matchPattern
-
-
-
-
-
-
-
-matchPattern = function ( pattern , actual , captures , memo , budget )
-if pattern . kind == "default" then
-return true
-end
-if pattern . kind == "infer" then
-return bindPattern ( pattern . binder , actual , captures )
-end
-if pattern . kind == "template" then
-return matchTemplatePattern ( pattern , actual , captures )
-end
-if pattern . kind == "ordinary" then
-local expected , err = normalize ( pattern . expected , memo , budget )
-if err then
-return nil , err
-end
-if T . hasTypevar ( expected ) or expected . tag == "neutral" then
-return nil
-end
-return fitsOrdinaryPattern ( actual , expected )
-end
-local children = pattern . children or { }
-if pattern . kind == "array" then
-return actual . tag == "array" and matchPattern ( children [ 1 ] , actual . elem , captures , memo , budget ) or false
-elseif pattern . kind == "tuple" then
-if actual . tag ~= "tuple" or # actual . elems < # children or (
-not pattern . tupleTail and # actual . elems ~= # children
-) then
-return false
-end
-for j , child in ipairs ( children ) do
-local matched , err = matchPattern ( child , actual . elems [ j ] , captures , memo , budget )
-if not matched then
-return matched , err
-end
-end
-if pattern . tupleTail then
-local rest = { }
-for j = # children + 1 , # actual . elems do
-rest [ # rest + 1 ] = actual . elems [ j ]
-end
-local restType = # rest == 0 and T . array ( T . never ) or T . tuple ( rest )
-return matchPattern ( pattern . tupleTail , restType , captures , memo , budget )
-end
-return true
-elseif pattern . kind == "map" then
-if actual . tag ~= "map" or not actual . readable then
-return false
-end
-local keyMatch , keyErr = matchPattern ( children [ 1 ] , actual . key , captures , memo , budget )
-if not keyMatch then
-return keyMatch , keyErr
-end
-return matchPattern ( children [ 2 ] , actual . value , captures , memo , budget )
-elseif pattern . kind == "ptr" then
-return actual . tag == "ptr" and matchPattern ( children [ 1 ] , actual . elem , captures , memo , budget ) or false
-elseif pattern . kind == "carray" then
-if actual . tag ~= "carray" then
-return false
-end
-if pattern . countTerm then
-local expectedCount , countErr = consteval . reduce ( pattern . countTerm )
-if countErr then
-return nil , countErr
-end
-if expectedCount . tag ~= "constLiteral" or actual . count ~= expectedCount . value then
-return false
-end
-end
-return matchPattern ( children [ 1 ] , actual . elem , captures , memo , budget )
-elseif pattern . kind == "const" then
-return actual . tag == "const" and matchPattern ( children [ 1 ] , actual . inner , captures , memo , budget ) or false
-elseif pattern . kind == "nominal" then
-if actual . tag ~= "nominal" then
-return false
-end
-local expected = pattern . expected
-local origin = actual . origin or actual
-if origin ~= expected then
-return false
-end
-if # ( actual . typeArgs or { } ) ~= # children then
-return false
-end
-for j , child in ipairs ( children ) do
-local matched , err = matchPattern ( child , actual . typeArgs [ j ] , captures , memo , budget )
-if not matched then
-return matched , err
-end
-end
-local packBinders = pattern . nominalPackBinders or { }
-if # ( actual . packArgs or { } ) ~= # packBinders then
-return false
-end
-for j , binder in ipairs ( packBinders ) do
-if not bindPackPattern ( binder , ( actual . packArgs ) [ j ] , captures ) then
-return false
-end
-end
-return true
-elseif pattern . kind == "func" then
-if actual . tag ~= "func" then
-return false
-end
-local paramCount = pattern . paramCount or ( 0 )
-local function matchPack ( first , count , binder , actualPack )
-if actualPack . alternatives then
-return nil
-end
-if # actualPack . head < count then
-return false
-end
-if not binder and ( # actualPack . head ~= count or actualPack . tail ) then
-return false
-end
-for offset = 0 , count - 1 do
-local matched , err = matchPattern (
-children [ first + offset ] ,
-actualPack . head [ offset + 1 ] ,
-captures ,
-memo ,
-budget
-)
-if not matched then
-return matched , err
-end
-end
-if binder then
-local rest , modes = { } , { }
-for j = count + 1 , # actualPack . head do
-rest [ # rest + 1 ] = actualPack . head [ j ]
-modes [ # modes + 1 ] = actualPack . modes [ j ] or "plain"
-end
-if not bindPackPattern ( binder , T . pack ( rest , actualPack . tail , modes ) , captures ) then
-return false
-end
-end
-
-return true
-end
-
-local paramsMatched , paramsErr = matchPack ( 1 , paramCount , pattern . paramPackBinder , actual . paramPack )
-if not paramsMatched then
-return paramsMatched , paramsErr
-end
-local returnsMatched , returnsErr = matchPack (
-( paramCount + 1 ) ,
-( # children - paramCount ) ,
-pattern . retPackBinder ,
-actual . retPack
-)
-if not returnsMatched then
-return returnsMatched , returnsErr
-end
-return true
-end
-
-return false , "unknown type-match pattern " .. string . format ( "%q" , pattern . kind )
-end
-
-local function reduceOneMatch (
-t ,
-scrutinee ,
-memo ,
-budget
-)
-for _ , arm in ipairs ( t . matchArms or { } ) do
-local captures = { }
-local matched , err = matchPattern ( arm . pattern , scrutinee , captures , memo , budget )
-if err then
-return T . any , err
-end
-if matched == nil then
-return T . neutral ( "match" , scrutinee , nil , nil , nil , nil , nil , nil , nil , nil , t . matchEach , t . matchArms )
-end
-if matched then
-local result = substWith ( arm . result , captures , PRESERVE )
-return normalize ( result , memo , budget )
-end
-end
-
-return T . never
-end
-
-local function reduceMatch ( t , memo , budget )
-local scrutinee , err = normalize ( t . subject , memo , budget )
-if err then
-return T . any , err
-end
-if T . hasTypevar ( scrutinee ) or scrutinee . tag == "neutral" then
-return T . neutral ( "match" , scrutinee , nil , nil , nil , nil , nil , nil , nil , nil , t . matchEach , t . matchArms ) , nil
-end
-if scrutinee == T . any then
-return T . any
-end
-if t . matchEach then
-if scrutinee == T . never then
-return T . never
-end
-local inputs = scrutinee . tag == "union" and scrutinee . members or { scrutinee }
-local outputs = { }
-for j , input in ipairs ( inputs ) do
-outputs [ j ] , err = reduceOneMatch ( t , input , memo , budget )
-if err then
-return T . any , err
-end
-end
-return T . union ( outputs )
-end
-
-return reduceOneMatch ( t , scrutinee , memo , budget )
 end
 
 local normalizeReductionPack
@@ -55029,103 +55024,6 @@ end
 return T . pack ( head , tail , pack . modes )
 end
 
-local function reduceAlias ( t , memo , budget )
-local header = t . aliasHeader
-if not header or not header . body then
-return T . any , "recursive alias body was not sealed"
-end
-local typeArgs , packArgs , constArgs = { } , { } , { }
-for j , argument in ipairs ( t . aliasTypeArgs or { } ) do
-local err
-typeArgs [ j ] , err = normalize ( argument , memo , budget )
-if err then
-return T . any , err
-end
-end
-for j , argument in ipairs ( t . aliasPackArgs or { } ) do
-local err
-packArgs [ j ] , err = normalizeReductionPack ( argument , memo , budget )
-if err then
-return T . any , err
-end
-end
-for j , argument in ipairs ( t . aliasConstArgs or { } ) do
-local err
-constArgs [ j ] , err = consteval . reduce ( argument )
-if err then
-return T . any , err
-end
-end
-local call = T . aliasCall ( header , typeArgs , packArgs , constArgs )
-if T . hasTypevar ( call ) then
-return call
-end
-
-local key = call . id
-local label = aliasLabel ( header , typeArgs , packArgs , constArgs )
-if budget . activeAliases [ key ] then
-return T . any , "recursive alias made no progress at " .. label .. aliasTrace ( budget , label )
-end
-if budget . aliasDepth >= MAX_RECURSIVE_ALIAS_DEPTH then
-return T . any , (
-"recursive alias depth exceeded %d at %s%s"
-) : format ( MAX_RECURSIVE_ALIAS_DEPTH , label , aliasTrace ( budget , label ) )
-end
-budget . aliasSteps = budget . aliasSteps + 1
-if budget . aliasSteps > MAX_RECURSIVE_ALIAS_STEPS then
-return T . any , (
-"recursive alias reduction exceeded %d steps at %s%s"
-) : format ( MAX_RECURSIVE_ALIAS_STEPS , label , aliasTrace ( budget , label ) )
-end
-
-
-budget . allocations = budget . allocations + 1 + # typeArgs + # packArgs + # constArgs
-if budget . allocations > MAX_RECURSIVE_TERM_ALLOCATIONS then
-return T . any , (
-"recursive alias reduction exceeded %d term allocations at %s%s"
-) : format ( MAX_RECURSIVE_TERM_ALLOCATIONS , label , aliasTrace ( budget , label ) )
-end
-
-local bindings = { }
-for j , parameter in ipairs ( header . typeParams ) do
-bindings [ parameter ] = typeArgs [ j ] or T . any
-end
-for j , parameter in ipairs ( header . packParams ) do
-bindings [ parameter ] = packArgs [ j ] or T . pack ( { } , { kind = "unknown" , type = T . any } )
-end
-for j , parameter in ipairs ( header . constParams ) do
-bindings [ parameter ] = constArgs [ j ] or parameter
-end
-
-budget . activeAliases [ key ] = # budget . aliasTrace + 1
-budget . aliasTrace [ # budget . aliasTrace + 1 ] = label
-budget . aliasDepth = budget . aliasDepth + 1
-local expanded = substWith ( header . body , bindings , PRESERVE )
-local out , err = normalize ( expanded , memo , budget )
-budget . aliasDepth = budget . aliasDepth - 1
-budget . aliasTrace [ # budget . aliasTrace ] = nil
-budget . activeAliases [ key ] = nil
-
-if not err then
-local memberCount = 0
-if out . tag == "union" or out . tag == "intersection" then
-memberCount = # out . members
-elseif out . tag == "shape" then
-memberCount = # out . fields
-elseif out . tag == "tuple" then
-memberCount = # out . elems
-end
-if memberCount > MAX_RECURSIVE_RESULT_MEMBERS then
-err = (
-"recursive alias result has %d members; limit is %d"
-) : format ( memberCount , MAX_RECURSIVE_RESULT_MEMBERS )
-out = T . any
-end
-end
-
-return out , err
-end
-
 normalize = function ( t , memo , budget )
 budget . visits = budget . visits + 1
 if budget . control and budget . control . cancelled and budget . visits % 32 == 0 and budget . control . cancelled ( ) then
@@ -55150,8 +55048,81 @@ out , err = T . any , headErr
 else
 out , err = reduceProjection ( head , t . name , memo , budget )
 end
+elseif t . tag == "typeHandle" then
+local bound
+bound , err = normalize ( t . bound , memo , budget )
+if not err then out = T . typeHandle ( bound ) end
+elseif t . tag == "packResult" then
+local pack
+pack , err = normalizeReductionPack ( t . pack , memo , budget )
+if not err then out = T . packResult ( pack ) end
 elseif t . tag == "neutral" then
-if t . op == "singleton" then
+if t . op == "comptimeCall" then
+local arguments , open = { } , false
+for position , argument in ipairs ( t . comptimeArguments or { } ) do
+if argument . kind == "type" then
+local reduced
+reduced , err = normalize ( argument . value , memo , budget )
+if err then break end
+arguments [ position ] = { kind = "type" , value = reduced }
+open = open or T . hasTypevar ( reduced ) or T . hasProjection ( reduced ) or reduced . tag == "neutral"
+elseif argument . kind == "typepack" then
+local reduced
+reduced , err = normalizeReductionPack ( argument . value , memo , budget )
+if err then break end
+arguments [ position ] = { kind = "typepack" , value = reduced }
+local wrapped = T . packResult ( reduced )
+open = open or T . hasTypevar ( wrapped ) or T . hasProjection ( wrapped )
+for _ , member in ipairs ( reduced . head or { } ) do
+open = open or member . tag == "neutral"
+end
+else
+local reduced
+reduced , err = consteval . reduce ( argument . value )
+if err then break end
+arguments [ position ] = { kind = "value" , value = reduced . tag == "constLiteral" and reduced . value or reduced }
+open = open or reduced . tag ~= "constLiteral"
+end
+end
+if not err and open then
+local rebound = { }
+for position , argument in ipairs ( arguments ) do
+if argument . kind == "type" or argument . kind == "typepack" then
+rebound [ position ] = argument
+else
+rebound [ position ] = { kind = "const" , value = argument . value }
+end
+end
+out = T . comptimeCall (
+t . comptimeIdentity ,
+t . comptimeHelper ,
+rebound ,
+t . comptimeBound ,
+t . comptimeResultPack
+)
+elseif not err and budget . control and budget . control . evaluateTypeFunction then
+local failure
+local evaluated
+evaluated , failure = budget . control . evaluateTypeFunction ( t . comptimeHelper , arguments )
+if evaluated then
+out = evaluated . tag == "pack" and T . packResult ( evaluated ) or evaluated
+else
+err = failure and failure . message or tostring ( failure or "type-function evaluation failed" )
+end
+if not err and out and not t . comptimeResultPack and t . comptimeBound then
+local relations = require ( "nupp.compiler.relations" )
+
+
+local fits , why = relations . isA ( out , t . comptimeBound )
+if not fits then
+err = "generated type violates its declared result bound: " .. ( why or "not satisfied" )
+out = T . any
+end
+end
+elseif not err then
+out = t
+end
+elseif t . op == "singleton" then
 local term
 term , err = consteval . reduce ( t . constTerm )
 out = not err and consteval . singleton ( term ) or T . any
@@ -55163,14 +55134,8 @@ elseif t . op == "mapped" then
 out , err = reduceMapped ( t , memo , budget )
 elseif t . op == "template" then
 out , err = reduceTemplate ( t , memo , budget )
-elseif t . op == "typeError" then
-out , err = reduceTypeError ( t , memo , budget )
 elseif t . op == "tupleConcat" then
 out , err = reduceTupleConcat ( t , memo , budget )
-elseif t . op == "match" then
-out , err = reduceMatch ( t , memo , budget )
-elseif t . op == "alias" then
-out , err = reduceAlias ( t , memo , budget )
 else
 err = "unknown type reduction operation " .. string . format ( "%q" , t . op )
 out = T . any
@@ -55460,12 +55425,12 @@ end
 
 
 
-function generics . expandComputedPack ( pack )
+function generics . expandComputedPack ( pack , control )
 local tail = pack . tail
 if not tail or tail . kind ~= "computed" then
 return pack
 end
-local computed , reductionError = generics . reduce ( tail . type )
+local computed , reductionError = generics . reduce ( tail . type , nil , nil , control )
 if reductionError then
 return pack , "unpackof could not reduce its type: " .. reductionError
 end
@@ -55485,15 +55450,15 @@ return T . pack ( pack . head , nil , pack . modes )
 end
 return T . pack ( pack . head , { kind = "homogeneous" , type = computed . elem } , pack . modes )
 end
-if computed . tag == "neutral" and computed . op == "typeError" then
-local message , messageError = generics . reduce ( computed . subject )
-if messageError then
-return pack , messageError
+if computed . tag == "packResult" then
+local head , modes = { } , { }
+for position , value in ipairs ( pack . head ) do
+head [ position ] , modes [ position ] = value , pack . modes [ position ] or "plain"
 end
-if message . tag == "literal" and message . base == T . string then
-return pack , message . constant
+for position , value in ipairs ( computed . pack . head ) do
+head [ # head + 1 ] , modes [ # modes + 1 ] = value , computed . pack . modes [ position ] or "plain"
 end
-return pack , "type-level error: " .. T . tostring ( message )
+return T . pack ( head , computed . pack . tail , modes )
 end
 if computed == T . any or computed == T . unknown or computed . tag == "neutral" or computed . tag == "typevar" then
 return T . pack ( pack . head , { kind = "unknown" , type = T . any } , pack . modes )
@@ -55505,18 +55470,26 @@ end
 
 
 
-function generics . instantiateFunction ( t , map )
-local concrete = substWith ( t , map , MATERIALIZE )
+function generics . instantiateFunction (
+t ,
+map ,
+control
+)
+local evaluated = generics . evaluate ( substWith ( t , map , MATERIALIZE ) , nil , control )
+local concrete = evaluated . type
+if evaluated . error then
+return t , evaluated . error
+end
 if concrete . tag ~= "func" then
 return t
 end
 
-local paramPack , packError = generics . expandComputedPack ( concrete . paramPack )
+local paramPack , packError = generics . expandComputedPack ( concrete . paramPack , control )
 if packError then
 return concrete , packError
 end
 local retPack
-retPack , packError = generics . expandComputedPack ( concrete . retPack )
+retPack , packError = generics . expandComputedPack ( concrete . retPack , control )
 if packError then
 return concrete , packError
 end
@@ -57119,6 +57092,11 @@ end , projectModuleBasenames = function ( _ , short )
 return self : get ( "projectModuleBasenames" , short )
 end , projectAnnotations = function ( _ , name )
 return self : get ( "projectAnnotations" , name )
+end , openTypeFunctionStore = function ( )
+
+
+
+return envMod . typeFunctionStore ( env )
 end , internDerivePlan = internDerivePlan , } , { __index = env } )
 local external = envMod . isDependencyTypePath ( env , path )
 local diags , moduleType , exports = check . check ( result , path , qenv , { moduleName = envMod . moduleNameForPath (
@@ -57208,6 +57186,7 @@ return left == right
 end
 return left . nominalEffectFingerprint == right . nominalEffectFingerprint
 and left . deriveInterfaceFingerprint == right . deriveInterfaceFingerprint
+and left . comptimeFunctionFingerprint == right . comptimeFunctionFingerprint
 and sameTypeMap (
 left . types ,
 right . types
@@ -66657,6 +66636,13 @@ local fieldcodec = require ( "nupp.compiler.materialize.fieldcodec" )
 
 
 
+local typeprovider = require ( "nupp.compiler.materialize.typeprovider" )
+
+
+
+
+
+
 
 
 
@@ -66677,6 +66663,20 @@ const providers = {} providers.__index = providers
 
 
 
+
+
+function providers . importTypeDescriptor (
+state ,
+descriptor ,
+source ,
+referencePrefix
+)
+
+
+
+local importDescriptor = typeprovider . importDescriptor
+return importDescriptor ( state , descriptor , source , referencePrefix )
+end
 
 providers . ABI = 1
 
@@ -66747,6 +66747,14 @@ return opaque ( state , provider , family , payload , at )
 end ,
 provenance
 )
+typeprovider . installEvaluator (
+state ,
+env ,
+function ( provider , family , payload , at )
+return opaque ( state , provider , family , payload , at )
+end ,
+provenance
+)
 end
 
 local function reflectionValue ( state , value , at )
@@ -66776,7 +66784,8 @@ end
 
 function providers . opaqueKind ( state , value )
 local entry = state . opaque [ value ]
-return entry and entry . provider == "reflection" and "table" or nil
+if entry and entry . provider == "reflection" then return "table" end
+return typeprovider . opaqueKind ( state , value )
 end
 
 function providers . index ( state , handle , key , at )
@@ -66867,6 +66876,9 @@ end
 if entry and entry . provider == "peg" then
 return peg . operator ( state , op , left , right , at )
 end
+if entry and entry . provider == "types" then
+return typeprovider . operator ( state , op , left , right )
+end
 
 return nil , { code = "NUPP2411" , message = "this operator is unavailable for opaque comptime values" }
 end
@@ -66941,6 +66953,8 @@ elseif entry . provider == "peg" then
 return peg . finalize ( state , value )
 elseif entry . provider == "fieldcodec" then
 return fieldcodec . finalize ( state , value )
+elseif entry . provider == "types" then
+return typeprovider . finalize ( state , value )
 end
 
 return nil , { code = "NUPP2415" , message = "no finalizer owns this opaque value" }
@@ -66997,6 +67011,11 @@ if envelope . provider == "peg" then
 return peg . lower ( envelope , expected , env )
 elseif envelope . provider == "fieldcodec" then
 return fieldcodec . lower ( envelope , expected , env )
+elseif envelope . provider == "types" then
+return nil , {
+code = "NUPP2414" ,
+message = "a type blueprint is valid only as the result of a type-position comptime call" ,
+}
 end
 return nil , { code = "NUPP2415" , message = "no materializer owns provider " .. envelope . provider }
 end
@@ -67072,6 +67091,785 @@ runtimeFeatures = { } ,
 end
 
 return providers
+
+end
+package.preload["nupp.compiler.materialize.typeprovider"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+
+
+
+
+local hash = require ( "nupp.compiler.build.hash" )
+local stable = require ( "nupp.compiler.build.cache" ) . stable
+
+
+
+
+
+
+
+const typeprovider = {} typeprovider.__index = typeprovider
+
+
+
+
+
+
+
+
+
+
+typeprovider . SCHEMA = 1
+typeprovider . MAX_NODES = 10000
+typeprovider . MAX_MEMBERS = 1000
+
+local PRIMITIVES = {
+any = true ,
+unknown = true ,
+never = true ,
+[ "nil" ] = true ,
+boolean = true ,
+string = true ,
+number = true ,
+integer = true ,
+[ "table" ] = true ,
+thread = true ,
+userdata = true ,
+float = true ,
+cdata = true ,
+cstring = true ,
+voidptr = true ,
+int8 = true ,
+int16 = true ,
+int32 = true ,
+int64 = true ,
+uint8 = true ,
+uint16 = true ,
+uint32 = true ,
+uint64 = true ,
+}
+
+local function failure ( code , message , help )
+return { code = code , message = message , help = help }
+end
+
+local function entry ( state , value , family )
+local found = state . opaque [ value ]
+if not found or found . provider ~= "types" or family and found . family ~= family then
+return nil
+end
+
+return found
+end
+
+local function memberArray ( state , values , family , label )
+if type ( values ) ~= "table" then
+return nil , failure ( "NUPP2415" , label .. " needs an array" )
+end
+if # values > typeprovider . MAX_MEMBERS then
+return nil , failure ( "NUPP2416" , label .. " exceeds the 1000-member type limit" )
+end
+local out = { }
+for index , value in ipairs ( values ) do
+local found = entry ( state , value , family )
+if not found then
+return nil , failure ( "NUPP2415" , label .. " contains a foreign handle at " .. tostring ( index ) )
+end
+out [ index ] = value
+end
+
+return out , nil
+end
+
+local function keyOf ( state , handle )
+local found = entry ( state , handle )
+return found and found . payload and found . payload . key or nil
+end
+
+local function make ( state , opaque , family , payload , at )
+local key = family .. ":" .. payload . key
+local prior = state . typeHandles [ key ]
+if prior then
+return prior
+end
+local made = opaque ( "types" , family , payload , at )
+state . typeHandles [ key ] = made
+
+return made
+end
+
+local function installIntrinsic ( state , library , name , implementation )
+local token = function ( ) end
+state . intrinsics [ token ] = implementation
+library [ name ] = token
+end
+
+function typeprovider . installEvaluator ( state , env , opaque , provenance )
+state . typeHandles = { }
+state . typeOpaque = opaque
+local library = { }
+
+local function primitive ( name )
+return make ( state , opaque , "Type" , { kind = "primitive" , name = name , key = "primitive:" .. name } , nil )
+end
+
+for name in pairs ( PRIMITIVES ) do
+library [ name == "nil" and "nil_" or name == "table" and "table_" or name ] = primitive ( name )
+end
+
+installIntrinsic ( state , library , "literal" , function ( at , args )
+local value = args [ 1 ]
+local valueKind = type ( value )
+if valueKind ~= "string" and valueKind ~= "boolean"
+and ( valueKind ~= "number" or value ~= math . floor ( value ) ) then
+return nil , failure ( "NUPP2415" , "nupp.types.literal needs a string, boolean, or exact integer" )
+end
+local base = valueKind == "string" and library . string
+or valueKind == "boolean" and library . boolean or library . integer
+local encoded = valueKind .. ":" .. tostring ( value )
+return make (
+state ,
+opaque ,
+"Type" ,
+{ kind = "literal" , value = value , base = base , key = "literal:" .. encoded } ,
+provenance ( at , "literal" )
+)
+end )
+
+installIntrinsic ( state , library , "array" , function ( at , args )
+local element = entry ( state , args [ 1 ] , "Type" )
+if not element then
+return nil , failure ( "NUPP2415" , "nupp.types.array needs one type handle" )
+end
+return make (
+state ,
+opaque ,
+"Type" ,
+{ kind = "array" , element = args [ 1 ] , key = "array:" .. element . payload . key } ,
+provenance ( at , "array" )
+)
+end )
+
+installIntrinsic ( state , library , "tuple" , function ( at , args )
+local members , why = memberArray ( state , args [ 1 ] , "Type" , "nupp.types.tuple" )
+if not members then return nil , why end
+local keys = { }
+for index , member in ipairs ( members ) do keys [ index ] = keyOf ( state , member ) end
+return make (
+state ,
+opaque ,
+"Type" ,
+{ kind = "tuple" , members = members , key = "tuple:" .. table . concat ( keys , "," ) } ,
+provenance ( at , "tuple" )
+)
+end )
+
+installIntrinsic ( state , library , "union" , function ( at , args )
+local members , why = memberArray ( state , args [ 1 ] , "Type" , "nupp.types.union" )
+if not members then return nil , why end
+local byKey = { }
+for _ , member in ipairs ( members ) do byKey [ keyOf ( state , member ) ] = member end
+local keys = { }
+for key in pairs ( byKey ) do keys [ # keys + 1 ] = key end
+table . sort ( keys )
+local canonical = { }
+for index , key in ipairs ( keys ) do canonical [ index ] = byKey [ key ] end
+return make (
+state ,
+opaque ,
+"Type" ,
+{ kind = "union" , members = canonical , key = "union:" .. table . concat ( keys , "|" ) } ,
+provenance ( at , "union" )
+)
+end )
+
+installIntrinsic ( state , library , "intersection" , function ( at , args )
+local members , why = memberArray ( state , args [ 1 ] , "Type" , "nupp.types.intersection" )
+if not members then return nil , why end
+local byKey = { }
+for _ , member in ipairs ( members ) do byKey [ keyOf ( state , member ) ] = member end
+local keys = { }
+for key in pairs ( byKey ) do keys [ # keys + 1 ] = key end
+table . sort ( keys )
+local canonical = { }
+for index , key in ipairs ( keys ) do canonical [ index ] = byKey [ key ] end
+return make (
+state ,
+opaque ,
+"Type" ,
+{ kind = "intersection" , members = canonical , key = "intersection:" .. table . concat ( keys , "&" ) } ,
+provenance ( at , "intersection" )
+)
+end )
+
+installIntrinsic ( state , library , "optional" , function ( at , args )
+local inner = entry ( state , args [ 1 ] , "Type" )
+if not inner then
+return nil , failure ( "NUPP2415" , "nupp.types.optional needs one type handle" )
+end
+local nilHandle = library . nil_
+local members = { args [ 1 ] , nilHandle }
+local keys = { inner . payload . key , keyOf ( state , nilHandle ) }
+table . sort ( keys )
+if keys [ 1 ] ~= inner . payload . key then members = { nilHandle , args [ 1 ] } end
+return make (
+state ,
+opaque ,
+"Type" ,
+{ kind = "union" , members = members , key = "union:" .. table . concat ( keys , "|" ) } ,
+provenance ( at , "optional" )
+)
+end )
+
+local function unary ( name , kind )
+installIntrinsic ( state , library , name , function ( at , args )
+local inner = entry ( state , args [ 1 ] , "Type" )
+if not inner then return nil , failure ( "NUPP2415" , "nupp.types." .. name .. " needs one type handle" ) end
+return make (
+state ,
+opaque ,
+"Type" ,
+{ kind = kind , inner = args [ 1 ] , key = kind .. ":" .. inner . payload . key } ,
+provenance ( at , kind )
+)
+end )
+end
+unary ( "pointer" , "ptr" )
+unary ( "constof" , "const" )
+unary ( "borrowed" , "borrowed" )
+unary ( "pinned" , "pinned" )
+unary ( "owned" , "owned" )
+
+installIntrinsic ( state , library , "carray" , function ( at , args )
+local element = entry ( state , args [ 1 ] , "Type" )
+local count = args [ 2 ]
+if not element then return nil , failure ( "NUPP2415" , "nupp.types.carray needs an element type" ) end
+if count ~= nil and ( type ( count ) ~= "number" or count ~= math . floor ( count ) or count < 0 ) then
+return nil , failure ( "NUPP2415" , "nupp.types.carray count must be a non-negative exact integer" )
+end
+return make (
+state ,
+opaque ,
+"Type" ,
+{ kind = "carray" , element = args [ 1 ] , count = count , key = "carray:" .. element . payload . key .. ":" .. tostring ( count ) } ,
+provenance ( at , "carray" )
+)
+end )
+
+installIntrinsic ( state , library , "indexer" , function ( at , args )
+local names = { "read key" , "read value" , "write key" , "write value" }
+for index = 1 , 4 do
+if args [ index ] ~= nil and not entry ( state , args [ index ] , "Type" ) then
+return nil , failure ( "NUPP2415" , "nupp.types.indexer " .. names [ index ] .. " must be a type handle" )
+end
+end
+if ( args [ 1 ] == nil ) ~= ( args [ 2 ] == nil ) or ( args [ 3 ] == nil ) ~= ( args [ 4 ] == nil ) then
+return nil , failure ( "NUPP2415" , "nupp.types.indexer capabilities need key/value pairs" )
+end
+if args [ 1 ] == nil and args [ 3 ] == nil then
+return nil , failure ( "NUPP2415" , "nupp.types.indexer needs a read or write capability" )
+end
+local keys = { }
+for index = 1 , 4 do keys [ index ] = args [ index ] and keyOf ( state , args [ index ] ) or "-" end
+return make (
+state ,
+opaque ,
+"Type" ,
+{ kind = "indexer" , readKey = args [ 1 ] , readValue = args [ 2 ] , writeKey = args [ 3 ] , writeValue = args [ 4 ] , key = table . concat ( keys , ":" ) } ,
+provenance ( at , "indexer" )
+)
+end )
+
+installIntrinsic ( state , library , "map" , function ( at , args )
+local readKey , readValue = entry ( state , args [ 1 ] , "Type" ) , entry ( state , args [ 2 ] , "Type" )
+local writeKey = args [ 3 ] ~= nil and entry ( state , args [ 3 ] , "Type" ) or readKey
+local writeValue = args [ 4 ] ~= nil and entry ( state , args [ 4 ] , "Type" ) or readValue
+if not readKey or not readValue or not writeKey or not writeValue then
+return nil , failure ( "NUPP2415" , "nupp.types.map needs read key/value handles and optional write key/value handles" )
+end
+local keys = { readKey . payload . key , readValue . payload . key , writeKey . payload . key , writeValue . payload . key }
+return make (
+state ,
+opaque ,
+"Type" ,
+{ kind = "indexer" , readKey = args [ 1 ] , readValue = args [ 2 ] , writeKey = args [ 3 ] or args [ 1 ] , writeValue = args [ 4 ] or args [ 2 ] , key = table . concat ( keys , ":" ) } ,
+provenance ( at , "map" )
+)
+end )
+
+installIntrinsic ( state , library , "shape" , function ( at , args )
+local supplied , indexer = args [ 1 ] , args [ 2 ]
+if type ( supplied ) ~= "table" or # supplied > typeprovider . MAX_MEMBERS then
+return nil , failure ( "NUPP2415" , "nupp.types.shape needs at most 1000 field descriptors" )
+end
+if indexer ~= nil then
+local found = entry ( state , indexer , "Type" )
+if not found or found . payload . kind ~= "indexer" then
+return nil , failure ( "NUPP2415" , "nupp.types.shape indexer must come from nupp.types.indexer" )
+end
+end
+local fields , seen = { } , { }
+for position , field in ipairs ( supplied ) do
+if type ( field ) ~= "table" or type ( field . name ) ~= "string" or field . name == "" or seen [ field . name ] then
+return nil , failure ( "NUPP2415" , "nupp.types.shape has an invalid or repeated field at " .. tostring ( position ) )
+end
+local read , write = field . read , field . write
+if read == nil and write == nil or read ~= nil and not entry ( state , read , "Type" )
+or write ~= nil and not entry ( state , write , "Type" ) then
+return nil , failure ( "NUPP2415" , "nupp.types.shape field " .. field . name .. " needs a read or write type" )
+end
+seen [ field . name ] = true
+fields [ # fields + 1 ] = { name = field . name , read = read , write = write }
+end
+table . sort ( fields , function ( left , right ) return left . name < right . name end )
+local keys = { }
+for position , field in ipairs ( fields ) do
+keys [ position ] = field . name .. ":" .. ( field . read and keyOf ( state , field . read ) or "-" )
+.. ":" .. ( field . write and keyOf ( state , field . write ) or "-" )
+end
+local indexKey = indexer and keyOf ( state , indexer ) or "-"
+return make (
+state ,
+opaque ,
+"Type" ,
+{ kind = "shape" , fields = fields , indexer = indexer , key = table . concat ( keys , "," ) .. "[" .. indexKey .. "]" } ,
+provenance ( at , "shape" )
+)
+end )
+
+installIntrinsic ( state , library , "pack" , function ( at , args )
+local head , why = memberArray ( state , args [ 1 ] or { } , "Type" , "nupp.types.pack" )
+if not head then return nil , why end
+local tail = args [ 2 ]
+if tail ~= nil and not entry ( state , tail , "Type" ) then
+return nil , failure ( "NUPP2415" , "nupp.types.pack tail must be a type handle" )
+end
+local modes = args [ 3 ] or { }
+if type ( modes ) ~= "table" or # modes > # head then
+return nil , failure ( "NUPP2415" , "nupp.types.pack modes must align with its fixed head" )
+end
+local keys , copiedModes = { } , { }
+for index , member in ipairs ( head ) do
+local mode = modes [ index ] or "plain"
+if mode ~= "plain" and mode ~= "owned" and mode ~= "borrowed" and mode ~= "pinned" then
+return nil , failure ( "NUPP2415" , "nupp.types.pack has an invalid mode at " .. tostring ( index ) )
+end
+copiedModes [ index ] = mode
+keys [ index ] = mode .. ":" .. keyOf ( state , member )
+end
+local tailKey = tail and keyOf ( state , tail ) or "-"
+return make (
+state ,
+opaque ,
+"Pack" ,
+{ kind = "pack" , head = head , tail = tail , modes = copiedModes , key = table . concat ( keys , "," ) .. "..." .. tailKey } ,
+provenance ( at , "pack" )
+)
+end )
+
+installIntrinsic ( state , library , "function_" , function ( at , args )
+local parameters , results = entry ( state , args [ 1 ] , "Pack" ) , entry ( state , args [ 2 ] , "Pack" )
+if not parameters or not results then
+return nil , failure ( "NUPP2415" , "nupp.types.function_ needs parameter and result type packs" )
+end
+return make (
+state ,
+opaque ,
+"Type" ,
+{ kind = "function" , parameters = args [ 1 ] , results = args [ 2 ] , key = parameters . payload . key .. "->" .. results . payload . key } ,
+provenance ( at , "function" )
+)
+end )
+
+installIntrinsic ( state , library , "parameters" , function ( _ , args )
+local found = entry ( state , args [ 1 ] , "Type" )
+if not found or found . payload . kind ~= "function" then
+return nil , failure ( "NUPP2415" , "nupp.types.parameters needs a function type" )
+end
+return found . payload . parameters
+end )
+
+installIntrinsic ( state , library , "results" , function ( _ , args )
+local found = entry ( state , args [ 1 ] , "Type" )
+if not found or found . payload . kind ~= "function" then
+return nil , failure ( "NUPP2415" , "nupp.types.results needs a function type" )
+end
+return found . payload . results
+end )
+
+installIntrinsic ( state , library , "kind" , function ( _ , args )
+local found = entry ( state , args [ 1 ] )
+if not found then return nil , failure ( "NUPP2415" , "nupp.types.kind needs a type or type-pack handle" ) end
+return found . payload . kind
+end )
+
+installIntrinsic ( state , library , "describe" , function ( _ , args )
+local found = entry ( state , args [ 1 ] )
+if not found then return nil , failure ( "NUPP2415" , "nupp.types.describe needs a type or type-pack handle" ) end
+local payload = found . payload
+return {
+kind = payload . kind ,
+name = payload . name ,
+value = payload . value ,
+element = payload . element ,
+members = payload . members ,
+fields = payload . fields ,
+indexer = payload . indexer ,
+head = payload . head ,
+tail = payload . tail ,
+modes = payload . modes ,
+count = payload . count ,
+parameters = payload . parameters ,
+results = payload . results ,
+}
+end )
+
+installIntrinsic ( state , library , "elements" , function ( _ , args )
+local found = entry ( state , args [ 1 ] , "Type" )
+if not found then return nil , failure ( "NUPP2415" , "nupp.types.elements needs a type handle" ) end
+local payload = found . payload
+if payload . kind == "array" or payload . kind == "carray" then return { payload . element } end
+if payload . kind == "ptr" or payload . kind == "const" or payload . kind == "borrowed"
+or payload . kind == "pinned" or payload . kind == "owned" then return { payload . inner } end
+if payload . kind == "tuple" or payload . kind == "union" or payload . kind == "intersection" then return payload . members end
+return nil , failure ( "NUPP2415" , "nupp.types.elements cannot inspect " .. tostring ( payload . kind ) )
+end )
+
+installIntrinsic ( state , library , "fields" , function ( _ , args )
+local found = entry ( state , args [ 1 ] , "Type" )
+if not found or found . payload . kind ~= "shape" then
+return nil , failure ( "NUPP2415" , "nupp.types.fields needs a structural shape handle" )
+end
+local fields = { }
+for position , field in ipairs ( found . payload . fields or { } ) do
+fields [ position ] = { name = field . name , read = field . read , write = field . write }
+end
+return fields
+end )
+
+local function keysFor ( args , capability )
+local found = entry ( state , args [ 1 ] , "Type" )
+if not found or found . payload . kind ~= "shape" and found . payload . kind ~= "indexer" then
+return nil , failure ( "NUPP2415" , "nupp.types." .. capability .. "Keys needs a shape or indexer handle" )
+end
+local keys = { }
+for _ , field in ipairs ( found . payload . fields or { } ) do
+if field [ capability ] then
+local value = field . name
+keys [ # keys + 1 ] = make ( state , opaque , "Type" , {
+kind = "literal" , value = value , base = library . string ,
+key = "literal:string:" .. value ,
+} , nil )
+end
+end
+local indexer = found . payload . kind == "indexer" and found or entry ( state , found . payload . indexer , "Type" )
+local indexKey = indexer and indexer . payload [ capability .. "Key" ] or nil
+if indexKey then keys [ # keys + 1 ] = indexKey end
+return keys
+end
+installIntrinsic ( state , library , "readKeys" , function ( _ , args ) return keysFor ( args , "read" ) end )
+installIntrinsic ( state , library , "writeKeys" , function ( _ , args ) return keysFor ( args , "write" ) end )
+
+local function atFor ( args , capability )
+local found , key = entry ( state , args [ 1 ] , "Type" ) , entry ( state , args [ 2 ] , "Type" )
+if not found or not key then return nil , failure ( "NUPP2415" , "nupp.types." .. capability .. "At needs type handles" ) end
+if key . payload . kind == "literal" and type ( key . payload . value ) == "string" then
+for _ , field in ipairs ( found . payload . fields or { } ) do
+if field . name == key . payload . value and field [ capability ] then return field [ capability ] end
+end
+end
+local indexer = found . payload . kind == "indexer" and found or entry ( state , found . payload . indexer , "Type" )
+if indexer and indexer . payload [ capability .. "Value" ] then return indexer . payload [ capability .. "Value" ] end
+return nil , failure ( "NUPP2420" , "type has no " .. capability .. " capability at the requested key" )
+end
+installIntrinsic ( state , library , "readAt" , function ( _ , args ) return atFor ( args , "read" ) end )
+installIntrinsic ( state , library , "writeAt" , function ( _ , args ) return atFor ( args , "write" ) end )
+
+installIntrinsic ( state , library , "error" , function ( _ , args )
+if type ( args [ 1 ] ) ~= "string" then
+return nil , failure ( "NUPP2415" , "nupp.types.error needs a string message" )
+end
+return nil , failure ( "NUPP2420" , args [ 1 ] )
+end )
+
+env . nupp = env . nupp or { }
+env . nupp . types = library
+end
+
+function typeprovider . importDescriptor (
+state ,
+descriptor ,
+source ,
+referencePrefix
+)
+if type ( descriptor ) ~= "table" or type ( descriptor . types ) ~= "table"
+or type ( descriptor . root ) ~= "number" or not state . typeHandles then
+return nil , failure ( "NUPP2415" , "type-function input has a malformed semantic descriptor" )
+end
+local nodes , built , active = descriptor . types , { } , { }
+local opaque = state . typeOpaque
+if not opaque then return nil , failure ( "NUPP2415" , "the type provider is not installed" ) end
+local import
+local function list ( indices , label )
+if type ( indices ) ~= "table" or # indices > typeprovider . MAX_MEMBERS then
+return nil , failure ( "NUPP2415" , label .. " has an invalid member list" )
+end
+local values = { }
+for position , index in ipairs ( indices ) do
+values [ position ] = import ( index )
+if not values [ position ] then return nil , failure ( "NUPP2415" , label .. " has an invalid edge" ) end
+end
+return values , nil
+end
+import = function ( index )
+if built [ index ] then return built [ index ] end
+if active [ index ] or type ( index ) ~= "number" or type ( nodes [ index ] ) ~= "table" then return nil end
+active [ index ] = true
+local node = nodes [ index ]
+local kind = node . kind
+local made
+local referencedSource = descriptor . sources and descriptor . sources [ index ]
+or index == descriptor . root and source
+or nil
+if node . nominal and ( referencedSource or referencePrefix ) then
+local referenceFingerprint = node . referenceFingerprint
+or referencedSource and require ( "nupp.compiler.reflection" ) . describe ( referencedSource ) . fingerprint
+or nil
+if type ( referenceFingerprint ) ~= "string" then return nil end
+made = make ( state , opaque , "Type" , {
+kind = "reference" , source = referencedSource ,
+referenceId = referencePrefix and referencePrefix .. ":" .. tostring ( index ) or nil ,
+fingerprint = referenceFingerprint ,
+key = "reference:" .. ( referencePrefix and referencePrefix .. ":" .. tostring ( index )
+or referenceFingerprint ) ,
+} , nil )
+elseif PRIMITIVES [ kind ] then
+made = make ( state , opaque , "Type" , { kind = "primitive" , name = kind , key = "primitive:" .. kind } , nil )
+elseif kind == "literal" then
+local base = import ( node . base )
+if base then
+made = make ( state , opaque , "Type" , {
+kind = "literal" , value = node . value , base = base ,
+key = "literal:" .. type ( node . value ) .. ":" .. tostring ( node . value ) ,
+} , nil )
+end
+elseif kind == "array" then
+local element = import ( node . element )
+if element then made = make ( state , opaque , "Type" , { kind = "array" , element = element , key = "array:" .. keyOf ( state , element ) } , nil ) end
+elseif kind == "map" then
+local readKey = node . readKey and import ( node . readKey ) or nil
+local readValue = node . readValue and import ( node . readValue ) or nil
+local writeKey = node . writeKey and import ( node . writeKey ) or nil
+local writeValue = node . writeValue and import ( node . writeValue ) or nil
+if ( readKey == nil ) == ( readValue == nil ) and ( writeKey == nil ) == ( writeValue == nil )
+and ( readKey or writeKey ) then
+local keys = {
+readKey and keyOf ( state , readKey ) or "-" , readValue and keyOf ( state , readValue ) or "-" ,
+writeKey and keyOf ( state , writeKey ) or "-" , writeValue and keyOf ( state , writeValue ) or "-" ,
+}
+made = make ( state , opaque , "Type" , {
+kind = "indexer" , readKey = readKey , readValue = readValue ,
+writeKey = writeKey , writeValue = writeValue , key = table . concat ( keys , ":" ) ,
+} , nil )
+end
+elseif kind == "shape" then
+local fields , keys = { } , { }
+for position , field in ipairs ( node . fields or { } ) do
+local read = field . read and import ( field . read ) or nil
+local write = field . write and import ( field . write ) or nil
+if not read and not write then return nil end
+fields [ position ] = { name = field . name , read = read , write = write }
+keys [ position ] = field . name .. ":" .. ( read and keyOf ( state , read ) or "-" )
+.. ":" .. ( write and keyOf ( state , write ) or "-" )
+end
+local reflected = node . index or { }
+local readKey = reflected . readKey and import ( reflected . readKey ) or nil
+local readValue = reflected . readValue and import ( reflected . readValue ) or nil
+local writeKey = reflected . writeKey and import ( reflected . writeKey ) or nil
+local writeValue = reflected . writeValue and import ( reflected . writeValue ) or nil
+local indexer
+if readKey or writeKey then
+local indexKeys = {
+readKey and keyOf ( state , readKey ) or "-" , readValue and keyOf ( state , readValue ) or "-" ,
+writeKey and keyOf ( state , writeKey ) or "-" , writeValue and keyOf ( state , writeValue ) or "-" ,
+}
+indexer = make ( state , opaque , "Type" , {
+kind = "indexer" , readKey = readKey , readValue = readValue ,
+writeKey = writeKey , writeValue = writeValue , key = table . concat ( indexKeys , ":" ) ,
+} , nil )
+end
+made = make ( state , opaque , "Type" , {
+kind = "shape" , fields = fields , indexer = indexer ,
+key = table . concat ( keys , "," ) .. "[" .. ( indexer and keyOf ( state , indexer ) or "-" ) .. "]" ,
+} , nil )
+elseif kind == "tuple" or kind == "union" or kind == "intersection" then
+local members = list ( node . members , kind )
+if members then
+local keys = { }
+for position , member in ipairs ( members ) do keys [ position ] = keyOf ( state , member ) end
+made = make ( state , opaque , "Type" , { kind = kind , members = members , key = kind .. ":" .. table . concat ( keys , "," ) } , nil )
+end
+elseif kind == "ptr" or kind == "const" or kind == "borrowed" or kind == "pinned" or kind == "owned" then
+local inner = import ( node . element )
+if inner then made = make ( state , opaque , "Type" , { kind = kind , inner = inner , key = kind .. ":" .. keyOf ( state , inner ) } , nil ) end
+elseif kind == "carray" then
+local element = import ( node . element )
+if element then made = make ( state , opaque , "Type" , {
+kind = "carray" , element = element , count = node . count ,
+key = "carray:" .. keyOf ( state , element ) .. ":" .. tostring ( node . count ) ,
+} , nil ) end
+elseif kind == "pack" then
+local headIndices , modes = { } , { }
+for position , member in ipairs ( node . head or { } ) do
+headIndices [ position ] = member . type
+modes [ position ] = member . mode or "plain"
+end
+local head = list ( headIndices , "pack" )
+local tail = node . tail and node . tail . type and import ( node . tail . type ) or nil
+if head then
+local keys = { }
+for position , member in ipairs ( head ) do keys [ position ] = modes [ position ] .. ":" .. keyOf ( state , member ) end
+made = make ( state , opaque , "Pack" , {
+kind = "pack" , head = head , modes = modes , tail = tail ,
+key = table . concat ( keys , "," ) .. "..." .. ( tail and keyOf ( state , tail ) or "-" ) ,
+} , nil )
+end
+elseif kind == "func" then
+local parameters = node . parameterPack and import ( node . parameterPack )
+local results = node . returnPack and import ( node . returnPack )
+if parameters and results then made = make ( state , opaque , "Type" , {
+kind = "function" , parameters = parameters , results = results ,
+key = keyOf ( state , parameters ) .. "->" .. keyOf ( state , results ) ,
+} , nil ) end
+end
+active [ index ] = nil
+built [ index ] = made
+return made
+end
+local root = import ( descriptor . root )
+if not root then
+return nil , failure ( "NUPP2415" , "type-function input uses a semantic kind the type provider cannot import" )
+end
+return root , nil
+end
+
+function typeprovider . opaqueKind ( state , value )
+local found = entry ( state , value )
+if not found then return nil end
+return found . family == "Pack" and "typepack" or "type"
+end
+
+function typeprovider . operator ( state , op , left , right )
+local found = entry ( state , left )
+if not found or op ~= "==" and op ~= "~=" then
+return nil , failure ( "NUPP2411" , "this operator is unavailable for type handles" )
+end
+local other = entry ( state , right )
+local equal = other ~= nil and found . family == other . family and found . payload . key == other . payload . key
+if op == "==" then return equal , nil end
+return not equal , nil
+end
+
+local function finalizeGraph ( state , root )
+local indices , nodes , origins , references = { } , { } , { } , { }
+local failed
+
+local function intern ( handle )
+local prior = indices [ handle ]
+if prior then return prior end
+if # nodes >= typeprovider . MAX_NODES then
+failed = failure ( "NUPP2416" , "type blueprint exceeds the 10000-node limit" )
+return 0
+end
+local found = entry ( state , handle )
+if not found then
+failed = failure ( "NUPP2415" , "type blueprint contains a foreign handle" )
+return 0
+end
+local index = # nodes + 1
+indices [ handle ] = index
+local payload = found . payload
+local node = { kind = payload . kind }
+nodes [ index ] , origins [ index ] = node , found . provenance
+if payload . kind == "primitive" then
+node . name = payload . name
+elseif payload . kind == "reference" then
+node . reference = # references + 1
+node . referenceId = payload . referenceId
+node . fingerprint = payload . fingerprint
+references [ node . reference ] = {
+source = payload . source ,
+referenceId = payload . referenceId ,
+fingerprint = payload . fingerprint ,
+}
+elseif payload . kind == "literal" then
+node . value = payload . value
+node . base = intern ( payload . base )
+elseif payload . kind == "array" or payload . kind == "carray" then
+node . element = intern ( payload . element )
+node . count = payload . count
+elseif payload . kind == "ptr" or payload . kind == "const" or payload . kind == "borrowed"
+or payload . kind == "pinned" or payload . kind == "owned" then
+node . inner = intern ( payload . inner )
+elseif payload . kind == "tuple" or payload . kind == "union" or payload . kind == "intersection" then
+node . members = { }
+for position , member in ipairs ( payload . members or { } ) do node . members [ position ] = intern ( member ) end
+elseif payload . kind == "indexer" then
+node . readKey = payload . readKey and intern ( payload . readKey ) or nil
+node . readValue = payload . readValue and intern ( payload . readValue ) or nil
+node . writeKey = payload . writeKey and intern ( payload . writeKey ) or nil
+node . writeValue = payload . writeValue and intern ( payload . writeValue ) or nil
+elseif payload . kind == "shape" then
+node . fields = { }
+for position , field in ipairs ( payload . fields or { } ) do
+node . fields [ position ] = {
+name = field . name ,
+read = field . read and intern ( field . read ) or nil ,
+write = field . write and intern ( field . write ) or nil ,
+}
+end
+node . indexer = payload . indexer and intern ( payload . indexer ) or nil
+elseif payload . kind == "function" then
+node . parameters = intern ( payload . parameters )
+node . results = intern ( payload . results )
+elseif payload . kind == "pack" then
+node . head , node . modes = { } , payload . modes
+for position , member in ipairs ( payload . head or { } ) do node . head [ position ] = intern ( member ) end
+node . tail = payload . tail and intern ( payload . tail ) or nil
+else
+failed = failure ( "NUPP2415" , "type blueprint uses unsupported kind " .. tostring ( payload . kind ) )
+end
+return index
+end
+
+local rootIndex = intern ( root )
+if failed then return nil , failed end
+local payload = { root = rootIndex , nodes = nodes }
+local fingerprint = hash . sha256 ( "nupp.types\0v1\0" .. stable ( payload ) )
+return {
+kind = "type-blueprint" ,
+provider = "types" ,
+schema = typeprovider . SCHEMA ,
+family = entry ( state , root ) . family ,
+payload = payload ,
+references = references ,
+provenance = origins ,
+fingerprint = fingerprint ,
+summary = ( "%d-node %s blueprint" ) : format ( # nodes , entry ( state , root ) . family : lower ( ) ) ,
+} , nil
+end
+
+function typeprovider . finalize ( state , value )
+if not entry ( state , value ) then
+return nil , failure ( "NUPP2415" , "the value is not a type handle" )
+end
+return finalizeGraph ( state , value )
+end
+
+return typeprovider
 
 end
 package.preload["nupp.compiler.members"] = function(...)
@@ -67356,6 +68154,8 @@ elseif t . tag == "literal" then
 out = build ( t . base , memo )
 elseif t . tag == "typevar" and t . bound then
 out = build ( t . bound , memo )
+elseif t . tag == "neutral" and t . op == "comptimeCall" and t . comptimeBound then
+out = build ( t . comptimeBound , memo )
 elseif t . tag == "shape" or t . tag == "nominal" then
 out = direct ( t )
 elseif t . tag == "intersection" then
@@ -67534,6 +68334,9 @@ elseif tag == "literal" then
 return lookup ( ( t ) . base , name )
 elseif tag == "typevar" and ( t ) . bound then
 return lookup ( ( t ) . bound , name )
+elseif tag == "neutral" and ( t ) . op == "comptimeCall"
+and ( t ) . comptimeBound then
+return lookup ( ( t ) . comptimeBound , name )
 elseif tag == "shape" or tag == "nominal" then
 return directEntry ( t , name )
 elseif tag == "intersection" then
@@ -70073,7 +70876,6 @@ return r
 end
 
 local parseExp , parseBlock , parseSuffixedexp , parseTableconstructor , parseFuncbody , parseType , parsePosttype , parseTypePack , parseStatement , parseReturnType , parseIstring , parseCaptureClause
-local typePatternDepth = 0
 
 
 local TYPE_START = {
@@ -70274,60 +71076,12 @@ end
 
 local function parseTypePrimary ( )
 local kind = cur ( ) . kind
-if typePatternDepth > 0 and kind == "name" and cur ( ) . text == "infer" and tokens [
-i + 1
-] and tokens [ i + 1 ] . kind == "name" then
-local n = setmetatable({ kind =  "tinfer" }, cst.Tinfer)
-add ( n , advance ( ) ) . contextualOp = true
-n . name = add ( n , advance ( ) )
-if cur ( ) . kind == "..." then
-n . pack = true
-add ( n , advance ( ) ) . generic = true
-end
-return n
-end
-if kind == "name" and cur ( ) . text == "match" and startsType ( tokens [ i + 1 ] ) then
-local n = setmetatable({ kind =  "tmatch" ,  arms =  { } }, cst.Tmatch)
-add ( n , advance ( ) ) . contextualOp = true
-if cur ( ) . kind == "name" and cur ( ) . text == "each" then
-n . each = true
-add ( n , advance ( ) ) . contextualOp = true
-end
-n . scrutinee = add ( n , parseType ( ) )
-while cur ( ) . kind == "name" and cur ( ) . text == "when" do
-local arm = setmetatable({ kind =  "tmatchArm" }, cst.TmatchArm)
-add ( arm , advance ( ) ) . contextualOp = true
-typePatternDepth = typePatternDepth + 1
-arm . pattern = add ( arm , parseType ( ) )
-typePatternDepth = typePatternDepth - 1
-if not ( cur ( ) . kind == "then" ) then
-errAt ( cur ( ) , "'then' expected after type-match pattern" )
-end
-add ( arm , expect ( "then" , "after type-match pattern" ) )
-arm . result = add ( arm , parseType ( ) )
-n . arms [ # n . arms + 1 ] = add ( n , arm )
-end
-if cur ( ) . kind == "else" then
-add ( n , advance ( ) )
-n . fallback = add ( n , parseType ( ) )
-end
-add ( n , expect ( "end" , "to close type match" ) )
-return n
-end
 if kind == "name" and (
 cur ( ) . text == "keyof" or cur ( ) . text == "writekeyof"
 ) and startsType ( tokens [ i + 1 ] ) and tokens [ i + 1 ] . line == cur ( ) . line then
 local n = setmetatable({ kind =  "tkeyof" ,  capability =  cur ( ) . text == "keyof" and "read" or "write" }, cst.Tkeyof)
 add ( n , advance ( ) ) . contextualOp = true
 n . inner = add ( n , parseTypePrimary ( ) )
-return n
-end
-if kind == "name" and cur ( ) . text == "typeerror" and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "<" then
-local n = setmetatable({ kind =  "ttypeerror" }, cst.Ttypeerror)
-add ( n , advance ( ) ) . contextualOp = true
-add ( n , advance ( ) ) . generic = true
-n . message = add ( n , parseType ( ) )
-add ( n , expect ( ">" , "to close typeerror message" ) ) . generic = true
 return n
 end
 if kind == "name" and cur ( ) . text == "writeof" and startsType (
@@ -70394,6 +71148,20 @@ add ( n , advance ( ) )
 n . typeArgs [ # n . typeArgs + 1 ] = add ( n , argument ( ) )
 end
 add ( n , expectGenericClose ( "to close type arguments" ) ) . generic = true
+end
+if cur ( ) . kind == "(" then
+local call = setmetatable({ kind =  "ttypecall" ,  arguments =  { } }, cst.Ttypecall)
+call . callee = add ( call , n )
+add ( call , advance ( ) )
+if cur ( ) . kind ~= ")" then
+call . arguments [ 1 ] = add ( call , parseType ( ) )
+while cur ( ) . kind == "," do
+add ( call , advance ( ) )
+call . arguments [ # call . arguments + 1 ] = add ( call , parseType ( ) )
+end
+end
+add ( call , expect ( ")" , "to close type-function arguments" ) )
+return call
 end
 return n
 elseif kind == "(" then
@@ -71221,7 +71989,7 @@ local n = setmetatable({ kind =  "istring" }, cst.Istring)
 add ( n , advance ( ) )
 n . parts = { }
 while true do
-n . parts [ # n . parts + 1 ] = add ( n , typePatternDepth > 0 and parseType ( ) or resetNoMethod ( parseExp ) )
+n . parts [ # n . parts + 1 ] = add ( n , resetNoMethod ( parseExp ) )
 local k = cur ( ) . kind
 if k == "istringMid" then
 add ( n , advance ( ) )
@@ -73578,37 +74346,34 @@ return m
 `writeof T.[K]` project their value types. A readonly or writeonly mapped shape
 iterates finite literal keys and may remap them with `as`.
 
-`match` selects the first decidable pattern; `match each` is the only form that
-distributes over a union. `infer` bindings belong to one arm. Backtick template
-types concatenate finite string literal sets and split literal strings at
-unambiguous separators in a match pattern. Function patterns may capture their
-parameter and result packs with `function(infer A...): infer R...`.
+Backtick template types concatenate finite string literal sets. Const parameters,
+associated-type projections, and `unpackof` remain direct finite operators.
 
-A final tuple pattern tail, `{infer Head, unpackof infer Tail}`, binds the fixed
-prefix and remaining tuple. An empty `Tail` is `{never}`.
-
-A generic alias may refer directly to itself beneath a match result. Reduction
-is memoized and bounded; an unconditional reference, mutual recursion, an
-identical active application, or an exhausted recursive budget is NUPP2133.
+Algorithms use ordinary Nupp in an `@comptime` function. Parameters and results
+may be compiler-only `type` or `typepack` handles. `nupp.types` inspects immutable
+type semantics and constructs validated structural results; it cannot create a
+record, interface, name, method, or other declaration. Calls use parentheses in
+type position and erase completely from generated Lua.
 ]=] ,  example =
 [=[
 local m = {}
 
 local type Events<T> = {readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil}
 
-local type Element<T> = match T when {infer Item} then Item else T
-end
-
-local type DeepElement<T> = match T when {infer Item} then DeepElement<Item> else T
+@comptime
+local function DeepElement(T: type): type
+    while nupp.types.kind(T) == "array" do
+        T = nupp.types.elements(T)[1]
+    end
+    return T
 end
 
 local events: Events<{
     name: string
 }> = nil as any
 local callback: function(value: string): nil = events.nameChanged
-local element: Element<{integer}> = 1
-local deep: DeepElement<{{integer}}> = 1
-print(callback, element, deep)
+local deep: DeepElement({{integer}}) = 1
+print(callback, deep)
 
 return m
 ]=] }, reference.Section)
@@ -73632,9 +74397,9 @@ value. The explicit `...value` field projection described above is resolved
 before that adjustment.
 
 Inside a computed tuple, `{Head, unpackof Tail}` appends the tuple produced by
-`Tail`; an array of `never` contributes no slots. `typeerror<Message>` carries a
-deliberate failure out of a reducer. When `unpackof` needs that result, it
-reports the authored message directly.
+`Tail`; an array of `never` contributes no slots. A comptime function returning
+`typepack` can construct a complete pack through `nupp.types.pack`, and
+`nupp.types.error(message)` deliberately rejects a computed contract.
 
 Whole-pack unions preserve relationships between results. This is why testing
 the boolean returned by `pcall` narrows its sibling values to the callback's
@@ -74594,7 +75359,7 @@ return m
 
 
 "Comptime" ,  codes =
-{ "NUPP2410" , "NUPP2411" , "NUPP2412" , "NUPP2413" , "NUPP2414" , "NUPP2415" , "NUPP2416" , "NUPP2419" , } ,  body =
+{ "NUPP2410" , "NUPP2411" , "NUPP2412" , "NUPP2413" , "NUPP2414" , "NUPP2415" , "NUPP2416" , "NUPP2419" , "NUPP2420" , "NUPP2421" , } ,  body =
 [=[
 `comptime do ... end` is an expression whose value is computed while the file is
 compiled. The block is ordinary Nupp, and what it returns is written into the
@@ -75258,8 +76023,8 @@ end
 
 
 
-function reflection . describe ( root , qualifiedName )
-local indices , types = { } , { }
+function reflection . describe ( root , qualifiedName , includeSources )
+local indices , types , sources = { } , { } , { }
 
 local intern
 
@@ -75292,6 +76057,7 @@ return prior
 end
 local index = # types + 1
 indices [ t ] = index
+sources [ index ] = t
 local out = { kind = t . tag }
 types [ index ] = out
 local tag = t . tag
@@ -75485,25 +76251,34 @@ for position , parameter in ipairs ( t . constParams or { } ) do
 out . constParameters [ position ] = intern ( parameter )
 end
 out . parameterKinds = t . paramKinds or { }
-elseif tag == "neutral" and t . op == "alias" then
-out . operation = "recursiveAlias"
-out . name = t . aliasHeader and t . aliasHeader . name or nil
-out . typeArguments , out . packArguments , out . constArguments = { } , { } , { }
-for position , argument in ipairs ( t . aliasTypeArgs or { } ) do
-out . typeArguments [ position ] = intern ( argument )
+elseif tag == "neutral" and t . op == "comptimeCall" then
+out . operation = "comptimeTypeCall"
+out . identity = t . comptimeIdentity
+out . arguments = { }
+for position , argument in ipairs ( t . comptimeArguments or { } ) do
+if argument . kind == "type" then
+out . arguments [ position ] = { kind = "type" , type = intern ( argument . value ) }
+elseif argument . kind == "typepack" then
+out . arguments [ position ] = { kind = "typepack" , pack = intern ( argument . value ) }
+else
+out . arguments [ position ] = {
+kind = "const" , value = argument . value . value ,
+domain = argument . value . domain ,
+}
 end
-for position , argument in ipairs ( t . aliasPackArgs or { } ) do
-out . packArguments [ position ] = intern ( argument )
 end
-for position , argument in ipairs ( t . aliasConstArgs or { } ) do
-out . constArguments [ position ] = intern ( argument )
-end
+out . bound = intern ( t . comptimeBound )
+out . resultKind = t . comptimeResultPack and "typepack" or "type"
 elseif tag == "literal" then
 out . value = t . constant
 out . base = intern ( t . base )
 elseif tag == "typevar" then
 out . name = t . name
 out . bound = intern ( t . bound )
+elseif tag == "typeHandle" then
+out . bound = intern ( t . bound )
+elseif tag == "packResult" then
+out . pack = intern ( t . pack )
 elseif tag == "packvar" then
 out . name = t . name
 elseif tag == "constLiteral" then
@@ -75576,6 +76351,17 @@ annotations = field . annotations or { } ,
 }
 end
 descriptor . fingerprint = hash . sha256 ( "nupp.reflect\0v" .. tostring ( reflection . SCHEMA ) .. "\0" .. stable ( descriptor ) )
+if includeSources then
+
+
+
+descriptor . sources = sources
+for index , node in ipairs ( types ) do
+if node . nominal then
+node . referenceFingerprint = reflection . describe ( sources [ index ] ) . fingerprint
+end
+end
+end
 
 return descriptor
 end
@@ -78666,6 +79452,320 @@ end
 return targetLayout
 
 end
+package.preload["nupp.compiler.typeblueprint"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+
+
+
+
+local T = require ( "nupp.compiler.types" )
+local hash = require ( "nupp.compiler.build.hash" )
+local stable = require ( "nupp.compiler.build.cache" ) . stable
+
+
+
+
+
+
+const typeblueprint = {} typeblueprint.__index = typeblueprint
+
+
+
+
+
+
+typeblueprint . SCHEMA = 1
+typeblueprint . MAX_NODES = 10000
+typeblueprint . MAX_MEMBERS = 1000
+
+local PRIMITIVES = {
+any = T . any ,
+unknown = T . unknown ,
+never = T . never ,
+[ "nil" ] = T . nil_ ,
+boolean = T . boolean ,
+string = T . string ,
+number = T . number ,
+integer = T . integer ,
+[ "table" ] = T . table_ ,
+thread = T . thread ,
+userdata = T . userdata ,
+float = T . float ,
+cdata = T . cdata ,
+cstring = T . cstring ,
+voidptr = T . voidptr ,
+int8 = T . int8 ,
+int16 = T . int16 ,
+int32 = T . int32 ,
+int64 = T . int64 ,
+uint8 = T . uint8 ,
+uint16 = T . uint16 ,
+uint32 = T . uint32 ,
+uint64 = T . uint64 ,
+}
+
+local function failure ( message )
+return { code = "NUPP2415" , message = message }
+end
+
+function typeblueprint . validate ( envelope , permittedReferences )
+if type ( envelope ) ~= "table" or envelope . kind ~= "type-blueprint"
+or envelope . provider ~= "types" or envelope . schema ~= typeblueprint . SCHEMA
+or envelope . family ~= "Type" and envelope . family ~= "Pack"
+or type ( envelope . payload ) ~= "table" or type ( envelope . fingerprint ) ~= "string" then
+return nil , failure ( "the comptime worker returned a malformed type blueprint envelope" )
+end
+local payload , nodes = envelope . payload , envelope . payload . nodes
+if type ( nodes ) ~= "table" or # nodes < 1 or # nodes > typeblueprint . MAX_NODES
+or type ( payload . root ) ~= "number" or payload . root ~= math . floor ( payload . root )
+or payload . root < 1 or payload . root > # nodes then
+return nil , failure ( "type blueprint has an invalid graph root or node count" )
+end
+local expectedFingerprint = hash . sha256 ( "nupp.types\0v1\0" .. stable ( payload ) )
+if envelope . fingerprint ~= expectedFingerprint then
+return nil , failure ( "type blueprint fingerprint does not match its payload" )
+end
+
+local built , active = { } , { }
+local build
+local function edge ( index , label )
+if type ( index ) ~= "number" or index ~= math . floor ( index ) or index < 1 or index > # nodes then
+return nil , label .. " has an invalid type edge"
+end
+return build ( index )
+end
+local function edgeArray ( values , label )
+if type ( values ) ~= "table" or # values > typeblueprint . MAX_MEMBERS then
+return nil , label .. " has an invalid or oversized member array"
+end
+local out = { }
+for position , index in ipairs ( values ) do
+local value , why = edge ( index , label .. " member " .. tostring ( position ) )
+if not value then return nil , why end
+if value . tag == "pack" then return nil , label .. " contains a type pack where a type is required" end
+out [ position ] = value
+end
+return out , nil
+end
+
+build = function ( index )
+if built [ index ] then return built [ index ] end
+if active [ index ] then return nil , "type blueprint contains a structural cycle" end
+local node = nodes [ index ]
+if type ( node ) ~= "table" or type ( node . kind ) ~= "string" then
+return nil , "type blueprint node " .. tostring ( index ) .. " has no kind"
+end
+active [ index ] = true
+local value , why
+if node . kind == "primitive" then
+value = PRIMITIVES [ node . name ]
+if not value then why = "type blueprint names an unknown primitive " .. tostring ( node . name ) end
+elseif node . kind == "reference" then
+local reference = type ( envelope . references ) == "table" and envelope . references [ node . reference ] or nil
+if ( type ( reference ) ~= "table" or not reference . source )
+and type ( node . referenceId ) == "string" and type ( permittedReferences ) == "table" then
+reference = permittedReferences [ node . referenceId ]
+end
+if type ( node . fingerprint ) ~= "string" or type ( reference ) ~= "table"
+or type ( reference . fingerprint ) ~= "string" or not reference . source
+or node . fingerprint ~= reference . fingerprint then
+why = "type blueprint names an invalid permitted input reference"
+else
+local reflection = require ( "nupp.compiler.reflection" )
+local described = reflection . describe ( reference . source )
+if described . fingerprint ~= reference . fingerprint then
+why = "type blueprint input reference fingerprint is stale"
+else
+value = reference . source
+end
+end
+elseif node . kind == "literal" then
+local base
+base , why = edge ( node . base , "literal base" )
+if base and base . tag == "pack" then why , base = "literal base is a type pack" , nil end
+if base then
+local kind = type ( node . value )
+if kind ~= "string" and kind ~= "boolean"
+and ( kind ~= "number" or node . value ~= math . floor ( node . value ) ) then
+why = "type blueprint literal is not a string, boolean, or exact integer"
+else
+value = T . literal ( node . value , base )
+end
+end
+elseif node . kind == "array" then
+local element
+element , why = edge ( node . element , "array element" )
+if element and element . tag ~= "pack" then value = T . array ( element )
+elseif element then why = "array element is a type pack" end
+elseif node . kind == "carray" then
+local element
+element , why = edge ( node . element , "C-array element" )
+if element and element . tag == "pack" then why , element = "C-array element is a type pack" , nil end
+if element then
+if node . count ~= nil and ( type ( node . count ) ~= "number" or node . count ~= math . floor ( node . count ) or node . count < 0 ) then
+why = "C-array count is not a non-negative exact integer"
+else
+value = T . carray ( element , node . count )
+end
+end
+elseif node . kind == "ptr" or node . kind == "const" or node . kind == "borrowed"
+or node . kind == "pinned" or node . kind == "owned" then
+local inner
+inner , why = edge ( node . inner , node . kind .. " inner type" )
+if inner and inner . tag == "pack" then why , inner = node . kind .. " inner value is a type pack" , nil end
+if inner then
+if node . kind == "ptr" then value = T . ptr ( inner )
+elseif node . kind == "const" then value = T . constOf ( inner )
+elseif node . kind == "borrowed" then value = T . borrowed ( inner )
+elseif node . kind == "pinned" then value = T . pinned ( inner )
+else value = T . owned ( inner ) end
+end
+elseif node . kind == "tuple" then
+local members
+members , why = edgeArray ( node . members , "tuple" )
+if members then value = T . tuple ( members ) end
+elseif node . kind == "union" then
+local members
+members , why = edgeArray ( node . members , "union" )
+if members then value = T . union ( members ) end
+elseif node . kind == "intersection" then
+local members
+members , why = edgeArray ( node . members , "intersection" )
+if members then value = T . intersection ( members ) end
+elseif node . kind == "indexer" then
+local values , labels = { } , { "read key" , "read value" , "write key" , "write value" }
+local edges = { node . readKey , node . readValue , node . writeKey , node . writeValue }
+for position = 1 , 4 do
+local indexValue = edges [ position ]
+if indexValue ~= nil then
+values [ position ] , why = edge ( indexValue , "indexer " .. labels [ position ] )
+if why or values [ position ] . tag == "pack" then
+why = why or "indexer " .. labels [ position ] .. " is a type pack"
+break
+end
+end
+end
+if not why then
+if ( values [ 1 ] == nil ) ~= ( values [ 2 ] == nil ) or ( values [ 3 ] == nil ) ~= ( values [ 4 ] == nil )
+or values [ 1 ] == nil and values [ 3 ] == nil then
+why = "indexer capabilities do not contain complete key/value pairs"
+else
+value = T . indexer ( values [ 1 ] , values [ 2 ] , values [ 3 ] , values [ 4 ] )
+end
+end
+elseif node . kind == "shape" then
+if type ( node . fields ) ~= "table" or # node . fields > typeblueprint . MAX_MEMBERS then
+why = "shape has an invalid or oversized field array"
+else
+local fields , seen = { } , { }
+for position , field in ipairs ( node . fields ) do
+if type ( field ) ~= "table" or type ( field . name ) ~= "string" or field . name == "" or seen [ field . name ] then
+why = "shape has an invalid or repeated field at " .. tostring ( position )
+break
+end
+local read , write
+if field . read ~= nil then read , why = edge ( field . read , "shape read field " .. field . name ) end
+if not why and field . write ~= nil then write , why = edge ( field . write , "shape write field " .. field . name ) end
+if why or read and read . tag == "pack" or write and write . tag == "pack" or not read and not write then
+why = why or "shape field " .. field . name .. " has invalid capabilities"
+break
+end
+seen [ field . name ] = true
+fields [ # fields + 1 ] = { name = field . name , read = read , write = write }
+end
+local indexer
+if not why and node . indexer ~= nil then
+indexer , why = edge ( node . indexer , "shape indexer" )
+if indexer and indexer . tag ~= "map" then why , indexer = "shape indexer is not an indexer" , nil end
+end
+if not why then
+value = T . shape ( fields , indexer and {
+readKey = indexer . readable and indexer . key or nil ,
+readValue = indexer . readable and indexer . value or nil ,
+writeKey = indexer . writeKey ,
+writeValue = indexer . writeValue ,
+} or nil )
+end
+end
+elseif node . kind == "function" then
+local parameters , results
+parameters , why = edge ( node . parameters , "function parameters" )
+if not why then results , why = edge ( node . results , "function results" ) end
+if not why and ( parameters . tag ~= "pack" or results . tag ~= "pack" ) then
+why = "function parameters and results must be type packs"
+elseif not why then
+local tail = parameters . tail
+value = T . func (
+parameters . head ,
+results . head ,
+tail ~= nil ,
+parameters . modes ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+tail and tail . type or nil ,
+nil ,
+parameters ,
+results
+)
+end
+elseif node . kind == "pack" then
+local head
+head , why = edgeArray ( node . head , "pack" )
+if head then
+local modes = node . modes or { }
+if type ( modes ) ~= "table" or # modes > # head then
+why = "type blueprint pack modes do not align with its head"
+else
+local copiedModes = { }
+for position = 1 , # head do
+local mode = modes [ position ] or "plain"
+if mode ~= "plain" and mode ~= "owned" and mode ~= "borrowed" and mode ~= "pinned" then
+why = "type blueprint pack has an invalid mode at " .. tostring ( position )
+break
+end
+copiedModes [ position ] = mode
+end
+local tail
+if not why and node . tail ~= nil then
+tail , why = edge ( node . tail , "pack tail" )
+if tail and tail . tag == "pack" then why , tail = "pack tail is a type pack" , nil end
+end
+if not why then
+value = T . pack ( head , tail and { kind = "homogeneous" , type = tail } or nil , copiedModes )
+end
+end
+end
+else
+why = "type blueprint uses unsupported kind " .. tostring ( node . kind )
+end
+active [ index ] = nil
+if not value then return nil , why end
+built [ index ] = value
+return value
+end
+
+local result , why = build ( payload . root )
+if not result then return nil , failure ( why ) end
+if envelope . family == "Pack" and result . tag ~= "pack" then
+return nil , failure ( "type blueprint claims a pack but returns a type" )
+elseif envelope . family == "Type" and result . tag == "pack" then
+return nil , failure ( "type blueprint claims a type but returns a pack" )
+end
+
+return result , nil
+end
+
+return typeblueprint
+
+end
 package.preload["nupp.compiler.types"] = function(...)
 local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
@@ -78823,31 +79923,21 @@ types.ConstOp = {} types.ConstOp.__index = types.ConstOp
 
 
 
-
-
-
-types.MatchPattern = {} types.MatchPattern.__index = types.MatchPattern
-
+types.ComptimeTypeArgument = {} types.ComptimeTypeArgument.__index = types.ComptimeTypeArgument
 
 
 
 
+types.ComptimePackArgument = {} types.ComptimePackArgument.__index = types.ComptimePackArgument
 
 
 
 
+types.ComptimeConstArgument = {} types.ComptimeConstArgument.__index = types.ComptimeConstArgument
 
 
 
 
-
-
-
-
-
-
-
-types.MatchArm = {} types.MatchArm.__index = types.MatchArm
 
 
 
@@ -78960,22 +80050,7 @@ types.ProtocolThread = {} types.ProtocolThread.__index = types.ProtocolThread
 
 
 
-
-
-types.AliasHeader = {} types.AliasHeader.__index = types.AliasHeader
-
-
-
-
-
-
-
-
-
-
-
 types.GenericAlias = {} types.GenericAlias.__index = types.GenericAlias
-
 
 
 
@@ -79100,9 +80175,22 @@ types.TypeVar = {} types.TypeVar.__index = types.TypeVar
 
 
 
+types.TypeHandle = {} types.TypeHandle.__index = types.TypeHandle
+
+
+
+
+
+
+types.PackResult = {} types.PackResult.__index = types.PackResult
+
+
+
+
+
+
 
 types.Neutral = {} types.Neutral.__index = types.Neutral
-
 
 
 
@@ -79471,8 +80559,6 @@ local capabilityArena = { }
 local capabilityIdentity = setmetatable ( { } , { __mode = "k" } )
 local nextCapabilityIdentity = 0
 local constArena = { }
-local patternArena = { }
-local aliasHeaderSerial = 0
 
 local function flowIdentity ( value )
 if value == nil then
@@ -79649,6 +80735,10 @@ types . uint32 = prim ( "uint32" )
 types . uint64 = prim ( "uint64" )
 
 
+types . type_ = prim ( "type" )
+types . typepack = prim ( "typepack" )
+
+
 
 local TABLE_SHAPED
 
@@ -79680,6 +80770,8 @@ uint64 = types . uint64 ,
 cstring = types . cstring ,
 voidptr = types . voidptr ,
 cdata = types . cdata ,
+type = types . type_ ,
+typepack = types . typepack ,
 [ "nil" ] = types . nil_ ,
 }
 
@@ -80244,81 +81336,6 @@ term . operands [ 1 ]
 ) .. " " .. term . operation .. " " .. types . tostringConst ( term . operands [ 2 ] ) .. ")"
 end
 
-function types . matchPattern (
-kind ,
-binder ,
-expected ,
-children ,
-templateParts ,
-countTerm ,
-paramCount ,
-paramPackBinder ,
-retPackBinder ,
-tupleTail ,
-nominalPackBinders
-)
-local childIds , partIds , nominalPackIds = { } , { } , { }
-for j , child in ipairs ( children or { } ) do
-childIds [ j ] = child . id
-end
-
-
-for j , part in ipairs ( templateParts or { } ) do
-partIds [
-j
-] = type (
-part
-) == "string" and "s" .. # ( part ) .. ":" .. ( part ) or "p:" .. ( part ) . id
-end
-for index , nominalBinder in ipairs ( nominalPackBinders or { } ) do
-nominalPackIds [ index ] = nominalBinder . id
-end
-local id = "pattern(" .. kind .. ":" .. (
-binder and binder . id or "-"
-) .. ":" .. (
-expected and expected . id or "-"
-) .. ":" .. table . concat (
-childIds ,
-","
-) .. ":" .. table . concat (
-partIds ,
-","
-) .. ":" .. (
-countTerm and countTerm . id or "-"
-) .. ":" .. tostring (
-paramCount or "-"
-) .. ":" .. (
-paramPackBinder and paramPackBinder . id or "-"
-) .. ":" .. (
-retPackBinder and retPackBinder . id or "-"
-) .. ":" .. ( tupleTail and tupleTail . id or "-" ) .. ":" .. table . concat ( nominalPackIds , "," ) .. ")"
-local found = patternArena [ id ]
-if found then
-return found
-end
-local made = setmetatable({ kind =
-kind ,  binder =
-binder ,  expected =
-expected ,  children =
-children ,  templateParts =
-templateParts ,  countTerm =
-countTerm ,  paramCount =
-paramCount ,  paramPackBinder =
-paramPackBinder ,  retPackBinder =
-retPackBinder ,  tupleTail =
-tupleTail ,  nominalPackBinders =
-nominalPackBinders }, types.MatchPattern)
-
-made . id = inheritedMarks ( id ) .. serial ( "m" )
-patternArena [ id ] = made
-
-return made
-end
-
-function types . matchArm ( pattern , result )
-return setmetatable({ id =  pattern . id .. "=>" .. result . id ,  pattern =  pattern ,  result =  result }, types.MatchArm)
-end
-
 function types . packUnion ( alternatives )
 local flat , seen , ids = { } , { } , { }
 for _ , p in ipairs ( alternatives ) do
@@ -80397,8 +81414,7 @@ typeParams ,
 typeBounds ,
 packParams ,
 constParams ,
-paramKinds ,
-header
+paramKinds
 )
 local parts = { "alias(" .. name , body . id }
 for _ , tv in ipairs ( typeParams or { } ) do
@@ -80421,34 +81437,9 @@ typeParams or { } ,  typeBounds =
 typeBounds or { } ,  packParams =
 packParams or { } ,  constParams =
 constParams or { } ,  paramKinds =
-paramKinds or { } ,  header =
-header }, types.GenericAlias)
+paramKinds or { } }, types.GenericAlias)
 
 end )
-end
-
-
-
-
-function types . aliasHeader (
-identity ,
-name ,
-typeParams ,
-typeBounds ,
-packParams ,
-constParams ,
-paramKinds
-)
-aliasHeaderSerial = aliasHeaderSerial + 1
-return setmetatable({ id =
-"alias-header(" .. identity .. "#" .. tostring ( aliasHeaderSerial ) .. ")" ,  name =
-name ,  typeParams =
-typeParams or { } ,  typeBounds =
-typeBounds or { } ,  packParams =
-packParams or { } ,  constParams =
-constParams or { } ,  paramKinds =
-paramKinds or { } }, types.AliasHeader)
-
 end
 
 function types . tostringPack ( pack )
@@ -80836,6 +81827,20 @@ return setmetatable({ tag =  "typevar" ,  name =  name }, types.TypeVar)
 end )
 end
 
+function types . typeHandle ( bound )
+local key = "type<" .. bound . id .. ">"
+return interned ( key ) or intern ( key , function ( )
+return setmetatable({ tag =  "typeHandle" ,  bound =  bound }, types.TypeHandle)
+end )
+end
+
+function types . packResult ( pack )
+local key = "packResult(" .. pack . id .. ")"
+return interned ( key ) or intern ( key , function ( )
+return setmetatable({ tag =  "packResult" ,  pack =  pack }, types.PackResult)
+end )
+end
+
 
 
 
@@ -80849,9 +81854,7 @@ keys ,
 value ,
 remap ,
 constTerm ,
-templateParts ,
-matchEach ,
-matchArms
+templateParts
 )
 
 
@@ -80865,10 +81868,6 @@ j
 ] = type (
 part
 ) == "string" and "s" .. # ( part ) .. ":" .. ( part ) or "t:" .. ( part ) . id
-end
-local armIds = { }
-for j , arm in ipairs ( matchArms or { } ) do
-armIds [ j ] = arm . id
 end
 local id = "neutral(" .. op .. ":" .. (
 capability or "-"
@@ -80886,10 +81885,7 @@ value and value . id or "-"
 remap and remap . id or "-"
 ) .. ":" .. (
 constTerm and constTerm . id or "-"
-) .. ":" .. table . concat (
-templateIds ,
-","
-) .. ":" .. ( matchEach and "each" or "one" ) .. ":" .. table . concat ( armIds , "," ) .. ")"
+) .. ":" .. table . concat ( templateIds , "," ) .. ")"
 
 return interned ( id ) or intern ( id , function ( )
 return setmetatable({ tag =
@@ -80903,9 +81899,7 @@ keys ,  value =
 value ,  remap =
 remap ,  constTerm =
 constTerm ,  templateParts =
-templateParts ,  matchEach =
-matchEach ,  matchArms =
-matchArms }, types.Neutral)
+templateParts }, types.Neutral)
 
 end )
 end
@@ -80913,32 +81907,34 @@ end
 
 
 
-function types . aliasCall (
-header ,
-typeArgs ,
-packArgs ,
-constArgs
+function types . comptimeCall (
+identity ,
+helper ,
+arguments ,
+bound ,
+resultPack
 )
-local ids = { header . id }
-for _ , argument in ipairs ( typeArgs or { } ) do
-ids [ # ids + 1 ] = "t:" .. argument . id
+local ids = { identity , bound and bound . id or types . unknown . id , resultPack and "pack" or "type" }
+for _ , argument in ipairs ( arguments ) do
+if argument . kind == "type" then
+ids [ # ids + 1 ] = "t:" .. argument . value . id
+elseif argument . kind == "typepack" then
+ids [ # ids + 1 ] = "p:" .. argument . value . id
+else
+ids [ # ids + 1 ] = "c:" .. argument . value . id
 end
-for _ , argument in ipairs ( packArgs or { } ) do
-ids [ # ids + 1 ] = "p:" .. argument . id
 end
-for _ , argument in ipairs ( constArgs or { } ) do
-ids [ # ids + 1 ] = "c:" .. argument . id
-end
-local id = "neutral(alias:" .. table . concat ( ids , "," ) .. ")"
+local id = "neutral(comptime:" .. table . concat ( ids , "," ) .. ")"
 
 return interned ( id ) or intern ( id , function ( )
 return setmetatable({ tag =
 "neutral" ,  op =
-"alias" ,  aliasHeader =
-header ,  aliasTypeArgs =
-typeArgs or { } ,  aliasPackArgs =
-packArgs or { } ,  aliasConstArgs =
-constArgs or { } }, types.Neutral)
+"comptimeCall" ,  comptimeIdentity =
+identity ,  comptimeHelper =
+helper ,  comptimeArguments =
+arguments ,  comptimeBound =
+bound or types . unknown ,  comptimeResultPack =
+resultPack }, types.Neutral)
 
 end )
 end
@@ -80964,33 +81960,6 @@ end
 
 function types . hasProjection ( t )
 return t . id : find ( MARK_PROJECTION , 1 , true ) ~= nil
-end
-
-local function tostringPattern ( pattern )
-if pattern . kind == "infer" then
-return "infer " .. ( pattern . binder and pattern . binder . name or "_" )
-end
-if pattern . kind == "ordinary" then
-return types . tostring ( pattern . expected )
-end
-if pattern . kind == "default" then
-return "_"
-end
-if pattern . kind == "array" then
-return "{" .. tostringPattern ( ( pattern . children ) [ 1 ] ) .. "}"
-end
-if pattern . kind == "ptr" then
-return tostringPattern ( ( pattern . children ) [ 1 ] ) .. "*"
-end
-if pattern . kind == "template" then
-local parts = { }
-for j , part in ipairs ( pattern . templateParts or { } ) do
-parts [ j ] = type ( part ) == "string" and part or "${" .. tostringPattern ( part ) .. "}"
-end
-return "`" .. table . concat ( parts ) .. "`"
-end
-
-return "<" .. pattern . kind .. " pattern>"
 end
 
 
@@ -81179,20 +82148,25 @@ elseif tag == "pinned" then
 return "pinned<" .. types . tostring ( t . inner ) .. ">"
 elseif tag == "typevar" then
 return t . name
+elseif tag == "typeHandle" then
+return "type<" .. types . tostring ( t . bound ) .. ">"
+elseif tag == "packResult" then
+return "typepack(" .. types . tostringPack ( t . pack ) .. ")"
 elseif tag == "neutral" then
-if t . op == "alias" then
+if t . op == "comptimeCall" then
 local arguments = { }
-for _ , argument in ipairs ( t . aliasTypeArgs or { } ) do
-arguments [ # arguments + 1 ] = types . tostring ( argument )
+for _ , argument in ipairs ( t . comptimeArguments or { } ) do
+if argument . kind == "type" then
+arguments [ # arguments + 1 ] = types . tostring ( argument . value )
+elseif argument . kind == "typepack" then
+arguments [ # arguments + 1 ] = types . tostringPack ( argument . value )
+else
+arguments [ # arguments + 1 ] = types . tostringConst ( argument . value )
 end
-for _ , argument in ipairs ( t . aliasPackArgs or { } ) do
-arguments [ # arguments + 1 ] = types . tostringPack ( argument )
 end
-for _ , argument in ipairs ( t . aliasConstArgs or { } ) do
-arguments [ # arguments + 1 ] = types . tostringConst ( argument )
-end
-local name = t . aliasHeader and t . aliasHeader . name or "<recursive alias>"
-return name .. ( # arguments > 0 and "<" .. table . concat ( arguments , ", " ) .. ">" or "" )
+local helper = t . comptimeHelper
+local name = helper and helper . name and helper . name . text or "<type function>"
+return name .. "(" .. table . concat ( arguments , ", " ) .. ")"
 elseif t . op == "singleton" then
 return types . tostringConst ( t . constTerm )
 elseif t . op == "keyof" then
@@ -81213,8 +82187,6 @@ for j , part in ipairs ( t . templateParts or { } ) do
 parts [ j ] = type ( part ) == "string" and part or "${" .. types . tostring ( part ) .. "}"
 end
 return "`" .. table . concat ( parts ) .. "`"
-elseif t . op == "typeError" then
-return "typeerror<" .. types . tostring ( t . subject ) .. ">"
 elseif t . op == "tupleConcat" then
 local prefix = t . subject
 local parts = { }
@@ -81223,18 +82195,6 @@ parts [ j ] = types . tostring ( elem )
 end
 parts [ # parts + 1 ] = "unpackof " .. types . tostring ( t . key )
 return "{" .. table . concat ( parts , ", " ) .. "}"
-elseif t . op == "match" then
-local arms = { }
-for _ , arm in ipairs ( t . matchArms or { } ) do
-if arm . pattern . kind == "default" then
-arms [ # arms + 1 ] = "else " .. types . tostring ( arm . result )
-else
-arms [ # arms + 1 ] = "when " .. tostringPattern ( arm . pattern ) .. " then " .. types . tostring ( arm . result )
-end
-end
-return "match " .. (
-t . matchEach and "each " or ""
-) .. types . tostring ( t . subject ) .. " " .. table . concat ( arms , " " ) .. " end"
 end
 return "<" .. t . op .. ">"
 elseif tag == "metatable" then
@@ -87423,17 +88383,22 @@ match can fail.
 
 local type __LpegEmpty = {never}
 
-local type __LpegOptional<Captures> = match Captures
-    when {infer Head, unpackof infer Tail} then
-        {Head?, unpackof __LpegOptional<Tail>}
-    when {never} then {never}
-    when {infer Item} then {Item?}
-    else any
-end
-
-local type __LpegMatch<Captures> = match Captures
-    when {never} then {integer?,}
-    else __LpegOptional<Captures>
+@comptime
+local function __LpegMatch(Captures: type): typepack
+    local info = nupp.types.describe(Captures)
+    if info.kind == "array" then
+        if nupp.types.kind(info.element) == "never" then
+            return nupp.types.pack({nupp.types.optional(nupp.types.integer)})
+        end
+        return nupp.types.pack({}, nupp.types.optional(info.element))
+    elseif info.kind == "tuple" then
+        local optional = {}
+        for _, capture in ipairs(info.members) do
+            optional[#optional + 1] = nupp.types.optional(capture)
+        end
+        return nupp.types.pack(optional)
+    end
+    return nupp.types.pack({}, nupp.types.any)
 end
 
 --- A composable LPeg pattern carrying the values it captures.
@@ -87453,7 +88418,7 @@ record Pattern<Captures>
 
     --- Matches at `init`, returning captures or the next byte position, and nil on
     --- failure.
-    match: function(any, subject: string, init: integer?, ...: any): unpackof __LpegMatch<Captures>
+    match: function(any, subject: string, init: integer?, ...: any): unpackof __LpegMatch(Captures)
 end
 
 local record Locale
@@ -87502,7 +88467,7 @@ local record lpeg
         subject: string,
         init: integer?,
         ...: any
-    ): unpackof __LpegMatch<Captures>
+    ): unpackof __LpegMatch(Captures)
     type: function(value: any): "pattern"?
     locale: function(target: table?): Locale
     setmaxstack: function(maximum: integer): nil
@@ -87736,6 +88701,10 @@ local nupp: {
     --- Type-directed keyed codecs materialized from semantic reflection.
     fieldcodec: nupp.fieldcodec,
 
+    --- Compiler-only type inspection and construction inside `@comptime` functions.
+    --- Kept gradual until the bootstrap compiler admits compiler-only handle types.
+    types: any,
+
     --- Reflects a concrete type for use inside a `comptime` block.
     reflect: function(typeName: any): TypeInfo,
 
@@ -87762,6 +88731,7 @@ local nupp: {
     --- @internal
     __materializationTest: nupp.__MaterializationTestAPI
 }
+
 
 --- A compile-time-only graph handle used by the compiler's materialization tests.
 --- @internal
@@ -89935,272 +90905,87 @@ local _G: table
 --- The language version the interpreter implements, "Lua 5.1" under LuaJIT.
 local _VERSION: string
 
--- `string.format` derives its trailing parameter pack from a literal first argument.
--- These aliases are deliberately private implementation vocabulary: the public
--- surface is the ordinary function below, and a nonliteral format reduces to `any`.
--- `@local` is what keeps them out of the documented surface, which a declaration file
--- otherwise hands out whole.
+-- string.format derives its trailing parameter pack from a literal first
+-- argument. A broad string deliberately retains the ordinary variadic fallback.
+@comptime
+local function __NuppFormatArguments(Format: type): typepack
+    local info = nupp.types.describe(Format)
+    if info.kind ~= "literal" or type(info.value) ~= "string" then
+        return nupp.types.pack({}, nupp.types.any)
+    end
+    local format = info.value
+    local arguments = {}
+    local index = 1
+    while index <= #format do
+        if format:sub(index, index) ~= "%" then
+            index = index + 1
+        else
+            index = index + 1
+            local seen = ""
+            local current = format:sub(index, index)
+            if current == "%" then
+                index = index + 1
+            else
+                while current ~= "" and string.find("-+ #0", current, 1, true) do
+                    seen = seen .. current
+                    index = index + 1
+                    current = format:sub(index, index)
+                end
+                if current == "%" then
+                    return nupp.types.error(
+                        'invalid string.format directive starting at "%' .. seen
+                            .. format:sub(index) .. '"'
+                    )
+                end
 
---- @local
-local type __NuppFormatError<Seen, Rest> = typeerror<`invalid string.format directive starting at "%${Seen}${Rest}"`>
+                local width = 0
+                while current ~= "" and current:find("[0-9]") do
+                    width = width + 1
+                    seen = seen .. current
+                    index = index + 1
+                    current = format:sub(index, index)
+                    if width > 2 then
+                        return nupp.types.error(
+                            'invalid string.format directive starting at "%' .. seen .. '"'
+                        )
+                    end
+                end
 
---- @local
-local type __NuppFormatBuild<
-    State
-    > = match State when {
-    'scan',
-    infer Format
-} then match Format when `${infer _}%${infer Rest}` then __NuppFormatBuild<{'flags', Rest, ''}> else {never}
-end when {
-    'flags',
-    infer Rest,
-    infer Seen
-} then match Rest when `%${infer Tail}` then match Seen when '' then __NuppFormatBuild<
-    {'scan', Tail}
-    > else __NuppFormatError<Seen, Rest>
-end when `-${infer Tail}` then __NuppFormatBuild<
-    {'flags', Tail, `${Seen}-`}
-    > when `+${infer Tail}` then __NuppFormatBuild<
-    {'flags', Tail, `${Seen}+`}
-    > when ` ${infer Tail}` then __NuppFormatBuild<
-    {'flags', Tail, `${Seen} `}
-    > when `#${infer Tail}` then __NuppFormatBuild<
-    {'flags', Tail, `${Seen}#`}
-    > when `0${infer Tail}` then __NuppFormatBuild<
-    {'flags', Tail, `${Seen}0`}
-    > else __NuppFormatBuild<{'width', Rest, Seen}>
-end when {
-    'width',
-    infer Rest,
-    infer Seen
-} then match Rest when `1${infer Tail}` then __NuppFormatBuild<
-    {'width-one', Tail, `${Seen}1`}
-    > when `2${infer Tail}` then __NuppFormatBuild<
-    {'width-one', Tail, `${Seen}2`}
-    > when `3${infer Tail}` then __NuppFormatBuild<
-    {'width-one', Tail, `${Seen}3`}
-    > when `4${infer Tail}` then __NuppFormatBuild<
-    {'width-one', Tail, `${Seen}4`}
-    > when `5${infer Tail}` then __NuppFormatBuild<
-    {'width-one', Tail, `${Seen}5`}
-    > when `6${infer Tail}` then __NuppFormatBuild<
-    {'width-one', Tail, `${Seen}6`}
-    > when `7${infer Tail}` then __NuppFormatBuild<
-    {'width-one', Tail, `${Seen}7`}
-    > when `8${infer Tail}` then __NuppFormatBuild<
-    {'width-one', Tail, `${Seen}8`}
-    > when `9${infer Tail}` then __NuppFormatBuild<
-    {'width-one', Tail, `${Seen}9`}
-    > else __NuppFormatBuild<{'precision', Rest, Seen}>
-end when {
-    'width-one',
-    infer Rest,
-    infer Seen
-} then match Rest when `0${infer Tail}` then __NuppFormatBuild<
-    {'width-two', Tail, `${Seen}0`}
-    > when `1${infer Tail}` then __NuppFormatBuild<
-    {'width-two', Tail, `${Seen}1`}
-    > when `2${infer Tail}` then __NuppFormatBuild<
-    {'width-two', Tail, `${Seen}2`}
-    > when `3${infer Tail}` then __NuppFormatBuild<
-    {'width-two', Tail, `${Seen}3`}
-    > when `4${infer Tail}` then __NuppFormatBuild<
-    {'width-two', Tail, `${Seen}4`}
-    > when `5${infer Tail}` then __NuppFormatBuild<
-    {'width-two', Tail, `${Seen}5`}
-    > when `6${infer Tail}` then __NuppFormatBuild<
-    {'width-two', Tail, `${Seen}6`}
-    > when `7${infer Tail}` then __NuppFormatBuild<
-    {'width-two', Tail, `${Seen}7`}
-    > when `8${infer Tail}` then __NuppFormatBuild<
-    {'width-two', Tail, `${Seen}8`}
-    > when `9${infer Tail}` then __NuppFormatBuild<
-    {'width-two', Tail, `${Seen}9`}
-    > else __NuppFormatBuild<{'precision', Rest, Seen}>
-end when {
-    'width-two',
-    infer Rest,
-    infer Seen
-} then match Rest when `0${infer _}` then __NuppFormatError<
-    `${Seen}0`,
-    ''
-    > when `1${infer _}` then __NuppFormatError<
-    `${Seen}1`,
-    ''
-    > when `2${infer _}` then __NuppFormatError<
-    `${Seen}2`,
-    ''
-    > when `3${infer _}` then __NuppFormatError<
-    `${Seen}3`,
-    ''
-    > when `4${infer _}` then __NuppFormatError<
-    `${Seen}4`,
-    ''
-    > when `5${infer _}` then __NuppFormatError<
-    `${Seen}5`,
-    ''
-    > when `6${infer _}` then __NuppFormatError<
-    `${Seen}6`,
-    ''
-    > when `7${infer _}` then __NuppFormatError<
-    `${Seen}7`,
-    ''
-    > when `8${infer _}` then __NuppFormatError<
-    `${Seen}8`,
-    ''
-    > when `9${infer _}` then __NuppFormatError<`${Seen}9`, ''> else __NuppFormatBuild<{'precision', Rest, Seen}>
-end when {
-    'precision',
-    infer Rest,
-    infer Seen
-} then match Rest when `.${infer Tail}` then __NuppFormatBuild<
-    {'precision-zero', Tail, `${Seen}.`}
-    > else __NuppFormatBuild<{'conversion', Rest, Seen}>
-end when {
-    'precision-zero',
-    infer Rest,
-    infer Seen
-} then match Rest when `0${infer Tail}` then __NuppFormatBuild<
-    {'precision-one', Tail, `${Seen}0`}
-    > when `1${infer Tail}` then __NuppFormatBuild<
-    {'precision-one', Tail, `${Seen}1`}
-    > when `2${infer Tail}` then __NuppFormatBuild<
-    {'precision-one', Tail, `${Seen}2`}
-    > when `3${infer Tail}` then __NuppFormatBuild<
-    {'precision-one', Tail, `${Seen}3`}
-    > when `4${infer Tail}` then __NuppFormatBuild<
-    {'precision-one', Tail, `${Seen}4`}
-    > when `5${infer Tail}` then __NuppFormatBuild<
-    {'precision-one', Tail, `${Seen}5`}
-    > when `6${infer Tail}` then __NuppFormatBuild<
-    {'precision-one', Tail, `${Seen}6`}
-    > when `7${infer Tail}` then __NuppFormatBuild<
-    {'precision-one', Tail, `${Seen}7`}
-    > when `8${infer Tail}` then __NuppFormatBuild<
-    {'precision-one', Tail, `${Seen}8`}
-    > when `9${infer Tail}` then __NuppFormatBuild<
-    {'precision-one', Tail, `${Seen}9`}
-    > else __NuppFormatBuild<{'conversion', Rest, Seen}>
-end when {
-    'precision-one',
-    infer Rest,
-    infer Seen
-} then match Rest when `0${infer Tail}` then __NuppFormatBuild<
-    {'precision-two', Tail, `${Seen}0`}
-    > when `1${infer Tail}` then __NuppFormatBuild<
-    {'precision-two', Tail, `${Seen}1`}
-    > when `2${infer Tail}` then __NuppFormatBuild<
-    {'precision-two', Tail, `${Seen}2`}
-    > when `3${infer Tail}` then __NuppFormatBuild<
-    {'precision-two', Tail, `${Seen}3`}
-    > when `4${infer Tail}` then __NuppFormatBuild<
-    {'precision-two', Tail, `${Seen}4`}
-    > when `5${infer Tail}` then __NuppFormatBuild<
-    {'precision-two', Tail, `${Seen}5`}
-    > when `6${infer Tail}` then __NuppFormatBuild<
-    {'precision-two', Tail, `${Seen}6`}
-    > when `7${infer Tail}` then __NuppFormatBuild<
-    {'precision-two', Tail, `${Seen}7`}
-    > when `8${infer Tail}` then __NuppFormatBuild<
-    {'precision-two', Tail, `${Seen}8`}
-    > when `9${infer Tail}` then __NuppFormatBuild<
-    {'precision-two', Tail, `${Seen}9`}
-    > else __NuppFormatBuild<{'conversion', Rest, Seen}>
-end when {
-    'precision-two',
-    infer Rest,
-    infer Seen
-} then match Rest when `0${infer _}` then __NuppFormatError<
-    `${Seen}0`,
-    ''
-    > when `1${infer _}` then __NuppFormatError<
-    `${Seen}1`,
-    ''
-    > when `2${infer _}` then __NuppFormatError<
-    `${Seen}2`,
-    ''
-    > when `3${infer _}` then __NuppFormatError<
-    `${Seen}3`,
-    ''
-    > when `4${infer _}` then __NuppFormatError<
-    `${Seen}4`,
-    ''
-    > when `5${infer _}` then __NuppFormatError<
-    `${Seen}5`,
-    ''
-    > when `6${infer _}` then __NuppFormatError<
-    `${Seen}6`,
-    ''
-    > when `7${infer _}` then __NuppFormatError<
-    `${Seen}7`,
-    ''
-    > when `8${infer _}` then __NuppFormatError<
-    `${Seen}8`,
-    ''
-    > when `9${infer _}` then __NuppFormatError<`${Seen}9`, ''> else __NuppFormatBuild<{'conversion', Rest, Seen}>
-end when {
-    'conversion',
-    infer Rest,
-    infer Seen
-} then match Rest when `a${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `A${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `c${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `d${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `i${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `o${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `u${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `x${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `X${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `e${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `E${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `f${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `g${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `G${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `p${infer Tail}` then {
-    any,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `q${infer Tail}` then {
-    any,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `s${infer Tail}` then {any, unpackof __NuppFormatBuild<{'scan', Tail}>} else __NuppFormatError<Seen, Rest>
-end else typeerror<'invalid string.format parser state'>
+                if current == "." then
+                    seen = seen .. current
+                    index = index + 1
+                    current = format:sub(index, index)
+                    local precision = 0
+                    while current ~= "" and current:find("[0-9]") do
+                        precision = precision + 1
+                        seen = seen .. current
+                        index = index + 1
+                        current = format:sub(index, index)
+                        if precision > 2 then
+                            return nupp.types.error(
+                                'invalid string.format directive starting at "%' .. seen .. '"'
+                            )
+                        end
+                    end
+                end
+
+                if string.find("aAcdiouxXeEfgG", current, 1, true) then
+                    arguments[#arguments + 1] = nupp.types.number
+                elseif string.find("pqs", current, 1, true) then
+                    arguments[#arguments + 1] = nupp.types.any
+                else
+                    return nupp.types.error(
+                        'invalid string.format directive starting at "%' .. seen
+                            .. format:sub(index) .. '"'
+                    )
+                end
+                index = index + 1
+            end
+        end
+    end
+
+    return nupp.types.pack(arguments)
 end
-
---- @local
-local type __NuppFormatArguments<
-    Format
-    > = match Format when `${infer Literal}` then __NuppFormatBuild<{'scan', Literal}> else any
-end
-
---- Leveled logging over a swappable destination.
 ---
 --- The severity operations are compiler intrinsics. A call in statement position
 --- whose format is a literal compiles to a level test around a direct emit, so a
@@ -90235,32 +91020,32 @@ record nupp.log
         readonly name: string
 
         --- Logs at debug. Accepts `string.format` directives.
-        debug: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
+        debug: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
 
         --- Logs at info. Accepts `string.format` directives.
-        info: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
+        info: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
 
         --- Logs at warn. Accepts `string.format` directives.
-        warn: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
+        warn: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
 
         --- Logs at error. Accepts `string.format` directives.
-        error: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
+        error: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
 
         --- Whether this logger would emit at `level`.
         enabled: function(self: Logger, level: Level): boolean
     end
 
     --- Logs at error. Accepts `string.format` directives.
-    error: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
+    error: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
 
     --- Logs at warn. Accepts `string.format` directives.
-    warn: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
+    warn: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
 
     --- Logs at info. Accepts `string.format` directives.
-    info: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
+    info: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
 
     --- Logs at debug. Accepts `string.format` directives.
-    debug: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
+    debug: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
 
     --- Reads the threshold, or sets it and answers the one it replaced.
     ---
@@ -90356,7 +91141,7 @@ local string: {
     --- @param fmt the format string
     --- @param ... the values that the directives consume
     --- @return the formatted string
-    format: nosuspend function<Format is string>(fmt: Format, ...: unpackof __NuppFormatArguments<Format>): string,
+    format: nosuspend function<Format is string>(fmt: Format, ...: unpackof __NuppFormatArguments(Format)): string,
 
     --- Returns an iterator over each successive match of `pat` in `s`, or over that
     --- match's captures when the pattern has any. Anchors have no special meaning here.
