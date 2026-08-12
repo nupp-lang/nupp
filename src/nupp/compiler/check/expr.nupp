@@ -333,6 +333,12 @@ function expr.install(c: state.Checker): nil
             end
             local nameText = nameTok.text
             local entry = c.lookupEntry(nameText)
+            -- Preserve a resolved module identity through ordinary local aliases.
+            -- Comptime provider and runtime-helper handles use that identity rather
+            -- than making the alias spelling part of their ABI.
+            if entry and entry.requiredModule then
+                node.requiredModule = entry.requiredModule
+            end
             local capturedType = nil
             if entry and entry.definition and entry.definition.comptimeFunction and (
                 c.comptimeDepth or 0

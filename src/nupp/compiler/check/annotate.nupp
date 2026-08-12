@@ -377,8 +377,22 @@ function annotate.install(c: state.Checker): annotate.Ops
             c.diag("NUPP2112", application.name, ("@%s does not take arguments"):format(application.name.text))
             valid = false
         elseif annotation.arguments == "names" then
+            local function derivePath(expr)
+                if not expr then
+                    return false
+                end
+                if expr.kind == "name" then
+                    return true
+                end
+
+                return expr.kind == "dotIndex" and derivePath(expr.obj) and expr.name and expr.name.text ~= nil
+            end
+
             for _, arg in ipairs(application.annotationArgs or {}) do
-                if arg.name or not arg.expr or (arg.expr.kind ~= "name" and arg.expr.kind ~= "string") then
+                local qualifiedProvider = application.name.text == "derive" and derivePath(arg.expr)
+                if arg.name or not arg.expr or (
+                    arg.expr.kind ~= "name" and arg.expr.kind ~= "string" and not qualifiedProvider
+                ) then
                     c.diag("NUPP2112", arg, ("@%s arguments must be names or strings"):format(application.name.text))
                     valid = false
                 end

@@ -372,9 +372,7 @@ typeFingerprint = function(
             ","
         ) .. ":comptime=" .. tostring(
             t.comptimeIdentity or "-"
-        ) .. "(" .. table.concat(comptimeArguments, ",") .. "):" .. (
-            t.comptimeResultPack and "pack" or "type"
-        ) .. ")"
+        ) .. "(" .. table.concat(comptimeArguments, ",") .. "):" .. (t.comptimeResultPack and "pack" or "type") .. ")"
     elseif tag == "genericAlias" then
         local parameters = {}
         for _, parameter in ipairs(t.typeParams or {}) do
@@ -468,24 +466,14 @@ local function copyModuleRecord(record)
     }
 end
 
-local function buildModules(
-    root: string,
-    outDir: string,
-    config: Config,
-    target: Target,
-    oldState: State,
-    newState: State,
-    checkOnly: boolean?,
-    strict: boolean?,
-    stats: modules.Stats?,
-    diagnostics: {any}?,
-    checkState: nupp.compiler.build.store.Value?,
+local function buildModules(root: string, outDir: string, config: Config, target: Target, oldState: State, newState: State, checkOnly: boolean?, strict: boolean?, stats: modules.Stats?, diagnostics: {
+    any
+}?, checkState: nupp.compiler.build.store.Value?,
 
     --- Set when a check was asked about named files rather than about the project. Only
     --- a check narrows: a build compiles the whole source set, because a module nobody
     --- requires is still part of the program.
-    narrow: modules.Narrow?
-): modules.Result?, string?
+    narrow: modules.Narrow?): modules.Result?, string?
     local envConfig = {}
     for key, value in pairs(config) do
         envConfig[key] = value
@@ -533,9 +521,11 @@ local function buildModules(
     end
 
     -- A check of named files is that same walk started somewhere smaller. What it
-    -- reaches from there -- what the file requires, and what those require -- is checked
+    -- reaches from there -- what the file requires, and what those require -- is
+    -- checked
     -- and recorded the way a whole-project run would, because the named file's answer
-    -- depends on them. What it never reaches is left alone: unmentioned, unreported, and
+    -- depends on them. What it never reaches is left alone: unmentioned, unreported,
+    -- and
     -- still in the stored state, which is what `asked` carries down to the two places
     -- that would otherwise treat "not visited" as "not there".
     local asked = nil
@@ -573,7 +563,8 @@ local function buildModules(
             return nil, "build.entries must contain at least one entry"
         end
 
-        -- An entry may live outside the include roots — a file named on the command line
+        -- An entry may live outside the include roots — a file named on the command
+        -- line
         -- does — so it is seeded first and the source set is added around it.
         for _, path in ipairs(envMod.listSourceFiles(inc.env, false)) do
             local name = envMod.moduleNameForPath(inc.env, path)
@@ -680,19 +671,20 @@ local function buildModules(
         local materializations = materializeObserve.collect(result.result and result.result.root, path)
         local derives = result.result and result.result.deriveObservations or {}
         local projectDependencies = inc.projectDependencies(path)
+        local checkedExports = result.exports or {}
         records[
             name
         ] = {sourceHash = sourceHash, interfaceHash = hash.digest(
             typeFingerprint(
                 result.moduleType
             ) .. "\0deprecated\0" .. exportDeprecationsFingerprint(
-                result.exports
+                checkedExports
             ) .. "\0nominal-callables:" .. (
-                result.exports.nominalEffectFingerprint or ""
+                checkedExports.nominalEffectFingerprint or ""
             ) .. "\0derives:" .. (
-                result.exports.deriveInterfaceFingerprint or ""
+                checkedExports.deriveInterfaceFingerprint or ""
             ) .. "\0comptime-functions:" .. (
-                result.exports.comptimeFunctionFingerprint or ""
+                checkedExports.comptimeFunctionFingerprint or ""
             ) .. (external and ("\0" .. sourceHash) or "")
         ), artifactHash = artifactHash, dependencies = jsonArray(
             depNames

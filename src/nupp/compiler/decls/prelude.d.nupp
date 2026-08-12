@@ -226,6 +226,9 @@ local nupp: {
     --- Kept gradual until the bootstrap compiler admits compiler-only handle types.
     types: any,
 
+    --- Compiler-only derive inspection and closed forwarding recipes.
+    derive: nupp.derive,
+
     --- Reflects a concrete type for use inside a `comptime` block.
     reflect: function(typeName: any): TypeInfo,
 
@@ -285,6 +288,66 @@ end
 record nupp.__MaterializationTestAPI
     node: function(value: integer): nupp.__MaterializationBlueprint
     factory: function(): nupp.__MaterializationFactoryBlueprint
+end
+
+--- Compiler-only builders available while an `@comptime` derive provider runs.
+record nupp.derive
+    --- An opaque reference which a provider may attach to a diagnostic.
+    record Reference
+    end
+
+    --- One written stored field in the immutable derive input projection.
+    record Field
+        readonly name: string
+        readonly readable: boolean
+        readonly writable: boolean
+        readonly readType: any?
+        readonly writeType: any?
+        readonly annotations: {TypeInfoAnnotation}
+        readonly reference: Reference
+    end
+
+    --- The immutable semantic view passed to an `@comptime` provider.
+    record Info
+        readonly schema: integer
+        readonly kind: string
+        readonly name: string
+        readonly visibility: string
+        readonly providerIdentity: string
+        readonly ownerIdentity: string
+        readonly ownerType: any
+        readonly interfaceType: any
+        readonly fields: {Field}
+        readonly annotations: {TypeInfoAnnotation}
+        readonly hasConstructor: boolean
+        readonly reference: Reference
+        readonly fingerprint: string
+    end
+
+    --- Compiler-owned closed recipe handles.
+    record Argument
+    end
+
+    record RuntimeHelper
+    end
+
+    record Forward
+    end
+
+    --- `I` is the one interface the provider implements.
+    record Result<I>
+    end
+
+    implement: function(specification: any): any
+    error: function(message: string, reference: Reference?): any
+    forward: function(specification: any): Forward
+    helper: function(module: any, name: string): RuntimeHelper
+    receiver: function(): Argument
+    argument: function(name: string): Argument
+    field: function(field: Field): Argument
+    constant: function(value: any): Argument
+    array: function(arguments: {Argument}): Argument
+    claims: function(subject: any, interface: any): boolean
 end
 
 --- Compiles textual parsing-expression grammars into reusable matchers.

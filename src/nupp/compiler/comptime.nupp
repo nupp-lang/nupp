@@ -29,6 +29,7 @@ local record comptime
     evaluateDirect: function(cst.Node, cst.Node?, any, any, any): (string?, T.Type?, any, any)
     evaluate: function(cst.Node, cst.Node?, any, any, any, any?): (string?, T.Type?, any, any)
     evaluateTypeFunctionDirect: function(any, {any}, any): (any, any)
+    evaluateDeriveProviderDirect: function(any, any, any, any, string?): (any, any)
     typeFunctionProgram: function(any, any): any
     sealTypeFunction: function(any, any, any, any): any
 end
@@ -38,6 +39,7 @@ local isToken = cst.isToken
 --- The exact-integer range, matching what `OPT-3` treats as exact for the same reason:
 --- a double holds these and reads them back unchanged.
 local MAX_EXACT_INTEGER = 9007199254740991
+
 local MAX_STEPS = 100000
 local MAX_CALL_DEPTH = 128
 local MAX_RESULT_BYTES = 512 * 1024
@@ -50,10 +52,14 @@ local function canonicalNode(node): string
         if cst.isToken(value) then
             parts[#parts + 1] = value.kind .. ":" .. tostring(#value.text) .. ":" .. value.text
         elseif type(value) == "table" then
-            for _, child in ipairs(value) do visit(child) end
+            for _, child in ipairs(value) do
+                visit(child)
+            end
         end
     end
+
     visit(tokens)
+
     return table.concat(parts, "\0")
 end
 
@@ -61,19 +67,28 @@ end
 --- Trivia and source offsets never enter the identity. Helpers are discovered from
 --- name references and ordered by name, so ordinary table allocation cannot affect it.
 function comptime.typeFunctionProgram(helper: any, helpers: any): any
-    if helper and helper.sealedTypeFunction then return helper end
+    if helper and helper.sealedTypeFunction then
+        return helper
+    end
     local reachable, visiting = {}, {}
     local function collect(current)
-        if not current or visiting[current] then return end
+        if not current or visiting[current] then
+            return
+        end
         visiting[current] = true
         local names = {}
         local function scan(value)
-            if type(value) ~= "table" or cst.isToken(value) then return end
+            if type(value) ~= "table" or cst.isToken(value) then
+                return
+            end
             if value.kind == "name" and value.token and helpers[value.token.text] then
                 names[value.token.text] = true
             end
-            for _, child in ipairs(value) do scan(child) end
+            for _, child in ipairs(value) do
+                scan(child)
+            end
         end
+
         scan(current.body or current)
         for name in pairs(names) do
             local dependency = helpers[name]
@@ -83,19 +98,19 @@ function comptime.typeFunctionProgram(helper: any, helpers: any): any
             end
         end
     end
+
     collect(helper)
     local names, parts = {}, {"nupp.type-function\0v1", canonicalNode(helper)}
-    for name in pairs(reachable) do names[#names + 1] = name end
+    for name in pairs(reachable) do
+        names[#names + 1] = name
+    end
     table.sort(names)
     for _, name in ipairs(names) do
         parts[#parts + 1] = name
         parts[#parts + 1] = canonicalNode(reachable[name])
     end
-    return {
-        identity = hash.sha256(table.concat(parts, "\0")),
-        helper = helper,
-        helpers = reachable,
-    }
+
+    return {identity = hash.sha256(table.concat(parts, "\0")), helper = helper, helpers = reachable,}
 end
 
 function comptime.sealTypeFunction(helper: any, helpers: any, signature: any, definition: any): any
@@ -107,19 +122,17 @@ function comptime.sealTypeFunction(helper: any, helpers: any, signature: any, de
         if token then
             local source = cst.textOf(node)
             if node.kind == "funcStmt" then
-                source = source:gsub(
-                    "^([%s]*)function%s+[%w_%.]+",
-                    "%1local function " .. name,
-                    1
-                )
+                source = source:gsub("^([%s]*)function%s+[%w_%.]+", "%1local function " .. name, 1)
             end
-            serialized[name] = {
-                source = source, line = token.line, column = token.col,
-            }
+            serialized[name] = {source = source, line = token.line, column = token.col,}
         end
     end
+
     add(mainName, helper)
-    for name, dependency in pairs(program.helpers or {}) do add(name, dependency) end
+    for name, dependency in pairs(program.helpers or {}) do
+        add(name, dependency)
+    end
+
     return {
         sealedTypeFunction = true,
         identity = program.identity,
@@ -241,11 +254,7 @@ local function quote(value, node, seen, state)
         fail("NUPP2413", node, ("a %s is not a quotable result"):format(kind))
     end
     if materializeProviders.isOpaque(state, value) then
-        fail(
-            "NUPP2414",
-            node,
-            "an opaque comptime value needs a directly declared materialization boundary"
-        )
+        fail("NUPP2414", node, "an opaque comptime value needs a directly declared materialization boundary")
     end
     if seen[value] then
         fail(
@@ -320,7 +329,9 @@ local function buildEnvironment(state)
     env.type = function(value)
         if materializeProviders.isOpaque(state, value) then
             local kind = materializeProviders.opaqueKind(state, value)
-            if kind then return kind end
+            if kind then
+                return kind
+            end
             error("type is unavailable for an opaque comptime value", 0)
         end
 
@@ -350,9 +361,12 @@ local function buildEnvironment(state)
     env.ipairs = function(value)
         if materializeProviders.isOpaque(state, value) then
             local iterator, failure = materializeProviders.iterator(state, value, true)
-            if failure then error(failure.message, 0) end
+            if failure then
+                error(failure.message, 0)
+            end
             return iterator, value, 0
         end
+
         return ipairs(value)
     end
 
@@ -361,7 +375,9 @@ local function buildEnvironment(state)
     env.pairs = function(t)
         if materializeProviders.isOpaque(state, t) then
             local iterator, failure = materializeProviders.iterator(state, t, false)
-            if failure then error(failure.message, 0) end
+            if failure then
+                error(failure.message, 0)
+            end
             return iterator, t, nil
         end
         if type(t) ~= "table" then
@@ -393,40 +409,40 @@ local function buildEnvironment(state)
         pi = math.pi,
     }
 
-    env.string = {
-        byte = function(subject, first, last)
-            first = first or 1
-            last = last or first
-            if last - first + 1 > MAX_RESULT_ITEMS then
-                error("string.byte exceeds the 10000-value comptime result limit", 0)
-            end
-            return string.byte(subject, first, last)
-        end,
-        char = function(...) return boundedString(string.char(...), "string.char result") end,
-        find = string.find,
-        format = function(format, ...)
-            if type(format) == "string" then
-                for width in format:gmatch("%%[^%%]-([0-9]+)") do
-                    if tonumber(width) and tonumber(width) > MAX_RESULT_BYTES then
-                        error("string.format width exceeds the comptime value limit", 0)
-                    end
+    env.string = {byte = function(subject, first, last)
+        first = first or 1
+        last = last or first
+        if last - first + 1 > MAX_RESULT_ITEMS then
+            error("string.byte exceeds the 10000-value comptime result limit", 0)
+        end
+
+        return string.byte(subject, first, last)
+    end, char = function(...)
+        return boundedString(string.char(...), "string.char result")
+    end, find = string.find, format = function(format, ...)
+        if type(format) == "string" then
+            for width in format:gmatch("%%[^%%]-([0-9]+)") do
+                if tonumber(width) and tonumber(width) > MAX_RESULT_BYTES then
+                    error("string.format width exceeds the comptime value limit", 0)
                 end
             end
-            return boundedString(string.format(format, ...), "string.format result")
-        end,
-        len = string.len,
-        lower = function(value) return boundedString(string.lower(value), "string.lower result") end,
-        match = string.match,
-        rep = function(value, count)
-            if type(value) == "string" and type(count) == "number"
-                and count > 0 and #value * count > MAX_RESULT_BYTES then
-                error("string.rep result exceeds the comptime value limit", 0)
-            end
-            return boundedString(string.rep(value, count), "string.rep result")
-        end,
-        reverse = function(value) return boundedString(string.reverse(value), "string.reverse result") end,
-        sub = function(...) return boundedString(string.sub(...), "string.sub result") end,
-        upper = function(value) return boundedString(string.upper(value), "string.upper result") end,
+        end
+
+        return boundedString(string.format(format, ...), "string.format result")
+    end, len = string.len, lower = function(value)
+        return boundedString(string.lower(value), "string.lower result")
+    end, match = string.match, rep = function(value, count)
+        if type(value) == "string" and type(count) == "number" and count > 0 and #value * count > MAX_RESULT_BYTES then
+            error("string.rep result exceeds the comptime value limit", 0)
+        end
+        return boundedString(string.rep(value, count), "string.rep result")
+    end, reverse = function(value)
+        return boundedString(string.reverse(value), "string.reverse result")
+    end, sub = function(...)
+        return boundedString(string.sub(...), "string.sub result")
+    end, upper = function(value)
+        return boundedString(string.upper(value), "string.upper result")
+    end,
         --- Only the string replacement. A function or table replacement would call back
         --- into the evaluator from inside a C function, which the walker has no frame
         --- for and no budget over.
@@ -440,48 +456,42 @@ local function buildEnvironment(state)
         end
 
         local value, count = string.gsub(subject, pattern, replacement, n)
+
         return boundedString(value, "string.gsub result"), count
     end, gmatch = string.gmatch,}
 
     -- `clone` is written out rather than borrowed, because the compiler runs on a
     -- LuaJIT that has no such function: what generated code gets is a helper gen
     -- emits, and this is the same one level of copying, evaluated here instead.
-    env.table = {
-        concat = function(values, separator, first, last)
-            separator = separator or ""
-            first = first or 1
-            last = last or #values
-            local bytes = math.max(0, last - first) * #separator
-            for index = first, last do
-                local value = values[index]
-                if type(value) ~= "string" and type(value) ~= "number" then
-                    return table.concat(values, separator, first, last)
-                end
-                bytes = bytes + #tostring(value)
-                if bytes > MAX_RESULT_BYTES then
-                    error("table.concat result exceeds the comptime value limit", 0)
-                end
+    env.table = {concat = function(values, separator, first, last)
+        separator = separator or ""
+        first = first or 1
+        last = last or #values
+        local bytes = math.max(0, last - first) * #separator
+        for index = first, last do
+            local value = values[index]
+            if type(value) ~= "string" and type(value) ~= "number" then
+                return table.concat(values, separator, first, last)
             end
-            return boundedString(
-                table.concat(values, separator, first, last),
-                "table.concat result"
-            )
-        end,
-        insert = table.insert,
-        remove = table.remove,
-        clone = function(t)
-            local out = {}
-            for k, v in next, t do
-                out[k] = v
+            bytes = bytes + #tostring(value)
+            if bytes > MAX_RESULT_BYTES then
+                error("table.concat result exceeds the comptime value limit", 0)
             end
-            local mt = getmetatable(t)
-            if type(mt) == "table" then
-                setmetatable(out, mt)
-            end
+        end
 
-            return out
-        end,
-    }
+        return boundedString(table.concat(values, separator, first, last), "table.concat result")
+    end, insert = table.insert, remove = table.remove, clone = function(t)
+        local out = {}
+        for k, v in next, t do
+            out[k] = v
+        end
+        local mt = getmetatable(t)
+        if type(mt) == "table" then
+            setmetatable(out, mt)
+        end
+
+        return out
+    end,}
 
     env.bit = {
         band = bit.band,
@@ -594,12 +604,9 @@ local function callValues(state, node, callee, args)
             fail(
                 "NUPP2412",
                 node,
-                ("@comptime function %s expects %d argument%s, got %d"):format(
-                    helper.name,
-                    #params,
-                    #params == 1 and "" or "s",
-                    args.n
-                )
+                (
+                    "@comptime function %s expects %d argument%s, got %d"
+                ):format(helper.name, #params, #params == 1 and "" or "s", args.n)
             )
         end
         if state.callDepth >= MAX_CALL_DEPTH then
@@ -624,23 +631,22 @@ local function callValues(state, node, callee, args)
             if type(err) == "table" and err[FAILURE] then
                 local at = cst.firstToken(node)
                 local origin = helper.origin or cst.firstToken(helper.node)
-                err.message = tostring(err.message)
-                    .. ("\n  called %s at %d:%d; defined at %d:%d"):format(
-                        helper.name,
-                        at and at.line or 1,
-                        at and at.col or 1,
-                        origin and origin.line or helper.line or 1,
-                        origin and origin.col or helper.column or 1
-                    )
+                err.message = tostring(
+                    err.message
+                ) .. (
+                    "\n  called %s at %d:%d; defined at %d:%d"
+                ):format(
+                    helper.name,
+                    at and at.line or 1,
+                    at and at.col or 1,
+                    origin and origin.line or helper.line or 1,
+                    origin and origin.col or helper.column or 1
+                )
             end
             error(err, 0)
         end
         if not returned then
-            fail(
-                "NUPP2412",
-                node,
-                ("@comptime function %s completed without returning"):format(helper.name)
-            )
+            fail("NUPP2412", node, ("@comptime function %s completed without returning"):format(helper.name))
         end
 
         return {n = 1, result}
@@ -677,16 +683,13 @@ end
 local function installComptimeFunctions(state, env, helpers)
     for name, supplied in pairs(helpers or {}) do
         local node = supplied.node or supplied
-        if type(name) == "string" and node and node.kind == "localFuncStmt"
-            and node.name and node.body then
-            local token = function() return name end
-            state.comptimeFunctions[token] = {
-                name = name,
-                node = node,
-                origin = supplied.origin,
-                line = supplied.line,
-                column = supplied.column,
-            }
+        if type(name) == "string" and node and node.kind == "localFuncStmt" and node.name and node.body then
+            local token = function()
+                return name
+            end
+            state.comptimeFunctions[
+                token
+            ] = {name = name, node = node, origin = supplied.origin, line = supplied.line, column = supplied.column,}
             env[name] = token
         end
     end
@@ -726,6 +729,22 @@ local function evalList(state, exprs)
 end
 
 local function evalArgs(state, argsNode)
+    if argsNode and argsNode.table then
+        return {n = 1, evalExpr(state, argsNode.table)}
+    end
+    if argsNode and argsNode.str then
+        local text = argsNode.str.text or ""
+        local chunk = loadstring("return " .. text)
+        if not chunk then
+            fail("NUPP2412", argsNode, "invalid string call argument")
+        end
+        local ok, value = pcall(chunk)
+        if not ok then
+            fail("NUPP2412", argsNode, "invalid string call argument")
+        end
+        return {n = 1, value}
+    end
+
     return evalList(state, argsNode and argsNode.exprs or {})
 end
 
@@ -835,13 +854,7 @@ evalExpr = function(state, node)
         else
             local left, right = evalExpr(state, node.lhs), evalExpr(state, node.rhs)
             if materializeProviders.isOpaque(state, left) or materializeProviders.isOpaque(state, right) then
-                local value, operatorFailure = materializeProviders.operator(
-                    state,
-                    op,
-                    left,
-                    right,
-                    node.op or node
-                )
+                local value, operatorFailure = materializeProviders.operator(state, op, left, right, node.op or node)
                 if operatorFailure then
                     fail(operatorFailure.code, node, operatorFailure.message, operatorFailure.help)
                 end
@@ -1027,7 +1040,27 @@ evalMulti = function(state, node)
     local kind = node.kind
     local values
     local comptimeIntrinsic, intrinsicQualified = cst.comptimeTypeIntrinsicSpelling(node.obj)
-    if kind == "call" and intrinsicQualified and comptimeIntrinsic == "reflect" then
+    local deriveHelper = kind == "call" and node.obj and cst.textOf(node.obj):gsub("%s+", "") == "nupp.derive.helper"
+    if deriveHelper then
+        local arguments = node.args and node.args.exprs or {}
+        if #arguments ~= 2 or not state.deriveProviderModule then
+            fail("NUPP2810", node, "derive.helper needs the provider module and one exported helper name")
+        end
+        local callee = evalExpr(state, node.obj)
+        local modulePath = cst.textOf(arguments[1]):gsub("%s+", "")
+        local member = evalExpr(state, arguments[2])
+        local descriptor = state.deriveHelpers and state.deriveHelpers[modulePath .. "." .. tostring(member)] or nil
+        values = callValues(
+            state,
+            node,
+            callee,
+            {
+                n = 2,
+                descriptor and descriptor.module or state.deriveProviderModule,
+                descriptor and descriptor.member or member,
+            }
+        )
+    elseif kind == "call" and intrinsicQualified and comptimeIntrinsic == "reflect" then
         local args = node.args and node.args.exprs or {}
         local argument = args[1]
         local function typePath(value)
@@ -1045,6 +1078,7 @@ evalMulti = function(state, node)
 
             return nil
         end
+
         local key = #args == 1 and typePath(argument) or nil
         local descriptor = key and state.reflections[key] or nil
         if not descriptor then
@@ -1069,6 +1103,7 @@ evalMulti = function(state, node)
 
             return nil
         end
+
         local key = typePath(args[1])
         -- The checker owns validation. A missing entry means it already diagnosed the
         -- call; use a harmless recovery value so the worker does not add a second,
@@ -1539,37 +1574,42 @@ function comptime.evaluateTypeFunctionDirect(helper: any, arguments: {any}, help
     if helper and helper.sealedTypeFunction then
         local parsedHelpers = {}
         local function findLocalFunction(value)
-            if type(value) ~= "table" then return nil end
-            if value.kind == "localFuncStmt" then return value end
+            if type(value) ~= "table" then
+                return nil
+            end
+            if value.kind == "localFuncStmt" then
+                return value
+            end
             for _, child in ipairs(value) do
                 local found = findLocalFunction(child)
-                if found then return found end
+                if found then
+                    return found
+                end
             end
+
             return nil
         end
+
         for helperName, descriptor in pairs(helper.serializedHelpers or {}) do
-            local parsed = type(descriptor) == "table" and type(descriptor.source) == "string"
-                and require("nupp.compiler.parser").parse(
-                    descriptor.source,
-                    "=comptime-helper-" .. helperName
-                ) or nil
-            local node = parsed and #(parsed.errors or {}) == 0
-                and findLocalFunction(parsed.root) or nil
+            local parsed = type(
+                descriptor
+            ) == "table" and type(
+                descriptor.source
+            ) == "string" and require(
+                "nupp.compiler.parser"
+            ).parse(descriptor.source, "=comptime-helper-" .. helperName) or nil
+            local node = parsed and #(parsed.errors or {}) == 0 and findLocalFunction(parsed.root) or nil
             if not node or not node.name or node.name.text ~= helperName then
                 return nil, {
                     code = "NUPP2412",
                     message = "cannot load sealed comptime helper " .. helperName,
                 } as comptime.Failure
             end
-            parsedHelpers[helperName] = {
-                node = node, line = descriptor.line, column = descriptor.column,
-            }
+            parsedHelpers[helperName] = {node = node, line = descriptor.line, column = descriptor.column,}
         end
         local main = parsedHelpers[helper.main]
         if not main then
-            return nil, {
-                code = "NUPP2412", message = "sealed type function has no entry helper",
-            } as comptime.Failure
+            return nil, {code = "NUPP2412", message = "sealed type function has no entry helper",} as comptime.Failure
         end
         helper, helpers = main.node, parsedHelpers
     end
@@ -1582,7 +1622,9 @@ function comptime.evaluateTypeFunctionDirect(helper: any, arguments: {any}, help
     local env, libraries = buildEnvironment(state)
     state.env, state.libraries = env, libraries
     local available = {}
-    for helperName, supplied in pairs(helpers or {}) do available[helperName] = supplied end
+    for helperName, supplied in pairs(helpers or {}) do
+        available[helperName] = supplied
+    end
     available[name] = helper
     installComptimeFunctions(state, env, available)
     state.scope = scope(nil)
@@ -1640,6 +1682,174 @@ function comptime.evaluateTypeFunctionDirect(helper: any, arguments: {any}, help
             message = "a type function returned a non-type compiler blueprint",
         } as comptime.Failure
     end
+
+    return envelope, nil
+end
+
+--- Executes one checked derive provider and returns its closed recipe envelope.
+--- The immutable Info projection is transported as plain semantic data; every type
+--- edge is imported as an opaque `nupp.types` handle before provider code sees it.
+function comptime.evaluateDeriveProviderDirect(
+    helper: any,
+    input: any,
+    helpers: any,
+    runtimeHelpers: any,
+    providerModule: string?
+): any, comptime.Failure?
+    if helper and helper.sealedTypeFunction then
+        local parsedHelpers = {}
+        local function findLocalFunction(value)
+            if type(value) ~= "table" then
+                return nil
+            end
+            if value.kind == "localFuncStmt" then
+                return value
+            end
+            for _, child in ipairs(value) do
+                local found = findLocalFunction(child)
+                if found then
+                    return found
+                end
+            end
+
+            return nil
+        end
+
+        for helperName, descriptor in pairs(helper.serializedHelpers or {}) do
+            local parsed = type(
+                descriptor
+            ) == "table" and type(
+                descriptor.source
+            ) == "string" and require(
+                "nupp.compiler.parser"
+            ).parse(descriptor.source, "=derive-provider-" .. helperName) or nil
+            local node = parsed and #(parsed.errors or {}) == 0 and findLocalFunction(parsed.root) or nil
+            if not node or not node.name or node.name.text ~= helperName then
+                return nil, (
+                    {
+                        code = "NUPP2810",
+                        message = "cannot load sealed derive provider " .. helperName,
+                    } as comptime.Failure
+                )
+            end
+            parsedHelpers[helperName] = {node = node, line = descriptor.line, column = descriptor.column}
+        end
+        local main = parsedHelpers[helper.main]
+        if not main then
+            return nil, (
+                {code = "NUPP2810", message = "sealed derive provider has no entry helper",} as comptime.Failure
+            )
+        end
+        helper, helpers = main.node, parsedHelpers
+    end
+    local node = helper and helper.body or helper
+    local name = helper and helper.name and helper.name.text or ""
+    if not node or name == "" then
+        return nil, {code = "NUPP2810", message = "derive provider has no checked body"} as comptime.Failure
+    end
+    local state = newState()
+    local env, libraries = buildEnvironment(state)
+    state.env, state.libraries = env, libraries
+    state.deriveHelpers = runtimeHelpers or {}
+    state.deriveProviderModule = providerModule
+    local available = {}
+    for helperName, supplied in pairs(helpers or {}) do
+        available[helperName] = supplied
+    end
+    available[name] = helper
+    installComptimeFunctions(state, env, available)
+    local function importType(edge, label)
+        if not edge then
+            return nil
+        end
+        local descriptor = edge.descriptor or edge
+        local handle, why = materializeProviders.importTypeDescriptor(state, descriptor, nil, label)
+        if not handle then
+            return nil, {
+                code = why and why.code or "NUPP2810",
+                message = why and why.message or "cannot import derive type information",
+            }
+        end
+
+        return handle
+    end
+
+    local info = {}
+    for key, value in pairs(input or {}) do
+        info[key] = value
+    end
+    local importFailure
+    info.ownerType, importFailure = importType(input and input.ownerType, "owner")
+    if importFailure then
+        return nil, importFailure as comptime.Failure
+    end
+    info.interfaceType, importFailure = importType(input and input.interfaceType, "interface")
+    if importFailure then
+        return nil, importFailure as comptime.Failure
+    end
+    info.fields = {}
+    state.deriveClaims = {}
+    for index, field in ipairs(input and input.fields or {}) do
+        local transported = {}
+        for key, value in pairs(field) do
+            transported[key] = value
+        end
+        transported.readType, importFailure = importType(field.readType, "field" .. index .. ":read")
+        if importFailure then
+            return nil, importFailure as comptime.Failure
+        end
+        transported.writeType, importFailure = importType(field.writeType, "field" .. index .. ":write")
+        if importFailure then
+            return nil, importFailure as comptime.Failure
+        end
+        if transported.readType then
+            local claims = {}
+            state.deriveClaims[transported.readType] = claims
+            for claimIndex, claim in ipairs(field.claims or {}) do
+                local claimHandle
+                claimHandle, importFailure = importType(claim, "field" .. index .. ":claim" .. claimIndex)
+                if importFailure then
+                    return nil, importFailure as comptime.Failure
+                end
+                local rightEntry = state.opaque[claimHandle]
+                local rightIdentity = rightEntry and rightEntry.payload and (
+                    rightEntry.payload.fingerprint or rightEntry.payload.key
+                ) or nil
+                if rightIdentity then
+                    claims[rightIdentity] = true
+                end
+            end
+        end
+        info.fields[index] = transported
+    end
+    local infoHandle = materializeProviders.materializeDeriveInfo(state, info)
+    state.scope = scope(nil)
+    local token = env[name]
+    local ok, produced = pcall(callValues, state, helper, token, {n = 1, infoHandle})
+    if not ok then
+        if type(produced) == "table" and produced[FAILURE] then
+            return nil, produced as comptime.Failure
+        end
+        return nil, {code = "NUPP2810", node = helper, message = tostring(produced)} as comptime.Failure
+    end
+    local value = produced[1]
+    if not materializeProviders.isOpaque(state, value) then
+        return nil, {
+            code = "NUPP2810",
+            node = helper,
+            message = "a derive provider must return nupp.derive.implement or nupp.derive.error",
+        } as comptime.Failure
+    end
+    local envelope, finalFailure = materializeProviders.finalize(state, value)
+    if not envelope or envelope.provider ~= "derive" then
+        return nil, {
+            code = finalFailure and finalFailure.code or "NUPP2810",
+            node = helper,
+            message = finalFailure and finalFailure.message or "derive provider returned a foreign blueprint",
+            help = finalFailure and finalFailure.help or nil,
+        } as comptime.Failure
+    end
+
     return envelope, nil
 end
 
@@ -1656,9 +1866,9 @@ function comptime.evaluate(
     host: any?
 ): string?, T.Type?, comptime.Failure?, any
     local root = os.getenv("NUPP_COMPILER_ROOT")
-    local executable = root and root .. "/bin/nupp"
-        or type(arg) == "table" and type(arg[0]) == "string" and arg[0]
-        or nil
+    local executable = root and root .. "/bin/nupp" or type(
+        arg
+    ) == "table" and type(arg[0]) == "string" and arg[0] or nil
     if executable and not os.getenv("NUPP_COMPTIME_WORKER_CHILD") then
         local worker = require("nupp.compiler.comptime_worker") as {
             evaluate: function(string, string, any, any, any, any?): (string?, any, any)

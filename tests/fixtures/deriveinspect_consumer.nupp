@@ -1,0 +1,49 @@
+local inspect = require("tests.fixtures.deriveinspect")
+
+@derive(inspect.derive)
+local record Credentials
+    username: string
+    password: string
+end
+
+local credentials = new Credentials(username = "michael", password = "secret")
+assert(credentials:inspect() == "{username=michael, password=secret}")
+assert(credentials:inspectKind() == "record")
+assert(credentials:prefixed("credentials=") == "credentials={username=michael, password=secret}")
+assert(credentials:decorated() == "[{username=michael, password=secret}]")
+assert(credentials:firstField() == "username")
+
+@derive(inspect.derive)
+local record Child
+    name: string
+end
+
+@derive(inspect.derive)
+local record Parent
+    child: Child
+end
+
+local parent = new Parent(child = new Child(name = "nested"))
+assert(parent:inspect() == "{child=<nested>}")
+assert(credentials:firstField() == "username")
+
+@derive(inspect.derive)
+local record WrittenClaim is inspect.Inspect
+    value: string
+end
+
+local written = new WrittenClaim(value = "coalesced")
+assert(written:inspect() == "{value=coalesced}")
+assert(written:inspectKind() == "record")
+
+local inspectAlias = inspect
+
+@derive(inspectAlias.derive)
+local record AliasedProvider
+    value: string
+end
+
+local aliased = new AliasedProvider(value = "alias")
+assert(aliased:inspect() == "{value=alias}")
+
+return true

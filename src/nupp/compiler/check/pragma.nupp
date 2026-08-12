@@ -13,6 +13,7 @@ through the chain to reach the declaration underneath.
 
 local cst = require("nupp.compiler.cst")
 local lints = require("nupp.compiler.lints")
+local hash = require("nupp.compiler.build.hash")
 local state = require("nupp.compiler.check.state")
 
 local pragma = {}
@@ -169,8 +170,9 @@ function pragma.install(c: state.Checker): state.StatHandlers
             return
 
         elseif written == "comptime" then
-            if valid and target and (target.kind == "localFuncStmt" or target.kind == "funcStmt")
-                and target.name and target.body then
+            if valid and target and (
+                target.kind == "localFuncStmt" or target.kind == "funcStmt"
+            ) and target.name and target.body then
                 local helper = target as any
                 local body = helper.body as cst.Funcbody
                 if body.generics then
@@ -184,7 +186,9 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 end
                 helper.comptimeFunction = true
                 local owner, member = nil, nil
-                if target.kind == "funcStmt" then owner, member = c.funcOwner(helper.name) end
+                if target.kind == "funcStmt" then
+                    owner, member = c.funcOwner(helper.name)
+                end
                 local helperName = target.kind == "localFuncStmt" and helper.name or member
                 if not helperName then
                     c.diag("NUPP2411", helper.name, "@comptime functions must be local or direct module members")
@@ -197,19 +201,136 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 stat.eraseComptimeFunction = true
                 local helperKey = owner and owner .. "." .. markedName.text or markedName.text
                 if target.kind == "funcStmt" and owner ~= c.moduleLocal then
-                    c.diag("NUPP2411", helper.name, "an exported @comptime function must be a direct member of this module")
+                    c.diag(
+                        "NUPP2411",
+                        helper.name,
+                        "an exported @comptime function must be a direct member of this module"
+                    )
                 end
                 c.comptimeFunctions[helperKey] = helper
                 c.comptimeFunctionDepth = c.comptimeFunctionDepth + 1
                 c.checkStat(helper)
                 c.comptimeFunctionDepth = c.comptimeFunctionDepth - 1
                 if target.kind == "funcStmt" and owner == c.moduleLocal and helper.comptimeSignature then
-                    local sealed = require("nupp.compiler.comptime").sealTypeFunction(
-                        helper,
-                        c.comptimeFunctions,
-                        helper.comptimeSignature,
-                        helper.comptimeDefinition
-                    )
+                    local sealed = require(
+                        "nupp.compiler.comptime"
+                    ).sealTypeFunction(helper, c.comptimeFunctions, helper.comptimeSignature, helper.comptimeDefinition)
+                    local deriveNamespace = c.env and c.env.globalTypes and c.env.globalTypes["nupp.derive"]
+                    local infoType = deriveNamespace
+                        and deriveNamespace.nestedTypes
+                        and deriveNamespace.nestedTypes.Info
+                    local resultType = deriveNamespace
+                        and deriveNamespace.nestedTypes
+                        and deriveNamespace.nestedTypes.Result
+                    local signature = helper.comptimeSignature
+                    local answer = signature and signature.rets and signature.rets[1]
+                    local answerBase = answer and (answer.origin or answer) or nil
+                    if answerBase == resultType then
+                        local contract = answer.typeArgs and answer.typeArgs[1] or nil
+                        if #signature.params ~= 1 or signature.params[
+                            1
+                        ] ~= infoType
+                            or #signature.rets ~= 1
+                            or signature.vararg
+                            or not contract
+                            or contract.tag ~= "nominal"
+                            or contract.declKind ~= "interface" then
+                            c.diag(
+                                "NUPP2809",
+                                helper.name,
+                                "a derive provider must have signature function(nupp.derive.Info): nupp.derive.Result<I>",
+                                nil,
+                                {help = "I must be one existing interface"}
+                            )
+                        else
+                            sealed.bodyFingerprint = sealed.identity
+                            sealed.identity = hash.sha256(
+                                table.concat(
+                                    {
+                                        "nupp.derive.provider.v1",
+                                        c.result.moduleName or "<chunk>",
+                                        markedName.text,
+                                        sealed.bodyFingerprint,
+                                    },
+                                    "\0"
+                                )
+                            )
+                            sealed.deriveProvider = true
+                            sealed.deriveInterface = contract
+                            sealed.deriveInterfaceIdentity = contract.id
+                            sealed.providerModule = c.result.moduleName
+                            sealed.providerModuleLocal = c.moduleLocal
+                            sealed.runtimeHelpers = {}
+                            for runtimeName, runtimeType in pairs(c.moduleFields or {}) do
+                                if runtimeType and runtimeType.tag == "func" then
+                                    local moduleName = c.result.moduleName or c.moduleLocal or "<chunk>"
+                                    local descriptor = {module = moduleName, member = runtimeName,}
+                                    sealed.runtimeHelpers[moduleName .. "." .. runtimeName] = descriptor
+                                    if c.moduleLocal then
+                                        sealed.runtimeHelpers[c.moduleLocal .. "." .. runtimeName] = descriptor
+                                    end
+                                end
+                            end
+                            local function scanRuntimeHelpers(value)
+                                if type(value) ~= "table" or cst.isToken(value) then
+                                    return
+                                end
+                                if value.kind == "call"
+                                    and value.obj
+                                    and cst.textOf(value.obj):gsub("%s+", "") == "nupp.derive.helper" then
+                                    local arguments = value.args and value.args.exprs or {}
+                                    local modulePath = arguments[1] and c.pathKey(arguments[1]) or nil
+                                    local memberText = arguments[
+                                        2
+                                    ] and arguments[
+                                        2
+                                    ].kind == "string" and arguments[2].token and arguments[2].token.text or nil
+                                    local memberName = memberText and (
+                                        memberText:match('^"(.*)"$') or memberText:match("^'(.*)'$")
+                                    ) or nil
+                                    local first = modulePath and modulePath:match("^[^.]+") or nil
+                                    local holder = first and c.lookupEntry(first) or nil
+                                    local moduleName = holder and holder.requiredModule or (
+                                        first == c.moduleLocal and c.result.moduleName or nil
+                                    )
+                                    local helperType
+                                    if moduleName == c.result.moduleName then
+                                        helperType = c.moduleFields and c.moduleFields[memberName]
+                                    else
+                                        local moduleType = moduleName
+                                            and c.env
+                                            and c.env.resolveModule
+                                            and c.env.resolveModule(
+                                            c.env,
+                                            moduleName
+                                        ) or nil
+                                        helperType = moduleType and c.fieldType(moduleType, memberName) or nil
+                                    end
+                                    if modulePath
+                                        and moduleName
+                                        and memberName
+                                        and helperType
+                                        and helperType.tag == "func"
+                                    then
+                                        local descriptor = {module = moduleName, member = memberName}
+                                        sealed.runtimeHelpers[modulePath .. "." .. memberName] = descriptor
+                                        sealed.runtimeHelpers[moduleName .. "." .. memberName] = descriptor
+                                    else
+                                        c.diag(
+                                            "NUPP2809",
+                                            value,
+                                            "nupp.derive.helper must name an exported runtime function"
+                                        )
+                                    end
+                                end
+                                for _, child in ipairs(value) do
+                                    scanRuntimeHelpers(child)
+                                end
+                            end
+
+                            scanRuntimeHelpers(helper.body)
+                        end
+                    end
                     c.moduleExports.comptimeFunctions[markedName.text] = sealed
                 end
             elseif stat.stat then

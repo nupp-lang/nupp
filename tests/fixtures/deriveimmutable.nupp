@@ -1,0 +1,25 @@
+local M = {}
+
+interface M.Contract
+    value: function(self): string
+end
+
+function M.value(): string
+    return "value"
+end
+
+@comptime
+function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Contract>
+    info.fields[1] = info.fields[1]
+
+    return nupp.derive.implement{
+        methods = {value = nupp.derive.forward{helper = nupp.derive.helper(M, "value"), arguments = {},},},
+    }
+end
+
+@derive(M.derive)
+record M.Value
+    name: string
+end
+
+return M

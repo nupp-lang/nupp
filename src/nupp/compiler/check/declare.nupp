@@ -757,6 +757,9 @@ function declare.install(
                 byNominal[resolved] = node.interfaceName
             end
         end
+        for contract, runtimeName in pairs(stat.deriveInterfaceRuntimeNames or {}) do
+            byNominal[contract] = runtimeName
+        end
         local taken = {}
         for member, super in pairs(n.inheritedDefaults) do
             local from = byNominal[super]
@@ -1208,6 +1211,40 @@ function declare.install(
                         if not n.metamethods[name] then
                             n.metamethods[name] = substType(inherited, selfMap)
                         end
+                    end
+                end
+            end
+            c.derives.claim(stat, n)
+            -- Provider contracts are claims just like written `is I`. They are known
+            -- before member bodies are checked, so inherit their callable requirements
+            -- now; generated recipes will fill bodyless slots after written members
+            -- have
+            -- settled.
+            for _, super in ipairs(n.deriveClaimedContracts or {}) do
+                local selfMap = super.selfType and {[super.selfType] = n.selfType} or {}
+                for name, inherited in pairs(super.byname or {}) do
+                    if not n.byname[name] then
+                        n.byname[name] = substType(inherited, selfMap)
+                    end
+                end
+                for name, inheritedEntries in pairs(super.methodDispatchEntries or super.methodEntries or {}) do
+                    local into = n.methodDispatchEntries[name] or {}
+                    for _, entry in ipairs(inheritedEntries) do
+                        into[
+                            #into + 1
+                        ] = {
+                            signature = substType(entry.signature, selfMap),
+                            declaration = entry.declaration,
+                            member = entry.member,
+                            parameterKey = entry.parameterKey,
+                            definition = entry.definition,
+                        }
+                    end
+                    n.methodDispatchEntries[name] = into
+                end
+                for name, inherited in pairs(super.writeByname or {}) do
+                    if not n.writeByname[name] then
+                        n.writeByname[name] = substType(inherited, selfMap)
                     end
                 end
             end
@@ -1703,10 +1740,13 @@ function declare.install(
                     entryGroups[name] = entries
                     if receiver then
                         e.methodEntry = entry
-                        -- The member type callers read was computed from the annotations
-                        -- alone, before this body was checked, and that earlier pass does
+                        -- The member type callers read was computed from the
+                        -- annotations
+                        -- alone, before this body was checked, and that earlier pass
+                        -- does
                         -- not work out what a `borrows` result borrows from. Take the
-                        -- signature checking the body just produced instead of teaching a
+                        -- signature checking the body just produced instead of teaching
+                        -- a
                         -- second place to derive the same thing: one method, one
                         -- signature. An overload set is assembled from all its entries
                         -- further down and is left alone here.

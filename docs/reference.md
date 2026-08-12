@@ -998,15 +998,13 @@ Reports: `NUPP2119`. `nupp explain <code>` says more.
 
 ### Declaration derives
 
-`@derive(Debug, Default, From, JSON)` adds checked members to one record without
-source splicing. The providers add `debug`, static `default`, single-field
-`from`, and `toJSON`/`fromJSON`/`fieldCodec`; `nupp.default` and `nupp.into`
-infer through the static factories. `@default`, `@debug`, and `@json` configure
-fields. Generated members participate in lookup and conformance and conflict
-with written members. Derive augments a declaration; comptime produces values.
+`@derive` adds `Debug`, `Default`, `From`, `JSON`, or an exported `@comptime`
+provider. Providers map immutable `Info` to `Result<I>`, claim `I`, and forward
+methods to checked runtime helpers. They cannot generate declarations or syntax.
 
 Reports: `NUPP2801`, `NUPP2802`, `NUPP2803`, `NUPP2804`, `NUPP2805`, `NUPP2806`,
-`NUPP2807`, `NUPP2808`. `nupp explain <code>` says more.
+`NUPP2807`, `NUPP2808`, `NUPP2809`, `NUPP2810`, `NUPP2811`, `NUPP2812`,
+`NUPP2813`. `nupp explain <code>` says more.
 
 ### Docblocks
 
@@ -1609,6 +1607,13 @@ says more.
 - **NUPP2806**: A record does not describe a supported JSON schema.
 - **NUPP2807**: A derive dependency cycle has no valid lowering.
 - **NUPP2808**: A derive exceeds a compiler generation limit.
+- **NUPP2809**: A comptime derive provider declaration or reference is invalid.
+- **NUPP2810**: A comptime derive provider failed or returned an invalid
+  blueprint.
+- **NUPP2811**: A derive recipe does not name an implementable interface
+  requirement.
+- **NUPP2812**: A forwarding argument does not exist on the generated method.
+- **NUPP2813**: A runtime forwarding helper does not satisfy the generated call.
 - **NUPP3001**: `is` has nothing to test against this type.
 - **NUPP3005**: Generated code that a Lua VM will not load.
 

@@ -1,0 +1,20 @@
+local M = {}
+
+interface M.Contract
+    value: function(self): string
+end
+
+@comptime
+function M.bad(info: string): nupp.derive.Result<M.Contract>
+    return nupp.derive.implement{methods = {}}
+end
+
+function M.runtime(): string
+    return "runtime"
+end
+
+@derive(M.runtime)
+record M.Value
+end
+
+return M
