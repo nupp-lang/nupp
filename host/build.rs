@@ -37,6 +37,7 @@ fn main() {
 
     let out = PathBuf::from(std::env::var("OUT_DIR").expect("cargo sets OUT_DIR"));
     let luajit = build_luajit(&out);
+    verify_notice(&luajit.join("COPYRIGHT"), "LuaJIT-COPYRIGHT.txt");
     let include = luajit.join("src");
 
     // ENABLE_CJSON_GLOBAL is off: the compiler reaches cjson through require,
@@ -45,6 +46,7 @@ fn main() {
     // different worlds depending on how it was started.
     if enabled("CJSON") {
         let cjson = fetch_cjson(&out);
+        verify_notice(&cjson.join("LICENSE"), "lua-cjson-LICENSE.txt");
         cc::Build::new()
             .include(&include)
             .include(&cjson)
@@ -66,6 +68,7 @@ fn main() {
             LUAUTF8_SHA256,
             "lutf8lib.c",
         );
+        verify_notice(&luautf8.join("LICENSE"), "luautf8-LICENSE.txt");
         cc::Build::new()
             .include(&include)
             .file(luautf8.join("lutf8lib.c"))
@@ -322,6 +325,33 @@ fn fetch_archive(out: &Path, directory: &str, url: &str, digest: &str, marker: &
 
     run(Command::new("tar").arg("xzf").arg(&archive).arg("-C").arg(out));
     extracted
+}
+
+/// Holds `host/notices` to what the pinned sources actually say.
+///
+/// Each of these is MIT, and MIT asks that its notice travel with the copies.
+/// The sources are fetched rather than committed, so the only copy this
+/// repository can ship is the one in `host/notices` -- and a copy that has
+/// drifted from the source it claims to reproduce is worse than no copy at all,
+/// because it is a false statement about what was distributed. Bumping a pin
+/// therefore fails the build until the notice beside it is updated too.
+fn verify_notice(source: &Path, notice: &str) {
+    let committed = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets it"))
+        .join("notices")
+        .join(notice);
+    println!("cargo:rerun-if-changed=notices/{notice}");
+
+    let found = std::fs::read(source)
+        .unwrap_or_else(|error| panic!("cannot read {}: {error}", source.display()));
+    let shipped = std::fs::read(&committed)
+        .unwrap_or_else(|error| panic!("cannot read {}: {error}", committed.display()));
+    assert!(
+        found == shipped,
+        "host/notices/{notice} is not what {} says any more. Copy it across: \
+         the pinned source is what is distributed, and the notice beside it is \
+         what says so.",
+        source.display()
+    );
 }
 
 fn sha256(path: &Path) -> String {

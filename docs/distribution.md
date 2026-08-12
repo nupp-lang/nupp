@@ -122,6 +122,21 @@ into it, and what makes `nupp` itself usable during development.
 Everything else a stub does is its own business. A game engine's stub may open a
 window and own an event loop before step 6; Nupp's own does none of that.
 
+## Third-party notices
+
+The compiler-owned stub links LuaJIT, and, where the features are on,
+lua-cjson and luautf8. All three are MIT, and a stamped binary is a
+distribution of them, so their notices ship in
+[`host/NOTICE.md`](../host/NOTICE.md) and `host/notices/` — the notice files as
+they arrive in the pinned sources, byte for byte. Hand them over with the
+binary the way a release archive carries a README.
+
+The sources are fetched at build time rather than committed, so nothing else in
+the tree carries those notices. `host/build.rs` compares each committed copy
+against the archive it has just verified by digest and fails the build when
+they differ, because a notice that has drifted from what was distributed is a
+false statement rather than a stale file.
+
 ## Signing for macOS
 
 **The signature is not touched, and on macOS that is the whole trick.**
