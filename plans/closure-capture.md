@@ -98,7 +98,7 @@ Settled: a **nominal** record may hold the closure, because a record may hold a
 declared borrow and is transitively constrained by it, and the provenance names
 a sibling field rather than a caller's local, so it crosses a function boundary
 without naming anything out of scope. Settled: a runtime number of them has a
-container, `nupp.resource_set`, whose `adopt` moves an owner in and hands back a
+container, `resources.Set`, whose `adopt` moves an owner in and hands back a
 borrow tied to the set.
 
 Not settled: **anonymous** table storage stays rejected, and the motivating call

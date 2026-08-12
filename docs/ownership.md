@@ -104,7 +104,7 @@ occasional use-after-free.
   it valid.
 - `local x = acquire()`: keep a movable owner and destroy it at its lexical
   boundary unless transferred.
-- `sets.new(): ResourceSet`: a checked dynamic collection that reifies per-owner
+- `resources.set(): resources.Set`: a checked dynamic collection that reifies per-owner
   discharge.
 - `unsafe do ... end`: permit operations whose lifetime proof is deliberately
   abandoned.
@@ -789,15 +789,15 @@ table storage remains rejected.
 
 ### Dynamic resource sets
 
-`nupp.resource_set` is the audited container for a runtime number of owners:
+`resources.Set` is the audited container for a runtime number of owners:
 
 ```nupp
-local sets = require("nupp.resource_set")
+local resources = require("nupp.resources")
 
 do
-   local resources = sets.new("request")
-   local input = resources:adopt(openFile("in"))
-   local output = resources:adopt(openFile("out"))
+   local group = resources.set("request")
+   local input = group:adopt(resources.openFile("in"))
+   local output = group:adopt(resources.openFile("out"))
    copy(input, output)
 end
 ```
@@ -879,7 +879,7 @@ callee contract, an owner or borrow may not cross it. Convert through
   locals auto-destroy only when their exact producer cleanup is known.
 - No inference of ownership from names such as `new`, `close`, or `free`.
 - No arbitrary affine table storage; dynamic ownership is confined to
-  `ResourceSet`.
+  `resources.Set`.
 - No proof of C implementation behavior, allocator pairing, cleanup body
   correctness, or unsafe code.
 - No implicit `ffi.gc`; safe code also rejects attaching it to owned, borrowed,

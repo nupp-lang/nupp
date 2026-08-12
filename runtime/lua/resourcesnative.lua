@@ -1,18 +1,18 @@
-local ResourceSet = {}
-ResourceSet.__index = ResourceSet
+local Set = {}
+Set.__index = Set
 
 local function new(label)
-    return setmetatable({label = label or "resource", entries = {}, closed = false}, ResourceSet)
+    return setmetatable({label = label or "resource", entries = {}, closed = false}, Set)
 end
 
-function ResourceSet:adopt(value, cleanup)
+function Set:adopt(value, cleanup)
     assert(not self.closed, "resource set is closed")
     assert(type(cleanup) == "function", "resource adoption needs a discharge witness")
     self.entries[#self.entries + 1] = {value = value, cleanup = cleanup}
     return value
 end
 
-function ResourceSet:remove(value)
+function Set:remove(value)
     assert(not self.closed, "resource set is closed")
     for index = #self.entries, 1, -1 do
         local entry = self.entries[index]
@@ -24,7 +24,7 @@ function ResourceSet:remove(value)
     error("resource is not registered in this set", 2)
 end
 
-function ResourceSet:close()
+function Set:close()
     if self.closed then
         return
     end
@@ -50,4 +50,4 @@ function ResourceSet:close()
     end
 end
 
-return {new = new, ResourceSet = ResourceSet}
+return {new = new, Set = Set}

@@ -27,7 +27,7 @@ semantic `Capability` / `ValueSlot` API for payload-preserving transport. It
 adds exact `preserves` result relations, stable expression provenance, borrowed
 nominal fields, path-sensitive affine field moves, scoped callback effects,
 non-suspending cleanup checks, bounds-checked C arrays and byte spans, reified
-`ResourceSet` discharge witnesses, foreign-boundary hardening, function-field
+`resources.Set` discharge witnesses, foreign-boundary hardening, function-field
 owning producers, and the `ownership-audit` command.
 
 The safety-first limits are explicit:
@@ -40,7 +40,7 @@ The safety-first limits are explicit:
 - ownership tokens model token-shaped protocol state, not arbitrary typestate.
 
 Those rejections preserve the guarantee without adding runtime cost to normal
-owners. Only `ResourceSet` and checked span objects reify dynamic metadata.
+owners. Only `resources.Set` and checked span objects reify dynamic metadata.
 
 ## Decision
 
@@ -566,7 +566,7 @@ Provide one audited owning container rather than permitting arbitrary tables
 of owners. Its conceptual API is:
 
 ```nupp
-with resources = nupp.ResourceSet("request") do
+with resources = resources.Set("request") do
     local input = resources:adopt(openFile("in"))
     local output = resources:adopt(openFile("out"))
     copy(input, output)
@@ -583,7 +583,7 @@ An opaque transfer-only owner has no cleanup to reify. It enters the same set
 only with an explicit terminal consumer:
 
 ```nupp
-with obligations = nupp.ResourceSet("requests") do
+with obligations = resources.Set("requests") do
     local request = obligations:adopt(beginRequest(), submitRequest)
     prepare(request)
 end
@@ -912,7 +912,7 @@ Implement in this order:
 
 The early S3 slice does not need scalar preservation to fix the rootless cases
 accepted today; S2 later supplies and tests the missing scalar-generic carrier.
-Likewise, S8's abandonment proof does not depend on `ResourceSet`: ordinary
+Likewise, S8's abandonment proof does not depend on `resources.Set`: ordinary
 owners, borrows, pins, and `with` obligations are enough to close it. S6 adds
 its new aggregate obligation to that established matrix, and structured-child
 expressiveness finishes afterward. C-derived callable marking lands with the
@@ -970,7 +970,7 @@ unoptimized output. Add targeted benchmarks for ordinary calls, generic
 forwarding, `with`, resource-set adoption, span indexing, and suspension.
 
 No common ownership operation may acquire a runtime side table or closure.
-Only explicitly dynamic abstractions such as `ResourceSet` may pay for reified
+Only explicitly dynamic abstractions such as `resources.Set` may pay for reified
 cleanup.
 
 ## Completion gate

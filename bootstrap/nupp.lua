@@ -32,254 +32,9 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 
+
 const nupp = { }
 return nupp
-
-end
-package.preload["nupp.bytes"] = function(...)
-const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-local bytes = { }
-local buffer = require ( "string.buffer" )
-local ffi = require ( "ffi" )
-
-local function needBytes ( avail , need )
-if avail < ( need ) then
-error ( ( "bytes.Reader: need %d bytes, have %d" ) : format ( need , avail ) )
-end
-end
-
-local function take ( buf , size )
-needBytes ( # buf , size )
-return buf : get ( size )
-end
-
-
-
-bytes.Reader = {} bytes.Reader.__index = bytes.Reader
-
-
-
-
-
-
-
-
-
-
-
-function bytes . newReader ( data )
-local buf
-if type ( data ) == "string" then
-buf = buffer . new ( )
-buf : set ( data )
-else
-buf = data
-end
-
-return setmetatable({ buf =  buf }, bytes.Reader)
-end
-
-
-function bytes . Reader : remaining ( )
-return # self . buf
-end
-
-
-function bytes . Reader : skip ( n )
-needBytes ( # self . buf , n )
-self . buf : skip ( n )
-
-return self
-end
-
-
-function bytes . Reader : readBytes ( n )
-return take ( self . buf , n )
-end
-
-
-function bytes . Reader : readUint8 ( )
-local raw = take ( self . buf , 1 )
-return __nuppFfi.cast("uint8_t *" , raw ) [ 0 ]
-end
-
-
-function bytes . Reader : readInt8 ( )
-local raw = take ( self . buf , 1 )
-return __nuppFfi.cast("int8_t *" , raw ) [ 0 ]
-end
-
-
-function bytes . Reader : readUint16 ( )
-local raw = take ( self . buf , 2 )
-return __nuppFfi.cast("uint16_t *" , raw ) [ 0 ]
-end
-
-
-function bytes . Reader : readInt16 ( )
-local raw = take ( self . buf , 2 )
-return __nuppFfi.cast("int16_t *" , raw ) [ 0 ]
-end
-
-
-function bytes . Reader : readUint32 ( )
-local raw = take ( self . buf , 4 )
-return __nuppFfi.cast("uint32_t *" , raw ) [ 0 ]
-end
-
-
-function bytes . Reader : readInt32 ( )
-local raw = take ( self . buf , 4 )
-return __nuppFfi.cast("int32_t *" , raw ) [ 0 ]
-end
-
-
-function bytes . Reader : readUint64 ( )
-local raw = take ( self . buf , 8 )
-return __nuppFfi.cast("uint64_t *" , raw ) [ 0 ]
-end
-
-
-function bytes . Reader : readInt64 ( )
-local raw = take ( self . buf , 8 )
-return __nuppFfi.cast("int64_t *" , raw ) [ 0 ]
-end
-
-
-function bytes . Reader : readFloat32 ( )
-local raw = take ( self . buf , 4 )
-return __nuppFfi.cast("float *" , raw ) [ 0 ]
-end
-
-
-function bytes . Reader : readFloat64 ( )
-local raw = take ( self . buf , 8 )
-return __nuppFfi.cast("double *" , raw ) [ 0 ]
-end
-
-
-bytes.Writer = {} bytes.Writer.__index = bytes.Writer
-
-
-
-
-
-
-
-
-function bytes . newWriter ( buf )
-return setmetatable({ buf =  buf or buffer . new ( ) }, bytes.Writer)
-end
-
-
-function bytes . Writer : writeBytes ( s )
-self . buf : put ( s )
-
-return self
-end
-
-
-function bytes . Writer : writeUint8 ( v )
-local value = ffi . new ( "uint8_t[1]" , v )
-self . buf : putcdata ( value , 1 )
-
-return self
-end
-
-
-function bytes . Writer : writeInt8 ( v )
-local value = ffi . new ( "int8_t[1]" , v )
-self . buf : putcdata ( value , 1 )
-
-return self
-end
-
-
-function bytes . Writer : writeUint16 ( v )
-local value = ffi . new ( "uint16_t[1]" , v )
-self . buf : putcdata ( value , 2 )
-
-return self
-end
-
-
-function bytes . Writer : writeInt16 ( v )
-local value = ffi . new ( "int16_t[1]" , v )
-self . buf : putcdata ( value , 2 )
-
-return self
-end
-
-
-function bytes . Writer : writeUint32 ( v )
-local value = ffi . new ( "uint32_t[1]" , v )
-self . buf : putcdata ( value , 4 )
-
-return self
-end
-
-
-function bytes . Writer : writeInt32 ( v )
-local value = ffi . new ( "int32_t[1]" , v )
-self . buf : putcdata ( value , 4 )
-
-return self
-end
-
-
-function bytes . Writer : writeUint64 ( v )
-local value = ffi . new ( "uint64_t[1]" , v )
-self . buf : putcdata ( value , 8 )
-
-return self
-end
-
-
-function bytes . Writer : writeInt64 ( v )
-local value = ffi . new ( "int64_t[1]" , v )
-self . buf : putcdata ( value , 8 )
-
-return self
-end
-
-
-function bytes . Writer : writeFloat32 ( v )
-local value = ffi . new ( "float[1]" , v )
-self . buf : putcdata ( value , 4 )
-
-return self
-end
-
-
-function bytes . Writer : writeFloat64 ( v )
-local value = ffi . new ( "double[1]" , v )
-self . buf : putcdata ( value , 8 )
-
-return self
-end
-
-
-
-function bytes . Writer : buffer ( )
-return self . buf
-end
-
-return bytes
 
 end
 package.preload["nupp.compiler"] = function(...)
@@ -5209,17 +4964,26 @@ disabled = config . _disabledPasses ,
 relaxed = config . _relaxedGuarantees
 }
 )
-result . result . effects = optimize . liveEffects ( result . result )
-for effect in pairs ( result . result . effects ) do
-effectNames [ # effectNames + 1 ] = effect
-end
-table . sort ( effectNames )
 if config . _remarks then
 for _ , note in ipairs ( remarks ) do
 mine [ # mine + 1 ] = note
 end
 end
-code , genDiags , coverage = gen . generate ( result . result , path , config . _coverage and { path = path } or nil )
+local emittedEffects
+code , genDiags , coverage , emittedEffects = gen . generate (
+result . result ,
+path ,
+config . _coverage and { path = path } or nil
+)
+
+
+
+
+result . result . effects = emittedEffects
+for effect in pairs ( emittedEffects ) do
+effectNames [ # effectNames + 1 ] = effect
+end
+table . sort ( effectNames )
 stats . generatedModules = stats . generatedModules + 1
 for _ , diag in ipairs ( genDiags or { } ) do
 mine [ # mine + 1 ] = diag
@@ -5998,7 +5762,7 @@ return package_
 
 end
 package.preload["nupp.compiler.build.process"] = function(...)
-const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[typedef struct NuppBytes NuppBytes;typedef struct NuppUri NuppUri;typedef struct{const uint8_t*data;size_t length;}NuppStringView;const char*nuppNativeError(void);const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);NuppBytes*nuppPathJoin(const NuppStringView*,size_t);NuppBytes*nuppPathNormalize(const uint8_t*,size_t);NuppBytes*nuppPathAbsolute(const uint8_t*,size_t);NuppBytes*nuppPathCanonicalize(const uint8_t*,size_t);NuppBytes*nuppPathRelative(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppPathPart(const uint8_t*,size_t,uint32_t);NuppBytes*nuppPathWith(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppPathIsAbsolute(const uint8_t*,size_t);NuppUri*nuppUriParse(const uint8_t*,size_t);const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);bool nuppUriPort(const NuppUri*,uint16_t*);NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);NuppUri*nuppUriWithPort(const NuppUri*,int32_t);NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);void nuppUriDestroy(NuppUri*);bool nuppUuid4(char*);bool nuppUuid7(char*);bool nuppSha256(const uint8_t*,size_t,char*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);void nuppProcessDestroy(NuppChild*);int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);size_t nuppProcessUncollectedTotal(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end package.preload["nupp.io.processnative"]=function() local native=__nuppNative();local ffi,C=native.ffi,native.C ffi.cdef[[double nuppProcessMonotonicMs(void);]] local MODE={pipe=0,inherit=1,["null"]=2,stdout=3} local WOULD_BLOCK,GONE,FAILED=-1,-2,-3 local RELEASED,RELEASED_WITH_REASON,NOT_RELEASED=0,1,2 local READ_SIZE,INT32_MAX=65536,2147483647 local function reason(prefix)local said=native.error();if said==nil or said==""then said="native process operation failed"end;return prefix..": "..said end local function maybeDestroy(owner)if owner.destroyed or not owner.released then return end;for _,stream in ipairs(owner.streams)do if not stream.released then return end end;owner.destroyed=true;for _,stream in ipairs(owner.streams)do local handle=stream.handle;stream.handle=nil;if handle~=nil then C.nuppProcessStreamDestroy(handle)end end;local child=owner.handle;owner.handle=nil;if child~=nil then C.nuppProcessDestroy(child)end end local function abandon(owner,message)for _,stream in ipairs(owner.streams)do if not stream.released then C.nuppProcessCloseStream(stream.handle);stream.released=true end;C.nuppProcessStreamDestroy(stream.handle);stream.handle=nil end;if owner.handle~=nil then C.nuppProcessKill(owner.handle,true);C.nuppProcessDestroy(owner.handle);owner.handle=nil end;owner.destroyed=true;error(message,0)end local function configured(ok,request,what)if ok then return end;local why=reason("nupp: could not configure process "..what);C.nuppProcessSpawnCancel(request);error(why,0)end local function wrap(owner,which,expected)local handle=C.nuppProcessTakeStream(owner.handle,which);if handle==nil then if expected then abandon(owner,reason("nupp: could not take process stream"))end;return nil end;local stream={owner=owner,handle=handle,released=false,scratch=nil,capacity=0};owner.streams[#owner.streams+1]=stream;return stream end local function makeArray(streams)local count=#streams;if count==0 then return nil,0 end;local out=ffi.new("NuppStream*[?]",count);for index,stream in ipairs(streams)do local handle=stream and stream.handle;if handle==nil then error("nupp: readiness interest named a destroyed process stream",0)end;out[index-1]=handle end;return out,count end local function whole(value)local number=tonumber(value)or 0;if number~=number then return 0 end;return math.floor(number)end return{new=function(exited) local backend={} function backend:spawn(options) local inputMode=options.stdin or"pipe";local outputMode=options.stdout or"pipe";local errorMode=options.stderr or"pipe" if MODE[inputMode]==nil then error("nupp: process has no stdin mode named "..tostring(inputMode),0)end if MODE[outputMode]==nil or outputMode=="stdout"then error("nupp: process has no stdout mode named "..tostring(outputMode),0)end if MODE[errorMode]==nil then error("nupp: process has no stderr mode named "..tostring(errorMode),0)end local request=C.nuppProcessSpawnBegin();if request==nil then error(reason("nupp: could not begin process spawn"),0)end for _,argument in ipairs(options.args or{})do configured(C.nuppProcessSpawnArg(request,argument,#argument),request,"argument")end configured(C.nuppProcessSpawnClearEnv(request,options.clearEnv==true),request,"environment mode") for key,value in pairs(options.env or{})do local entry=key.."="..value;configured(C.nuppProcessSpawnEnv(request,entry,#entry),request,"environment")end if options.cwd~=nil then local cwd=type(options.cwd)=="string"and options.cwd or options.cwd:toString();configured(C.nuppProcessSpawnCwd(request,cwd,#cwd),request,"working directory")end configured(C.nuppProcessSpawnStdio(request,0,MODE[inputMode]),request,"stdin") configured(C.nuppProcessSpawnStdio(request,1,MODE[outputMode]),request,"stdout") configured(C.nuppProcessSpawnStdio(request,2,MODE[errorMode]),request,"stderr") local child=C.nuppProcessSpawnRun(request);if child==nil then return nil,nil,nil,nil,0,reason("nupp: could not start process")end local owner={handle=child,streams={},released=false,destroyed=false} local input=wrap(owner,0,inputMode=="pipe");local output=wrap(owner,1,outputMode=="pipe");local err=wrap(owner,2,errorMode=="pipe") return owner,input,output,err,tonumber(C.nuppProcessId(child)) end function backend:poll(owner)local code=ffi.new("int32_t[1]");local killed=ffi.new("bool[1]");local status=C.nuppProcessPollExit(owner.handle,code,killed);if status<0 then error(reason("nupp: could not poll process"),0)end;if status==0 then return nil end;return exited(tonumber(code[0]),killed[0],false)end function backend:kill(owner,force)if not C.nuppProcessKill(owner.handle,force)then error(reason("nupp: could not kill process"),0)end end function backend:read(stream,limit)local wanted=whole(limit);if wanted<1 then wanted=1 elseif wanted>READ_SIZE then wanted=READ_SIZE end;if stream.capacity<wanted then stream.scratch=ffi.new("uint8_t[?]",wanted);stream.capacity=wanted end;local got=tonumber(C.nuppProcessTryRead(stream.handle,stream.scratch,wanted));if got>=0 then return ffi.string(stream.scratch,got)end;if got==WOULD_BLOCK then return""end;if got==GONE then return nil end;error(reason("nupp: could not read process stream"),0)end function backend:write(stream,bytes)local sent=tonumber(C.nuppProcessTryWrite(stream.handle,bytes,#bytes));if sent>=0 then return sent,false end;if sent==WOULD_BLOCK then return 0,false end;if sent==GONE then return 0,true end;error(reason("nupp: could not write process stream"),0)end function backend:closeStream(stream)if stream.released then return true end;local status=C.nuppProcessCloseStream(stream.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not close process stream")end;if status==RELEASED or status==RELEASED_WITH_REASON then stream.released=true;maybeDestroy(stream.owner);return true,why end;return false,why end function backend:reap(owner)if owner.released then return true end;local status=C.nuppProcessReap(owner.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not release process")end;if status==RELEASED or status==RELEASED_WITH_REASON then owner.released=true;maybeDestroy(owner);return true,why end;return false,why end function backend:now()return C.nuppProcessMonotonicMs()end function backend:waitReady(interest,timeoutMs)local readable,readCount=makeArray(interest.read);local writable,writeCount=makeArray(interest.write);local timeout=whole(timeoutMs);if timeout<0 then timeout=0 elseif timeout>INT32_MAX then timeout=INT32_MAX end;local answered=C.nuppProcessWaitReady(readable,readCount,writable,writeCount,timeout);if answered<0 then error(reason("nupp: process readiness wait failed"),0)end;return tonumber(answered)end return backend end} end;
+const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);void nuppProcessDestroy(NuppChild*);int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);size_t nuppProcessUncollectedTotal(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;__nuppNativeValue={ffi=ffi,C=C,error=errorText};return __nuppNativeValue end package.preload["nupp.io.processnative"]=function() local native=__nuppNative();local ffi,C=native.ffi,native.C ffi.cdef[[double nuppProcessMonotonicMs(void);]] local MODE={pipe=0,inherit=1,["null"]=2,stdout=3} local WOULD_BLOCK,GONE,FAILED=-1,-2,-3 local RELEASED,RELEASED_WITH_REASON,NOT_RELEASED=0,1,2 local READ_SIZE,INT32_MAX=65536,2147483647 local function reason(prefix)local said=native.error();if said==nil or said==""then said="native process operation failed"end;return prefix..": "..said end local function maybeDestroy(owner)if owner.destroyed or not owner.released then return end;for _,stream in ipairs(owner.streams)do if not stream.released then return end end;owner.destroyed=true;for _,stream in ipairs(owner.streams)do local handle=stream.handle;stream.handle=nil;if handle~=nil then C.nuppProcessStreamDestroy(handle)end end;local child=owner.handle;owner.handle=nil;if child~=nil then C.nuppProcessDestroy(child)end end local function abandon(owner,message)for _,stream in ipairs(owner.streams)do if not stream.released then C.nuppProcessCloseStream(stream.handle);stream.released=true end;C.nuppProcessStreamDestroy(stream.handle);stream.handle=nil end;if owner.handle~=nil then C.nuppProcessKill(owner.handle,true);C.nuppProcessDestroy(owner.handle);owner.handle=nil end;owner.destroyed=true;error(message,0)end local function configured(ok,request,what)if ok then return end;local why=reason("nupp: could not configure process "..what);C.nuppProcessSpawnCancel(request);error(why,0)end local function wrap(owner,which,expected)local handle=C.nuppProcessTakeStream(owner.handle,which);if handle==nil then if expected then abandon(owner,reason("nupp: could not take process stream"))end;return nil end;local stream={owner=owner,handle=handle,released=false,scratch=nil,capacity=0};owner.streams[#owner.streams+1]=stream;return stream end local function makeArray(streams)local count=#streams;if count==0 then return nil,0 end;local out=ffi.new("NuppStream*[?]",count);for index,stream in ipairs(streams)do local handle=stream and stream.handle;if handle==nil then error("nupp: readiness interest named a destroyed process stream",0)end;out[index-1]=handle end;return out,count end local function whole(value)local number=tonumber(value)or 0;if number~=number then return 0 end;return math.floor(number)end return{new=function(exited) local backend={} function backend:spawn(options) local inputMode=options.stdin or"pipe";local outputMode=options.stdout or"pipe";local errorMode=options.stderr or"pipe" if MODE[inputMode]==nil then error("nupp: process has no stdin mode named "..tostring(inputMode),0)end if MODE[outputMode]==nil or outputMode=="stdout"then error("nupp: process has no stdout mode named "..tostring(outputMode),0)end if MODE[errorMode]==nil then error("nupp: process has no stderr mode named "..tostring(errorMode),0)end local request=C.nuppProcessSpawnBegin();if request==nil then error(reason("nupp: could not begin process spawn"),0)end for _,argument in ipairs(options.args or{})do configured(C.nuppProcessSpawnArg(request,argument,#argument),request,"argument")end configured(C.nuppProcessSpawnClearEnv(request,options.clearEnv==true),request,"environment mode") for key,value in pairs(options.env or{})do local entry=key.."="..value;configured(C.nuppProcessSpawnEnv(request,entry,#entry),request,"environment")end if options.cwd~=nil then local cwd=type(options.cwd)=="string"and options.cwd or options.cwd:toString();configured(C.nuppProcessSpawnCwd(request,cwd,#cwd),request,"working directory")end configured(C.nuppProcessSpawnStdio(request,0,MODE[inputMode]),request,"stdin") configured(C.nuppProcessSpawnStdio(request,1,MODE[outputMode]),request,"stdout") configured(C.nuppProcessSpawnStdio(request,2,MODE[errorMode]),request,"stderr") local child=C.nuppProcessSpawnRun(request);if child==nil then return nil,nil,nil,nil,0,reason("nupp: could not start process")end local owner={handle=child,streams={},released=false,destroyed=false} local input=wrap(owner,0,inputMode=="pipe");local output=wrap(owner,1,outputMode=="pipe");local err=wrap(owner,2,errorMode=="pipe") return owner,input,output,err,tonumber(C.nuppProcessId(child)) end function backend:poll(owner)local code=ffi.new("int32_t[1]");local killed=ffi.new("bool[1]");local status=C.nuppProcessPollExit(owner.handle,code,killed);if status<0 then error(reason("nupp: could not poll process"),0)end;if status==0 then return nil end;return exited(tonumber(code[0]),killed[0],false)end function backend:kill(owner,force)if not C.nuppProcessKill(owner.handle,force)then error(reason("nupp: could not kill process"),0)end end function backend:read(stream,limit)local wanted=whole(limit);if wanted<1 then wanted=1 elseif wanted>READ_SIZE then wanted=READ_SIZE end;if stream.capacity<wanted then stream.scratch=ffi.new("uint8_t[?]",wanted);stream.capacity=wanted end;local got=tonumber(C.nuppProcessTryRead(stream.handle,stream.scratch,wanted));if got>=0 then return ffi.string(stream.scratch,got)end;if got==WOULD_BLOCK then return""end;if got==GONE then return nil end;error(reason("nupp: could not read process stream"),0)end function backend:write(stream,bytes)local sent=tonumber(C.nuppProcessTryWrite(stream.handle,bytes,#bytes));if sent>=0 then return sent,false end;if sent==WOULD_BLOCK then return 0,false end;if sent==GONE then return 0,true end;error(reason("nupp: could not write process stream"),0)end function backend:closeStream(stream)if stream.released then return true end;local status=C.nuppProcessCloseStream(stream.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not close process stream")end;if status==RELEASED or status==RELEASED_WITH_REASON then stream.released=true;maybeDestroy(stream.owner);return true,why end;return false,why end function backend:reap(owner)if owner.released then return true end;local status=C.nuppProcessReap(owner.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not release process")end;if status==RELEASED or status==RELEASED_WITH_REASON then owner.released=true;maybeDestroy(owner);return true,why end;return false,why end function backend:now()return C.nuppProcessMonotonicMs()end function backend:waitReady(interest,timeoutMs)local readable,readCount=makeArray(interest.read);local writable,writeCount=makeArray(interest.write);local timeout=whole(timeoutMs);if timeout<0 then timeout=0 elseif timeout>INT32_MAX then timeout=INT32_MAX end;local answered=C.nuppProcessWaitReady(readable,readCount,writable,writeCount,timeout);if answered<0 then error(reason("nupp: process readiness wait failed"),0)end;return tonumber(answered)end return backend end} end;
 
 
 
@@ -12563,14 +12327,14 @@ c . diag ( "NUPP2602" , node , "an opaque owner needs an explicit terminal consu
 end
 node . resourceCapability = adopted
 else
-c . diag ( "NUPP2602" , actualArgs [ 1 ] or node , "ResourceSet.adopt requires an owned value" )
+c . diag ( "NUPP2602" , actualArgs [ 1 ] or node , "resources.Set.adopt requires an owned value" )
 end
 elseif owner . tag == "nominal" and owner . resourceSet and member . text == "remove" then
 local actualArgs = node . args and node . args . kind == "args" and node . args . exprs or { }
 local entry , nameNode = actualArgs [ 1 ] and c . ownershipEntry ( actualArgs [ 1 ] ) or nil
 entry = c . ownershipState ( entry )
 if not entry or not entry . resourceCapability or entry . moved then
-c . diag ( "NUPP2602" , actualArgs [ 1 ] or node , "ResourceSet.remove needs a live value returned by adopt" )
+c . diag ( "NUPP2602" , actualArgs [ 1 ] or node , "resources.Set.remove needs a live value returned by adopt" )
 else
 local capability = entry . resourceCapability
 entry . moved = true
@@ -15581,6 +15345,7 @@ escapes ( stat . body , false )
 if c . recordEffect then
 c . recordEffect ( "runtime.suspension" )
 end
+stat . compilerFeatureEffects = { "runtime.suspension" }
 c . handledDepth = c . handledDepth + 1
 c . pushScope ( )
 c . checkBlock ( stat . body , true )
@@ -16808,7 +16573,7 @@ n . writeFieldDefs = { }
 n . staticFieldDefs = { }
 n . staticWriteFieldDefs = { }
 stat . resolvedType = n
-if c . result . moduleName == "nupp.resource_set" and n . name == "ResourceSet" then
+if c . result . moduleName == "nupp.resources.native" and n . name == "Set" then
 n . resourceSet = true
 end
 
@@ -17959,6 +17724,10 @@ if # order == 0 then return end
 
 c . recordEffect ( "stdlib.derives" )
 if requested . JSON then c . recordEffect ( "native.cjson" ) end
+stat . compilerFeatureEffects = { "stdlib.derives" }
+if requested . JSON then
+stat . compilerFeatureEffects [ # stat . compilerFeatureEffects + 1 ] = "native.cjson"
+end
 
 n . deriveProviders = requested
 local filename = c . filename and fs . normalize ( c . filename ) or "<source>"
@@ -35155,6 +34924,15 @@ local cst = { }
 
 
 
+
+
+
+
+
+
+
+
+
 cst.Chunk = {} cst.Chunk.__index = cst.Chunk
 
 
@@ -37355,6 +37133,7 @@ local listFiles , privateSource = filesMod . listFiles , filesMod . privateSourc
 local copyPublicFiles = filesMod . copyPublicFiles
 local moduleName , childModules = extractMod . moduleName , extractMod . children
 local namespaceModules = extractMod . namespaces
+local internalModuleName = extractMod . internalModuleName
 local configureScintillua = highlightMod . configureScintillua
 local markdownHtml , markdownOutline = htmlMod . markdownHtml , htmlMod . markdownOutline
 local THEME , SCRIPT = assetsMod . THEME , assetsMod . SCRIPT
@@ -37534,7 +37313,11 @@ local kept = { }
 for _ , item in ipairs ( module . items ) do
 local target = item . module and byName [ item . module ] or nil
 local nested = target and byName [ item . module .. "." .. item . name ] or nil
-if nested and namespaceBacked [ nested . name ] then
+if not settings . includePrivate and item . module and internalModuleName ( item . module ) then
+
+
+
+elseif nested and namespaceBacked [ nested . name ] then
 if item . doc . text ~= "" then
 nested . text = item . doc . text
 end
@@ -37562,7 +37345,7 @@ end
 end
 local public = { }
 for _ , module in ipairs ( modules ) do
-local hidden = module . documentationInternal and true or false
+local hidden = ( module . documentationInternal or internalModuleName ( module . name ) ) and true or false
 for _ , namespace in ipairs ( internalTrees ) do
 if module . name == namespace or module . name : sub ( 1 , # namespace + 1 ) == namespace .. "." then
 hidden = true
@@ -37849,6 +37632,9 @@ title = overview and overview . title or ( module . namespace and "Namespace: " 
 module = module ,
 overview = overview and overview . markdown or nil ,
 source = overview and overview . source or nil ,
+
+
+redirects = overview and overview . redirects or nil ,
 }
 end
 pages = ordered
@@ -37965,21 +37751,6 @@ if candidate . path == "" then
 if not featureStart then
 body [ # body + 1 ] = homeFeatures ( candidate , links )
 end
-body [ # body + 1 ] = '<h2 id="modules">Modules</h2><div class="nuppdoc-module-grid">'
-for _ , module in ipairs ( modules ) do
-
-
-local held = module . namespace and # childModules ( modules , module . name ) or # module . items
-local noun = module . namespace and " module" or " documented declaration"
-body [
-# body + 1
-] = '<a class="nuppdoc-module-card" href="' .. moduleFile (
-module . name
-) .. '"><code>' .. htmlEscape (
-module . name
-) .. '</code><span>' .. held .. noun .. ( held == 1 and "" or "s" ) .. '</span></a>'
-end
-body [ # body + 1 ] = '</div>'
 end
 end
 local html = renderPage (
@@ -39260,10 +39031,97 @@ end
 
 
 
+local docLines , parseDoc = docblock . linesOf , docblock . parse
+
+
+
+
+
+
+local function documentedNode ( entry )
+local annotations = entry and entry . annotations
+return annotations and annotations [ 1 ] or entry
+end
+
+local function entryDoc ( entry )
+return parseDoc ( docLines ( documentedNode ( entry ) ) )
+end
+
+
+
+
+
+
+
+local function privateName ( name )
+local tail = tostring ( name or "" ) : match ( "([^%.:]+)$" ) or ""
+tail = tail : gsub ( "^[\"']" , "" )
+return tail : sub ( 1 , 1 ) == "_"
+end
+
+
+
+
+
+local function internalModuleName ( name )
+return ( "." .. tostring ( name or "" ) .. "." ) : find ( ".internal." , 1 , true ) ~= nil
+end
+
+
+
+
+
+local function hiddenEntry ( entry , includePrivate )
+if includePrivate then
+return false
+end
+if entryDoc ( entry ) . tags . internal then
+return true
+end
+
+return entry . kind ~= "metamethodDecl" and privateName ( entry . name and entry . name . text or "" )
+end
+
+
+
+
+
+
+
+
+local function hiddenNodes ( node , includePrivate )
+local dropped = { }
+local function mark ( current )
+if cst . isToken ( current ) then
+return
+end
+for _ , entry in ipairs ( current . entries or current . fields or { } ) do
+if hiddenEntry ( entry , includePrivate ) then
+dropped [ entry ] = true
+for _ , annotation in ipairs ( entry . annotations or { } ) do
+dropped [ annotation ] = true
+end
+end
+end
+for _ , child in ipairs ( current ) do
+mark ( child )
+end
+end
+
+mark ( node )
+
+return dropped
+end
+
+
+
+
+
 
 
 local function structureSignature ( node , includePrivate )
 local parts = { }
+local dropped = hiddenNodes ( node , includePrivate )
 local function walk ( child )
 if cst . isToken ( child ) then
 local triviaParts = { }
@@ -39289,11 +39147,11 @@ end
 parts [ # parts + 1 ] = triviaText
 parts [ # parts + 1 ] = child . text
 else
-if child ~= node and child . kind == "recordDecl" and not includePrivate then
-local info = docblock . parse ( docblock . linesOf ( child ) )
-if info . tags . internal then
+
+
+
+if dropped [ child ] then
 return
-end
 end
 for _ , nested in ipairs ( child ) do
 if child . kind ~= "funcbody" or nested ~= child . body then
@@ -39311,26 +39169,6 @@ return source
 end
 
 return trim ( formatted )
-end
-
-
-
-
-
-local docLines , parseDoc = docblock . linesOf , docblock . parse
-
-
-
-
-
-
-local function documentedNode ( entry )
-local annotations = entry and entry . annotations
-return annotations and annotations [ 1 ] or entry
-end
-
-local function entryDoc ( entry )
-return parseDoc ( docLines ( documentedNode ( entry ) ) )
 end
 
 
@@ -39509,22 +39347,10 @@ end
 
 
 
-local function privateName ( name )
-local tail = tostring ( name or "" ) : match ( "([^%.:]+)$" ) or ""
-tail = tail : gsub ( "^[\"']" , "" )
-return tail : sub ( 1 , 1 ) == "_"
-end
-
-
-
-
-
-
-
 local function fieldItem ( field , childModuleName , includePrivate )
 local name = field . name . text
 local info = entryDoc ( field )
-if not ( includePrivate or ( not privateName ( name ) and not info . tags . internal ) ) then
+if hiddenEntry ( field , includePrivate ) then
 return nil
 end
 local item = {
@@ -39689,8 +39515,11 @@ local entries = entriesOf ( field )
 if not entries or expanding [ entries ] then
 return
 end
-expanding [ entries ] = true
 local childName = parentName .. "." .. field . name . text
+if not includePrivate and internalModuleName ( childName ) then
+return
+end
+expanding [ entries ] = true
 local items = { }
 for _ , entry in ipairs ( entries ) do
 if entry . kind == "fieldDecl" or entry . kind == "tshapeField" then
@@ -39728,9 +39557,7 @@ expanding [ entries ] = nil
 end
 
 for _ , field in ipairs ( shape . fields or { } ) do
-local info = entryDoc ( field )
-if field . kind == "tshapeField"
-and ( includePrivate or ( not privateName ( field . name . text ) and not info . tags . internal ) ) then
+if field . kind == "tshapeField" and not hiddenEntry ( field , includePrivate ) then
 addModule ( field , prefix )
 end
 end
@@ -39751,8 +39578,7 @@ fieldTextOverrides
 local members = { }
 for _ , entry in ipairs ( entries or { } ) do
 local entryInfo = entryDoc ( entry )
-local entryName = entry . name and entry . name . text or ""
-local entryVisible = includePrivate or ( not privateName ( entryName ) and not entryInfo . tags . internal )
+local entryVisible = not hiddenEntry ( entry , includePrivate )
 if ( entry . kind == "fieldDecl" or entry . kind == "metamethodDecl" ) and entryVisible then
 local fieldInfo = entryInfo
 local member = setmetatable({ name = 
@@ -40189,6 +40015,7 @@ end
 return namespaces
 end
 
+extract . internalModuleName = internalModuleName
 extract . moduleName = moduleName
 extract . splitMembers = splitMembers
 
@@ -40254,6 +40081,11 @@ end
 
 
 
+
+
+
+
+
 local function privateSource ( root , candidate )
 local relative = candidate
 if candidate : sub ( 1 , # root + 1 ) == root .. "/" then
@@ -40261,7 +40093,10 @@ relative = candidate : sub ( # root + 2 )
 end
 local filename = relative : match ( "([^/]+)$" ) or relative
 
-return filename : sub ( 1 , 1 ) == "_" or relative : match ( "^internal/" ) ~= nil or relative : match ( "/internal/" ) ~= nil
+return filename : sub ( 1 , 1 ) == "_"
+or filename == "internal.nupp"
+or relative : match ( "^internal/" ) ~= nil
+or relative : match ( "/internal/" ) ~= nil
 end
 
 local function listDirectoryFiles ( path )
@@ -40323,7 +40158,7 @@ return files
 
 end
 package.preload["nupp.compiler.doc.highlight"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[typedef struct NuppBytes NuppBytes;typedef struct NuppUri NuppUri;typedef struct{const uint8_t*data;size_t length;}NuppStringView;const char*nuppNativeError(void);const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);NuppBytes*nuppPathJoin(const NuppStringView*,size_t);NuppBytes*nuppPathNormalize(const uint8_t*,size_t);NuppBytes*nuppPathAbsolute(const uint8_t*,size_t);NuppBytes*nuppPathCanonicalize(const uint8_t*,size_t);NuppBytes*nuppPathRelative(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppPathPart(const uint8_t*,size_t,uint32_t);NuppBytes*nuppPathWith(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppPathIsAbsolute(const uint8_t*,size_t);NuppUri*nuppUriParse(const uint8_t*,size_t);const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);bool nuppUriPort(const NuppUri*,uint16_t*);NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);NuppUri*nuppUriWithPort(const NuppUri*,int32_t);NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);void nuppUriDestroy(NuppUri*);bool nuppUuid4(char*);bool nuppUuid7(char*);bool nuppSha256(const uint8_t*,size_t,char*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);void nuppProcessDestroy(NuppChild*);int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);size_t nuppProcessUncollectedTotal(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end __nuppLazy(__nuppIO,"files",function() local native=__nuppNative();local ffi,C=native.ffi,native.C;ffi.cdef[[NuppBytes*nuppFilesGlob(const uint8_t*,size_t);]];local files={};local record=ffi.new("NuppFileInfo[1]") local KINDS={[1]="file",[2]="directory",[3]="other",[4]="symlink"} local ENTRIES={f="file",d="directory",l="symlink",o="other"} local FOLDERS={home=0,documents=1,downloads=2,desktop=3,pictures=4,music=5,videos=6} local MODES={r=0,w=1,a=2,["r+"]=3,["w+"]=4,["a+"]=5} local ORIGINS={set=0,current=1,["end"]=2} local READ_SIZE=65536 local PENDING,READY=0,1 local SOURCE,PRIORITY="nupp-files",20 local waits={};local suspending local File={};File.__index=File;local Reader={};Reader.__index=Reader;local Writer={};Writer.__index=Writer local function named(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.toString then return value:toString()end;error("nupp: io.files "..what.." must be a path or a string",level)end local function done(answered)if answered then return true end;return false,native.error()end local function answer(handle)if handle==nil then return nil,native.error()end;return native.bytes(handle)end local function described(path,follow,level)local text=named(path,"path",level+1);if not C.nuppFilesInfo(text,#text,follow,record)then return nil end;return record[0]end local function optional(options,field,level)local value=options and options[field];if value==nil then return""end;if type(value)~="string"then error("nupp: io.files temporary "..field.." must be a string",level)end;return value end local function temporary(options,directory,level)local root=options and options.directory and named(options.directory,"temporary directory",level+1)or"";local prefix=optional(options,"prefix",level+1);local suffix=optional(options,"suffix",level+1);return answer(C.nuppFilesCreateTemporary(root,#root,prefix,#prefix,suffix,#suffix,directory))end local function payload(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.getString then return value:getString()end;error("nupp: io.files "..what.." must be bytes or a byte view",level)end local function harvest()local moved=0;local index=#waits;while index>0 do local entry=waits[index];if C.nuppFsStatus(entry.handle)~=PENDING then waits[index]=waits[#waits];waits[#waits]=nil;moved=moved+1;entry.resume(true)end;index=index-1 end;return moved end local function polled()C.nuppFsPoll();return harvest()end local function slept(waitMs)C.nuppFsWait(waitMs);return harvest()end local function forget(entry)for index=1,#waits do if waits[index]==entry then waits[index]=waits[#waits];waits[#waits]=nil;return end end end local function runtime()if suspending==nil then suspending=require("nupp.suspension")end;return suspending end local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,polled,slept);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end local function settled(handle)if handle==nil then return nil,native.error()end;await(handle);if C.nuppFsStatus(handle)~=READY then local reason=ffi.string(C.nuppFsError(handle));C.nuppFsDestroy(handle);return nil,reason end;return handle end local function transferred(handle)local done,reason=settled(handle);if not done then return false,reason end;C.nuppFsDestroy(done);return true end local function fetched(handle)local done,reason=settled(handle);if not done then return nil,reason end;local out=ffi.string(C.nuppFsData(done),tonumber(C.nuppFsLength(done)));C.nuppFsDestroy(done);return out end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: io.files "..what.." must be an integer",level)end;return value end local function counted(value,what,level)if whole(value,what,level)<0 then error("nupp: io.files "..what.." must not be negative",level)end;return value end local function live(self,what,level)if self._closed then error("nupp: io.files "..what.." is closed",level)end;return self end function File:isReleased()return self._closed end function File:close()if self._closed then return true end;self._closed=true;local handle=self._handle;self._handle=nil;C.nuppFileClose(handle);return true end function File:size()live(self,"File",2);local size=tonumber(C.nuppFileSize(self._handle));if size<0 then return nil,native.error()end;return size end function File:seek(offset,origin)live(self,"File",2);local whence=ORIGINS[origin or"set"];if whence==nil then error("nupp: io.files has no seek origin named "..tostring(origin),2)end;local at=tonumber(C.nuppFileSeek(self._handle,whole(offset or 0,"seek offset",2),whence));if at<0 then return nil,native.error()end;return at end function File:position()live(self,"File",2);return self:seek(0,"current")end function File:flush()live(self,"File",2);if C.nuppFileFlush(self._handle)then return true end;return false,native.error()end function File:newReader()live(self,"File",2);return setmetatable({_file=self,_scratch=nil,_capacity=0,_closed=false},Reader)end function File:newWriter()live(self,"File",2);return setmetatable({_file=self,_closed=false},Writer)end local function scratch(self,count)if count>self._capacity then local size=self._capacity*2;if size<count then size=count end;if size<READ_SIZE then size=READ_SIZE end;self._scratch=ffi.new("uint8_t[?]",size);self._capacity=size end;return self._scratch end local function usable(self)if self._closed then return nil,"the reader is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Reader:read(count)local file,reason=usable(self);if not file then return nil,reason end;count=whole(count,"Reader:read count",2);if count<1 then count=1 end;local into=scratch(self,count);local got=tonumber(C.nuppFileRead(file._handle,into,count));if got<0 then return nil,native.error()end;if got==0 then return""end;return ffi.string(into,got)end function Reader:readInto(destination,offset,count)local file,reason=usable(self);if not file then return nil,reason end;offset=counted(offset or 0,"Reader:readInto offset",2);count=counted(count or READ_SIZE,"Reader:readInto count",2);if count==0 then return 0 end;local data=rawget(destination,"_data");local capacity=rawget(destination,"_capacity");if data==nil and capacity==nil then local chunk,why=self:read(count);if chunk==nil then return nil,why end;if #chunk==0 then return 0 end;destination:setString(chunk,offset);return #chunk end;destination:ensureCapacity(offset+count);data=rawget(destination,"_data");local length=rawget(destination,"_length");if offset>length then ffi.fill(data+length,offset-length,0)end;local got=tonumber(C.nuppFileRead(file._handle,data+offset,count));if got<0 then return nil,native.error()end;if offset+got>length then rawset(destination,"_length",offset+got)end;return got end function Reader:transferTo(destination)local file,reason=usable(self);if not file then return nil,reason end;local total=0;while true do local chunk,why=self:read(READ_SIZE);if chunk==nil then return nil,why end;if chunk==""then return total end;local wrote,failure=destination:write(chunk);if not wrote then return nil,failure end;total=total+#chunk end end function Reader:close()self._closed=true;self._scratch=nil;self._capacity=0;return true end local function writable(self)if self._closed then return nil,"the writer is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Writer:write(bytes)local file,reason=writable(self);if not file then return false,reason end;if type(bytes)~="string"then error("nupp: io.files Writer:write needs a string",2)end;if C.nuppFileWrite(file._handle,bytes,#bytes)<0 then return false,native.error()end;return true end function Writer:writeFrom(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeFrom offset",2);count=counted(count==nil and length-offset or count,"Writer:writeFrom count",2);if offset+count>length then error("nupp: io.files Writer:writeFrom range is past the end",2)end;if count==0 then return 0 end;local data=rawget(source,"_data");if data==nil then local wrote,failure=self:write(source:getString(offset,count));if not wrote then return nil,failure end;return count end;if C.nuppFileWrite(file._handle,data+offset,count)<0 then return nil,native.error()end;return count end function Writer:writeView(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeView offset",2);count=counted(count==nil and length-offset or count,"Writer:writeView count",2);if offset+count>length then error("nupp: io.files Writer:writeView range is past the end",2)end;local wrote,failure=self:write(source:getString():sub(offset+1,offset+count));if not wrote then return nil,failure end;return count end function Writer:flush()local file,reason=writable(self);if not file then return false,reason end;return file:flush()end function Writer:close()self._closed=true;return true end function files.info(path)local found=described(path,true,2);if not found then return nil,native.error()end;return{kind=KINDS[tonumber(found.kind)]or"other",size=tonumber(found.size),modified=found.modified,readOnly=found.readOnly}end function files.exists(path)return described(path,true,2)~=nil end function files.isFile(path)local found=described(path,true,2);return found~=nil and found.kind==1 end function files.isDirectory(path)local found=described(path,true,2);return found~=nil and found.kind==2 end function files.isSymlink(path)local found=described(path,false,2);return found~=nil and found.kind==4 end function files.readLink(path)local text=named(path,"path",2);return answer(C.nuppFilesReadLink(text,#text))end function files.createSymlink(target,link,kind)local to=named(target,"symlink target",2);local at=named(link,"symlink path",2);if kind~=nil and kind~="file"and kind~="directory"then error("nupp: io.files symlink kind must be 'file' or 'directory'",2)end;return done(C.nuppFilesCreateSymlink(to,#to,at,#at,kind=="directory"))end function files.setReadOnly(path,readOnly)local text=named(path,"path",2);return done(C.nuppFilesSetReadOnly(text,#text,readOnly and true or false))end function files.createDirectory(path)local text=named(path,"path",2);return done(C.nuppFilesCreateDirectory(text,#text))end function files.remove(path,recursive)local text=named(path,"path",2);return done(C.nuppFilesRemove(text,#text,recursive and true or false))end function files.rename(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return done(C.nuppFilesRename(source,#source,destination,#destination))end function files.list(path)local text=named(path,"path",2);local handle=C.nuppFilesList(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local entries,at={},1;while at<=#blob do local stop=blob:find("\0",at+1,true);entries[#entries+1]={kind=ENTRIES[blob:sub(at,at)]or"other",name=blob:sub(at+1,stop-1)};at=stop+1 end;return entries end function files.glob(pattern)local text=named(pattern,"glob pattern",2);local handle=C.nuppFilesGlob(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local matches,at={},1;while at<=#blob do local stop=blob:find("\0",at,true);if not stop then matches[#matches+1]=blob:sub(at);break end;matches[#matches+1]=blob:sub(at,stop-1);at=stop+1 end;return matches end local Temporary={};Temporary.__index=Temporary;Temporary.__tostring=function(self)return self._text end function Temporary:toString()return self._text end function Temporary:isReleased()return self._closed end function Temporary:persist(destination)if self._closed then return false,"the temporary path is released"end;local to=named(destination,"destination path",2);local moved,reason=done(C.nuppFilesRename(self._text,#self._text,to,#to));if not moved then return false,reason end;self._closed=true;return true end function Temporary:close()if self._closed then return true end;self._closed=true;return done(C.nuppFilesRemove(self._text,#self._text,self._directory))end function files.createTemporaryFile(options)local text,reason=temporary(options,false,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=false,_closed=false},Temporary)end function files.createTemporaryDirectory(options)local text,reason=temporary(options,true,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=true,_closed=false},Temporary)end function files.read(path)local text=named(path,"path",2);return fetched(C.nuppFsSubmitRead(text,#text))end function files.write(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,0))end function files.append(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,1))end function files.writeAtomic(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,2))end function files.copy(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return transferred(C.nuppFsSubmitCopy(source,#source,destination,#destination))end function files.pendingTransfers()return tonumber(C.nuppFsPending())end function files.open(path,mode)local text=named(path,"path",2);local selected=MODES[mode or"r"];if selected==nil then error("nupp: io.files has no mode named "..tostring(mode),2)end;local handle=C.nuppFileOpen(text,#text,selected);if handle==nil then return nil,native.error()end;return setmetatable({_handle=handle,_closed=false},File)end function files.lines(path)local file,reason=files.open(path,"r");if not file then return nil,reason end;local reader=file:newReader();local held,finished="",false;local function trimmed(line)if line:sub(-1)=="\r"then return line:sub(1,-2)end;return line end;return function()if finished then return nil end;while true do local stop=held:find("\n",1,true);if stop then local line=held:sub(1,stop-1);held=held:sub(stop+1);return trimmed(line)end;local chunk=reader:read(READ_SIZE);if chunk==nil or chunk==""then finished=true;file:close();if #held>0 then local line=held;held="";return trimmed(line)end;return nil end;held=held..chunk end end end function files.currentDirectory()return answer(C.nuppFilesCurrentDirectory())end function files.userFolder(which)local index=FOLDERS[which];if index==nil then error("nupp: io.files has no user folder named "..tostring(which),2)end;return answer(C.nuppFilesUserFolder(index))end return files end);
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppBytes NuppBytes;const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end __nuppLazy(__nuppIO,"files",function() local native=__nuppNative();local ffi,C=native.ffi,native.C;ffi.cdef[[NuppBytes*nuppFilesGlob(const uint8_t*,size_t);]];local files={};local record=ffi.new("NuppFileInfo[1]") local KINDS={[1]="file",[2]="directory",[3]="other",[4]="symlink"} local ENTRIES={f="file",d="directory",l="symlink",o="other"} local FOLDERS={home=0,documents=1,downloads=2,desktop=3,pictures=4,music=5,videos=6} local MODES={r=0,w=1,a=2,["r+"]=3,["w+"]=4,["a+"]=5} local ORIGINS={set=0,current=1,["end"]=2} local READ_SIZE=65536 local PENDING,READY=0,1 local SOURCE,PRIORITY="nupp-files",20 local waits={};local suspending local File={};File.__index=File;local Reader={};Reader.__index=Reader;local Writer={};Writer.__index=Writer local function named(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.toString then return value:toString()end;error("nupp: io.files "..what.." must be a path or a string",level)end local function done(answered)if answered then return true end;return false,native.error()end local function answer(handle)if handle==nil then return nil,native.error()end;return native.bytes(handle)end local function described(path,follow,level)local text=named(path,"path",level+1);if not C.nuppFilesInfo(text,#text,follow,record)then return nil end;return record[0]end local function optional(options,field,level)local value=options and options[field];if value==nil then return""end;if type(value)~="string"then error("nupp: io.files temporary "..field.." must be a string",level)end;return value end local function temporary(options,directory,level)local root=options and options.directory and named(options.directory,"temporary directory",level+1)or"";local prefix=optional(options,"prefix",level+1);local suffix=optional(options,"suffix",level+1);return answer(C.nuppFilesCreateTemporary(root,#root,prefix,#prefix,suffix,#suffix,directory))end local function payload(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.getString then return value:getString()end;error("nupp: io.files "..what.." must be bytes or a byte view",level)end local function harvest()local moved=0;local index=#waits;while index>0 do local entry=waits[index];if C.nuppFsStatus(entry.handle)~=PENDING then waits[index]=waits[#waits];waits[#waits]=nil;moved=moved+1;entry.resume(true)end;index=index-1 end;return moved end local function polled()C.nuppFsPoll();return harvest()end local function slept(waitMs)C.nuppFsWait(waitMs);return harvest()end local function forget(entry)for index=1,#waits do if waits[index]==entry then waits[index]=waits[#waits];waits[#waits]=nil;return end end end local function runtime()if suspending==nil then suspending=require("nupp.suspension")end;return suspending end local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,polled,slept);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end local function settled(handle)if handle==nil then return nil,native.error()end;await(handle);if C.nuppFsStatus(handle)~=READY then local reason=ffi.string(C.nuppFsError(handle));C.nuppFsDestroy(handle);return nil,reason end;return handle end local function transferred(handle)local done,reason=settled(handle);if not done then return false,reason end;C.nuppFsDestroy(done);return true end local function fetched(handle)local done,reason=settled(handle);if not done then return nil,reason end;local out=ffi.string(C.nuppFsData(done),tonumber(C.nuppFsLength(done)));C.nuppFsDestroy(done);return out end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: io.files "..what.." must be an integer",level)end;return value end local function counted(value,what,level)if whole(value,what,level)<0 then error("nupp: io.files "..what.." must not be negative",level)end;return value end local function live(self,what,level)if self._closed then error("nupp: io.files "..what.." is closed",level)end;return self end function File:isReleased()return self._closed end function File:close()if self._closed then return true end;self._closed=true;local handle=self._handle;self._handle=nil;C.nuppFileClose(handle);return true end function File:size()live(self,"File",2);local size=tonumber(C.nuppFileSize(self._handle));if size<0 then return nil,native.error()end;return size end function File:seek(offset,origin)live(self,"File",2);local whence=ORIGINS[origin or"set"];if whence==nil then error("nupp: io.files has no seek origin named "..tostring(origin),2)end;local at=tonumber(C.nuppFileSeek(self._handle,whole(offset or 0,"seek offset",2),whence));if at<0 then return nil,native.error()end;return at end function File:position()live(self,"File",2);return self:seek(0,"current")end function File:flush()live(self,"File",2);if C.nuppFileFlush(self._handle)then return true end;return false,native.error()end function File:newReader()live(self,"File",2);return setmetatable({_file=self,_scratch=nil,_capacity=0,_closed=false},Reader)end function File:newWriter()live(self,"File",2);return setmetatable({_file=self,_closed=false},Writer)end local function scratch(self,count)if count>self._capacity then local size=self._capacity*2;if size<count then size=count end;if size<READ_SIZE then size=READ_SIZE end;self._scratch=ffi.new("uint8_t[?]",size);self._capacity=size end;return self._scratch end local function usable(self)if self._closed then return nil,"the reader is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Reader:read(count)local file,reason=usable(self);if not file then return nil,reason end;count=whole(count,"Reader:read count",2);if count<1 then count=1 end;local into=scratch(self,count);local got=tonumber(C.nuppFileRead(file._handle,into,count));if got<0 then return nil,native.error()end;if got==0 then return""end;return ffi.string(into,got)end function Reader:readInto(destination,offset,count)local file,reason=usable(self);if not file then return nil,reason end;offset=counted(offset or 0,"Reader:readInto offset",2);count=counted(count or READ_SIZE,"Reader:readInto count",2);if count==0 then return 0 end;local data=rawget(destination,"_data");local capacity=rawget(destination,"_capacity");if data==nil and capacity==nil then local chunk,why=self:read(count);if chunk==nil then return nil,why end;if #chunk==0 then return 0 end;destination:setString(chunk,offset);return #chunk end;destination:ensureCapacity(offset+count);data=rawget(destination,"_data");local length=rawget(destination,"_length");if offset>length then ffi.fill(data+length,offset-length,0)end;local got=tonumber(C.nuppFileRead(file._handle,data+offset,count));if got<0 then return nil,native.error()end;if offset+got>length then rawset(destination,"_length",offset+got)end;return got end function Reader:transferTo(destination)local file,reason=usable(self);if not file then return nil,reason end;local total=0;while true do local chunk,why=self:read(READ_SIZE);if chunk==nil then return nil,why end;if chunk==""then return total end;local wrote,failure=destination:write(chunk);if not wrote then return nil,failure end;total=total+#chunk end end function Reader:close()self._closed=true;self._scratch=nil;self._capacity=0;return true end local function writable(self)if self._closed then return nil,"the writer is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Writer:write(bytes)local file,reason=writable(self);if not file then return false,reason end;if type(bytes)~="string"then error("nupp: io.files Writer:write needs a string",2)end;if C.nuppFileWrite(file._handle,bytes,#bytes)<0 then return false,native.error()end;return true end function Writer:writeFrom(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeFrom offset",2);count=counted(count==nil and length-offset or count,"Writer:writeFrom count",2);if offset+count>length then error("nupp: io.files Writer:writeFrom range is past the end",2)end;if count==0 then return 0 end;local data=rawget(source,"_data");if data==nil then local wrote,failure=self:write(source:getString(offset,count));if not wrote then return nil,failure end;return count end;if C.nuppFileWrite(file._handle,data+offset,count)<0 then return nil,native.error()end;return count end function Writer:writeView(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeView offset",2);count=counted(count==nil and length-offset or count,"Writer:writeView count",2);if offset+count>length then error("nupp: io.files Writer:writeView range is past the end",2)end;local wrote,failure=self:write(source:getString():sub(offset+1,offset+count));if not wrote then return nil,failure end;return count end function Writer:flush()local file,reason=writable(self);if not file then return false,reason end;return file:flush()end function Writer:close()self._closed=true;return true end function files.info(path)local found=described(path,true,2);if not found then return nil,native.error()end;return{kind=KINDS[tonumber(found.kind)]or"other",size=tonumber(found.size),modified=found.modified,readOnly=found.readOnly}end function files.exists(path)return described(path,true,2)~=nil end function files.isFile(path)local found=described(path,true,2);return found~=nil and found.kind==1 end function files.isDirectory(path)local found=described(path,true,2);return found~=nil and found.kind==2 end function files.isSymlink(path)local found=described(path,false,2);return found~=nil and found.kind==4 end function files.readLink(path)local text=named(path,"path",2);return answer(C.nuppFilesReadLink(text,#text))end function files.createSymlink(target,link,kind)local to=named(target,"symlink target",2);local at=named(link,"symlink path",2);if kind~=nil and kind~="file"and kind~="directory"then error("nupp: io.files symlink kind must be 'file' or 'directory'",2)end;return done(C.nuppFilesCreateSymlink(to,#to,at,#at,kind=="directory"))end function files.setReadOnly(path,readOnly)local text=named(path,"path",2);return done(C.nuppFilesSetReadOnly(text,#text,readOnly and true or false))end function files.createDirectory(path)local text=named(path,"path",2);return done(C.nuppFilesCreateDirectory(text,#text))end function files.remove(path,recursive)local text=named(path,"path",2);return done(C.nuppFilesRemove(text,#text,recursive and true or false))end function files.rename(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return done(C.nuppFilesRename(source,#source,destination,#destination))end function files.list(path)local text=named(path,"path",2);local handle=C.nuppFilesList(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local entries,at={},1;while at<=#blob do local stop=blob:find("\0",at+1,true);entries[#entries+1]={kind=ENTRIES[blob:sub(at,at)]or"other",name=blob:sub(at+1,stop-1)};at=stop+1 end;return entries end function files.glob(pattern)local text=named(pattern,"glob pattern",2);local handle=C.nuppFilesGlob(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local matches,at={},1;while at<=#blob do local stop=blob:find("\0",at,true);if not stop then matches[#matches+1]=blob:sub(at);break end;matches[#matches+1]=blob:sub(at,stop-1);at=stop+1 end;return matches end local Temporary={};Temporary.__index=Temporary;Temporary.__tostring=function(self)return self._text end function Temporary:toString()return self._text end function Temporary:isReleased()return self._closed end function Temporary:persist(destination)if self._closed then return false,"the temporary path is released"end;local to=named(destination,"destination path",2);local moved,reason=done(C.nuppFilesRename(self._text,#self._text,to,#to));if not moved then return false,reason end;self._closed=true;return true end function Temporary:close()if self._closed then return true end;self._closed=true;return done(C.nuppFilesRemove(self._text,#self._text,self._directory))end function files.createTemporaryFile(options)local text,reason=temporary(options,false,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=false,_closed=false},Temporary)end function files.createTemporaryDirectory(options)local text,reason=temporary(options,true,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=true,_closed=false},Temporary)end function files.read(path)local text=named(path,"path",2);return fetched(C.nuppFsSubmitRead(text,#text))end function files.write(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,0))end function files.append(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,1))end function files.writeAtomic(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,2))end function files.copy(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return transferred(C.nuppFsSubmitCopy(source,#source,destination,#destination))end function files.pendingTransfers()return tonumber(C.nuppFsPending())end function files.open(path,mode)local text=named(path,"path",2);local selected=MODES[mode or"r"];if selected==nil then error("nupp: io.files has no mode named "..tostring(mode),2)end;local handle=C.nuppFileOpen(text,#text,selected);if handle==nil then return nil,native.error()end;return setmetatable({_handle=handle,_closed=false},File)end function files.lines(path)local file,reason=files.open(path,"r");if not file then return nil,reason end;local reader=file:newReader();local held,finished="",false;local function trimmed(line)if line:sub(-1)=="\r"then return line:sub(1,-2)end;return line end;return function()if finished then return nil end;while true do local stop=held:find("\n",1,true);if stop then local line=held:sub(1,stop-1);held=held:sub(stop+1);return trimmed(line)end;local chunk=reader:read(READ_SIZE);if chunk==nil or chunk==""then finished=true;file:close();if #held>0 then local line=held;held="";return trimmed(line)end;return nil end;held=held..chunk end end end function files.currentDirectory()return answer(C.nuppFilesCurrentDirectory())end function files.userFolder(which)local index=FOLDERS[which];if index==nil then error("nupp: io.files has no user folder named "..tostring(which),2)end;return answer(C.nuppFilesUserFolder(index))end return files end);
 
 
 
@@ -41059,11 +40894,17 @@ end
 local function playgroundHtml ( source , caption )
 local trimmed = trim ( source )
 local title = caption or "Nupp playground: an editor that checks as you type"
+local fallback = ""
+if trimmed ~= "" then
+fallback = '<div class="nuppdoc-code-block" data-lang="nupp"'
+.. ' data-reader-source slot="reader-source"><pre><code class="language-nupp">'
+.. htmlEscape ( trimmed ) .. "</code></pre></div>"
+end
 return '<nupp-playground class="nuppdoc-playground" aria-label="' .. htmlEscape (
 title
 ) .. '"' .. (
 trimmed ~= "" and ' data-source="' .. urlFragmentEscape ( trimmed ) .. '"' or ""
-) .. '></nupp-playground>'
+) .. ">" .. fallback .. "</nupp-playground>"
 end
 
 local function renderedCodeBlockHtml ( block , links )
@@ -42264,8 +42105,7 @@ prefix
 .. '<div class="nuppdoc-top-nav"><a href="'
 .. prefix
 .. 'getting-started/installation/index.html">Overview</a><a href="'
-.. prefix
-.. 'index.html#modules">API</a><a href="/playground/">Playground</a></div><div class="nuppdoc-actions">'
+.. 'http://nupp-lang.org/modules/nupp/index.html">API</a><a href="/playground/">Playground</a></div><div class="nuppdoc-actions">'
 .. table . concat (
 actions
 ) .. search .. '</div></nav></header>' .. (
@@ -44169,8 +44009,8 @@ local BUNDLED = { [
 ] = "/decls/jit/profile.d.nupp" , [
 "jit.zone"
 ] = "/decls/jit/zone.d.nupp" , [ "jit.vmdef" ] = "/decls/jit/vmdef.d.nupp" , [
-"nupp.resource_set"
-] = "/decls/resource_set.d.nupp" , [
+"nupp.resources.native"
+] = "/decls/resourcesnative.d.nupp" , [
 "nupp.io.processnative"
 ] = "/decls/processnative.d.nupp" , [
 "nupp.io.httpnative"
@@ -44181,7 +44021,6 @@ local BUNDLED = { [
 
 
 local BUNDLED_SOURCE = {
-[ "nupp.bytes" ] = "/nupp/bytes.nupp" ,
 [ "nupp.resources" ] = "/nupp/resources.nupp" ,
 [ "nupp.zone" ] = "/nupp/zone.nupp" ,
 [ "nupp.profile" ] = "/nupp/profile.nupp" ,
@@ -44442,6 +44281,25 @@ right = "local record Point\n    x: number\n    y: number\nend\n\n"
 .. "return show\n" ,
 related = { "NUPP2005" , "NUPP2119" } ,
 docs = "docs/modules.md#diagnostics" ,
+} , {
+code = "NUPP2006" ,
+summary = "A call's arguments are not arranged in a way it can be given" ,
+rule = "Named and plucked arguments follow every positional argument, so "
+.. "nothing positional may come after one. A plucked operand must be a "
+.. "name or dotted field path: each name it fills reads one field of that "
+.. "path, and confining it to a path is what lets those reads be unordered "
+.. "and the path be evaluated once. Bind a call or a computed index to a "
+.. "local and pluck from the local." ,
+wrong = "local record Vec3\n    x: number\n    y: number\n    z: number\nend\n\n"
+.. "local function draw(x: number, y: number): nil\n    print(x, y)\nend\n\n"
+.. "local function make(): Vec3\n    return new Vec3(x = 1, y = 2, z = 3)\nend\n\n"
+.. "draw((x, y) = *make())\n\nreturn draw\n" ,
+right = "local record Vec3\n    x: number\n    y: number\n    z: number\nend\n\n"
+.. "local function draw(x: number, y: number): nil\n    print(x, y)\nend\n\n"
+.. "local function make(): Vec3\n    return new Vec3(x = 1, y = 2, z = 3)\nend\n\n"
+.. "local position = make()\ndraw((x, y) = *position)\n\nreturn draw\n" ,
+related = { "NUPP2004" , "NUPP2125" } ,
+docs = "docs/reference.md#named-and-plucked-arguments" ,
 } , {
 code = "NUPP2009" ,
 summary = "A property view does not grant the requested access" ,
@@ -46851,7 +46709,7 @@ return displayWidth
 
 end
 package.preload["nupp.compiler.fs"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[typedef struct NuppBytes NuppBytes;typedef struct NuppUri NuppUri;typedef struct{const uint8_t*data;size_t length;}NuppStringView;const char*nuppNativeError(void);const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);NuppBytes*nuppPathJoin(const NuppStringView*,size_t);NuppBytes*nuppPathNormalize(const uint8_t*,size_t);NuppBytes*nuppPathAbsolute(const uint8_t*,size_t);NuppBytes*nuppPathCanonicalize(const uint8_t*,size_t);NuppBytes*nuppPathRelative(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppPathPart(const uint8_t*,size_t,uint32_t);NuppBytes*nuppPathWith(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppPathIsAbsolute(const uint8_t*,size_t);NuppUri*nuppUriParse(const uint8_t*,size_t);const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);bool nuppUriPort(const NuppUri*,uint16_t*);NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);NuppUri*nuppUriWithPort(const NuppUri*,int32_t);NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);void nuppUriDestroy(NuppUri*);bool nuppUuid4(char*);bool nuppUuid7(char*);bool nuppSha256(const uint8_t*,size_t,char*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);void nuppProcessDestroy(NuppChild*);int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);size_t nuppProcessUncollectedTotal(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end __nuppLazy(__nuppIO,"files",function() local native=__nuppNative();local ffi,C=native.ffi,native.C;ffi.cdef[[NuppBytes*nuppFilesGlob(const uint8_t*,size_t);]];local files={};local record=ffi.new("NuppFileInfo[1]") local KINDS={[1]="file",[2]="directory",[3]="other",[4]="symlink"} local ENTRIES={f="file",d="directory",l="symlink",o="other"} local FOLDERS={home=0,documents=1,downloads=2,desktop=3,pictures=4,music=5,videos=6} local MODES={r=0,w=1,a=2,["r+"]=3,["w+"]=4,["a+"]=5} local ORIGINS={set=0,current=1,["end"]=2} local READ_SIZE=65536 local PENDING,READY=0,1 local SOURCE,PRIORITY="nupp-files",20 local waits={};local suspending local File={};File.__index=File;local Reader={};Reader.__index=Reader;local Writer={};Writer.__index=Writer local function named(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.toString then return value:toString()end;error("nupp: io.files "..what.." must be a path or a string",level)end local function done(answered)if answered then return true end;return false,native.error()end local function answer(handle)if handle==nil then return nil,native.error()end;return native.bytes(handle)end local function described(path,follow,level)local text=named(path,"path",level+1);if not C.nuppFilesInfo(text,#text,follow,record)then return nil end;return record[0]end local function optional(options,field,level)local value=options and options[field];if value==nil then return""end;if type(value)~="string"then error("nupp: io.files temporary "..field.." must be a string",level)end;return value end local function temporary(options,directory,level)local root=options and options.directory and named(options.directory,"temporary directory",level+1)or"";local prefix=optional(options,"prefix",level+1);local suffix=optional(options,"suffix",level+1);return answer(C.nuppFilesCreateTemporary(root,#root,prefix,#prefix,suffix,#suffix,directory))end local function payload(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.getString then return value:getString()end;error("nupp: io.files "..what.." must be bytes or a byte view",level)end local function harvest()local moved=0;local index=#waits;while index>0 do local entry=waits[index];if C.nuppFsStatus(entry.handle)~=PENDING then waits[index]=waits[#waits];waits[#waits]=nil;moved=moved+1;entry.resume(true)end;index=index-1 end;return moved end local function polled()C.nuppFsPoll();return harvest()end local function slept(waitMs)C.nuppFsWait(waitMs);return harvest()end local function forget(entry)for index=1,#waits do if waits[index]==entry then waits[index]=waits[#waits];waits[#waits]=nil;return end end end local function runtime()if suspending==nil then suspending=require("nupp.suspension")end;return suspending end local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,polled,slept);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end local function settled(handle)if handle==nil then return nil,native.error()end;await(handle);if C.nuppFsStatus(handle)~=READY then local reason=ffi.string(C.nuppFsError(handle));C.nuppFsDestroy(handle);return nil,reason end;return handle end local function transferred(handle)local done,reason=settled(handle);if not done then return false,reason end;C.nuppFsDestroy(done);return true end local function fetched(handle)local done,reason=settled(handle);if not done then return nil,reason end;local out=ffi.string(C.nuppFsData(done),tonumber(C.nuppFsLength(done)));C.nuppFsDestroy(done);return out end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: io.files "..what.." must be an integer",level)end;return value end local function counted(value,what,level)if whole(value,what,level)<0 then error("nupp: io.files "..what.." must not be negative",level)end;return value end local function live(self,what,level)if self._closed then error("nupp: io.files "..what.." is closed",level)end;return self end function File:isReleased()return self._closed end function File:close()if self._closed then return true end;self._closed=true;local handle=self._handle;self._handle=nil;C.nuppFileClose(handle);return true end function File:size()live(self,"File",2);local size=tonumber(C.nuppFileSize(self._handle));if size<0 then return nil,native.error()end;return size end function File:seek(offset,origin)live(self,"File",2);local whence=ORIGINS[origin or"set"];if whence==nil then error("nupp: io.files has no seek origin named "..tostring(origin),2)end;local at=tonumber(C.nuppFileSeek(self._handle,whole(offset or 0,"seek offset",2),whence));if at<0 then return nil,native.error()end;return at end function File:position()live(self,"File",2);return self:seek(0,"current")end function File:flush()live(self,"File",2);if C.nuppFileFlush(self._handle)then return true end;return false,native.error()end function File:newReader()live(self,"File",2);return setmetatable({_file=self,_scratch=nil,_capacity=0,_closed=false},Reader)end function File:newWriter()live(self,"File",2);return setmetatable({_file=self,_closed=false},Writer)end local function scratch(self,count)if count>self._capacity then local size=self._capacity*2;if size<count then size=count end;if size<READ_SIZE then size=READ_SIZE end;self._scratch=ffi.new("uint8_t[?]",size);self._capacity=size end;return self._scratch end local function usable(self)if self._closed then return nil,"the reader is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Reader:read(count)local file,reason=usable(self);if not file then return nil,reason end;count=whole(count,"Reader:read count",2);if count<1 then count=1 end;local into=scratch(self,count);local got=tonumber(C.nuppFileRead(file._handle,into,count));if got<0 then return nil,native.error()end;if got==0 then return""end;return ffi.string(into,got)end function Reader:readInto(destination,offset,count)local file,reason=usable(self);if not file then return nil,reason end;offset=counted(offset or 0,"Reader:readInto offset",2);count=counted(count or READ_SIZE,"Reader:readInto count",2);if count==0 then return 0 end;local data=rawget(destination,"_data");local capacity=rawget(destination,"_capacity");if data==nil and capacity==nil then local chunk,why=self:read(count);if chunk==nil then return nil,why end;if #chunk==0 then return 0 end;destination:setString(chunk,offset);return #chunk end;destination:ensureCapacity(offset+count);data=rawget(destination,"_data");local length=rawget(destination,"_length");if offset>length then ffi.fill(data+length,offset-length,0)end;local got=tonumber(C.nuppFileRead(file._handle,data+offset,count));if got<0 then return nil,native.error()end;if offset+got>length then rawset(destination,"_length",offset+got)end;return got end function Reader:transferTo(destination)local file,reason=usable(self);if not file then return nil,reason end;local total=0;while true do local chunk,why=self:read(READ_SIZE);if chunk==nil then return nil,why end;if chunk==""then return total end;local wrote,failure=destination:write(chunk);if not wrote then return nil,failure end;total=total+#chunk end end function Reader:close()self._closed=true;self._scratch=nil;self._capacity=0;return true end local function writable(self)if self._closed then return nil,"the writer is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Writer:write(bytes)local file,reason=writable(self);if not file then return false,reason end;if type(bytes)~="string"then error("nupp: io.files Writer:write needs a string",2)end;if C.nuppFileWrite(file._handle,bytes,#bytes)<0 then return false,native.error()end;return true end function Writer:writeFrom(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeFrom offset",2);count=counted(count==nil and length-offset or count,"Writer:writeFrom count",2);if offset+count>length then error("nupp: io.files Writer:writeFrom range is past the end",2)end;if count==0 then return 0 end;local data=rawget(source,"_data");if data==nil then local wrote,failure=self:write(source:getString(offset,count));if not wrote then return nil,failure end;return count end;if C.nuppFileWrite(file._handle,data+offset,count)<0 then return nil,native.error()end;return count end function Writer:writeView(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeView offset",2);count=counted(count==nil and length-offset or count,"Writer:writeView count",2);if offset+count>length then error("nupp: io.files Writer:writeView range is past the end",2)end;local wrote,failure=self:write(source:getString():sub(offset+1,offset+count));if not wrote then return nil,failure end;return count end function Writer:flush()local file,reason=writable(self);if not file then return false,reason end;return file:flush()end function Writer:close()self._closed=true;return true end function files.info(path)local found=described(path,true,2);if not found then return nil,native.error()end;return{kind=KINDS[tonumber(found.kind)]or"other",size=tonumber(found.size),modified=found.modified,readOnly=found.readOnly}end function files.exists(path)return described(path,true,2)~=nil end function files.isFile(path)local found=described(path,true,2);return found~=nil and found.kind==1 end function files.isDirectory(path)local found=described(path,true,2);return found~=nil and found.kind==2 end function files.isSymlink(path)local found=described(path,false,2);return found~=nil and found.kind==4 end function files.readLink(path)local text=named(path,"path",2);return answer(C.nuppFilesReadLink(text,#text))end function files.createSymlink(target,link,kind)local to=named(target,"symlink target",2);local at=named(link,"symlink path",2);if kind~=nil and kind~="file"and kind~="directory"then error("nupp: io.files symlink kind must be 'file' or 'directory'",2)end;return done(C.nuppFilesCreateSymlink(to,#to,at,#at,kind=="directory"))end function files.setReadOnly(path,readOnly)local text=named(path,"path",2);return done(C.nuppFilesSetReadOnly(text,#text,readOnly and true or false))end function files.createDirectory(path)local text=named(path,"path",2);return done(C.nuppFilesCreateDirectory(text,#text))end function files.remove(path,recursive)local text=named(path,"path",2);return done(C.nuppFilesRemove(text,#text,recursive and true or false))end function files.rename(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return done(C.nuppFilesRename(source,#source,destination,#destination))end function files.list(path)local text=named(path,"path",2);local handle=C.nuppFilesList(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local entries,at={},1;while at<=#blob do local stop=blob:find("\0",at+1,true);entries[#entries+1]={kind=ENTRIES[blob:sub(at,at)]or"other",name=blob:sub(at+1,stop-1)};at=stop+1 end;return entries end function files.glob(pattern)local text=named(pattern,"glob pattern",2);local handle=C.nuppFilesGlob(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local matches,at={},1;while at<=#blob do local stop=blob:find("\0",at,true);if not stop then matches[#matches+1]=blob:sub(at);break end;matches[#matches+1]=blob:sub(at,stop-1);at=stop+1 end;return matches end local Temporary={};Temporary.__index=Temporary;Temporary.__tostring=function(self)return self._text end function Temporary:toString()return self._text end function Temporary:isReleased()return self._closed end function Temporary:persist(destination)if self._closed then return false,"the temporary path is released"end;local to=named(destination,"destination path",2);local moved,reason=done(C.nuppFilesRename(self._text,#self._text,to,#to));if not moved then return false,reason end;self._closed=true;return true end function Temporary:close()if self._closed then return true end;self._closed=true;return done(C.nuppFilesRemove(self._text,#self._text,self._directory))end function files.createTemporaryFile(options)local text,reason=temporary(options,false,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=false,_closed=false},Temporary)end function files.createTemporaryDirectory(options)local text,reason=temporary(options,true,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=true,_closed=false},Temporary)end function files.read(path)local text=named(path,"path",2);return fetched(C.nuppFsSubmitRead(text,#text))end function files.write(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,0))end function files.append(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,1))end function files.writeAtomic(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,2))end function files.copy(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return transferred(C.nuppFsSubmitCopy(source,#source,destination,#destination))end function files.pendingTransfers()return tonumber(C.nuppFsPending())end function files.open(path,mode)local text=named(path,"path",2);local selected=MODES[mode or"r"];if selected==nil then error("nupp: io.files has no mode named "..tostring(mode),2)end;local handle=C.nuppFileOpen(text,#text,selected);if handle==nil then return nil,native.error()end;return setmetatable({_handle=handle,_closed=false},File)end function files.lines(path)local file,reason=files.open(path,"r");if not file then return nil,reason end;local reader=file:newReader();local held,finished="",false;local function trimmed(line)if line:sub(-1)=="\r"then return line:sub(1,-2)end;return line end;return function()if finished then return nil end;while true do local stop=held:find("\n",1,true);if stop then local line=held:sub(1,stop-1);held=held:sub(stop+1);return trimmed(line)end;local chunk=reader:read(READ_SIZE);if chunk==nil or chunk==""then finished=true;file:close();if #held>0 then local line=held;held="";return trimmed(line)end;return nil end;held=held..chunk end end end function files.currentDirectory()return answer(C.nuppFilesCurrentDirectory())end function files.userFolder(which)local index=FOLDERS[which];if index==nil then error("nupp: io.files has no user folder named "..tostring(which),2)end;return answer(C.nuppFilesUserFolder(index))end return files end);
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppBytes NuppBytes;const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end __nuppLazy(__nuppIO,"files",function() local native=__nuppNative();local ffi,C=native.ffi,native.C;ffi.cdef[[NuppBytes*nuppFilesGlob(const uint8_t*,size_t);]];local files={};local record=ffi.new("NuppFileInfo[1]") local KINDS={[1]="file",[2]="directory",[3]="other",[4]="symlink"} local ENTRIES={f="file",d="directory",l="symlink",o="other"} local FOLDERS={home=0,documents=1,downloads=2,desktop=3,pictures=4,music=5,videos=6} local MODES={r=0,w=1,a=2,["r+"]=3,["w+"]=4,["a+"]=5} local ORIGINS={set=0,current=1,["end"]=2} local READ_SIZE=65536 local PENDING,READY=0,1 local SOURCE,PRIORITY="nupp-files",20 local waits={};local suspending local File={};File.__index=File;local Reader={};Reader.__index=Reader;local Writer={};Writer.__index=Writer local function named(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.toString then return value:toString()end;error("nupp: io.files "..what.." must be a path or a string",level)end local function done(answered)if answered then return true end;return false,native.error()end local function answer(handle)if handle==nil then return nil,native.error()end;return native.bytes(handle)end local function described(path,follow,level)local text=named(path,"path",level+1);if not C.nuppFilesInfo(text,#text,follow,record)then return nil end;return record[0]end local function optional(options,field,level)local value=options and options[field];if value==nil then return""end;if type(value)~="string"then error("nupp: io.files temporary "..field.." must be a string",level)end;return value end local function temporary(options,directory,level)local root=options and options.directory and named(options.directory,"temporary directory",level+1)or"";local prefix=optional(options,"prefix",level+1);local suffix=optional(options,"suffix",level+1);return answer(C.nuppFilesCreateTemporary(root,#root,prefix,#prefix,suffix,#suffix,directory))end local function payload(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.getString then return value:getString()end;error("nupp: io.files "..what.." must be bytes or a byte view",level)end local function harvest()local moved=0;local index=#waits;while index>0 do local entry=waits[index];if C.nuppFsStatus(entry.handle)~=PENDING then waits[index]=waits[#waits];waits[#waits]=nil;moved=moved+1;entry.resume(true)end;index=index-1 end;return moved end local function polled()C.nuppFsPoll();return harvest()end local function slept(waitMs)C.nuppFsWait(waitMs);return harvest()end local function forget(entry)for index=1,#waits do if waits[index]==entry then waits[index]=waits[#waits];waits[#waits]=nil;return end end end local function runtime()if suspending==nil then suspending=require("nupp.suspension")end;return suspending end local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,polled,slept);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end local function settled(handle)if handle==nil then return nil,native.error()end;await(handle);if C.nuppFsStatus(handle)~=READY then local reason=ffi.string(C.nuppFsError(handle));C.nuppFsDestroy(handle);return nil,reason end;return handle end local function transferred(handle)local done,reason=settled(handle);if not done then return false,reason end;C.nuppFsDestroy(done);return true end local function fetched(handle)local done,reason=settled(handle);if not done then return nil,reason end;local out=ffi.string(C.nuppFsData(done),tonumber(C.nuppFsLength(done)));C.nuppFsDestroy(done);return out end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: io.files "..what.." must be an integer",level)end;return value end local function counted(value,what,level)if whole(value,what,level)<0 then error("nupp: io.files "..what.." must not be negative",level)end;return value end local function live(self,what,level)if self._closed then error("nupp: io.files "..what.." is closed",level)end;return self end function File:isReleased()return self._closed end function File:close()if self._closed then return true end;self._closed=true;local handle=self._handle;self._handle=nil;C.nuppFileClose(handle);return true end function File:size()live(self,"File",2);local size=tonumber(C.nuppFileSize(self._handle));if size<0 then return nil,native.error()end;return size end function File:seek(offset,origin)live(self,"File",2);local whence=ORIGINS[origin or"set"];if whence==nil then error("nupp: io.files has no seek origin named "..tostring(origin),2)end;local at=tonumber(C.nuppFileSeek(self._handle,whole(offset or 0,"seek offset",2),whence));if at<0 then return nil,native.error()end;return at end function File:position()live(self,"File",2);return self:seek(0,"current")end function File:flush()live(self,"File",2);if C.nuppFileFlush(self._handle)then return true end;return false,native.error()end function File:newReader()live(self,"File",2);return setmetatable({_file=self,_scratch=nil,_capacity=0,_closed=false},Reader)end function File:newWriter()live(self,"File",2);return setmetatable({_file=self,_closed=false},Writer)end local function scratch(self,count)if count>self._capacity then local size=self._capacity*2;if size<count then size=count end;if size<READ_SIZE then size=READ_SIZE end;self._scratch=ffi.new("uint8_t[?]",size);self._capacity=size end;return self._scratch end local function usable(self)if self._closed then return nil,"the reader is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Reader:read(count)local file,reason=usable(self);if not file then return nil,reason end;count=whole(count,"Reader:read count",2);if count<1 then count=1 end;local into=scratch(self,count);local got=tonumber(C.nuppFileRead(file._handle,into,count));if got<0 then return nil,native.error()end;if got==0 then return""end;return ffi.string(into,got)end function Reader:readInto(destination,offset,count)local file,reason=usable(self);if not file then return nil,reason end;offset=counted(offset or 0,"Reader:readInto offset",2);count=counted(count or READ_SIZE,"Reader:readInto count",2);if count==0 then return 0 end;local data=rawget(destination,"_data");local capacity=rawget(destination,"_capacity");if data==nil and capacity==nil then local chunk,why=self:read(count);if chunk==nil then return nil,why end;if #chunk==0 then return 0 end;destination:setString(chunk,offset);return #chunk end;destination:ensureCapacity(offset+count);data=rawget(destination,"_data");local length=rawget(destination,"_length");if offset>length then ffi.fill(data+length,offset-length,0)end;local got=tonumber(C.nuppFileRead(file._handle,data+offset,count));if got<0 then return nil,native.error()end;if offset+got>length then rawset(destination,"_length",offset+got)end;return got end function Reader:transferTo(destination)local file,reason=usable(self);if not file then return nil,reason end;local total=0;while true do local chunk,why=self:read(READ_SIZE);if chunk==nil then return nil,why end;if chunk==""then return total end;local wrote,failure=destination:write(chunk);if not wrote then return nil,failure end;total=total+#chunk end end function Reader:close()self._closed=true;self._scratch=nil;self._capacity=0;return true end local function writable(self)if self._closed then return nil,"the writer is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Writer:write(bytes)local file,reason=writable(self);if not file then return false,reason end;if type(bytes)~="string"then error("nupp: io.files Writer:write needs a string",2)end;if C.nuppFileWrite(file._handle,bytes,#bytes)<0 then return false,native.error()end;return true end function Writer:writeFrom(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeFrom offset",2);count=counted(count==nil and length-offset or count,"Writer:writeFrom count",2);if offset+count>length then error("nupp: io.files Writer:writeFrom range is past the end",2)end;if count==0 then return 0 end;local data=rawget(source,"_data");if data==nil then local wrote,failure=self:write(source:getString(offset,count));if not wrote then return nil,failure end;return count end;if C.nuppFileWrite(file._handle,data+offset,count)<0 then return nil,native.error()end;return count end function Writer:writeView(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeView offset",2);count=counted(count==nil and length-offset or count,"Writer:writeView count",2);if offset+count>length then error("nupp: io.files Writer:writeView range is past the end",2)end;local wrote,failure=self:write(source:getString():sub(offset+1,offset+count));if not wrote then return nil,failure end;return count end function Writer:flush()local file,reason=writable(self);if not file then return false,reason end;return file:flush()end function Writer:close()self._closed=true;return true end function files.info(path)local found=described(path,true,2);if not found then return nil,native.error()end;return{kind=KINDS[tonumber(found.kind)]or"other",size=tonumber(found.size),modified=found.modified,readOnly=found.readOnly}end function files.exists(path)return described(path,true,2)~=nil end function files.isFile(path)local found=described(path,true,2);return found~=nil and found.kind==1 end function files.isDirectory(path)local found=described(path,true,2);return found~=nil and found.kind==2 end function files.isSymlink(path)local found=described(path,false,2);return found~=nil and found.kind==4 end function files.readLink(path)local text=named(path,"path",2);return answer(C.nuppFilesReadLink(text,#text))end function files.createSymlink(target,link,kind)local to=named(target,"symlink target",2);local at=named(link,"symlink path",2);if kind~=nil and kind~="file"and kind~="directory"then error("nupp: io.files symlink kind must be 'file' or 'directory'",2)end;return done(C.nuppFilesCreateSymlink(to,#to,at,#at,kind=="directory"))end function files.setReadOnly(path,readOnly)local text=named(path,"path",2);return done(C.nuppFilesSetReadOnly(text,#text,readOnly and true or false))end function files.createDirectory(path)local text=named(path,"path",2);return done(C.nuppFilesCreateDirectory(text,#text))end function files.remove(path,recursive)local text=named(path,"path",2);return done(C.nuppFilesRemove(text,#text,recursive and true or false))end function files.rename(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return done(C.nuppFilesRename(source,#source,destination,#destination))end function files.list(path)local text=named(path,"path",2);local handle=C.nuppFilesList(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local entries,at={},1;while at<=#blob do local stop=blob:find("\0",at+1,true);entries[#entries+1]={kind=ENTRIES[blob:sub(at,at)]or"other",name=blob:sub(at+1,stop-1)};at=stop+1 end;return entries end function files.glob(pattern)local text=named(pattern,"glob pattern",2);local handle=C.nuppFilesGlob(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local matches,at={},1;while at<=#blob do local stop=blob:find("\0",at,true);if not stop then matches[#matches+1]=blob:sub(at);break end;matches[#matches+1]=blob:sub(at,stop-1);at=stop+1 end;return matches end local Temporary={};Temporary.__index=Temporary;Temporary.__tostring=function(self)return self._text end function Temporary:toString()return self._text end function Temporary:isReleased()return self._closed end function Temporary:persist(destination)if self._closed then return false,"the temporary path is released"end;local to=named(destination,"destination path",2);local moved,reason=done(C.nuppFilesRename(self._text,#self._text,to,#to));if not moved then return false,reason end;self._closed=true;return true end function Temporary:close()if self._closed then return true end;self._closed=true;return done(C.nuppFilesRemove(self._text,#self._text,self._directory))end function files.createTemporaryFile(options)local text,reason=temporary(options,false,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=false,_closed=false},Temporary)end function files.createTemporaryDirectory(options)local text,reason=temporary(options,true,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=true,_closed=false},Temporary)end function files.read(path)local text=named(path,"path",2);return fetched(C.nuppFsSubmitRead(text,#text))end function files.write(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,0))end function files.append(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,1))end function files.writeAtomic(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,2))end function files.copy(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return transferred(C.nuppFsSubmitCopy(source,#source,destination,#destination))end function files.pendingTransfers()return tonumber(C.nuppFsPending())end function files.open(path,mode)local text=named(path,"path",2);local selected=MODES[mode or"r"];if selected==nil then error("nupp: io.files has no mode named "..tostring(mode),2)end;local handle=C.nuppFileOpen(text,#text,selected);if handle==nil then return nil,native.error()end;return setmetatable({_handle=handle,_closed=false},File)end function files.lines(path)local file,reason=files.open(path,"r");if not file then return nil,reason end;local reader=file:newReader();local held,finished="",false;local function trimmed(line)if line:sub(-1)=="\r"then return line:sub(1,-2)end;return line end;return function()if finished then return nil end;while true do local stop=held:find("\n",1,true);if stop then local line=held:sub(1,stop-1);held=held:sub(stop+1);return trimmed(line)end;local chunk=reader:read(READ_SIZE);if chunk==nil or chunk==""then finished=true;file:close();if #held>0 then local line=held;held="";return trimmed(line)end;return nil end;held=held..chunk end end end function files.currentDirectory()return answer(C.nuppFilesCurrentDirectory())end function files.userFolder(which)local index=FOLDERS[which];if index==nil then error("nupp: io.files has no user folder named "..tostring(which),2)end;return answer(C.nuppFilesUserFolder(index))end return files end);
 
 
 
@@ -47074,7 +46932,6 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 local cst = require ( "nupp.compiler.cst" )
 local predicate = require ( "nupp.compiler.predicate" )
-local native = require ( "nupp.compiler.native" )
 local stdlib = require ( "nupp.compiler.stdlib" )
 
 local gen = { }
@@ -47332,6 +47189,7 @@ end
 
 
 
+
 function gen . generate (
 result ,
 filename ,
@@ -47341,7 +47199,16 @@ local out = { }
 local curLine = 1
 local atLineStart = true
 local diags = { }
+
+
+
+
+
 local emittedFeatureEffects = { }
+local function needRuntimeEffect ( effect )
+emittedFeatureEffects [ effect ] = true
+end
+
 local tempCounter = 0
 local usedNames = { }
 for _ , tok in ipairs ( result . tokens or { } ) do
@@ -47545,6 +47412,12 @@ end
 
 
 local function compilerModuleName ( moduleName )
+if moduleName == "nupp.log" then
+
+
+
+needRuntimeEffect ( "stdlib.log" )
+end
 local name = compilerModules [ moduleName ]
 if not name then
 local preferred = moduleName == "string.buffer" and "__nuppBuffer" or "__nuppModule"
@@ -47571,6 +47444,7 @@ end
 
 local function suspensionModule ( )
 needsSuspension = true
+needRuntimeEffect ( "runtime.suspension" )
 suspensionName = suspensionName or reservedName ( "__nuppSuspension" )
 
 return suspensionName
@@ -48467,7 +48341,7 @@ end
 e ( rendered , sourceLine ( x ) )
 local observation = x . materializationObservation
 for _ , effect in ipairs ( observation and observation . runtimeFeatures or { } ) do
-emittedFeatureEffects [ effect ] = "materialized"
+needRuntimeEffect ( effect )
 end
 return
 end
@@ -48476,9 +48350,10 @@ e ( x . folded , sourceLine ( x ) )
 return
 end
 if x . compilerFeatureEffect then
-if not emittedFeatureEffects [ x . compilerFeatureEffect ] then
-emittedFeatureEffects [ x . compilerFeatureEffect ] = "emitted"
+needRuntimeEffect ( x . compilerFeatureEffect )
 end
+for _ , effect in ipairs ( x . compilerFeatureEffects or { } ) do
+needRuntimeEffect ( effect )
 end
 if kind == "dotIndex" and x . overloadMember then
 emit ( x . obj )
@@ -48619,6 +48494,10 @@ end
 emitInheritedDefaults ( x , runtimeName )
 if x . derivePlan then
 local plan = x . derivePlan
+needRuntimeEffect ( "stdlib.derives" )
+if plan . providers . JSON then
+needRuntimeEffect ( "native.cjson" )
+end
 e ( ";do local __nuppDerived=" .. literal . derive ( plan ) )
 e ( ( ";local __nuppDerivedEntry=_G.nupp.__derive.register(%q,%s,__nuppDerived)" ) : format ( plan . key , runtimeName ) )
 if plan . providers . Debug then
@@ -50380,18 +50259,7 @@ code = table . concat ( linked ) .. code
 end
 
 
-local runtimeEffects = { }
-for effect , value in pairs ( result . effects or { } ) do
-local feature = native . feature ( effect )
-if not feature or not feature . emittedOnly or emittedFeatureEffects [ effect ] then
-runtimeEffects [ effect ] = value
-end
-end
-for effect , state in pairs ( emittedFeatureEffects ) do
-if state == "materialized" then
-runtimeEffects [ effect ] = true
-end
-end
+local runtimeEffects = emittedFeatureEffects
 
 
 
@@ -50598,7 +50466,7 @@ coverageName
 end
 local metadata = coverageOn and { path = coveragePath , sites = ( coverageSites or { } ) } or nil
 
-return code , diags , metadata
+return code , diags , metadata , emittedFeatureEffects
 end
 
 return gen
@@ -55065,7 +54933,7 @@ return lints
 
 end
 package.preload["nupp.compiler.lsp"] = function(...)
-const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[typedef struct NuppBytes NuppBytes;typedef struct NuppUri NuppUri;typedef struct{const uint8_t*data;size_t length;}NuppStringView;const char*nuppNativeError(void);const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);NuppBytes*nuppPathJoin(const NuppStringView*,size_t);NuppBytes*nuppPathNormalize(const uint8_t*,size_t);NuppBytes*nuppPathAbsolute(const uint8_t*,size_t);NuppBytes*nuppPathCanonicalize(const uint8_t*,size_t);NuppBytes*nuppPathRelative(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppPathPart(const uint8_t*,size_t,uint32_t);NuppBytes*nuppPathWith(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppPathIsAbsolute(const uint8_t*,size_t);NuppUri*nuppUriParse(const uint8_t*,size_t);const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);bool nuppUriPort(const NuppUri*,uint16_t*);NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);NuppUri*nuppUriWithPort(const NuppUri*,int32_t);NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);void nuppUriDestroy(NuppUri*);bool nuppUuid4(char*);bool nuppUuid7(char*);bool nuppSha256(const uint8_t*,size_t,char*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);void nuppProcessDestroy(NuppChild*);int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);size_t nuppProcessUncollectedTotal(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end package.preload["nupp.io.processnative"]=function() local native=__nuppNative();local ffi,C=native.ffi,native.C ffi.cdef[[double nuppProcessMonotonicMs(void);]] local MODE={pipe=0,inherit=1,["null"]=2,stdout=3} local WOULD_BLOCK,GONE,FAILED=-1,-2,-3 local RELEASED,RELEASED_WITH_REASON,NOT_RELEASED=0,1,2 local READ_SIZE,INT32_MAX=65536,2147483647 local function reason(prefix)local said=native.error();if said==nil or said==""then said="native process operation failed"end;return prefix..": "..said end local function maybeDestroy(owner)if owner.destroyed or not owner.released then return end;for _,stream in ipairs(owner.streams)do if not stream.released then return end end;owner.destroyed=true;for _,stream in ipairs(owner.streams)do local handle=stream.handle;stream.handle=nil;if handle~=nil then C.nuppProcessStreamDestroy(handle)end end;local child=owner.handle;owner.handle=nil;if child~=nil then C.nuppProcessDestroy(child)end end local function abandon(owner,message)for _,stream in ipairs(owner.streams)do if not stream.released then C.nuppProcessCloseStream(stream.handle);stream.released=true end;C.nuppProcessStreamDestroy(stream.handle);stream.handle=nil end;if owner.handle~=nil then C.nuppProcessKill(owner.handle,true);C.nuppProcessDestroy(owner.handle);owner.handle=nil end;owner.destroyed=true;error(message,0)end local function configured(ok,request,what)if ok then return end;local why=reason("nupp: could not configure process "..what);C.nuppProcessSpawnCancel(request);error(why,0)end local function wrap(owner,which,expected)local handle=C.nuppProcessTakeStream(owner.handle,which);if handle==nil then if expected then abandon(owner,reason("nupp: could not take process stream"))end;return nil end;local stream={owner=owner,handle=handle,released=false,scratch=nil,capacity=0};owner.streams[#owner.streams+1]=stream;return stream end local function makeArray(streams)local count=#streams;if count==0 then return nil,0 end;local out=ffi.new("NuppStream*[?]",count);for index,stream in ipairs(streams)do local handle=stream and stream.handle;if handle==nil then error("nupp: readiness interest named a destroyed process stream",0)end;out[index-1]=handle end;return out,count end local function whole(value)local number=tonumber(value)or 0;if number~=number then return 0 end;return math.floor(number)end return{new=function(exited) local backend={} function backend:spawn(options) local inputMode=options.stdin or"pipe";local outputMode=options.stdout or"pipe";local errorMode=options.stderr or"pipe" if MODE[inputMode]==nil then error("nupp: process has no stdin mode named "..tostring(inputMode),0)end if MODE[outputMode]==nil or outputMode=="stdout"then error("nupp: process has no stdout mode named "..tostring(outputMode),0)end if MODE[errorMode]==nil then error("nupp: process has no stderr mode named "..tostring(errorMode),0)end local request=C.nuppProcessSpawnBegin();if request==nil then error(reason("nupp: could not begin process spawn"),0)end for _,argument in ipairs(options.args or{})do configured(C.nuppProcessSpawnArg(request,argument,#argument),request,"argument")end configured(C.nuppProcessSpawnClearEnv(request,options.clearEnv==true),request,"environment mode") for key,value in pairs(options.env or{})do local entry=key.."="..value;configured(C.nuppProcessSpawnEnv(request,entry,#entry),request,"environment")end if options.cwd~=nil then local cwd=type(options.cwd)=="string"and options.cwd or options.cwd:toString();configured(C.nuppProcessSpawnCwd(request,cwd,#cwd),request,"working directory")end configured(C.nuppProcessSpawnStdio(request,0,MODE[inputMode]),request,"stdin") configured(C.nuppProcessSpawnStdio(request,1,MODE[outputMode]),request,"stdout") configured(C.nuppProcessSpawnStdio(request,2,MODE[errorMode]),request,"stderr") local child=C.nuppProcessSpawnRun(request);if child==nil then return nil,nil,nil,nil,0,reason("nupp: could not start process")end local owner={handle=child,streams={},released=false,destroyed=false} local input=wrap(owner,0,inputMode=="pipe");local output=wrap(owner,1,outputMode=="pipe");local err=wrap(owner,2,errorMode=="pipe") return owner,input,output,err,tonumber(C.nuppProcessId(child)) end function backend:poll(owner)local code=ffi.new("int32_t[1]");local killed=ffi.new("bool[1]");local status=C.nuppProcessPollExit(owner.handle,code,killed);if status<0 then error(reason("nupp: could not poll process"),0)end;if status==0 then return nil end;return exited(tonumber(code[0]),killed[0],false)end function backend:kill(owner,force)if not C.nuppProcessKill(owner.handle,force)then error(reason("nupp: could not kill process"),0)end end function backend:read(stream,limit)local wanted=whole(limit);if wanted<1 then wanted=1 elseif wanted>READ_SIZE then wanted=READ_SIZE end;if stream.capacity<wanted then stream.scratch=ffi.new("uint8_t[?]",wanted);stream.capacity=wanted end;local got=tonumber(C.nuppProcessTryRead(stream.handle,stream.scratch,wanted));if got>=0 then return ffi.string(stream.scratch,got)end;if got==WOULD_BLOCK then return""end;if got==GONE then return nil end;error(reason("nupp: could not read process stream"),0)end function backend:write(stream,bytes)local sent=tonumber(C.nuppProcessTryWrite(stream.handle,bytes,#bytes));if sent>=0 then return sent,false end;if sent==WOULD_BLOCK then return 0,false end;if sent==GONE then return 0,true end;error(reason("nupp: could not write process stream"),0)end function backend:closeStream(stream)if stream.released then return true end;local status=C.nuppProcessCloseStream(stream.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not close process stream")end;if status==RELEASED or status==RELEASED_WITH_REASON then stream.released=true;maybeDestroy(stream.owner);return true,why end;return false,why end function backend:reap(owner)if owner.released then return true end;local status=C.nuppProcessReap(owner.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not release process")end;if status==RELEASED or status==RELEASED_WITH_REASON then owner.released=true;maybeDestroy(owner);return true,why end;return false,why end function backend:now()return C.nuppProcessMonotonicMs()end function backend:waitReady(interest,timeoutMs)local readable,readCount=makeArray(interest.read);local writable,writeCount=makeArray(interest.write);local timeout=whole(timeoutMs);if timeout<0 then timeout=0 elseif timeout>INT32_MAX then timeout=INT32_MAX end;local answered=C.nuppProcessWaitReady(readable,readCount,writable,writeCount,timeout);if answered<0 then error(reason("nupp: process readiness wait failed"),0)end;return tonumber(answered)end return backend end} end;
+const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);void nuppProcessDestroy(NuppChild*);int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);size_t nuppProcessUncollectedTotal(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;__nuppNativeValue={ffi=ffi,C=C,error=errorText};return __nuppNativeValue end package.preload["nupp.io.processnative"]=function() local native=__nuppNative();local ffi,C=native.ffi,native.C ffi.cdef[[double nuppProcessMonotonicMs(void);]] local MODE={pipe=0,inherit=1,["null"]=2,stdout=3} local WOULD_BLOCK,GONE,FAILED=-1,-2,-3 local RELEASED,RELEASED_WITH_REASON,NOT_RELEASED=0,1,2 local READ_SIZE,INT32_MAX=65536,2147483647 local function reason(prefix)local said=native.error();if said==nil or said==""then said="native process operation failed"end;return prefix..": "..said end local function maybeDestroy(owner)if owner.destroyed or not owner.released then return end;for _,stream in ipairs(owner.streams)do if not stream.released then return end end;owner.destroyed=true;for _,stream in ipairs(owner.streams)do local handle=stream.handle;stream.handle=nil;if handle~=nil then C.nuppProcessStreamDestroy(handle)end end;local child=owner.handle;owner.handle=nil;if child~=nil then C.nuppProcessDestroy(child)end end local function abandon(owner,message)for _,stream in ipairs(owner.streams)do if not stream.released then C.nuppProcessCloseStream(stream.handle);stream.released=true end;C.nuppProcessStreamDestroy(stream.handle);stream.handle=nil end;if owner.handle~=nil then C.nuppProcessKill(owner.handle,true);C.nuppProcessDestroy(owner.handle);owner.handle=nil end;owner.destroyed=true;error(message,0)end local function configured(ok,request,what)if ok then return end;local why=reason("nupp: could not configure process "..what);C.nuppProcessSpawnCancel(request);error(why,0)end local function wrap(owner,which,expected)local handle=C.nuppProcessTakeStream(owner.handle,which);if handle==nil then if expected then abandon(owner,reason("nupp: could not take process stream"))end;return nil end;local stream={owner=owner,handle=handle,released=false,scratch=nil,capacity=0};owner.streams[#owner.streams+1]=stream;return stream end local function makeArray(streams)local count=#streams;if count==0 then return nil,0 end;local out=ffi.new("NuppStream*[?]",count);for index,stream in ipairs(streams)do local handle=stream and stream.handle;if handle==nil then error("nupp: readiness interest named a destroyed process stream",0)end;out[index-1]=handle end;return out,count end local function whole(value)local number=tonumber(value)or 0;if number~=number then return 0 end;return math.floor(number)end return{new=function(exited) local backend={} function backend:spawn(options) local inputMode=options.stdin or"pipe";local outputMode=options.stdout or"pipe";local errorMode=options.stderr or"pipe" if MODE[inputMode]==nil then error("nupp: process has no stdin mode named "..tostring(inputMode),0)end if MODE[outputMode]==nil or outputMode=="stdout"then error("nupp: process has no stdout mode named "..tostring(outputMode),0)end if MODE[errorMode]==nil then error("nupp: process has no stderr mode named "..tostring(errorMode),0)end local request=C.nuppProcessSpawnBegin();if request==nil then error(reason("nupp: could not begin process spawn"),0)end for _,argument in ipairs(options.args or{})do configured(C.nuppProcessSpawnArg(request,argument,#argument),request,"argument")end configured(C.nuppProcessSpawnClearEnv(request,options.clearEnv==true),request,"environment mode") for key,value in pairs(options.env or{})do local entry=key.."="..value;configured(C.nuppProcessSpawnEnv(request,entry,#entry),request,"environment")end if options.cwd~=nil then local cwd=type(options.cwd)=="string"and options.cwd or options.cwd:toString();configured(C.nuppProcessSpawnCwd(request,cwd,#cwd),request,"working directory")end configured(C.nuppProcessSpawnStdio(request,0,MODE[inputMode]),request,"stdin") configured(C.nuppProcessSpawnStdio(request,1,MODE[outputMode]),request,"stdout") configured(C.nuppProcessSpawnStdio(request,2,MODE[errorMode]),request,"stderr") local child=C.nuppProcessSpawnRun(request);if child==nil then return nil,nil,nil,nil,0,reason("nupp: could not start process")end local owner={handle=child,streams={},released=false,destroyed=false} local input=wrap(owner,0,inputMode=="pipe");local output=wrap(owner,1,outputMode=="pipe");local err=wrap(owner,2,errorMode=="pipe") return owner,input,output,err,tonumber(C.nuppProcessId(child)) end function backend:poll(owner)local code=ffi.new("int32_t[1]");local killed=ffi.new("bool[1]");local status=C.nuppProcessPollExit(owner.handle,code,killed);if status<0 then error(reason("nupp: could not poll process"),0)end;if status==0 then return nil end;return exited(tonumber(code[0]),killed[0],false)end function backend:kill(owner,force)if not C.nuppProcessKill(owner.handle,force)then error(reason("nupp: could not kill process"),0)end end function backend:read(stream,limit)local wanted=whole(limit);if wanted<1 then wanted=1 elseif wanted>READ_SIZE then wanted=READ_SIZE end;if stream.capacity<wanted then stream.scratch=ffi.new("uint8_t[?]",wanted);stream.capacity=wanted end;local got=tonumber(C.nuppProcessTryRead(stream.handle,stream.scratch,wanted));if got>=0 then return ffi.string(stream.scratch,got)end;if got==WOULD_BLOCK then return""end;if got==GONE then return nil end;error(reason("nupp: could not read process stream"),0)end function backend:write(stream,bytes)local sent=tonumber(C.nuppProcessTryWrite(stream.handle,bytes,#bytes));if sent>=0 then return sent,false end;if sent==WOULD_BLOCK then return 0,false end;if sent==GONE then return 0,true end;error(reason("nupp: could not write process stream"),0)end function backend:closeStream(stream)if stream.released then return true end;local status=C.nuppProcessCloseStream(stream.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not close process stream")end;if status==RELEASED or status==RELEASED_WITH_REASON then stream.released=true;maybeDestroy(stream.owner);return true,why end;return false,why end function backend:reap(owner)if owner.released then return true end;local status=C.nuppProcessReap(owner.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not release process")end;if status==RELEASED or status==RELEASED_WITH_REASON then owner.released=true;maybeDestroy(owner);return true,why end;return false,why end function backend:now()return C.nuppProcessMonotonicMs()end function backend:waitReady(interest,timeoutMs)local readable,readCount=makeArray(interest.read);local writable,writeCount=makeArray(interest.write);local timeout=whole(timeoutMs);if timeout<0 then timeout=0 elseif timeout>INT32_MAX then timeout=INT32_MAX end;local answered=C.nuppProcessWaitReady(readable,readCount,writable,writeCount,timeout);if answered<0 then error(reason("nupp: process readiness wait failed"),0)end;return tonumber(answered)end return backend end} end;
 
 
 
@@ -57013,7 +56881,7 @@ return diagnostics
 
 end
 package.preload["nupp.compiler.lsp.init"] = function(...)
-const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[typedef struct NuppBytes NuppBytes;typedef struct NuppUri NuppUri;typedef struct{const uint8_t*data;size_t length;}NuppStringView;const char*nuppNativeError(void);const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);NuppBytes*nuppPathJoin(const NuppStringView*,size_t);NuppBytes*nuppPathNormalize(const uint8_t*,size_t);NuppBytes*nuppPathAbsolute(const uint8_t*,size_t);NuppBytes*nuppPathCanonicalize(const uint8_t*,size_t);NuppBytes*nuppPathRelative(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppPathPart(const uint8_t*,size_t,uint32_t);NuppBytes*nuppPathWith(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppPathIsAbsolute(const uint8_t*,size_t);NuppUri*nuppUriParse(const uint8_t*,size_t);const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);bool nuppUriPort(const NuppUri*,uint16_t*);NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);NuppUri*nuppUriWithPort(const NuppUri*,int32_t);NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);void nuppUriDestroy(NuppUri*);bool nuppUuid4(char*);bool nuppUuid7(char*);bool nuppSha256(const uint8_t*,size_t,char*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);void nuppProcessDestroy(NuppChild*);int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);size_t nuppProcessUncollectedTotal(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end package.preload["nupp.io.processnative"]=function() local native=__nuppNative();local ffi,C=native.ffi,native.C ffi.cdef[[double nuppProcessMonotonicMs(void);]] local MODE={pipe=0,inherit=1,["null"]=2,stdout=3} local WOULD_BLOCK,GONE,FAILED=-1,-2,-3 local RELEASED,RELEASED_WITH_REASON,NOT_RELEASED=0,1,2 local READ_SIZE,INT32_MAX=65536,2147483647 local function reason(prefix)local said=native.error();if said==nil or said==""then said="native process operation failed"end;return prefix..": "..said end local function maybeDestroy(owner)if owner.destroyed or not owner.released then return end;for _,stream in ipairs(owner.streams)do if not stream.released then return end end;owner.destroyed=true;for _,stream in ipairs(owner.streams)do local handle=stream.handle;stream.handle=nil;if handle~=nil then C.nuppProcessStreamDestroy(handle)end end;local child=owner.handle;owner.handle=nil;if child~=nil then C.nuppProcessDestroy(child)end end local function abandon(owner,message)for _,stream in ipairs(owner.streams)do if not stream.released then C.nuppProcessCloseStream(stream.handle);stream.released=true end;C.nuppProcessStreamDestroy(stream.handle);stream.handle=nil end;if owner.handle~=nil then C.nuppProcessKill(owner.handle,true);C.nuppProcessDestroy(owner.handle);owner.handle=nil end;owner.destroyed=true;error(message,0)end local function configured(ok,request,what)if ok then return end;local why=reason("nupp: could not configure process "..what);C.nuppProcessSpawnCancel(request);error(why,0)end local function wrap(owner,which,expected)local handle=C.nuppProcessTakeStream(owner.handle,which);if handle==nil then if expected then abandon(owner,reason("nupp: could not take process stream"))end;return nil end;local stream={owner=owner,handle=handle,released=false,scratch=nil,capacity=0};owner.streams[#owner.streams+1]=stream;return stream end local function makeArray(streams)local count=#streams;if count==0 then return nil,0 end;local out=ffi.new("NuppStream*[?]",count);for index,stream in ipairs(streams)do local handle=stream and stream.handle;if handle==nil then error("nupp: readiness interest named a destroyed process stream",0)end;out[index-1]=handle end;return out,count end local function whole(value)local number=tonumber(value)or 0;if number~=number then return 0 end;return math.floor(number)end return{new=function(exited) local backend={} function backend:spawn(options) local inputMode=options.stdin or"pipe";local outputMode=options.stdout or"pipe";local errorMode=options.stderr or"pipe" if MODE[inputMode]==nil then error("nupp: process has no stdin mode named "..tostring(inputMode),0)end if MODE[outputMode]==nil or outputMode=="stdout"then error("nupp: process has no stdout mode named "..tostring(outputMode),0)end if MODE[errorMode]==nil then error("nupp: process has no stderr mode named "..tostring(errorMode),0)end local request=C.nuppProcessSpawnBegin();if request==nil then error(reason("nupp: could not begin process spawn"),0)end for _,argument in ipairs(options.args or{})do configured(C.nuppProcessSpawnArg(request,argument,#argument),request,"argument")end configured(C.nuppProcessSpawnClearEnv(request,options.clearEnv==true),request,"environment mode") for key,value in pairs(options.env or{})do local entry=key.."="..value;configured(C.nuppProcessSpawnEnv(request,entry,#entry),request,"environment")end if options.cwd~=nil then local cwd=type(options.cwd)=="string"and options.cwd or options.cwd:toString();configured(C.nuppProcessSpawnCwd(request,cwd,#cwd),request,"working directory")end configured(C.nuppProcessSpawnStdio(request,0,MODE[inputMode]),request,"stdin") configured(C.nuppProcessSpawnStdio(request,1,MODE[outputMode]),request,"stdout") configured(C.nuppProcessSpawnStdio(request,2,MODE[errorMode]),request,"stderr") local child=C.nuppProcessSpawnRun(request);if child==nil then return nil,nil,nil,nil,0,reason("nupp: could not start process")end local owner={handle=child,streams={},released=false,destroyed=false} local input=wrap(owner,0,inputMode=="pipe");local output=wrap(owner,1,outputMode=="pipe");local err=wrap(owner,2,errorMode=="pipe") return owner,input,output,err,tonumber(C.nuppProcessId(child)) end function backend:poll(owner)local code=ffi.new("int32_t[1]");local killed=ffi.new("bool[1]");local status=C.nuppProcessPollExit(owner.handle,code,killed);if status<0 then error(reason("nupp: could not poll process"),0)end;if status==0 then return nil end;return exited(tonumber(code[0]),killed[0],false)end function backend:kill(owner,force)if not C.nuppProcessKill(owner.handle,force)then error(reason("nupp: could not kill process"),0)end end function backend:read(stream,limit)local wanted=whole(limit);if wanted<1 then wanted=1 elseif wanted>READ_SIZE then wanted=READ_SIZE end;if stream.capacity<wanted then stream.scratch=ffi.new("uint8_t[?]",wanted);stream.capacity=wanted end;local got=tonumber(C.nuppProcessTryRead(stream.handle,stream.scratch,wanted));if got>=0 then return ffi.string(stream.scratch,got)end;if got==WOULD_BLOCK then return""end;if got==GONE then return nil end;error(reason("nupp: could not read process stream"),0)end function backend:write(stream,bytes)local sent=tonumber(C.nuppProcessTryWrite(stream.handle,bytes,#bytes));if sent>=0 then return sent,false end;if sent==WOULD_BLOCK then return 0,false end;if sent==GONE then return 0,true end;error(reason("nupp: could not write process stream"),0)end function backend:closeStream(stream)if stream.released then return true end;local status=C.nuppProcessCloseStream(stream.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not close process stream")end;if status==RELEASED or status==RELEASED_WITH_REASON then stream.released=true;maybeDestroy(stream.owner);return true,why end;return false,why end function backend:reap(owner)if owner.released then return true end;local status=C.nuppProcessReap(owner.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not release process")end;if status==RELEASED or status==RELEASED_WITH_REASON then owner.released=true;maybeDestroy(owner);return true,why end;return false,why end function backend:now()return C.nuppProcessMonotonicMs()end function backend:waitReady(interest,timeoutMs)local readable,readCount=makeArray(interest.read);local writable,writeCount=makeArray(interest.write);local timeout=whole(timeoutMs);if timeout<0 then timeout=0 elseif timeout>INT32_MAX then timeout=INT32_MAX end;local answered=C.nuppProcessWaitReady(readable,readCount,writable,writeCount,timeout);if answered<0 then error(reason("nupp: process readiness wait failed"),0)end;return tonumber(answered)end return backend end} end;
+const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);void nuppProcessDestroy(NuppChild*);int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);size_t nuppProcessUncollectedTotal(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;__nuppNativeValue={ffi=ffi,C=C,error=errorText};return __nuppNativeValue end package.preload["nupp.io.processnative"]=function() local native=__nuppNative();local ffi,C=native.ffi,native.C ffi.cdef[[double nuppProcessMonotonicMs(void);]] local MODE={pipe=0,inherit=1,["null"]=2,stdout=3} local WOULD_BLOCK,GONE,FAILED=-1,-2,-3 local RELEASED,RELEASED_WITH_REASON,NOT_RELEASED=0,1,2 local READ_SIZE,INT32_MAX=65536,2147483647 local function reason(prefix)local said=native.error();if said==nil or said==""then said="native process operation failed"end;return prefix..": "..said end local function maybeDestroy(owner)if owner.destroyed or not owner.released then return end;for _,stream in ipairs(owner.streams)do if not stream.released then return end end;owner.destroyed=true;for _,stream in ipairs(owner.streams)do local handle=stream.handle;stream.handle=nil;if handle~=nil then C.nuppProcessStreamDestroy(handle)end end;local child=owner.handle;owner.handle=nil;if child~=nil then C.nuppProcessDestroy(child)end end local function abandon(owner,message)for _,stream in ipairs(owner.streams)do if not stream.released then C.nuppProcessCloseStream(stream.handle);stream.released=true end;C.nuppProcessStreamDestroy(stream.handle);stream.handle=nil end;if owner.handle~=nil then C.nuppProcessKill(owner.handle,true);C.nuppProcessDestroy(owner.handle);owner.handle=nil end;owner.destroyed=true;error(message,0)end local function configured(ok,request,what)if ok then return end;local why=reason("nupp: could not configure process "..what);C.nuppProcessSpawnCancel(request);error(why,0)end local function wrap(owner,which,expected)local handle=C.nuppProcessTakeStream(owner.handle,which);if handle==nil then if expected then abandon(owner,reason("nupp: could not take process stream"))end;return nil end;local stream={owner=owner,handle=handle,released=false,scratch=nil,capacity=0};owner.streams[#owner.streams+1]=stream;return stream end local function makeArray(streams)local count=#streams;if count==0 then return nil,0 end;local out=ffi.new("NuppStream*[?]",count);for index,stream in ipairs(streams)do local handle=stream and stream.handle;if handle==nil then error("nupp: readiness interest named a destroyed process stream",0)end;out[index-1]=handle end;return out,count end local function whole(value)local number=tonumber(value)or 0;if number~=number then return 0 end;return math.floor(number)end return{new=function(exited) local backend={} function backend:spawn(options) local inputMode=options.stdin or"pipe";local outputMode=options.stdout or"pipe";local errorMode=options.stderr or"pipe" if MODE[inputMode]==nil then error("nupp: process has no stdin mode named "..tostring(inputMode),0)end if MODE[outputMode]==nil or outputMode=="stdout"then error("nupp: process has no stdout mode named "..tostring(outputMode),0)end if MODE[errorMode]==nil then error("nupp: process has no stderr mode named "..tostring(errorMode),0)end local request=C.nuppProcessSpawnBegin();if request==nil then error(reason("nupp: could not begin process spawn"),0)end for _,argument in ipairs(options.args or{})do configured(C.nuppProcessSpawnArg(request,argument,#argument),request,"argument")end configured(C.nuppProcessSpawnClearEnv(request,options.clearEnv==true),request,"environment mode") for key,value in pairs(options.env or{})do local entry=key.."="..value;configured(C.nuppProcessSpawnEnv(request,entry,#entry),request,"environment")end if options.cwd~=nil then local cwd=type(options.cwd)=="string"and options.cwd or options.cwd:toString();configured(C.nuppProcessSpawnCwd(request,cwd,#cwd),request,"working directory")end configured(C.nuppProcessSpawnStdio(request,0,MODE[inputMode]),request,"stdin") configured(C.nuppProcessSpawnStdio(request,1,MODE[outputMode]),request,"stdout") configured(C.nuppProcessSpawnStdio(request,2,MODE[errorMode]),request,"stderr") local child=C.nuppProcessSpawnRun(request);if child==nil then return nil,nil,nil,nil,0,reason("nupp: could not start process")end local owner={handle=child,streams={},released=false,destroyed=false} local input=wrap(owner,0,inputMode=="pipe");local output=wrap(owner,1,outputMode=="pipe");local err=wrap(owner,2,errorMode=="pipe") return owner,input,output,err,tonumber(C.nuppProcessId(child)) end function backend:poll(owner)local code=ffi.new("int32_t[1]");local killed=ffi.new("bool[1]");local status=C.nuppProcessPollExit(owner.handle,code,killed);if status<0 then error(reason("nupp: could not poll process"),0)end;if status==0 then return nil end;return exited(tonumber(code[0]),killed[0],false)end function backend:kill(owner,force)if not C.nuppProcessKill(owner.handle,force)then error(reason("nupp: could not kill process"),0)end end function backend:read(stream,limit)local wanted=whole(limit);if wanted<1 then wanted=1 elseif wanted>READ_SIZE then wanted=READ_SIZE end;if stream.capacity<wanted then stream.scratch=ffi.new("uint8_t[?]",wanted);stream.capacity=wanted end;local got=tonumber(C.nuppProcessTryRead(stream.handle,stream.scratch,wanted));if got>=0 then return ffi.string(stream.scratch,got)end;if got==WOULD_BLOCK then return""end;if got==GONE then return nil end;error(reason("nupp: could not read process stream"),0)end function backend:write(stream,bytes)local sent=tonumber(C.nuppProcessTryWrite(stream.handle,bytes,#bytes));if sent>=0 then return sent,false end;if sent==WOULD_BLOCK then return 0,false end;if sent==GONE then return 0,true end;error(reason("nupp: could not write process stream"),0)end function backend:closeStream(stream)if stream.released then return true end;local status=C.nuppProcessCloseStream(stream.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not close process stream")end;if status==RELEASED or status==RELEASED_WITH_REASON then stream.released=true;maybeDestroy(stream.owner);return true,why end;return false,why end function backend:reap(owner)if owner.released then return true end;local status=C.nuppProcessReap(owner.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not release process")end;if status==RELEASED or status==RELEASED_WITH_REASON then owner.released=true;maybeDestroy(owner);return true,why end;return false,why end function backend:now()return C.nuppProcessMonotonicMs()end function backend:waitReady(interest,timeoutMs)local readable,readCount=makeArray(interest.read);local writable,writeCount=makeArray(interest.write);local timeout=whole(timeoutMs);if timeout<0 then timeout=0 elseif timeout>INT32_MAX then timeout=INT32_MAX end;local answered=C.nuppProcessWaitReady(readable,readCount,writable,writeCount,timeout);if answered<0 then error(reason("nupp: process readiness wait failed"),0)end;return tonumber(answered)end return backend end} end;
 
 
 
@@ -64576,7 +64444,6 @@ name = "peg" ,
 ] = {
 name = "peg_compile" ,
 globals = { "nupp.peg.compile" } ,
-emittedOnly = true ,
 } , [
 "stdlib.fieldcodec"
 ] = {
@@ -66235,9 +66102,6 @@ local function visit ( node )
 if not node or isToken ( node ) then
 return
 end
-if node . compilerFeatureEffect then
-effects [ node . compilerFeatureEffect ] = true
-end
 if node . constantLoopNone then
 return
 end
@@ -66246,6 +66110,23 @@ if node . constantBranch then
 visit ( node . constantBranch )
 end
 return
+end
+if node . materializedIR then
+for _ , effect in ipairs (
+node . materializationObservation and node . materializationObservation . runtimeFeatures or { }
+) do
+effects [ effect ] = true
+end
+return
+end
+if node . comptimeValue or node . folded then
+return
+end
+if node . compilerFeatureEffect then
+effects [ node . compilerFeatureEffect ] = true
+end
+for _ , effect in ipairs ( node . compilerFeatureEffects or { } ) do
+effects [ effect ] = true
 end
 for _ , child in ipairs ( node ) do
 visit ( child )
@@ -69717,15 +69598,15 @@ reference.Chapter = {} reference.Chapter.__index = reference.Chapter
 local SECTIONS = { setmetatable({ title = 
 
 
-"What Nupp is" ,  codes = 
+"Gradual typing over LuaJIT" ,  codes = 
 { } ,  body = 
 [=[
-A gradually typed superset of LuaJIT's Lua dialect. Every valid LuaJIT program is
-a valid Nupp program: a `.lua` file is required, built and run unchanged, and the
-typed layer is refused in one (NUPP1006).
+A gradually typed superset of LuaJIT's Lua dialect. Every valid LuaJIT program
+is a valid Nupp program: a `.lua` file is required, built and run unchanged, and
+the typed layer is refused in one (NUPP1006).
 
-The extension says which floor a file is held to, so it is visible where the file
-is rather than in a setting that governs everything at once:
+The extension says which floor a file is held to, so it is visible where the
+file is rather than in a setting that governs everything at once:
 
     .nupp     strict    unknown variables and untyped exports are errors
     .g.nupp   gradual   the same typed syntax, without that floor
@@ -69733,8 +69614,8 @@ is rather than in a setting that governs everything at once:
     .lua      gradual   plain Lua; the typed layer is refused
 
 Write `.g.nupp` while a file is being typed and rename it to `.nupp` when it is
-ready. The marker is not part of the module's name — `models.g.nupp` is the
-module `models` — so nothing that requires it changes when it moves.
+ready. The marker is not part of the module's name, so `models.g.nupp` is the
+module `models` and nothing that requires it changes when it moves.
 `nupp check --strict` holds every file to the floor whatever it is called, which
 is how to see what a rename would cost.
 
@@ -69750,8 +69631,8 @@ Generated code targets LuaJIT 2.1.1784535649 or newer.
 "Declaring things" ,  codes = 
 { "NUPP2119" } ,  body = 
 [=[
-A typed declaration says where it lives, the way an ordinary Lua definition does:
-`local` keeps it to the file, a qualified name puts it on that table, and
+A typed declaration says where it lives, the way an ordinary Lua definition
+does: `local` keeps it to the file, a qualified name puts it on that table, and
 `global` publishes it project-wide. Saying none of the three is refused rather
 than defaulted, because plain Lua would have made the name a global and the same
 silence is not reused for a different meaning.
@@ -69785,9 +69666,9 @@ Primitives: `any`, `unknown`, `never`, `nil`, `boolean`, `string`, `number`,
 `voidptr`.
 
 `any` is gradual: compatible with everything, in both directions, silently.
-`unknown` is its sound counterpart — everything fits into it, but it fits
+`unknown` is its sound counterpart: everything fits into it, but it fits
 nowhere else until narrowed or cast, the top of the type lattice. `never` is
-the bottom: uninhabited, so it fits anywhere and nothing but itself fits it —
+the bottom: uninhabited, so it fits anywhere and nothing but itself fits it,
 what a function that always raises, exits, or loops forever returns.
 
 `table` is gradual the same way toward table structures only, and is what `{}`
@@ -69802,8 +69683,8 @@ containing just that value, and `const T` is a read-only view.
 The fixed count may be an exact integer const expression. `T.[K]` is instead a
 semantic member lookup; its mandatory dot keeps those two meanings separate.
 
-Arithmetic on `integer` widens to `number`; annotate a result `number` unless you
-have narrowed it back.
+Arithmetic on `integer` widens to `number`; annotate a result `number` unless
+you have narrowed it back.
 ]=] ,  example = 
 [=[
 local m = {}
@@ -69825,12 +69706,13 @@ return m
 { "NUPP2002" , "NUPP2106" } ,  body = 
 [=[
 Parameters and results are annotated in the usual place. Several results are
-listed comma-separated; inside a function *type* a multi-result needs parentheses.
+listed comma-separated; inside a function *type* a multi-result needs
+parentheses.
 
-In a strict file — `.nupp`, or any file under `--strict` — an exported function
-whose signature mentions `any` anywhere is
-treated as unannotated and reported: `any` is the absence of a type, not a type.
-A function that returns nothing still needs to say so, as `: nil`.
+In a strict file, meaning `.nupp` or any file under `--strict`, an exported
+function whose signature mentions `any` anywhere is treated as unannotated and
+reported: `any` is the absence of a type, not a type. A function that returns
+nothing still needs to say so, as `: nil`.
 
 A function that always raises, exits, or loops forever returns `never`; a call
 to it leaves the block it stands in, the way an inline `error` does.
@@ -69887,11 +69769,10 @@ while the projected fields remain direct positional arguments. A nested
 expression instead repeats prefixes when needed; plucking never introduces a
 closure or upvalue. Plucking is a named binding, so positional arguments cannot
 follow it; a call keeps its several results only as the last argument, and so
-fills the remaining positional slots only when nothing is plucked after it.
-This applies to functions, callable
-records, methods, constructors, and specialized calls with a statically known
-positional pack. A bounded type parameter plucks through its bound, since the
-read is an ordinary field access. Safe statements and returns guard the optional
+fills the remaining positional slots only when nothing is plucked after it. This
+applies to functions, callable records, methods, constructors, and specialized
+calls with a statically known positional pack. A bounded type parameter plucks
+through its bound, since the read is an ordinary field access. Safe statements and returns guard the optional
 callee, receiver, and method before binding paths; nested safe calls retain the
 native safe operator and its lazy argument evaluation.
 ]=] ,  example = 
@@ -69924,10 +69805,10 @@ return position
 "Generics and bounds" ,  codes = 
 { "NUPP2101" , "NUPP2131" } ,  body = 
 [=[
-Type parameters go in angle brackets after the name. `T is Bound` constrains one,
-and the bound is an ordinary type — usually an interface. A
-`const Name: string|boolean|integer` binder carries a compile-time-known value
-through a type and erases from runtime code.
+Type parameters go in angle brackets after the name. `T is Bound` constrains
+one, and the bound is an ordinary type, usually an interface. A `const Name:
+string|boolean|integer` binder carries a compile-time-known value through a type
+and erases from runtime code.
 ]=] ,  example = 
 [=[
 local m = {}
@@ -70014,8 +69895,8 @@ before that adjustment.
 
 Inside a computed tuple, `{Head, unpackof Tail}` appends the tuple produced by
 `Tail`; an array of `never` contributes no slots. `typeerror<Message>` carries a
-deliberate failure out of a reducer. When `unpackof` needs that result, it reports
-the authored message directly.
+deliberate failure out of a reducer. When `unpackof` needs that result, it
+reports the authored message directly.
 
 Whole-pack unions preserve relationships between results. This is why testing
 the boolean returned by `pcall` narrows its sibling values to the callback's
@@ -70103,9 +69984,9 @@ Repeated method names likewise form an overload set without an annotation.
 Each body remains a separate method entry. A colon call selects exactly one and
 emits a direct call to its hidden runtime member; reading the overloaded method
 as a field is **NUPP2126**, because there is no single Lua value to return.
-Parameter packs must differ — return types cannot select an entry. `@override`
-replaces the exact matching interface-default entry, leaving other overloads
-inherited. A bodyless interface may declare the operation as a
+Parameter packs must differ, because return types cannot select an entry.
+`@override` replaces the exact matching interface-default entry, leaving other
+overloads inherited. A bodyless interface may declare the operation as a
 callable-intersection field; matching record bodies use the same slots without
 `@override`, because no inherited body is being replaced.
 
@@ -70152,7 +70033,7 @@ which is what leaves `__call` and `__new` to the program. Calling a record that
 declares no `__call` contract is **NUPP2202**, and `new` on anything that is not
 a record or a struct is **NUPP2206**.
 
-The word is contextual — a name has to follow it on the same line — so a
+The word is contextual, since a name has to follow it on the same line, so a
 variable named `new` still means what it did.
 
 A construction's values are its arguments: `new Point(x = 1, y = 2)`. The table
@@ -70175,15 +70056,15 @@ function takes anywhere else, so `constructor |self, at| -> do ... end` is the
 same declaration; the expression form is refused, because what a constructor
 hands back is settled before its body runs. Several constructors may declare
 distinguishable parameter packs; the call selects exactly one and invokes it
-directly. Every field that cannot hold nil has to be filled — that guarantee is
-the reason to prefer one, and it is why declaring a constructor closes the
+directly. Every field that cannot hold nil has to be filled, and that guarantee
+is the reason to prefer one, and it is why declaring a constructor closes the
 direct form. A duplicate parameter pack, a missing receiver, or a body that
-breaks either guarantee is **NUPP2208**. `constructor` is contextual, so a
-field may still be called one.
+breaks either guarantee is **NUPP2208**. `constructor` is contextual, so a field
+may still be called one.
 
 The name is a value too: the runtime table `new` stamps on the instances it
 builds. That table is their metatable, so it holds `metatable<Point>` rather
-than `Point`, and the two do not stand for each other — the table may be passed
+than `Point`, and the two do not stand for each other. The table may be passed
 to `setmetatable` or have a metamethod contract installed on it, an instance may
 not, and `Point is Point` is false without running. A function that wants a
 declaration rather than one of its values takes `metatable<P>`.
@@ -70252,7 +70133,7 @@ return m
 [=[
 An interface may implement what it declares, and a declaration that takes the
 contract takes the behaviour with it. The body is emitted once and referenced,
-so an implementor inherits the behaviour rather than a copy — resolved where it
+so an implementor inherits the behavior rather than a copy, resolved where it
 is written rather than looked up at run time.
 
 This is the one thing that gives an interface a runtime presence: one that
@@ -70295,36 +70176,37 @@ return m
 "Associated types" ,  codes = 
 { "NUPP2127" , "NUPP2128" , "NUPP2129" , "NUPP2134" , "NUPP2135" } ,  body = 
 [=[
-An interface may state a type it does not name. Whatever takes the contract names it,
-and the name is reached through whatever answered it: `T.Item` on a type parameter,
-`Lines.Item` on a declaration, `self.Item` inside a body.
+An interface may state a type it does not name. Whatever takes the contract
+names it, and the name is reached through whatever answered it: `T.Item` on a
+type parameter, `Lines.Item` on a declaration, `self.Item` inside a body.
 
-Where it is written says what it means. On an interface, `associated type Item` states
-a requirement and `is Bound` says what may answer; `= T` states a **default** an
-implementor may replace, and `== T` **fixes** the type so every implementor answers
-exactly it. Anywhere else, `= T` answers -- `==` is refused there, because a concrete
-declaration already answers exactly.
+Where it is written says what it means. On an interface, `associated type Item`
+states a requirement and `is Bound` says what may answer; `= T` states a
+**default** an implementor may replace, and `== T` **fixes** the type so every
+implementor answers exactly it. Anywhere else, `= T` answers -- `==` is refused
+there, because a concrete declaration already answers exactly.
 
-That difference is what a value's type can rely on. A default stays **opaque** through
-an interface-typed value, since an implementor may answer otherwise; a fixed equality
-resolves through the interface itself. A default is copied to each concrete
-implementor, with `self` rebound there, so `associated type Value = self` reads as
-that implementor.
+That difference is what a value's type can rely on. A default stays **opaque**
+through an interface-typed value, since an implementor may answer otherwise; a
+fixed equality resolves through the interface itself. A default is copied to
+each concrete implementor, with `self` rebound there, so `associated type Value
+= self` reads as that implementor.
 
-An interface carrying associated requirements is nominal at that part: a structural
-value has nowhere to put an answer, so it is not one of these however many fields it
-has. An opaque projection fits its effective bound and exposes that bound's members --
-read as the projection, so a `self`-returning member answers `T.Item` -- while the
-bound does not fit the projection. Through an intersection the requirements coalesce
-and their bounds intersect; through a union every alternative has to state the name,
-the bounds unite, and the answers distribute.
+An interface carrying associated requirements is nominal at that part: a
+structural value has nowhere to put an answer, so it is not one of these however
+many fields it has. An opaque projection fits its effective bound and exposes
+that bound's members -- read as the projection, so a `self`-returning member
+answers `T.Item` -- while the bound does not fit the projection. Through an
+intersection the requirements coalesce and their bounds intersect; through a
+union every alternative has to state the name, the bounds unite, and the answers
+distribute.
 
 Associated types are not nested `type` aliases: an alias is lexically scoped,
-reachable by path, and not inherited. They have no runtime representation at all, so a
-projection is only legal where a C layout is needed once it resolves concretely, an
-interface leaving one unsettled cannot carry `satisfies` -- `== any` is fixed and still
-settles nothing -- and an answer whose head inference never reached is checked as
-`any` and reported by `gradual-projection`.
+reachable by path, and not inherited. They have no runtime representation at
+all, so a projection is only legal where a C layout is needed once it resolves
+concretely, an interface leaving one unsettled cannot carry `satisfies` -- `==
+any` is fixed and still settles nothing -- and an answer whose head inference
+never reached is checked as `any` and reported by `gradual-projection`.
 ]=] ,  example = 
 [=[
 local m = {}
@@ -70376,14 +70258,14 @@ boolean ... end` whose body is the one `return` saying the same thing.
 Only an interface. A record is identified by the metatable `new` stamps and a
 struct by its ctype, so both already answer `is` exactly; a refinement beside
 either would be a second answer to a settled question. An interface has no
-runtime table at all, so this is the only identity it can have — and it is what
+runtime table at all, so this is the only identity it can have, and it is what
 lets a value this program did not build, a table off a decoder or anything an
 untyped library returned, answer `is` at all.
 
 The test runs wherever `is` is written, so it reads the declaration's own fields
 through `self` and nothing else: comparisons against literals, `type()` tests,
 and `and`/`or`/`not`. A call, arithmetic, an outside name, a refinement that
-always answers the same way, or one on a record or struct is **NUPP2122** — as
+always answers the same way, or one on a record or struct is **NUPP2122**, as
 is a declaration whose own fields provably fail an interface it declares.
 ]=] ,  example = 
 [=[
@@ -70420,14 +70302,14 @@ what the checker accepts.
 
 Fields are what fits in C memory: the numeric types, `boolean`, another struct
 by value, a pointer, and a fixed array `T[N]`, which sits inline as N elements
-of the struct's own bytes. A `T[?]` field is refused — a struct whose size
-depends on a count nobody wrote has none. A GC-managed type is refused too, so
-a `string` field means this wants to be a `record`; that is **NUPP2201**.
+of the struct's own bytes. A `T[?]` field is refused, because a struct whose
+size depends on a count nobody wrote has none. A GC-managed type is refused too,
+so a `string` field means this wants to be a `record`; that is **NUPP2201**.
 
 A struct may point at itself, which is how a linked structure is written. By
 value it cannot: that would have no size.
 
-`layoutof(T)` answers how one is laid out — the fields in declaration order
+`layoutof(T)` answers how one is laid out, with the fields in declaration order
 with their C types, offsets, sizes and padding, the struct's size, and a
 fingerprint over all of it. Reifying puts a value where nothing that walks a
 table can reach it, and this is what reaches it again without the language
@@ -70469,11 +70351,11 @@ return m
 "Literal and tagged unions" ,  codes = 
 { "NUPP2107" } ,  body = 
 [=[
-A union of string literals is a closed set of values — what other languages
-spell `enum`. It erases: the value at run time is the plain string, and a bare
-literal lands in it. A dispatch over one that leaves members unhandled is
-reported, which is what makes adding a member a compile-time task list rather
-than a run-time surprise.
+A union of string literals is a closed set of values, which is what other
+languages spell `enum`. It erases: the value at run time is the plain string,
+and a bare literal lands in it. A dispatch over one that leaves members
+unhandled is reported, which is what makes adding a member a compile-time task
+list rather than a run-time surprise.
 
 A union of records, each carrying a literal-typed field, is a tagged union:
 the field is the tag, and comparing it narrows the union to the one record
@@ -70519,12 +70401,12 @@ return m
 { "NUPP2001" } ,  body = 
 [=[
 `e is T` tests a type and narrows in the branch it proves. A truthiness test
-narrows an optional, including through a field path copied into a local. `e as T`
-is an explicit cast where you know better than the checker.
+narrows an optional, including through a field path copied into a local. `e as
+T` is an explicit cast where you know better than the checker.
 
 A function may return a predicate, `p is T`, meaning it answers whether that
-parameter holds the type — the value returned is a boolean, and the caller narrows
-on it.
+parameter holds the type. The value returned is a boolean, and the caller
+narrows on it.
 ]=] ,  example = 
 [=[
 local m = {}
@@ -70573,8 +70455,8 @@ capture borrows only because its callee proves that callback cannot escape.
 `@owned(cleanup)` may decorate a function-valued record or interface field so a
 bodyless API can declare a fresh owning result without a wrapper.
 
-Affine nominal fields have path-sensitive live/moved state. A `ResourceSet`
-from `nupp.resource_set` is the checked escape hatch for a dynamic number of
+Affine nominal fields have path-sensitive live/moved state. A `Set` from
+`nupp.resources` is the checked escape hatch for a dynamic number of
 owners, and `nupp.span` supplies rooted, bounds-checked byte views. Raw or
 unknown coroutine suspension still cannot cross an obligation; checked handled
 suspension may do so only through its cancellation contract.
@@ -70624,10 +70506,10 @@ return m
 "C interop" ,  codes = 
 { "NUPP2203" , "NUPP2101" } ,  body = 
 [=[
-`cdef function` and `cdef struct` declare C with checked signatures. `from "lib"`
-resolves through `ffi.load`; omitting it uses the default namespace.
+`cdef function` and `cdef struct` declare C with checked signatures. `from
+"lib"` resolves through `ffi.load`; omitting it uses the default namespace.
 
-`cheader('path.h')` types a pinned header at compile time — the compiler hands it
+`cheader('path.h')` types a pinned header at compile time. The compiler hands it
 to its own `ffi.cdef` and reads the declarations back through `ffi.typeinfo`, so
 LuaJIT's C parser is the source of truth and the sizes are this platform's. No
 generated file, and no C compiler for a self-contained header. `nupp import-c`
@@ -70660,12 +70542,12 @@ return m
 An annotation is declared as a record or struct carrying `@annotation`, whose
 `targets` list says where it may be applied. Its fields are the annotation's
 members, and values are compile-time constants. Unknown annotations, wrong
-targets and wrong value types are errors — an annotation never becomes a silently
-erased comment.
+targets and wrong value types are errors, so an annotation never becomes a
+silently erased comment.
 
 Applications spell an unqualified `@name`, so a definition is registered
-project-wide and is the one declaration exempt from the visibility rule. Both the
-definition and every application are erased from the generated Lua.
+project-wide and is the one declaration exempt from the visibility rule. Both
+the definition and every application are erased from the generated Lua.
 
 Built-in contracts use the same surface. `@effects` is a complete effect
 summary: visible bodies are checked against it and bodyless declarations are
@@ -70717,12 +70599,12 @@ documentation builds include the complete tree.
 
 An adjacent `---` run documents the declaration under it. `@param`, `@return`,
 `@field`, `@typearg`, `@local`, `@internal` and `@export` are understood. An
-`@internal` declaration stays out of public output but remains in private documentation
-builds. `nupp doc` renders them.
+`@internal` declaration stays out of public output but remains in private
+documentation builds. `nupp doc` renders them.
 
-`@raises` says what makes a function raise, one line per condition. It is the one
-docblock tag the checker reads as well as renders: a documented function that
-calls `error` without one is `undocumented-raise`. Raising is part of how a
+`@raises` says what makes a function raise, one line per condition. It is the
+one docblock tag the checker reads as well as renders: a documented function
+that calls `error` without one is `undocumented-raise`. Raising is part of how a
 function is called, and Lua has no signature to find it out from.
 ]=] ,  example = 
 [=[
@@ -70748,10 +70630,10 @@ return m
 { "NUPP2120" , "NUPP2101" } ,  body = 
 [=[
 Modules are Lua's: a file returns a value and `require` gets it. A module's type
-is whatever the file returned, and a declaration with a runtime value puts itself
-on that table, so nothing is merged in behind your back. Another file reaches a
-member through the module it was attached to, and a module path also names a type
-directly, as in `models.user.User`.
+is whatever the file returned, and a declaration with a runtime value puts
+itself on that table, so nothing is merged in behind your back. Another file
+reaches a member through the module it was attached to, and a module path also
+names a type directly, as in `models.user.User`.
 
 The returned local already identifies the module table; there is no `module`
 keyword. Use `const M.field = value` to make an export slot immutable. A fresh
@@ -70811,8 +70693,8 @@ The checker rejects later writes through those paths. Plain `const M.field`
 remains shallow: ordinary inner fields stay mutable unless they are themselves
 declared `const`.
 
-The customary spellings are legal but linted: `not`, `and`, `or` and `~=` are the
-ones Lua already has, and two spellings of one thing drift apart across a
+The customary spellings are legal but linted: `not`, `and`, `or` and `~=` are
+the ones Lua already has, and two spellings of one thing drift apart across a
 codebase. Suppress per statement with `@allow("customary-operator")`.
 ]=] ,  example = 
 [=[
@@ -70841,12 +70723,13 @@ return m
 [=[
 A type error says the program does not mean what it says it means: nothing
 configures or silences it. A lint says the program means something you probably
-did not intend, so it has a name, a level a project can move, and a suppression a
-statement can apply.
+did not intend, so it has a name, a level a project can move, and a suppression
+a statement can apply.
 
 `@allow` takes lint names or codes, applies to the statement it decorates and
-nothing beyond it, and reaches any lint at any level. Bare `@allow` silences every
-lint on that statement. It does not reach a type error; naming one is NUPP2108.
+nothing beyond it, and reaches any lint at any level. Bare `@allow` silences
+every lint on that statement. It does not reach a type error; naming one is
+NUPP2108.
 
 Levels are set in `nupp.lua` under `lints`, by name or by category, resolving
 registry default → category → name → `@allow`.
@@ -70872,8 +70755,8 @@ return m
 suspend the current coroutine. It is lexical and static: it erases to an
 ordinary `do` block and has no run-time component at all.
 
-Whether a function may suspend is already inferred — `coroutine.yield` sets it
-and it propagates through the call graph — and it travels across a module
+Whether a function may suspend is already inferred, since `coroutine.yield` sets
+it and it propagates through the call graph, and it travels across a module
 boundary on the function's type, so an export, an alias, and a local are all
 answered the same way. A callee nothing resolved is refused, because a region
 exists to be careful about exactly that.
@@ -70881,8 +70764,9 @@ exists to be careful about exactly that.
 **NUPP2701** names the call and the path from it to the suspension, since a
 refusal is not actionable when the yield is four functions away.
 
-For anything whose body this compiler never sees — a declared host binding, a C
-function, a parameter, a callback — the guarantee is written in the type:
+For anything whose body this compiler never sees, such as a declared host
+binding, a C function, a parameter or a callback, the guarantee is written in
+the type:
 
     nosuspend function(x: number): integer
 
@@ -70965,8 +70849,8 @@ bindings.
 A block reads only its own locals and the compile-time environment. A runtime
 local, an upvalue, module state, or a global is **NUPP2410**, and it may not
 write to one either. The environment is an allowlist: `assert`, `error`,
-`ipairs`, `pairs`, `select`, `tonumber`, `tostring`, `type`, and named members of
-`math`, `string`, `table` and `bit`. A member the allowlist leaves out is
+`ipairs`, `pairs`, `select`, `tonumber`, `tostring`, `type`, and named members
+of `math`, `string`, `table` and `bit`. A member the allowlist leaves out is
 **NUPP2411** and says which. There is no `io`, `os`, `require`, `ffi`, `debug`,
 `load`, clock, or randomness.
 
@@ -71018,12 +70902,12 @@ return m
 "PEG matchers" ,  codes = 
 { "NUPP2414" , "NUPP2415" , "NUPP2416" , "NUPP2417" } ,  body = 
 [=[
-`nupp.peg.compile(grammar, options?)` compiles LPeg-re-style byte grammar text at
-either phase into a pure-Lua matcher with no LPeg dependency. In `comptime`, its
-opaque blueprint's capture shape supplies `nupp.peg.Peg<R...>` when unannotated. A
-literal runtime grammar infers the same type; a dynamic string returns
-`Peg<...any>`. `Peg<R...>` satisfies `Matcher<R...>`, so a generic adapter can
-return `((R...) | (nil))`. `Backend`, `Definitions`, and
+`nupp.peg.compile(grammar, options?)` compiles LPeg-re-style byte grammar text
+at either phase into a pure-Lua matcher with no LPeg dependency. In `comptime`,
+its opaque blueprint's capture shape supplies `nupp.peg.Peg<R...>` when
+unannotated. A literal runtime grammar infers the same type; a dynamic string
+returns `Peg<...any>`. `Peg<R...>` satisfies `Matcher<R...>`, so a generic
+adapter can return `((R...) | (nil))`. `Backend`, `Definitions`, and
 `CompileOptions` are also direct types on `nupp.peg`; `Action` and `Actions` are
 deprecated aliases for older Nupp sources.
 
@@ -71031,14 +70915,14 @@ deprecated aliases for older Nupp sources.
 returns the next 1-based byte position or nil. `init` defaults to 1 and may be
 negative; matching is unanchored unless the grammar ends in `!.`. `isMatch`
 searches for a boolean result, while `find` returns the half-open `first, next`
-range followed by the result pack. Both include the empty position after the final
-byte.
+range followed by the result pack. Both include the empty position after the
+final byte.
 
 `forEachMatch` visits every non-overlapping `first, next, R...` result.
-`replace` changes the first match and `replaceAll` changes each one, using either
-literal text or a callback returning text. Empty matches advance one byte so
-iteration and replacement cannot stall. None of these operations allocates match
-records or result tuples; see `docs/peg.md` for the complete contracts.
+`replace` changes the first match and `replaceAll` changes each one, using
+either literal text or a callback returning text. Empty matches advance one byte
+so iteration and replacement cannot stall. None of these operations allocates
+match records or result tuples; see `docs/peg.md` for the complete contracts.
 
 ### Writing expressions
 
@@ -71047,32 +70931,34 @@ The notation is byte-oriented. Whitespace is ignored between expressions and
 loosest is primary expressions, suffixes, predicates, sequence, then ordered
 choice.
 
-| Form | Meaning |
-| --- | --- |
-| `'text'`, `"text"` | exact literal bytes |
-| `.` | any one byte |
-| `[a-z_]`, `[^0-9]` | one byte inside or outside a class |
-| `%a`, `%d`, `%s`, `%w`, `%x` | ASCII letter, digit, space, alphanumeric, or hexadecimal byte |
-| `%name` | pattern supplied by `CompileOptions.definitions` |
-| `p q` | sequence |
-| `p / q` | ordered choice, trying `p` before `q` |
-| `p?`, `p*`, `p+` | optional, zero or more, or one or more |
-| `p^n`, `p^+n`, `p^-n` | exactly, at least, or at most `n` repetitions |
-| `&p`, `!p` | positive or negative predicate without consumption |
-| `{ p }` | substring capture |
-| `{}` | current byte-position capture |
-| `{| p |}` | collect the captures made by `p` into an array |
-| `{: name: p :}` | group captures under `name`; the name is optional |
-| `{~ p ~}` | substitution capture |
-| `=name` | match the text in named group `name` |
-| `p -> {}` | collect captures into a table |
-| `p -> n`, `p -> 'text'` | select capture `n`, or format captures into text |
-| `p -> name` | transform captures through definition `name` |
-| `p => name` | match-time definition `name` |
-| `p >> name`, `p ~> name` | accumulator and fold definitions |
-| `name <- p` | rule definition; the first rule is the start rule |
-| `name`, `<name>` | rule reference inside a grammar |
-| `!.` | end-of-input assertion |
+```
+ Form                  Meaning
+ ────────────────────  ─────────────────────────────────────────────────────
+ 'text', "text"        exact literal bytes
+ .                     any one byte
+ [a-z_], [^0-9]        one byte inside or outside a class
+ %a, %d, %s, %w, %x    ASCII letter, digit, space, alphanumeric, or hex byte
+ %name                 pattern supplied by CompileOptions.definitions
+ p q                   sequence
+ p / q                 ordered choice, trying p before q
+ p?, p*, p+            optional, zero or more, or one or more
+ p^n, p^+n, p^-n       exactly, at least, or at most n repetitions
+ &p, !p                positive or negative predicate without consumption
+ { p }                 substring capture
+ {}                    current byte-position capture
+ {| p |}               collect the captures made by p into an array
+ {: name: p :}         group captures under name, which is optional
+ {~ p ~}               substitution capture
+ =name                 match the text in named group name
+ p -> {}               collect captures into a table
+ p -> n, p -> 'text'   select capture n, or format captures into text
+ p -> name             transform captures through definition name
+ p => name             match-time definition name
+ p >> name, p ~> name  accumulator and fold definitions
+ name <- p             rule definition; the first rule is the start rule
+ name, <name>          rule reference inside a grammar
+ !.                    end-of-input assertion
+```
 
 Quoted strings contain literal bytes and do not process backslash escapes. A
 class may contain ranges and predefined classes. The long predefined names are
@@ -71097,12 +70983,12 @@ ordinary ordered-choice arm must have the same capture shape.
 
 `p -> name` is an ordinary transformation and is deferred until the complete
 match succeeds, so discarded PEG alternatives cannot cause user-code side
-effects. `p => name` is a true LPeg match-time capture: its function receives the
-subject and current position, may inspect captures, and returns the next position
-plus new captures. `>>` accumulates and `~>` folds captures. `%name` obtains an
-external pattern. Runtime values live in `{definitions = values}`. A static
-grammar instead materializes as a factory whose closed parameter record contains
-exactly the referenced names.
+effects. `p => name` is a true LPeg match-time capture: its function receives
+the subject and current position, may inspect captures, and returns the next
+position plus new captures. `>>` accumulates and `~>` folds captures. `%name`
+obtains an external pattern. Runtime values live in `{definitions = values}`. A
+static grammar instead materializes as a factory whose closed parameter record
+contains exactly the referenced names.
 
 ### Rules and validation
 
@@ -71115,20 +71001,20 @@ materialization boundary and size diagnostics remain **NUPP2414** through
 
 ### Compilation and backends
 
-Both phases produce one validated canonical program and matcher shell. Recognition
-and simple captures lower to bytecode. The default `auto` backend generates and
-caches Lua match, search, traversal, and safe literal replacement functions from
-it. Common shapes become straight-line functions; other ordinary grammars use an
-opcode-specialized dispatch loop. Stateful LPeg captures retain the canonical
-capture graph and use its executor.
+Both phases produce one validated canonical program and matcher shell.
+Recognition and simple captures lower to bytecode. The default `auto` backend
+generates and caches Lua match, search, traversal, and safe literal replacement
+functions from it. Common shapes become straight-line functions; other ordinary
+grammars use an opcode-specialized dispatch loop. Stateful LPeg captures retain
+the canonical capture graph and use its executor.
 
 `{backend = "vm"}` interprets bytecode without `loadstring`, which suits cold
 grammars and restricted hosts. Stateful captures use the same graph executor in
 either mode. Runtime parsing, programs, and generation are cached by grammar and
 backend. Runtime definition values use
-`{definitions = values}`; static definitions remain factory inputs. The expression
-syntax is LPeg 1.1 `re`; `docs/peg.md` documents native result packs and explicit
-table captures.
+`{definitions = values}`; static definitions remain factory inputs. The
+expression syntax is LPeg 1.1 `re`; `docs/peg.md` documents native result packs
+and explicit table captures.
 ]=] ,  example = 
 [=[
 local m = {}
@@ -71171,26 +71057,26 @@ possibly recursive type as an acyclic indexed graph: `root` selects a node in
 `types`, and edges between nodes are integer indices. The graph covers nominal
 records, interfaces and structs; shapes, fields and indexers; function
 signatures and packs; generic arguments; unions and intersections; ownership
-wrappers; arrays, pointers and C types. Checked typed annotations on declarations
-and fields appear as ordered `annotations`; an `@ref` argument is an edge into
-the same `types` graph. The root's common fields are also available directly as
-`kind`, `name`, `fields`, `annotations`, and `fingerprint`.
+wrappers; arrays, pointers and C types. Checked typed annotations on
+declarations and fields appear as ordered `annotations`; an `@ref` argument is
+an edge into the same `types` graph. The root's common fields are also available
+directly as `kind`, `name`, `fields`, `annotations`, and `fingerprint`.
 
 User comptime code may read descriptor members, use `#`, and traverse arrays
 with deterministic `ipairs` or `pairs`. Views preserve identity for equality
 but reject mutation and cannot escape as runtime tables. The fingerprint is
 computed from the canonical semantic graph rather than the checker's
 process-local type identities. Reflection reads declared meaning, not FFI
-layout; `nupp.sizeof`, `nupp.alignof`, and `nupp.offsetof` use the build's `layoutTarget`.
-Annotation names, arguments, values and referenced types participate
-in the fingerprint, so changing serialization metadata invalidates a cached
-comptime result even when the field types themselves are unchanged.
+layout; `nupp.sizeof`, `nupp.alignof`, and `nupp.offsetof` use the build's
+`layoutTarget`. Annotation names, arguments, values and referenced types
+participate in the fingerprint, so changing serialization metadata invalidates a
+cached comptime result even when the field types themselves are unchanged.
 
-`nupp.fieldcodec.compile(nupp.reflect(R))` is the first non-PEG materializer. For a
-record `R`, it produces a `nupp.fieldcodec.KeyedCodec<R>` whose `encode` method
-copies exactly the record's present declared fields with `rawget`. Its stable
-compatibility fingerprint is `t:` followed by those field names in declaration
-order. The declared codec type must name the same nominal record.
+`nupp.fieldcodec.compile(nupp.reflect(R))` is the first non-PEG materializer.
+For a record `R`, it produces a `nupp.fieldcodec.KeyedCodec<R>` whose `encode`
+method copies exactly the record's present declared fields with `rawget`. Its
+stable compatibility fingerprint is `t:` followed by those field names in
+declaration order. The declared codec type must name the same nominal record.
 
 Reflection of a runtime value, an unresolved type, or a non-record codec input
 is **NUPP2418**. The ordinary materialization boundary, envelope, and size
@@ -71244,17 +71130,47 @@ piped output never carries escapes.
 - `nupp fmt`, `nupp doc`, `nupp test`, `nupp fixpoint` format, document, test,
   and verify the compiler rebuilds byte-identically.
 
-Every command taking `--json` also takes `--schema`, which prints the JSON Schema
-of that output, so a consumer can be written against a contract rather than
-against a sample.
+Every command taking `--json` also takes `--schema`, which prints the JSON
+Schema of that output, so a consumer can be written against a contract rather
+than against a sample.
 
 The loop that works: run `check --json --strict`, apply a complete fix whose
-title matches the intended repair, re-run, and run `nupp test` before committing.
+title matches the intended repair, re-run, and run `nupp test` before
+committing.
 ]=]
 
 
 
 
+
+
+
+local function wrapped ( text )
+local out = { }
+local line = ""
+for word in text : gmatch ( "%S+" ) do
+if line == "" then
+line = word
+elseif # line + 1 + # word <= 80 then
+line = line .. " " .. word
+else
+out [ # out + 1 ] , line = line , word
+end
+end
+if line ~= "" then
+out [ # out + 1 ] = line
+end
+
+return out
+end
+
+local function pad ( text , width )
+return text .. ( " " ) : rep ( math . max ( 0 , width - # text ) )
+end
+
+local function rule ( width )
+return ( "\u{2500}" ) : rep ( width )
+end
 
 local function heading ( level , text )
 return ( "#" ) : rep ( level ) .. " " .. text
@@ -71262,12 +71178,38 @@ end
 
 
 local function lintRows ( )
-local out = { }
-out [ # out + 1 ] = "| Lint | Code | Category | Default |"
-out [ # out + 1 ] = "| --- | --- | --- | --- |"
+local widest = # "Lint"
 for _ , lint in ipairs ( lints . all ) do
-out [ # out + 1 ] = ( "| `%s` | %s | %s | %s |" ) : format ( lint . name , lint . code , lint . category , lint . level )
+widest = math . max ( widest , # lint . name )
 end
+local category = # "Category"
+for _ , lint in ipairs ( lints . all ) do
+category = math . max ( category , # lint . category )
+end
+local out = { "```" }
+out [ # out + 1 ] = ( " %s  %s  %s  %s" ) : format (
+pad ( "Lint" , widest ) ,
+pad ( "Code" , 8 ) ,
+pad ( "Category" , category ) ,
+"Default"
+)
+out [ # out + 1 ] = ( " %s  %s  %s  %s" ) : format (
+rule ( widest ) ,
+rule ( 8 ) ,
+rule ( category ) ,
+rule ( # "warning" )
+)
+for _ , lint in ipairs ( lints . all ) do
+out [
+# out + 1
+] = ( " %s  %s  %s  %s" ) : format (
+pad ( lint . name , widest ) ,
+pad ( lint . code , 8 ) ,
+pad ( lint . category , category ) ,
+lint . level
+)
+end
+out [ # out + 1 ] = "```"
 
 return out
 end
@@ -71276,12 +71218,14 @@ end
 
 local function codeRows ( )
 local out = { }
-out [ # out + 1 ] = "| Code | Meaning |"
-out [ # out + 1 ] = "| --- | --- |"
 for _ , code in ipairs ( explain . codes ( ) ) do
 local entry = explain . lookup ( code )
 if entry then
-out [ # out + 1 ] = ( "| %s | %s |" ) : format ( entry . code , entry . summary )
+for index , line in ipairs ( wrapped (
+( "- **%s**: %s." ) : format ( entry . code , entry . summary )
+) ) do
+out [ # out + 1 ] = index == 1 and line or ( "  " .. line )
+end
 end
 end
 
@@ -71338,9 +71282,10 @@ inferring fields from an example. The CLI uses 1-based byte lines and columns.
 "Improving test coverage" ,  codes = 
 { } ,  body = 
 [=[
-Run `nupp coverage` to build a separate instrumented artifact, run the configured
-tests, and write `build/reports/coverage/index.html`. It never changes an ordinary
-build or its cache. Pass a suite name or other test arguments to focus a run.
+Run `nupp coverage` to build a separate instrumented artifact, run the
+configured tests, and write `build/reports/coverage/index.html`. It never
+changes an ordinary build or its cache. Pass a suite name or other test
+arguments to focus a run.
 
 An agent can inspect an existing report without rerunning tests:
 
@@ -71348,13 +71293,14 @@ An agent can inspect an existing report without rerunning tests:
 nupp coverage --report-json
 ```
 
-That JSON names each file and its missed lines, functions, and branch arms. Start
-with an uncovered branch or function that represents an observable behaviour,
-read the indicated source, and add a test that establishes that behaviour. Re-run
-the focused coverage command, then `nupp test` before committing. Do not add tests
-solely to raise a percentage: prefer decisions, error paths, and boundary cases
-whose expected result a test can state clearly. The HTML report shows the same
-locations alongside highlighted Nupp and generated Lua when visual context helps.
+That JSON names each file and its missed lines, functions, and branch arms.
+Start with an uncovered branch or function that represents an observable
+behaviour, read the indicated source, and add a test that establishes that
+behaviour. Re-run the focused coverage command, then `nupp test` before
+committing. Do not add tests solely to raise a percentage: prefer decisions,
+error paths, and boundary cases whose expected result a test can state clearly.
+The HTML report shows the same locations alongside highlighted Nupp and
+generated Lua when visual context helps.
 ]=] }, reference.Section)
 ,
 }
@@ -71435,7 +71381,11 @@ local cited = { }
 for _ , code in ipairs ( section . codes ) do
 cited [ # cited + 1 ] = "`" .. code .. "`"
 end
-out [ # out + 1 ] = "Reports: " .. table . concat ( cited , ", " ) .. ". `nupp explain <code>` says more."
+for _ , line in ipairs ( wrapped (
+"Reports: " .. table . concat ( cited , ", " ) .. ". `nupp explain <code>` says more."
+) ) do
+out [ # out + 1 ] = line
+end
 out [ # out + 1 ] = ""
 end
 end
@@ -71457,11 +71407,13 @@ local base = opts and opts . level or 1
 local out = { }
 out [ # out + 1 ] = heading ( base , "Nupp language reference" )
 out [ # out + 1 ] = ""
-out [
-# out + 1
-] = "Every construct, the shortest program that uses it, and the"
+for _ , line in ipairs ( wrapped (
+"Every construct, the shortest program that uses it, and the"
 .. " diagnostic codes that report getting it wrong. Generated from the"
 .. " compiler: `nupp reference`."
+) ) do
+out [ # out + 1 ] = line
+end
 out [ # out + 1 ] = ""
 for _ , chapter in ipairs ( reference . chapters ) do
 out [ # out + 1 ] = heading ( base + 1 , chapter . title )
@@ -73551,8 +73503,34 @@ function Writer:writeFrom(source,offset,count)if self._closed then return nil,"t
 function Writer:writeView(source,offset,count)if self._closed then return nil,"the writer is closed"end;offset,count=range(source:length(),offset,count,"io.ByteView",2);local ok,reason=self:write(source:getString():sub(offset+1,offset+count));if not ok then return nil,reason end;return count end;function Writer:flush()if self._closed then return false,"the writer is closed"end;return true end;function Writer:close()self._closed=true;return not self._buffer:isReleased(),self._buffer:isReleased()and"the destination buffer is closed"or nil end
 function Buffer:newReader()opened(self,"io.Buffer",2);return setmetatable({_bytes=bytesAt(self,0,self._length),_at=1,_closed=false},Reader)end;function Buffer:newWriter()opened(self,"io.Buffer",2);self:clear();return setmetatable({_buffer=self,_at=0,_closed=false},Writer)end
 local function newBuffer(initial)if initial~=nil and type(initial)~="number"and type(initial)~="string"then error("nupp: io.newBuffer initial value must be bytes or a capacity",2)end;local bytes=type(initial)=="string"and initial or"";local capacity=type(initial)=="number"and integer(initial,"io.newBuffer capacity",2)or#bytes;local self=setmetatable({_data=capacity>0 and __nuppBytes(capacity)or nil,_length=0,_capacity=capacity,_closed=false},Buffer);if#bytes>0 then ffi.copy(self._data,bytes,#bytes);self._length=#bytes end;return self end
-__nuppIO.newBuffer=newBuffer;__nuppIO.newStringReader=function(text)if type(text)~="string"then error("nupp: io.newStringReader needs a string",2)end;return setmetatable({_bytes=text,_at=1,_closed=false},Reader)end;return __nuppIO end
-for _,__name in ipairs({"newBuffer","newStringReader"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallIO();return rawget(__nuppIO,name)end)end
+local ByteQueue,ScalarReader,ScalarWriter={},{},{};ByteQueue.__index=ByteQueue;ScalarReader.__index=ScalarReader;ScalarWriter.__index=ScalarWriter
+function ByteQueue:read(count)if self._closed then return nil,"the reader is closed"end;count=whole(count,"Reader:read count",2);local have=#self._source;if have==0 then return""end;return self._source:get(math.min(math.max(1,count),have))end
+function ByteQueue:readInto(destination,offset,count)if self._closed then return nil,"the reader is closed"end;offset=integer(offset or 0,"Reader:readInto offset",2);count=integer(count or 65536,"Reader:readInto count",2);local have=#self._source;if have==0 or count==0 then return 0 end;local taking=math.min(count,have);destination:setString(self._source:get(taking),offset);return taking end
+function ByteQueue:transferTo(destination)if self._closed then return nil,"the reader is closed"end;local rest=self._source:get();local ok,reason=destination:write(rest);if not ok then return nil,reason end;return #rest end
+function ByteQueue:close()self._closed=true;self._source=nil;return true end
+local function fill(self,need)local failure;if self._reader then while #self._pending<need do local chunk,reason=self._reader:read(need-#self._pending);if chunk==nil then failure=reason;break end;if chunk==""then break end;self._pending=self._pending..chunk end elseif self._queue then local want=need-#self._pending;local have=want>0 and #self._queue or 0;if have>0 then self._pending=self._pending..self._queue:get(math.min(want,have))end end;return #self._pending,failure end
+local function taken(self,need)if self._closed then error("nupp: io.ScalarReader is closed",3)end;local have,failure=fill(self,need);if failure then error("nupp: io.ScalarReader source failed: "..tostring(failure),3)end;if have<need then error(("nupp: io.ScalarReader needs %d bytes, has %d"):format(need,have),3)end;local out=self._pending:sub(1,need);self._pending=self._pending:sub(need+1);return out end
+function ScalarReader:remaining()if self._closed then error("nupp: io.ScalarReader is closed",2)end;if self._reader then return nil end;if self._queue then return #self._pending+#self._queue end;return #self._pending end
+function ScalarReader:atEnd()if self._closed then error("nupp: io.ScalarReader is closed",2)end;local have,failure=fill(self,1);if failure then error("nupp: io.ScalarReader source failed: "..tostring(failure),2)end;return have<1 end
+function ScalarReader:skip(count)taken(self,integer(count,"io.ScalarReader count",2));return self end
+function ScalarReader:readBytes(count)return taken(self,integer(count,"io.ScalarReader count",2))end
+function ScalarReader:close()self._closed=true;self._pending="";self._queue=nil;local reader=self._reader;self._reader=nil;if reader then return reader:close()end;return true end
+local function scalarRead(ctype,size)local pointer=ffi.typeof(ctype);return function(self)local raw=taken(self,size);return ffi.cast(pointer,raw)[0]end end
+ScalarReader.readUint8=scalarRead("uint8_t*",1);ScalarReader.readInt8=scalarRead("int8_t*",1);ScalarReader.readUint16=scalarRead("uint16_t*",2);ScalarReader.readInt16=scalarRead("int16_t*",2);ScalarReader.readUint32=scalarRead("uint32_t*",4);ScalarReader.readInt32=scalarRead("int32_t*",4);ScalarReader.readUint64=scalarRead("uint64_t*",8);ScalarReader.readInt64=scalarRead("int64_t*",8);ScalarReader.readFloat32=scalarRead("float*",4);ScalarReader.readFloat64=scalarRead("double*",8)
+local function put(self,bytes)if self._closed then error("nupp: io.ScalarWriter is closed",3)end;if self._buffer then self._buffer:setString(bytes,self._buffer:length());return self end;local ok,reason=self._writer:write(bytes);if not ok then error("nupp: io.ScalarWriter destination failed: "..tostring(reason),3)end;return self end
+function ScalarWriter:writeBytes(bytes)if type(bytes)~="string"then error("nupp: io.ScalarWriter bytes must be a string",2)end;return put(self,bytes)end
+function ScalarWriter:buffer()return self._buffer end
+function ScalarWriter:flush()if self._closed then return false,"the writer is closed"end;if self._writer then return self._writer:flush()end;return true end
+function ScalarWriter:close()self._closed=true;local writer=self._writer;self._writer=nil;if writer then return writer:close()end;return true end
+local function scalarWrite(ctype,size)local holder=ffi.new(ctype);return function(self,value)holder[0]=value;return put(self,ffi.string(holder,size))end end
+ScalarWriter.writeUint8=scalarWrite("uint8_t[1]",1);ScalarWriter.writeInt8=scalarWrite("int8_t[1]",1);ScalarWriter.writeUint16=scalarWrite("uint16_t[1]",2);ScalarWriter.writeInt16=scalarWrite("int16_t[1]",2);ScalarWriter.writeUint32=scalarWrite("uint32_t[1]",4);ScalarWriter.writeInt32=scalarWrite("int32_t[1]",4);ScalarWriter.writeUint64=scalarWrite("uint64_t[1]",8);ScalarWriter.writeInt64=scalarWrite("int64_t[1]",8);ScalarWriter.writeFloat32=scalarWrite("float[1]",4);ScalarWriter.writeFloat64=scalarWrite("double[1]",8)
+local BADSOURCE="nupp: io.newScalarReader needs bytes, a snapshot, a buffer, a reader or a byte queue"
+local function queueLike(value)local kind=type(value);if kind=="table"then return value.get~=nil end;if kind~="userdata"and kind~="cdata"then return false end;local ok,getter=pcall(function()return value.get end);return ok and getter~=nil end
+local function newQueueReader(source)if not queueLike(source)then error("nupp: io.newQueueReader needs a byte queue",2)end;return setmetatable({_source=source,_closed=false},ByteQueue)end
+local function newScalarReader(source)local self=setmetatable({_pending="",_closed=false},ScalarReader);local kind=type(source);if kind=="string"then self._pending=source elseif kind=="table"and source.read~=nil then self._reader=source elseif kind=="table"and source.getString~=nil then self._pending=source:getString()elseif queueLike(source)then self._queue=source else error(BADSOURCE,2)end;return self end
+local function newScalarWriter(destination)local self=setmetatable({_closed=false},ScalarWriter);if destination==nil then self._buffer=newBuffer()elseif type(destination)=="table"and destination.write~=nil then self._writer=destination elseif type(destination)=="table"and destination.setString~=nil then self._buffer=destination else error("nupp: io.newScalarWriter needs a buffer, a writer, or nothing",2)end;return self end
+__nuppIO.newBuffer=newBuffer;__nuppIO.newQueueReader=newQueueReader;__nuppIO.newScalarReader=newScalarReader;__nuppIO.newScalarWriter=newScalarWriter;__nuppIO.newStringReader=function(text)if type(text)~="string"then error("nupp: io.newStringReader needs a string",2)end;return setmetatable({_bytes=text,_at=1,_closed=false},Reader)end;return __nuppIO end
+for _,__name in ipairs({"newBuffer","newQueueReader","newScalarReader","newScalarWriter","newStringReader"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallIO();return rawget(__nuppIO,name)end)end
 ]=]
 )
 
@@ -74136,11 +74114,111 @@ function __nuppDerive.fromJSON(text,entry)local ok,value=pcall(entry.decoder.dec
 ]=]
 )
 
-local NATIVE = compact (
+
+
+
+local NATIVE_TEMPLATE = compact (
 [=[
-local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[typedef struct NuppBytes NuppBytes;typedef struct NuppUri NuppUri;typedef struct{const uint8_t*data;size_t length;}NuppStringView;const char*nuppNativeError(void);const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);NuppBytes*nuppPathJoin(const NuppStringView*,size_t);NuppBytes*nuppPathNormalize(const uint8_t*,size_t);NuppBytes*nuppPathAbsolute(const uint8_t*,size_t);NuppBytes*nuppPathCanonicalize(const uint8_t*,size_t);NuppBytes*nuppPathRelative(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppPathPart(const uint8_t*,size_t,uint32_t);NuppBytes*nuppPathWith(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppPathIsAbsolute(const uint8_t*,size_t);NuppUri*nuppUriParse(const uint8_t*,size_t);const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);bool nuppUriPort(const NuppUri*,uint16_t*);NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);NuppUri*nuppUriWithPort(const NuppUri*,int32_t);NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);void nuppUriDestroy(NuppUri*);bool nuppUuid4(char*);bool nuppUuid7(char*);bool nuppSha256(const uint8_t*,size_t,char*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);void nuppProcessDestroy(NuppChild*);int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);size_t nuppProcessUncollectedTotal(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end
+local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[__NUPP_NATIVE_CDEFS__]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;__NUPP_NATIVE_BYTES_HELPER____nuppNativeValue={ffi=ffi,C=C,error=errorText__NUPP_NATIVE_BYTES_FIELD__};return __nuppNativeValue end
 ]=]
 )
+
+local NATIVE_CDEF_BASE = "const char*nuppNativeError(void);"
+local NATIVE_BYTES_CDEFS = "typedef struct NuppBytes NuppBytes;"
+.. "const uint8_t*nuppBytesData(const NuppBytes*);"
+.. "size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);"
+local NATIVE_BYTES_HELPER = "local function bytes(value,optional)if value==nil then "
+.. "if optional then return nil end;error(\"nupp: native operation failed: \"..errorText(),3)end;"
+.. "local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));"
+.. "C.nuppBytesDestroy(value);return out end;"
+local NATIVE_CDEFS = {
+[ "native.path" ] = "typedef struct{const uint8_t*data;size_t length;}NuppStringView;"
+.. "NuppBytes*nuppPathJoin(const NuppStringView*,size_t);"
+.. "NuppBytes*nuppPathNormalize(const uint8_t*,size_t);"
+.. "NuppBytes*nuppPathAbsolute(const uint8_t*,size_t);"
+.. "NuppBytes*nuppPathCanonicalize(const uint8_t*,size_t);"
+.. "NuppBytes*nuppPathRelative(const uint8_t*,size_t,const uint8_t*,size_t);"
+.. "NuppBytes*nuppPathPart(const uint8_t*,size_t,uint32_t);"
+.. "NuppBytes*nuppPathWith(const uint8_t*,size_t,const uint8_t*,size_t,bool);"
+.. "bool nuppPathIsAbsolute(const uint8_t*,size_t);" ,
+[ "native.uri" ] = "typedef struct NuppUri NuppUri;"
+.. "NuppUri*nuppUriParse(const uint8_t*,size_t);"
+.. "const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);"
+.. "bool nuppUriPort(const NuppUri*,uint16_t*);"
+.. "NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);"
+.. "NuppUri*nuppUriWithPort(const NuppUri*,int32_t);"
+.. "NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);"
+.. "NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);"
+.. "NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);"
+.. "void nuppUriDestroy(NuppUri*);" ,
+[ "native.uuid" ] = "bool nuppUuid4(char*);bool nuppUuid7(char*);" ,
+[ "native.sha256" ] = "bool nuppSha256(const uint8_t*,size_t,char*);" ,
+[ "native.files" ] = "typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;"
+.. "bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);"
+.. "NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);"
+.. "bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);"
+.. "bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);"
+.. "bool nuppFilesCreateDirectory(const uint8_t*,size_t);"
+.. "bool nuppFilesRemove(const uint8_t*,size_t,bool);"
+.. "bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);"
+.. "NuppBytes*nuppFilesList(const uint8_t*,size_t);"
+.. "NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);"
+.. "NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);"
+.. "typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);"
+.. "int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);"
+.. "int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);"
+.. "int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);"
+.. "bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);"
+.. "typedef struct NuppRequest NuppRequest;"
+.. "NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);"
+.. "NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);"
+.. "NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);"
+.. "int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);"
+.. "size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);"
+.. "bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);"
+.. "size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);" ,
+[ "native.process" ] = "typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;"
+.. "typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);"
+.. "bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);"
+.. "bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);"
+.. "bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);"
+.. "bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);"
+.. "bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);"
+.. "NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);"
+.. "intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);"
+.. "intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);"
+.. "uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);"
+.. "int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);"
+.. "bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);"
+.. "void nuppProcessDestroy(NuppChild*);"
+.. "int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);"
+.. "size_t nuppProcessUncollectedTotal(void);" ,
+}
+local NATIVE_CDEF_ORDER = {
+"native.path" , "native.uri" , "native.uuid" , "native.sha256" ,
+"native.files" , "native.process" ,
+}
+
+local function nativeRuntime ( effects )
+local declarations = { NATIVE_CDEF_BASE }
+local hasBytes = effects [ "native.path" ] or effects [ "native.files" ]
+if hasBytes then
+declarations [ # declarations + 1 ] = NATIVE_BYTES_CDEFS
+end
+
+if effects [ "native.http" ] and not effects [ "native.uri" ] then
+declarations [ # declarations + 1 ] = "typedef struct NuppUri NuppUri;"
+end
+for _ , effect in ipairs ( NATIVE_CDEF_ORDER ) do
+if effects [ effect ] then
+declarations [ # declarations + 1 ] = NATIVE_CDEFS [ effect ]
+end
+end
+local source = NATIVE_TEMPLATE : gsub ( "__NUPP_NATIVE_CDEFS__" , table . concat ( declarations ) )
+source = source : gsub ( "__NUPP_NATIVE_BYTES_HELPER__" , hasBytes and NATIVE_BYTES_HELPER or "" )
+
+return ( source : gsub ( "__NUPP_NATIVE_BYTES_FIELD__" , hasBytes and ",bytes=bytes" or "" ) )
+end
 
 local PATH = compact (
 [=[
@@ -74576,7 +74654,7 @@ local hasNative = effects [
 ] or effects [ "native.uri" ] or effects [ "native.uuid" ] or effects [ "native.sha256" ]
 or effects [ "native.files" ] or effects [ "native.process" ] or effects [ "native.http" ]
 if hasNative then
-out [ # out + 1 ] = NATIVE
+out [ # out + 1 ] = nativeRuntime ( effects )
 end
 if effects [ "native.files" ] then
 out [ # out + 1 ] = FILES
@@ -77484,7 +77562,7 @@ return types
 
 end
 package.preload["nupp.io.http"] = function(...)
-const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppInstallIO()local ffi=require("ffi");local Buffer,View,Reader,Writer={},{},{},{};Buffer.__index=Buffer;View.__index=View;Reader.__index=Reader;Writer.__index=Writer local __nuppBytes=ffi.typeof("uint8_t[?]");local SMALLEST=32 local function integer(value,what,level)if type(value)~="number"or value~=math.floor(value)or value<0 then error("nupp: "..what.." must be a non-negative integer",level)end;return value end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: "..what.." must be an integer",level)end;return value end local function opened(self,what,level)if self._closed then error("nupp: "..what.." is closed",level)end end local function range(length,offset,count,what,level)offset=integer(offset or 0,what.." offset",level);if offset>length then error("nupp: "..what.." offset is past the end",level)end;count=integer(count==nil and length-offset or count,what.." count",level);if offset+count>length then error("nupp: "..what.." range is past the end",level)end;return offset,count end local function reserve(self,minimum)if minimum<=self._capacity then return end;local capacity=self._capacity*2;if capacity<minimum then capacity=minimum end;if capacity<SMALLEST then capacity=SMALLEST end;local data=__nuppBytes(capacity);if self._length>0 then ffi.copy(data,self._data,self._length)end;self._data=data;self._capacity=capacity end local function bytesAt(self,offset,count)if count==0 then return""end;return ffi.string(self._data+offset,count)end function View:length()opened(self,"io.ByteView",2);return #self._bytes end;function View:getString()opened(self,"io.ByteView",2);return self._bytes end;function View:newReader()opened(self,"io.ByteView",2);return setmetatable({_bytes=self._bytes,_at=1,_closed=false},Reader)end;function View:view(offset,count)opened(self,"io.ByteView",2);offset,count=range(#self._bytes,offset,count,"io.ByteView",2);return setmetatable({_bytes=self._bytes:sub(offset+1,offset+count),_closed=false},View)end;function View:isReleased()return self._closed end;function View:close()self._closed=true;self._bytes="";return true end function Buffer:length()opened(self,"io.Buffer",2);return self._length end;function Buffer:capacity()opened(self,"io.Buffer",2);return self._capacity end;function Buffer:clear()opened(self,"io.Buffer",2);self._length=0 end;function Buffer:ensureCapacity(minimum)opened(self,"io.Buffer",2);reserve(self,integer(minimum,"io.Buffer capacity",2))end function Buffer:resize(length)opened(self,"io.Buffer",2);length=integer(length,"io.Buffer length",2);if length>self._length then reserve(self,length);ffi.fill(self._data+self._length,length-self._length,0)end;self._length=length end function Buffer:getString(offset,count)opened(self,"io.Buffer",2);offset,count=range(self._length,offset,count,"io.Buffer",2);return bytesAt(self,offset,count)end function Buffer:setString(bytes,offset)opened(self,"io.Buffer",2);if type(bytes)~="string"then error("nupp: io.Buffer bytes must be a string",2)end;offset=integer(offset or 0,"io.Buffer offset",2);local ending=offset+#bytes;reserve(self,ending);if offset>self._length then ffi.fill(self._data+self._length,offset-self._length,0)end;if #bytes>0 then ffi.copy(self._data+offset,bytes,#bytes)end;if ending>self._length then self._length=ending end end function Buffer:view(offset,count)opened(self,"io.Buffer",2);offset,count=range(self._length,offset,count,"io.Buffer",2);return setmetatable({_bytes=bytesAt(self,offset,count),_closed=false},View)end;function Buffer:isReleased()return self._closed end;function Buffer:close()self._closed=true;self._data=nil;self._length=0;self._capacity=0;return true end function Reader:read(count)if self._closed then return nil,"the reader is closed"end;count=whole(count,"Reader:read count",2);if self._at>#self._bytes then return ""end;local taking=math.min(math.max(1,count),#self._bytes-self._at+1);local out=self._bytes:sub(self._at,self._at+taking-1);self._at=self._at+taking;return out end function Reader:readInto(destination,offset,count)if self._closed then return nil,"the reader is closed"end;offset=integer(offset or 0,"Reader:readInto offset",2);count=integer(count or 65536,"Reader:readInto count",2);if self._at>#self._bytes or count==0 then return 0 end;local taking=math.min(count,#self._bytes-self._at+1);destination:setString(self._bytes:sub(self._at,self._at+taking-1),offset);self._at=self._at+taking;return taking end function Reader:transferTo(destination)if self._closed then return nil,"the reader is closed"end;local remaining=self._bytes:sub(self._at);local ok,reason=destination:write(remaining);if not ok then return nil,reason end;self._at=#self._bytes+1;return #remaining end;function Reader:close()self._closed=true;self._bytes="";return true end local function slice(source,offset,count,what)offset,count=range(source:length(),offset,count,what,3);return source:getString(offset,count),count end function Writer:write(bytes)if self._closed then return false,"the writer is closed"end;if self._buffer:isReleased()then return false,"the destination buffer is closed"end;self._buffer:setString(bytes,self._at);self._at=self._at+#bytes;return true end function Writer:writeFrom(source,offset,count)if self._closed then return nil,"the writer is closed"end;if source==self._buffer then return nil,"cannot write a buffer into itself"end;local bytes,n=slice(source,offset,count,"io.Buffer");local ok,reason=self:write(bytes);if not ok then return nil,reason end;return n end function Writer:writeView(source,offset,count)if self._closed then return nil,"the writer is closed"end;offset,count=range(source:length(),offset,count,"io.ByteView",2);local ok,reason=self:write(source:getString():sub(offset+1,offset+count));if not ok then return nil,reason end;return count end;function Writer:flush()if self._closed then return false,"the writer is closed"end;return true end;function Writer:close()self._closed=true;return not self._buffer:isReleased(),self._buffer:isReleased()and"the destination buffer is closed"or nil end function Buffer:newReader()opened(self,"io.Buffer",2);return setmetatable({_bytes=bytesAt(self,0,self._length),_at=1,_closed=false},Reader)end;function Buffer:newWriter()opened(self,"io.Buffer",2);self:clear();return setmetatable({_buffer=self,_at=0,_closed=false},Writer)end local function newBuffer(initial)if initial~=nil and type(initial)~="number"and type(initial)~="string"then error("nupp: io.newBuffer initial value must be bytes or a capacity",2)end;local bytes=type(initial)=="string"and initial or"";local capacity=type(initial)=="number"and integer(initial,"io.newBuffer capacity",2)or#bytes;local self=setmetatable({_data=capacity>0 and __nuppBytes(capacity)or nil,_length=0,_capacity=capacity,_closed=false},Buffer);if#bytes>0 then ffi.copy(self._data,bytes,#bytes);self._length=#bytes end;return self end __nuppIO.newBuffer=newBuffer;__nuppIO.newStringReader=function(text)if type(text)~="string"then error("nupp: io.newStringReader needs a string",2)end;return setmetatable({_bytes=text,_at=1,_closed=false},Reader)end;return __nuppIO end for _,__name in ipairs({"newBuffer","newStringReader"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallIO();return rawget(__nuppIO,name)end)end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[typedef struct NuppBytes NuppBytes;typedef struct NuppUri NuppUri;typedef struct{const uint8_t*data;size_t length;}NuppStringView;const char*nuppNativeError(void);const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);NuppBytes*nuppPathJoin(const NuppStringView*,size_t);NuppBytes*nuppPathNormalize(const uint8_t*,size_t);NuppBytes*nuppPathAbsolute(const uint8_t*,size_t);NuppBytes*nuppPathCanonicalize(const uint8_t*,size_t);NuppBytes*nuppPathRelative(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppPathPart(const uint8_t*,size_t,uint32_t);NuppBytes*nuppPathWith(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppPathIsAbsolute(const uint8_t*,size_t);NuppUri*nuppUriParse(const uint8_t*,size_t);const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);bool nuppUriPort(const NuppUri*,uint16_t*);NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);NuppUri*nuppUriWithPort(const NuppUri*,int32_t);NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);void nuppUriDestroy(NuppUri*);bool nuppUuid4(char*);bool nuppUuid7(char*);bool nuppSha256(const uint8_t*,size_t,char*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);void nuppProcessDestroy(NuppChild*);int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);size_t nuppProcessUncollectedTotal(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end local function __nuppInstallURI() local native=__nuppNative();local ffi,C=native.ffi,native.C;local URI={};URI.__index=URI;URI.__tostring=function(self)return self:toString()end;URI.__eq=function(a,b)return a:toString()==b:toString()end local function wrap(handle)if handle==nil then return nil,native.error()end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end local function changed(handle)if handle==nil then error("nupp: cannot modify URI: "..native.error(),3)end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end local function part(self,kind)local length=ffi.new("size_t[1]");local data=C.nuppUriPart(self._handle,kind,length);if data==nil then return nil end;return ffi.string(data,tonumber(length[0]))end function URI:toString()return part(self,0)end;function URI:scheme()return part(self,1)end;function URI:authority()return part(self,2)end;function URI:username()return part(self,3)end;function URI:password()return part(self,4)end;function URI:host()return part(self,5)end;function URI:path()return part(self,6)end;function URI:query()return part(self,7)end;function URI:fragment()return part(self,8)end function URI:userInfo()local username=self:username();local password=self:password();if username==""and password==nil then return nil end;return password and(username..":"..password)or username end function URI:port()local value=ffi.new("uint16_t[1]");return C.nuppUriPort(self._handle,value)and tonumber(value[0])or nil end local function required(value,what)if type(value)~="string"then error("nupp: "..what.." needs a string",3)end;return value end local kinds={withScheme={0,"scheme",true},withUserInfo={1,"userInfo"},withHost={2,"host"},withPath={3,"path",true},withQuery={4,"query"},withFragment={5,"fragment"}};for name,spec in pairs(kinds)do URI[name]=function(self,value)if spec[3]then value=required(value,"URI "..spec[2])elseif value~=nil then value=required(value,"URI "..spec[2])end;if value==self[spec[2]](self)then return self end;return changed(C.nuppUriWithText(self._handle,spec[1],value or"",value and#value or 0,value~=nil))end end function URI:withPort(port)if port~=nil and(type(port)~="number"or port~=math.floor(port)or port<0 or port>65535)then error("nupp: URI port must be an integer from 0 through 65535 or nil",2)end;if port==self:port()then return self end;return changed(C.nuppUriWithPort(self._handle,port or-1))end function URI:concatPath(path)path=required(path,"URI path");if path==""then return self end;return changed(C.nuppUriConcatPath(self._handle,path,#path))end function URI:resolve(reference)if type(reference)~="string"then return nil,"nupp: URI reference needs a string"end;return wrap(C.nuppUriResolve(self._handle,reference,#reference))end function URI:withEndpoint(endpoint)if type(endpoint)~="table"or getmetatable(endpoint)~=URI then error("nupp: URI endpoint must be an io.URI",2)end;return changed(C.nuppUriWithEndpoint(self._handle,endpoint._handle))end local function compose(c)if type(c)~="table"then return nil,"nupp: io.newURI needs absolute text or URI components"end;if type(c.scheme)~="string"or c.scheme==""then return nil,"nupp: URI components need a non-empty scheme"end;for _,name in ipairs({"userInfo","host","path","query","fragment"})do if c[name]~=nil and type(c[name])~="string"then return nil,"nupp: URI component "..name.." must be a string or nil"end end;if c.port~=nil and(type(c.port)~="number"or c.port~=math.floor(c.port)or c.port<0 or c.port>65535)then return nil,"nupp: URI component port must be an integer from 0 through 65535 or nil"end;local out=c.scheme..":";if c.host or c.userInfo or c.port then out=out.."//";if c.userInfo then out=out..c.userInfo.."@"end;out=out..(c.host or"");if c.port then out=out..":"..c.port end end;out=out..(c.path or"");if c.query then out=out.."?"..c.query end;if c.fragment then out=out.."#"..c.fragment end;return out end __nuppIO.newURI=function(value)local text,problem;if type(value)=="string"then text=value else text,problem=compose(value);if not text then return nil,problem end end;return wrap(C.nuppUriParse(text,#text))end __nuppIO.validate=function(text)if type(text)~="string"then return false,"nupp: io.validate needs a string"end;local handle=C.nuppUriParse(text,#text);if handle==nil then return false,native.error()end;C.nuppUriDestroy(handle);return true end __nuppIO.isURI=function(value)return type(value)=="table"and getmetatable(value)==URI end return __nuppIO end for _,__name in ipairs({"newURI","validate","isURI"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallURI();return rawget(__nuppIO,name)end)end;local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.io.http#destroyBody@13910"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io.http#destroyBody@13910") end;__nuppCleanup1=cleanup;return cleanup(value) end;
+const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppInstallIO()local ffi=require("ffi");local Buffer,View,Reader,Writer={},{},{},{};Buffer.__index=Buffer;View.__index=View;Reader.__index=Reader;Writer.__index=Writer local __nuppBytes=ffi.typeof("uint8_t[?]");local SMALLEST=32 local function integer(value,what,level)if type(value)~="number"or value~=math.floor(value)or value<0 then error("nupp: "..what.." must be a non-negative integer",level)end;return value end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: "..what.." must be an integer",level)end;return value end local function opened(self,what,level)if self._closed then error("nupp: "..what.." is closed",level)end end local function range(length,offset,count,what,level)offset=integer(offset or 0,what.." offset",level);if offset>length then error("nupp: "..what.." offset is past the end",level)end;count=integer(count==nil and length-offset or count,what.." count",level);if offset+count>length then error("nupp: "..what.." range is past the end",level)end;return offset,count end local function reserve(self,minimum)if minimum<=self._capacity then return end;local capacity=self._capacity*2;if capacity<minimum then capacity=minimum end;if capacity<SMALLEST then capacity=SMALLEST end;local data=__nuppBytes(capacity);if self._length>0 then ffi.copy(data,self._data,self._length)end;self._data=data;self._capacity=capacity end local function bytesAt(self,offset,count)if count==0 then return""end;return ffi.string(self._data+offset,count)end function View:length()opened(self,"io.ByteView",2);return #self._bytes end;function View:getString()opened(self,"io.ByteView",2);return self._bytes end;function View:newReader()opened(self,"io.ByteView",2);return setmetatable({_bytes=self._bytes,_at=1,_closed=false},Reader)end;function View:view(offset,count)opened(self,"io.ByteView",2);offset,count=range(#self._bytes,offset,count,"io.ByteView",2);return setmetatable({_bytes=self._bytes:sub(offset+1,offset+count),_closed=false},View)end;function View:isReleased()return self._closed end;function View:close()self._closed=true;self._bytes="";return true end function Buffer:length()opened(self,"io.Buffer",2);return self._length end;function Buffer:capacity()opened(self,"io.Buffer",2);return self._capacity end;function Buffer:clear()opened(self,"io.Buffer",2);self._length=0 end;function Buffer:ensureCapacity(minimum)opened(self,"io.Buffer",2);reserve(self,integer(minimum,"io.Buffer capacity",2))end function Buffer:resize(length)opened(self,"io.Buffer",2);length=integer(length,"io.Buffer length",2);if length>self._length then reserve(self,length);ffi.fill(self._data+self._length,length-self._length,0)end;self._length=length end function Buffer:getString(offset,count)opened(self,"io.Buffer",2);offset,count=range(self._length,offset,count,"io.Buffer",2);return bytesAt(self,offset,count)end function Buffer:setString(bytes,offset)opened(self,"io.Buffer",2);if type(bytes)~="string"then error("nupp: io.Buffer bytes must be a string",2)end;offset=integer(offset or 0,"io.Buffer offset",2);local ending=offset+#bytes;reserve(self,ending);if offset>self._length then ffi.fill(self._data+self._length,offset-self._length,0)end;if #bytes>0 then ffi.copy(self._data+offset,bytes,#bytes)end;if ending>self._length then self._length=ending end end function Buffer:view(offset,count)opened(self,"io.Buffer",2);offset,count=range(self._length,offset,count,"io.Buffer",2);return setmetatable({_bytes=bytesAt(self,offset,count),_closed=false},View)end;function Buffer:isReleased()return self._closed end;function Buffer:close()self._closed=true;self._data=nil;self._length=0;self._capacity=0;return true end function Reader:read(count)if self._closed then return nil,"the reader is closed"end;count=whole(count,"Reader:read count",2);if self._at>#self._bytes then return ""end;local taking=math.min(math.max(1,count),#self._bytes-self._at+1);local out=self._bytes:sub(self._at,self._at+taking-1);self._at=self._at+taking;return out end function Reader:readInto(destination,offset,count)if self._closed then return nil,"the reader is closed"end;offset=integer(offset or 0,"Reader:readInto offset",2);count=integer(count or 65536,"Reader:readInto count",2);if self._at>#self._bytes or count==0 then return 0 end;local taking=math.min(count,#self._bytes-self._at+1);destination:setString(self._bytes:sub(self._at,self._at+taking-1),offset);self._at=self._at+taking;return taking end function Reader:transferTo(destination)if self._closed then return nil,"the reader is closed"end;local remaining=self._bytes:sub(self._at);local ok,reason=destination:write(remaining);if not ok then return nil,reason end;self._at=#self._bytes+1;return #remaining end;function Reader:close()self._closed=true;self._bytes="";return true end local function slice(source,offset,count,what)offset,count=range(source:length(),offset,count,what,3);return source:getString(offset,count),count end function Writer:write(bytes)if self._closed then return false,"the writer is closed"end;if self._buffer:isReleased()then return false,"the destination buffer is closed"end;self._buffer:setString(bytes,self._at);self._at=self._at+#bytes;return true end function Writer:writeFrom(source,offset,count)if self._closed then return nil,"the writer is closed"end;if source==self._buffer then return nil,"cannot write a buffer into itself"end;local bytes,n=slice(source,offset,count,"io.Buffer");local ok,reason=self:write(bytes);if not ok then return nil,reason end;return n end function Writer:writeView(source,offset,count)if self._closed then return nil,"the writer is closed"end;offset,count=range(source:length(),offset,count,"io.ByteView",2);local ok,reason=self:write(source:getString():sub(offset+1,offset+count));if not ok then return nil,reason end;return count end;function Writer:flush()if self._closed then return false,"the writer is closed"end;return true end;function Writer:close()self._closed=true;return not self._buffer:isReleased(),self._buffer:isReleased()and"the destination buffer is closed"or nil end function Buffer:newReader()opened(self,"io.Buffer",2);return setmetatable({_bytes=bytesAt(self,0,self._length),_at=1,_closed=false},Reader)end;function Buffer:newWriter()opened(self,"io.Buffer",2);self:clear();return setmetatable({_buffer=self,_at=0,_closed=false},Writer)end local function newBuffer(initial)if initial~=nil and type(initial)~="number"and type(initial)~="string"then error("nupp: io.newBuffer initial value must be bytes or a capacity",2)end;local bytes=type(initial)=="string"and initial or"";local capacity=type(initial)=="number"and integer(initial,"io.newBuffer capacity",2)or#bytes;local self=setmetatable({_data=capacity>0 and __nuppBytes(capacity)or nil,_length=0,_capacity=capacity,_closed=false},Buffer);if#bytes>0 then ffi.copy(self._data,bytes,#bytes);self._length=#bytes end;return self end local ByteQueue,ScalarReader,ScalarWriter={},{},{};ByteQueue.__index=ByteQueue;ScalarReader.__index=ScalarReader;ScalarWriter.__index=ScalarWriter function ByteQueue:read(count)if self._closed then return nil,"the reader is closed"end;count=whole(count,"Reader:read count",2);local have=#self._source;if have==0 then return""end;return self._source:get(math.min(math.max(1,count),have))end function ByteQueue:readInto(destination,offset,count)if self._closed then return nil,"the reader is closed"end;offset=integer(offset or 0,"Reader:readInto offset",2);count=integer(count or 65536,"Reader:readInto count",2);local have=#self._source;if have==0 or count==0 then return 0 end;local taking=math.min(count,have);destination:setString(self._source:get(taking),offset);return taking end function ByteQueue:transferTo(destination)if self._closed then return nil,"the reader is closed"end;local rest=self._source:get();local ok,reason=destination:write(rest);if not ok then return nil,reason end;return #rest end function ByteQueue:close()self._closed=true;self._source=nil;return true end local function fill(self,need)local failure;if self._reader then while #self._pending<need do local chunk,reason=self._reader:read(need-#self._pending);if chunk==nil then failure=reason;break end;if chunk==""then break end;self._pending=self._pending..chunk end elseif self._queue then local want=need-#self._pending;local have=want>0 and #self._queue or 0;if have>0 then self._pending=self._pending..self._queue:get(math.min(want,have))end end;return #self._pending,failure end local function taken(self,need)if self._closed then error("nupp: io.ScalarReader is closed",3)end;local have,failure=fill(self,need);if failure then error("nupp: io.ScalarReader source failed: "..tostring(failure),3)end;if have<need then error(("nupp: io.ScalarReader needs %d bytes, has %d"):format(need,have),3)end;local out=self._pending:sub(1,need);self._pending=self._pending:sub(need+1);return out end function ScalarReader:remaining()if self._closed then error("nupp: io.ScalarReader is closed",2)end;if self._reader then return nil end;if self._queue then return #self._pending+#self._queue end;return #self._pending end function ScalarReader:atEnd()if self._closed then error("nupp: io.ScalarReader is closed",2)end;local have,failure=fill(self,1);if failure then error("nupp: io.ScalarReader source failed: "..tostring(failure),2)end;return have<1 end function ScalarReader:skip(count)taken(self,integer(count,"io.ScalarReader count",2));return self end function ScalarReader:readBytes(count)return taken(self,integer(count,"io.ScalarReader count",2))end function ScalarReader:close()self._closed=true;self._pending="";self._queue=nil;local reader=self._reader;self._reader=nil;if reader then return reader:close()end;return true end local function scalarRead(ctype,size)local pointer=ffi.typeof(ctype);return function(self)local raw=taken(self,size);return ffi.cast(pointer,raw)[0]end end ScalarReader.readUint8=scalarRead("uint8_t*",1);ScalarReader.readInt8=scalarRead("int8_t*",1);ScalarReader.readUint16=scalarRead("uint16_t*",2);ScalarReader.readInt16=scalarRead("int16_t*",2);ScalarReader.readUint32=scalarRead("uint32_t*",4);ScalarReader.readInt32=scalarRead("int32_t*",4);ScalarReader.readUint64=scalarRead("uint64_t*",8);ScalarReader.readInt64=scalarRead("int64_t*",8);ScalarReader.readFloat32=scalarRead("float*",4);ScalarReader.readFloat64=scalarRead("double*",8) local function put(self,bytes)if self._closed then error("nupp: io.ScalarWriter is closed",3)end;if self._buffer then self._buffer:setString(bytes,self._buffer:length());return self end;local ok,reason=self._writer:write(bytes);if not ok then error("nupp: io.ScalarWriter destination failed: "..tostring(reason),3)end;return self end function ScalarWriter:writeBytes(bytes)if type(bytes)~="string"then error("nupp: io.ScalarWriter bytes must be a string",2)end;return put(self,bytes)end function ScalarWriter:buffer()return self._buffer end function ScalarWriter:flush()if self._closed then return false,"the writer is closed"end;if self._writer then return self._writer:flush()end;return true end function ScalarWriter:close()self._closed=true;local writer=self._writer;self._writer=nil;if writer then return writer:close()end;return true end local function scalarWrite(ctype,size)local holder=ffi.new(ctype);return function(self,value)holder[0]=value;return put(self,ffi.string(holder,size))end end ScalarWriter.writeUint8=scalarWrite("uint8_t[1]",1);ScalarWriter.writeInt8=scalarWrite("int8_t[1]",1);ScalarWriter.writeUint16=scalarWrite("uint16_t[1]",2);ScalarWriter.writeInt16=scalarWrite("int16_t[1]",2);ScalarWriter.writeUint32=scalarWrite("uint32_t[1]",4);ScalarWriter.writeInt32=scalarWrite("int32_t[1]",4);ScalarWriter.writeUint64=scalarWrite("uint64_t[1]",8);ScalarWriter.writeInt64=scalarWrite("int64_t[1]",8);ScalarWriter.writeFloat32=scalarWrite("float[1]",4);ScalarWriter.writeFloat64=scalarWrite("double[1]",8) local BADSOURCE="nupp: io.newScalarReader needs bytes, a snapshot, a buffer, a reader or a byte queue" local function queueLike(value)local kind=type(value);if kind=="table"then return value.get~=nil end;if kind~="userdata"and kind~="cdata"then return false end;local ok,getter=pcall(function()return value.get end);return ok and getter~=nil end local function newQueueReader(source)if not queueLike(source)then error("nupp: io.newQueueReader needs a byte queue",2)end;return setmetatable({_source=source,_closed=false},ByteQueue)end local function newScalarReader(source)local self=setmetatable({_pending="",_closed=false},ScalarReader);local kind=type(source);if kind=="string"then self._pending=source elseif kind=="table"and source.read~=nil then self._reader=source elseif kind=="table"and source.getString~=nil then self._pending=source:getString()elseif queueLike(source)then self._queue=source else error(BADSOURCE,2)end;return self end local function newScalarWriter(destination)local self=setmetatable({_closed=false},ScalarWriter);if destination==nil then self._buffer=newBuffer()elseif type(destination)=="table"and destination.write~=nil then self._writer=destination elseif type(destination)=="table"and destination.setString~=nil then self._buffer=destination else error("nupp: io.newScalarWriter needs a buffer, a writer, or nothing",2)end;return self end __nuppIO.newBuffer=newBuffer;__nuppIO.newQueueReader=newQueueReader;__nuppIO.newScalarReader=newScalarReader;__nuppIO.newScalarWriter=newScalarWriter;__nuppIO.newStringReader=function(text)if type(text)~="string"then error("nupp: io.newStringReader needs a string",2)end;return setmetatable({_bytes=text,_at=1,_closed=false},Reader)end;return __nuppIO end for _,__name in ipairs({"newBuffer","newQueueReader","newScalarReader","newScalarWriter","newStringReader"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallIO();return rawget(__nuppIO,name)end)end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppUri NuppUri;NuppUri*nuppUriParse(const uint8_t*,size_t);const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);bool nuppUriPort(const NuppUri*,uint16_t*);NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);NuppUri*nuppUriWithPort(const NuppUri*,int32_t);NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);void nuppUriDestroy(NuppUri*);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;__nuppNativeValue={ffi=ffi,C=C,error=errorText};return __nuppNativeValue end local function __nuppInstallURI() local native=__nuppNative();local ffi,C=native.ffi,native.C;local URI={};URI.__index=URI;URI.__tostring=function(self)return self:toString()end;URI.__eq=function(a,b)return a:toString()==b:toString()end local function wrap(handle)if handle==nil then return nil,native.error()end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end local function changed(handle)if handle==nil then error("nupp: cannot modify URI: "..native.error(),3)end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end local function part(self,kind)local length=ffi.new("size_t[1]");local data=C.nuppUriPart(self._handle,kind,length);if data==nil then return nil end;return ffi.string(data,tonumber(length[0]))end function URI:toString()return part(self,0)end;function URI:scheme()return part(self,1)end;function URI:authority()return part(self,2)end;function URI:username()return part(self,3)end;function URI:password()return part(self,4)end;function URI:host()return part(self,5)end;function URI:path()return part(self,6)end;function URI:query()return part(self,7)end;function URI:fragment()return part(self,8)end function URI:userInfo()local username=self:username();local password=self:password();if username==""and password==nil then return nil end;return password and(username..":"..password)or username end function URI:port()local value=ffi.new("uint16_t[1]");return C.nuppUriPort(self._handle,value)and tonumber(value[0])or nil end local function required(value,what)if type(value)~="string"then error("nupp: "..what.." needs a string",3)end;return value end local kinds={withScheme={0,"scheme",true},withUserInfo={1,"userInfo"},withHost={2,"host"},withPath={3,"path",true},withQuery={4,"query"},withFragment={5,"fragment"}};for name,spec in pairs(kinds)do URI[name]=function(self,value)if spec[3]then value=required(value,"URI "..spec[2])elseif value~=nil then value=required(value,"URI "..spec[2])end;if value==self[spec[2]](self)then return self end;return changed(C.nuppUriWithText(self._handle,spec[1],value or"",value and#value or 0,value~=nil))end end function URI:withPort(port)if port~=nil and(type(port)~="number"or port~=math.floor(port)or port<0 or port>65535)then error("nupp: URI port must be an integer from 0 through 65535 or nil",2)end;if port==self:port()then return self end;return changed(C.nuppUriWithPort(self._handle,port or-1))end function URI:concatPath(path)path=required(path,"URI path");if path==""then return self end;return changed(C.nuppUriConcatPath(self._handle,path,#path))end function URI:resolve(reference)if type(reference)~="string"then return nil,"nupp: URI reference needs a string"end;return wrap(C.nuppUriResolve(self._handle,reference,#reference))end function URI:withEndpoint(endpoint)if type(endpoint)~="table"or getmetatable(endpoint)~=URI then error("nupp: URI endpoint must be an io.URI",2)end;return changed(C.nuppUriWithEndpoint(self._handle,endpoint._handle))end local function compose(c)if type(c)~="table"then return nil,"nupp: io.newURI needs absolute text or URI components"end;if type(c.scheme)~="string"or c.scheme==""then return nil,"nupp: URI components need a non-empty scheme"end;for _,name in ipairs({"userInfo","host","path","query","fragment"})do if c[name]~=nil and type(c[name])~="string"then return nil,"nupp: URI component "..name.." must be a string or nil"end end;if c.port~=nil and(type(c.port)~="number"or c.port~=math.floor(c.port)or c.port<0 or c.port>65535)then return nil,"nupp: URI component port must be an integer from 0 through 65535 or nil"end;local out=c.scheme..":";if c.host or c.userInfo or c.port then out=out.."//";if c.userInfo then out=out..c.userInfo.."@"end;out=out..(c.host or"");if c.port then out=out..":"..c.port end end;out=out..(c.path or"");if c.query then out=out.."?"..c.query end;if c.fragment then out=out.."#"..c.fragment end;return out end __nuppIO.newURI=function(value)local text,problem;if type(value)=="string"then text=value else text,problem=compose(value);if not text then return nil,problem end end;return wrap(C.nuppUriParse(text,#text))end __nuppIO.validate=function(text)if type(text)~="string"then return false,"nupp: io.validate needs a string"end;local handle=C.nuppUriParse(text,#text);if handle==nil then return false,native.error()end;C.nuppUriDestroy(handle);return true end __nuppIO.isURI=function(value)return type(value)=="table"and getmetatable(value)==URI end return __nuppIO end for _,__name in ipairs({"newURI","validate","isURI"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallURI();return rawget(__nuppIO,name)end)end;local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.io.http#destroyBody@13910"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io.http#destroyBody@13910") end;__nuppCleanup1=cleanup;return cleanup(value) end;
 
 
 
@@ -80825,7 +80903,39 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 
+
+
+
+
+
+
+
+
 local resources = { }
+
+local native = require ( "nupp.resources.native" )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function resources . set ( label )
+return native . new ( label )
+end
 
 local function close_file ( file )
 local ok , reason = file : close ( )
@@ -80843,7 +80953,7 @@ end
 
 
 
-__nuppCleanups["nupp.resources#close_file@423"]=close_file;
+__nuppCleanups["nupp.resources#close_file@1701"]=close_file;
 function resources . openFile ( path , mode )
 local file , reason = io . open ( path , mode )
 if not file then
@@ -80862,7 +80972,7 @@ end
 
 
 
-__nuppCleanups["nupp.resources#close_file@423"]=close_file;
+__nuppCleanups["nupp.resources#close_file@1701"]=close_file;
 function resources . openProcess ( command , mode )
 local file , reason = io . popen ( command , mode )
 if not file then
@@ -80879,7 +80989,7 @@ end
 
 
 
-__nuppCleanups["nupp.resources#close_file@423"]=close_file;
+__nuppCleanups["nupp.resources#close_file@1701"]=close_file;
 function resources . temporaryFile ( )
 local file = io . tmpfile ( )
 if not file then
@@ -84550,6 +84660,203 @@ record nupp.io
         close: function(self: Buffer): (boolean, string?)
     end
 
+    --- A byte queue that consumes from its front, which is what LuaJIT's
+    --- `string.buffer.Buffer` is. Naming the shape rather than that record keeps the
+    --- prelude free of a require, and lets anything else with the same two operations
+    --- stand in.
+    interface ByteQueue
+        metamethod __len: function(self): integer
+
+        --- Consumes bytes from the front and returns them, or all of them when given
+        --- no count.
+        --- @param self this queue
+        --- @param ... how many bytes each returned string takes
+        --- @return the consumed bytes
+        get: function(self: ByteQueue, ...: integer?): string
+    end
+
+    --- A cursor for sized integer and float reads over a byte source.
+    ---
+    --- Reads are host-endian, the only order LuaJIT ships. A format fixed to one
+    --- byte order swaps explicitly.
+    ---
+    --- Every read consumes, and a short one raises rather than answering a reason:
+    --- a scalar either landed whole or the source was not what the format said, and
+    --- there is no partial value to hand back.
+    interface ScalarReader
+        --- Reports how many bytes are left, when the source can say. A reader over a
+        --- stream cannot, and answers nil.
+        --- @param self this reader
+        --- @return the unread byte count, or nil when unknown
+        remaining: function(self: ScalarReader): integer?
+
+        --- Reports whether the source is exhausted.
+        --- @param self this reader
+        --- @return whether no bytes remain
+        atEnd: function(self: ScalarReader): boolean
+
+        --- Discards unread bytes. Raises when fewer remain.
+        --- @param self this reader
+        --- @param count how many bytes to discard
+        --- @return this reader
+        skip: function(self: ScalarReader, count: integer): ScalarReader
+
+        --- Reads raw bytes. Raises when fewer remain.
+        --- @param self this reader
+        --- @param count how many bytes to read
+        --- @return the bytes
+        readBytes: function(self: ScalarReader, count: integer): string
+
+        --- Reads one unsigned byte.
+        --- @param self this reader
+        --- @return the value
+        readUint8: function(self: ScalarReader): uint8
+
+        --- Reads one signed byte.
+        --- @param self this reader
+        --- @return the value
+        readInt8: function(self: ScalarReader): int8
+
+        --- Reads an unsigned 16-bit integer.
+        --- @param self this reader
+        --- @return the value
+        readUint16: function(self: ScalarReader): uint16
+
+        --- Reads a signed 16-bit integer.
+        --- @param self this reader
+        --- @return the value
+        readInt16: function(self: ScalarReader): int16
+
+        --- Reads an unsigned 32-bit integer.
+        --- @param self this reader
+        --- @return the value
+        readUint32: function(self: ScalarReader): uint32
+
+        --- Reads a signed 32-bit integer.
+        --- @param self this reader
+        --- @return the value
+        readInt32: function(self: ScalarReader): int32
+
+        --- Reads an unsigned 64-bit integer.
+        --- @param self this reader
+        --- @return the value
+        readUint64: function(self: ScalarReader): uint64
+
+        --- Reads a signed 64-bit integer.
+        --- @param self this reader
+        --- @return the value
+        readInt64: function(self: ScalarReader): int64
+
+        --- Reads a 32-bit float.
+        --- @param self this reader
+        --- @return the value
+        readFloat32: function(self: ScalarReader): float
+
+        --- Reads a 64-bit float.
+        --- @param self this reader
+        --- @return the value
+        readFloat64: function(self: ScalarReader): number
+
+        --- Closes this reader, and the reader it was opened over. Repeated calls are
+        --- safe.
+        --- @param self this reader
+        --- @return whether the close succeeded
+        --- @return a failure reason, when unsuccessful
+        close: function(self: ScalarReader): (boolean, string?)
+    end
+
+    --- A cursor for sized integer and float writes, appending to a destination.
+    ---
+    --- Writes are host-endian, matching [`ScalarReader`](#nupp.io.ScalarReader), and
+    --- a destination that refuses one raises for the same reason a short read does.
+    --- Every write answers the writer, so calls chain.
+    interface ScalarWriter
+        --- Appends bytes unchanged.
+        --- @param self this writer
+        --- @param bytes the bytes to append
+        --- @return this writer
+        writeBytes: function(self: ScalarWriter, bytes: string): ScalarWriter
+
+        --- Writes one unsigned byte.
+        --- @param self this writer
+        --- @param value the value to write
+        --- @return this writer
+        writeUint8: function(self: ScalarWriter, value: uint8): ScalarWriter
+
+        --- Writes one signed byte.
+        --- @param self this writer
+        --- @param value the value to write
+        --- @return this writer
+        writeInt8: function(self: ScalarWriter, value: int8): ScalarWriter
+
+        --- Writes an unsigned 16-bit integer.
+        --- @param self this writer
+        --- @param value the value to write
+        --- @return this writer
+        writeUint16: function(self: ScalarWriter, value: uint16): ScalarWriter
+
+        --- Writes a signed 16-bit integer.
+        --- @param self this writer
+        --- @param value the value to write
+        --- @return this writer
+        writeInt16: function(self: ScalarWriter, value: int16): ScalarWriter
+
+        --- Writes an unsigned 32-bit integer.
+        --- @param self this writer
+        --- @param value the value to write
+        --- @return this writer
+        writeUint32: function(self: ScalarWriter, value: uint32): ScalarWriter
+
+        --- Writes a signed 32-bit integer.
+        --- @param self this writer
+        --- @param value the value to write
+        --- @return this writer
+        writeInt32: function(self: ScalarWriter, value: int32): ScalarWriter
+
+        --- Writes an unsigned 64-bit integer.
+        --- @param self this writer
+        --- @param value the value to write
+        --- @return this writer
+        writeUint64: function(self: ScalarWriter, value: uint64): ScalarWriter
+
+        --- Writes a signed 64-bit integer.
+        --- @param self this writer
+        --- @param value the value to write
+        --- @return this writer
+        writeInt64: function(self: ScalarWriter, value: int64): ScalarWriter
+
+        --- Writes a 32-bit float.
+        --- @param self this writer
+        --- @param value the value to write
+        --- @return this writer
+        writeFloat32: function(self: ScalarWriter, value: float): ScalarWriter
+
+        --- Writes a 64-bit float.
+        --- @param self this writer
+        --- @param value the value to write
+        --- @return this writer
+        writeFloat64: function(self: ScalarWriter, value: number): ScalarWriter
+
+        --- The buffer being appended to, when the destination is one. A writer given
+        --- somebody else's writer answers nil, since the bytes are already gone.
+        --- @param self this writer
+        --- @return the destination buffer, or nil
+        buffer: function(self: ScalarWriter): Buffer?
+
+        --- Flushes the destination.
+        --- @param self this writer
+        --- @return whether the flush succeeded
+        --- @return a failure reason, when unsuccessful
+        flush: function(self: ScalarWriter): (boolean, string?)
+
+        --- Closes this writer, and the writer it was opened over. Repeated calls are
+        --- safe.
+        --- @param self this writer
+        --- @return whether the close succeeded
+        --- @return a failure reason, when unsuccessful
+        close: function(self: ScalarWriter): (boolean, string?)
+    end
+
     --- Filesystem metadata and directory contents.
     ---
     --- Every operation here answers before a transfer could have started: it reads a
@@ -85228,6 +85535,34 @@ record nupp.io
     --- @param text the bytes to read
     --- @return the new reader
     newStringReader: function(text: string): Reader
+
+    --- Creates a forward-only reader that consumes a byte queue, which is how a
+    --- LuaJIT `string.buffer` joins this layer without a copy of everything in it.
+    --- Reading drains the queue, so the queue's own `get` may be interleaved.
+    --- @param source the queue to consume
+    --- @return the new reader
+    newQueueReader: function(source: ByteQueue): Reader
+
+    --- Creates a cursor for sized integer and float reads.
+    ---
+    --- A string, snapshot or buffer is read from a copy of its bytes taken here, and
+    --- reports its `remaining` count. A reader or a queue is consumed in place: the
+    --- reader answers no count, the queue answers what it still holds.
+    ---
+    --- @param source the bytes, snapshot, buffer, reader or queue to read
+    --- @return the new reader
+    newScalarReader: function(source: string | ByteView | Buffer | Reader | ByteQueue): ScalarReader
+
+    --- Creates a cursor for sized integer and float writes.
+    ---
+    --- A buffer is appended to, keeping what it already holds. A writer receives the
+    --- bytes as they are written. Omitting the destination starts a fresh buffer,
+    --- which `ScalarWriter:buffer` hands back.
+    ---
+    --- @param destination the buffer or writer to append to, or nothing for a fresh
+    ---     buffer
+    --- @return the new writer
+    newScalarWriter: function(destination: (Buffer | Writer)?): ScalarWriter
 
     --- Filesystem metadata, directory contents, and the operations that move
     --- names rather than bytes.
@@ -86848,22 +87183,42 @@ end
 
 return re
 ]],
-["/decls/resource_set.d.nupp"] = [[
-local record ResourceSet
+["/decls/resourcesnative.d.nupp"] = [[
+--- The unchecked body behind `resources.Set`.
+---
+--- Registering owners in a table and discharging them in a loop is what the ownership
+--- checker refuses, so the container that does it lives outside the checked language and
+--- is trusted here once, rather than every caller reaching for `unsafe`. `nupp.resources`
+--- is the module to use; nothing else should name this one.
+local native = {}
+
+--- A container for as many owners as a program turns out to need.
+record native.Set
+    --- What the set is for, in diagnostics.
     label: string
 
+    --- Discharges every registration in reverse.
+    ---
+    --- Attempts all of them, then reports the first failure with a count of the ones it
+    --- suppressed. Idempotent.
     @drop
-    close: nosuspend function(takes self: ResourceSet)
+    close: nosuspend function(takes self: native.Set)
 
-    adopt: function<T>(self: ResourceSet, takes value: T, terminal: function(takes value: T)?): T borrows (self)
-    remove: function<T>(self: ResourceSet, borrows value: T): T
+    --- Moves an owner in and returns a borrow tied to the set.
+    ---
+    --- An opaque owner has no cleanup to reify, so it needs its terminal consumer named.
+    adopt: function<T>(self: native.Set, takes value: T, terminal: function(takes value: T)?): T borrows (self)
+
+    --- Deletes one registration and returns the original capability exactly once.
+    remove: function<T>(self: native.Set, borrows value: T): T
 end
 
+--- Creates an empty set owned by the caller.
 @owned
-local function new(label: string?): ResourceSet
+function native.new(label: string?): native.Set
 end
 
-return {new = new, ResourceSet = ResourceSet}
+return native
 ]],
 ["/decls/stringbuffer.d.nupp"] = [=[
 --[[
@@ -87081,251 +87436,6 @@ end
 
 return native
 ]],
-["/nupp/bytes.nupp"] = [=[
---[[
-Typed binary reads and writes over a string.buffer.Buffer.
-
-A Buffer already moves raw bytes with put/get and reserve/commit/ref; Reader and
-Writer add the missing piece, a sized integer or float landing on those bytes
-without hand-rolling the ffi.cast each time.
-
-Both read and write host-endian, the same as every other cast in this codebase
-(nupp.compiler.build.hash): LuaJIT itself only ships little-endian, so that is
-the honest default. A format that has to be byte-order-fixed casts and swaps
-explicitly; this module carries no LE/BE variants until something needs one.
-
-A short read raises, matching Buffer:get. Buffer:skip is the one method that
-clamps instead of raising, and Reader does not inherit that.
-]]
-
-local bytes = {}
-local buffer = require("string.buffer")
-local ffi = require("ffi")
-
-local function needBytes(avail: uint64, need: integer): nil
-    if avail < (need as uint64) then
-        error(("bytes.Reader: need %d bytes, have %d"):format(need, avail))
-    end
-end
-
-local function take(exclusive buf: string.buffer.Buffer, size: integer): string
-    needBytes(#buf as uint64, size)
-    return buf:get(size)
-end
-
---- A cursor for typed reads over a buffer's unconsumed data. Consumes as it reads, the
---- same direction as Buffer:get.
-record bytes.Reader
-    buf: string.buffer.Buffer
-end
-
---- Wraps `data` for typed reads.
----
---- A string is copied into a fresh buffer. Passing an existing buffer instead lets a
---- caller mix `buf:get(...)` and `reader:readInt32()` over the same bytes.
----
---- @export
---- @param data the bytes to read, or the buffer to read from
---- @return the reader
-function bytes.newReader(data: string | string.buffer.Buffer): bytes.Reader
-    local buf: string.buffer.Buffer
-    if type(data) == "string" then
-        buf = buffer.new()
-        buf:set(data as string)
-    else
-        buf = data as string.buffer.Buffer
-    end
-
-    return new bytes.Reader(buf = buf)
-end
-
---- How many unread bytes remain.
-function bytes.Reader:remaining(): integer
-    return #self.buf as integer
-end
-
---- Discards `n` unread bytes. Raises if fewer remain.
-function bytes.Reader:skip(n: integer): bytes.Reader
-    needBytes(#self.buf as uint64, n)
-    self.buf:skip(n)
-
-    return self
-end
-
---- Reads `n` raw bytes. Raises if fewer remain.
-function bytes.Reader:readBytes(n: integer): string
-    return take(self.buf, n)
-end
-
---- Reads one unsigned byte.
-function bytes.Reader:readUint8(): uint8
-    local raw = take(self.buf, 1)
-    return ffi.cast<uint8[1]>(raw)[0]
-end
-
---- Reads one signed byte.
-function bytes.Reader:readInt8(): int8
-    local raw = take(self.buf, 1)
-    return ffi.cast<int8[1]>(raw)[0]
-end
-
---- Reads a host-endian unsigned 16-bit integer.
-function bytes.Reader:readUint16(): uint16
-    local raw = take(self.buf, 2)
-    return ffi.cast<uint16[1]>(raw)[0]
-end
-
---- Reads a host-endian signed 16-bit integer.
-function bytes.Reader:readInt16(): int16
-    local raw = take(self.buf, 2)
-    return ffi.cast<int16[1]>(raw)[0]
-end
-
---- Reads a host-endian unsigned 32-bit integer.
-function bytes.Reader:readUint32(): uint32
-    local raw = take(self.buf, 4)
-    return ffi.cast<uint32[1]>(raw)[0]
-end
-
---- Reads a host-endian signed 32-bit integer.
-function bytes.Reader:readInt32(): int32
-    local raw = take(self.buf, 4)
-    return ffi.cast<int32[1]>(raw)[0]
-end
-
---- Reads a host-endian unsigned 64-bit integer.
-function bytes.Reader:readUint64(): uint64
-    local raw = take(self.buf, 8)
-    return ffi.cast<uint64[1]>(raw)[0]
-end
-
---- Reads a host-endian signed 64-bit integer.
-function bytes.Reader:readInt64(): int64
-    local raw = take(self.buf, 8)
-    return ffi.cast<int64[1]>(raw)[0]
-end
-
---- Reads a host-endian 32-bit float.
-function bytes.Reader:readFloat32(): float
-    local raw = take(self.buf, 4)
-    return ffi.cast<float[1]>(raw)[0]
-end
-
---- Reads a host-endian 64-bit float.
-function bytes.Reader:readFloat64(): number
-    local raw = take(self.buf, 8)
-    return ffi.cast<number[1]>(raw)[0]
-end
-
---- A cursor for typed writes, appending to a buffer.
-record bytes.Writer
-    buf: string.buffer.Buffer
-end
-
---- Wraps `buf` for typed writes, or starts a fresh buffer when omitted.
----
---- @export
---- @param buf the buffer to append to
---- @return the writer
-function bytes.newWriter(buf: string.buffer.Buffer?): bytes.Writer
-    return new bytes.Writer(buf = buf or buffer.new())
-end
-
---- Appends `s` unchanged.
-function bytes.Writer:writeBytes(s: string): bytes.Writer
-    self.buf:put(s)
-
-    return self
-end
-
---- Writes one unsigned byte.
-function bytes.Writer:writeUint8(v: uint8): bytes.Writer
-    local value = ffi.new("uint8_t[1]", v)
-    self.buf:putcdata(value, 1)
-
-    return self
-end
-
---- Writes one signed byte.
-function bytes.Writer:writeInt8(v: int8): bytes.Writer
-    local value = ffi.new("int8_t[1]", v)
-    self.buf:putcdata(value, 1)
-
-    return self
-end
-
---- Writes a host-endian unsigned 16-bit integer.
-function bytes.Writer:writeUint16(v: uint16): bytes.Writer
-    local value = ffi.new("uint16_t[1]", v)
-    self.buf:putcdata(value, 2)
-
-    return self
-end
-
---- Writes a host-endian signed 16-bit integer.
-function bytes.Writer:writeInt16(v: int16): bytes.Writer
-    local value = ffi.new("int16_t[1]", v)
-    self.buf:putcdata(value, 2)
-
-    return self
-end
-
---- Writes a host-endian unsigned 32-bit integer.
-function bytes.Writer:writeUint32(v: uint32): bytes.Writer
-    local value = ffi.new("uint32_t[1]", v)
-    self.buf:putcdata(value, 4)
-
-    return self
-end
-
---- Writes a host-endian signed 32-bit integer.
-function bytes.Writer:writeInt32(v: int32): bytes.Writer
-    local value = ffi.new("int32_t[1]", v)
-    self.buf:putcdata(value, 4)
-
-    return self
-end
-
---- Writes a host-endian unsigned 64-bit integer.
-function bytes.Writer:writeUint64(v: uint64): bytes.Writer
-    local value = ffi.new("uint64_t[1]", v)
-    self.buf:putcdata(value, 8)
-
-    return self
-end
-
---- Writes a host-endian signed 64-bit integer.
-function bytes.Writer:writeInt64(v: int64): bytes.Writer
-    local value = ffi.new("int64_t[1]", v)
-    self.buf:putcdata(value, 8)
-
-    return self
-end
-
---- Writes a host-endian 32-bit float.
-function bytes.Writer:writeFloat32(v: float): bytes.Writer
-    local value = ffi.new("float[1]", v)
-    self.buf:putcdata(value, 4)
-
-    return self
-end
-
---- Writes a host-endian 64-bit float.
-function bytes.Writer:writeFloat64(v: number): bytes.Writer
-    local value = ffi.new("double[1]", v)
-    self.buf:putcdata(value, 8)
-
-    return self
-end
-
---- The buffer being written to, for `:tostring()`, passing to a C call, or handing off
---- to `bytes.newReader`.
-function bytes.Writer:buffer(): string.buffer.Buffer
-    return self.buf
-end
-
-return bytes
-]=],
 ["/nupp/io/http.nupp"] = [=[
 --[[
 An optional asynchronous HTTP client whose sockets and TLS run in the native
@@ -90654,17 +90764,49 @@ return profile
 ]=],
 ["/nupp/resources.nupp"] = [=[
 --[[
-Owning wrappers for Lua's file handles.
+Owning wrappers for Lua's file handles, and the container that holds a runtime
+number of owners.
 
 `io.open` hands back a borrowed handle, which means nothing has to close it and
 nothing complains when nobody does. These are the same calls annotated as owners,
 so the checker knows a handle must be discharged and lexical cleanup can do it —
 on fallthrough, on error, and on structured control flow alike.
 
+Producing owners and holding them are the two halves of one subject, so they are
+one module. `Set` is the audited exception to the rule that an owner cannot live in
+dynamic storage: its body is the unchecked `nupp.resources.native`, because
+registering owners in a table and discharging them in a loop is exactly what the
+checker refuses, and something has to be trusted for the rest to be checkable.
+Nothing else here needs that trust.
+
 See `docs/ownership.md`.
 ]]
 
 local resources = {}
+
+local native = require("nupp.resources.native")
+
+--- A container for as many owners as a program turns out to need.
+---
+--- `adopt` moves an owner in and returns a borrow tied to the set; `close` discharges
+--- every registration in reverse, attempts all of them, and reports the first failure
+--- with a count of the ones it suppressed.
+---
+--- @export
+type resources.Set = native.Set
+
+--- Creates a set that owns whatever is adopted into it.
+---
+--- The set closes automatically at its lexical boundary, discharging what it still
+--- holds.
+---
+--- @export
+--- @param label what the set is for, in diagnostics; omitted names it "resource"
+--- @return the empty set, owned by the caller
+@owned
+function resources.set(label: string?): resources.Set
+    return native.new(label)
+end
 
 local function close_file(file: LuaFile)
     local ok, reason = file:close()

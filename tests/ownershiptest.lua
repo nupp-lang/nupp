@@ -342,10 +342,10 @@ end
 function M.resourceSetsReifyCleanupOwnersAtOneAuditedBoundary()
    local source = table.concat({
       RESOURCE,
-      "local sets = require('nupp.resource_set')",
+      "local resources = require('nupp.resources')",
       "do",
-      "   local resources = sets.new('requests')",
-      "   local value = resources:adopt(resource_new())",
+      "   local group = resources.set('requests')",
+      "   local value = group:adopt(resource_new())",
       "   print(value.value)",
       "end",
    }, "\n")
@@ -359,15 +359,15 @@ end
 
 function M.resourceSetsRequireAWitnessForOpaqueOwners()
    assertEq(codes(table.concat({
-      "local sets = require('nupp.resource_set')",
+      "local resources = require('nupp.resources')",
       "local record Request",
       "   value: integer",
       "end",
       "@owned(opaque = true)",
       "local function beginRequest(): Request return new Request(value = 1) end",
       "do",
-      "   local resources = sets.new('requests')",
-      "   local request = resources:adopt(beginRequest())",
+      "   local group = resources.set('requests')",
+      "   local request = group:adopt(beginRequest())",
       "end",
    }, "\n")), "NUPP2602")
 end
@@ -375,11 +375,11 @@ end
 function M.resourceSetsCanTransferARegistrationBackOutExactlyOnce()
    assertClean(table.concat({
       RESOURCE,
-      "local sets = require('nupp.resource_set')",
+      "local resources = require('nupp.resources')",
       "do",
-      "   local resources = sets.new('requests')",
-      "   local borrowed = resources:adopt(resource_new())",
-      "   local returned = resources:remove(borrowed)",
+      "   local group = resources.set('requests')",
+      "   local borrowed = group:adopt(resource_new())",
+      "   local returned = group:remove(borrowed)",
       "   drop(returned)",
       "end",
    }, "\n"))
@@ -387,7 +387,7 @@ end
 
 function M.aReifiedWitnessAttemptsEveryCleanupStep()
    local source = table.concat({
-      "local sets = require('nupp.resource_set')",
+      "local resources = require('nupp.resources')",
       "local calls = ''",
       "local record Resource end",
       "local function first(value: Resource)",
@@ -402,8 +402,8 @@ function M.aReifiedWitnessAttemptsEveryCleanupStep()
       "local function open(): Resource return new Resource() end",
       "local ok = pcall(function()",
       "   do",
-      "      local resources = sets.new('test')",
-      "      local value = resources:adopt(open())",
+      "      local group = resources.set('test')",
+      "      local value = group:adopt(open())",
       "      print(value)",
       "   end",
       "end)",

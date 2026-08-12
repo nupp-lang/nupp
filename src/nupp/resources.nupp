@@ -1,15 +1,47 @@
 --[[
-Owning wrappers for Lua's file handles.
+Owning wrappers for Lua's file handles, and the container that holds a runtime
+number of owners.
 
 `io.open` hands back a borrowed handle, which means nothing has to close it and
 nothing complains when nobody does. These are the same calls annotated as owners,
 so the checker knows a handle must be discharged and lexical cleanup can do it —
 on fallthrough, on error, and on structured control flow alike.
 
+Producing owners and holding them are the two halves of one subject, so they are
+one module. `Set` is the audited exception to the rule that an owner cannot live in
+dynamic storage: its body is the unchecked `nupp.resources.native`, because
+registering owners in a table and discharging them in a loop is exactly what the
+checker refuses, and something has to be trusted for the rest to be checkable.
+Nothing else here needs that trust.
+
 See `docs/ownership.md`.
 ]]
 
 local resources = {}
+
+local native = require("nupp.resources.native")
+
+--- A container for as many owners as a program turns out to need.
+---
+--- `adopt` moves an owner in and returns a borrow tied to the set; `close` discharges
+--- every registration in reverse, attempts all of them, and reports the first failure
+--- with a count of the ones it suppressed.
+---
+--- @export
+type resources.Set = native.Set
+
+--- Creates a set that owns whatever is adopted into it.
+---
+--- The set closes automatically at its lexical boundary, discharging what it still
+--- holds.
+---
+--- @export
+--- @param label what the set is for, in diagnostics; omitted names it "resource"
+--- @return the empty set, owned by the caller
+@owned
+function resources.set(label: string?): resources.Set
+    return native.new(label)
+end
 
 local function close_file(file: LuaFile)
     local ok, reason = file:close()

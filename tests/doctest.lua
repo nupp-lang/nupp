@@ -787,17 +787,23 @@ function M.standardResourcesApiHasCompleteDocumentation()
    assert(#errors == 0)
    assert(module.text ~= "", "nupp.resources has no module documentation")
 
+   -- Only the openers reach an operation that can fail; handing back an empty set
+   -- cannot, so a documented failure condition is required of the three that can.
    local expected = {
-      ["resources.openFile"] = true,
-      ["resources.openProcess"] = true,
-      ["resources.temporaryFile"] = true,
+      ["resources.openFile"] = "raises",
+      ["resources.openProcess"] = "raises",
+      ["resources.temporaryFile"] = "raises",
+      ["resources.set"] = "function",
+      ["Set"] = "type",
    }
-   assert(#module.items == 3, "nupp.resources must document exactly three functions")
+   assert(#module.items == 5, "nupp.resources must document exactly its public surface")
    for _, item in ipairs(module.items) do
       local prefix = item.path
-      assert(expected[item.name], prefix .. " is not part of the public API")
+      local want = expected[item.name]
+      assert(want, prefix .. " is not part of the public API")
       expected[item.name] = nil
-      assert(item.kind == "function", prefix .. " is not documented as a function")
+      assert(item.kind == (want == "type" and "type" or "function"),
+         prefix .. " is not documented as a " .. (want == "type" and "type" or "function"))
       assert(item.doc.text ~= "", prefix .. " has no documentation")
       for _, param in ipairs(item.params) do
          assert(param.text ~= "", prefix .. " parameter " .. param.name
@@ -807,9 +813,11 @@ function M.standardResourcesApiHasCompleteDocumentation()
          assert(result.text ~= "", prefix .. " return " .. index
             .. " has no documentation")
       end
-      assert(#item.raises > 0, prefix .. " has no documented failure condition")
+      if want == "raises" then
+         assert(#item.raises > 0, prefix .. " has no documented failure condition")
+      end
    end
-   assert(next(expected) == nil, "nupp.resources is missing a public function")
+   assert(next(expected) == nil, "nupp.resources is missing part of its public API")
 end
 
 function M.hidesPrivateMembersUnlessExplicitlyIncluded()

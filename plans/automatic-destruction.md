@@ -136,12 +136,12 @@ satisfied prerequisites rather than pending work in this rollout:
 | `AD-S2` ordinary cleanup facts | `OH-S1`, `OH-S2`, and `OH-S3` | Moves, generic forwarding, narrowing, packs, projections, and module transport must preserve the same obligation. |
 | `AD-S2` aggregate cleanup | `OH-S5` | Optional and partially moved aggregate exits need path-sensitive affine-field state. |
 | `AD-S3` handled cancellation | the proof-closure kernel of `OH-S8` | A parked continuation needs checked eventual resume or cancellation before lexical cleanup can be promised. |
-| Final integration regressions | `OH-S6` and `OH-S12` | `ResourceSet.adopt` and deterministic ownership-audit output must compose with automatic cleanup. |
+| Final integration regressions | `OH-S6` and `OH-S12` | `resources.Set.adopt` and deterministic ownership-audit output must compose with automatic cleanup. |
 
 The deferred `OH-S8` structured-child capability is not a prerequisite.
 Automatic destruction cleans a continuation when the implemented handler
 resumes or cancels it; it does not make an unjoined child borrowing a parent
-scope safe. Likewise, `ResourceSet` is needed for the final composition test,
+scope safe. Likewise, `resources.Set` is needed for the final composition test,
 not for the erased representation or common lowering of an ordinary owner.
 
 If any prerequisite is absent on another branch, the dependent `AD-` stage is
@@ -235,7 +235,7 @@ local request = beginRequest()
 ```
 
 The compiler must never guess which terminal operation the application meant.
-A `ResourceSet` may continue to adopt an opaque owner only with an explicit
+A `resources.Set` may continue to adopt an opaque owner only with an explicit
 matching terminal consumer.
 
 ### Destruction is not successful finalization
@@ -663,7 +663,7 @@ obligations. Keep the explicit rule until that protocol has its own decision.
 - fallthrough, return, break, continue, outward `goto`, and raised error;
 - acquisition failure after zero, one, and several successful acquisitions;
 - reverse owner order and forward per-owner cleanup order;
-- explicit drop, `takes`, owning return, `ResourceSet.adopt`, and
+- explicit drop, `takes`, owning return, `resources.Set.adopt`, and
   `intoRaw` suppress exactly one automatic cleanup;
 - optional owner nil/present paths;
 - partially moved affine records;

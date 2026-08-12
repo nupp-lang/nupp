@@ -924,8 +924,8 @@ capture borrows only because its callee proves that callback cannot escape.
 `@owned(cleanup)` may decorate a function-valued record or interface field so a
 bodyless API can declare a fresh owning result without a wrapper.
 
-Affine nominal fields have path-sensitive live/moved state. A `ResourceSet`
-from `nupp.resource_set` is the checked escape hatch for a dynamic number of
+Affine nominal fields have path-sensitive live/moved state. A `Set` from
+`nupp.resources` is the checked escape hatch for a dynamic number of
 owners, and `nupp.span` supplies rooted, bounds-checked byte views. Raw or
 unknown coroutine suspension still cannot cross an obligation; checked handled
 suspension may do so only through its cancellation contract.

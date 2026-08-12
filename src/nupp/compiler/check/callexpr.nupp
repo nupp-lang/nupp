@@ -1315,14 +1315,14 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     end
                     node.resourceCapability = adopted
                 else
-                    c.diag("NUPP2602", actualArgs[1] or node, "ResourceSet.adopt requires an owned value")
+                    c.diag("NUPP2602", actualArgs[1] or node, "resources.Set.adopt requires an owned value")
                 end
             elseif owner.tag == "nominal" and owner.resourceSet and member.text == "remove" then
                 local actualArgs = node.args and node.args.kind == "args" and node.args.exprs or {}
                 local entry, nameNode = actualArgs[1] and c.ownershipEntry(actualArgs[1]) or nil
                 entry = c.ownershipState(entry)
                 if not entry or not entry.resourceCapability or entry.moved then
-                    c.diag("NUPP2602", actualArgs[1] or node, "ResourceSet.remove needs a live value returned by adopt")
+                    c.diag("NUPP2602", actualArgs[1] or node, "resources.Set.remove needs a live value returned by adopt")
                 else
                     local capability = entry.resourceCapability
                     entry.moved = true
