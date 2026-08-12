@@ -131,6 +131,59 @@ function M.interfaceCutoffAcrossModules()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.countedPointerLogicalSignaturesCrossModuleSummaries()
+   local dir = os.tmpname()
+   os.remove(dir)
+   os.execute("mkdir -p '" .. dir .. "'")
+   local depPath = dir .. "/native.nupp"
+   local mainPath = dir .. "/main.nupp"
+   local function write(path, source)
+      local file = assert(io.open(path, "wb"))
+      file:write(source)
+      file:close()
+   end
+   local dependency = table.concat({
+      "cdef function counted_copy(",
+      "   borrows output: int32* countedBy(count),",
+      "   borrows input: const int32* countedBy(count),",
+      "   count: uint64",
+      ") from'missing-counted-fixture'",
+      "local bodyOnly = 1",
+      "return { copy = counted_copy, bodyOnly = bodyOnly }",
+   }, "\n")
+   write(depPath, dependency)
+   write(mainPath, table.concat({
+      "local native = require('native')",
+      "local spans = require('nupp.span')",
+      "local output = ffi.new<int32[4]>()",
+      "local input = ffi.new<int32[4]>()",
+      "local writer = spans.writeCarray(output, 4)",
+      "local reader = spans.fromCarray(input, 4)",
+      "native.copy(writer, reader)",
+      "writer:commit()",
+   }, "\n"))
+
+   local inc = incremental.new(dir)
+   assertEq(#inc.checkFile(mainPath).diags, 0,
+      "a consumer sees the exported logical span signature")
+   local coldChecks = inc.q.stats.checkModule
+   assertEq(coldChecks, 2, "the declaration and consumer check cold")
+
+   inc.changeDocument(depPath, dependency:gsub("bodyOnly = 1", "bodyOnly = 2"))
+   assertEq(#inc.checkFile(mainPath).diags, 0,
+      "the logical signature survives a dependency body edit")
+   assertEq(inc.q.stats.checkModule, coldChecks + 1,
+      "the unchanged counted-pointer interface cuts off its consumer")
+
+   inc.persist()
+   local warm = incremental.new(dir)
+   assertEq(#warm.checkFile(mainPath).diags, 0,
+      "a fresh graph reconstructs the counted-pointer module interface")
+   assert(warm.headerStore.stats.hits >= 2,
+      "the fresh graph reads both module headers from the persistent cache")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.derivePlansMemoizeAndPublishBehaviorChanges()
    local dir = os.tmpname()
    os.remove(dir)

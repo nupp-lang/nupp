@@ -3,6 +3,7 @@ local check = require("fragment")
 local gen = require("nupp.compiler.gen")
 local envMod = require("nupp.compiler.env")
 local windows = require("ffi").os == "Windows"
+local hostOs = require("ffi").os
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 
 local function assertEq(got, want, label)
@@ -36,8 +37,14 @@ end
 
 local function run(src)
    local code, diags, genDiags = compile(src)
+   local messages = {}
+   for _, diagnostic in ipairs(diags) do
+      messages[#messages + 1] = diagnostic.code .. ":" .. diagnostic.line
+         .. ": " .. diagnostic.msg
+   end
    assertEq(#diags, 0, "check diagnostics"
-      .. (diags[1] and (": " .. diags[1].msg) or ""))
+      .. (#messages > 0 and (":\n" .. table.concat(messages, "\n")
+         .. "\n--- source ---\n" .. src) or ""))
    assertEq(#genDiags, 0, "gen diagnostics")
    local chunk, err = loadstring(code, "@cdeftest")
    if not chunk then
@@ -93,6 +100,125 @@ function M.countedPointersBuildOneCheckedWrapperOverThePhysicalBinding()
    assert(code:find("velocities:ref()", 1, true), code)
    assert(code:find("__nuppFfi.C.counted_integrate", 1, true), code)
    assert(not code:find("if positions.count==0", 1, true), "zero count must still call C:\n" .. code)
+end
+
+function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
+   if windows then return end
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+   local suffix = hostOs == "OSX" and ".dylib" or ".so"
+   local library = dir .. "/libcounted_pointer" .. suffix
+   local shared = hostOs == "OSX" and "-dynamiclib" or "-shared"
+   local fixture = HERE .. "/fixtures/counted_pointer.c"
+   local built = os.execute((
+      "clang -std=c11 -O2 -Wall -Wextra -Werror -fPIC %s '%s' -o '%s'"
+   ):format(shared, fixture, library))
+   assertEq(built, 0, "build counted-pointer fixture")
+
+   local declaration = table.concat({
+      "local spans = require('nupp.span')",
+      "cdef function counted_pointer_reset() from\"" .. library .. "\"",
+      "cdef function counted_pointer_call_count(): uint64 from\"" .. library .. "\"",
+      "cdef function counted_pointer_transform(",
+      "   borrows output: int32* countedBy(count),",
+      "   borrows input: const int32* countedBy(count),",
+      "   count: uint64",
+      ") from\"" .. library .. "\"",
+      "cdef function counted_pointer_independent(",
+      "   borrows output: int32* countedBy(outputCount), outputCount: uint64,",
+      "   borrows input: const int32* countedBy(inputCount), inputCount: uint64",
+      ") from\"" .. library .. "\"",
+   }, "\n")
+   local source = declaration .. "\n" .. table.concat({
+      "local input = ffi.new<int32[6]>()",
+      "local output = ffi.new<int32[6]>()",
+      "for i = 0, 5 do input[i] = (i + 1) as int32 end",
+      "counted_pointer_reset()",
+      "do",
+      "   local writer = spans.writeCarray(output, 6)",
+      "   do",
+      "      local parts = writer:splitAt(1)",
+      "      local readable = spans.fromCarray(input, 6):slice(2, 6)",
+      "      counted_pointer_transform(parts.right, readable)",
+      "   end",
+      "   writer:commit()",
+      "end",
+      "local offsetFirst, offsetLast: int32, int32",
+      "do",
+      "   local transformed = spans.fromCarray(output, 6)",
+      "   offsetFirst, offsetLast = transformed:get(2), transformed:get(6)",
+      "end",
+      "local transformCalls = counted_pointer_call_count()",
+      "counted_pointer_reset()",
+      "do",
+      "   local emptyOutput = spans.writeCarray(output, 0)",
+      "   local emptyInput = spans.fromCarray(input, 0)",
+      "   counted_pointer_transform(emptyOutput, emptyInput)",
+      "   emptyOutput:commit()",
+      "end",
+      "local zeroCalls = counted_pointer_call_count()",
+      "counted_pointer_reset()",
+      "do",
+      "   local independentOutput = spans.writeCarray(output, 3)",
+      "   local independentInput = spans.fromCarray(input, 5)",
+      "   counted_pointer_independent(independentOutput, independentInput)",
+      "   independentOutput:commit()",
+      "end",
+      "local outputCount, inputCount, inputFirst: int32, int32, int32",
+      "do",
+      "   local independent = spans.fromCarray(output, 3)",
+      "   outputCount, inputCount, inputFirst = independent:get(1), independent:get(2), independent:get(3)",
+      "end",
+      "local sharedStorage = ffi.new<int32[2]>()",
+      "local sharedOutput = ffi.new<int32[2]>()",
+      "sharedStorage[0], sharedStorage[1] = 7 as int32, 8 as int32",
+      "do",
+      "   local sourceWriter = spans.writeCarray(sharedStorage, 2)",
+      "   local destinationWriter = spans.writeCarray(sharedOutput, 2)",
+      "   do",
+      "      local sourceReader = sourceWriter:shared()",
+      "      counted_pointer_transform(destinationWriter, sourceReader)",
+      "   end",
+      "   destinationWriter:commit()",
+      "   sourceWriter:commit()",
+      "end",
+      "local sharedRead = spans.fromCarray(sharedOutput, 2)",
+      "return offsetFirst, offsetLast, transformCalls, zeroCalls,",
+      "   outputCount, inputCount, inputFirst, sharedRead:get(1), sharedRead:get(2)",
+   }, "\n")
+
+   local ok, a, b, calls, zeroCalls, outputCount,
+      inputCount, inputFirst, sharedFirst, sharedLast = pcall(run, source)
+   if not ok then
+      os.execute("rm -rf '" .. dir .. "'")
+      error(a, 0)
+   end
+   assertEq(tonumber(a), 12, "sliced input starts at its adjusted pointer")
+   assertEq(tonumber(b), 16, "partitioned output reaches its adjusted last element")
+   assertEq(tonumber(calls), 1, "ordinary counted call reaches C once")
+   assertEq(tonumber(zeroCalls), 1, "zero-count call reaches C exactly once")
+   assertEq(tonumber(outputCount), 3, "first independent count reaches C")
+   assertEq(tonumber(inputCount), 5, "second independent count reaches C")
+   assertEq(tonumber(inputFirst), 1, "independent read pointer reaches C")
+   assertEq(tonumber(sharedFirst), 17, "a shared downgrade is accepted as const input")
+   assertEq(tonumber(sharedLast), 18, "shared downgrade preserves its full range")
+
+   local transform = run(declaration .. "\nreturn counted_pointer_transform")
+   local spans = require("nupp.span")
+   local ffi = require("ffi")
+   local output = ffi.new("int32_t[1]")
+   local input = ffi.new("int32_t[2]")
+   local shortOutput = spans.writeCarray(output, 1)
+   local longInput = spans.fromCarray(input, 2)
+   local reset = ffi.load(library).counted_pointer_reset
+   local callCount = ffi.load(library).counted_pointer_call_count
+   reset()
+   local unequalOk = pcall(transform, shortOutput, longInput)
+   assertEq(unequalOk, false, "unequal shared counts raise before C")
+   assertEq(tonumber(callCount()), 0, "unequal shared counts never enter C")
+   shortOutput:commit()
+   os.execute("rm -rf '" .. dir .. "'")
 end
 
 function M.countedPointersRejectContractsTheyCannotLowerSafely()

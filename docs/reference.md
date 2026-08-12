@@ -841,55 +841,42 @@ Reports: `NUPP2001`. `nupp explain <code>` says more.
 
 ### Owned resources
 
-`@owned(cleanup)` says a result carries a cleanup obligation. An ordinary local
-with known cleanup is destroyed automatically at its lexical scope boundary.
-Dropping it, passing it to a `takes` parameter, returning it as an owner, or
-converting it with `intoRaw` ends or transfers that responsibility exactly once.
-An opaque or otherwise unresolved owner still requires an explicit terminal;
-forgetting that choice is a compile error, not a leak.
+`@owned(cleanup)` gives a result a cleanup obligation. A known local is destroyed
+at scope exit. Drop, `takes`, an owning return, or `intoRaw` ends or transfers it
+once. An unresolved owner needs an explicit terminal; forgetting is an error,
+not a leak.
 
-Parameter modes say what a call does with what it is given: `takes` consumes,
-`borrows` does not (and the borrow cannot escape), `exclusive` borrows with no
-other view live, and `retains`/`releases` describe C holding a pointer across a
-call.
+Parameter modes describe calls: `takes` consumes; `borrows` is call-scoped;
+`exclusive` also requires sole access; `retains`/`releases` describe C holding a
+pointer across calls.
 
-`T preserves value` on a result transports the exact capability of that
-parameter through scalar generic narrowing. `T borrows (source)` ties a result,
-or a nominal record field, to its named root. A closure literal borrows captured
-ownership values by default; its callable capability is borrowed and its exact
-roots travel as value-flow provenance. `borrows (source)` declares or pins that
-relation. `takes (source)` instead moves the owner into an affine, single-shot
-closure whose call or lexical drop discharges the capture. A `scoped` callback
-parameter accepts a borrow-carrying closure because its callee proves that
-callback cannot escape. `@owned(cleanup)` may decorate a function-valued record
-or interface field so a bodyless API can declare a fresh owning result without
-a wrapper.
+`T preserves value` transports a parameter's exact capability through scalar
+generic narrowing. `T borrows (source)` ties a result or nominal field to a
+root. Closures borrow captured owners by default; `borrows (source)` declares
+that relation. `takes (source)` moves an owner into an affine, single-shot
+closure whose call or drop discharges it. A `scoped` callback proves borrowed
+captures cannot escape. `@owned(cleanup)` on a callable field declares a fresh
+owning result.
 
-Affine nominal fields have path-sensitive state. `nupp.resources.Set` holds a
-dynamic number of owners. `nupp.span` provides rooted generic `Span<T>` and
-affine `WriteSpan<T>` views; `nupp.heap.allocate` provides owned malloc-backed
-`Array<T>` values whose immutable count moves with their private pointer. Raw
-or unknown suspension cannot cross an obligation; checked handled
-suspension may only through its cancellation contract.
+Affine nominal fields have path-sensitive state. `nupp.resources.Set` holds
+dynamic owners. `nupp.span` gives rooted `Span<T>` and affine `WriteSpan<T>`
+views; `nupp.heap.allocate` gives `Array<T>` whose immutable count moves with its
+private pointer. Raw or unknown suspension cannot cross an obligation; handled
+suspension requires its cancellation contract.
 
-Writable spans support `splitAt(mid)`, where `mid` is a zero-based element
-count. It produces sibling `left` and `right` writable regions whose exclusive
-uses do not overlap; ancestors and descendants still do. `countedBy(count)` on
-a borrowed cdef pointer maps its physical pointer/count pair to a logical
-checked span parameter and emits equality checks, offset-aware projections, and
-one physical call. Const pointers become shared spans and mutable pointers
-become writable spans.
+`WriteSpan.splitAt(mid)` produces disjoint sibling regions. `countedBy(count)`
+maps borrowed cdef pointer/count parameters to checked spans. The wrapper checks
+shared lengths, projects slice-adjusted pointers, and calls C once even at zero
+count. Const pointers use `Span<T>`; mutable pointers use `WriteSpan<T>`.
 
 Lifetime alone does not prove a C pointer index is in bounds. Direct pointer or
 variable-length C-array indexing therefore requires `unsafe`; use `nupp.span`
 when a runtime count is available. A fixed C array rejects a statically
 out-of-range literal and inserts a runtime guard for a non-literal index.
 
-The ownership intrinsics live under the always-available `nupp` global:
-`nupp.drop`, `nupp.borrow`, `nupp.intoRaw`, `nupp.fromRaw`,
-`nupp.borrowFrom`, and `nupp.pin`. The old bare spellings remain aliases and
-lower identically. Either spelling is shadowed by a binding of that name,
-`nupp` included.
+Ownership intrinsics are `nupp.drop`, `nupp.borrow`, `nupp.intoRaw`,
+`nupp.fromRaw`, `nupp.borrowFrom`, and `nupp.pin`. Bare aliases lower identically.
+Any local spelling, including `nupp`, shadows them.
 
 ```nupp
 local m = {}
@@ -1591,6 +1578,7 @@ says more.
 - **NUPP2206**: Only a record or a struct can be constructed.
 - **NUPP2207**: A binding is read before it holds a value.
 - **NUPP2208**: A constructor does not hold up its declaration.
+- **NUPP2209**: A private record field is used outside its module.
 - **NUPP2504**: An operator uses its customary C-style spelling.
 - **NUPP2506**: A documented function can raise without saying when.
 - **NUPP2507**: A local is declared and nothing reads it.
@@ -1603,6 +1591,7 @@ says more.
 - **NUPP2603**: An ownership obligation is not discharged or cannot escape.
 - **NUPP2605**: Adjusting a value pack would discard an affine value.
 - **NUPP2615**: An owned value names an invalid cleanup operation.
+- **NUPP2630**: A counted C pointer does not match its physical count parameter.
 - **NUPP2701**: A non-suspending region can reach suspension.
 - **NUPP2702**: A non-yieldable C callback can reach suspension.
 - **NUPP2706**: Control cannot jump into a handled suspension region.
