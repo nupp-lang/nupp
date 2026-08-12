@@ -51,13 +51,6 @@ work makes sense in.
       a CLI without knowing which it is in. Nominal methods carry suspension
       guarantees through incremental interfaces, and structured exits from a
       handled region reuse the ownership cleanup protocol.
-- [ ] **HTTP client** ([design](http.md)): optional `nupp.io.http` over a
-      feature-gated Reqwest/Tokio provider. Preserve direct string, byte-view,
-      buffer and file paths; make responses progressive `Reader` values; use
-      bounded per-transfer queues and deduplicated readiness tokens rather than
-      per-chunk events. Benchmark warm small requests and 256 MiB streams as
-      landing gates.
-
 ## FFI and the C boundary
 
 - [ ] **`import-c` stops at the file it was pointed at.** One boundary
