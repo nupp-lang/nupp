@@ -64,8 +64,8 @@ record resources.Set
     --- @param terminal what discharges an opaque owner, which carries no contract
     --- @return the adopted value, borrowed from the set
     --- @raises when the set is already closed, or adoption carries no witness
-    --- Declared rather than defined here: a `borrows` result does not survive on an
-    --- inline method, and a caller would receive the raw value instead of a borrow.
+    --- Declared rather than defined here: an inline method whose body returns through
+    --- a cast loses its `borrows` result, and the caller receives the raw value.
     adopt: function<T>(self: resources.Set, takes value: T, terminal: function(takes value: T)?): T borrows (self)
 
     --- Deletes one registration and returns the original capability exactly once.

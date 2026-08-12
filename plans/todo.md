@@ -57,17 +57,23 @@ work makes sense in.
       a CLI without knowing which it is in. Nominal methods carry suspension
       guarantees through incremental interfaces, and structured exits from a
       handled region reuse the ownership cleanup protocol.
-- [ ] **A `borrows` result does not survive on an inline method.** A member
-      declared `lend: function(self: H, item: thing*): thing* borrows (self)` and
-      defined below it hands the caller a borrow; the same signature written as
-      an inline `function lend(self, item: thing*): thing* borrows (self)` hands
-      back the raw value, and the first dereference reports NUPP2604. The
-      declaration is accepted either way, so nothing points at the method — the
-      error lands on the caller. `resources.Set.adopt` is declared and defined
-      separately for this reason while its sibling `remove`, which returns no
-      borrow, is inline. Same shape as the parameter modes fixed in
-      675c6de6: the receiver an inline method does not spell is missing where
-      the clause is resolved.
+- [ ] **An inline method's `borrows` result is lost when its body returns
+      through a cast.** Two records, the same signature
+      `lend: function(self: H): thing* borrows (self)` and the same body
+      `return self.slot as thing*`. Declared as a member and defined below it,
+      a caller gets a borrow. Written as an inline `function lend(self)`, the
+      caller gets the raw value and its first dereference reports NUPP2604.
+      Nothing points at the method.
+
+      The parts that look guilty are not. `nupp lsp inspect` prints the same
+      member type both ways, `function(self: H): borrowed<thing*>`, so the
+      recorded signature is right. Generics are not involved. Neither is the
+      method being inline on its own: an inline body returning `self.slot`
+      without a cast keeps the borrow. It is the combination, and the call site
+      is where the qualifier goes missing, so look at how a method call types its
+      result when the callee is an inline definition rather than a declared
+      member. `resources.Set.adopt` is declared and defined apart because of
+      this; its sibling `remove`, which returns no borrow, is inline.
 
 ## FFI and the C boundary
 
