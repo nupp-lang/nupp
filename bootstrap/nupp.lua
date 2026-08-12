@@ -5065,6 +5065,8 @@ typeFingerprint (
 result . moduleType
 ) .. "\0deprecated\0" .. exportDeprecationsFingerprint (
 result . exports
+) .. "\0nominal-callables:" .. (
+result . exports . nominalEffectFingerprint or ""
 ) .. ( external and ( "\0" .. sourceHash ) or "" )
 ) , artifactHash = artifactHash , dependencies = jsonArray (
 depNames
@@ -8325,6 +8327,8 @@ local metatable = require ( "nupp.compiler.check.metatable" )
 local cst = require ( "nupp.compiler.cst" )
 local annotationMod = require ( "nupp.compiler.annotations" )
 local state = require ( "nupp.compiler.check.state" )
+local generics = require ( "nupp.compiler.generics" )
+local methodslots = require ( "nupp.compiler.methodslots" )
 
 local checkMod = { }
 
@@ -8655,6 +8659,171 @@ end
 
 
 
+
+
+local function finalizeNominalEffects ( c )
+local function matchingSurface ( entry , surface , static )
+if not surface then
+return nil
+end
+local candidates = surface . tag == "intersection" and surface . members or { surface }
+for _ , candidate in ipairs ( candidates ) do
+local callable = static and candidate or generics . dropSelf ( candidate )
+if callable . tag == "func" and methodslots . parameters ( callable ) == entry . parameterKey then
+return candidate
+end
+end
+
+return # candidates == 1 and candidates [ 1 ] or nil
+end
+
+local function qualifyEntry ( entry , surface )
+local declaration = entry and entry . declaration
+local body = declaration and declaration . body
+if not body then
+return surface or entry and entry . signature
+end
+
+
+
+
+local qualified = qualifyExport ( surface or entry . signature , body )
+entry . signature = qualified
+if entry . definition then
+entry . definition . type = qualified
+end
+
+return qualified
+end
+
+for ownerType in pairs ( c . nominalEffectOwners or { } ) do
+local owner = ownerType
+for name , entries in pairs ( owner . methodDispatchEntries or { } ) do
+local members , seen = { } , { }
+local surface = owner . byname [ name ]
+for _ , entry in ipairs ( entries ) do
+local qualified = qualifyEntry ( entry , matchingSurface ( entry , surface , false ) )
+if qualified and not seen [ entry . member ] then
+seen [ entry . member ] = true
+members [ # members + 1 ] = qualified
+end
+end
+if # members > 0 then
+local combined = # members == 1 and members [ 1 ] or T . intersection ( members )
+owner . byname [ name ] = combined
+owner . writeByname [ name ] = combined
+end
+end
+for name , entries in pairs ( owner . staticEntries or { } ) do
+local members = { }
+local surface = owner . staticByname [ name ]
+for _ , entry in ipairs ( entries ) do
+members [ # members + 1 ] = qualifyEntry ( entry , matchingSurface ( entry , surface , true ) )
+end
+if # members > 0 then
+local combined = # members == 1 and members [ 1 ] or T . intersection ( members )
+owner . staticByname [ name ] = combined
+owner . staticWriteByname [ name ] = combined
+end
+end
+end
+
+
+
+for _ , entry in ipairs ( c . nominalEffectEntries or { } ) do
+local qualified = qualifyExport ( entry . signature , entry . body )
+local reads = entry . static and entry . owner . staticByname or entry . owner . byname
+local writes = entry . static and entry . owner . staticWriteByname or entry . owner . writeByname
+reads [ entry . member ] = qualified
+writes [ entry . member ] = qualified
+if entry . definition then
+entry . definition . type = qualified
+end
+end
+
+
+
+
+
+local parts , seen = { } , { }
+local function effect ( t , method )
+if not t then
+return nil
+end
+if t . tag == "func" then
+local callable = method and generics . dropSelf ( t ) or t
+return methodslots . parameters ( callable ) .. "=" .. ( t . noYield and "quiet" or "may-yield" )
+end
+if t . tag == "intersection" then
+local members = { }
+for _ , member in ipairs ( t . members or { } ) do
+if member . tag ~= "func" then
+return nil
+end
+local callable = method and generics . dropSelf ( member ) or member
+members [
+# members + 1
+] = methodslots . parameters ( callable ) .. "=" .. ( member . noYield and "quiet" or "may-yield" )
+end
+table . sort ( members )
+return # members > 0 and table . concat ( members , "," ) or nil
+end
+
+return nil
+end
+
+local function visit ( nominal , path )
+if seen [ nominal ] then
+return
+end
+seen [ nominal ] = true
+local function record ( which , members , method )
+local names = { }
+for name , member in pairs ( members ) do
+if effect ( member , method ) then
+names [ # names + 1 ] = name
+end
+end
+table . sort ( names )
+for _ , name in ipairs ( names ) do
+local answer = effect ( members [ name ] , method )
+if answer then
+parts [ # parts + 1 ] = path .. ":" .. which .. ":" .. name .. "=" .. answer
+end
+end
+end
+
+record ( "byname" , nominal . byname or { } , true )
+record ( "staticByname" , nominal . staticByname or { } , false )
+local nested = { }
+for name in pairs ( nominal . nestedTypes or { } ) do
+nested [ # nested + 1 ] = name
+end
+table . sort ( nested )
+for _ , name in ipairs ( nested ) do
+local child = nominal . nestedTypes [ name ]
+if child and child . tag == "nominal" then
+visit ( child , path .. "." .. name )
+end
+end
+end
+
+local names = { }
+for name in pairs ( c . moduleExports . types or { } ) do
+names [ # names + 1 ] = name
+end
+table . sort ( names )
+for _ , name in ipairs ( names ) do
+local exported = c . moduleExports . types [ name ]
+if exported . tag == "nominal" then
+visit ( exported , name )
+end
+end
+c . moduleExports . nominalEffectFingerprint = table . concat ( parts , "\0" )
+end
+
+
+
 function checkMod . check (
 result ,
 filename ,
@@ -8723,7 +8892,7 @@ pending = { } ,
 automaticOwners = { } ,
 depth = 0 ,
 parent = nil
-} ,  retStack =  { } ,  retPackStack =  { } ,  ownReturnStack =  { } ,  borrowReturnStack =  { } ,  varargPackStack =  { } ,  yieldPackStack =  { } ,  resumePackStack =  { } ,  protocolStack =  { } ,  dropOperationFieldStack =  { } ,  validatedCleanupContracts =  { } ,  unsafeDepth =  0 ,  noSuspendDepth =  0 ,  handledDepth =  0 ,  functionDepth =  0 ,  scopedCaptureDepth =  0 ,  closureCaptureStack =  { } ,  captureWatches =  { } ,  allowed =  { } ,  nextStat =  nil ,  hoisting =  false ,  resolvingAlias =  { } ,  activeAlias =  nil ,  lastCallRets =  nil ,  moduleFields =  { } ,  moduleFieldTokens =  { } ,  moduleFieldDefs =  { } ,  moduleFieldConst =  { } ,  moduleFieldValues =  { } ,  constModulePaths =  { } ,  moduleLocalAnnotated =  false }, state.Checker)
+} ,  retStack =  { } ,  retPackStack =  { } ,  ownReturnStack =  { } ,  borrowReturnStack =  { } ,  varargPackStack =  { } ,  yieldPackStack =  { } ,  resumePackStack =  { } ,  protocolStack =  { } ,  dropOperationFieldStack =  { } ,  validatedCleanupContracts =  { } ,  unsafeDepth =  0 ,  noSuspendDepth =  0 ,  handledDepth =  0 ,  functionDepth =  0 ,  scopedCaptureDepth =  0 ,  closureCaptureStack =  { } ,  captureWatches =  { } ,  allowed =  { } ,  nextStat =  nil ,  hoisting =  false ,  resolvingAlias =  { } ,  activeAlias =  nil ,  lastCallRets =  nil ,  moduleFields =  { } ,  moduleFieldTokens =  { } ,  moduleFieldDefs =  { } ,  moduleFieldConst =  { } ,  moduleFieldValues =  { } ,  nominalEffectOwners =  { } ,  nominalEffectEntries =  { } ,  constModulePaths =  { } ,  moduleLocalAnnotated =  false }, state.Checker)
 c . rootScope = c . scope
 c . moduleExports . valueDefs = c . moduleExports . valueDefs or { }
 
@@ -9892,6 +10061,7 @@ block . automaticDirect = owner
 end
 end
 end
+finalizeNominalEffects ( c )
 finalizeBoundary ( c )
 
 
@@ -12382,6 +12552,7 @@ nil ,
 { help = ( "call it with `%s.%s(...)`" ) : format ( owner . name , member . text ) }
 )
 local first , rets , pack = c . inferCall ( node , static , node . args )
+c . nosuspend . call ( node )
 c . lastCallRets = rets
 node . valuePack = pack or ( rets and T . pack ( rets ) or T . pack ( { } , { kind = "unknown" , type = T . any } ) )
 return first
@@ -12407,6 +12578,7 @@ member . additionalDefinitions = fieldDefs
 
 local methodType = callable and specializeReceiver ( mt , ot ) or mt
 local first , rets , pack = c . inferCall ( node , callable and dropSelf ( methodType ) or methodType , node . args )
+c . nosuspend . call ( node )
 local owner = rawType ( ot )
 node . overloadMember = pegReplacementMember (
 ot ,
@@ -12436,7 +12608,11 @@ local actualArgs = node . args and node . args . kind == "args" and node . args 
 local entry , nameNode = actualArgs [ 1 ] and c . ownershipEntry ( actualArgs [ 1 ] ) or nil
 entry = c . ownershipState ( entry )
 if not entry or not entry . resourceCapability or entry . moved then
-c . diag ( "NUPP2602" , actualArgs [ 1 ] or node , "resources.Set.remove needs a live value returned by adopt" )
+c . diag (
+"NUPP2602" ,
+actualArgs [ 1 ] or node ,
+"resources.Set.remove needs a live value returned by adopt"
+)
 else
 local capability = entry . resourceCapability
 entry . moved = true
@@ -12531,6 +12707,7 @@ end
 if node . args then
 c . inferCall ( node , T . any , node . args )
 end
+c . nosuspend . call ( node )
 
 
 
@@ -14972,9 +15149,7 @@ for _ , entry in pairs ( scope . vars or { } ) do
 local state = ownershipState ( entry )
 if state and state . ownership and not seen [ state ] then
 seen [ state ] = true
-snapshot [
-# snapshot + 1
-] = { state = state , moved = state . moved or false , movedAt = state . movedAt }
+snapshot [ # snapshot + 1 ] = { state = state , moved = state . moved or false , movedAt = state . movedAt }
 end
 end
 scope = scope . parent
@@ -15029,17 +15204,13 @@ if missing then
 c . diag ( "NUPP2619" , stat . exprs [ j ] or stat , "cannot prove all declared borrowed-result sources" )
 end
 end
-if ownershipKind ( valueT ) == "borrowed" and not (
-j == 1 and c . borrowReturnStack [ # c . borrowReturnStack ]
-) then
+if ownershipKind ( valueT ) == "borrowed" and not ( j == 1 and c . borrowReturnStack [ # c . borrowReturnStack ] ) then
 local expr = stat . exprs [ j ] or stat
 local ownCode = c . ownReturnStack [ # c . ownReturnStack ] and "NUPP2616" or nil
 c . diag (
 ownCode or "NUPP2603" ,
 expr ,
-ownCode
-and "an owning result cannot retain an input borrow"
-or "borrowed value cannot be returned"
+ownCode and "an owning result cannot retain an input borrow" or "borrowed value cannot be returned"
 )
 elseif ownershipKind ( valueT ) == "owned" or ownershipKind ( valueT ) == "pinned" then
 
@@ -15147,11 +15318,7 @@ expected = c . ownReturnStack [ # c . ownReturnStack ]
 end
 local ok , why = isA ( got , expected )
 if not ok then
-c . diag (
-"NUPP2002" ,
-stat . exprs and stat . exprs [ j ] or stat ,
-( "return %d: %s" ) : format ( j , why )
-)
+c . diag ( "NUPP2002" , stat . exprs and stat . exprs [ j ] or stat , ( "return %d: %s" ) : format ( j , why ) )
 end
 end
 if # ts > # annotated then
@@ -15177,11 +15344,7 @@ expected = c . ownReturnStack [ # c . ownReturnStack ]
 end
 local ok , why = isA ( got , expected )
 if not ok then
-c . diag (
-"NUPP2002" ,
-stat . exprs and stat . exprs [ j ] or stat ,
-( "return %d: %s" ) : format ( j , why )
-)
+c . diag ( "NUPP2002" , stat . exprs and stat . exprs [ j ] or stat , ( "return %d: %s" ) : format ( j , why ) )
 end
 end
 if not annotatedPack . tail and not returnedPack . tail and # returnedPack . head > # annotatedPack . head then
@@ -15435,44 +15598,111 @@ handlers . handleStmt = function ( stat )
 
 
 if stat . handler then
-c . infer ( stat . handler )
+local actual = c . infer ( stat . handler )
+local exports = c . env and c . env . resolveModuleExports and c . env . resolveModuleExports (
+c . env ,
+"nupp.suspension"
+) or nil
+local expected = exports and exports . types and exports . types . Handler or nil
+if expected then
+local ok , why = isA ( actual , expected )
+if not ok then
+c . diag (
+"NUPP2001" ,
+stat . handler ,
+"suspension handler: " .. ( why or ( T . tostring ( actual ) .. " is not " .. T . tostring ( expected ) ) )
+)
+end
+end
 end
 
 
 
 
-local function escapes ( node , insideLoop )
+local inside , labels = { } , { }
+local function collect ( node )
 if not node or cst . isToken ( node ) then
 return
 end
-local kind = node . kind
-if kind == "funcExpr" or kind == "shortfn" or kind == "localFuncStmt" or kind == "funcStmt" then
+inside [ node ] = true
+if node ~= stat . body and (
+node . kind == "funcExpr"
+or node . kind == "shortfn"
+or node . kind == "localFuncStmt"
+or node . kind == "funcStmt"
+) then
 return
 end
-if kind == "returnStmt" or ( kind == "breakStmt" and not insideLoop ) then
-c . diag (
-"NUPP2706" ,
-node ,
-"control cannot leave a `handle suspension` region yet" ,
-nil ,
-{ help = "put the value in a local declared outside the region, and " .. "leave after it" }
-)
-return
-end
-local loops = insideLoop
-or kind == "whileStmt"
-or kind == "repeatStmt"
-or kind == "fornumStmt"
-or kind == "forinStmt"
-for _ , child in ipairs ( node . stats or { } ) do
-escapes ( child , loops )
+if node . kind == "labelStmt" and node . name then
+labels [ node . name . text ] = true
 end
 for _ , child in ipairs ( node ) do
-escapes ( child , loops )
+collect ( child )
 end
 end
 
-escapes ( stat . body , false )
+collect ( stat . body )
+if next ( labels ) then
+local targetFunction = nil
+local function locate ( node , currentFunction )
+if not node or cst . isToken ( node ) then
+return false
+end
+local nextFunction = currentFunction
+if node . kind == "funcExpr"
+or node . kind == "shortfn"
+or node . kind == "localFuncStmt"
+or node . kind == "funcStmt"
+then
+nextFunction = node
+end
+if node == stat then
+targetFunction = nextFunction
+return true
+end
+for _ , child in ipairs ( node ) do
+if locate ( child , nextFunction ) then
+return true
+end
+end
+
+return false
+end
+
+locate ( c . result . root , nil )
+local function refuse ( node , currentFunction )
+if not node or cst . isToken ( node ) then
+return
+end
+local nextFunction = currentFunction
+if node . kind == "funcExpr"
+or node . kind == "shortfn"
+or node . kind == "localFuncStmt"
+or node . kind == "funcStmt"
+then
+nextFunction = node
+end
+if nextFunction == targetFunction and not inside [
+node
+] and node . kind == "gotoStmt" and node . name and labels [
+node . name . text
+] and not node . handledEntryDiagnosed then
+node . handledEntryDiagnosed = true
+c . diag (
+"NUPP2706" ,
+node ,
+"control cannot enter a `handle suspension` region" ,
+nil ,
+{ help = "move the label outside the handled region" }
+)
+end
+for _ , child in ipairs ( node ) do
+refuse ( child , nextFunction )
+end
+end
+
+refuse ( c . result . root , nil )
+end
 
 
 
@@ -16662,6 +16892,7 @@ n . overloadedMethods = { }
 n . staticEntries = { }
 n . overloadedStatics = { }
 n . defaultEntries = { }
+c . nominalEffectOwners [ n ] = true
 n . annotations = stat . semanticAnnotations or { }
 
 c . bindDeclaredType ( stat , n )
@@ -16986,10 +17217,7 @@ ownedApplication ,
 ownedApplication
 )
 c . own . validateCleanups ( resultType , cleanups , ownedApplication )
-wrapped [ # wrapped + 1 ] = T . withFirstResult (
-callable ,
-T . owned ( resultType , cleanups )
-)
+wrapped [ # wrapped + 1 ] = T . withFirstResult ( callable , T . owned ( resultType , cleanups ) )
 end
 ft = # wrapped == 1 and wrapped [ 1 ] or T . intersection ( wrapped )
 end
@@ -20772,7 +21000,12 @@ explicitSelf and explicitSelf . name or nil ,
 )
 end
 local paramPackTail = nil
-for _ , p in ipairs ( body . params ) do
+
+
+
+
+
+for sourceIndex , p in ipairs ( body . params ) do
 if p == explicitSelf then
 
 
@@ -20792,12 +21025,12 @@ elseif p . name then
 local pt = p . type and c . resolveType ( p . type ) or ( expectedParams and expectedParams [ # params + 1 ] ) or T . any
 params [ # params + 1 ] = pt
 paramNames [ # params ] = p . name . text
-local mode = inferredModes [ # params ] or "borrows"
-if not declaredModes [ # params ] and scopedCandidates [ p . name . text ] and rawType ( pt ) . tag == "func" then
+local mode = inferredModes [ sourceIndex ] or "borrows"
+if not declaredModes [ sourceIndex ] and scopedCandidates [ p . name . text ] and rawType ( pt ) . tag == "func" then
 mode = "scoped"
 end
 if not declaredModes [
-# params
+sourceIndex
 ] and mode ~= "takes" and not pointerShaped ( pt ) and not ( pt . tag == "nominal" and pt . affineResource ) then
 mode = "plain"
 end
@@ -21370,6 +21603,7 @@ stat . structOwner = owner . runtimePath or ownerKey
 stat . memberName = member
 end
 if owner and member and ft . tag == "func" then
+local stored
 if fname . method then
 
 
@@ -21423,16 +21657,31 @@ ft . paramKinds
 owner . writeByname [ member ] = owner . byname [ member ]
 owner . fieldDefs [ member ] = owner . fieldDefs [ member ] or memberDefinition
 owner . writeFieldDefs [ member ] = owner . writeFieldDefs [ member ] or memberDefinition
+stored = owner . byname [ member ]
 elseif owner . declKind == "record" or owner . declKind == "interface" then
 owner . staticByname [ member ] = ft
 owner . staticWriteByname [ member ] = ft
 owner . staticFieldDefs [ member ] = owner . staticFieldDefs [ member ] or memberDefinition
 owner . staticWriteFieldDefs [ member ] = owner . staticWriteFieldDefs [ member ] or memberDefinition
+stored = ft
 else
 owner . byname [ member ] = ft
 owner . writeByname [ member ] = ft
 owner . fieldDefs [ member ] = owner . fieldDefs [ member ] or memberDefinition
 owner . writeFieldDefs [ member ] = owner . writeFieldDefs [ member ] or memberDefinition
+stored = ft
+end
+if stored then
+c . nominalEffectOwners [ owner ] = true
+c . nominalEffectEntries [
+# c . nominalEffectEntries + 1
+] = {
+owner = owner ,
+member = member ,
+static = not fname . method and ( owner . declKind == "record" or owner . declKind == "interface" ) ,
+signature = stored ,
+body = body ,
+}
 end
 if body . dropMethod then
 if fname . method then
@@ -23187,7 +23436,9 @@ function ops . call ( call )
 if c . noSuspendDepth <= 0 or not call then
 return
 end
-candidates [ # candidates + 1 ] = { call = call , calleeType = call . calleeType , code = "NUPP2701" }
+candidates [
+# candidates + 1
+] = { call = call , calleeType = call . calleeType or call . signatureType , code = "NUPP2701" }
 end
 
 
@@ -26462,7 +26713,18 @@ local state = { }
 
 
 
+
 state.Checker = {} state.Checker.__index = state.Checker
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -43494,6 +43756,7 @@ local envMod = { }
 
 
 
+
 local modulePatterns = {
 "/%s.d.nupp" ,
 "/%s.nupp" ,
@@ -45268,14 +45531,14 @@ right = "local function finish(): nil\nend\n\n" .. "nosuspend do\n    finish()\n
 related = { "NUPP2602" , "NUPP2603" } ,
 docs = "docs/reference.md#suspension-regions" ,
 } , {
-code = "NUPP2206" ,
-summary = "Only a record or a struct can be constructed" ,
-rule = "`new` names a type and builds a value of it, so the operand " .. "has to be a declaration with something to build. An interface " .. "declares a contract and has no runtime table to stamp; an enum " .. "value is one of its declared strings, written directly. The " .. "operand is answered as a type rather than through whatever " .. "value stands under the name, because an interface binds none." ,
-wrong = "local interface Named\n    name: string\nend\n\n" .. "local n = new Named(name = \"ada\")\n\nreturn n\n" ,
-right = "local interface Named\n    name: string\nend\n\n" .. "local record User is Named\n    name: string\nend\n\n" .. "local n = new User(name = \"ada\")\n\nreturn n\n" ,
-related = { "NUPP2202" } ,
-docs = "docs/reference.md#records" ,
-} , { code = "NUPP2207" , summary = "A binding is read before it holds a value" , rule = "`local v: Vec2` used to construct one where it was declared, " .. "which was a construction the source did not say. It no longer " .. "does, so the binding holds nil until something assigns to it, " .. "and reading it before that indexes nil at run time rather than " .. "yielding a value of the declared type. Assign it first, or " .. "declare it optional if it is meant to start empty. A " .. "declaration file states what exists elsewhere and assigns " .. "nothing, so it is exempt." , wrong = "local record Point\n    x: integer\nend\n\n" .. "local p: Point\n\nreturn p.x\n" , right = "local record Point\n    x: integer\nend\n\n" .. "local p: Point = new Point(x = 0)\n\nreturn p.x\n" , related = { "NUPP2202" , "NUPP2206" } , docs = "docs/reference.md#records" , } , { code = "NUPP2512" , summary = "A record is built by field order rather than by naming its fields" , rule = "A record without a declared constructor may be built either way, " .. "and both build the same table. Naming the fields says at the call " .. "site which value lands where; leaving it to the order says it in " .. "the declaration, so a reader has to go there, and adding a field " .. "silently changes what an existing call means. A struct is exempt: " .. "it is its C layout, and that order is the layout's rather than the " .. "program's to name. Turn it off by name or by its `style` category, " .. "or write `@allow(\"positional-record-construction\")`." , wrong = "local record Point\n    x: integer\n    y: integer\nend\n\n" .. "local p = new Point(1, 2)\n\nreturn p\n" , right = "local record Point\n    x: integer\n    y: integer\nend\n\n" .. "local p = new Point(x = 1, y = 2)\n\nreturn p\n" , related = { "NUPP2202" , "NUPP2208" } , docs = "docs/lints.md" , } , { code = "NUPP2513" , summary = "An API marked deprecated is used" , rule = "`@deprecated` keeps an API available while telling callers to move " .. "away from it. The optional reason explains why and the replacement names " .. "what to use instead. The annotation changes tooling only: it reports this " .. "suppressible lint at use sites and emits no runtime behavior." , wrong = "local function current(): integer return 1 end\n\n" .. "@deprecated(replacement = \"current\")\n" .. "local function legacy(): integer return current() end\n\nreturn legacy()\n" , right = "local function current(): integer return 1 end\n\n" .. "@deprecated(replacement = \"current\")\n" .. "local function legacy(): integer return current() end\n\nreturn current()\n" , related = { "NUPP2115" } , docs = "docs/lints.md" , } , { code = "NUPP2208" , summary = "A constructor does not hold up its declaration" , rule = "A `constructor(self, ...)` body is what `new T(...)` runs. The " .. "instance is made before it and returned after it, so its whole " .. "job is to fill the fields in — and every field that cannot hold " .. "nil has to be filled, or the value handed back does not match " .. "the declaration it claims. That guarantee is the reason to " .. "prefer a constructor over a literal, so declaring one closes " .. "the literal form for that declaration. An interface builds " .. "nothing and cannot carry one, and there is one constructor per " .. "declaration until overloads arrive with intersection types." , wrong = "local record Account\n    name: string\n    balance: number\n" .. "\n    constructor(self, name: string)\n        self.name = name\n" .. "    end\nend\n\nreturn Account\n" , right = "local record Account\n    name: string\n    balance: number\n" .. "\n    constructor(self, name: string)\n        self.name = name\n" .. "        self.balance = 0\n    end\nend\n\nreturn Account\n" , related = { "NUPP2202" , "NUPP2207" } , docs = "docs/reference.md#records" , } , { code = "NUPP3001" , summary = "`is` has nothing to test against this type" , rule = "A record is identified by the metatable it stamps and a struct " .. "by its ctype, so both answer `is` exactly. An interface has " .. "neither, by design — it is conformance rather than provenance — " .. "so something has to stand in for one.\n\n" .. "Three things can. A literal-typed field is a tag, and the test " .. "is read off it with nothing written. A `satisfies` declaration " .. "says the test outright, for a shape no tag describes. And a subject " .. "whose own type declares the interface needs no test at all: the " .. "declaration already answered, so the `is` compiles to `true`. " .. "An alias has none of these and never will." , wrong = "local interface Drawable\n    width: number\nend\n\n" .. "local record Sprite is Drawable\n    width: number\nend\n\n" .. "local unknown: any = new Sprite(width = 1)\n\n" .. "return unknown is Drawable\n" , right = "local interface Drawable\n    kind: \"drawable\"\n" .. "    width: number\nend\n\n" .. "local record Sprite is Drawable\n    kind: \"drawable\"\n" .. "    width: number\nend\n\n" .. "local unknown: any = new Sprite(kind = \"drawable\", width = 1)\n\n" .. "return unknown is Drawable\n" , related = { "NUPP2122" } , docs = "docs/type-system/interfaces.md" , } , }
+code = "NUPP2702" ,
+summary = "A non-yieldable C callback can reach suspension" ,
+rule = "LuaJIT cannot yield through every C frame. Make the callback and every " .. "call it reaches non-suspending, or invoke it from a yieldable Lua boundary." ,
+wrong = "table.sort({2, 1}, function(a, b): boolean\n" .. "    coroutine.yield()\n    return a < b\nend)\n" ,
+right = "table.sort({2, 1}, function(a, b): boolean\n" .. "    return a < b\nend)\n" ,
+related = { "NUPP2701" } ,
+docs = "docs/reference.md#suspension-regions" ,
+} , { code = "NUPP2706" , summary = "Control cannot jump into a handled suspension region" , rule = "Entering a `handle suspension` body from outside would bypass handler " .. "installation and its cleanup obligation. Move the label outside the region " .. "or move the jump inside it. Structured exits from the region are allowed." , wrong = "goto inside\nhandle suspension with handler do\n" .. "    ::inside::\nend\n" , right = "handle suspension with handler do\nend\n::outside::\n" , related = { "NUPP2701" , "NUPP2702" } , docs = "docs/reference.md#suspension-regions" , } , { code = "NUPP2206" , summary = "Only a record or a struct can be constructed" , rule = "`new` names a type and builds a value of it, so the operand " .. "has to be a declaration with something to build. An interface " .. "declares a contract and has no runtime table to stamp; an enum " .. "value is one of its declared strings, written directly. The " .. "operand is answered as a type rather than through whatever " .. "value stands under the name, because an interface binds none." , wrong = "local interface Named\n    name: string\nend\n\n" .. "local n = new Named(name = \"ada\")\n\nreturn n\n" , right = "local interface Named\n    name: string\nend\n\n" .. "local record User is Named\n    name: string\nend\n\n" .. "local n = new User(name = \"ada\")\n\nreturn n\n" , related = { "NUPP2202" } , docs = "docs/reference.md#records" , } , { code = "NUPP2207" , summary = "A binding is read before it holds a value" , rule = "`local v: Vec2` used to construct one where it was declared, " .. "which was a construction the source did not say. It no longer " .. "does, so the binding holds nil until something assigns to it, " .. "and reading it before that indexes nil at run time rather than " .. "yielding a value of the declared type. Assign it first, or " .. "declare it optional if it is meant to start empty. A " .. "declaration file states what exists elsewhere and assigns " .. "nothing, so it is exempt." , wrong = "local record Point\n    x: integer\nend\n\n" .. "local p: Point\n\nreturn p.x\n" , right = "local record Point\n    x: integer\nend\n\n" .. "local p: Point = new Point(x = 0)\n\nreturn p.x\n" , related = { "NUPP2202" , "NUPP2206" } , docs = "docs/reference.md#records" , } , { code = "NUPP2512" , summary = "A record is built by field order rather than by naming its fields" , rule = "A record without a declared constructor may be built either way, " .. "and both build the same table. Naming the fields says at the call " .. "site which value lands where; leaving it to the order says it in " .. "the declaration, so a reader has to go there, and adding a field " .. "silently changes what an existing call means. A struct is exempt: " .. "it is its C layout, and that order is the layout's rather than the " .. "program's to name. Turn it off by name or by its `style` category, " .. "or write `@allow(\"positional-record-construction\")`." , wrong = "local record Point\n    x: integer\n    y: integer\nend\n\n" .. "local p = new Point(1, 2)\n\nreturn p\n" , right = "local record Point\n    x: integer\n    y: integer\nend\n\n" .. "local p = new Point(x = 1, y = 2)\n\nreturn p\n" , related = { "NUPP2202" , "NUPP2208" } , docs = "docs/lints.md" , } , { code = "NUPP2513" , summary = "An API marked deprecated is used" , rule = "`@deprecated` keeps an API available while telling callers to move " .. "away from it. The optional reason explains why and the replacement names " .. "what to use instead. The annotation changes tooling only: it reports this " .. "suppressible lint at use sites and emits no runtime behavior." , wrong = "local function current(): integer return 1 end\n\n" .. "@deprecated(replacement = \"current\")\n" .. "local function legacy(): integer return current() end\n\nreturn legacy()\n" , right = "local function current(): integer return 1 end\n\n" .. "@deprecated(replacement = \"current\")\n" .. "local function legacy(): integer return current() end\n\nreturn current()\n" , related = { "NUPP2115" } , docs = "docs/lints.md" , } , { code = "NUPP2208" , summary = "A constructor does not hold up its declaration" , rule = "A `constructor(self, ...)` body is what `new T(...)` runs. The " .. "instance is made before it and returned after it, so its whole " .. "job is to fill the fields in — and every field that cannot hold " .. "nil has to be filled, or the value handed back does not match " .. "the declaration it claims. That guarantee is the reason to " .. "prefer a constructor over a literal, so declaring one closes " .. "the literal form for that declaration. An interface builds " .. "nothing and cannot carry one, and there is one constructor per " .. "declaration until overloads arrive with intersection types." , wrong = "local record Account\n    name: string\n    balance: number\n" .. "\n    constructor(self, name: string)\n        self.name = name\n" .. "    end\nend\n\nreturn Account\n" , right = "local record Account\n    name: string\n    balance: number\n" .. "\n    constructor(self, name: string)\n        self.name = name\n" .. "        self.balance = 0\n    end\nend\n\nreturn Account\n" , related = { "NUPP2202" , "NUPP2207" } , docs = "docs/reference.md#records" , } , { code = "NUPP3001" , summary = "`is` has nothing to test against this type" , rule = "A record is identified by the metatable it stamps and a struct " .. "by its ctype, so both answer `is` exactly. An interface has " .. "neither, by design — it is conformance rather than provenance — " .. "so something has to stand in for one.\n\n" .. "Three things can. A literal-typed field is a tag, and the test " .. "is read off it with nothing written. A `satisfies` declaration " .. "says the test outright, for a shape no tag describes. And a subject " .. "whose own type declares the interface needs no test at all: the " .. "declaration already answered, so the `is` compiles to `true`. " .. "An alias has none of these and never will." , wrong = "local interface Drawable\n    width: number\nend\n\n" .. "local record Sprite is Drawable\n    width: number\nend\n\n" .. "local unknown: any = new Sprite(width = 1)\n\n" .. "return unknown is Drawable\n" , right = "local interface Drawable\n    kind: \"drawable\"\n" .. "    width: number\nend\n\n" .. "local record Sprite is Drawable\n    kind: \"drawable\"\n" .. "    width: number\nend\n\n" .. "local unknown: any = new Sprite(kind = \"drawable\", width = 1)\n\n" .. "return unknown is Drawable\n" , related = { "NUPP2122" } , docs = "docs/type-system/interfaces.md" , } , }
 
 local byCode = { }
 for _ , entry in ipairs ( ENTRIES ) do
@@ -48498,6 +48761,12 @@ end
 
 local emitAutomaticBlock
 local function emitChildren ( n )
+if n . kind == "suspensionInstallExpr" then
+e ( suspensionModule ( ) .. ".install(" , sourceLine ( n ) )
+emit ( n . handler )
+e ( ")" )
+return
+end
 if n . kind == "block" and n . automaticOwners and # n . automaticOwners > 0 then
 emitAutomaticBlock ( n )
 return
@@ -49737,6 +50006,18 @@ emit ( x . expr )
 e ( "end" )
 return
 
+elseif kind == "callStmt" and x . expr and x . expr . ownershipIntrinsic then
+
+
+
+
+
+
+e ( "do local " .. nextTemp ( ) .. "=" , sourceLine ( x ) )
+emit ( x . expr )
+e ( " end" )
+return
+
 elseif kind == "callStmt" and x . expr and x . expr . automaticOwnerMoves then
 
 
@@ -50275,24 +50556,34 @@ elseif kind == "handleStmt" then
 
 
 
-local installed = nextTemp ( )
-local ok = nextTemp ( )
-local err = nextTemp ( )
-e (
-( "do const %s = %s.install(" ) : format ( installed , suspensionModule ( ) ) ,
-x . handleTok and x . handleTok . line or nil
-)
-if x . handler then
-emit ( x . handler )
-end
-e ( ( ( "); const %s, %s = pcall(function()" ) : format ( ok , err ) ) , x . doTok and x . doTok . line or nil )
-if x . body then
-emit ( x . body )
-end
-e (
-( "end); %s:release(); if not %s then error(%s, 0) end end" ) : format ( installed , ok , err ) ,
-x . endTok and x . endTok . line or nil
-)
+local name = nextTemp ( )
+local definition = { }
+local binding = {
+kind = "cleanupBinding" ,
+name = {
+kind = "name" ,
+text = name ,
+line = x . handleTok and x . handleTok . line or sourceLine ( x ) ,
+offset = x . handleTok and x . handleTok . offset or 0 ,
+definition = definition ,
+} ,
+expr = {
+kind = "suspensionInstallExpr" ,
+handler = x . handler ,
+line = x . handleTok and x . handleTok . line or sourceLine ( x ) ,
+} ,
+ownerCleanups = { { kind = "method" , name = "release" , id = "method:release" } } ,
+}
+local region = {
+kind = "cleanupRegion" ,
+startTok = x . handleTok ,
+doTok = x . doTok ,
+endTok = x . endTok ,
+bindings = { binding } ,
+body = x . body ,
+}
+region . capturesEnclosing = automaticCaptures ( x . body , region . bindings )
+emit ( region )
 
 elseif kind == "cleanupRegion" then
 needsCleanupRegions = true
@@ -54542,7 +54833,8 @@ return { diags = result . errors , moduleType = nil , syntax = true , result = r
 end
 
 local qenv = setmetatable ( { resolveModule = function ( _ , name )
-return self : get ( "moduleInterface" , name )
+local interface = self : get ( "moduleInterface" , name )
+return interface and interface . type or nil
 end , resolveModuleExports = function ( _ , name )
 return self : get ( "moduleExports" , name )
 end , projectEntries = function ( _ , name )
@@ -54573,13 +54865,24 @@ local path = modulePath ( self , name )
 if not path then
 
 local bundled = env . bundled and env . bundled [ name ]
-return bundled and bundled . type or nil
+return bundled and {
+type = bundled . type ,
+nominalEffectFingerprint = bundled . exports and bundled . exports . nominalEffectFingerprint ,
+} or nil
 end
 
 
 local r = self : get ( "checkModule" , path )
 
-return r and r . moduleType or nil
+return r and {
+type = r . moduleType ,
+nominalEffectFingerprint = r . exports and r . exports . nominalEffectFingerprint ,
+} or nil
+end , function ( left , right )
+if left == nil or right == nil then
+return left == right
+end
+return left . type == right . type and left . nominalEffectFingerprint == right . nominalEffectFingerprint
 end )
 
 local function sameTypeMap ( left , right )
@@ -54627,7 +54930,7 @@ local function sameExports ( left , right )
 if left == nil or right == nil then
 return left == right
 end
-return sameTypeMap (
+return left . nominalEffectFingerprint == right . nominalEffectFingerprint and sameTypeMap (
 left . types ,
 right . types
 ) and sameTypeMap (
@@ -71660,17 +71963,15 @@ return m
 
 
 "Suspension regions" ,  codes =
-{ "NUPP2701" } ,  body =
+{ "NUPP2701" , "NUPP2702" , "NUPP2706" } ,  body =
 [=[
 `nosuspend do ... end` refuses, while compiling, any call inside it that may
 suspend the current coroutine. It is lexical and static: it erases to an
 ordinary `do` block and has no run-time component at all.
 
-Whether a function may suspend is already inferred, since `coroutine.yield` sets
-it and it propagates through the call graph, and it travels across a module
-boundary on the function's type, so an export, an alias, and a local are all
-answered the same way. A callee nothing resolved is refused, because a region
-exists to be careful about exactly that.
+Suspension is inferred from `coroutine.yield` and transitive calls, including
+nominal methods, and travels on callable module interfaces. An unresolved
+callee remains conservatively may-yield.
 
 **NUPP2701** names the call and the path from it to the suspension, since a
 refusal is not actionable when the yield is four functions away.
@@ -71681,23 +71982,20 @@ the type:
 
     nosuspend function(x: number): integer
 
-That is a positive guarantee, so an unmarked function type stays conservatively
-may-yield and silence is never mistaken for a promise. It is an ordinary part of
-the type, so it takes part in identity, subtyping, aliasing and substitution: a
-`nosuspend function` fits an ordinary slot, an ordinary function does not fit a
-`nosuspend` one, and an alias of either keeps what it had. The pure standard
-library is declared this way rather than special-cased, which is why
-`math.floor` is admitted and `print` is not.
+The positive guarantee participates in identity, subtyping, aliasing and
+substitution. An unmarked type remains may-yield; a `nosuspend function` fits
+an ordinary slot, but not conversely. Pure library calls such as `math.floor`
+carry the same declaration rather than a special case.
 
-`nosuspend` guarantees that control cannot be suspended. It does not guarantee
-that a callback is effect-free, or that calling one is legal across a C
-boundary: `table.sort` and `string.gsub` cannot suspend their caller and are
-declared `nosuspend` for that reason, while a comparator or a replacement that
-yields fails at the C-call boundary instead. That is a different diagnostic
-about a different fact.
+`nosuspend` says control cannot be suspended, not that a callback is
+effect-free. A yielding comparator or replacement still fails at its C-call
+boundary under **NUPP2702**.
 
 `nosuspend` opens a region when `do` follows it and qualifies a type when
 `function` does; elsewhere it is an ordinary name.
+
+Handled exits release first; **NUPP2706** rejects jumps in, which would bypass
+installation.
 ]=] ,  example =
 [=[
 local m = {}
@@ -81904,7 +82202,7 @@ end
 
 
 do
-local _ = self
+do local __nuppT1= self  end
 end
 if first ~= nil then
 if suppressed > 0 then
@@ -81984,7 +82282,7 @@ end
 
 
 
-__nuppCleanups["nupp.resources#close_file@6849"]=close_file;
+__nuppCleanups["nupp.resources#close_file@6839"]=close_file;
 function resources . openFile ( path , mode )
 local file , reason = io . open ( path , mode )
 if not file then
@@ -82003,7 +82301,7 @@ end
 
 
 
-__nuppCleanups["nupp.resources#close_file@6849"]=close_file;
+__nuppCleanups["nupp.resources#close_file@6839"]=close_file;
 function resources . openProcess ( command , mode )
 local file , reason = io . popen ( command , mode )
 if not file then
@@ -82020,7 +82318,7 @@ end
 
 
 
-__nuppCleanups["nupp.resources#close_file@6849"]=close_file;
+__nuppCleanups["nupp.resources#close_file@6839"]=close_file;
 function resources . temporaryFile ( )
 local file = io . tmpfile ( )
 if not file then
@@ -91953,7 +92251,7 @@ function resources.Set.close(takes self)
     -- The set is spent either way, and saying so before raising keeps a failing
     -- cleanup from also reading as an undischarged owner.
     unsafe do
-        local _ = nupp.intoRaw(self)
+        nupp.intoRaw(self)
     end
     if first ~= nil then
         if suppressed > 0 then

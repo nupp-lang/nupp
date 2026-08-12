@@ -201,9 +201,6 @@ function shapes.Path.trim(self, count: integer): shapes.Path
 end
 ```
 
-The one case that forces this split is a method taking an owner: `takes` on an
-inline method does not currently make the parameter owned, and a qualified
-method is where it works.
 
 ## Conventions
 

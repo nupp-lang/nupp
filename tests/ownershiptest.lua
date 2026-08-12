@@ -339,6 +339,71 @@ function M.cleanupContractsCannotSuspend()
    }, "\n")), "NUPP2603 NUPP2603 NUPP2701")
 end
 
+-- Parameter modes were read at the position the parameter takes in the function type,
+-- which an inline method spelling `self` shifts by one. Every mode came from the
+-- neighbour on its left: `takes` landed on the receiver and the argument arrived
+-- borrowing, so a method that consumed an owner was checked as one that did not.
+function M.anInlineMethodOwnsTheParameterItTakes()
+   assertEq(codes(table.concat({
+      RESOURCE,
+      "local record Holder",
+      "   count: integer",
+      "   function keep(self, takes value: resource*): nil",
+      "      self.count = self.count + 1",
+      "   end",
+      "end",
+   }, "\n")), "NUPP2603")
+end
+
+-- The same body, discharging what it took. The receiver stays a borrow throughout:
+-- shifting the modes the other way would consume `self` instead.
+function M.anInlineMethodDischargesWhatItTakes()
+   assertClean(table.concat({
+      RESOURCE,
+      "local record Holder",
+      "   count: integer",
+      "   function keep(self, takes value: resource*): nil",
+      "      self.count = self.count + 1",
+      "      resource_free(value)",
+      "   end",
+      "end",
+   }, "\n"))
+end
+
+-- A qualified method reads its modes from the same source positions, and always did.
+function M.aQualifiedMethodOwnsTheParameterItTakes()
+   assertEq(codes(table.concat({
+      RESOURCE,
+      "local record Holder",
+      "   count: integer",
+      "end",
+      "function Holder.keep(self, takes value: resource*): nil",
+      "   self.count = self.count + 1",
+      "end",
+   }, "\n")), "NUPP2603")
+end
+
+-- `intoRaw` lowers to its argument, so calling it for the assertion rather than the
+-- value left an expression where Lua wants a statement. The check and the build both
+-- passed and the output would not load.
+function M.aDiscardedOwnershipIntrinsicEmitsLoadableLua()
+   local source = table.concat({
+      RESOURCE,
+      "local function spend(takes value: resource*): nil",
+      "   unsafe do",
+      "      intoRaw(value)",
+      "   end",
+      "end",
+      "return spend",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-test")
+   assertEq(#genDiags, 0)
+   local chunk, loadErr = loadstring(code, "@ownership-discarded-intrinsic")
+   assert(chunk, tostring(loadErr) .. "\n" .. code)
+end
+
 function M.resourceSetsReifyCleanupOwnersAtOneAuditedBoundary()
    local source = table.concat({
       RESOURCE,

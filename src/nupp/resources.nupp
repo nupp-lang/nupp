@@ -103,7 +103,7 @@ function resources.Set.close(takes self)
     -- The set is spent either way, and saying so before raising keeps a failing
     -- cleanup from also reading as an undischarged owner.
     unsafe do
-        local _ = nupp.intoRaw(self)
+        nupp.intoRaw(self)
     end
     if first ~= nil then
         if suppressed > 0 then

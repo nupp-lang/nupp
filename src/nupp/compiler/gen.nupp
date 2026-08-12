@@ -2281,6 +2281,18 @@ function gen.generate(
             e("end")
             return
 
+        elseif kind == "callStmt" and x.expr and x.expr.ownershipIntrinsic then
+            -- Every intrinsic but `drop` lowers to a value: `intoRaw` and `borrow` to
+            -- their argument, `pin` to a table. Written for the assertion rather than
+            -- the value -- surrendering an owner the caller is finished with -- that
+            -- leaves an expression where Lua wants a statement, and a file that checks
+            -- and builds but will not load. Binding the value keeps whatever computing
+            -- it does and lets the block discard it.
+            e("do local " .. nextTemp() .. "=", sourceLine(x))
+            emit(x.expr)
+            e(" end")
+            return
+
         elseif kind == "callStmt" and x.expr and x.expr.automaticOwnerMoves then
             -- A consuming call lowers to an immediately-invoked wrapper. At the start
             -- of a statement its leading `(` can continue the call on the previous

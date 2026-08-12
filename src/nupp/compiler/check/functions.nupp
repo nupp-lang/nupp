@@ -521,7 +521,12 @@ function functions.install(c: state.Checker): state.StatHandlers
             )
         end
         local paramPackTail = nil
-        for _, p in ipairs(body.params) do
+        -- Modes are read at the parameter's position in the source, not at its position
+        -- in the function type. An inline method that spells `self` has one more of the
+        -- former than the latter, and reading them by the type's index took each
+        -- parameter's mode from the one before it: `takes` on the first real argument
+        -- landed on the receiver, and the argument itself came in borrowing.
+        for sourceIndex, p in ipairs(body.params) do
             if p == explicitSelf then
             -- The binding above carries the owner type. The generator
             -- likewise removes this parameter when it emits `function
@@ -541,12 +546,12 @@ function functions.install(c: state.Checker): state.StatHandlers
                 local pt = p.type and c.resolveType(p.type) or (expectedParams and expectedParams[#params + 1]) or T.any
                 params[#params + 1] = pt
                 paramNames[#params] = p.name.text
-                local mode = inferredModes[#params] or "borrows"
-                if not declaredModes[#params] and scopedCandidates[p.name.text] and rawType(pt).tag == "func" then
+                local mode = inferredModes[sourceIndex] or "borrows"
+                if not declaredModes[sourceIndex] and scopedCandidates[p.name.text] and rawType(pt).tag == "func" then
                     mode = "scoped"
                 end
                 if not declaredModes[
-                    #params
+                    sourceIndex
                 ] and mode ~= "takes" and not pointerShaped(pt) and not (pt.tag == "nominal" and pt.affineResource) then
                     mode = "plain"
                 end
