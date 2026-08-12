@@ -870,10 +870,11 @@ The exit code is the task command's own. See [tasks.md](tasks.md).
 Generate API documentation from source comments
 
 Usage:
-  nupp doc [site|markdown|json|both] [-o PATH] [--title TITLE] [--all] [--format text|json] [path...]
+  nupp doc [site|markdown|json|both] [-o PATH] [--target NAME] [--title TITLE] [--all] [--format text|json] [path...]
 
 Options:
   -o, --output PATH  Output file or directory
+  --target NAME      Document a named manifest target
   --title TITLE      Documentation title
   --all              Include private declarations
   --format FORMAT    Output format: text (default) or json

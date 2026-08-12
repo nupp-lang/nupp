@@ -112,6 +112,9 @@ type doc.Generated = {
 --- The manifest, as much of it as documentation reads.
 type doc.Config = {
     build: {
+        --- Which target the build runs by default, which is also which docs target
+        --- `nupp doc` renders when a manifest declares more than one.
+        default: string?,
         targets: {[string]: doc.Settings}?
     }?,
     docs: doc.Settings?,
@@ -1001,25 +1004,79 @@ function doc.build(
     return code, output, format
 end
 
+-- A target's own table, plus the name it was declared under. The copy is what keeps a
+-- run's overrides off the manifest the caller is still holding.
+local function withName(target: doc.Settings, name: string): doc.Settings
+    local copy: {[string]: any} = {}
+    for key, value in pairs(target as {[string]: any}) do
+        copy[key] = value
+    end
+    copy.targetName = name
+
+    return copy as doc.Settings
+end
+
 --- The documentation settings a manifest configured, either as its own `docs` table or
 --- as a build target of that kind. Exported because the command line needs to read them
 --- before it can let options override them.
-function doc.manifestSettings(config: doc.Config): doc.Settings
+---
+--- Which target, when a manifest has more than one of them, follows the same order the
+--- build resolves by: the requested name, then `build.default`, then the only one there
+--- is. A hash order picked a different site to write on consecutive runs, and rendering
+--- somewhere the person who asked did not name is worse than saying they have to.
+---
+--- @param requested the target `--target` named, if it named one
+--- @return the settings, or nil and why no single target answers
+function doc.manifestSettings(config: doc.Config, requested: string?): doc.Settings?, string?
+    local targets: {[string]: doc.Settings} = config.build and config.build.targets or {}
+    if requested then
+        local target = targets[requested]
+        if not target then
+            return nil, "unknown build target " .. requested
+        end
+        if target.kind ~= "docs" then
+            return nil, ("build target %s is a %s target, not a docs target"):format(
+                requested,
+                tostring(target.kind or "modules")
+            )
+        end
+
+        return withName(target, requested)
+    end
     if type(config.docs) == "table" then
         return config.docs as doc.Settings
     end
-    for name, target in pairs(config.build and config.build.targets or {}) do
+    local found: {{name: string, target: doc.Settings}} = {}
+    for name, target in pairs(targets) do
         if type(target) == "table" and target.kind == "docs" then
-            local copy = {}
-            for key, value in pairs(target) do
-                copy[key] = value
-            end
-            copy.targetName = name
-            return copy
+            found[#found + 1] = {name = name, target = target}
         end
     end
+    table.sort(found, function(a, b): boolean
+        return a.name < b.name
+    end)
+    local first = found[1]
+    if not first then
+        return {}
+    end
+    if #found > 1 then
+        local preferred = config.build and config.build.default or nil
+        local target = preferred and targets[preferred] or nil
+        if preferred and target and target.kind == "docs" then
+            return withName(target, preferred)
+        end
+        local names: {string} = {}
+        for index, entry in ipairs(found) do
+            names[index] = entry.name
+        end
 
-    return {}
+        return nil, ("the manifest has %d docs targets (%s): name one with --target, "):format(
+            #found,
+            table.concat(names, ", ")
+        ) .. "or say which the build defaults to with build.default"
+    end
+
+    return withName(first.target, first.name)
 end
 
 --- Reads the manifest a project root configured, or an empty configuration when it has

@@ -14,12 +14,20 @@ code generator, so a documentation build costs parsing and rendering alone.
 Unchanged output files are left untouched.
 
 ```
-nupp doc [site|markdown|json|both] [-o PATH] [--title TITLE] [--all] [path...]
+nupp doc [site|markdown|json|both] [-o PATH] [--target NAME] [--title TITLE] [--all] [path...]
 ```
 
 The format is a positional word rather than a flag, and `md` is accepted for
 `markdown`. With none, the manifest's configured format is used, and `site` if
 it has none. Anything in first position that is not a format word is a path.
+
+`--target` names which docs target to render, the way `nupp build --target`
+names which target to build. It is needed only by a manifest that has more than
+one: with no top-level `docs` table and several `kind = "docs"` targets, the one
+`build.default` names is rendered, and if that names something else `nupp doc`
+asks which was meant rather than choosing. Two docs targets are two
+deliverables, usually writing to two directories, and a run that picks between
+them on its own writes somewhere nobody asked for.
 
 `nupp doc` needs [lunamark](https://github.com/jgm/lunamark) and stops with a
 message if it is missing. Scintillua is optional: without it, a fence in a

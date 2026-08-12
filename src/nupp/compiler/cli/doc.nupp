@@ -16,12 +16,14 @@ local command = spec.command{
     name = "doc",
     summary = "Generate API documentation from source comments",
     usage = {
-        "nupp doc [site|markdown|json|both] [-o PATH] [--title TITLE] [--all]" .. " [--format text|json] [path...]"
+        "nupp doc [site|markdown|json|both] [-o PATH] [--target NAME] [--title TITLE]"
+        .. " [--all] [--format text|json] [path...]"
     },
     options = require(
         "nupp.compiler.cli.options"
     ).join(
         {names = {"-o", "--output"}, value = "PATH", key = "output", help = "Output file or directory"},
+        {name = "--target", value = "NAME", help = "Document a named manifest target"},
         {name = "--title", value = "TITLE", help = "Documentation title"},
         {name = "--all", help = "Include private declarations"},
         require("nupp.compiler.cli.options").format()
@@ -57,7 +59,11 @@ local function run(parsed: any): integer
         io.stderr:write("nupp: " .. tostring(configErr) .. "\n")
         return 1
     end
-    local settings = doc.manifestSettings(config)
+    local settings, settingsErr = doc.manifestSettings(config, values.target)
+    if not settings then
+        io.stderr:write("nupp: " .. tostring(settingsErr) .. "\n")
+        return 1
+    end
     -- What the docs target depends on is what the renderer loads. A project that names
     -- lunamark as a rock gets it installed here, so `nupp doc` on a fresh checkout
     -- renders rather than reporting a library nobody was told to install.
