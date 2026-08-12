@@ -332,6 +332,19 @@ local function genericText(node)
     return node and node.generics and syntax(node.generics) or ""
 end
 
+-- The arguments table records which values a call borrows. Repeating a returned
+-- borrow's sources in the signature and result table adds no useful API information,
+-- so documentation shows the returned value's type alone. This is presentation only:
+-- the source declaration keeps the `borrows (...)` contract the checker needs to
+-- prove that the result cannot outlive its root.
+local function documentedResultType(value)
+    if value and value.kind == "tborrows" then
+        return syntax(value.type)
+    end
+
+    return syntax(value)
+end
+
 local function functionSignature(stat, name)
     local body = stat.body
     local params = {}
@@ -349,7 +362,7 @@ local function functionSignature(stat, name)
     end
     local returns = {}
     for _, value in ipairs(body and body.rets or {}) do
-        returns[#returns + 1] = syntax(value)
+        returns[#returns + 1] = documentedResultType(value)
     end
     local prefix = stat.kind == "localFuncStmt" and "local function " or "function "
     local result = prefix .. name .. genericText(body) .. "(" .. table.concat(params, ", ") .. ")"
@@ -398,7 +411,10 @@ local function functionDetails(stat, info)
     end
     local returns = stat.body and stat.body.rets or (stat.ret and {stat.ret} or {})
     for index, value in ipairs(returns or {}) do
-        details.returns[#details.returns + 1] = {type = syntax(value), text = info.returns[index] or "",}
+        details.returns[#details.returns + 1] = {
+            type = documentedResultType(value),
+            text = info.returns[index] or "",
+        }
     end
 
     return details

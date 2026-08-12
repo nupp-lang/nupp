@@ -266,6 +266,25 @@ function M.documentsAnnotationsAndParameterModes()
       "the parameter mode is not rendered")
 end
 
+function M.documentsBorrowedResultsWithoutRepeatingTheirSources()
+   local source = table.concat({
+      "--- Views a byte range.",
+      "--- @param source The array backing the view.",
+      "--- @return The checked view.",
+      "function view(borrows source: uint8[?]): ByteSpan borrows (source)",
+      "   return nil as ByteSpan",
+      "end",
+   }, "\n")
+   local module = assert(doc.extract(source, "src/view.nupp", "view", {includeAll = true}))
+   local view = assert(module.items[1])
+   assert(view.signature == "function view(borrows source: uint8[?]): ByteSpan", view.signature)
+   assert(view.returns[1].type == "ByteSpan", view.returns[1].type)
+
+   local markdown = doc.markdown({module})
+   assert(markdown:find("function view(borrows source: uint8[?]): ByteSpan", 1, true), markdown)
+   assert(not markdown:find("ByteSpan borrows (source)", 1, true), markdown)
+end
+
 function M.documentsDeprecatedMigrationMetadata()
    local source = table.concat({
       "--- The compatibility entry point.",
