@@ -1,0 +1,47 @@
+-- What the current Nupp checker can express at the proposed kernel boundary.
+-- The count checks are real; linking count to pointer bounds still needs a
+-- generic Span<T> language/library feature.
+
+cdef struct Position
+    x: float
+    y: float
+end
+
+cdef struct Velocity
+    x: float
+    y: float
+end
+
+cdef function ks_init(): int32 from"bench/kernel-spike/build/libkernel_spike"
+
+cdef function ks_integrate_dynasm(
+    -- The private ABI binding only borrows. The exported wrapper below is the
+    -- operation that requires exclusivity, so callers cannot bypass it.
+    borrows positions: Position*,
+    borrows velocities: const Velocity*,
+    count: uint64,
+    dt: float
+) from"bench/kernel-spike/build/libkernel_spike"
+
+if ks_init() == 0 then
+    error("DynASM kernel initialization failed", 0)
+end
+
+local function integrate(
+    exclusive positions: Position[?],
+    positionCount: integer,
+    borrows velocities: const Velocity[?],
+    velocityCount: integer,
+    dt: float
+): nil
+    if positionCount < 0 or velocityCount < positionCount then
+        error("kernel spans have incompatible lengths", 2)
+    end
+    ks_integrate_dynasm(positions, velocities, positionCount as uint64, dt)
+end
+
+return {
+    Position = Position,
+    Velocity = Velocity,
+    integrate = integrate,
+}
