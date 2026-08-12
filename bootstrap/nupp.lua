@@ -90907,6 +90907,7 @@ local _VERSION: string
 
 -- string.format derives its trailing parameter pack from a literal first
 -- argument. A broad string deliberately retains the ordinary variadic fallback.
+--- @local
 @comptime
 local function __NuppFormatArguments(Format: type): typepack
     local info = nupp.types.describe(Format)
