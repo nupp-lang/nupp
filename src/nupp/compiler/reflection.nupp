@@ -6,7 +6,7 @@ local members = require("nupp.compiler.members")
 
 local record reflection
     SCHEMA: integer
-    describe: function(any, string?): any
+    describe: function(any, string?, boolean?): any
 end
 
 reflection.SCHEMA = 2
@@ -24,8 +24,8 @@ end
 --- Converts the checker's interned, possibly recursive graph into plain acyclic data.
 --- Every type appears once in `types`; edges are integer indices, so recursive
 --- declarations survive JSON transport without exposing checker objects or identities.
-function reflection.describe(root: any, qualifiedName: string?): any
-    local indices, types = {}, {}
+function reflection.describe(root: any, qualifiedName: string?, includeSources: boolean?): any
+    local indices, types, sources = {}, {}, {}
 
     local intern
 
@@ -58,6 +58,7 @@ function reflection.describe(root: any, qualifiedName: string?): any
         end
         local index = #types + 1
         indices[t] = index
+        sources[index] = t
         local out = {kind = t.tag}
         types[index] = out
         local tag = t.tag
@@ -270,9 +271,16 @@ function reflection.describe(root: any, qualifiedName: string?): any
                 out.identity = t.comptimeIdentity
                 out.arguments = {}
                 for position, argument in ipairs(t.comptimeArguments or {}) do
-                    out.arguments[position] = argument.kind == "type"
-                        and {kind = "type", type = intern(argument.value)}
-                        or {kind = "const", value = argument.value.value, domain = argument.value.domain}
+                    if argument.kind == "type" then
+                        out.arguments[position] = {kind = "type", type = intern(argument.value)}
+                    elseif argument.kind == "typepack" then
+                        out.arguments[position] = {kind = "typepack", pack = intern(argument.value)}
+                    else
+                        out.arguments[position] = {
+                            kind = "const", value = argument.value.value,
+                            domain = argument.value.domain,
+                        }
+                    end
                 end
                 out.bound = intern(t.comptimeBound)
                 out.resultKind = t.comptimeResultPack and "typepack" or "type"
@@ -359,6 +367,17 @@ function reflection.describe(root: any, qualifiedName: string?): any
         }
     end
     descriptor.fingerprint = hash.sha256("nupp.reflect\0v" .. tostring(reflection.SCHEMA) .. "\0" .. stable(descriptor))
+    if includeSources then
+        -- The side table is parent-only and deliberately added after fingerprinting.
+        -- Worker transport receives the plain semantic graph, while the parent keeps
+        -- the exact permitted nominal identities each graph node came from.
+        descriptor.sources = sources
+        for index, node in ipairs(types) do
+            if node.nominal then
+                node.referenceFingerprint = reflection.describe(sources[index]).fingerprint
+            end
+        end
+    end
 
     return descriptor
 end

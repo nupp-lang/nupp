@@ -127,7 +127,12 @@ local function constInferenceProblem(ft: T.Func, map: {[any]: any}): string?
     return nil
 end
 
-local function probeArm(ft: T.Func, argPack: T.Pack, cdefCall: boolean?): T.Func?, string?
+local function probeArm(
+    ft: T.Func,
+    argPack: T.Pack,
+    cdefCall: boolean?,
+    control: any?
+): T.Func?, string?
     local map = {}
     if T.hasTypevar(
         ft
@@ -159,7 +164,7 @@ local function probeArm(ft: T.Func, argPack: T.Pack, cdefCall: boolean?): T.Func
     ) > 0 or (
         ft.paramPack.tail and ft.paramPack.tail.kind == "computed"
     ) or (ft.retPack.tail and ft.retPack.tail.kind == "computed") then
-        specialized, specializationProblem = generics.instantiateFunction(ft, map)
+        specialized, specializationProblem = generics.instantiateFunction(ft, map, control)
     end
     if specializationProblem then
         return nil, specializationProblem
@@ -214,13 +219,18 @@ local function probeArm(ft: T.Func, argPack: T.Pack, cdefCall: boolean?): T.Func
     return specialized
 end
 
-local function probeSignature(ft: T.Func, argPack: T.Pack, cdefCall: boolean?): T.Func?, string?
+local function probeSignature(
+    ft: T.Func,
+    argPack: T.Pack,
+    cdefCall: boolean?,
+    control: any?
+): T.Func?, string?
     if not argPack.alternatives then
-        return probeArm(ft, argPack, cdefCall)
+        return probeArm(ft, argPack, cdefCall, control)
     end
     local selected: T.Func? = nil
     for armIndex, arm in ipairs(argPack.alternatives) do
-        local specialized, why = probeArm(ft, arm, cdefCall)
+        local specialized, why = probeArm(ft, arm, cdefCall, control)
         if not specialized then
             return nil, ("argument-pack alternative %d: %s"):format(armIndex, why or "mismatch")
         end
@@ -604,7 +614,7 @@ function calls.install(c: state.Checker): calls.Ops
             local survivors, rejections = {}, {}
             local argPack = T.pack(ats)
             for _, candidate in ipairs(overloads) do
-                local specialized, why = probeSignature(candidate, argPack)
+                local specialized, why = probeSignature(candidate, argPack, nil, c.reductionControl)
                 if specialized then
                     survivors[#survivors + 1] = specialized
                 else
@@ -1386,7 +1396,7 @@ function calls.install(c: state.Checker): calls.Ops
                 if not choice then
                     return nil, nil, why
                 end
-                local specialized, rejected = probeSignature(ft, choice.pack, node.cdefCall)
+                local specialized, rejected = probeSignature(ft, choice.pack, node.cdefCall, c.reductionControl)
                 if specialized then
                     return choice, specialized
                 end
@@ -1489,7 +1499,7 @@ function calls.install(c: state.Checker): calls.Ops
         if overloads and not advancedOverloadSelected then
             local survivors, originals, rejections = {}, {}, {}
             for _, candidate in ipairs(overloads) do
-                local specialized, why = probeSignature(candidate, selectionPack, node.cdefCall)
+                local specialized, why = probeSignature(candidate, selectionPack, node.cdefCall, c.reductionControl)
                 if specialized then
                     survivors[#survivors + 1] = specialized
                     originals[#originals + 1] = candidate

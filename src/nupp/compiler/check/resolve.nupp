@@ -542,30 +542,53 @@ function resolve.install(c: state.Checker): nil
         elseif kind == "ttypecall" then
             local callee = node.callee
             local calleeName = callee and callee.kind == "tname" and callee as cst.Tname or nil
-            local name = calleeName and calleeName.base and calleeName.base.text or nil
-            local helper = name and c.comptimeFunctions[name] or nil
-            if not helper or not helper.body then
+            local calleeParts, calleeToken = {}, nil
+            for _, child in ipairs(calleeName or {}) do
+                if cst.isToken(child) and child.kind == "name" then
+                    calleeParts[#calleeParts + 1] = child.text
+                    calleeToken = child
+                end
+            end
+            local name = table.concat(calleeParts, ".")
+            local helper = name ~= "" and c.comptimeFunctions[name] or nil
+            local helperType, helperDefinition = nil, nil
+            if helper then
+                helperType, helperDefinition = c.lookupVar(name)
+                helperType = helperType or helper.comptimeSignature
+            elseif #calleeParts > 1 and c.env and c.env.resolveModuleExports then
+                local member = table.remove(calleeParts)
+                local moduleName = table.concat(calleeParts, ".")
+                if #calleeParts == 1 then
+                    local holder = c.lookupEntry(calleeParts[1])
+                    if holder and holder.requiredModule then moduleName = holder.requiredModule end
+                end
+                local exports = c.env.resolveModuleExports(c.env, moduleName)
+                helper = exports and exports.comptimeFunctions and exports.comptimeFunctions[member] or nil
+                helperType = helper and helper.signature or nil
+                helperDefinition = helper and helper.definition or nil
+            end
+            if not helper then
                 c.diag("NUPP2421", callee or node, "a type-position call must name a checked @comptime function")
                 return T.any
             end
-            local helperType, helperDefinition = c.lookupVar(name as string)
-            if calleeName and calleeName.base then
-                c.markToken(calleeName.base, helperDefinition or helper.name, helperType or T.type_, "function")
+            if calleeToken then
+                c.markToken(calleeToken, helperDefinition or helper.name, helperType or T.type_, "function")
             end
             if not helperType or helperType.tag ~= "func" then
                 c.diag("NUPP2421", callee or node, "a type-position call must resolve to a checked function signature")
                 return T.any
             end
             local body = helper.body as cst.Funcbody
-            local params = body.params or {}
-            if #params ~= #(node.arguments or {}) then
+            local params = body and body.params or {}
+            local parameterCount = #(helperType.params or {})
+            if parameterCount ~= #(node.arguments or {}) then
                 c.diag(
                     "NUPP2421",
                     node,
                     ("type function %q expects %d argument%s, got %d"):format(
-                        name as string,
-                        #params,
-                        #params == 1 and "" or "s",
+                        name,
+                        parameterCount,
+                        parameterCount == 1 and "" or "s",
                         #(node.arguments or {})
                     )
                 )
@@ -577,8 +600,8 @@ function resolve.install(c: state.Checker): nil
             for position, argumentNode in ipairs(node.arguments or {}) do
                 local parameter = params[position] as cst.Param
                 local expected = helperType.params[position]
-                local supplied = c.resolveType(argumentNode)
                 if expected == T.type_ or expected.tag == "typeHandle" then
+                    local supplied = c.resolveType(argumentNode)
                     if expected.tag == "typeHandle" then
                         local fits, why = relations.isA(supplied, expected.bound)
                         if not fits then
@@ -592,9 +615,23 @@ function resolve.install(c: state.Checker): nil
                     } as T.ComptimeTypeArgument
                     open = open or T.hasTypevar(supplied) or T.hasProjection(supplied) or supplied.tag == "neutral"
                 elseif expected == T.typepack then
-                    c.diag("NUPP2421", argumentNode, "source type-pack arguments are not yet admitted in closed type calls")
-                    return T.any
+                    local packNode = argumentNode
+                    while packNode.kind == "tparen" and packNode.inner
+                        and (packNode.inner.kind == "tpack" or packNode.inner.kind == "tpackUnion") do
+                        packNode = packNode.inner
+                    end
+                    local suppliedPack = c.resolvePack(packNode)
+                    arguments[position] = {kind = "typepack", value = suppliedPack}
+                    deferredArguments[position] = {
+                        kind = "typepack", value = suppliedPack,
+                    } as T.ComptimePackArgument
+                    local wrapped = T.packResult(suppliedPack)
+                    open = open or T.hasTypevar(wrapped) or T.hasProjection(wrapped)
+                    for _, member in ipairs(suppliedPack.head or {}) do
+                        open = open or member.tag == "neutral"
+                    end
                 elseif expected == T.string or expected == T.boolean or expected == T.integer then
+                    local supplied = c.resolveType(argumentNode)
                     local term = consteval.fromType(supplied)
                     local reduced, constFailure = nil, nil
                     if term then reduced, constFailure = consteval.reduce(term) end
@@ -613,18 +650,18 @@ function resolve.install(c: state.Checker): nil
                         kind = "const", value = reduced,
                     } as T.ComptimeConstArgument
                 else
-                    c.diag("NUPP2421", parameter.type or parameter, "type-function parameters must be type, typepack, string, boolean, or integer")
+                    c.diag("NUPP2421", parameter and (parameter.type or parameter) or node, "type-function parameters must be type, typepack, string, boolean, or integer")
                     return T.any
                 end
             end
             local declared = helperType.rets[1] or T.any
             if declared ~= T.type_ and declared ~= T.typepack and declared.tag ~= "typeHandle" then
-                c.diag("NUPP2421", body.rets and body.rets[1] or body, "a type-position @comptime function must return type or typepack")
+                c.diag("NUPP2421", body and body.rets and body.rets[1] or body or node, "a type-position @comptime function must return type or typepack")
                 return T.any
             end
             if open then
-                local token = helper.name
-                local identity = tostring(c.filename) .. ":" .. tostring(token and token.offset or 0) .. ":" .. (name as string)
+                local identity = require("nupp.compiler.comptime")
+                    .typeFunctionProgram(helper, c.comptimeFunctions).identity
                 local term = T.comptimeCall(
                     identity,
                     helper,

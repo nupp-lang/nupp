@@ -49,6 +49,9 @@ local generics = require("nupp.compiler.generics")
 local methodslots = require("nupp.compiler.methodslots")
 local comptime = require("nupp.compiler.comptime")
 local typeblueprint = require("nupp.compiler.typeblueprint")
+local reflection = require("nupp.compiler.reflection")
+local hash = require("nupp.compiler.build.hash")
+local stable = require("nupp.compiler.build.cache").stable
 
 local checkMod = {}
 
@@ -603,6 +606,7 @@ function checkMod.check(
         typeDefs = {},
         values = {},
         valueDefs = {},
+        comptimeFunctions = {},
     }, seenDefinitions = {}, scope = {
         vars = {},
         types = {},
@@ -616,6 +620,7 @@ function checkMod.check(
     }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, dropOperationFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, handledDepth = 0, functionDepth = 0, functionBodies = {}, jitHazards = {}, scopedCaptureDepth = 0, closureCaptureStack = {}, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, activeAlias = nil, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldDefs = {}, moduleFieldConst = {}, moduleFieldValues = {}, nominalEffectOwners = {}, nominalEffectEntries = {}, constModulePaths = {}, moduleLocalAnnotated = false)
     c.rootScope = c.scope
     c.moduleExports.valueDefs = c.moduleExports.valueDefs or {}
+    c.moduleExports.comptimeFunctions = c.moduleExports.comptimeFunctions or {}
     -- What this file has declared to the FFI. Per file, because a cdef binding is
     -- file-local, and because the alternative is process state deciding what a
     -- program means.
@@ -654,27 +659,71 @@ function checkMod.check(
     c.discard = discard.install(c)
     c.nosuspend = nosuspendMod.install(c)
     c.typeFunctionEvaluator = function(helper, arguments, helpers)
-        local memo = c.typeFunctionMemo[helper]
+        local program = comptime.typeFunctionProgram(helper, helpers)
+        local memo = c.typeFunctionMemo[program.identity]
         if not memo then
             memo = {}
-            c.typeFunctionMemo[helper] = memo
+            c.typeFunctionMemo[program.identity] = memo
         end
-        local keyParts = {}
+        local keyParts, transported, permitted = {program.identity}, {}, {}
         for position, argument in ipairs(arguments) do
             local value = argument.value
-            keyParts[position] = argument.kind .. ":" .. (
-                type(value) == "table" and value.id or type(value) .. ":" .. tostring(value)
-            )
+            if argument.kind == "type" or argument.kind == "typepack" then
+                local descriptor = reflection.describe(value, nil, true)
+                keyParts[#keyParts + 1] = argument.kind .. ":" .. descriptor.fingerprint
+                for index, node in ipairs(descriptor.types or {}) do
+                    if node.nominal then
+                        permitted[
+                            "argument" .. tostring(position) .. ":" .. tostring(index)
+                        ] = {
+                            source = descriptor.sources[index],
+                            fingerprint = node.referenceFingerprint,
+                        }
+                    end
+                end
+                descriptor.sources = nil
+                transported[position] = {kind = argument.kind, descriptor = descriptor}
+            else
+                transported[position] = {kind = argument.kind, value = value}
+                keyParts[#keyParts + 1] = argument.kind .. ":" .. stable(value)
+            end
         end
-        local key = table.concat(keyParts, "\0")
+        local key = hash.sha256(table.concat(keyParts, "\0"))
         local cached = memo[key]
         if cached then return cached.result, cached.failure end
-        local envelope, evaluationFailure = comptime.evaluateTypeFunctionDirect(helper, arguments, helpers)
+        local persistent = c.env and c.env.openTypeFunctionStore and c.env.openTypeFunctionStore(c.env) or nil
+        local persisted = persistent and persistent.get(key) or nil
+        if persisted then
+            local persistedType = typeblueprint.validate(persisted, permitted)
+            if persistedType then
+                memo[key] = {result = persistedType}
+                return persistedType, nil
+            end
+        end
+        local root = os.getenv("NUPP_COMPILER_ROOT")
+        local executable = root and root .. "/bin/nupp"
+            or type(arg) == "table" and type(arg[0]) == "string" and arg[0]
+            or nil
+        local envelope, evaluationFailure
+        if executable and not os.getenv("NUPP_COMPTIME_WORKER_CHILD") then
+            local worker = require("nupp.compiler.comptime_worker") as {
+                evaluateTypeFunction: function(any, {any}, string, any?): (any, any)
+            }
+            envelope, evaluationFailure = worker.evaluateTypeFunction(
+                program,
+                transported,
+                executable,
+                c.env and c.env.comptimeHost or nil
+            )
+        else
+            envelope, evaluationFailure = comptime.evaluateTypeFunctionDirect(helper, arguments, helpers)
+        end
         if not envelope then
             memo[key] = {failure = evaluationFailure}
             return nil, evaluationFailure
         end
-        local resultType, validationFailure = typeblueprint.validate(envelope)
+        local resultType, validationFailure = typeblueprint.validate(envelope, permitted)
+        if resultType and persistent then persistent.put(key, envelope) end
         memo[key] = {result = resultType, failure = validationFailure}
         return resultType, validationFailure
     end
@@ -1862,6 +1911,14 @@ function checkMod.check(
     c.unused.sweep()
     c.discard.sweep(analysis.queries(facts))
     c.nosuspend.sweep(analysis.queries(facts))
+    local comptimeNames, comptimeIdentities = {}, {}
+    for name in pairs(c.moduleExports.comptimeFunctions or {}) do comptimeNames[#comptimeNames + 1] = name end
+    table.sort(comptimeNames)
+    for _, name in ipairs(comptimeNames) do
+        comptimeIdentities[#comptimeIdentities + 1] = name .. "="
+            .. tostring(c.moduleExports.comptimeFunctions[name].identity)
+    end
+    c.moduleExports.comptimeFunctionFingerprint = table.concat(comptimeIdentities, "\0")
     table.sort(c.diags, function(a, b)
         return a.offset < b.offset
     end)

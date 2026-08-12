@@ -159,12 +159,18 @@ record types.ComptimeTypeArgument
     value: types.Type
 end
 
+record types.ComptimePackArgument
+    kind: 'typepack'
+    value: types.Pack
+end
+
 record types.ComptimeConstArgument
     kind: 'const'
     value: types.ConstTerm
 end
 
-type types.ComptimeArgument = types.ComptimeTypeArgument | types.ComptimeConstArgument
+type types.ComptimeArgument = types.ComptimeTypeArgument | types.ComptimePackArgument
+    | types.ComptimeConstArgument
 
 type types.TemplatePart = string | types.Type
 
@@ -2339,6 +2345,8 @@ function types.comptimeCall(
     for _, argument in ipairs(arguments) do
         if argument.kind == "type" then
             ids[#ids + 1] = "t:" .. argument.value.id
+        elseif argument.kind == "typepack" then
+            ids[#ids + 1] = "p:" .. argument.value.id
         else
             ids[#ids + 1] = "c:" .. argument.value.id
         end
@@ -2617,6 +2625,8 @@ function types.tostring(t: types.Type): string
             for _, argument in ipairs(t.comptimeArguments or {}) do
                 if argument.kind == "type" then
                     arguments[#arguments + 1] = types.tostring(argument.value)
+                elseif argument.kind == "typepack" then
+                    arguments[#arguments + 1] = types.tostringPack(argument.value)
                 else
                     arguments[#arguments + 1] = types.tostringConst(argument.value)
                 end

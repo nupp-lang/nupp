@@ -56,7 +56,7 @@ local function failure(message)
     return {code = "NUPP2415", message = message} as typeblueprint.Failure
 end
 
-function typeblueprint.validate(envelope: any): any, typeblueprint.Failure?
+function typeblueprint.validate(envelope: any, permittedReferences: any?): any, typeblueprint.Failure?
     if type(envelope) ~= "table" or envelope.kind ~= "type-blueprint"
         or envelope.provider ~= "types" or envelope.schema ~= typeblueprint.SCHEMA
         or envelope.family ~= "Type" and envelope.family ~= "Pack"
@@ -110,6 +110,10 @@ function typeblueprint.validate(envelope: any): any, typeblueprint.Failure?
             if not value then why = "type blueprint names an unknown primitive " .. tostring(node.name) end
         elseif node.kind == "reference" then
             local reference = type(envelope.references) == "table" and envelope.references[node.reference] or nil
+            if (type(reference) ~= "table" or not reference.source)
+                and type(node.referenceId) == "string" and type(permittedReferences) == "table" then
+                reference = permittedReferences[node.referenceId]
+            end
             if type(node.fingerprint) ~= "string" or type(reference) ~= "table"
                 or type(reference.fingerprint) ~= "string" or not reference.source
                 or node.fingerprint ~= reference.fingerprint then

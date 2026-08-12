@@ -23,7 +23,7 @@ local record typeprovider
     opaqueKind: function(any, any): string?
     operator: function(any, string, any, any): (any, typeprovider.Failure?)
     finalize: function(any, any): (any, typeprovider.Failure?)
-    importDescriptor: function(any, any, any?): (any, typeprovider.Failure?)
+    importDescriptor: function(any, any, any?, string?): (any, typeprovider.Failure?)
 end
 
 typeprovider.SCHEMA = 1
@@ -503,7 +503,12 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     env.nupp.types = library
 end
 
-function typeprovider.importDescriptor(state: any, descriptor: any, source: any?): any, typeprovider.Failure?
+function typeprovider.importDescriptor(
+    state: any,
+    descriptor: any,
+    source: any?,
+    referencePrefix: string?
+): any, typeprovider.Failure?
     if type(descriptor) ~= "table" or type(descriptor.types) ~= "table"
         or type(descriptor.root) ~= "number" or not state.typeHandles then
         return nil, failure("NUPP2415", "type-function input has a malformed semantic descriptor")
@@ -530,11 +535,20 @@ function typeprovider.importDescriptor(state: any, descriptor: any, source: any?
         local node = nodes[index]
         local kind = node.kind
         local made
-        if node.nominal and index == descriptor.root and source then
+        local referencedSource = descriptor.sources and descriptor.sources[index]
+            or index == descriptor.root and source
+            or nil
+        if node.nominal and (referencedSource or referencePrefix) then
+            local referenceFingerprint = node.referenceFingerprint
+                or referencedSource and require("nupp.compiler.reflection").describe(referencedSource).fingerprint
+                or nil
+            if type(referenceFingerprint) ~= "string" then return nil end
             made = make(state, opaque, "Type", {
-                kind = "reference", source = source,
-                fingerprint = descriptor.fingerprint,
-                key = "reference:" .. descriptor.fingerprint,
+                kind = "reference", source = referencedSource,
+                referenceId = referencePrefix and referencePrefix .. ":" .. tostring(index) or nil,
+                fingerprint = referenceFingerprint,
+                key = "reference:" .. (referencePrefix and referencePrefix .. ":" .. tostring(index)
+                    or referenceFingerprint),
             }, nil)
         elseif PRIMITIVES[kind] then
             made = make(state, opaque, "Type", {kind = "primitive", name = kind, key = "primitive:" .. kind}, nil)
@@ -688,9 +702,11 @@ local function finalizeGraph(state, root)
             node.name = payload.name
         elseif payload.kind == "reference" then
             node.reference = #references + 1
+            node.referenceId = payload.referenceId
             node.fingerprint = payload.fingerprint
             references[node.reference] = {
                 source = payload.source,
+                referenceId = payload.referenceId,
                 fingerprint = payload.fingerprint,
             }
         elseif payload.kind == "literal" then

@@ -193,6 +193,18 @@ function M.comptimeTypeFunctionsPreserveExistingNominalIdentity()
    }, "\n"))
 end
 
+function M.comptimeTypeFunctionsPreserveNestedNominalReferences()
+   clean(table.concat({
+      "local record User name: string end",
+      "@comptime",
+      "local function Element(T: type): type",
+      "   return nupp.types.elements(T)[1]",
+      "end",
+      "local user: Element({User}) = new User(name = 'Ada')",
+      "return user",
+   }, "\n"))
+end
+
 function M.constrainedOpenTypeCallsExposeOnlyTheirDeclaredBound()
    clean(table.concat({
       "@comptime",
@@ -234,6 +246,27 @@ function M.comptimeTypePackResultsExpandThroughUnpackof()
       "local function inferred<T>(value: T, ...: unpackof Pair(T)): nil end",
       "inferred(true, 1, 'yes')",
       "return inferred",
+   }, "\n")), "NUPP2006")
+end
+
+function M.comptimeTypeFunctionsAcceptTypePackArguments()
+   clean(table.concat({
+      "@comptime",
+      "local function Identity(P: typepack): typepack",
+      "   return P",
+      "end",
+      "local function takes(...: unpackof Identity((string, integer))): nil end",
+      "takes('one', 1)",
+      "return takes",
+   }, "\n"))
+   assertEq(codes(table.concat({
+      "@comptime",
+      "local function Identity(P: typepack): typepack",
+      "   return P",
+      "end",
+      "local function takes(...: unpackof Identity((string, integer))): nil end",
+      "takes('one', false)",
+      "return takes",
    }, "\n")), "NUPP2006")
 end
 

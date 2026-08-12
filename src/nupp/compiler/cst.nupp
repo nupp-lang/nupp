@@ -702,6 +702,12 @@ record cst.FuncStmt is cst.Hints
 
     --- The parameters, returns and block.
     body: cst.Node?
+
+    --- Compiler-only @comptime metadata; none of it reaches generated Lua.
+    comptimeFunction: boolean?
+    comptimeName: string?
+    comptimeSignature: any
+    comptimeDefinition: any
 end
 
 --- The dotted, optionally method-qualified name of a function statement.

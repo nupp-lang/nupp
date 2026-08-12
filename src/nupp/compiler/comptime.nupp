@@ -23,11 +23,14 @@ local cst = require("nupp.compiler.cst")
 local T = require("nupp.compiler.types")
 local materializeProviders = require("nupp.compiler.materialize.providers")
 local reflection = require("nupp.compiler.reflection")
+local hash = require("nupp.compiler.build.hash")
 
 local record comptime
     evaluateDirect: function(cst.Node, cst.Node?, any, any, any): (string?, T.Type?, any, any)
     evaluate: function(cst.Node, cst.Node?, any, any, any, any?): (string?, T.Type?, any, any)
     evaluateTypeFunctionDirect: function(any, {any}, any): (any, any)
+    typeFunctionProgram: function(any, any): any
+    sealTypeFunction: function(any, any, any, any): any
 end
 
 local isToken = cst.isToken
@@ -39,6 +42,93 @@ local MAX_STEPS = 100000
 local MAX_CALL_DEPTH = 128
 local MAX_RESULT_BYTES = 512 * 1024
 local MAX_RESULT_ITEMS = 10000
+
+local function canonicalNode(node): string
+    local tokens = node and node as {any} or {}
+    local parts = {}
+    local function visit(value)
+        if cst.isToken(value) then
+            parts[#parts + 1] = value.kind .. ":" .. tostring(#value.text) .. ":" .. value.text
+        elseif type(value) == "table" then
+            for _, child in ipairs(value) do visit(child) end
+        end
+    end
+    visit(tokens)
+    return table.concat(parts, "\0")
+end
+
+--- Seals the source-visible helper closure into one stable compiler-only program.
+--- Trivia and source offsets never enter the identity. Helpers are discovered from
+--- name references and ordered by name, so ordinary table allocation cannot affect it.
+function comptime.typeFunctionProgram(helper: any, helpers: any): any
+    if helper and helper.sealedTypeFunction then return helper end
+    local reachable, visiting = {}, {}
+    local function collect(current)
+        if not current or visiting[current] then return end
+        visiting[current] = true
+        local names = {}
+        local function scan(value)
+            if type(value) ~= "table" or cst.isToken(value) then return end
+            if value.kind == "name" and value.token and helpers[value.token.text] then
+                names[value.token.text] = true
+            end
+            for _, child in ipairs(value) do scan(child) end
+        end
+        scan(current.body or current)
+        for name in pairs(names) do
+            local dependency = helpers[name]
+            if dependency and dependency ~= current then
+                reachable[name] = dependency
+                collect(dependency)
+            end
+        end
+    end
+    collect(helper)
+    local names, parts = {}, {"nupp.type-function\0v1", canonicalNode(helper)}
+    for name in pairs(reachable) do names[#names + 1] = name end
+    table.sort(names)
+    for _, name in ipairs(names) do
+        parts[#parts + 1] = name
+        parts[#parts + 1] = canonicalNode(reachable[name])
+    end
+    return {
+        identity = hash.sha256(table.concat(parts, "\0")),
+        helper = helper,
+        helpers = reachable,
+    }
+end
+
+function comptime.sealTypeFunction(helper: any, helpers: any, signature: any, definition: any): any
+    local program = comptime.typeFunctionProgram(helper, helpers)
+    local mainName = helper and (helper.comptimeName or helper.name and helper.name.text) or ""
+    local serialized = {}
+    local function add(name, node)
+        local token = node and node.name
+        if token then
+            local source = cst.textOf(node)
+            if node.kind == "funcStmt" then
+                source = source:gsub(
+                    "^([%s]*)function%s+[%w_%.]+",
+                    "%1local function " .. name,
+                    1
+                )
+            end
+            serialized[name] = {
+                source = source, line = token.line, column = token.col,
+            }
+        end
+    end
+    add(mainName, helper)
+    for name, dependency in pairs(program.helpers or {}) do add(name, dependency) end
+    return {
+        sealedTypeFunction = true,
+        identity = program.identity,
+        main = mainName,
+        serializedHelpers = serialized,
+        signature = signature,
+        definition = definition,
+    }
+end
 
 -- A raised evaluation failure. Errors travel as a table so a `pcall` boundary can tell
 -- one of ours from a genuine evaluator bug, which should not be reported as the user's
@@ -1432,6 +1522,43 @@ end
 --- Type and pack arguments enter through the versioned semantic graph and become
 --- opaque evaluator handles; no checker object is reachable from user code.
 function comptime.evaluateTypeFunctionDirect(helper: any, arguments: {any}, helpers: any): any, comptime.Failure?
+    if helper and helper.sealedTypeFunction then
+        local parsedHelpers = {}
+        local function findLocalFunction(value)
+            if type(value) ~= "table" then return nil end
+            if value.kind == "localFuncStmt" then return value end
+            for _, child in ipairs(value) do
+                local found = findLocalFunction(child)
+                if found then return found end
+            end
+            return nil
+        end
+        for helperName, descriptor in pairs(helper.serializedHelpers or {}) do
+            local parsed = type(descriptor) == "table" and type(descriptor.source) == "string"
+                and require("nupp.compiler.parser").parse(
+                    descriptor.source,
+                    "=comptime-helper-" .. helperName
+                ) or nil
+            local node = parsed and #(parsed.errors or {}) == 0
+                and findLocalFunction(parsed.root) or nil
+            if not node or not node.name or node.name.text ~= helperName then
+                return nil, {
+                    code = "NUPP2412",
+                    message = "cannot load sealed comptime helper " .. helperName,
+                } as comptime.Failure
+            end
+            parsedHelpers[helperName] = {
+                node = node, line = descriptor.line, column = descriptor.column,
+            }
+        end
+        local main = parsedHelpers[helper.main]
+        if not main then
+            return nil, {
+                code = "NUPP2412", message = "sealed type function has no entry helper",
+            } as comptime.Failure
+        end
+        helper, helpers = main.node, parsedHelpers
+    end
     local node = helper and helper.body or helper
     local name = helper and helper.name and helper.name.text or ""
     if not node or name == "" then
@@ -1448,8 +1575,13 @@ function comptime.evaluateTypeFunctionDirect(helper: any, arguments: {any}, help
     local values = {n = #arguments}
     for position, argument in ipairs(arguments) do
         if argument.kind == "type" or argument.kind == "typepack" then
-            local descriptor = reflection.describe(argument.value)
-            local handle, importFailure = materializeProviders.importTypeDescriptor(state, descriptor, argument.value)
+            local descriptor = argument.descriptor or reflection.describe(argument.value, nil, true)
+            local handle, importFailure = materializeProviders.importTypeDescriptor(
+                state,
+                descriptor,
+                argument.value,
+                "argument" .. tostring(position)
+            )
             if not handle then
                 return nil, {
                     code = importFailure and importFailure.code or "NUPP2415",

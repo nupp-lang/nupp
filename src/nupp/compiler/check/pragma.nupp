@@ -169,8 +169,9 @@ function pragma.install(c: state.Checker): state.StatHandlers
             return
 
         elseif written == "comptime" then
-            if valid and target and target.kind == "localFuncStmt" and target.name and target.body then
-                local helper = target as cst.LocalFuncStmt
+            if valid and target and (target.kind == "localFuncStmt" or target.kind == "funcStmt")
+                and target.name and target.body then
+                local helper = target as any
                 local body = helper.body as cst.Funcbody
                 if body.generics then
                     c.diag("NUPP2411", body.generics, "generic @comptime functions are not yet available")
@@ -182,14 +183,35 @@ function pragma.install(c: state.Checker): state.StatHandlers
                     end
                 end
                 helper.comptimeFunction = true
-                local helperName = helper.name
+                local owner, member = nil, nil
+                if target.kind == "funcStmt" then owner, member = c.funcOwner(helper.name) end
+                local helperName = target.kind == "localFuncStmt" and helper.name or member
+                if not helperName then
+                    c.diag("NUPP2411", helper.name, "@comptime functions must be local or direct module members")
+                    c.checkStat(helper)
+                    return
+                end
                 local markedName = helperName as any
                 markedName.comptimeFunction = true
+                helper.comptimeName = markedName.text
                 stat.eraseComptimeFunction = true
-                c.comptimeFunctions[markedName.text] = helper
+                local helperKey = owner and owner .. "." .. markedName.text or markedName.text
+                if target.kind == "funcStmt" and owner ~= c.moduleLocal then
+                    c.diag("NUPP2411", helper.name, "an exported @comptime function must be a direct member of this module")
+                end
+                c.comptimeFunctions[helperKey] = helper
                 c.comptimeFunctionDepth = c.comptimeFunctionDepth + 1
                 c.checkStat(helper)
                 c.comptimeFunctionDepth = c.comptimeFunctionDepth - 1
+                if target.kind == "funcStmt" and owner == c.moduleLocal and helper.comptimeSignature then
+                    local sealed = require("nupp.compiler.comptime").sealTypeFunction(
+                        helper,
+                        c.comptimeFunctions,
+                        helper.comptimeSignature,
+                        helper.comptimeDefinition
+                    )
+                    c.moduleExports.comptimeFunctions[markedName.text] = sealed
+                end
             elseif stat.stat then
                 c.checkStat(stat.stat)
             end

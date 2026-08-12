@@ -1102,6 +1102,11 @@ function functions.install(c: state.Checker): state.StatHandlers
             memberDefinition.type = ft
             c.markToken(memberTok, memberDefinition, ft, memberDefinition.kind)
         end
+        if stat.comptimeFunction then
+            stat.comptimeSignature = ft
+            stat.comptimeDefinition = memberDefinition
+            return
+        end
         -- `function M.f()` puts f on the module table exactly as `M.f = ...` does, so
         -- what it exports records it the same way.
         if not fname.method and ownerKey == c.moduleLocal and memberTok then

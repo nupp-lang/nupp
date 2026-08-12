@@ -273,6 +273,10 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
                     arguments[position] = {
                         kind = "type", value = substWith(argument.value, map, unmapped),
                     } as T.ComptimeTypeArgument
+                elseif argument.kind == "typepack" then
+                    arguments[position] = {
+                        kind = "typepack", value = substPackWith(argument.value, map, unmapped),
+                    } as T.ComptimePackArgument
                 else
                     arguments[position] = {
                         kind = "const", value = substConst(argument.value, map),
@@ -1517,6 +1521,16 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
                     if err then break end
                     arguments[position] = {kind = "type", value = reduced}
                     open = open or T.hasTypevar(reduced) or T.hasProjection(reduced) or reduced.tag == "neutral"
+                elseif argument.kind == "typepack" then
+                    local reduced
+                    reduced, err = normalizeReductionPack(argument.value, memo, budget)
+                    if err then break end
+                    arguments[position] = {kind = "typepack", value = reduced}
+                    local wrapped = T.packResult(reduced)
+                    open = open or T.hasTypevar(wrapped) or T.hasProjection(wrapped)
+                    for _, member in ipairs(reduced.head or {}) do
+                        open = open or member.tag == "neutral"
+                    end
                 else
                     local reduced
                     reduced, err = consteval.reduce(argument.value)
@@ -1528,9 +1542,8 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
             if not err and open then
                 local rebound = {}
                 for position, argument in ipairs(arguments) do
-                    rebound[position] = argument.kind == "type"
-                        and argument
-                        or {kind = "const", value = argument.value}
+                    rebound[position] = argument.kind == "type" or argument.kind == "typepack"
+                        and argument or {kind = "const", value = argument.value}
                 end
                 out = T.comptimeCall(
                     t.comptimeIdentity as string,
@@ -1922,18 +1935,26 @@ end
 --- Instantiates a generic function as one monomorphic callable. This is used when a
 --- universally generic function value is assigned to a concrete function type; the
 --- target signature supplies the arguments that an ordinary call would have supplied.
-function generics.instantiateFunction(t: T.Func, map: Bindings): T.Func, string?
-    local concrete = substWith(t, map, MATERIALIZE)
+function generics.instantiateFunction(
+    t: T.Func,
+    map: Bindings,
+    control: generics.ReductionControl?
+): T.Func, string?
+    local evaluated = generics.evaluate(substWith(t, map, MATERIALIZE), nil, control)
+    local concrete = evaluated.type
+    if evaluated.error then
+        return t, evaluated.error
+    end
     if concrete.tag ~= "func" then
         return t
     end
 
-    local paramPack, packError = generics.expandComputedPack(concrete.paramPack)
+    local paramPack, packError = generics.expandComputedPack(concrete.paramPack, control)
     if packError then
         return concrete, packError
     end
     local retPack
-    retPack, packError = generics.expandComputedPack(concrete.retPack)
+    retPack, packError = generics.expandComputedPack(concrete.retPack, control)
     if packError then
         return concrete, packError
     end

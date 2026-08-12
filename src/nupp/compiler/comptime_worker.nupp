@@ -18,7 +18,9 @@ type worker.Failure = {
 
 local record worker
     main: function({string}): integer
+    serviceMain: function(): integer
     evaluate: function(string, string, any, any, any, any?): (string?, worker.Failure?, any)
+    evaluateTypeFunction: function(any, {any}, string, any?): (any, worker.Failure?)
 end
 
 cjson.encode_empty_table_as_object(false)
@@ -46,6 +48,17 @@ local function write(path, text)
     file:close()
 
     return true
+end
+
+local function serializedHelper(node)
+    node = node and (node.node or node)
+    local token = node and node.name
+    if not node or node.kind ~= "localFuncStmt" or not token then return nil end
+    return {
+        source = require("nupp.compiler.cst").textOf(node),
+        line = token.line,
+        column = token.col,
+    }
 end
 
 local function findComptime(node)
@@ -82,6 +95,106 @@ local function findLocalFunction(node)
     return nil
 end
 
+local parsedPrograms: {[string]: any} = {}
+
+local function parseHelpers(request): any, worker.Failure?
+    if type(request.program) ~= "string" or type(request.main) ~= "string"
+        or type(request.helpers) ~= "table" then
+        return nil, {code = "NUPP2412", message = "invalid type-function worker program"}
+    end
+    local cached = parsedPrograms[request.program]
+    if cached then return cached, nil end
+    local helpers = {}
+    for name, descriptor in pairs(request.helpers) do
+        if type(name) ~= "string" or type(descriptor) ~= "table"
+            or type(descriptor.source) ~= "string" then
+            return nil, {code = "NUPP2412", message = "invalid comptime helper request"}
+        end
+        local helperParse = require("nupp.compiler.parser").parse(
+            descriptor.source,
+            "=comptime-helper-" .. name
+        )
+        local helper = #(helperParse.errors or {}) == 0 and findLocalFunction(helperParse.root) or nil
+        if not helper or not helper.name or helper.name.text ~= name then
+            return nil, {
+                code = "NUPP2412",
+                message = "the comptime worker could not parse checked helper " .. name,
+            }
+        end
+        helpers[name] = {node = helper, line = descriptor.line, column = descriptor.column}
+    end
+    local main = helpers[request.main]
+    if not main then
+        return nil, {code = "NUPP2412", message = "type-function worker program has no entry helper"}
+    end
+    cached = {main = main.node, helpers = helpers}
+    parsedPrograms[request.program] = cached
+    return cached, nil
+end
+
+local function handleRequest(request): any
+    if type(request) ~= "table" then
+        return {ok = false, code = "NUPP2412", message = "invalid worker request"}
+    end
+    if request.kind == "type-function" then
+        local program, programFailure = parseHelpers(request)
+        if not program then
+            local stopped = programFailure or {
+                code = "NUPP2412", message = "type-function worker program could not be loaded",
+            }
+            return {ok = false, code = stopped.code, message = stopped.message}
+        end
+        local comptime = require("nupp.compiler.comptime") as {
+            evaluateTypeFunctionDirect: function(any, {any}, any): (any, any)
+        }
+        local envelope, failure = comptime.evaluateTypeFunctionDirect(
+            program.main,
+            request.arguments or {},
+            program.helpers
+        )
+        if failure then
+            return {ok = false, code = failure.code, message = failure.message, help = failure.help}
+        end
+        return {ok = true, materialized = envelope}
+    end
+    if type(request.source) ~= "string" then
+        return {ok = false, code = "NUPP2412", message = "invalid worker request"}
+    end
+    local parsed = require("nupp.compiler.parser").parse("return " .. request.source, "=comptime-worker")
+    if #(parsed.errors or {}) > 0 then
+        return {ok = false, code = "NUPP2412", message = "the comptime worker could not parse its checked request"}
+    end
+    local node = findComptime(parsed.root)
+    if not node then
+        return {ok = false, code = "NUPP2412", message = "worker request has no comptime block"}
+    end
+    local helperRequest = {program = "value:" .. request.source, main = "" , helpers = request.helpers or {}}
+    local helpers = {}
+    for name, descriptor in pairs(helperRequest.helpers) do
+        local helperParse = type(descriptor) == "table" and type(descriptor.source) == "string"
+            and require("nupp.compiler.parser").parse(descriptor.source, "=comptime-helper-" .. name)
+            or nil
+        local helper = helperParse and #(helperParse.errors or {}) == 0
+            and findLocalFunction(helperParse.root) or nil
+        if not helper or not helper.name or helper.name.text ~= name then
+            return {ok = false, code = "NUPP2412", message = "invalid comptime helper request"}
+        end
+        helpers[name] = {node = helper, line = descriptor.line, column = descriptor.column}
+    end
+    local comptime = require("nupp.compiler.comptime") as {
+        evaluateDirect: function(any, any, any, any, any): (string?, any, any, any)
+    }
+    local quoted, _, failure, envelope = comptime.evaluateDirect(
+        node, node.body, request.reflections, request.layouts, helpers
+    )
+    if failure then
+        return {ok = false, code = failure.code, message = failure.message, help = failure.help}
+    elseif envelope then
+        return {ok = true, materialized = envelope}
+    end
+    return {ok = true, quoted = quoted}
+end
+
 --- Child entry point. The request file contains only the exact comptime expression.
 function worker.main(argv: {string}): integer
     local requestPath = argv[1]
@@ -99,75 +212,34 @@ function worker.main(argv: {string}): integer
         return 0
     end
     local decoded, request = pcall(cjson.decode, requestText)
-    if not decoded or type(request) ~= "table" or type(request.source) ~= "string" then
+    if not decoded or type(request) ~= "table" then
         io.write(cjson.encode({ok = false, code = "NUPP2412", message = "invalid worker request"}), "\n")
         return 0
     end
-    local parsed = require("nupp.compiler.parser").parse("return " .. request.source, "=comptime-worker")
-    if #(parsed.errors or {}) > 0 then
-        io.write(cjson.encode({
-            ok = false,
-            code = "NUPP2412",
-            message = "the comptime worker could not parse its checked request",
-        }), "\n")
-        return 0
-    end
-    local node = findComptime(parsed.root)
-    if not node then
-        io.write(cjson.encode({ok = false, code = "NUPP2412", message = "worker request has no comptime block"}), "\n")
-        return 0
-    end
+    io.write(cjson.encode(handleRequest(request)), "\n")
 
-    local helpers = {}
-    for name, descriptor in pairs(request.helpers or {}) do
-        if type(name) ~= "string" or type(descriptor) ~= "table"
-            or type(descriptor.source) ~= "string" then
-            io.write(cjson.encode({ok = false, code = "NUPP2412", message = "invalid comptime helper request"}), "\n")
-            return 0
+    return 0
+end
+
+--- Persistent child entry point. One line is one bounded JSON request and response;
+--- evaluator state is still fresh because only parsed immutable programs are cached.
+function worker.serviceMain(): integer
+    for requestText in io.lines() do
+        local response
+        if #requestText > MAX_PROTOCOL_BYTES then
+            response = {ok = false, code = "NUPP2416", message = "comptime worker request exceeds 2097152 bytes"}
+        else
+            local decoded, request = pcall(cjson.decode, requestText)
+            response = decoded and handleRequest(request)
+                or {ok = false, code = "NUPP2412", message = "invalid worker request"}
         end
-        local helperParse = require("nupp.compiler.parser").parse(
-            descriptor.source,
-            "=comptime-helper-" .. name
-        )
-        local helper = #(helperParse.errors or {}) == 0 and findLocalFunction(helperParse.root) or nil
-        if not helper or not helper.name or helper.name.text ~= name then
-            io.write(cjson.encode({
-                ok = false,
-                code = "NUPP2412",
-                message = "the comptime worker could not parse checked helper " .. name,
-            }), "\n")
-            return 0
+        local encoded = cjson.encode(response)
+        if #encoded > MAX_PROTOCOL_BYTES then
+            encoded = cjson.encode({ok = false, code = "NUPP2416", message = "comptime worker response exceeds 2097152 bytes"})
         end
-        helpers[name] = {
-            node = helper,
-            line = descriptor.line,
-            column = descriptor.column,
-        }
+        io.write(encoded, "\n")
+        io.stdout:flush()
     end
-
-    local comptime = require("nupp.compiler.comptime") as {
-        evaluateDirect: function(any, any, any, any, any): (string?, any, any, any)
-    }
-    local quoted, _, failure, envelope = comptime.evaluateDirect(
-        node,
-        node.body,
-        request.reflections,
-        request.layouts,
-        helpers
-    )
-    if failure then
-        io.write(cjson.encode({
-            ok = false,
-            code = failure.code,
-            message = failure.message,
-            help = failure.help,
-        }), "\n")
-    elseif envelope then
-        io.write(cjson.encode({ok = true, materialized = envelope}), "\n")
-    else
-        io.write(cjson.encode({ok = true, quoted = quoted}), "\n")
-    end
-
     return 0
 end
 
@@ -184,15 +256,7 @@ function worker.evaluate(
     local requestPath = os.tmpname()
     local serializedHelpers = {}
     for name, supplied in pairs(helpers or {}) do
-        local node = supplied.node or supplied
-        local token = node and node.name
-        if node and node.kind == "localFuncStmt" and token then
-            serializedHelpers[name] = {
-                source = require("nupp.compiler.cst").textOf(node),
-                line = token.line,
-                column = token.col,
-            }
-        end
+        serializedHelpers[name] = serializedHelper(supplied)
     end
     local requestText = cjson.encode({
         source = source,
@@ -255,6 +319,132 @@ function worker.evaluate(
     end
 
     return response.quoted, nil, nil
+end
+
+local service: any = nil
+local serviceExecutable: string? = nil
+local serviceBuffer = ""
+
+local function stopService(force: boolean?): nil
+    local current = service
+    service, serviceExecutable, serviceBuffer = nil, nil, ""
+    if not current then return end
+    if force and current:isRunning() then current:kill(true) end
+    current:close()
+end
+
+local function startService(executable: string): any, worker.Failure?
+    if service and serviceExecutable == executable and service:isRunning() then return service, nil end
+    stopService(true)
+    local child, problem = process.startIsolated(
+        {executable, "__comptime-worker-service"},
+        {env = {NUPP_COMPTIME_WORKER_CHILD = "1"}, memoryMb = 256}
+    )
+    if not child or not child.stdin or not child.stdout then
+        if child then child:close() end
+        return nil, {code = "NUPP2412", message = "cannot start comptime worker service: " .. tostring(problem)}
+    end
+    child.stdin:setTimeout(2000)
+    child.stdout:setTimeout(5)
+    unsafe do
+        service = nupp.intoRaw(child)
+    end
+    serviceExecutable = executable
+    return service, nil
+end
+
+local function requestService(request: any, executable: string, host: any?): any, worker.Failure?
+    local encoded = cjson.encode(request)
+    if #encoded > MAX_PROTOCOL_BYTES then
+        return nil, {code = "NUPP2416", message = "comptime worker request exceeds 2097152 bytes"}
+    end
+    local child, startFailure = startService(executable)
+    if not child then return nil, startFailure end
+    local wrote, writeFailure = child.stdin:write(encoded .. "\n")
+    if not wrote then
+        stopService(true)
+        return nil, {code = "NUPP2412", message = "comptime worker service stopped accepting requests: " .. tostring(writeFailure)}
+    end
+    local deadline = child.backend:now() + 2000
+    while true do
+        local newline = serviceBuffer:find("\n", 1, true)
+        if newline then
+            local line = serviceBuffer:sub(1, newline - 1)
+            serviceBuffer = serviceBuffer:sub(newline + 1)
+            if #line > MAX_PROTOCOL_BYTES then
+                stopService(true)
+                return nil, {code = "NUPP2416", message = "comptime worker response exceeds 2097152 bytes"}
+            end
+            local decoded, response = pcall(cjson.decode, line)
+            if not decoded or type(response) ~= "table" then
+                stopService(true)
+                return nil, {code = "NUPP2412", message = "comptime worker service returned an invalid response"}
+            end
+            return response, nil
+        end
+        if host and host.pump then host.pump() end
+        if host and host.cancelled and host.cancelled() then
+            stopService(true)
+            return nil, {code = "NUPP2412", message = "comptime evaluation was cancelled"}
+        end
+        if child.backend:now() >= deadline then
+            stopService(true)
+            return nil, {
+                code = "NUPP2412",
+                message = "comptime evaluation exceeded the 2000 ms worker timeout",
+                help = "make the computation smaller or move the unbounded work to run time",
+            }
+        end
+        local chunk, readFailure = child.stdout:read(65536)
+        if chunk and #chunk > 0 then
+            serviceBuffer = serviceBuffer .. chunk
+            if #serviceBuffer > MAX_PROTOCOL_BYTES then
+                stopService(true)
+                return nil, {code = "NUPP2416", message = "comptime worker response exceeds 2097152 bytes"}
+            end
+        elseif not child:isRunning() or child.stdout:isEOF() then
+            stopService(true)
+            return nil, {
+                code = "NUPP2412",
+                message = "the persistent comptime worker crashed: " .. tostring(readFailure or "unexpected EOF"),
+            }
+        end
+    end
+end
+
+--- Evaluates one sealed type program through the persistent isolated service.
+function worker.evaluateTypeFunction(
+    program: any,
+    arguments: {any},
+    executable: string,
+    host: any?
+): any, worker.Failure?
+    local main = program.helper
+    local mainName = program.main or main and main.name and main.name.text or nil
+    if not mainName then
+        return nil, {code = "NUPP2412", message = "type function has no named program entry"}
+    end
+    local helpers = program.serializedHelpers or {}
+    if not program.serializedHelpers then
+        helpers[mainName] = serializedHelper(main)
+        for name, helper in pairs(program.helpers or {}) do helpers[name] = serializedHelper(helper) end
+    end
+    local response, protocolFailure = requestService({
+        kind = "type-function",
+        program = program.identity,
+        main = mainName,
+        helpers = helpers,
+        arguments = arguments,
+    }, executable, host)
+    if not response then return nil, protocolFailure end
+    if not response.ok then
+        return nil, {
+            code = response.code or "NUPP2412",
+            message = response.message or "comptime type-function evaluation failed",
+            help = response.help,
+        }
+    end
+    return response.materialized, nil
 end
 
 return worker

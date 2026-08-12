@@ -1141,6 +1141,69 @@ return {
    remove(dir)
 end
 
+function M.exportedComptimeTypeFunctionsInvalidateAndPersistSafely()
+   local optional = table.concat({
+      "local M = {}",
+      "@comptime",
+      "local function AddNil(T: type): type",
+      "   return nupp.types.optional(T)",
+      "end",
+      "@comptime",
+      "function M.Maybe(T: type): type",
+      "   return AddNil(T)",
+      "end",
+      "return M",
+   }, "\n")
+   local main = table.concat({
+      "local gen = require('gen')",
+      "local direct: gen.Maybe(string) = nil",
+      "local function choose<T>(value: T, fallback: gen.Maybe(T)): gen.Maybe(T)",
+      "   return fallback",
+      "end",
+      "local answer: string? = choose('yes', nil)",
+      "return answer, direct",
+   }, "\n")
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {include = {"src"}, build = {outDir = "out", entries = {"main"}}}
+]],
+      ["src/gen.nupp"] = optional,
+      ["src/main.nupp"] = main,
+   })
+
+   assertEq(project.check(dir, {stats = {}, diagnostics = {}}), 0,
+      "a consumer executes closed and inferred exported type calls")
+   local cache = dir .. "/out/cache/type-functions.buf"
+   assert(exists(cache), "the type-function result store is persisted")
+
+   -- Rechecking a changed consumer admits a validated persisted result. Damage is a
+   -- miss, never a different type answer.
+   write(dir .. "/src/main.nupp", main .. "\n-- force a consumer check\n")
+   assertEq(project.check(dir, {stats = {}, diagnostics = {}}), 0,
+      "a fresh checker accepts persisted blueprints")
+   write(cache, "not a type-function store")
+   write(dir .. "/src/main.nupp", main .. "\n-- force another consumer check\n")
+   assertEq(project.check(dir, {stats = {}, diagnostics = {}}), 0,
+      "a damaged result store falls back to evaluation")
+
+   -- The sealed helper closure is part of the exported interface. Changing its
+   -- behavior rechecks the unchanged consumer and changes the generated answer.
+   write(dir .. "/src/gen.nupp", optional:gsub(
+      "return nupp.types.optional%(T%)",
+      "return T"
+   ))
+   local diagnostics = {}
+   assert(project.check(dir, {stats = {}, diagnostics = diagnostics}) ~= 0,
+      "a semantic private-helper edit invalidates the consumer")
+   local sawArgumentFailure = false
+   for _, diagnostic in ipairs(diagnostics) do
+      if diagnostic.code == "NUPP2006" then sawArgumentFailure = true end
+   end
+   assert(sawArgumentFailure, "the consumer observes the changed generated type")
+
+   remove(dir)
+end
+
 -- A cache is only ever an optimization, so every way of damaging it has to
 -- land on the same answer as not having one.
 function M.checkSurvivesADamagedCache()

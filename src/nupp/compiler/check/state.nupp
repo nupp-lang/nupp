@@ -53,7 +53,9 @@ type state.ModuleExports = {
     values: {[string]: Type},
     valueDefs: {[string]: any},
     nominalEffectFingerprint: string?,
-    deriveInterfaceFingerprint: string?
+    deriveInterfaceFingerprint: string?,
+    comptimeFunctions: {[string]: any},
+    comptimeFunctionFingerprint: string?
 }
 
 --- One thing to report about a file.

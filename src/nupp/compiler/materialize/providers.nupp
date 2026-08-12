@@ -47,11 +47,20 @@ local record providers
     operator: function(any, string, any, any, any): (any, providers.Failure?)
     finalize: function(any, any): (any, providers.Failure?)
     lower: function(any, any, any): (any, providers.Failure?, any)
-    importTypeDescriptor: function(any, any, any?): (any, providers.Failure?)
+    importTypeDescriptor: function(any, any, any?, string?): (any, providers.Failure?)
 end
 
-function providers.importTypeDescriptor(state: any, descriptor: any, source: any?): any, providers.Failure?
-    return typeprovider.importDescriptor(state, descriptor, source)
+function providers.importTypeDescriptor(
+    state: any,
+    descriptor: any,
+    source: any?,
+    referencePrefix: string?
+): any, providers.Failure?
+    -- The tracked bootstrap can hold the preceding three-argument module interface
+    -- while it rebuilds this provider pair. Lua accepts the added optional argument;
+    -- the rebuilt interface publishes the four-argument contract above.
+    local importDescriptor = typeprovider.importDescriptor as any
+    return importDescriptor(state, descriptor, source, referencePrefix)
 end
 
 providers.ABI = 1

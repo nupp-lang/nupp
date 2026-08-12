@@ -29,6 +29,16 @@ type process.Options = {
     cancelled: (function(): boolean)?
 }
 
+type process.IsolatedProcess = {
+    stdin: any,
+    stdout: any,
+    backend: any,
+    handle: any,
+    isRunning: function(any): boolean,
+    kill: function(any, boolean?): (boolean, string?),
+    close: function(any): (boolean, string?)
+}
+
 local windows = package.config:sub(1, 1) == "\\"
 
 -- The Windows test host runs its shell-facing cases through MSYS, whose
@@ -257,6 +267,32 @@ function process.captureIsolated(argv: {string}, opts: process.Options?): intege
     end
 
     return exit.exitCode, table.concat(chunks)
+end
+
+--- Starts the same bounded child used by `captureIsolated`, but leaves its framed
+--- stdin/stdout open for a session service. The caller owns and must close it.
+@owned(opaque = true)
+function process.startIsolated(argv: {string}, opts: process.Options?): (process.IsolatedProcess?, string?)
+    opts = (opts or {}) as process.Options
+    local args = isolatedArgs(argv)
+    if opts.memoryMb and not windows then
+        local kilobytes = math.max(1, math.floor(opts.memoryMb * 1024))
+        args = {
+            "/bin/sh",
+            "-c",
+            "ulimit -v " .. tostring(kilobytes) .. " 2>/dev/null || true; exec "
+                .. process.command(argv),
+        }
+    end
+    local native = require("nupp.io.process")
+    return native.new({
+        args = args,
+        cwd = opts.cwd,
+        env = opts.env,
+        stdin = "pipe",
+        stdout = "pipe",
+        stderr = "stdout",
+    })
 end
 
 return process

@@ -383,6 +383,8 @@ typeFingerprint = function(
         for _, argument in ipairs(t.comptimeArguments or {}) do
             if argument.kind == "type" then
                 comptimeArguments[#comptimeArguments + 1] = "type=" .. typeFingerprint(argument.value, active, binders)
+            elseif argument.kind == "typepack" then
+                comptimeArguments[#comptimeArguments + 1] = "pack=" .. packFingerprint(argument.value, active, binders)
             else
                 comptimeArguments[#comptimeArguments + 1] = "const=" .. constFingerprint(argument.value, binders)
             end
@@ -747,6 +749,8 @@ local function buildModules(
                 result.exports.nominalEffectFingerprint or ""
             ) .. "\0derives:" .. (
                 result.exports.deriveInterfaceFingerprint or ""
+            ) .. "\0comptime-functions:" .. (
+                result.exports.comptimeFunctionFingerprint or ""
             ) .. (external and ("\0" .. sourceHash) or "")
         ), artifactHash = artifactHash, dependencies = jsonArray(
             depNames
