@@ -58,10 +58,12 @@ A zero-field definition creates a marker annotation:
 
 ```nupp
 @annotation(targets = {"record"})
-record internal end
+record internal
+end
 
 @internal
-local record CacheEntry end
+local record CacheEntry
+end
 ```
 
 ## Single-value applications
@@ -109,10 +111,12 @@ record relatesTo
     target: any
 end
 
-local record User end
+local record User
+end
 
 @relatesTo(User)
-local record UserEvent end
+local record UserEvent
+end
 ```
 
 The value must be a bare or module-qualified type name. It is resolved in the

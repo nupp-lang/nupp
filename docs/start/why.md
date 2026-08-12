@@ -64,7 +64,7 @@ cdef struct nativePoint
     y: number
 end
 
-cdef function point_length(borrows point: nativePoint*): number from "mini"
+cdef function point_length(borrows point: nativePoint*): number from"mini"
 ```
 
 Now the call is checked, and `borrows` records something the C prototype could

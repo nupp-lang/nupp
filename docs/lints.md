@@ -98,7 +98,9 @@ A returning dispatch over a closed set must handle every remaining member.
 local type Color = "red" | "green" | "blue"
 
 local function name(color: Color): string
-    if color == "red" then return "red" end
+    if color == "red" then
+        return "red"
+    end
     return "other"
 end
 
@@ -137,7 +139,8 @@ and prevents compilation through that call path.
 ::: code-group
 ```nupp [src/jit-callback.nupp]
 unsafe do
-    local callback = function() end
+    local callback = function()
+    end
     local pointer = ffi.cast<voidptr>(callback)
     local handle = nupp.pin(pointer, callback)
 end
@@ -249,7 +252,9 @@ A loop should not allocate the same non-capturing function on every iteration.
 ::: code-group
 ```nupp [src/loop-invariant-closure.nupp]
 for _, item in ipairs(items) do
-    register(item, function(event) return event.kind == "click" end)
+    register(item, function(event)
+        return event.kind == "click"
+    end)
 end
 ```
 
@@ -270,7 +275,9 @@ A documented function that calls `error` must say when it raises.
 --- Reads a file.
 --- @param path where to read from
 local function load(path: string): string
-    if path == "" then error("no path") end
+    if path == "" then
+        error("no path")
+    end
     return path
 end
 
@@ -554,8 +561,7 @@ whose fix is usually the next thing the author types, gets a row in
 `EDITOR_ADVICE` in `src/nupp/compiler/lsp/diagnostics.nupp`:
 
 ```nupp
-local EDITOR_ADVICE = {
-    ["NUPP2120"] = "warning", -- a project module used without requiring it
+local EDITOR_ADVICE = {["NUPP2120"] = "warning", -- a project module used without requiring it
 }
 ```
 

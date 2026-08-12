@@ -119,7 +119,9 @@ local record Task
     run: function(self: Task)
 end
 
-Task.run = function(self: Task) print(self) end
+Task.run = function(self: Task)
+    print(self)
+end
 ```
 
 Inline methods are not metamethod definitions, even when their names begin with
@@ -174,9 +176,9 @@ Real memory, real widths. A `float` field truncates the way a C `float` does.
 Three construction forms:
 
 ```nupp
-local a = new Vec2(1.0, 2.0)   -- named
-local b = Vec2(1.0, 2.0)           -- positional, in field order
-local c: Vec2                      -- zero-initialized
+local a = new Vec2(1.0, 2.0) -- named
+local b = Vec2(1.0, 2.0) -- positional, in field order
+local c: Vec2 -- zero-initialized
 ```
 
 A struct binding is never nil, so the third form is complete on its own.

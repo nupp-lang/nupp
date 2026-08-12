@@ -84,11 +84,8 @@ signature does: the compiler records the promise but cannot prove the foreign
 implementation honors it.
 
 ```nupp
-@effects(reads = {"source[*]"}, writes = {"destination[*]"},
-         external = true)
-cdef function copyBytes(
-    destination: voidptr, source: voidptr, count: uint64
-): int32
+@effects(reads = {"source[*]"}, writes = {"destination[*]"}, external = true)
+cdef function copyBytes(destination: voidptr, source: voidptr, count: uint64): int32
 ```
 
 `external = true` says that the call may interact with state outside the
@@ -156,14 +153,8 @@ Paths are symbolic strings. Use these canonical roots:
 Examples:
 
 ```nupp
-@effects(
-    reads = {"destination", "source", "source[*]"},
-    writes = {"destination[*]"},
-    shapes = {"destination"}
-)
-local function appendAll(
-    destination: {string}, source: {string}
-)
+@effects(reads = {"destination", "source", "source[*]"}, writes = {"destination[*]"}, shapes = {"destination"})
+local function appendAll(destination: {string}, source: {string})
     for _, value in ipairs(source) do
         destination[#destination + 1] = value
     end
@@ -204,10 +195,7 @@ fact alias analysis needs.
 Multiple results name their positions independently:
 
 ```nupp
-@effects(
-    reads = {"left", "right"},
-    returns = {"1=left", "2=right"}
-)
+@effects(reads = {"left", "right"}, returns = {"1=left", "2=right"})
 local function both(left: table, right: table): table, table
     return left, right
 end
@@ -297,12 +285,7 @@ global state, or through another reference is conservatively an escape.
 ```nupp
 local saved: {table} = {}
 
-@effects(
-    reads = {"value"},
-    writes = {"$capture[*]"},
-    shapes = {"$capture"},
-    escapes = {"value"}
-)
+@effects(reads = {"value"}, writes = {"$capture[*]"}, shapes = {"$capture"}, escapes = {"value"})
 local function remember(value: table)
     saved[1] = value
 end
@@ -480,9 +463,7 @@ only the effects the implementation may actually perform.
     raises = true,
     external = true
 )
-cdef function process(
-    destination: voidptr, source: voidptr
-): voidptr
+cdef function process(destination: voidptr, source: voidptr): voidptr
 ```
 
 Because this is a `cdef function`, the compiler trusts the declaration. The

@@ -76,10 +76,10 @@ meaning rather than an approximation of it: operands normalize to 32 bits and
 results come back signed. The folded answers are therefore the surprising ones.
 
 ```nupp
-const FLAGS = 1 << 3 | 1    -- 9
-const WRAP  = 1 << 32       -- 1, a shift count being taken modulo 32
-const LOG   = -8 >> 1       -- 2147483644, the plain shift being logical
-const AR    = -8 ~>> 1      -- -4, the tilde shift being arithmetic
+const FLAGS = 1 << 3 | 1 -- 9
+const WRAP = 1 << 32 -- 1, a shift count being taken modulo 32
+const LOG = -8 >> 1 -- 2147483644, the plain shift being logical
+const AR = -8 ~>> 1 -- -4, the tilde shift being arithmetic
 ```
 
 Folding runs the same primitive the emitted operator would have, so the two

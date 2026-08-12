@@ -39,8 +39,8 @@ return models
 A declaration that names none of the three is refused:
 
 ```nupp
-record Loose            -- NUPP2119: declaration "Loose" has no visibility;
-    id: uint32          --   write it as models.Loose, or mark it local or global
+record Loose -- NUPP2119: declaration "Loose" has no visibility;
+    id: uint32 --   write it as models.Loose, or mark it local or global
 end
 ```
 
@@ -70,8 +70,8 @@ The module itself is a value like any other, so it has to be required before its
 name means anything. A file's basename is not in scope elsewhere:
 
 ```nupp
-local doubled = mathutil.double(21)   -- `mathutil` is just an unknown name
-local mathutil = require("mathutil")  -- this is what puts it in scope
+local doubled = mathutil.double(21) -- `mathutil` is just an unknown name
+local mathutil = require("mathutil") -- this is what puts it in scope
 ```
 
 An unknown name is `any`, as it is anywhere else, so the first line would
@@ -105,7 +105,7 @@ declaration that carries a runtime value puts itself on its table, which is an
 ordinary assignment in the generated Lua:
 
 ```nupp
-record shapes.Point     -->  shapes.Point = {} shapes.Point.__index = shapes.Point
+record shapes.Point -->  shapes.Point = {} shapes.Point.__index = shapes.Point
     x: number
     y: number
 end
@@ -116,14 +116,14 @@ member on the type side. Records and structs are values too, which is what lets
 a dependent construct one:
 
 ```nupp
-local p = new shapes.Point(x = 1, y = 2)   -->  setmetatable({x = 1, y = 2}, shapes.Point)
+local p = new shapes.Point(x = 1, y = 2) -->  setmetatable({x = 1, y = 2}, shapes.Point)
 ```
 
 Which local is the module is read off the `return` statement, so wrapping it
 still works:
 
 ```nupp
-return setmetatable(shapes, {})   -- shapes is still the module
+return setmetatable(shapes, {}) -- shapes is still the module
 ```
 
 One table deep, so the name a declaration binds under and the field it is
@@ -151,7 +151,7 @@ group types privately:
 local shapes = {}
 local internal = {}
 
-record internal.Scratch     -- file-private, despite the dot
+record internal.Scratch -- file-private, despite the dot
     used: integer
 end
 
@@ -166,7 +166,7 @@ field does not repeat the table it sits on:
 ```nupp
 record shapes.Path
     points: {shapes.Point}
-    cutFrom: Path?          -- Path, not shapes.Path
+    cutFrom: Path? -- Path, not shapes.Path
 
     function count(self): integer
         return #self.points
@@ -294,7 +294,7 @@ end
 
 type shapes.Drawable = shapes.Point | shapes.Path
 
-local type Scratch = {integer}   -- private to this file
+local type Scratch = {integer} -- private to this file
 
 function shapes.origin(): shapes.Point
     return new shapes.Point(x = 0, y = 0)

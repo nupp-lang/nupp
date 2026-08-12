@@ -29,31 +29,33 @@ deliberately loosens, so that ordinary Lua keeps working:
 
 ```nupp
 local i = 1
-i = i / 2            -- fine: integer widened to number
+i = i / 2 -- fine: integer widened to number
 
 local m = {a = 1}
-m.b = 2              -- fine: the shape widened to table
+m.b = 2 -- fine: the shape widened to table
 
 local n = nil
 n = {}
-print(n.field)       -- fine: nil widened to any
+print(n.field) -- fine: nil widened to any
 ```
 
 A `const` binding keeps an inferred literal type, and an annotation keeps
 exactly the type you wrote:
 
 ```nupp
-const tag = "ready"       -- the literal type "ready"
+const tag = "ready" -- the literal type "ready"
 ```
 
 An annotation can also keep a narrower type on a mutable binding:
 
 ```nupp
 local j: integer = 1
-j = j / 2            -- NUPP2001: number is not a integer
+j = j / 2 -- NUPP2001: number is not a integer
 
-local shaped: {a: number} = {a = 1}
-shaped.b = 2         -- NUPP2004: no field "b" in {a: number}
+local shaped: {
+    a: number
+} = {a = 1}
+shaped.b = 2 -- NUPP2004: no field "b" in {a: number}
 ```
 
 The four widening cases are: a literal type on a mutable binding collapses to
@@ -119,7 +121,7 @@ producing an empty type.
 `as` is an assertion the checker trusts completely, in both directions:
 
 ```nupp
-local n = ("5" as any) as number   -- checks clean
+local n = ("5" as any) as number -- checks clean
 ```
 
 It erases at code generation. Use it where you know something the checker

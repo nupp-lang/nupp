@@ -12,21 +12,23 @@ This is LuaJIT 3.0's dialect
 issue](https://github.com/LuaJIT/LuaJIT/issues/1475)), in full:
 
 ```nupp
-local mask = flags & 0xff        -- bit operators: & | ~ << >> ~>>
-local ok = a && b || !c          -- customary operators: ! && || !=
+local mask = flags & 0xff -- bit operators: & | ~ << >> ~>>
+local ok = a && b || !c -- customary operators: ! && || !=
 local label = big ? "yes" : "no" -- ternary conditional
 local name = user?.profile?.name -- safe navigation
-local port = configured ?? 8080  -- nil-coalescing
-count += 1                       -- compound assignment
-local half = total // 2          -- floor division
+local port = configured ?? 8080 -- nil-coalescing
+count += 1 -- compound assignment
+local half = total // 2 -- floor division
 for _, x in ipairs(xs) do
-    if skip(x) then continue end -- continue
+    if skip(x) then
+        continue
+    end -- continue
 end
-const LIMIT = 100                -- immutable binding
-local double = |n| -> n * 2      -- short functions
-local big = 1_000_000            -- underscores in numerals
-local wide = 1LL                 -- cdata number literal suffixes
-local function sum(...items)     -- named varargs
+const LIMIT = 100 -- immutable binding
+local double = |n| -> n * 2 -- short functions
+local big = 1_000_000 -- underscores in numerals
+local wide = 1LL -- cdata number literal suffixes
+local function sum(...items) -- named varargs
     return items.n
 end
 ```
@@ -37,26 +39,43 @@ Nupp adds three things here and takes nothing away: interpolated strings
 ## Level 1: the typed layer
 
 ```nupp
-local type Id = uint32                      -- alias
-local type Shape = Circle | Square          -- union
-local type Color = "red" | "green"          -- closed set of strings
-local record Point x: number y: number end  -- nominal table
-local struct Vec2 x: float y: float end     -- FFI cdata
-local interface Named name: string end      -- erased contract
+local type Id = uint32 -- alias
+local type Shape = Circle | Square -- union
+local type Color = "red" | "green" -- closed set of strings
+local record Point
+    x: number
+    y: number
+end -- nominal table
+local struct Vec2
+    x: float
+    y: float
+end -- FFI cdata
+local interface Named
+    name: string
+end -- erased contract
 
-local function firstOr<T>(xs: {T}, d: T): T end   -- generics
-local function isPoint(v: any): v is Point end    -- predicate
+local function firstOr<T>(xs: {T}, d: T): T
+end -- generics
+local function isPoint(v: any): v is Point
+end -- predicate
 
-cdef struct timeval tv_sec: int64 end             -- C declarations
+cdef struct timeval
+    tv_sec: int64
+end -- C declarations
 cdef function usleep(usec: uint32): int32
 
-@owned(closeFile)                                 -- annotations
-local function open(path: string): File end
+@owned(closeFile) -- annotations
+local function open(path: string): File
+end
 
-do local f = open("x") end                        -- lexical owner scope
-unsafe do end                                     -- unproved operations
-local n = value as integer                        -- unchecked assertion
-if v is Point then end                            -- checked test
+do
+    local f = open("x")
+end -- lexical owner scope
+unsafe do
+end -- unproved operations
+local n = value as integer -- unchecked assertion
+if v is Point then
+end -- checked test
 ```
 
 Type syntax:
@@ -88,9 +107,9 @@ None of the level-1 introducers is reserved. `type`, `record`, `interface`,
 start:
 
 ```nupp
-local record = 5        -- a variable named record
-print(type(record))     -- the ordinary type() function
-local with = "ok"       -- a variable named with
+local record = 5 -- a variable named record
+print(type(record)) -- the ordinary type() function
+local with = "ok" -- a variable named with
 ```
 
 That is what lets existing Lua keep compiling.

@@ -27,7 +27,10 @@ end
 @owned(closeFile)
 function m.open(path: string): LuaFile
     local file = io.open(path, "r")
-    if not file then error("cannot open " .. path) end
+    if not file then
+        error("cannot open " .. path)
+    end
+
     return file
 end
 
@@ -139,7 +142,7 @@ An explicit cleanup list is the clearest C-boundary contract:
 
 ```nupp
 cdef struct widget
-   value: int32
+    value: int32
 end
 
 cdef function widget_stop(borrows value: widget*)
@@ -150,8 +153,8 @@ cdef function widget_new(): widget*
 
 local value = widget_new()
 print(value.value)
-nupp.drop(value)              -- stop, then free
-print(value.value)          -- NUPP2601: use after move
+nupp.drop(value) -- stop, then free
+print(value.value) -- NUPP2601: use after move
 ```
 
 Cleanup functions run from left to right. `drop` takes the owner, so it
@@ -163,7 +166,7 @@ cdef function widget_adopt(takes value: widget*)
 
 local value = widget_new()
 widget_adopt(value)
-nupp.drop(value)              -- NUPP2601: value was moved
+nupp.drop(value) -- NUPP2601: value was moved
 ```
 
 Every live owner must be discharged along every checked path. A locally
@@ -181,23 +184,23 @@ function-valued record or interface field:
 
 ```nupp
 local interface Files
-   @owned(closeFile)
-   open: function(path: string): File
+    @owned(closeFile)
+    open: function(path: string): File
 end
 ```
 
 ```nupp
 local record Channel
-   id: integer
+    id: integer
 end
 
 local function closeChannel(takes channel: Channel)
-   print("closing", channel.id)
+    print("closing", channel.id)
 end
 
 @owned(closeChannel)
 local function openChannel(id: integer): Channel
-   return new Channel(id = id)
+    return new Channel(id = id)
 end
 ```
 
@@ -222,25 +225,26 @@ context in its fields. A custom `@drop` method can then pass every required
 argument without allocating a closure per owner:
 
 ```nupp
-local record Connection end
+local record Connection
+end
 
 local record Pool
-   release: function(self: Pool, takes value: Connection)
+    release: function(self: Pool, takes value: Connection)
 end
 
 local record PoolConnection
-   pool: Pool
-   connection: owned<Connection>
+    pool: Pool
+    connection: owned<Connection>
 
-   @drop
-   function close(self)
-      self.pool:release(self.connection)
-   end
+    @drop
+    function close(self)
+        self.pool:release(self.connection)
+    end
 end
 
 @owned
 local function adopt(pool: Pool, takes connection: Connection): PoolConnection
-   return new PoolConnection(pool = pool, connection = connection)
+    return new PoolConnection(pool = pool, connection = connection)
 end
 ```
 
@@ -260,7 +264,7 @@ cdef function begin_request(): voidptr
 cdef function submit_request(takes request: voidptr)
 
 local request = begin_request()
-submit_request(request)     -- valid
+submit_request(request) -- valid
 -- nupp.drop(request)         -- no cleanup exists
 ```
 
@@ -273,54 +277,60 @@ Bare `@owned` does not mean opaque. Opaque ownership must be conspicuous.
 
 ```nupp
 local record File
-   closed: boolean
+    closed: boolean
 
-   @drop
-   function close(self)
-      self.closed = true
-   end
+    @drop
+    function close(self)
+        self.closed = true
+    end
 end
 
 @owned
 local function openFile(): File
-   return new File(closed = false)
+    return new File(closed = false)
 end
 
 local file = openFile()
-nupp.drop(file)               -- calls File:close()
+nupp.drop(file) -- calls File:close()
 ```
 
 A free function can be the default as well, but its resource parameter must be
 `takes`:
 
 ```nupp
-local record Socket end
+local record Socket
+end
 
 @drop
-local function closeSocket(takes socket: Socket) end
+local function closeSocket(takes socket: Socket)
+end
 
 @owned
-local function connect(): Socket return new Socket() end
+local function connect(): Socket
+    return new Socket()
+end
 ```
 
 An interface can declare the contract once and subtypes inherit it:
 
 ```nupp
 local interface Closeable
-   @drop
-   close: function(takes value: self): nil
+    @drop
+    close: function(takes value: self): nil
 end
 
 local record File is Closeable
-   fd: integer
+    fd: integer
 
-   function close(self)
-      self.fd = -1
-   end
+    function close(self)
+        self.fd = -1
+    end
 end
 
 @owned
-local function openFile(): File return new File(fd = 1) end
+local function openFile(): File
+    return new File(fd = 1)
+end
 ```
 
 This gives a Closeable-style abstraction without privileging the name
@@ -336,11 +346,11 @@ temporarily sees the value.
 
 ```nupp
 local function inspect(borrows value: widget*): int32
-   return value.value
+    return value.value
 end
 
 local function destroy(takes value: widget*)
-   widget_free(value)
+    widget_free(value)
 end
 ```
 
@@ -352,7 +362,7 @@ allowed when it does not invalidate the identity or lifetime of the resource:
 
 ```nupp
 local function rename(borrows value: widget*, n: int32)
-   value.value = n           -- valid shared mutation
+    value.value = n -- valid shared mutation
 end
 ```
 
@@ -361,13 +371,13 @@ Exclusive access is a call effect, so the one surface is `exclusive`:
 
 ```nupp
 local function reset(exclusive value: widget*)
-   value.value = 0
+    value.value = 0
 end
 
 local value = widget_new()
 do
-   local view = nupp.borrow(value)
-   reset(value)              -- error: view overlaps exclusive access
+    local view = nupp.borrow(value)
+    reset(value) -- error: view overlaps exclusive access
 end
 nupp.drop(value)
 ```
@@ -384,11 +394,11 @@ annotation:
 
 ```nupp
 local function inspect(value: widget*): int32
-   return value.value
+    return value.value
 end
 
 local value = widget_new()
-inspect(value)               -- inferred borrows
+inspect(value) -- inferred borrows
 nupp.drop(value)
 ```
 
@@ -400,13 +410,13 @@ escaping. A borrow cannot be passed there:
 local saved: widget*?
 
 local function stash(value: widget*)
-   saved = value
+    saved = value
 end
 
 local value = widget_new()
 do
-   local view = nupp.borrow(value)
-   stash(view)               -- NUPP2603: destination may retain it
+    local view = nupp.borrow(value)
+    stash(view) -- NUPP2603: destination may retain it
 end
 nupp.drop(value)
 ```
@@ -418,7 +428,7 @@ locality:
 local saved: widget*?
 
 local function inspect(borrows value: widget*)
-   saved = value             -- error here: declared contract is violated
+    saved = value -- error here: declared contract is violated
 end
 ```
 
@@ -440,11 +450,11 @@ view must keep the owner immovable for part of a scope:
 ```nupp
 local value = widget_new()
 do
-   local view = nupp.borrow(value)
-   inspect(view)
-   nupp.drop(value)            -- error: view is still live
+    local view = nupp.borrow(value)
+    inspect(view)
+    nupp.drop(value) -- error: view is still live
 end
-nupp.drop(value)               -- valid after the borrow's scope
+nupp.drop(value) -- valid after the borrow's scope
 ```
 
 Most calls do not need `nupp.borrow(...)`: passing an owner to a `borrows`
@@ -457,8 +467,8 @@ binding, captured by a closure, or moved into an untyped call.
 A returned view names its source:
 
 ```nupp
-local function first(borrows pool: Pool): Item borrows (pool)
-   return pool.items[1]
+local function first(borrows pool: Pool): Item borrows(pool)
+    return pool.items[1]
 end
 ```
 
@@ -467,7 +477,7 @@ use `borrowed<T>` return sugar when the receiver is the only source:
 
 ```nupp
 function Pool:first(): borrowed<Item>
-   return self.items[1]
+    return self.items[1]
 end
 ```
 
@@ -475,8 +485,8 @@ Layered resources can be both owned and dependent:
 
 ```nupp
 @owned(closeTls)
-local function openTls(borrows socket: Socket): TLS borrows (socket)
-   return TLS.connect(socket)
+local function openTls(borrows socket: Socket): TLS borrows(socket)
+    return TLS.connect(socket)
 end
 ```
 
@@ -485,9 +495,8 @@ happens. A result may name several roots:
 
 ```nupp
 @owned(closePair)
-local function pair(borrows left: Resource, borrows right: Resource)
-   : Pair borrows(left, right)
-   return new Pair(left = left, right = right)
+local function pair(borrows left: Resource, borrows right: Resource): Pair borrows(left, right)
+    return new Pair(left = left, right = right)
 end
 ```
 
@@ -496,11 +505,10 @@ rejects a claimed source it cannot prove. When provenance really travels
 through opaque pointer manipulation, assert it at a narrow unsafe boundary:
 
 ```nupp
-local function recover(borrows source: widget*, raw: widget*)
-   : widget* borrows (source)
-   unsafe do
-      return nupp.borrowFrom(raw, source)
-   end
+local function recover(borrows source: widget*, raw: widget*): widget* borrows(source)
+    unsafe do
+        return nupp.borrowFrom(raw, source)
+    end
 end
 ```
 
@@ -534,18 +542,18 @@ effect. This is rejected:
 
 ```nupp
 cdef struct header
-   size: uint32
+    size: uint32
 end
 
 local raw = ffi.cast<header*>(address)
-print(raw.size)              -- NUPP2604
+print(raw.size) -- NUPP2604
 ```
 
 The unchecked operation is explicit:
 
 ```nupp
 unsafe do
-   print(raw.size)
+    print(raw.size)
 end
 ```
 
@@ -559,26 +567,28 @@ When a C API lacks those annotations, the wrapper still has to retain its
 allocator context, but its cleanup must put the trusted boundary at the call:
 
 ```nupp
-cdef struct allocator end
-cdef struct block end
+cdef struct allocator
+end
+cdef struct block
+end
 cdef function ctx_free(ctx: allocator*, value: block*)
 
 local struct Allocation
-   ctx: allocator*
-   value: block*
+    ctx: allocator*
+    value: block*
 
-   @drop
-   function close(self)
-      -- ctx_free has no lifetime annotations, so Nupp has no proof for this call.
-      unsafe do
-         ctx_free(self.ctx, self.value)
-      end
-   end
+    @drop
+    function close(self)
+        -- ctx_free has no lifetime annotations, so Nupp has no proof for this call.
+        unsafe do
+            ctx_free(self.ctx, self.value)
+        end
+    end
 end
 
 @owned
 local function adopt(ctx: allocator*, value: block*): Allocation
-   return new Allocation(ctx, value)
+    return new Allocation(ctx, value)
 end
 ```
 
@@ -593,7 +603,7 @@ discharged, borrows still cannot escape, and lexical cleanup still runs:
 ```nupp
 local value = widget_new()
 unsafe do
-   local hidden = {value = value} -- still rejected: owner escaped into a table
+    local hidden = {value = value} -- still rejected: owner escaped into a table
 end
 ```
 
@@ -606,9 +616,9 @@ local value = widget_new()
 local raw: widget*
 
 unsafe do
-   raw = nupp.intoRaw(value)                -- obligation deliberately abandoned
-   local restored = nupp.fromRaw(raw, widget_free)
-   nupp.drop(restored)
+    raw = nupp.intoRaw(value) -- obligation deliberately abandoned
+    local restored = nupp.fromRaw(raw, widget_free)
+    nupp.drop(restored)
 end
 ```
 
@@ -629,15 +639,11 @@ changing the ABI.
 cdef function free(takes value: voidptr)
 
 @owned(out = result, cleanup = free, success = zero)
-cdef function posix_memalign(
-   out result: voidptr*,
-   alignment: uint64,
-   size: uint64
-): int32
+cdef function posix_memalign(out result: voidptr*, alignment: uint64, size: uint64): int32
 
 local status, pointer = posix_memalign(16, 4096)
 if pointer then
-   nupp.drop(pointer)
+    nupp.drop(pointer)
 end
 ```
 
@@ -655,11 +661,7 @@ A borrowed output must name the input that keeps it valid:
 
 ```nupp
 @borrowed(out = view, from = store, success = zero)
-cdef function store_lookup(
-   borrows store: Store*,
-   key: cstring,
-   out view: Item**
-): int32
+cdef function store_lookup(borrows store: Store*, key: cstring, out view: Item**): int32
 
 local status, item = store_lookup(store, "key")
 -- store cannot move or be dropped while item is live
@@ -696,10 +698,12 @@ then a pin restores a checked lifetime:
 
 ```nupp
 unsafe do
-   local callback = function() print("called") end
-   local pointer = ffi.cast<voidptr>(callback)
-   local handle = nupp.pin(pointer, callback)
-   register_callback(handle) -- declared retains
+    local callback = function()
+        print("called")
+    end
+    local pointer = ffi.cast<voidptr>(callback)
+    local handle = nupp.pin(pointer, callback)
+    register_callback(handle) -- declared retains
 end
 ```
 
@@ -709,8 +713,8 @@ An ordinary owned local runs its recorded cleanup at its lexical boundary:
 
 ```nupp
 do
-   local file = openFile()
-   print(file.closed)
+    local file = openFile()
+    print(file.closed)
 end
 ```
 
@@ -732,14 +736,11 @@ A record with `owned<T>` or `pinned<T>` fields is itself affine:
 
 ```nupp
 local record Bundle
-   input: owned<File>
-   output: owned<File>
+    input: owned<File>
+    output: owned<File>
 end
 
-local bundle = new Bundle(
-   input = openFile(),
-   output = openFile()
-)
+local bundle = new Bundle(input = openFile(), output = openFile())
 
 nupp.drop(bundle) -- output, then input
 ```
@@ -756,17 +757,18 @@ parameter, which is the field's own drop operation:
 
 ```nupp
 @drop
-local function closeFile(takes file: File) end
+local function closeFile(takes file: File)
+end
 
 local record Bundle
-   first: owned<File>
-   second: owned<File>
+    first: owned<File>
+    second: owned<File>
 
-   @drop
-   function close(self)
-      closeFile(self.second)
-      closeFile(self.first)
-   end
+    @drop
+    function close(self)
+        closeFile(self.second)
+        closeFile(self.first)
+    end
 end
 ```
 
@@ -782,8 +784,8 @@ Nominal records may also retain declared borrows:
 
 ```nupp
 local record Cursor
-   source: Buffer
-   bytes: Bytes borrows (source)
+    source: Buffer
+    bytes: Bytes borrows(source)
 end
 ```
 
@@ -799,10 +801,10 @@ table storage remains rejected.
 local resources = require("nupp.resources")
 
 do
-   local group = resources.set("request")
-   local input = group:adopt(resources.openFile("in"))
-   local output = group:adopt(resources.openFile("out"))
-   copy(input, output)
+    local group = resources.set("request")
+    local input = group:adopt(resources.openFile("in"))
+    local output = group:adopt(resources.openFile("out"))
+    copy(input, output)
 end
 ```
 
@@ -832,9 +834,9 @@ retained handle is therefore rejected:
 
 ```nupp
 local function task()
-   local file = openFile()
-   coroutine.yield()         -- NUPP2603: cleanup could be abandoned
-   nupp.drop(file)
+    local file = openFile()
+    coroutine.yield() -- NUPP2603: cleanup could be abandoned
+    nupp.drop(file)
 end
 ```
 

@@ -217,10 +217,7 @@ suspension runtime it needs.
 ```nupp
 local process = require("nupp.io.process")
 
-local child, spawnReason = process.new({
-   args = {"cc", "--version"},
-   stdin = "null",
-})
+local child, spawnReason = process.new({args = {"cc", "--version"}, stdin = "null",})
 assert(child, spawnReason)
 local result, communicateReason = child:communicate()
 assert(result, communicateReason)

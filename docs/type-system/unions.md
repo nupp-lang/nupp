@@ -85,6 +85,7 @@ local function area(shape: Shape): number
         return 3.14159 * shape.radius * shape.radius
     end
     -- shape is Square here
+
     return shape.side * shape.side
 end
 ```
@@ -109,6 +110,7 @@ local function areaVia(shape: Shape): number
         -- shape is Circle here too
         return 3.14159 * shape.radius * shape.radius
     end
+
     return shape.side * shape.side
 end
 ```
@@ -154,6 +156,7 @@ local function describe(c: Color): string
     elseif c == "green" then
         return "cool"
     end
+
     return "unknown"
 end
 ```

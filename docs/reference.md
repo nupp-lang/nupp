@@ -95,7 +95,10 @@ local type Either = string | integer
 local type Mode = "read" | "write"
 local type Counts = {[string]: integer}
 local type Row = {integer}
-local type Point = {x: integer, y: integer}
+local type Point = {
+    x: integer,
+    y: integer
+}
 local type Handler = function(event: string): boolean
 local type Reply = unknown
 return m
@@ -250,20 +253,17 @@ identical active application, or an exhausted recursive budget is NUPP2133.
 ```nupp
 local m = {}
 
-local type Events<T> = {
-    readonly [K in keyof T as `${K}Changed`]:
-        function(value: T.[K]): nil
-}
+local type Events<T> = {readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil}
 
-local type Element<T> =
-    match T when {infer Item} then Item else T end
-
-local type DeepElement<T> = match T
-    when {infer Item} then DeepElement<Item>
-    else T
+local type Element<T> = match T when {infer Item} then Item else T
 end
 
-local events: Events<{name: string}> = nil as any
+local type DeepElement<T> = match T when {infer Item} then DeepElement<Item> else T
+end
+
+local events: Events<{
+    name: string
+}> = nil as any
 local callback: function(value: string): nil = events.nameChanged
 local element: Element<{integer}> = 1
 local deep: DeepElement<{{integer}}> = 1
@@ -306,10 +306,7 @@ function m.forward<A...>(...: A...): A...
     return ...
 end
 
-function m.protected<A..., R...>(
-    callback: function(A...): R...,
-    ...: A...
-): ((true, R...) | (false, any))
+function m.protected<A..., R...>(callback: function(A...): R..., ...: A...): ((true, R...) | (false, any))
     return pcall(callback, ...)
 end
 
@@ -332,8 +329,12 @@ These are views of members. `const T` makes a whole value read-only, and
 ```nupp
 local m = {}
 
-local type Input = {readonly value: string | integer}
-local type Output = {writeonly value: string}
+local type Input = {
+    readonly value: string | integer
+}
+local type Output = {
+    writeonly value: string
+}
 
 record m.Cell
     readonly value: string
@@ -389,20 +390,28 @@ method bodies, interface contracts, per-entry defaults, generics, constructors,
 ambiguity, and dynamic facades.
 
 ```nupp
-local type Named = {readonly name: string}
-local type Counted = {readonly count: integer}
+local type Named = {
+    readonly name: string
+}
+local type Counted = {
+    readonly count: integer
+}
 local type Entry = Named & Counted
 
-local type Parse = function(text: string): integer
-    & function(text: string, base: integer): string
+local type Parse = function(text: string): integer & function(text: string, base: integer): string
 
 local parse: Parse = nil as any
 local decimal: integer = parse("10")
 local hexadecimal: string = parse("10", 16)
 
 local record Decoder
-    function decode(self, text: string): string return "text:" .. text end
-    function decode(self, value: integer): string return "integer:" .. tostring(value) end
+    function decode(self, text: string): string
+        return "text:" .. text
+    end
+
+    function decode(self, value: integer): string
+        return "integer:" .. tostring(value)
+    end
 end
 
 local decoder = new Decoder()
@@ -675,7 +684,9 @@ interface m.Circle is m.Shape
 end
 
 function m.area(s: m.Shape): number
-    if s is m.Circle then return 3 * s.radius * s.radius end
+    if s is m.Circle then
+        return 3 * s.radius * s.radius
+    end
     return 0
 end
 
@@ -758,9 +769,13 @@ local m = {}
 type m.Color = "red" | "green" | "blue"
 
 function m.describe(c: m.Color): string
-    if c == "red" then return "warm"
-    elseif c == "green" then return "cool"
-    else return "cool" end
+    if c == "red" then
+        return "warm"
+    elseif c == "green" then
+        return "cool"
+    else
+        return "cool"
+    end
 end
 
 record m.Circle
@@ -811,9 +826,14 @@ function m.describe(value: string | integer): string
     return "number " .. value
 end
 
-function m.nameOf(user: {name: string?}): string
+function m.nameOf(user: {
+    name: string?
+}): string
     local name = user.name
-    if not name then return "anonymous" end
+    if not name then
+        return "anonymous"
+    end
+
     return name
 end
 
@@ -880,7 +900,10 @@ end
 @owned(closeFile)
 function m.open(path: string): LuaFile
     local file = io.open(path, "r")
-    if not file then error("cannot open " .. path) end
+    if not file then
+        error("cannot open " .. path)
+    end
+
     return file
 end
 
@@ -1003,7 +1026,10 @@ local m = {}
 --- @raises when the file cannot be read
 function m.load(path: string): string
     local file = io.open(path, "r")
-    if not file then error("no such file: " .. path) end
+    if not file then
+        error("no such file: " .. path)
+    end
+
     return file:read("*a")
 end
 
@@ -1070,7 +1096,7 @@ new table graph:
 
 ```nupp
 local M = {}
-const... M.settings = {name = "nupp", nested = {count = 0}}
+const ... M.settings = {name = "nupp", nested = {count = 0}}
 return M
 ```
 
@@ -1091,10 +1117,13 @@ function m.demo(n: integer, flag: boolean, label: string?): integer
     local shown = flag ? "on" : "off"
     local name = label ?? "anonymous"
     for i = 1, 10 do
-        if i == 5 then continue end
+        if i == 5 then
+            continue
+        end
         total += i
     end
     local double = |x: integer| -> x * 2
+
     return total + #shown + #name + double(2)
 end
 
@@ -1252,7 +1281,8 @@ ABI versions; manifest caches retain the canonical blueprint and lowering.
 ```nupp
 local m = {}
 
-@comptime local function step(acc: integer): integer
+@comptime
+local function step(acc: integer): integer
     return acc & 1 ~= 0 and 0xedb88320 ~ (acc >> 1) or acc >> 1
 end
 
@@ -1273,6 +1303,7 @@ function m.checksum(text: string): integer
     for index = 1, #text do
         acc = CRC32[((acc ~ text:byte(index)) & 0xff) + 1] ~ (acc >> 8)
     end
+
     return acc ~ 0xffffffff
 end
 

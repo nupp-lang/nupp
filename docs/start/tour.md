@@ -165,7 +165,9 @@ call returning an ordinary string, and the checker has no way to tie it back to
 
 ```nupp
 local function firstOr<T>(items: {T}, fallback: T): T
-    if #items > 0 then return items[1] end
+    if #items > 0 then
+        return items[1]
+    end
     return fallback
 end
 
@@ -253,7 +255,7 @@ cdef struct nativePoint
     y: number
 end
 
-cdef function point_length(borrows point: nativePoint*): number from "mini"
+cdef function point_length(borrows point: nativePoint*): number from"mini"
 ```
 
 That emits `ffi.cdef` and an `ffi.load` lookup. The parameter modes `borrows`,

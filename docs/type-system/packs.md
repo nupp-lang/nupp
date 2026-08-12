@@ -19,10 +19,7 @@ Pack binders follow ordinary type binders and are available on functions,
 function types, and aliases:
 
 ```nupp
-local function apply<A..., R...>(
-    callback: function(A...): R...,
-    ...: A...
-): R...
+local function apply<A..., R...>(callback: function(A...): R..., ...: A...): R...
     return callback(...)
 end
 
@@ -46,8 +43,8 @@ local function pair(): (number, string)
     return 1, "one"
 end
 
-local n, s = pair()       -- number, string
-local first = (pair())    -- number
+local n, s = pair() -- number, string
+local first = (pair()) -- number
 local a, b = pair(), true -- number, boolean
 ```
 
@@ -57,9 +54,7 @@ A union of parenthesized packs selects a complete sequence, not independent
 unions for each column:
 
 ```nupp
-local protected: function<A..., R...>(
-    callback: function(A...): R..., A...
-): ((true, R...) | (false, any))
+local protected: function<A..., R...>(callback: function(A...): R..., A...): ((true, R...) | (false, any))
 ```
 
 Destructuring assigns a shared correlation to the bindings. Testing the first
@@ -96,9 +91,7 @@ destructuring counterpart to tuple construction:
 
 ```nupp
 local type Prepend<Value, Values> = {Value, unpackof Values}
-local type Tail<Values> = match Values
-    when {infer _, unpackof infer Rest} then Rest
-    else never
+local type Tail<Values> = match Values when {infer _, unpackof infer Rest} then Rest else never
 end
 ```
 
@@ -110,14 +103,12 @@ the captured tail can be fed directly to another `unpackof` or recursive alias.
 A function can declare what it yields and what a resumed yield receives:
 
 ```nupp
-local function worker(start: number): string
-    yields (number, string) resumes (boolean)
+local function worker(start: number): string yields(number, string) resumes(boolean)
     local again: boolean = coroutine.yield(start, "paused")
     return tostring(again)
 end
 
-local co: thread<(number), (boolean), (number, string), (string)> =
-    coroutine.create(worker)
+local co: thread<(number), (boolean), (number, string), (string)> = coroutine.create(worker)
 ```
 
 The four thread packs are start arguments, resume arguments, yielded values,

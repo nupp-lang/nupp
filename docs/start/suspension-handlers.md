@@ -81,7 +81,9 @@ local function application(): nil
     handle suspension with frame.handler do
         local task = suspension.create(childWork)
         local ok, problem = coroutine.resume(task)
-        if not ok then error(problem) end
+        if not ok then
+            error(problem)
+        end
     end
 end
 
@@ -112,32 +114,31 @@ local function runReady(): nil
     runnable = {}
     for _, task in ipairs(pass) do
         local ok, problem = coroutine.resume(task)
-        if not ok then error(problem) end
+        if not ok then
+            error(problem)
+        end
     end
 end
 
-local scheduler = {
-    park = function(
-        _: suspension.Handler,
-        waiting: suspension.Waiting,
-        _: function(): nil
-    ): nil
-        local task = assert(coroutine.running())
-        local function wake(): nil
-            enqueue(task)
+local scheduler = {park = function(_: suspension.Handler, waiting: suspension.Waiting, _: function(): nil): nil
+    local task = assert(coroutine.running())
+    local function wake(): nil
+        enqueue(task)
+    end
+
+    while not waiting:ready() do
+        waiting:onResume(wake)
+        if not waiting:ready() then
+            coroutine.yield()
         end
-        while not waiting:ready() do
-            waiting:onResume(wake)
-            if not waiting:ready() then coroutine.yield() end
-        end
-    end,
-    canPark = function(_: suspension.Handler): boolean
-        return true
-    end,
-    shutdown = function(_: suspension.Handler): nil
-        while #runnable > 0 do runReady() end
-    end,
-} as suspension.Handler
+    end
+end, canPark = function(_: suspension.Handler): boolean
+    return true
+end, shutdown = function(_: suspension.Handler): nil
+    while #runnable > 0 do
+        runReady()
+    end
+end,} as suspension.Handler
 
 local function tick(): nil
     suspension.poll()
@@ -147,8 +148,12 @@ end
 local function run(body: function(): nil): nil
     local task = coroutine.create(body)
     local ok, problem = coroutine.resume(task)
-    if not ok then error(problem) end
-    while coroutine.status(task) ~= "dead" do tick() end
+    if not ok then
+        error(problem)
+    end
+    while coroutine.status(task) ~= "dead" do
+        tick()
+    end
 end
 
 return {handler = scheduler, tick = tick, run = run}
@@ -214,6 +219,7 @@ local function choose(): integer
     handle suspension with frame.handler do
         answer = 1
     end
+
     return answer
 end
 

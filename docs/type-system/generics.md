@@ -2,7 +2,9 @@
 
 ```nupp
 local function firstOr<T>(items: {T}, fallback: T): T
-    if #items > 0 then return items[1] end
+    if #items > 0 then
+        return items[1]
+    end
     return fallback
 end
 ```
@@ -47,16 +49,10 @@ correlation, and ownership rules.
 A computed tuple or array can supply a pack tail with `unpackof`:
 
 ```nupp
-local type Arguments<Kind> = match Kind
-    when 'pair' then {string, number}
-    when 'flag' then {boolean,}
-    else any
+local type Arguments<Kind> = match Kind when 'pair' then {string, number} when 'flag' then {boolean,} else any
 end
 
-local function apply<Kind is string>(
-    kind: Kind,
-    ...: unpackof Arguments<Kind>
-): string
+local function apply<Kind is string>(kind: Kind, ...: unpackof Arguments<Kind>): string
     return kind
 end
 
@@ -69,9 +65,7 @@ The inverse operation is available in tuple match patterns. A final
 heterogeneous tuple (and binding `{never}` when that suffix is empty):
 
 ```nupp
-local type DropFirst<Values> = match Values
-    when {infer _, unpackof infer Tail} then Tail
-    else never
+local type DropFirst<Values> = match Values when {infer _, unpackof infer Tail} then Tail else never
 end
 ```
 
@@ -93,9 +87,7 @@ result. The consumer reports that message directly instead of exposing the
 intermediate type used to carry it:
 
 ```nupp
-local type Checked<T> = match T
-    when string then {T,}
-    else typeerror<`expected string, got ${T}`>
+local type Checked<T> = match T when string then {T,} else typeerror<`expected string, got ${T}`>
 end
 ```
 
@@ -179,7 +171,7 @@ is a value the checker calls a `Shape` and `is` calls otherwise.
 Type arguments come from the arguments:
 
 ```nupp
-print(firstOr({1, 2, 3}, 0))     -- T = integer
+print(firstOr({1, 2, 3}, 0)) -- T = integer
 ```
 
 Inference is structural unification over parameters against argument types. It
@@ -200,7 +192,7 @@ residue binds. That is how `assert` is typed:
 ```nupp
 -- assert: function<T>(v: T?, msg: any?): T
 local name: string? = maybeName()
-local sure = assert(name)        -- sure is string
+local sure = assert(name) -- sure is string
 ```
 
 ## There is no explicit type argument at a call site
@@ -208,7 +200,7 @@ local sure = assert(name)        -- sure is string
 `f<number>(x)` parses as two comparisons, exactly as it does in Lua:
 
 ```nupp
-local n = id<number>(1)
+local n = id < number > (1)
 -- NUPP2003: cannot compare boolean and 1 with '>'
 ```
 
@@ -266,7 +258,8 @@ A metamethod contract may carry its own type parameters, which lets a typed key
 determine the result of an index:
 
 ```nupp
-local record Key<T> end
+local record Key<T>
+end
 
 local record Store
     metamethod __index: function<T>(self, key: Key<T>): T

@@ -48,7 +48,7 @@ local function decode(json: string): unknown
 end
 
 local reply = decode("{}")
-print(reply.status)                    -- NUPP2004: no field "status" in unknown
+print(reply.status) -- NUPP2004: no field "status" in unknown
 ```
 
 Anything fits into `unknown`, but it fits nowhere else on its own. Reading a
@@ -62,10 +62,10 @@ local record Status
 end
 
 if reply is Status then
-    print(reply.ok)                    -- fine: narrowed to Status
+    print(reply.ok) -- fine: narrowed to Status
 end
 
-local text = reply as string           -- fine: an explicit cast
+local text = reply as string -- fine: an explicit cast
 ```
 
 It names in a function type the same as any other type, in parameter or
@@ -98,7 +98,7 @@ local type Mode = "read" | "write"
 
 local function asMode(v: unknown): Mode
     if v == "read" or v == "write" then
-        return v                       -- narrowed to Mode
+        return v -- narrowed to Mode
     end
     error("bad mode")
 end
@@ -120,8 +120,10 @@ local function fail(msg: string): never
 end
 
 local function use(x: string?)
-    if not x then fail("missing") end
-    print(#x)                          -- x is string here
+    if not x then
+        fail("missing")
+    end
+    print(#x) -- x is string here
 end
 ```
 
@@ -149,8 +151,8 @@ local function noExtras(a: integer, ...: never): integer
     return a
 end
 
-noExtras(1)                            -- fine
-noExtras(1, "oops")                    -- NUPP2006: argument 2: string is not a never
+noExtras(1) -- fine
+noExtras(1, "oops") -- NUPP2006: argument 2: string is not a never
 ```
 
 Because it fits anywhere, a `never`-returning call also satisfies a literal
@@ -158,7 +160,9 @@ type, the same as any other declared return:
 
 ```nupp
 local function pick(ok: boolean): "yes" | "no"
-    if ok then return "yes" end
+    if ok then
+        return "yes"
+    end
     return fail("not ok")
 end
 ```
@@ -170,14 +174,14 @@ implicit downcast:
 
 ```nupp
 local x: number = 1
-local y: integer = x   -- NUPP2001: number is not a integer
+local y: integer = x -- NUPP2001: number is not a integer
 ```
 
 The sized C integers behave differently. Any numeric source is accepted into a
 `float` or a sized-integer slot, as in C:
 
 ```nupp
-local z: int32 = x     -- accepted
+local z: int32 = x -- accepted
 ```
 
 So `number → integer` is refused while `number → int32` is allowed. The sized
@@ -210,7 +214,7 @@ local record Options
     verbose: boolean?
 end
 
-local o: Options = new Options()   -- fine
+local o: Options = new Options() -- fine
 ```
 
 Write `A | B` with spaces. `A||B` lexes as the single `||` operator.
@@ -253,7 +257,8 @@ not say which pointers may be NULL.
 ## `const`
 
 ```nupp
-local function render(buffer: const Buffer) end
+local function render(buffer: const Buffer)
+end
 ```
 
 A read-only view. A mutable value satisfies a `const` parameter; a `const`

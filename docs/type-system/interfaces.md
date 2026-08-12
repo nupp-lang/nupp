@@ -24,7 +24,7 @@ local record Circle
     radius: number
 end
 
-local n: Named = new Circle(name = "c", radius = 1)   -- fine
+local n: Named = new Circle(name = "c", radius = 1) -- fine
 ```
 
 A plain table shape works too:
@@ -58,7 +58,8 @@ Only interfaces may be named after `is`; anything else is NUPP2117. Multiple
 parents are allowed:
 
 ```nupp
-local record Task is Named, Callable end
+local record Task is Named, Callable
+end
 ```
 
 ## Bounded generics

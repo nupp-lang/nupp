@@ -5,7 +5,7 @@ Narrowing is how a union becomes one of its members inside a branch.
 ```nupp
 local function widthOf(s: string?): integer
     if s then
-        return #s        -- s is string here
+        return #s -- s is string here
     end
     return 0
 end
@@ -46,6 +46,7 @@ local function f(s: string | number): string
     end
     return "no"
 end
+
 -- NUPP2002: return 1: number | string is not a string
 ```
 
@@ -57,9 +58,9 @@ its result back to `s`. Write `s is string`.
 
 ```nupp
 assert(s)
-local a: string = s        -- still an error
+local a: string = s -- still an error
 
-local b = assert(s)        -- b is string
+local b = assert(s) -- b is string
 ```
 
 **Only names and dotted paths narrow.** An index like `a[i]`, a call, or any
@@ -78,7 +79,7 @@ clears the facts for that name and everything beneath it:
 ```nupp
 local function f(s: string?)
     if s then
-        s = maybeName()    -- facts for s are cleared here
+        s = maybeName() -- facts for s are cleared here
     end
 end
 ```
@@ -115,8 +116,10 @@ local function bail(msg: string): never
 end
 
 local function use(s: string?)
-    if not s then bail("missing") end
-    print(#s)              -- s is string here
+    if not s then
+        bail("missing")
+    end
+    print(#s) -- s is string here
 end
 ```
 

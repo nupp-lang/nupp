@@ -57,11 +57,7 @@ local record Vec2
     y: number
 end
 
-update(
-    delta,
-    (x, y) = entity.body.position,
-    (dx, dy) = entity.body.velocity
-)
+update(delta, (x, y) = entity.body.position, (dx, dy) = entity.body.velocity)
 ```
 
 ```lua [Generated Lua]

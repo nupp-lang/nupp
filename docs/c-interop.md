@@ -65,11 +65,11 @@ header:
 
 ```nupp
 cdef struct nativePoint
-   x: number
-   y: number
+    x: number
+    y: number
 end
 
-cdef function point_length(borrows point: nativePoint*): number from "mini"
+cdef function point_length(borrows point: nativePoint*): number from"mini"
 ```
 
 Use Nupp's C-compatible types and preserve the library's exact function name.
@@ -198,8 +198,8 @@ struct Vertex
 end
 
 const layout = layoutof(Vertex)
-print(layout.size)                       -- 12
-print(layout.fingerprint)                -- x:float,y:float,z:float|12
+print(layout.size) -- 12
+print(layout.fingerprint) -- x:float,y:float,z:float|12
 for _, f in ipairs(layout.fields) do
     print(f.name, f.ctype, f.offset, f.size, f.padding)
 end
@@ -248,17 +248,17 @@ C types do not reveal who frees a returned pointer. Add that fact explicitly:
 
 ```nupp
 cdef struct nativeBuffer
-   size: uint64
+    size: uint64
 end
 
-cdef function buffer_free(takes buffer: nativeBuffer*) from "mini"
+cdef function buffer_free(takes buffer: nativeBuffer*) from"mini"
 
 @owned(buffer_free)
-cdef function buffer_create(size: uint64): nativeBuffer* from "mini"
+cdef function buffer_create(size: uint64): nativeBuffer* from"mini"
 
 do
-   local buffer = buffer_create(4096)
-   print(buffer.size)
+    local buffer = buffer_create(4096)
+    print(buffer.size)
 end
 ```
 

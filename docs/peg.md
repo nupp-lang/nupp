@@ -55,10 +55,7 @@ Every `Peg<R...>` satisfies `nupp.peg.Matcher<R...>`. A generic adapter can
 forward the complete result pack without collecting it into another value:
 
 ```nupp
-local function match<R...>(
-    matcher: nupp.peg.Matcher<R...>,
-    subject: string
-): ((R...) | (nil))
+local function match<R...>(matcher: nupp.peg.Matcher<R...>, subject: string): ((R...) | (nil))
     return matcher:match(subject)
 end
 
@@ -133,11 +130,7 @@ same values as `find`, and the return value is the number of visits:
 ```nupp
 local Word = nupp.peg.compile("{ [a-z]+ }")
 local words: {string} = {}
-local count = Word:forEachMatch("one, two, three", function(
-    first: integer,
-    nextPosition: integer,
-    value: string
-)
+local count = Word:forEachMatch("one, two, three", function(first: integer, nextPosition: integer, value: string)
     assert(first < nextPosition)
     words[#words + 1] = value
 end)
@@ -172,13 +165,8 @@ positions followed by every grammar result and must return a string:
 
 ```nupp
 local Word = nupp.peg.compile("{ [a-z]+ }")
-local output = Word:replaceAll("one, two", function(
-    first: integer,
-    nextPosition: integer,
-    value: string
-): string
-    return "[" .. tostring(first) .. ":" .. tostring(nextPosition)
-        .. " " .. value:upper() .. "]"
+local output = Word:replaceAll("one, two", function(first: integer, nextPosition: integer, value: string): string
+    return "[" .. tostring(first) .. ":" .. tostring(nextPosition) .. " " .. value:upper() .. "]"
 end)
 
 assert(output == "[1:4 ONE], [6:9 TWO]")
@@ -388,9 +376,7 @@ end
 
 ```nupp
 const Fields = comptime do
-    return nupp.peg.compile(
-        "{| { [a-z]+ } (',' { [a-z]+ })* |} !."
-    )
+    return nupp.peg.compile("{| { [a-z]+ } (',' { [a-z]+ })* |} !.")
 end
 ```
 
@@ -424,9 +410,7 @@ anonymous group. `=name` matches the exact string stored by an earlier named
 group:
 
 ```nupp
-local Pair = nupp.peg.compile(
-    "{| {: key: { [a-z]+ } :} '=' {: value: { [0-9]+ } :} |} !."
-)
+local Pair = nupp.peg.compile("{| {: key: { [a-z]+ } :} '=' {: value: { [0-9]+ } :} |} !.")
 local fields = assert(Pair("size=42"))
 assert(fields.key == "size" and fields.value == "42")
 
@@ -459,13 +443,9 @@ Ordinary function transformations are deferred until the whole match wins.
 For a runtime grammar, pass named values in `CompileOptions.definitions`:
 
 ```nupp
-local Integer = nupp.peg.compile("[0-9]+ -> integer !.", {
-    definitions = {
-        integer = function(text: string): integer
-            return assert(tonumber(text)) as integer
-        end,
-    },
-})
+local Integer = nupp.peg.compile("[0-9]+ -> integer !.", {definitions = {integer = function(text: string): integer
+    return assert(tonumber(text)) as integer
+end,},})
 assert(Integer("42") == 42)
 ```
 
@@ -483,16 +463,13 @@ local record Definitions
     integer: function(string): integer
 end
 
-const IntegerFactory:
-    function(Definitions): nupp.peg.Peg<integer> = comptime do
+const IntegerFactory: function(Definitions): nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("[0-9]+ -> integer !.")
 end
 
-local Integer = IntegerFactory(new Definitions(
-    integer = function(text: string): integer
-        return assert(tonumber(text)) as integer
-    end
-))
+local Integer = IntegerFactory(new Definitions(integer = function(text: string): integer
+    return assert(tonumber(text)) as integer
+end))
 ```
 
 Every named slot is required and extra slots are rejected for static factories.

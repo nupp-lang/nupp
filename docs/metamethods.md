@@ -60,13 +60,11 @@ local function newEvent<E is Event>(event: metatable<E>)
     local id = 1
     local instanceMt = {__index = event}
 
-    setmetatable(event, {
-        __call = function(_self: E, ...: any): E
-            local instance = setmetatable({eventId = id}, instanceMt) as E
-            event.init(instance, ...)
-            return instance
-        end,
-    })
+    setmetatable(event, {__call = function(_self: E, ...: any): E
+        local instance = setmetatable({eventId = id}, instanceMt) as E
+        event.init(instance, ...)
+        return instance
+    end,})
 end
 
 newEvent(OnSpawn)
@@ -171,7 +169,8 @@ Metamethod function types can have their own type parameters. This allows a
 typed key to determine the result of an indexed store:
 
 ```nupp
-local record Key<T> end
+local record Key<T>
+end
 
 local record Store
     metamethod __index: function<T>(self, key: Key<T>): T
@@ -275,7 +274,8 @@ runtime implementation explicitly.
 connects the standard metatable functions to their receiver:
 
 ```nupp
-local record Task end
+local record Task
+end
 local task: Task
 local mt: metatable<Task> = {__index = {}}
 
@@ -287,7 +287,8 @@ It is also the type a record's own name holds. `new Task(...)` stamps that table
 on the instances it builds, so the table *is* their metatable and says so:
 
 ```nupp
-local record Task end
+local record Task
+end
 
 local mt: metatable<Task> = Task
 local instance: table = {}

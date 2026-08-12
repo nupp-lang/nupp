@@ -19,7 +19,9 @@ interface m.Circle is m.Shape
 end
 
 function m.area(s: m.Shape): number
-    if s is m.Circle then return 3 * s.radius * s.radius end
+    if s is m.Circle then
+        return 3 * s.radius * s.radius
+    end
     return 0
 end
 

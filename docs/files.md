@@ -228,7 +228,7 @@ nosuspend do
     if files.isDirectory(candidate) then
         print(#assert(files.list(candidate)))
     end
-    print(files.read(candidate))   -- NUPP2701: `read` may suspend
+    print(files.read(candidate)) -- NUPP2701: `read` may suspend
 end
 ```
 

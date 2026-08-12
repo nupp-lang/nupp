@@ -58,7 +58,7 @@ local record Otherwise is Holds
     associated type Value = integer
 end
 
-local assumed: string = nil as Holds.Value   -- refused: Holds.Value is opaque
+local assumed: string = nil as Holds.Value -- refused: Holds.Value is opaque
 local known: integer = nil as Otherwise.Value
 ```
 
@@ -70,7 +70,7 @@ local interface Fixes
     associated type Value == string
 end
 
-local settled: string = nil as Fixes.Value   -- resolves
+local settled: string = nil as Fixes.Value -- resolves
 ```
 
 That is the distinction the feature exists for. A base contract keeps an
@@ -135,8 +135,8 @@ members:
 
 ```nupp
 local interface Shape
-    type Unit = number      -- a static alias
-    associated type Scale   -- a requirement
+    type Unit = number -- a static alias
+    associated type Scale -- a requirement
 
     size: Unit
 end
@@ -209,8 +209,10 @@ local interface Holder
     associated type Item
 end
 
-local lookalike: {count: integer} = {count = 1}
-local held: Holder = lookalike               -- refused: it answers nothing
+local lookalike: {
+    count: integer
+} = {count = 1}
+local held: Holder = lookalike -- refused: it answers nothing
 ```
 
 A declared `is` edge is trusted for members and still proves the answers, for
@@ -245,7 +247,7 @@ is reported by the `gradual-projection` lint (**NUPP2511**), once per call and
 member, where the erasure happened:
 
 ```nupp
-local erased = collect(nil as any)   -- warning: gradual-projection
+local erased = collect(nil as any) -- warning: gradual-projection
 ```
 
 An answer somebody wrote as `any` is a different thing and does not warn.

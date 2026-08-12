@@ -56,11 +56,7 @@ between them rather than inside the first call's arguments. The receiver keeps
 the call that heads the chain and every later step lines up under it:
 
 ```nupp
-local production = endpoint:withUserInfo(nil)
-    :withHost("api.example.com")
-    :withPort(nil)
-    :withQuery(nil)
-    :withFragment(nil)
+local production = endpoint:withUserInfo(nil):withHost("api.example.com"):withPort(nil):withQuery(nil):withFragment(nil)
 ```
 
 An operator joining two operands is looser than the chain inside either of
@@ -86,10 +82,10 @@ It must be the file's first annotation and has no region form.
 A method call left in its sugar form gets its parentheses back:
 
 ```nupp
-obj:configure{retries = 3}   -- becomes
+obj:configure({retries = 3}) -- becomes
 obj:configure({retries = 3})
 
-obj:log"starting"            -- becomes
+obj:log("starting") -- becomes
 obj:log("starting")
 ```
 

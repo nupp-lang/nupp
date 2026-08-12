@@ -191,7 +191,7 @@ The same shape works in Nupp; save this as `tests/mathstest.nupp`:
 local M = {}
 
 function M.addsNumbers(): nil
-   assert(20 + 22 == 42)
+    assert(20 + 22 == 42)
 end
 
 return M

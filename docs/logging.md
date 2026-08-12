@@ -74,8 +74,8 @@ slower. The module shows as `?`, and the arguments are evaluated:
 ## Levels
 
 ```nupp
-nupp.log.level("debug")                          -- set, answers the previous one
-nupp.log.level()                                 -- read
+nupp.log.level("debug") -- set, answers the previous one
+nupp.log.level() -- read
 nupp.log.level(os.getenv("LOG_LEVEL") or "warn")
 ```
 
@@ -122,9 +122,7 @@ A file-like target renders through the formatter, which is replaceable on its
 own:
 
 ```nupp
-nupp.log.formatter(function(
-    level: integer, module: string, line: integer, message: string, stamp: string
-): string
+nupp.log.formatter(function(level: integer, module: string, line: integer, message: string, stamp: string): string
     return ("%s[%s] %s"):format(stamp, nupp.log.levelName(level), message)
 end)
 ```
@@ -140,8 +138,8 @@ something pushed to sinks, so a host that stamps its own lines never pays for
 one.
 
 ```nupp
-nupp.log.timestampFormat("%H:%M:%S ")   -- set, answers the previous format
-nupp.log.timestampFormat("")            -- off
+nupp.log.timestampFormat("%H:%M:%S ") -- set, answers the previous format
+nupp.log.timestampFormat("") -- off
 ```
 
 The second itself is read through the FFI rather than `os.time`, which is NYI in

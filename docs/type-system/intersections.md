@@ -11,8 +11,12 @@ interface defaults, `@override`, and constructors, see
 `&` binds more tightly than `|`:
 
 ```nupp
-local type Readable = {readonly value: string}
-local type Named = {readonly name: string}
+local type Readable = {
+    readonly value: string
+}
+local type Named = {
+    readonly name: string
+}
 local type Both = Readable & Named
 
 local type Result = Error | HasCode & HasMessage
@@ -31,8 +35,12 @@ Read-only and write-only views remain independent. Member completion likewise
 contains the union of the available names.
 
 ```nupp
-local type Identified = {readonly id: integer}
-local type Labelled = {readonly label: string}
+local type Identified = {
+    readonly id: integer
+}
+local type Labelled = {
+    readonly label: string
+}
 local type Item = Identified & Labelled
 
 local function describe(item: Item): string
@@ -50,10 +58,17 @@ target when one member already proves the target or when the members jointly
 provide the target's structural surface:
 
 ```nupp
-local type A = {readonly a: number}
-local type B = {readonly b: string}
+local type A = {
+    readonly a: number
+}
+local type B = {
+    readonly b: string
+}
 
-local function combined(value: A & B): {readonly a: number, readonly b: string}
+local function combined(value: A & B): {
+    readonly a: number,
+    readonly b: string
+}
     return value
 end
 ```
@@ -69,7 +84,11 @@ disjoint, and incompatible required fields:
 
 ```nupp
 local type Impossible = string & number
-local type ConflictingTags = {kind: 'file'} & {kind: 'socket'}
+local type ConflictingTags = {
+    kind: 'file'
+} & {
+    kind: 'socket'
+}
 ```
 
 This is intentionally incomplete. Interfaces, `any`, `unknown`, and
@@ -81,8 +100,7 @@ compiler cannot currently find a shared implementation.
 An intersection containing only function types is an overload set:
 
 ```nupp
-local type Parse = function(text: string): integer
-    & function(text: string, base: integer): string
+local type Parse = function(text: string): integer & function(text: string, base: integer): string
 ```
 
 At a call, Nupp:
@@ -100,8 +118,7 @@ There is no best-match ranking and declaration order never breaks a tie.
 Numeric widening and `any` commonly expose real ambiguities:
 
 ```nupp
-local type Ambiguous = function(integer): string
-    & function(number): boolean
+local type Ambiguous = function(integer): string & function(number): boolean
 
 local f: Ambiguous = nil as any
 local value = f(1) -- NUPP2126: both signatures accept integer

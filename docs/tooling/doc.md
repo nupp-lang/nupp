@@ -186,7 +186,9 @@ without them.
 ````
 ::: code-group
 ```nupp [Nupp]
-local record Point x: number end
+local record Point
+    x: number
+end
 ```
 
 ```lua [Generated Lua]

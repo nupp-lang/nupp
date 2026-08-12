@@ -79,8 +79,7 @@ The accessors are `scheme`, `authority`, `username`, `password`, `userInfo`,
 Every `with...` method returns a new URI and leaves the original unchanged:
 
 ```nupp
-local production = endpoint:withUserInfo(nil):withHost("api.example.com")
-    :withPort(nil):withQuery(nil):withFragment(nil)
+local production = endpoint:withUserInfo(nil):withHost("api.example.com"):withPort(nil):withQuery(nil):withFragment(nil)
 local users = production:concatPath("users")
 local avatar, resolveReason = users:resolve("../images/avatar.png")
 assert(avatar, resolveReason)
@@ -102,13 +101,15 @@ service endpoint.
 A component record can be passed instead of text:
 
 ```nupp
-local uri = assert(nupp.io.newURI({
-    scheme = "https",
-    userInfo = "reader:secret",
-    host = "example.com",
-    path = "/status",
-    query = "full=1",
-}))
+local uri = assert(
+    nupp.io.newURI({
+        scheme = "https",
+        userInfo = "reader:secret",
+        host = "example.com",
+        path = "/status",
+        query = "full=1",
+    })
+)
 ```
 
 The input record type is `nupp.io.URI.Components`, the one type still nested

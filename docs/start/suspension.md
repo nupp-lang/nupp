@@ -151,7 +151,9 @@ local thread = suspension.create(function(): nil
 end)
 
 local ok, problem = coroutine.resume(thread)
-if not ok then error(problem) end
+if not ok then
+    error(problem)
+end
 ```
 
 Inheritance is fixed at creation. Continue to use `coroutine.resume`; no
@@ -173,10 +175,11 @@ local function version(program: string): string
     return result.output
 end
 
-local outputs = suspension.all({
-    function(): string return version("cc") end,
-    function(): string return version("lua") end,
-})
+local outputs = suspension.all({function(): string
+    return version("cc")
+end, function(): string
+    return version("lua")
+end,})
 
 print(outputs[1], outputs[2])
 ```
@@ -206,15 +209,15 @@ example completes after its readiness source has been polled twice:
 local suspension = require("nupp.suspension")
 
 local function after(polls: integer, value: string): string
-    return suspension.suspend("counter", function(
-        resume: function(string),
-        context: suspension.Context
-    ): function()
+    return suspension.suspend("counter", function(resume: function(string), context: suspension.Context): function()
         local left = polls
         context:source("counter", 10, function(): integer
             left = left - 1
-            if left > 0 then return 0 end
+            if left > 0 then
+                return 0
+            end
             resume(value)
+
             return 1
         end)
 

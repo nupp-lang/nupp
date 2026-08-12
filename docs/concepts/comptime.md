@@ -7,7 +7,8 @@ Nupp, and nothing of the work survives into the program.
 ```nupp
 local m = {}
 
-@comptime local function step(acc: integer): integer
+@comptime
+local function step(acc: integer): integer
     return acc & 1 ~= 0 and 0xedb88320 ~ (acc >> 1) or acc >> 1
 end
 
@@ -28,6 +29,7 @@ function m.checksum(text: string): integer
     for index = 1, #text do
         acc = CRC32[((acc ~ text:byte(index)) & 0xff) + 1] ~ (acc >> 8)
     end
+
     return acc ~ 0xffffffff
 end
 

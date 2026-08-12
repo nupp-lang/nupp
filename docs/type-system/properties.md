@@ -24,8 +24,12 @@ local record Cell
     writeonly value: string | integer
 end
 
-local input: {readonly value: string} = Cell{value = "ready"}
-local output: {writeonly value: string | integer} = Cell{value = "ready"}
+local input: {
+    readonly value: string
+} = Cell{value = "ready"}
+local output: {
+    writeonly value: string | integer
+} = Cell{value = "ready"}
 ```
 
 The two declarations name one runtime property. They may use different types:
@@ -38,9 +42,14 @@ view, not creation of the value.
 An unmodified property is shorthand for matching read and write capabilities:
 
 ```nupp
-local type Ordinary = {value: string}
+local type Ordinary = {
+    value: string
+}
 -- Equivalent capabilities:
-local type Expanded = {readonly value: string, writeonly value: string}
+local type Expanded = {
+    readonly value: string,
+    writeonly value: string
+}
 ```
 
 ## Variance
