@@ -440,26 +440,27 @@ types remain unnecessary for this projection.
 
 ### JSON
 
-The prelude already has `interface nupp.data.JSON` for the bundled raw JSON runtime
-and `nupp.fieldcodec.KeyedCodec<T>` for the reflected keyed encoder. D4 adds no
-public `nupp.JSONCodec<T>` or sibling provider. It extends the shipped
-field-codec blueprint with typed decode and separately materializes a direct
-JSON emitter. The two runtime products share the reflection walk, schema graph
-and fingerprint inputs; the JSON encoder does not compose the keyed table
-encoder with cjson.
+The prelude already has `interface nupp.data.json.JSON` for the bundled raw
+JSON runtime and `nupp.fieldcodec.KeyedCodec<T>` for the reflected keyed
+encoder. D4 adds no public `nupp.JSONCodec<T>` or sibling provider. It extends
+the shipped field-codec blueprint with typed decode and separately materializes
+a direct JSON emitter. The two runtime products share the reflection walk,
+schema graph and fingerprint inputs; the JSON encoder does not compose the
+keyed table encoder with cjson.
 
 The value-level contract remains explicit:
 
 ```nupp
-interface nupp.data.JSONEncodable
+interface nupp.data.json.JSONEncodable
     toJSON: function(self): string
 end
 ```
 
 `@derive(nupp.derive.JSON)` adds this contract just as `@derive(nupp.derive.Debug)` adds `nupp.Debug`.
-Generic code over values uses `T is nupp.data.JSONEncodable`; generic code over
-declaration tables uses the projected `fieldCodec()` static factory after D1.
-The two paths serve different receivers and do not require a second codec type.
+Generic code over values uses `T is nupp.data.json.JSONEncodable`; generic code
+over declaration tables uses the projected `fieldCodec()` static factory after
+D1. The two paths serve different receivers and do not require a second codec
+type.
 
 `KeyedCodec<T>` gains one method:
 
@@ -682,7 +683,7 @@ recursing indefinitely.
 ### Direct emission and private decode framing
 
 Derived encoding never uses cjson or the process-visible mutable settings on
-`nupp.data`. The materialized emitter walks the statically known schema and
+`nupp.data.json`. The materialized emitter walks the statically known schema and
 appends JSON directly to one `string.buffer.Buffer`. Record keys and structural
 punctuation are pre-escaped literal segments. Nested records receive the same
 buffer; arrays write brackets directly; finite shapes use declaration order;
@@ -711,19 +712,19 @@ change even if the resulting document remains semantically valid JSON.
 Decode remains asymmetric on purpose. Scanning and unescaping untrusted bytes
 stays in the bundled C decoder, while generated code validates and reconstructs
 the declared Nupp type from the resulting table. Each materialized codec owns
-one private `nupp.data.newJSON()` instance, captured by the decode helper and
-not returned by `fieldCodec()`. D4 calls only settings present on the pinned
+one private `nupp.data.json.newJSON()` instance, captured by the decode helper
+and not returned by `fieldCodec()`. D4 calls only settings present on the pinned
 runtime:
 
 ```nupp
-local framing = nupp.data.newJSON()
+local framing = nupp.data.json.newJSON()
 framing.decodeArrayWithArrayMt(false)
 framing.decodeMaxDepth(128)
 framing.decodeInvalidNumbers(false)
 ```
 
 Those values and the raw-decoder ABI participate in the fingerprint. Mutating
-the corresponding settings on `nupp.data` or a user-created codec cannot
+the corresponding settings on `nupp.data.json` or a user-created codec cannot
 change derived decoding. The schema, not a cjson metatable, distinguishes
 arrays, objects and empty containers. Decoded arrays therefore carry no
 cjson-specific metatable, while reconstructed nominal values receive the same
@@ -1203,7 +1204,7 @@ static `from` signature rather than from an `any` fallback.
   keys and integral-value semantics, and make the strict unknown-key walk part
   of the contract.
 - Remap field-codec schema failures to one NUPP2806 at the derive site.
-- Add `nupp.data.JSONEncodable` conformance to each JSON-derived record.
+- Add `nupp.data.json.JSONEncodable` conformance to each JSON-derived record.
 - Generate `toJSON`, `fromJSON`, and `fieldCodec` forwarders.
 - Differential-test encode/decode against a direct reference implementation
   and fuzz small supported schemas and values.
