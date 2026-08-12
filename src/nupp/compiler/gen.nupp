@@ -1440,6 +1440,12 @@ function gen.generate(
             end
             return
         end
+        if kind == "assignStmt" and x.presizedIntoConstructor and not coverageOn then
+            -- Its target and value were emitted as a constructor field. Return before
+            -- statement-root call and ownership lowering: the value already went
+            -- through their expression paths while the constructor was emitted.
+            return
+        end
         if x.automaticOwnerReinit then
             local active = activeWith(x.automaticOwnerReinit)
             if active then
@@ -3358,10 +3364,23 @@ function gen.generate(
             end
             e("end", x.endTok and x.endTok.line or nil)
 
+        elseif kind == "tableExpr" and x.presizeFields and not coverageOn then
+            -- OPT-1: a consecutive run of named writes can be the constructor itself.
+            -- Each value stays on the assignment's source line for stack traces; the
+            -- assignment nodes below emit nothing on an ordinary build.
+            e("{", sourceLine(x))
+            for _, field in ipairs(x.presizeFields) do
+                e(field.name.text .. "=", sourceLine(field.stat))
+                emit(field.value)
+                e(",")
+            end
+            e("}")
+
         elseif kind == "tableExpr" and x.presize then
             -- OPT-1: `{}` sized for the fields the optimizer counted. The call replaces
             -- the constructor where it stands, so the line it is attributed to does not
-            -- move.
+            -- move. Coverage builds retain this form so the following writes remain
+            -- independently instrumentable statements.
             local name = tableIntrinsicName("new")
             e(("%s(%d,%d)"):format(name, x.presize.narr, x.presize.nhash), sourceLine(x))
 

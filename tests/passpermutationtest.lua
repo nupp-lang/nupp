@@ -196,6 +196,18 @@ return t.a .. "|" .. t.b .. "|" .. t.c
 ]], "presize and fold")
 end
 
+function M.presizingAroundPluckedArguments()
+   agrees([[
+local type Pair = {a: integer, b: integer}
+local source: Pair = {a = 2, b = 3}
+local function add(a: integer, b: integer): integer return a + b end
+local t = {}
+t.total = add((a, b) = source)
+t.label = "sum"
+return t.total .. ":" .. t.label
+]], "presize and plucked arguments")
+end
+
 function M.repeatedCallsThroughOneImmutablePath()
    agrees([[
 const lib = {inner = {twice = function(n: integer): number return n * 2 end}}

@@ -3,8 +3,9 @@
 -- Run: luajit bench/presize.lua
 --
 -- Both variants are compiler OUTPUT, written by hand. The `grown` side is what
--- -O0 emits for `local t = {} t.a = 1 ...`; the `sized` side is what -O2 emits
--- for the same source. The gate the optimization has to pass is that the win
+-- -O0 emits for `local t = {} t.a = 1 ...`; the `sized` side is what -O2 emits.
+-- Consecutive named writes become a literal, while multiple assignment and array
+-- writes use `table.new`. The gate the optimization has to pass is that the win
 -- survives with the JIT on, because the trace compiler already handles most of
 -- what an ahead-of-time pass would otherwise be buying.
 --
@@ -69,11 +70,12 @@ end
 
 local function sizedFour(n, into)
    for i = 1, n do
-      local t = new_tab(0, 4)
-      t.kind = i
-      t.line = i + 1
-      t.col = i + 2
-      t.text = i + 3
+      local t = {
+         kind = i,
+         line = i + 1,
+         col = i + 2,
+         text = i + 3,
+      }
       into[i] = t
    end
    return into

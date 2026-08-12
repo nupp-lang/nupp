@@ -169,8 +169,9 @@ controls, counters, cache-miss slots, and other mutable storage remain `local`.
 
 ### `OPT-1`, presizing
 
-When consecutive writes reveal an empty table's final shape, Nupp allocates its
-array and hash parts once.
+When consecutive named writes reveal an empty table's contents, Nupp moves them
+into the constructor. LuaJIT sizes that constructor directly and no
+`table.new` call is needed.
 
 ::: code-group
 ```nupp [Original Nupp]
@@ -181,11 +182,11 @@ point.z = 3
 ```
 
 ```lua [Optimized Lua]
-const __nuppNew = require("table.new")
-local point = __nuppNew(0, 3)
-point.x = 1
-point.y = 2
-point.z = 3
+local point = {
+    x = 1,
+    y = 2,
+    z = 3,
+}
 ```
 
 ```lua [Unoptimized Lua]
@@ -196,8 +197,11 @@ point.z = 3
 ```
 :::
 
-The scan stops when the table is read, escapes, is reassigned, or reaches a
-conditional write. Capacity is not observable, so the table otherwise behaves
+Computed keys, repeated fields, multiple assignment, or an unrelated statement
+between writes retain the assignments and use `table.new` with the capacity the
+scan discovered. The scan may step over unrelated statements for that capacity
+calculation, but stops when the table is read, escapes, is reassigned, or reaches
+a conditional write. Capacity is not observable, so the table otherwise behaves
 exactly like `{}`. The win is avoided growth allocations and copying, not a
 smaller surviving table.
 
@@ -336,9 +340,9 @@ generated-Lua shapes shown above, not checker time.
 ```
  Pass and scenario                                  Before   After    Change
  ─────────────────────────────────────────────────  ───────  ───────  ────────────
- OPT-1, 200,000 tables, four hash fields            0.0151s  0.0066s  2.31x faster
- OPT-1, 200,000 tables, eight hash fields           0.0291s  0.0104s  2.81x faster
- OPT-1, 200,000 tables, four array slots            0.0153s  0.0023s  6.59x faster
+ OPT-1, 200,000 tables, four named fields           0.0159s  0.0053s  3.02x faster
+ OPT-1, 200,000 tables, eight hash fields           0.0262s  0.0106s  2.47x faster
+ OPT-1, 200,000 tables, four array slots            0.0168s  0.0024s  7.06x faster
  OPT-2, eight million visits, 4-element arrays      0.0126s  0.0087s  1.44x faster
  OPT-2, eight million visits, 32-element arrays     0.0053s  0.0050s  1.06x faster
  OPT-2, eight million visits, 256-element arrays    0.0051s  0.0047s  1.07x faster

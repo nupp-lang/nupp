@@ -110,10 +110,12 @@ Each entry is tagged with where its win lands:
 - `real` **Closure caching.** A closure with no upvalues, or only
   `const` upvalues, created at module scope, is allocated once and
   reused. Changes function identity; see §The observability contract.
-- `real` **Table presizing.** A `{}` literal followed by a statically
-  known set of field assignments lowers to `table.new(0, n)`. Landed as
-  `OPT-1`; `bench/presize.lua` measures 2.3x on four hash fields, 2.7x
-  on eight, and 7.5x on four array slots, with the JIT on. What it buys
+- `real` **Table presizing.** A `{}` literal followed by a consecutive
+  run of named field assignments absorbs them into its constructor; other
+  statically known writes lower to `table.new`. Landed as `OPT-1`;
+  `bench/presize.lua` measures the named and fallback forms independently,
+  including about 3x on four named fields, 2.5x on eight fields, and 7x
+  on four array slots, with the JIT on. What it buys
   is the allocations and copies a rehash performs while the table grows
   — not heap, since LuaJIT rounds a hash part to a power of two and
   frees a replaced one immediately. Presizing is not a GC optimization,

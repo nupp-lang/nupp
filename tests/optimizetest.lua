@@ -20,12 +20,12 @@ end
 
 -- Optimize at `level`, then generate. The effect-based passes consume definition
 -- and type facts left by checking; presizing remains syntax-only.
-local function compile(src, level)
+local function compile(src, level, coverage)
    local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax errors in test source")
    check.check(result, "test.g.nupp", env)
    local remarks = optimize.run(result, {level = level or 2})
-   local code, diags = gen.generate(result, "test")
+   local code, diags = gen.generate(result, "test", coverage)
    assertEq(#diags, 0, "gen diagnostics for " .. src)
    return code, remarks
 end
@@ -48,9 +48,10 @@ end
 local M = {}
 
 function M.presizesARunOfNamedFields()
-   local narr, nhash = sized("local t = {}\nt.a = 1\nt.b = 2\nreturn t")
-   assertEq(narr, "0", "array part")
-   assertEq(nhash, "2", "hash part")
+   local code = compile("local t = {}\nt.a = 1\nt.b = 2\nreturn t")
+   assertTrue(code:match("local t%s*=%s*{%s*a%s*=%s*1%s*,%s*b%s*=%s*2%s*,") ~= nil,
+      "named writes become constructor fields: " .. code)
+   assertEq(code:match("__nuppNew"), nil, "a literal needs no table.new call")
 end
 
 function M.presizesArrayIndices()
@@ -83,6 +84,52 @@ function M.stepsOverUnrelatedStatements()
    local _, nhash = sized(
       "local t = {}\nt.a = 1\nlocal z = 5\nt.b = 2\nreturn t")
    assertEq(nhash, "2", "an unrelated statement cannot reach the table")
+end
+
+function M.keepsPresizingWhenNamedWritesHaveAGap()
+   local narr, nhash = sized(
+      "local t = {}\nt.a = 1\nlocal z = 5\nt.b = 2\nreturn t")
+   assertEq(narr, "0", "array part")
+   assertEq(nhash, "2", "hash part")
+end
+
+function M.keepsPresizingRepeatedNamedFields()
+   local narr, nhash = sized(
+      "local t = {}\nt.a = 1\nt.a = 2\nt.b = 3\nreturn t")
+   assertEq(narr, "0", "array part")
+   assertEq(nhash, "2", "hash part")
+end
+
+function M.constructorFieldsKeepValueOrderAndLines()
+   local code = compile(
+      "local seen = {}\n"
+      .. "local function take(value) seen[#seen + 1] = value; return value end\n"
+      .. "local t = {}\n"
+      .. "t.a = take('a')\n"
+      .. "t.b = take('b')\n"
+      .. "return t, table.concat(seen)")
+   local chunk = assert(loadstring(code, "@presize_lines"))
+   local t, seen = chunk()
+   assertEq(t.a, "a", "first field")
+   assertEq(t.b, "b", "second field")
+   assertEq(seen, "ab", "field values retain assignment order")
+   assertTrue(code:match('\n%s*a%s*=%s*take%s*%(%s*"a"%s*%)') ~= nil,
+      "the first value remains on its source line: " .. code)
+   assertTrue(code:match('\n%s*b%s*=%s*take%s*%(%s*"b"%s*%)') ~= nil,
+      "the second value remains on its source line: " .. code)
+end
+
+function M.coverageKeepsPresizedWritesAsStatements()
+   local code = compile(
+      "local t = {}\nt.a = 1\nt.b = 2\nreturn t",
+      2,
+      {path = "test.g.nupp"})
+   assertTrue(code:match("__nuppNew%s*%(%s*0%s*,%s*2%s*%)") ~= nil,
+      "coverage keeps the sized constructor: " .. code)
+   assertTrue(code:match("t%s*%.%s*a%s*=%s*1") ~= nil,
+      "coverage keeps the first assignment: " .. code)
+   assertTrue(code:match("t%s*%.%s*b%s*=%s*2") ~= nil,
+      "coverage keeps the second assignment: " .. code)
 end
 
 function M.leavesASingleFieldAlone()
@@ -122,16 +169,16 @@ end
 function M.stopsAtAShadowingDeclaration()
    local code = compile(
       "local t = {}\nlocal t = {}\nt.a = 1\nt.b = 2\nreturn t")
-   local _, count = code:gsub("__nuppNew%(", "")
-   assertEq(count, 1, "only the second t is presized")
+   local _, count = code:gsub("\na=", "")
+   assertEq(count, 1, "only the second t is folded into its constructor")
 end
 
 function M.presizesInsideAFunctionBody()
-   local narr, nhash = sized(
+   local code = compile(
       "local function f()\n   local t = {}\n   t.a = 1\n   t.b = 2\n"
       .. "   return t\nend\nreturn f")
-   assertEq(narr, "0", "array part")
-   assertEq(nhash, "2", "hash part")
+   assertTrue(code:match("local t%s*=%s*{%s*a%s*=%s*1%s*,%s*b%s*=%s*2%s*,") ~= nil,
+      "function-local writes become constructor fields: " .. code)
 end
 
 function M.levelZeroDoesNothing()
@@ -181,7 +228,7 @@ function M.remarksOnWhatItDid()
    assertEq(remarks[1].code, "OPT-1", "code")
    assertEq(remarks[1].severity, "note", "a remark is reported and stepped over")
    assertEq(remarks[1].line, 1, "attributed to the constructor")
-   assertTrue(remarks[1].msg:match("room for 0 array and 2 hash") ~= nil,
+   assertTrue(remarks[1].msg:match("created with 2 named fields") ~= nil,
       "says what it did: " .. remarks[1].msg)
 end
 

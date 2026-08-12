@@ -62,7 +62,7 @@ function M.injectsEachUsedTableBuiltinOnce()
    assertEq(next(second), nil, "second table was cleared")
 end
 
-function M.presizingSharesTheUserTableNewBinding()
+function M.constructorPresizingLeavesTheUserTableNewBindingAlone()
    local code = compile(table.concat({
       "local sized = {}",
       "sized.left = 1",
@@ -71,9 +71,10 @@ function M.presizingSharesTheUserTableNewBinding()
       "return sized, explicit",
    }, "\n"), 1)
    assertEq(occurrences(code, 'require("table.new")'), 1,
-      "OPT-1 and source calls share one binding")
-   assertEq(occurrences(code, "__nuppNew"), 3,
-      "one declaration and two calls use the binding")
+      "the explicit call has one table.new binding")
+   assertEq(occurrences(code, "__nuppNew"), 2,
+      "one declaration and one explicit call use the binding")
+   assert(code:match("local sized%s*=%s*{%s*left%s*=%s*1%s*,"), code)
 end
 
 function M.tableIntrinsicsRemainIntrinsicAtOptimizationLevelOne()

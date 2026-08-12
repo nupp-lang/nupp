@@ -137,8 +137,36 @@ local function fieldWrites(stat, name)
     return writes
 end
 
+-- A simple named field write that a table constructor can perform directly. The
+-- assignment has to stand alone: list adjustment, computed keys and immutable-field
+-- syntax each have semantics that need more than moving one value expression.
+local function constructorField(stat, name, keys)
+    if stat.kind ~= "assignStmt"
+        or stat.isConst
+        or stat.automaticOwner
+        or stat.automaticOwnerMove
+        or stat.automaticOwnerMoves
+        or stat.automaticOwnerReinit
+        or #(stat.targets or {}) ~= 1
+        or #(stat.exprs or {}) ~= 1 then
+        return nil
+    end
+    local target = stat.targets[1]
+    if not target or isToken(target) or target.kind ~= "dotIndex" or fieldTargetBase(target) ~= name then
+        return nil
+    end
+    local key = target.name and target.name.text or nil
+    if not key or keys[key] then
+        return nil
+    end
+    keys[key] = true
+
+    return {name = target.name, value = stat.exprs[1], stat = stat}
+end
+
 -- Reads the run of statements that follow a `local t = {}` and decides how big the
--- table wants to be.
+-- table wants to be. A consecutive prefix of distinct named writes is also returned
+-- when the constructor can perform every write itself.
 --
 -- The scan walks forward until the local is mentioned by something other than a write
 -- to one of its fields, which is where the count stops being a count and starts being a
@@ -152,8 +180,10 @@ end
 -- promise about behaviour.
 local function planPresize(stats, at, name)
     local hashKeys, opaque, array = {}, 0, 0
-    local hashCount = 0
+    local hashCount, writeCount = 0, 0
     local stoppedAt = nil
+    local constructorFields, constructorKeys = {}, {}
+    local constructorGap, constructorRejected = false, false
     for j = at + 1, #stats do
         local stat = stats[j]
         local writes = fieldWrites(stat, name)
@@ -161,6 +191,20 @@ local function planPresize(stats, at, name)
             stoppedAt = stat
             break
         end
+        if #writes == 0 then
+            constructorGap = true
+        elseif constructorGap then
+            constructorRejected = true
+        end
+        if #writes > 0 and not constructorRejected then
+            local field = constructorField(stat, name, constructorKeys)
+            if field then
+                constructorFields[#constructorFields + 1] = field
+            else
+                constructorRejected = true
+            end
+        end
+        writeCount = writeCount + #writes
         for _, target in ipairs(writes) do
             local kind, value = writtenKey(target)
             if kind == "array" then
@@ -178,7 +222,11 @@ local function planPresize(stats, at, name)
         end
     end
 
-    return array, hashCount + opaque, stoppedAt
+    if constructorRejected or #constructorFields ~= writeCount then
+        constructorFields = nil
+    end
+
+    return array, hashCount + opaque, stoppedAt, constructorFields
 end
 
 -- Whether an expression is `{}` written with no entries at all. A constructor with
@@ -219,16 +267,31 @@ local function presizeBlock(stats, remarks)
         ) then
             local name = stat.names[1].text
             local constructor = stat.exprs[1]
-            local array, hash, stoppedAt = planPresize(stats, i, name)
+            local array, hash, stoppedAt, constructorFields = planPresize(stats, i, name)
             if array + hash >= PRESIZE_MIN then
                 constructor.presize = {narr = array, nhash = hash}
+                if constructorFields then
+                    constructor.presizeFields = constructorFields
+                    for _, field in ipairs(constructorFields) do
+                        field.stat.presizedIntoConstructor = true
+                    end
+                end
+                local message
+                if constructorFields then
+                    message = ("presize: %s is created with %d named fields"):format(
+                        name,
+                        #constructorFields
+                    )
+                else
+                    message = (
+                        "presize: %s is created with room for %d array and %d hash entries"
+                    ):format(name, array, hash)
+                end
                 remark(
                     remarks,
                     constructor,
                     "OPT-1",
-                    (
-                        "presize: %s is created with room for %d array and %d " .. "hash entries"
-                    ):format(name, array, hash)
+                    message
                 )
             elseif stoppedAt then
                 local token = firstToken(stoppedAt)
