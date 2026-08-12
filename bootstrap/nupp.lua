@@ -82402,7 +82402,7 @@ end
 
 
 
-function span . from_string ( source )
+function span . fromString ( source )
 local pointer = __nuppFfi.cast("uint8_t *" , source )
 return setmetatable({ anchor =  source ,  pointer =  pointer ,  offset =  0 ,  count =  # source }, ByteSpan)
 end
@@ -82410,7 +82410,7 @@ end
 
 
 
-function span . from_carray ( source , count )
+function span . fromCarray ( source , count )
 if count < 0 then
 error ( "span count cannot be negative" , 2 )
 end
@@ -82422,7 +82422,7 @@ end
 
 
 
-function span . write_carray ( source , count )
+function span . writeCarray ( source , count )
 if count < 0 then
 error ( "write span count cannot be negative" , 2 )
 end
@@ -92450,7 +92450,7 @@ end
 
 --- Creates a byte span over a Lua string and keeps that string rooted.
 --- @export
-function span.from_string(borrows source: string): ByteSpan borrows (source)
+function span.fromString(borrows source: string): ByteSpan borrows (source)
     local pointer = ffi.cast<uint8[?]>(source)
     return new ByteSpan(anchor = source, pointer = pointer, offset = 0, count = #source)
 end
@@ -92458,7 +92458,7 @@ end
 --- Creates a checked shared span over a C array and an explicit logical count.
 --- @export
 --- @raises when count is negative
-function span.from_carray(borrows source: uint8[?], count: integer): ByteSpan borrows (source)
+function span.fromCarray(borrows source: uint8[?], count: integer): ByteSpan borrows (source)
     if count < 0 then
         error("span count cannot be negative", 2)
     end
@@ -92470,7 +92470,7 @@ end
 --- @export
 --- @raises when count is negative
 @owned
-function span.write_carray(exclusive source: uint8[?], count: integer): ByteWriteSpan borrows (source)
+function span.writeCarray(exclusive source: uint8[?], count: integer): ByteWriteSpan borrows (source)
     if count < 0 then
         error("write span count cannot be negative", 2)
     end

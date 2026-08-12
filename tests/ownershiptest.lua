@@ -489,13 +489,13 @@ function M.spansCarryBoundsRootsAndAnAffineWriteExtent()
    assertClean(table.concat({
       "local spans = require('nupp.span')",
       "local text = 'bytes'",
-      "local whole = spans.from_string(text)",
+      "local whole = spans.fromString(text)",
       "local part = whole:slice(2, 4)",
       "local byte: uint8 = part:get(1)",
       "print(byte)",
       "local storage: uint8[?] = ffi.new('uint8_t[4]') as any",
       "do",
-      "   local writable = spans.write_carray(storage, 4)",
+      "   local writable = spans.writeCarray(storage, 4)",
       "   writable:set(1, 65)",
       "end",
    }, "\n"))
