@@ -50,7 +50,7 @@ end
 return m
 ```
 
-## Only an interface carries one
+## Only interfaces carry refinements
 
 A record is identified by the metatable `new` stamps and a struct by its ctype,
 so both already answer `is` exactly. A refinement beside either would be a

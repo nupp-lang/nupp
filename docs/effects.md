@@ -335,7 +335,7 @@ end
 ```
 
 The example is rejected: `external = true` is an ordinary declared effect, not
-a spelling for “accept arbitrary unknown behavior.” The checker cannot prove
+a way to say “accept arbitrary unknown behavior.” The checker cannot prove
 what `callback` does, so the visible implementation cannot claim a complete
 finite contract.
 

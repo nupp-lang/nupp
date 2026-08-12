@@ -38,7 +38,7 @@ intersections; ownership wrappers; and arrays, pointers and C types. The root's
 common members are also reachable directly as `kind`, `name`, `fields`,
 `annotations` and `fingerprint`.
 
-## Annotations travel with it
+## Annotations travel with the descriptor
 
 Checked typed annotations on declarations and fields appear as ordered
 `annotations`, and an `@ref` argument is an edge into the same `types` graph.

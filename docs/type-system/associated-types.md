@@ -90,7 +90,7 @@ end
 being edited, and `ScalarComponent<number>.Value` is provably `number`, even for
 a value typed only as the interface.
 
-## Answering one
+## Answering a requirement
 
 ```nupp
 local record JSON is Codec
@@ -146,7 +146,7 @@ opposite on every count. That is why they are spelled differently: sharing one
 word would have made the meaning of every existing alias depend on whether its
 declaration was ever inherited.
 
-## Reaching one
+## Reaching an associated type
 
 Through a concrete declaration by path, through a type parameter, or through the
 receiver:

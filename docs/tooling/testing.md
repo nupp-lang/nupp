@@ -50,7 +50,7 @@ ahead of their ordinary output and flush the generated global
 coverage. Coverage probes intentionally add runtime work, so use ordinary
 `nupp test` or the profiler for timing.
 
-## Configuring it
+## Test configuration
 
 ```lua
 return {

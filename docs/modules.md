@@ -1,7 +1,7 @@
 # Declarations and modules
 
-A typed declaration says where it lives, using the spelling Lua already has for
-saying where a definition lives. There is no fourth rule to learn and no
+A typed declaration says where it lives, the way an ordinary Lua definition
+already does. There is no fourth rule to learn and no
 default to remember.
 
 | form | value side (plain Lua) | type side |

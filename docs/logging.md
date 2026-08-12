@@ -57,7 +57,7 @@ every other module so a level change is seen everywhere at once.
 
 ### When it is not lowered
 
-Every other spelling keeps an ordinary call meaning exactly the same thing, only
+Every other form keeps an ordinary call meaning exactly the same thing, only
 slower. The module shows as `?`, and the arguments are evaluated:
 
 | Spelling | Lowered | Why not |

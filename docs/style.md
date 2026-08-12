@@ -95,7 +95,7 @@ The same applies to a title naming the document rather than its subject:
 | Why it's this way | The reason: "One layout per struct" |
 | `Overview` | Delete it; that is the intro |
 | `Introduction` | Delete it; that is the intro |
-| Usage / How to use | The task: "Writing one" |
+| Usage / How to use | The task: "Writing a lint" |
 | Advanced usage | The topic: "Type packs" |
 | Notes / Miscellaneous | Split it or drop it |
 
@@ -114,6 +114,17 @@ which is the intro's job. Name the subject and stop.
 
 A title listing several subjects is not this. "Writes, shapes, and metatables"
 enumerates what the section covers, and that is what a title is for.
+
+**A title names its object.** "Configuring one" makes a reader scroll up to
+find out what "one" was, and an outline of them says nothing at all. Name the
+noun, as "Task configuration" or "Configuring a task".
+
+| Banned | Write instead |
+| --- | --- |
+| Configuring one | Task configuration |
+| Answering one | Answering a requirement |
+| Choosing between them | Choosing a union kind |
+| Annotations travel with it | Annotations travel with the descriptor |
 
 **A title never opens with an article.** "The", "A" and "An" carry nothing and
 push the identifying word off the front, which is where a reader scanning an
@@ -306,6 +317,10 @@ the guarantee.
 The vocabulary is fixed so a reader meets one word per idea:
 
 - American spelling: color, behavior, initialize.
+- **"Spelling" means how something is written**, as in "the C library's
+  spelling" or "`not` is Lua's word spelling of `!`". It is not a word for a
+  way of doing something: `external = true` is not "a spelling for accept
+  arbitrary behavior", it is a way to say it.
 - **The tools have names**: the checker, the compiler, the formatter, the
   language server, the documentation generator, the profiler. Commands are
   written as `nupp check`, in code style, without the leading `./bin/`.

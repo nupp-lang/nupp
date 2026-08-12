@@ -208,7 +208,7 @@ end
 
 See [narrowing](narrowing.md) for the rest.
 
-## Choosing between them
+## Choosing a union kind
 
 What the alternatives carry decides which of the two you want:
 

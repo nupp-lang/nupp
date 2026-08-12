@@ -13,7 +13,7 @@ any one of them by name. `nupp task` (singular) is the one that runs a named
 task: builds `tasks.<name>.build` first if it names one, then execs
 `tasks.<name>.argv` with anything after `<name>` appended.
 
-## Configuring one
+## Task configuration
 
 ```lua
 return {
