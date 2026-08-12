@@ -1542,8 +1542,11 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
             if not err and open then
                 local rebound = {}
                 for position, argument in ipairs(arguments) do
-                    rebound[position] = argument.kind == "type" or argument.kind == "typepack"
-                        and argument or {kind = "const", value = argument.value}
+                    if argument.kind == "type" or argument.kind == "typepack" then
+                        rebound[position] = argument
+                    else
+                        rebound[position] = {kind = "const", value = argument.value}
+                    end
                 end
                 out = T.comptimeCall(
                     t.comptimeIdentity as string,

@@ -2426,272 +2426,87 @@ local _G: table
 --- The language version the interpreter implements, "Lua 5.1" under LuaJIT.
 local _VERSION: string
 
--- `string.format` derives its trailing parameter pack from a literal first argument.
--- These aliases are deliberately private implementation vocabulary: the public
--- surface is the ordinary function below, and a nonliteral format reduces to `any`.
--- `@local` is what keeps them out of the documented surface, which a declaration file
--- otherwise hands out whole.
+-- string.format derives its trailing parameter pack from a literal first
+-- argument. A broad string deliberately retains the ordinary variadic fallback.
+@comptime
+local function __NuppFormatArguments(Format: type): typepack
+    local info = nupp.types.describe(Format)
+    if info.kind ~= "literal" or type(info.value) ~= "string" then
+        return nupp.types.pack({}, nupp.types.any)
+    end
+    local format = info.value
+    local arguments = {}
+    local index = 1
+    while index <= #format do
+        if format:sub(index, index) ~= "%" then
+            index = index + 1
+        else
+            index = index + 1
+            local seen = ""
+            local current = format:sub(index, index)
+            if current == "%" then
+                index = index + 1
+            else
+                while current ~= "" and string.find("-+ #0", current, 1, true) do
+                    seen = seen .. current
+                    index = index + 1
+                    current = format:sub(index, index)
+                end
+                if current == "%" then
+                    return nupp.types.error(
+                        'invalid string.format directive starting at "%' .. seen
+                            .. format:sub(index) .. '"'
+                    )
+                end
 
---- @local
-local type __NuppFormatError<Seen, Rest> = typeerror<`invalid string.format directive starting at "%${Seen}${Rest}"`>
+                local width = 0
+                while current ~= "" and current:find("[0-9]") do
+                    width = width + 1
+                    seen = seen .. current
+                    index = index + 1
+                    current = format:sub(index, index)
+                    if width > 2 then
+                        return nupp.types.error(
+                            'invalid string.format directive starting at "%' .. seen .. '"'
+                        )
+                    end
+                end
 
---- @local
-local type __NuppFormatBuild<
-    State
-    > = match State when {
-    'scan',
-    infer Format
-} then match Format when `${infer _}%${infer Rest}` then __NuppFormatBuild<{'flags', Rest, ''}> else {never}
-end when {
-    'flags',
-    infer Rest,
-    infer Seen
-} then match Rest when `%${infer Tail}` then match Seen when '' then __NuppFormatBuild<
-    {'scan', Tail}
-    > else __NuppFormatError<Seen, Rest>
-end when `-${infer Tail}` then __NuppFormatBuild<
-    {'flags', Tail, `${Seen}-`}
-    > when `+${infer Tail}` then __NuppFormatBuild<
-    {'flags', Tail, `${Seen}+`}
-    > when ` ${infer Tail}` then __NuppFormatBuild<
-    {'flags', Tail, `${Seen} `}
-    > when `#${infer Tail}` then __NuppFormatBuild<
-    {'flags', Tail, `${Seen}#`}
-    > when `0${infer Tail}` then __NuppFormatBuild<
-    {'flags', Tail, `${Seen}0`}
-    > else __NuppFormatBuild<{'width', Rest, Seen}>
-end when {
-    'width',
-    infer Rest,
-    infer Seen
-} then match Rest when `1${infer Tail}` then __NuppFormatBuild<
-    {'width-one', Tail, `${Seen}1`}
-    > when `2${infer Tail}` then __NuppFormatBuild<
-    {'width-one', Tail, `${Seen}2`}
-    > when `3${infer Tail}` then __NuppFormatBuild<
-    {'width-one', Tail, `${Seen}3`}
-    > when `4${infer Tail}` then __NuppFormatBuild<
-    {'width-one', Tail, `${Seen}4`}
-    > when `5${infer Tail}` then __NuppFormatBuild<
-    {'width-one', Tail, `${Seen}5`}
-    > when `6${infer Tail}` then __NuppFormatBuild<
-    {'width-one', Tail, `${Seen}6`}
-    > when `7${infer Tail}` then __NuppFormatBuild<
-    {'width-one', Tail, `${Seen}7`}
-    > when `8${infer Tail}` then __NuppFormatBuild<
-    {'width-one', Tail, `${Seen}8`}
-    > when `9${infer Tail}` then __NuppFormatBuild<
-    {'width-one', Tail, `${Seen}9`}
-    > else __NuppFormatBuild<{'precision', Rest, Seen}>
-end when {
-    'width-one',
-    infer Rest,
-    infer Seen
-} then match Rest when `0${infer Tail}` then __NuppFormatBuild<
-    {'width-two', Tail, `${Seen}0`}
-    > when `1${infer Tail}` then __NuppFormatBuild<
-    {'width-two', Tail, `${Seen}1`}
-    > when `2${infer Tail}` then __NuppFormatBuild<
-    {'width-two', Tail, `${Seen}2`}
-    > when `3${infer Tail}` then __NuppFormatBuild<
-    {'width-two', Tail, `${Seen}3`}
-    > when `4${infer Tail}` then __NuppFormatBuild<
-    {'width-two', Tail, `${Seen}4`}
-    > when `5${infer Tail}` then __NuppFormatBuild<
-    {'width-two', Tail, `${Seen}5`}
-    > when `6${infer Tail}` then __NuppFormatBuild<
-    {'width-two', Tail, `${Seen}6`}
-    > when `7${infer Tail}` then __NuppFormatBuild<
-    {'width-two', Tail, `${Seen}7`}
-    > when `8${infer Tail}` then __NuppFormatBuild<
-    {'width-two', Tail, `${Seen}8`}
-    > when `9${infer Tail}` then __NuppFormatBuild<
-    {'width-two', Tail, `${Seen}9`}
-    > else __NuppFormatBuild<{'precision', Rest, Seen}>
-end when {
-    'width-two',
-    infer Rest,
-    infer Seen
-} then match Rest when `0${infer _}` then __NuppFormatError<
-    `${Seen}0`,
-    ''
-    > when `1${infer _}` then __NuppFormatError<
-    `${Seen}1`,
-    ''
-    > when `2${infer _}` then __NuppFormatError<
-    `${Seen}2`,
-    ''
-    > when `3${infer _}` then __NuppFormatError<
-    `${Seen}3`,
-    ''
-    > when `4${infer _}` then __NuppFormatError<
-    `${Seen}4`,
-    ''
-    > when `5${infer _}` then __NuppFormatError<
-    `${Seen}5`,
-    ''
-    > when `6${infer _}` then __NuppFormatError<
-    `${Seen}6`,
-    ''
-    > when `7${infer _}` then __NuppFormatError<
-    `${Seen}7`,
-    ''
-    > when `8${infer _}` then __NuppFormatError<
-    `${Seen}8`,
-    ''
-    > when `9${infer _}` then __NuppFormatError<`${Seen}9`, ''> else __NuppFormatBuild<{'precision', Rest, Seen}>
-end when {
-    'precision',
-    infer Rest,
-    infer Seen
-} then match Rest when `.${infer Tail}` then __NuppFormatBuild<
-    {'precision-zero', Tail, `${Seen}.`}
-    > else __NuppFormatBuild<{'conversion', Rest, Seen}>
-end when {
-    'precision-zero',
-    infer Rest,
-    infer Seen
-} then match Rest when `0${infer Tail}` then __NuppFormatBuild<
-    {'precision-one', Tail, `${Seen}0`}
-    > when `1${infer Tail}` then __NuppFormatBuild<
-    {'precision-one', Tail, `${Seen}1`}
-    > when `2${infer Tail}` then __NuppFormatBuild<
-    {'precision-one', Tail, `${Seen}2`}
-    > when `3${infer Tail}` then __NuppFormatBuild<
-    {'precision-one', Tail, `${Seen}3`}
-    > when `4${infer Tail}` then __NuppFormatBuild<
-    {'precision-one', Tail, `${Seen}4`}
-    > when `5${infer Tail}` then __NuppFormatBuild<
-    {'precision-one', Tail, `${Seen}5`}
-    > when `6${infer Tail}` then __NuppFormatBuild<
-    {'precision-one', Tail, `${Seen}6`}
-    > when `7${infer Tail}` then __NuppFormatBuild<
-    {'precision-one', Tail, `${Seen}7`}
-    > when `8${infer Tail}` then __NuppFormatBuild<
-    {'precision-one', Tail, `${Seen}8`}
-    > when `9${infer Tail}` then __NuppFormatBuild<
-    {'precision-one', Tail, `${Seen}9`}
-    > else __NuppFormatBuild<{'conversion', Rest, Seen}>
-end when {
-    'precision-one',
-    infer Rest,
-    infer Seen
-} then match Rest when `0${infer Tail}` then __NuppFormatBuild<
-    {'precision-two', Tail, `${Seen}0`}
-    > when `1${infer Tail}` then __NuppFormatBuild<
-    {'precision-two', Tail, `${Seen}1`}
-    > when `2${infer Tail}` then __NuppFormatBuild<
-    {'precision-two', Tail, `${Seen}2`}
-    > when `3${infer Tail}` then __NuppFormatBuild<
-    {'precision-two', Tail, `${Seen}3`}
-    > when `4${infer Tail}` then __NuppFormatBuild<
-    {'precision-two', Tail, `${Seen}4`}
-    > when `5${infer Tail}` then __NuppFormatBuild<
-    {'precision-two', Tail, `${Seen}5`}
-    > when `6${infer Tail}` then __NuppFormatBuild<
-    {'precision-two', Tail, `${Seen}6`}
-    > when `7${infer Tail}` then __NuppFormatBuild<
-    {'precision-two', Tail, `${Seen}7`}
-    > when `8${infer Tail}` then __NuppFormatBuild<
-    {'precision-two', Tail, `${Seen}8`}
-    > when `9${infer Tail}` then __NuppFormatBuild<
-    {'precision-two', Tail, `${Seen}9`}
-    > else __NuppFormatBuild<{'conversion', Rest, Seen}>
-end when {
-    'precision-two',
-    infer Rest,
-    infer Seen
-} then match Rest when `0${infer _}` then __NuppFormatError<
-    `${Seen}0`,
-    ''
-    > when `1${infer _}` then __NuppFormatError<
-    `${Seen}1`,
-    ''
-    > when `2${infer _}` then __NuppFormatError<
-    `${Seen}2`,
-    ''
-    > when `3${infer _}` then __NuppFormatError<
-    `${Seen}3`,
-    ''
-    > when `4${infer _}` then __NuppFormatError<
-    `${Seen}4`,
-    ''
-    > when `5${infer _}` then __NuppFormatError<
-    `${Seen}5`,
-    ''
-    > when `6${infer _}` then __NuppFormatError<
-    `${Seen}6`,
-    ''
-    > when `7${infer _}` then __NuppFormatError<
-    `${Seen}7`,
-    ''
-    > when `8${infer _}` then __NuppFormatError<
-    `${Seen}8`,
-    ''
-    > when `9${infer _}` then __NuppFormatError<`${Seen}9`, ''> else __NuppFormatBuild<{'conversion', Rest, Seen}>
-end when {
-    'conversion',
-    infer Rest,
-    infer Seen
-} then match Rest when `a${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `A${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `c${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `d${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `i${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `o${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `u${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `x${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `X${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `e${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `E${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `f${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `g${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `G${infer Tail}` then {
-    number,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `p${infer Tail}` then {
-    any,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `q${infer Tail}` then {
-    any,
-    unpackof __NuppFormatBuild<{'scan', Tail}>
-} when `s${infer Tail}` then {any, unpackof __NuppFormatBuild<{'scan', Tail}>} else __NuppFormatError<Seen, Rest>
-end else typeerror<'invalid string.format parser state'>
+                if current == "." then
+                    seen = seen .. current
+                    index = index + 1
+                    current = format:sub(index, index)
+                    local precision = 0
+                    while current ~= "" and current:find("[0-9]") do
+                        precision = precision + 1
+                        seen = seen .. current
+                        index = index + 1
+                        current = format:sub(index, index)
+                        if precision > 2 then
+                            return nupp.types.error(
+                                'invalid string.format directive starting at "%' .. seen .. '"'
+                            )
+                        end
+                    end
+                end
+
+                if string.find("aAcdiouxXeEfgG", current, 1, true) then
+                    arguments[#arguments + 1] = nupp.types.number
+                elseif string.find("pqs", current, 1, true) then
+                    arguments[#arguments + 1] = nupp.types.any
+                else
+                    return nupp.types.error(
+                        'invalid string.format directive starting at "%' .. seen
+                            .. format:sub(index) .. '"'
+                    )
+                end
+                index = index + 1
+            end
+        end
+    end
+
+    return nupp.types.pack(arguments)
 end
-
---- @local
-local type __NuppFormatArguments<
-    Format
-    > = match Format when `${infer Literal}` then __NuppFormatBuild<{'scan', Literal}> else any
-end
-
---- Leveled logging over a swappable destination.
 ---
 --- The severity operations are compiler intrinsics. A call in statement position
 --- whose format is a literal compiles to a level test around a direct emit, so a
@@ -2726,32 +2541,32 @@ record nupp.log
         readonly name: string
 
         --- Logs at debug. Accepts `string.format` directives.
-        debug: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
+        debug: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
 
         --- Logs at info. Accepts `string.format` directives.
-        info: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
+        info: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
 
         --- Logs at warn. Accepts `string.format` directives.
-        warn: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
+        warn: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
 
         --- Logs at error. Accepts `string.format` directives.
-        error: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
+        error: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
 
         --- Whether this logger would emit at `level`.
         enabled: function(self: Logger, level: Level): boolean
     end
 
     --- Logs at error. Accepts `string.format` directives.
-    error: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
+    error: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
 
     --- Logs at warn. Accepts `string.format` directives.
-    warn: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
+    warn: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
 
     --- Logs at info. Accepts `string.format` directives.
-    info: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
+    info: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
 
     --- Logs at debug. Accepts `string.format` directives.
-    debug: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments<F>): nil
+    debug: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
 
     --- Reads the threshold, or sets it and answers the one it replaced.
     ---
@@ -2847,7 +2662,7 @@ local string: {
     --- @param fmt the format string
     --- @param ... the values that the directives consume
     --- @return the formatted string
-    format: nosuspend function<Format is string>(fmt: Format, ...: unpackof __NuppFormatArguments<Format>): string,
+    format: nosuspend function<Format is string>(fmt: Format, ...: unpackof __NuppFormatArguments(Format)): string,
 
     --- Returns an iterator over each successive match of `pat` in `s`, or over that
     --- match's captures when the pattern has any. Anchors have no special meaning here.

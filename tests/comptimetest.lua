@@ -497,6 +497,13 @@ function M.reachesTheAllowlistedLibraries()
       "a string method")
 end
 
+function M.preservesFalseAndNilFromLogicalAnd()
+   assertEq(run("return comptime do return true and false end"), false,
+      "a false right operand survives and")
+   assertEq(run("return comptime do local value = true and nil return value == nil end"), true,
+      "a nil right operand survives and")
+end
+
 function M.refusesTheNondeterministicLibraries()
    -- Absent for a reason each: libm differs between platforms, so a transcendental
    -- would fold to a different constant elsewhere, and a clock differs between two

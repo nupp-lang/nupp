@@ -801,7 +801,11 @@ evalExpr = function(state, node)
             if materializeProviders.isOpaque(state, left) then
                 fail("NUPP2411", node, "logical operators cannot observe an opaque comptime value")
             end
-            answer = left and evalExpr(state, node.rhs) or left
+            if left then
+                answer = evalExpr(state, node.rhs)
+            else
+                answer = left
+            end
         elseif op == "or" then
             local left = evalExpr(state, node.lhs)
             if materializeProviders.isOpaque(state, left) then
@@ -1241,7 +1245,11 @@ execStatement = function(state, stat)
                 "return a table holding them, until multi-value results are specified"
             )
         end
-        state.result = #exprs == 1 and evalExpr(state, exprs[1]) or nil
+        if #exprs == 1 then
+            state.result = evalExpr(state, exprs[1])
+        else
+            state.result = nil
+        end
         state.returned = true
         error(RETURN, 0)
     elseif kind == "breakStmt" then
