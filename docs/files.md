@@ -19,7 +19,7 @@ A path argument is a string or a [`Path`](path-uri.md#paths); a path result is a
 string. Operations that fail because of the environment answer `nil, reason` or
 `false, reason`; a malformed argument raises at the call site.
 
-## Asking what a name is
+## Querying a name
 
 ```nupp:static
 local info, reason = files.info("nupp.lua")

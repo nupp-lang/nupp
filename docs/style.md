@@ -141,6 +141,18 @@ from its subject, which usually means writing the subject plural.
 | A wait parks one coroutine | Waits park one coroutine |
 | The checker tracks it | Suspension propagates through calls |
 
+**A title never ends with "is" or "are".** A trailing copula stops one word
+short of the answer, so the title poses the question and withholds the thing it
+is about. Name the subject as a noun phrase, or finish the sentence and state
+the fact.
+
+| Banned | Write instead |
+| --- | --- |
+| Asking what a name is | Querying a name |
+| Where the strict floor is | Strict floor |
+| Where the escape hatches are | Escape hatches |
+| How fast an intrinsic call is | Intrinsic call cost |
+
 Sentence case. No trailing colons or question marks. A question as a heading
 is a fact you have not committed to yet, so skip FAQ framing. Stop at H3;
 reaching H4 usually means the page should split.
