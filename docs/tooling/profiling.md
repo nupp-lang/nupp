@@ -78,7 +78,7 @@ from rendering is two different problems.
 
 `nupp.zone` is a stack of names that the profiler reads:
 
-```nupp
+```nupp:static
 local zone = require("nupp.zone")
 
 local function frame()
@@ -159,7 +159,7 @@ The flags are a thin wrapper over `nupp.profile`, which is worth using directly
 when the interesting window is not the whole run: a single frame, one request,
 or the part after warm-up.
 
-```nupp
+```nupp:static
 local profile = require("nupp.profile")
 
 local session = profile.sample({intervalMs = 2, zone = "frame/render"})
@@ -180,7 +180,7 @@ session starts.
 
 The trace channel works the same way:
 
-```nupp
+```nupp:static
 local session = profile.trace()
 runTheWorkload()
 local report = session:stop()

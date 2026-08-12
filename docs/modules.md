@@ -60,14 +60,14 @@ local p: shapes.Point = new shapes.Point(x = 3, y = 4)
 
 A module path also names a type directly, without a runtime `require`:
 
-```nupp
+```nupp:static
 local p: geom.shapes.Point
 ```
 
 The module itself is a value like any other, so it has to be required before its
 name means anything. A file's basename is not in scope elsewhere:
 
-```nupp
+```nupp:static
 local doubled = mathutil.double(21) -- `mathutil` is just an unknown name
 local mathutil = require("mathutil") -- this is what puts it in scope
 ```
@@ -161,7 +161,7 @@ return shapes
 Inside its own body a declaration answers to its simple name, so a recursive
 field does not repeat the table it sits on:
 
-```nupp
+```nupp:static
 record shapes.Path
     points: {shapes.Point}
     cutFrom: Path? -- Path, not shapes.Path

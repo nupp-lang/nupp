@@ -500,7 +500,7 @@ binding, captured by a closure, or moved into an untyped call.
 
 A returned view names its source:
 
-```nupp
+```nupp:static
 local function first(borrows pool: Pool): Item borrows(pool)
     return pool.items[1]
 end
@@ -509,7 +509,7 @@ end
 The result keeps `pool` borrowed until the result's scope ends. Methods may
 use `borrowed<T>` return sugar when the receiver is the only source:
 
-```nupp
+```nupp:static
 function Pool:first(): borrowed<Item>
     return self.items[1]
 end
@@ -538,7 +538,7 @@ For functions with bodies, the checker traces returned expressions and
 rejects a claimed source it cannot prove. When provenance really travels
 through opaque pointer manipulation, assert it at a narrow unsafe boundary:
 
-```nupp
+```nupp:static
 local function recover(borrows source: widget*, raw: widget*): widget* borrows(source)
     unsafe do
         return nupp.borrowFrom(raw, source)
@@ -585,7 +585,7 @@ print(raw.size) -- NUPP2604
 
 The unchecked operation is explicit:
 
-```nupp
+```nupp:static
 unsafe do
     print(raw.size)
 end
@@ -634,7 +634,7 @@ identity, dynamic fields, or GC-managed state are useful.
 suppress affine obligations or turn off the checker. Owners still must be
 discharged, borrows still cannot escape, and lexical cleanup still runs:
 
-```nupp
+```nupp:static
 local value = widget_new()
 unsafe do
     local hidden = {value = value} -- still rejected: owner escaped into a table
@@ -753,7 +753,7 @@ end
 
 An ordinary owned local runs its recorded cleanup at its lexical boundary:
 
-```nupp
+```nupp:static
 do
     local file = openFile()
     print(file.closed)
@@ -797,7 +797,7 @@ A record may define a custom `@drop` method. The checker requires that its body
 discharge every affine field, and it does that by handing each one to a `takes`
 parameter, which is the field's own drop operation:
 
-```nupp
+```nupp:static
 @drop
 local function closeFile(takes file: File)
 end
@@ -824,7 +824,7 @@ an explicit matching terminal, transfer, or owning return.
 
 Nominal records may also retain declared borrows:
 
-```nupp
+```nupp:static
 local record Cursor
     source: Buffer
     bytes: Bytes borrows(source)
@@ -966,6 +966,30 @@ Use this order when binding an API:
 6. Keep raw operations in the smallest possible `unsafe do` block.
 7. Use ordinary locals for lexical owners and explicit operations for early
    release or meaningful terminals.
+
+Applied to a C file handle, that is four of the seven and nothing else:
+
+```nupp
+local m = {}
+
+cdef struct FILE
+end
+
+cdef function fopen(path: cstring, mode: cstring): FILE*
+cdef function fclose(borrows handle: FILE*): integer
+cdef function fileno(borrows handle: FILE*): int32
+
+@owned(fclose)
+function m.open(path: string): FILE*
+    return fopen(path, "r")
+end
+
+function m.descriptor(borrows handle: FILE*): int32
+    return fileno(handle)
+end
+
+return m
+```
 
 This surface makes the common path short while preserving annotations exactly
 where inference cannot originate or where a stable public contract is useful.

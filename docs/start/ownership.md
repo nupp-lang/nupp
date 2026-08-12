@@ -63,7 +63,7 @@ A drop operation must `takes` its resource. That is what makes it consuming.
 Once you bind an owner, its exact cleanup runs automatically at the binding's
 lexical boundary:
 
-```nupp
+```nupp:static
 local f = openFile()
 print(f.closed)
 -- close runs here, including when code above raises
@@ -102,7 +102,7 @@ NUPP2602 and names the fix.
 A `borrows` parameter gets access for the duration of the call without taking
 responsibility:
 
-```nupp
+```nupp:static
 local function inspect(borrows session: Session)
     print(session.id)
 end
@@ -132,7 +132,7 @@ Cleanup runs on fallthrough, `return`, `break`, `continue`, a `goto` leaving
 the block, and an error raised anywhere inside. Several resources are acquired
 left to right and released right to left.
 
-```nupp
+```nupp:static
 do
     local input = openFile()
     local output = openFile()

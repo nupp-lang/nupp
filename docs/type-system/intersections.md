@@ -10,7 +10,7 @@ interface defaults, `@override`, and constructors, see
 
 `&` binds more tightly than `|`:
 
-```nupp
+```nupp:static
 local type Readable = {
     readonly value: string
 }

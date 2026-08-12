@@ -78,7 +78,7 @@ The accessors are `scheme`, `authority`, `username`, `password`, `userInfo`,
 
 Every `with...` method returns a new URI and leaves the original unchanged:
 
-```nupp
+```nupp:static
 local production = endpoint:withUserInfo(nil):withHost("api.example.com"):withPort(nil):withQuery(nil):withFragment(nil)
 local users = production:concatPath("users")
 local avatar, resolveReason = users:resolve("../images/avatar.png")

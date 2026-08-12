@@ -54,7 +54,7 @@ its result back to `s`. Write `s is string`.
 **`assert(x)` as a statement does not narrow `x`.** It narrows through its
 *return value*, because its signature subtracts `nil`:
 
-```nupp
+```nupp:static
 assert(s)
 local a: string = s -- still an error
 
@@ -74,7 +74,7 @@ every member of a union leaves the union alone, since there is no bottom type.
 A narrowed fact dies with the scope that proved it, and assigning to a name
 clears the facts for that name and everything beneath it:
 
-```nupp
+```nupp:static
 local function f(s: string?)
     if s then
         s = maybeName() -- facts for s are cleared here
@@ -87,7 +87,7 @@ end
 When narrowing cannot see what you know, write a predicate. The return type
 `v is T` names a parameter and a type:
 
-```nupp
+```nupp:static
 local function isPoint(v: any): v is Point
     return v ~= nil and v.x ~= nil and v.y ~= nil
 end

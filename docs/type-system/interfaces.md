@@ -18,7 +18,7 @@ This controls both access and variance; see
 A type satisfies an interface by carrying its members. No declaration is
 required:
 
-```nupp
+```nupp:static
 local record Circle
     name: string
     radius: number
@@ -29,7 +29,7 @@ local n: Named = new Circle(name = "c", radius = 1) -- fine
 
 A plain table shape works too:
 
-```nupp
+```nupp:static
 local n: Named = {name = "anonymous"}
 ```
 
@@ -80,7 +80,7 @@ generic is instantiated, not inside the subtyping relation.
 
 The `is` operator tests a value's type:
 
-```nupp
+```nupp:static
 if shape is Circle then
     print(shape.radius)
 end

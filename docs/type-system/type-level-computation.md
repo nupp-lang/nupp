@@ -120,7 +120,7 @@ budgets and are not a compatibility or performance target.
 This static PEG prototype is a checked, deliberately small PEG interpreter.
 Its grammar is assembled from types:
 
-```nupp
+```nupp:static
 -- command := ('get' name | 'set' name 'to' value) End
 local type Get = Sequence<Token<'get'>, Capture<'name'>>
 local type Set = Sequence<Token<'set'>, Sequence<Capture<'name'>, Sequence<Token<'to'>, Capture<'value'>>>>

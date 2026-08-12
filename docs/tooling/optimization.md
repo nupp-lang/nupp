@@ -206,7 +206,7 @@ prove that its binding and shape cannot change, Nupp emits a numeric loop over
 that binding directly.
 
 ::: code-group
-```nupp [Original Nupp]
+```nupp:static [Original Nupp]
 local xs: {integer} = {10, 20, 30}
 for index, value in ipairs(xs) do
     use(index, value)
@@ -277,7 +277,7 @@ A string appended to round a loop is built in a `string.buffer` and read back
 once, instead of being rebuilt on every pass.
 
 ::: code-group
-```nupp [Original Nupp]
+```nupp:static [Original Nupp]
 local out = ""
 for _, item in ipairs(items) do
     out = out .. item .. ","
@@ -393,7 +393,7 @@ Nupp does not cache a closure created inside a loop: that changes function
 identity. The `loop-invariant-closure` lint instead suggests lifting a closure
 that does not depend on the iteration.
 
-```nupp
+```nupp:static
 local isClick = |event| -> event.kind == "click"
 for _, item in ipairs(items) do
     register(item, isClick)

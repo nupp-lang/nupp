@@ -53,7 +53,7 @@ A chain of method calls is a sequence of steps, so an over-long chain breaks
 between them rather than inside the first call's arguments. The receiver keeps
 the call that heads the chain and every later step lines up under it:
 
-```nupp
+```nupp:static
 local production = endpoint:withUserInfo(nil):withHost("api.example.com"):withPort(nil):withQuery(nil):withFragment(nil)
 ```
 
@@ -79,7 +79,7 @@ It must be the file's first annotation and has no region form.
 
 A method call left in its sugar form gets its parentheses back:
 
-```nupp
+```nupp:static
 obj:configure({retries = 3}) -- becomes
 obj:configure({retries = 3})
 

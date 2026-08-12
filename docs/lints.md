@@ -75,7 +75,7 @@ A project module must be required before its name is in scope. This project
 also contains `src/mathutil.nupp`.
 
 ::: code-group
-```nupp [src/missing-require.nupp]
+```nupp:static [src/missing-require.nupp]
 local doubled: number = mathutil.double(21)
 ```
 
@@ -514,7 +514,7 @@ Resolution runs registry default → category setting → name setting → the
 
 ## Local suppressions
 
-```nupp
+```nupp:static
 @allow("missing-require")
 local doubled = mathutil.double(21)
 ```
@@ -561,7 +561,7 @@ deleted.
 
 **2. Raise it** wherever the checker already knows enough to say so:
 
-```nupp
+```nupp:static
 diag("missing-require", node, advice)
 ```
 

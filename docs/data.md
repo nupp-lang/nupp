@@ -103,7 +103,7 @@ expose a native UUID object.
 Each function accepts a string or immutable
 [`nupp.io.ByteView`](io.md#byte-views).
 
-```nupp
+```nupp:static
 assert(nupp.data.fnv1a64("hello") == "a430d84680aabd0b")
 assert(nupp.data.sha256("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
 

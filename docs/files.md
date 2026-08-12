@@ -21,7 +21,7 @@ string. Operations that fail because of the environment answer `nil, reason` or
 
 ## Asking what a name is
 
-```nupp
+```nupp:static
 local info, reason = files.info("nupp.lua")
 assert(info, reason)
 assert(info.kind == "file")
@@ -36,7 +36,7 @@ platform's write refusal rather than a permission model.
 `exists`, `isFile` and `isDirectory` answer the same question without the record
 and without a reason. A missing path is `false` rather than an error:
 
-```nupp
+```nupp:static
 if files.isDirectory(candidate) then
     return files.list(candidate)
 end
@@ -45,7 +45,7 @@ end
 `isSymlink` is the one query that does not follow, because following is what
 would hide the answer:
 
-```nupp
+```nupp:static
 assert(files.createSymlink("target.txt", "alias"))
 assert(files.isSymlink("alias"))
 assert(files.isFile("alias"))
@@ -57,7 +57,7 @@ Only Windows distinguishes the two; elsewhere it is ignored.
 
 ## Listing a directory
 
-```nupp
+```nupp:static
 local entries, reason = files.list("src/nupp")
 assert(entries, reason)
 ```
@@ -76,7 +76,7 @@ path component, `[abc]` and `[!abc]` select characters, and `**` crosses
 directory boundaries. No matches is an empty list; an invalid pattern or a
 filesystem error answers a reason.
 
-```nupp
+```nupp:static
 for _, path in ipairs(assert(files.glob("src/**/*.nupp"))) do
     print(path)
 end
@@ -84,7 +84,7 @@ end
 
 ## Creating, moving and removing
 
-```nupp
+```nupp:static
 assert(files.createDirectory("out/lib/native"))
 assert(files.rename("out/report.tmp", "out/report.json"))
 assert(files.remove("out/stale", true))
@@ -101,7 +101,7 @@ reason.
 
 ## Temporary names
 
-```nupp
+```nupp:static
 local scratch, reason = files.createTemporaryDirectory({prefix = "build-"})
 assert(scratch, reason)
 ```
@@ -115,7 +115,7 @@ A temporary is an owner: closing it removes what it created, and the checker
 runs that cleanup at the end of the scope whether the block falls through,
 returns early, or raises.
 
-```nupp
+```nupp:static
 do
     local scratch = assert(files.createTemporaryFile({suffix = ".json"}))
     assert(files.write(scratch:toString(), encoded))
@@ -130,7 +130,7 @@ a half-written file under the final name.
 
 ## Reading and writing a whole file
 
-```nupp
+```nupp:static
 local text, reason = files.read("nupp.lua")
 assert(text, reason)
 assert(files.write("out/report.json", encoded))
@@ -144,7 +144,7 @@ leaving it behind.
 
 A NUL byte is content, not a terminator, in every direction.
 
-```nupp
+```nupp:static
 for line in assert(files.lines("access.log")) do
     print(line)
 end
@@ -159,7 +159,7 @@ you mean to stop.
 
 `open` hands over a `File` and the obligation to close it:
 
-```nupp
+```nupp:static
 do
     local file = assert(files.open("image.png"))
     local reader = file:newReader()
@@ -173,7 +173,7 @@ what they mean over a buffer. `readInto` lands bytes in the destination
 buffer's own storage rather than in a string on the way there, and `transferTo`
 streams a file of any size through a fixed window:
 
-```nupp
+```nupp:static
 do
     local source = assert(files.open("input.bin"))
     local sink = assert(files.open("output.bin", "w"))
@@ -189,7 +189,7 @@ raising.
 
 ## Where the platform keeps things
 
-```nupp
+```nupp:static
 print(assert(files.currentDirectory()))
 print(assert(files.userFolder("documents")))
 ```

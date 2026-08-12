@@ -67,7 +67,7 @@ local word: string? = match(Word, "hello")
 
 A matcher can be called directly or through `match`:
 
-```nupp
+```nupp:static
 local result = Word("hello")
 local same = Word:match("hello")
 ```

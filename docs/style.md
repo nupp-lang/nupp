@@ -35,7 +35,7 @@ A file, a socket, a C allocation, or any other value produced by an `@owned`
 function carries a cleanup obligation that the checker will not let you drop.
 An ordinary local discharges it at its scope boundary:
 
-```nupp
+```nupp:static
 local function slurp(path: string): string
     local file = files.open(path)
     return file:read("*a")

@@ -244,7 +244,7 @@ the feature declining to say anything rather than saying the call is right. That
 is reported by the `gradual-projection` lint (**NUPP2511**), once per call and
 member, where the erasure happened:
 
-```nupp
+```nupp:static
 local erased = collect(nil as any) -- warning: gradual-projection
 ```
 

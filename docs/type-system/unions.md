@@ -23,14 +23,14 @@ Nupp has no `enum` declaration; this is the spelling. Nothing is declared at run
 time, since the value is the plain string, and a bare literal lands in the
 union:
 
-```nupp
+```nupp:static
 local c: Color = "red"
 ```
 
 A string that is not a member is rejected, and the message says which values
 were on offer:
 
-```nupp
+```nupp:static
 local c: Color = "purple"
 -- NUPP2001: "purple" is not a "blue" | "green" | "red"
 ```
@@ -78,7 +78,7 @@ local type Shape = Circle | Square
 Comparing the tag narrows the union to the one record that declares it, so the
 fields of that arm are reachable and the other arm's are not:
 
-```nupp
+```nupp:static
 local function area(shape: Shape): number
     if shape.kind == "circle" then
         -- shape is Circle here: `radius` resolves, `side` does not
@@ -92,7 +92,7 @@ end
 
 Construction fills the tag like any other field:
 
-```nupp
+```nupp:static
 local s: Shape = Circle{kind = "circle", radius = 2}
 ```
 
@@ -103,7 +103,7 @@ compares, and prints without help.
 
 A tag copied into a local is still a tag:
 
-```nupp
+```nupp:static
 local function areaVia(shape: Shape): number
     local kind = shape.kind
     if kind == "circle" then
@@ -149,7 +149,7 @@ end
 When a dispatch on a closed set of literals has every branch return, the checker
 reports the members you left out:
 
-```nupp
+```nupp:static
 local function describe(c: Color): string
     if c == "red" then
         return "warm"
@@ -182,7 +182,7 @@ and the checker does not count the arms.
 
 Comparing against a member narrows in both directions:
 
-```nupp
+```nupp:static
 local function widthOf(c: Color): integer
     if c == "red" then
         -- c is "red" here

@@ -170,7 +170,7 @@ is a value the checker calls a `Shape` and `is` calls otherwise.
 
 Type arguments come from the arguments:
 
-```nupp
+```nupp:static
 print(firstOr({1, 2, 3}, 0)) -- T = integer
 ```
 
@@ -189,7 +189,7 @@ Three behaviors are worth knowing:
 A `T?` parameter subtracts the concrete members from the argument, so the
 residue binds. That is how `assert` is typed:
 
-```nupp
+```nupp:static
 -- assert: function<T>(v: T?, msg: any?): T
 local name: string? = maybeName()
 local sure = assert(name) -- sure is string

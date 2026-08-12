@@ -92,7 +92,7 @@ A loop whose constant bounds admit no first iteration is not emitted. An empty
 `do` holds its opening and closing lines, and LuaJIT compiles that to nothing.
 
 ::: code-group
-```nupp [Original Nupp]
+```nupp:static [Original Nupp]
 while false do
     unreachable()
 end

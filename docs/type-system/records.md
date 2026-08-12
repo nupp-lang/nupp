@@ -129,7 +129,7 @@ Inline methods are not metamethod definitions, even when their names begin with
 
 Inside its own body a declaration answers to its simple name:
 
-```nupp
+```nupp:static
 local record Path
     points: {Point}
     cutFrom: Path?
@@ -173,7 +173,7 @@ Real memory, real widths. A `float` field truncates the way a C `float` does.
 
 Three construction forms:
 
-```nupp
+```nupp:static
 local a = new Vec2(1.0, 2.0) -- named
 local b = Vec2(1.0, 2.0) -- positional, in field order
 local c: Vec2 -- zero-initialized

@@ -80,7 +80,7 @@ one C is holding, and one already freed. The convention lives in a comment.
 
 Nupp puts the obligation in the type:
 
-```nupp
+```nupp:static
 local file = resources.openFile("in.txt", "r")
 print(file:read("*a"))
 -- file is destroyed automatically here, including when read raises
@@ -89,7 +89,7 @@ print(file:read("*a"))
 Drop early, transfer it to a `takes` parameter, or return it from an
 `@owned` function when automatic lexical destruction is not the desired end:
 
-```nupp
+```nupp:static
 local file = resources.openFile("in.txt", "r")
 submit(file) -- takes file; automatic destruction is deactivated
 ```

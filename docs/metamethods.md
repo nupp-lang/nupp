@@ -308,7 +308,24 @@ LuaJIT 3.0 gives the bit operators metamethods; the 2.1 backport that Nupp
 generates for did not take them, and neither does the `bit` library those
 operators are shorthand for. Contracts such as `__band`, `__bor`, `__bxor`,
 `__bnot`, `__shl`, `__shr` and `__sar` are therefore rejected, and will
-be reconsidered when the runtime dispatches them. `__idiv` is also rejected:
+be reconsidered when the runtime dispatches them.
+
+```nupp
+local m = {}
+
+record m.Flags
+    bits: integer
+    metamethod __band: function(self, other: m.Flags): m.Flags
+end
+
+return m
+```
+
+```text
+error: NUPP2118: metamethod __band is not dispatched by this LuaJIT target
+```
+
+`__idiv` is also rejected:
 2.1 has no `//` at all, so it lowers to a floored division that dispatches
 nothing.
 
