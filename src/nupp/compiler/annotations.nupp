@@ -205,7 +205,7 @@ local BUILTINS = {
     {name = "json", arguments = "typed", targets = {"record", "field"}, builtin = true,},
     {name = "debug", arguments = "typed", targets = {"field"}, builtin = true,},
     {name = "deprecated", arguments = "typed", targets = {"declaration", "field", "c-declaration"}, builtin = true,},
-    {name = "jit", arguments = "none", targets = {"function"}, reserved = "the trace checker",},
+    {name = "jit", arguments = "none", targets = {"function"},},
     {name = "comptime", arguments = "none", targets = {"local-function"},},
 }
 

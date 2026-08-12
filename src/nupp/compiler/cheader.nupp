@@ -44,6 +44,7 @@ local INT_BY_BITS = {
 }
 
 local modelFunction -- defined below; a pointer may be to a function
+local adoptStruct -- defined below; aggregate references may be recursive
 
 -- A neutral C declaration type, as the Nupp type that stands for it.
 local function nuppType(model, structs, resolver)
@@ -75,10 +76,13 @@ local function nuppType(model, structs, resolver)
             -- a C function pointer: the shape a callback must match
             return T.optional(modelFunction(pointee, structs, resolver))
         end
-        if pointee and pointee.kind == "struct" then
+        if pointee and (pointee.kind == "struct" or pointee.kind == "union") then
             local named = structs and structs[pointee.id]
             if not named and resolver and pointee.name then
                 named = resolver(pointee.name)
+            end
+            if not named and pointee.name then
+                named = adoptStruct(pointee.name, pointee.kind)
             end
             if named then
                 -- the header said whether it writes through this pointer
@@ -92,10 +96,13 @@ local function nuppType(model, structs, resolver)
             return T.optional(T.constOf(T.voidptr))
         end
         return T.optional(T.voidptr)
-    elseif kind == "struct" then
+    elseif kind == "struct" or kind == "union" then
         local named = structs and structs[model.id]
         if not named and resolver and model.name then
             named = resolver(model.name)
+        end
+        if not named and model.name then
+            named = adoptStruct(model.name, kind)
         end
         if named then
             return named
@@ -215,8 +222,6 @@ end
 -- declaration: built once and shared, so two mentions of the same tag are the same
 -- type.
 local adopted = {}
-local adoptStruct
-
 local function adoptingResolver(resolver)
     return function(tag)
         if resolver then
@@ -226,17 +231,19 @@ local function adoptingResolver(resolver)
             end
         end
 
-        return adoptStruct(tag)
+        return adoptStruct(tag, "struct") or adoptStruct(tag, "union")
     end
 end
 
-adoptStruct = function(tag)
-    local hit = adopted[tag]
+adoptStruct = function(tag, aggregateKind)
+    aggregateKind = aggregateKind or "struct"
+    local key = aggregateKind .. " " .. tag
+    local hit = adopted[key]
     if hit then
         return hit
     end
-    local model = cdecl.typeFromString("struct " .. tag)
-    if not model or model.kind ~= "struct" then
+    local model = cdecl.typeFromString(key)
+    if not model or model.kind ~= aggregateKind then
         return nil
     end
     local declaration = cdecl.structById(model.id)
@@ -245,8 +252,9 @@ adoptStruct = function(tag)
     end
     local nominal = T.nominal(tag, "struct")
     nominal.cdefName = tag
+    nominal.cdefKind = aggregateKind
     nominal.fieldOrder = {}
-    adopted[tag] = nominal -- before decoding, so a self-reference terminates
+    adopted[key] = nominal -- before decoding, so a self-reference terminates
     for _, field in ipairs(declaration.fields) do
         local fieldType = nuppType(field.type, nil, adoptingResolver(nil)) or T.any
         nominal.byname[field.name] = fieldType
@@ -323,6 +331,7 @@ function cheader.load(path: string, opts: cheader.Options?): cheader.Header?, st
     for _, declaration in ipairs(parsed.structs) do
         local nominal = T.nominal(declaration.name, "struct")
         nominal.cdefName = declaration.name
+        nominal.cdefKind = declaration.kind
         nominal.fieldOrder = {}
         structs[declaration.id] = nominal
     end

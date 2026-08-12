@@ -711,6 +711,9 @@ record types.Nominal
     --- The C name a cdef gave it.
     cdefName: string?
 
+    --- The C tag namespace used by this nominal: `struct` or `union`.
+    cdefKind: string?
+
     --- Parameters of a generic declaration, and what it has been instantiated as so
     --- far.
     typeParams: {types.Type}?
@@ -2006,6 +2009,44 @@ function types.withYields(ft: types.Type, mayYield: boolean): types.Type
         fn.paramNames,
         fn.preservesResults,
         fn.foreign,
+        fn.constParams,
+        fn.paramKinds
+    )
+end
+
+--- Marks a callable as originating at the C boundary without dropping any other
+--- contract fact. C function-pointer parameters use this qualifier so a call site can
+--- distinguish a Lua closure that will become an FFI callback from an ordinary Lua
+--- callback with the same signature.
+function types.foreignFunction(ft: types.Type): types.Type
+    if ft.tag ~= "func" or ft.foreign then
+        return ft
+    end
+    local fn = ft as types.Func
+
+    return types.func(
+        fn.params,
+        fn.rets,
+        fn.vararg,
+        fn.paramModes,
+        fn.predicate,
+        fn.typeParams,
+        fn.typeBounds,
+        fn.borrowsParam,
+        fn.borrowsSelf,
+        fn.borrowsParams,
+        fn.ffiOut,
+        fn.varargType,
+        fn.noreturn,
+        fn.paramPack,
+        fn.retPack,
+        fn.packParams,
+        fn.yieldPack,
+        fn.resumePack,
+        fn.noYield,
+        fn.paramNames,
+        fn.preservesResults,
+        true,
         fn.constParams,
         fn.paramKinds
     )

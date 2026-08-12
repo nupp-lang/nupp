@@ -165,7 +165,7 @@ end
 -- replaced, which is what the room between this number and the last one is.
 function M.theReferenceFitsInAPrompt()
    local markdown = reference.markdown()
-   assert(#markdown < 63000,
+   assert(#markdown < 64000,
       ("the reference has grown to %d bytes, past what it promises to be")
       :format(#markdown))
 end

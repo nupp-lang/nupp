@@ -491,6 +491,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             end
         end
         c.functionDepth = c.functionDepth + 1
+        c.functionBodies[#c.functionBodies + 1] = body
         c.pushScope()
         local captureContext = {body = body, allowed = {}}
         for _, capture in ipairs(borrows) do
@@ -791,6 +792,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         c.retStack[#c.retStack] = nil
         c.retPackStack[#c.retPackStack] = nil
         c.popScope()
+        c.functionBodies[#c.functionBodies] = nil
         c.functionDepth = c.functionDepth - 1
         if not yieldPack and #protocolContext.yieldPacks > 0 then
             yieldPack = T.packUnion(protocolContext.yieldPacks)
@@ -1027,6 +1029,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
         -- bind the name before checking for recursion; refine after
         c.bindVar(nameTok.text, T.any, false, nameTok, "function", stat.isConst)
+        body.jitDefinition = nameTok.definition
         if stat.comptimeFunction then
             local entry = c.scope.vars[nameTok.text]
             if entry and entry.definition then
@@ -1035,6 +1038,10 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
         local ft = c.checkFuncbody(body)
         c.bindVar(nameTok.text, ft)
+        local functionEntry = c.scope.vars[nameTok.text]
+        if functionEntry then
+            functionEntry.jitTarget = functionEntry.definition
+        end
         if ft.tag == "owned" then
             local entry = c.scope.vars[nameTok.text]
             local automatic = entry and entry.automaticOwner
@@ -1082,9 +1089,14 @@ function functions.install(c: state.Checker): state.StatHandlers
         if not fname.method and #fname == 1 and fname.base then
             c.bindVar(fname.base.text, T.any, false, fname.base, "function")
         end
+        local earlyMemberDefinition = memberTok and c.definition(
+            memberTok,
+            fname.method and "method" or "function"
+        ) or nil
+        body.jitDefinition = earlyMemberDefinition or (fname.base and fname.base.definition or nil)
         local ft = c.checkFuncbody(body, selfType)
         c.raises.check(stat, body)
-        local memberDefinition = memberTok and c.definition(memberTok, fname.method and "method" or "function") or nil
+        local memberDefinition = earlyMemberDefinition
         if memberDefinition then
             memberDefinition.type = ft
             c.markToken(memberTok, memberDefinition, ft, memberDefinition.kind)

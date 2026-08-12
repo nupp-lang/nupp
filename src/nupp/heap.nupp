@@ -1,0 +1,45 @@
+--[[
+Owned, malloc-backed C arrays.
+
+The returned pointer is affine and is released with `free` at scope exit. Pair it with
+`nupp.span` before indexing so the allocation's logical element count remains checked.
+]]
+
+local heap = {}
+local ffi = require("ffi")
+
+cdef function malloc(size: uint64): voidptr?
+cdef function free(takes pointer: voidptr)
+
+--- Allocates `count` contiguous values of `element` outside LuaJIT's GC allocation
+--- limit. The result owns the allocation and is automatically freed.
+--- @export
+--- @raises when count is negative, the byte size overflows a Lua integer, or malloc fails
+@owned(free)
+function heap.allocate<T>(element: ctype<T>, count: integer): T[?]
+    if count < 0 then
+        error("heap array count cannot be negative", 2)
+    end
+
+    local width = ffi.sizeof(element)
+    if width <= 0 or (count > 0 and count > 9007199254740991 // width) then
+        error("heap array byte size is too large", 2)
+    end
+
+    local bytes = width * count
+    if bytes == 0 then
+        bytes = 1
+    end
+    local raw = malloc(bytes as uint64)
+    if raw == nil then
+        error("heap array allocation failed", 2)
+    end
+
+    -- A variable spec keeps this on LuaJIT's dynamic-ctype path. The static assertion
+    -- records the relationship already established by the ctype<T> argument.
+    local pointerSpec = "$ *"
+    local pointerType = ffi.typeof(pointerSpec, element)
+    return ffi.cast(pointerType, raw) as T[?]
+end
+
+return heap

@@ -198,7 +198,7 @@ function M.definitionTargetsAreValidated()
 end
 
 function M.reservedAnnotationsAreNotSilentlyErased()
-    assertEq(diagsOf("@jit local function f() end"), "NUPP2113")
+    assertEq(diagsOf("@jit local function f() end"), "")
     assertEq(diagsOf("@comptime const function f() end"), "")
 end
 
@@ -270,7 +270,59 @@ function M.deprecatedAnnotationsEmitNoRuntimeBehavior()
 end
 
 function M.stackedAnnotationsUseTheUnderlyingStatementAsTheirTarget()
-    assertEq(diagsOf("@allow @jit local function f() end"), "NUPP2113")
+    assertEq(diagsOf("@allow @jit local function f() end"), "")
+end
+
+function M.jitChecksSemanticCFunctionBoundaries()
+    local callback = table.concat({
+        "local type Visitor = function(int32)",
+        "cdef function each(fn: Visitor, n: int32)",
+        "local function visit(value: int32) print(value) end",
+        "local function run() each(visit, 1) end",
+        "return run",
+    }, "\n")
+    assertEq(diagsOf(callback), "NUPP2502")
+
+    local allowedCallback = callback:gsub(
+        "local function run%(%)", '@allow("jit-callback")\nlocal function run()'
+    )
+    assertEq(diagsOf(allowedCallback), "")
+
+    local disabled = table.concat({
+        "cdef function each(fn: function(int32), n: int32)",
+        "local function visit(value: int32) print(value) end",
+        "jit.off(visit)",
+        "local function run() each(visit, 1) end",
+        "return run",
+    }, "\n")
+    assertEq(diagsOf(disabled), "")
+
+    local coldBoundary = table.concat({
+        "cdef function each(fn: function(int32), n: int32)",
+        "local function visit(value: int32) print(value) end",
+        "local function run() each(visit, 1) end",
+        "jit.off(run)",
+        "return run",
+    }, "\n")
+    assertEq(diagsOf(coldBoundary), "")
+
+    local variadic = table.concat({
+        "cdef function printf(format: cstring, ...): int32",
+        "local function run() printf('%d', 1) end",
+        "return run",
+    }, "\n")
+    assertEq(diagsOf(variadic), "NUPP2514")
+
+    local required = table.concat({
+        "cdef function printf(format: cstring, ...): int32",
+        "@jit",
+        "local function run() printf('%d', 1) end",
+        "return run",
+    }, "\n")
+    assertEq(diagsOf(required), "NUPP2707")
+
+    local requiredAllowed = required:gsub("@jit", '@allow("jit-boundary")\n@jit')
+    assertEq(diagsOf(requiredAllowed), "NUPP2707")
 end
 
 function M.annotationRecordsDefineTypedMetadata()

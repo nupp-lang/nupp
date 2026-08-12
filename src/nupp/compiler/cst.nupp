@@ -56,6 +56,11 @@ interface cst.Hints
     --- The ownership audit consumes this after checking.
     unsafeOwnershipOperation: string?
 
+    --- Static JIT-boundary contracts attached while checking function bodies.
+    jitDefinition: any
+    jitDisabled: boolean?
+    jitRequired: boolean?
+
     --- Fixed C-array bound whose dynamic index code generation checks.
     carrayBound: integer?
 
@@ -249,6 +254,9 @@ interface cst.Hints
 
     --- The C name a cdef gave a type.
     cdefName: string?
+
+    --- Whether that C tag is a struct or union.
+    cdefKind: string?
 
     --- The function type at a call site, so a predicate can narrow.
     calleeType: any
@@ -1056,6 +1064,9 @@ record cst.FieldDecl is cst.Hints
     --- Its type.
     type: cst.Node?
 
+    --- The integer width after a C bitfield's second colon.
+    bitWidth: lexer.Token?
+
     --- Annotations attached to it.
     annotations: {cst.Node}?
 end
@@ -1155,6 +1166,9 @@ record cst.CdefStruct is cst.Hints
 
     --- The C struct's name.
     name: lexer.Token?
+
+    --- `struct` or `union`.
+    aggregateKind: string?
 
     --- Its fields.
     entries: {cst.Node}

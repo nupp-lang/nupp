@@ -31,6 +31,10 @@ function M.importEmitsTypedDeclarations()
    assertContains(text, "x: number")
    assertContains(text, "min: miniPoint", "nested struct by value")
    assertContains(text, "flags: uint32")
+   assertContains(text, "cdef union miniValue")
+   assertContains(text, "integer_value: int32")
+   assertContains(text, "ready: uint32 : 1")
+   assertContains(text, "mode: uint32 : 3")
    assertContains(text, "cdef function mini_add(a: int32, b: int32): int32")
    assertContains(text, "mini_name(): cstring")
    assertContains(text, "mini_fill(p: miniPoint*, n: uint32)")
@@ -62,6 +66,16 @@ function M.typedefsResolveThroughTheTranslationUnit()
    -- header whose vocabulary comes from elsewhere (size_t via stddef.h)
    assertContains(imported(), "mini_len(s: cstring): uint64",
       "size_t resolved to a base type")
+end
+
+function M.anIncludedHeaderWithTheSameBasenameStaysOut()
+   local text, warnings = importc.import(HERE .. "/fixtures/target.h")
+   assert(text, "same-name import failed: "
+      .. table.concat(warnings or {}, "; "))
+   assertContains(text, "cdef function requested_target()")
+   assert(not text:find("included_same_name", 1, true),
+      "an included file with the target's basename leaked into the import:\n"
+         .. text)
 end
 
 function M.constBytePointersBecomeCstring()

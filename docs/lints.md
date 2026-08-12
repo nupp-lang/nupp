@@ -53,6 +53,7 @@ Every lint has a name and a stable code:
 | else-if | `NUPP2510` | style | warning |
 | positional-record-construction | `NUPP2512` | style | warning |
 | deprecated | `NUPP2513` | suspicious | warning |
+| jit-boundary | `NUPP2514` | suspicious | warning |
 
 The name is what you write in configuration and suppressions; the code is what
 survives renaming and what tooling keys on. Either is accepted everywhere.
@@ -130,8 +131,9 @@ src/string-pointer.nupp:1:17: warning: NUPP2501 string-pointer: a pointer taken 
 
 ### `jit-callback`
 
-An `unsafe` cast may create a C callback, but the callback remains registered
-and prevents compilation through that call path.
+A Lua function reaching a C-derived callback parameter or an explicit unsafe
+cast creates a C callback. The callback remains registered and prevents
+compilation through that call path. Use `jit.off(callback)` when intentional.
 
 ::: code-group
 ```nupp [src/jit-callback.nupp]
@@ -148,6 +150,29 @@ src/jit-callback.nupp:3:21: warning: NUPP2502 jit-callback: a Lua function cast 
  3 |     local pointer = ffi.cast<voidptr>(callback)
    |                     ^~~
 help: keep the callback off hot paths, or call C with a plain pointer instead
+```
+:::
+
+### `jit-boundary`
+
+A variadic C call cannot safely execute on a compiled LuaJIT trace. Move it to
+a cold helper and call `jit.off(helper)`. Inside an `@jit` function the same
+boundary is the non-suppressible `NUPP2707` contract error.
+
+::: code-group
+```nupp [src/jit-boundary.nupp]
+cdef function printf(format: cstring, ...): int32
+
+local function report(value: int32): nil
+    printf("%d", value)
+end
+```
+
+```text [nupp check output]
+src/jit-boundary.nupp:4:5: warning: NUPP2514 jit-boundary: a variadic FFI call cannot safely execute on a compiled trace
+ 4 |     printf("%d", value)
+   |     ^~~~~~
+help: move the call into a function disabled with jit.off, or remove @jit from this function
 ```
 :::
 

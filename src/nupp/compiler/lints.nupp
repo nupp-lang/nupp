@@ -138,6 +138,13 @@ lints.all = {
         level = "warning",
         summary = "use of an API marked deprecated"
     ),
+    new lints.Lint(
+        name = "jit-boundary",
+        code = "NUPP2514",
+        category = "suspicious",
+        level = "warning",
+        summary = "an FFI boundary cannot safely run on a compiled trace"
+    ),
 }
 
 -- Both spellings reach the same lint: a name is what a person writes, a code is what

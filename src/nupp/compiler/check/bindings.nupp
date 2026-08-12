@@ -140,6 +140,16 @@ function bindings.install(c: state.Checker): state.StatHandlers
             c.bindVar(nameTok.text, bound, ann ~= nil, nameTok, nil, stat.isConst)
             local boundEntry = c.scope.vars[nameTok.text]
             local initNode = initializers[j]
+            if boundEntry and initNode and (initNode.kind == "funcExpr" or initNode.kind == "shortfn") then
+                local functionBody = initNode.body or initNode
+                functionBody.jitDefinition = boundEntry.definition
+                boundEntry.jitTarget = boundEntry.definition
+            elseif boundEntry and initNode and initNode.kind == "name" and initNode.token then
+                local sourceEntry = c.lookupEntry(initNode.token.text)
+                if sourceEntry then
+                    boundEntry.jitTarget = sourceEntry.jitTarget or sourceEntry.definition
+                end
+            end
             if boundEntry and boundEntry.automaticOwner then
                 local automatic = boundEntry.automaticOwner
                 automatic.stat = stat

@@ -195,6 +195,15 @@ function pragma.install(c: state.Checker): state.StatHandlers
             end
             return
 
+        elseif written == "jit" then
+            if valid and targetBody then
+                targetBody.jitRequired = true
+            end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
+            return
+
         elseif written == "derive" then
             if valid and target and target.kind == "recordDecl" then
                 target.deriveApplications = target.deriveApplications or {}

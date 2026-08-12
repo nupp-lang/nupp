@@ -77,84 +77,39 @@ work makes sense in.
 
 ## FFI and the C boundary
 
-- [ ] **`import-c` stops at the file it was pointed at.** One boundary
-      question wearing two faces, and it is a design call rather than a bug.
-      Declarations reached only through a private sibling header are invisible:
-      macOS puts `strlen` in `_string.h`, so importing `string.h` correctly
-      yields nothing (`filterToHeader`, `src/nupp/compiler/importc.nupp:46`). The same
-      cut applies to constants, which are read from the target file's own text
-      (`headerMacroNames`, `src/nupp/compiler/importc.nupp:272`), so `errno.h` — which
-      defines `EPERM` in `sys/errno.h` — imports none at all.
-
-      This was the whole of the August 7 real-header sweep. Everything else that
-      used to stop system headers was fixed, and eight common macOS SDK headers
-      imported without error, four usefully
-      (`math.h` 213 functions, `unistd.h` 153, `fcntl.h` with `open`/`fcntl`,
-      `zlib.h` 45), and the four empty ones — `stdio.h`, `stdlib.h`,
-      `string.h`, `time.h` — are empty for exactly this reason.
-- [ ] **Mark C-derived function types, then land the callback `jit.off`
-      lint.** Passing a Lua function where C will call it creates an FFI
-      callback, and a variadic FFI call or a callback that runs on a compiled
-      trace corrupts or panics — but only past the trace threshold, so it
-      survives every test that runs the path fewer than ~56 times. NUPP2502
-      exists but fires only syntactically, at an `ffi.cast<ptr>(fn)` inside
-      `unsafe` (`src/nupp/compiler/check/ffi.nupp:164`). Function types now have
-      a generic `foreign` bit, but the real check still needs C callback
-      positions distinguished from ordinary Lua function values throughout
-      cdef signatures, `cheader` exports, and C function pointers. Then flag a
-      Lua function reaching one without `jit.off`, and the variadic FFI call
-      with it. This is the validation target's real production bug class, so it
-      is worth the marking pass rather than a heuristic that guesses from
-      argument shape.
+- [x] **`import-c` stops at the file it was pointed at.** The exact-file policy is
+      retained. Linemarker matching uses the normalized requested path, not a
+      basename that could collide with an included sibling. Declarations and
+      constants owned only by included private headers intentionally stay out.
+- [x] **Mark C-derived function types, then land the callback `jit.off`
+      lint.** C-derived signatures now carry semantic foreign-function identity
+      through cdef, cheader, aliases, and function pointers. NUPP2502 now finds
+      Lua functions passed into C callback positions; NUPP2514 finds variadic
+      FFI calls. A semantic `jit.off` on the callback or containing function
+      discharges the hazard.
 - [x] **Propagate string-pointer provenance past a bare name.** Pointer casts
       now collect provenance from names, indexed values, concatenations,
       constructed records, aliases, and declared preserved or borrowed call
       results. NUPP2501 is emitted at the cast, so assignment form does not
       create the earlier hole.
-- [ ] **Generic bounds-carrying spans.** Rooted
-      `ByteSpan` and affine `ByteWriteSpan` have landed with checked indexing
-      and slicing, consuming `commit`, and provenance-preserving buffer
-      conversions. Fixed C arrays also enforce static or runtime bounds. What
-      remains is the generic `span<T>`/`span<const T>` decision. Conversion to
-      a raw pointer or unchecked bulk copy remains an explicit `unsafe`
-      boundary.
-- [ ] **`@jit` trace checker.** NYI analysis behind the pragma, which is
-      likewise reserved and erroring today (`src/nupp/compiler/annotations.nupp:201`).
-      Depends on nothing above except the marking pass it shares with the
-      callback lint.
-- [ ] Struct unions and bitfields (tagged C union lowering); malloc-backed big
-      arrays. Fixed arrays `T[N]` landed.
-- [ ] **A generalized `Serializable`, because reifying currently makes
-      serializing worse.** Superseded in part by layout.md, which takes the
-      reflection half; what stays open here is whether anything above it is
-      wanted at all. A `struct` instance is cdata, and cdata is where the
-      table-shaped world stops: `string.buffer.encode` raises `cannot serialize
-      'cdata'` and offers no hook to install, `pairs` needs a `__pairs` on the
-      metatype, and `type` answers `"cdata"`. So the largest speedup the
-      language has is also the change that breaks the snapshot path, and
-      `reifiable-record` (NUPP2509) has to warn about it rather than recommend
-      it freely.
-
-      The inversion available: nupp knows the field set and the C layout, so a
-      reified value can serialize by copying its bytes rather than by walking
-      its keys. Done properly, reifying makes serialization *faster* than the
-      table it replaced, and the cost story turns into a reason.
-
-      What has to be decided, roughly in order: whether the contract is an
-      interface a declaration opts into or something every reifiable
-      declaration gets; whether the wire form is layout-compatible bytes
-      (fast, and hostage to field order, padding and endianness) or a described
-      encoding that survives a layout change; how a graph with cycles and
-      sharing is handled, since `string.buffer.encode` refuses both; and what
-      a version skew between writer and reader is supposed to do.
-
-      Do not design this from the declaration inward. tecs is the workload —
-      "everything can serialize", world-wide snapshots, and fast — so
-      `FFIStorage.tl` and `FFIEvents.tl` in the acceptance port
-      (tests/acceptance/tecs) are what say which of the above actually matter.
-      Two options short of it stay open meanwhile: a generated `__pairs` from
-      the declared field set, which is cheap and restores iteration, and a
-      generated conversion for crossing a boundary that only speaks tables.
+- [x] **Generic bounds-carrying spans.** Rooted generic `Span<T>` and affine
+      `WriteSpan<T>` retain the compatible `ByteSpan` and `ByteWriteSpan` names,
+      checked indexing and slicing, a consuming `span.commit`, and
+      provenance-preserving conversions. Read-only elements use `const T`.
+      Conversion to a raw pointer or unchecked bulk copy remains `unsafe`.
+- [x] **`@jit` trace checker.** `@jit` is now an enforced contract over semantic
+      variadic and callback boundaries; `jit.off` on the containing function or
+      callback discharges the corresponding hazard.
+- [x] **Struct unions, bitfields, and malloc-backed big arrays.** `cdef union`,
+      integer bitfield widths, cheader/import-c decoding, and ABI-correct generation
+      have landed. `nupp.heap.allocate<T>` owns arrays beyond LuaJIT's GC allocation
+      limit; `nupp.span` supplies their checked view. Fixed arrays `T[N]` remain the
+      inline form.
+- [x] **Decide whether to add a generalized `Serializable`.** Closed without a
+      language-wide serialization contract. `layoutof` supplies the accepted
+      reflection/layout primitive from [layout.md](layout.md); wire format, graph
+      identity, versioning, and table conversion remain application or derive policy
+      rather than an implicit promise attached to every reified value.
 
 ## Editor and docs tooling
 

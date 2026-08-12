@@ -2278,6 +2278,20 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
         if arg.tag == "ptr" then
             generics.unify(param.elem, arg.elem, map)
         end
+    elseif tag == "carray" then
+        if arg.tag == "carray" then
+            generics.unify(param.elem, arg.elem, map)
+        end
+    elseif tag == "ctype" then
+        if arg.tag == "ctype" then
+            generics.unify(param.of, arg.of, map)
+        end
+    elseif tag == "const" then
+        if arg.tag == "const" then
+            generics.unify(param.inner, arg.inner, map)
+        else
+            generics.unify(param.inner, arg, map)
+        end
     end
 end
 

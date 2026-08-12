@@ -200,13 +200,13 @@ annotated directly.
 | `@json` | Implemented | JSON record or field options | record, field |
 | `@debug` | Implemented | skip or redact | Field in a derived record |
 | `@deprecated` | Implemented | Optional reason and replacement | declaration, field |
-| `@jit` | Reserved | None | function |
-| `@comptime` | Reserved | None | local-function |
+| `@jit` | Implemented | None | function |
+| `@comptime` | Implemented | None | local-function |
 
-A reserved annotation parses and resolves, then reports `NUPP2113` naming what
-it is held for: `@jit` for the trace checker, `@comptime` for compile-time
-evaluation. The names are taken so that a project does not define its own and
-collide later.
+`@jit` requires the annotated function to avoid trace-unsafe FFI boundaries.
+Variadic C calls and Lua callbacks passed to C report `NUPP2707` unless the
+relevant function is disabled with `jit.off`. `@comptime` marks a file-private
+helper that may only be called during compile-time evaluation.
 
 The derive annotations are compiler-owned names and cannot be redefined by a
 project. `@derive` adds checked members to its record without exposing source or
@@ -383,6 +383,7 @@ built-ins and compiler extensions.
   accepts, which is what a misspelled `@relax` guarantee reports.
 - **NUPP2113**: a reserved annotation parsed and resolved, and is not yet
   implemented.
+- **NUPP2707**: an `@jit` function crosses a variadic or callback FFI boundary.
 - **NUPP2119**: a declaration does not say where it lives.
 
 ## Next

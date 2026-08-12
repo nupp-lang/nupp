@@ -48,6 +48,7 @@ function cdef.install(
         end
         local n = T.nominal(structName.text, "struct")
         n.cdefName = structName.text
+        n.cdefKind = stat.aggregateKind or "struct"
         c.bindType(structName.text, n, structName)
         if structName.definition then
             structName.definition.cdef = true
@@ -57,8 +58,10 @@ function cdef.install(
         n.writeFieldDefs = {}
         for _, e in ipairs(stat.entries) do
             local fieldName, declaredType = nil, nil
+            local bitWidth = nil
             if e.kind == "fieldDecl" then
-                fieldName, declaredType = e.name, e.type
+                local field = e as cst.FieldDecl
+                fieldName, declaredType, bitWidth = field.name, field.type, field.bitWidth
             end
             if fieldName then
                 local ft = c.resolveType(declaredType)
@@ -75,8 +78,28 @@ function cdef.install(
                 if not reifiableField(ft, true) then
                     c.diag("NUPP2203", e, ("cdef field %q: %s is not a C type"):format(text, T.tostring(ft)))
                 end
+                if bitWidth then
+                    local width = tonumber(bitWidth.text)
+                    local bits = 0
+                    if ft == T.int8 or ft == T.uint8 then
+                        bits = 8
+                    elseif ft == T.int16 or ft == T.uint16 then
+                        bits = 16
+                    elseif ft == T.int32 or ft == T.uint32 then
+                        bits = 32
+                    elseif ft == T.int64 or ft == T.uint64 then
+                        bits = 64
+                    end
+                    if bits == 0 or not width or width % 1 ~= 0 or width < 1 or width > bits then
+                        c.diag(
+                            "NUPP2203",
+                            bitWidth,
+                            ("bitfield %q needs an integer width from 1 through %d"):format(text, bits)
+                        )
+                    end
+                end
             else
-                c.diag("NUPP2203", e, "cdef struct bodies hold fields only")
+                c.diag("NUPP2203", e, "cdef aggregate bodies hold fields only")
             end
         end
         c.bindVar(structName.text, n, true, structName)
@@ -102,6 +125,9 @@ function cdef.install(
             end
             if declared then
                 local pt = c.resolveType(declared)
+                if pt.tag == "func" then
+                    pt = T.foreignFunction(pt)
+                end
                 local mode = modeTok and modeTok.text or "plain"
                 local pdef = c.definition(pname, "parameter")
                 if pdef then

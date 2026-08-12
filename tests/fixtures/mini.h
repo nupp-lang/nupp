@@ -16,6 +16,16 @@ struct miniBox {
     unsigned int flags;
 };
 
+union miniValue {
+    int integer_value;
+    double number_value;
+};
+
+struct miniBits {
+    unsigned int ready : 1;
+    unsigned int mode : 3;
+};
+
 int mini_add(int a, int b);
 double mini_scale(double v, float factor);
 const char *mini_name(void);

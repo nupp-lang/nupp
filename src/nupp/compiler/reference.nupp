@@ -949,11 +949,11 @@ callback cannot escape. `@owned(cleanup)` may decorate a function-valued record
 or interface field so a bodyless API can declare a fresh owning result without
 a wrapper.
 
-Affine nominal fields have path-sensitive live/moved state. A `Set` from
-`nupp.resources` is the checked escape hatch for a dynamic number of
-owners, and `nupp.span` supplies rooted, bounds-checked byte views. Raw or
-unknown coroutine suspension still cannot cross an obligation; checked handled
-suspension may do so only through its cancellation contract.
+Affine nominal fields have path-sensitive state. `nupp.resources.Set` holds a
+dynamic number of owners. `nupp.span` provides rooted generic `Span<T>` and
+affine `WriteSpan<T>` views; `nupp.heap.allocate` provides owned malloc-backed
+arrays. Raw or unknown suspension cannot cross an obligation; checked handled
+suspension may only through its cancellation contract.
 
 Lifetime alone does not prove a C pointer index is in bounds. Direct pointer or
 variable-length C-array indexing therefore requires `unsafe`; use `nupp.span`
@@ -1001,16 +1001,19 @@ return m
 
     new reference.Section(
         title = "C interop",
-        codes = {"NUPP2203", "NUPP2101"},
+        codes = {"NUPP2203", "NUPP2101", "NUPP2502", "NUPP2514", "NUPP2707"},
         body = [=[
-`cdef function` and `cdef struct` declare C with checked signatures. `from
-"lib"` resolves through `ffi.load`; omitting it uses the default namespace.
+`cdef` declares C functions, structs, unions, and integer bitfields.
+`from "lib"` uses `ffi.load`; omitting it uses the default namespace.
 
-`cheader('path.h')` types a pinned header at compile time. The compiler hands it
-to its own `ffi.cdef` and reads the declarations back through `ffi.typeinfo`, so
-LuaJIT's C parser is the source of truth and the sizes are this platform's. No
-generated file, and no C compiler for a self-contained header. `nupp import-c`
-ejects a committed, hand-editable binding module instead.
+`cheader('path.h')` types a pinned header through LuaJIT's C parser at compile
+time. `nupp import-c` ejects the same declarations as an editable module. Both
+preserve unions and bitfields.
+
+C callback positions survive aliases. Passing Lua to one reports
+`jit-callback`; a variadic C call reports `jit-boundary`. Disable the cold
+function with `jit.off`. `@jit` makes avoiding both boundaries a checked
+contract (NUPP2707).
 
 Reconstructing a raw pointer is confined to `unsafe do` blocks.
 ]=],
@@ -1055,6 +1058,9 @@ of observable guarantees an optimization may change, locally to one function.
 uses report the suppressible `deprecated` lint, editors strike it through and
 show the migration detail, and generated documentation retains the annotation.
 It changes no runtime behavior.
+
+`@jit` enforces traceability: a variadic FFI call or Lua callback passed into C
+must live in a function disabled with `jit.off`, or it reports NUPP2707.
 ]=],
         example = [=[
 local m = {}

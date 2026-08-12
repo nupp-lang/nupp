@@ -182,6 +182,48 @@ points[0].x = 1.0
 
 That is `carray<T>`, distinct from the one-based Lua array `{T}`.
 
+For larger or explicitly native-owned arrays, use the malloc-backed standard
+library allocation and immediately give it bounds:
+
+```nupp
+local heap = require("nupp.heap")
+local span = require("nupp.span")
+
+local values = heap.allocate(ffi.typeof<int32>(), 1000000)
+local writable = span.writeCarray(values, 1000000)
+writable:set(1, 42 as int32)
+span.commit(writable)
+```
+
+## C unions and bitfields
+
+`cdef union` shares the same typed field surface as `cdef struct` while emitting
+the correct C tag and ABI layout. A second colon gives an integer field its C
+bit width:
+
+```nupp
+cdef union Value
+    integer_value: int32
+    number_value: number
+end
+
+cdef struct Flags
+    ready: uint32 : 1
+    mode: uint32 : 3
+end
+```
+
+`cheader` and `import-c` preserve both forms from C headers.
+
+## JIT-sensitive C boundaries
+
+C-derived callback positions are tracked semantically through declarations and
+aliases. Passing a Lua function into one reports `jit-callback` (`NUPP2502`),
+and a variadic C call reports `jit-boundary` (`NUPP2514`). Disable the callback
+or containing cold function with `jit.off` when the boundary is intentional.
+Annotating a function with `@jit` turns either hazard into the non-suppressible
+`NUPP2707` contract error.
+
 ## Read a struct's layout
 
 `layoutof(T)` answers how a reified `struct` sits in memory:

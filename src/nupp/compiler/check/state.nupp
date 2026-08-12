@@ -200,6 +200,14 @@ record state.Checker
     --- How deep inside function bodies it is, which is how a capture is recognized.
     functionDepth: integer
 
+    --- Function bodies currently being checked, used to attach deferred JIT-boundary
+    --- findings to the function that must be disabled rather than to the callback it
+    --- happens to pass.
+    functionBodies: {any}
+
+    --- FFI trace hazards reported after the file has seen its `jit.off` calls.
+    jitHazards: {any}
+
     --- Nonzero while checking an inline closure passed to a scoped callback slot.
     scopedCaptureDepth: integer
 

@@ -39,19 +39,44 @@ local function capture(argv)
     return out
 end
 
-local function basename(path)
-    return path:match("([^/\\]+)$") or path
+local function normalizedPath(path)
+    return (path:gsub("\\", "/"))
 end
 
--- Keeps only lines attributed (by cpp linemarkers) to the target header.
-local function filterToHeader(preprocessed, headerBase)
+local function basename(path)
+    return normalizedPath(path):match("([^/]+)$") or path
+end
+
+-- cpp normally writes the input path back verbatim, but some drivers canonicalize it
+-- first. The target is the first linemarker with its basename: preprocessing enters
+-- the input before it can enter an included file, so this also distinguishes an
+-- included sibling that happens to have the same basename.
+local function targetMarker(preprocessed, headerPath)
+    local wanted = normalizedPath(headerPath)
+    local fallback = nil
+    for file in preprocessed:gmatch('#%s*%d+%s+"([^"]*)"') do
+        local normalized = normalizedPath(file)
+        if normalized == wanted then
+            return file
+        end
+        if not fallback and basename(normalized) == basename(wanted) then
+            fallback = file
+        end
+    end
+
+    return fallback or headerPath
+end
+
+-- Keeps only lines attributed (by cpp linemarkers) to the exact target header.
+local function filterToHeader(preprocessed, headerPath)
+    local target = targetMarker(preprocessed, headerPath)
     local keep = {}
     local current = ""
     for line in (preprocessed .. "\n"):gmatch("(.-)\n") do
         local file = line:match('^#%s*%d+%s+"([^"]*)"')
         if file then
-            current = basename(file)
-        elseif current == headerBase and line:match("%S") then
+            current = file
+        elseif current == target and line:match("%S") then
             keep[#keep + 1] = line
         end
     end
@@ -211,7 +236,7 @@ renderType = function(model, knownStructs, callbacks)
             return nil
         end
         return model.unsigned and pair[2] or pair[1]
-    elseif kind == "struct" then
+    elseif kind == "struct" or kind == "union" then
         if model.name and knownStructs[model.name] then
             return model.name
         end
@@ -227,7 +252,9 @@ renderType = function(model, knownStructs, callbacks)
             end
             return nil
         end
-        if pointee and pointee.kind == "struct" and pointee.name and knownStructs[pointee.name] then
+        if pointee and (
+            pointee.kind == "struct" or pointee.kind == "union"
+        ) and pointee.name and knownStructs[pointee.name] then
             return pointee.name .. "*"
         end
         if pointee and (
@@ -344,7 +371,7 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
         return nil, {"cc -E produced no output for " .. headerPath}
     end
 
-    local text = normalize(filterToHeader(preprocessed, headerBase))
+    local text = normalize(filterToHeader(preprocessed, headerPath))
 
     -- The type vocabulary comes from the whole translation unit: a header's own
     -- declarations are usually written in typedefs that live in the headers it
@@ -423,9 +450,10 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
                 break
             end
             fields[#fields + 1] = "   " .. field.name .. ": " .. rendered
+                .. (field.bitWidth and " : " .. tostring(field.bitWidth) or "")
         end
         if ok then
-            emit("cdef struct " .. name)
+            emit("cdef " .. declaration.kind .. " " .. name)
             for _, field in ipairs(fields) do
                 emit(field)
             end
@@ -434,7 +462,7 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
             exports[#exports + 1] = name
         else
             knownStructs[name] = nil
-            emit("-- import-c: skipped struct " .. tostring(name) .. " (unsupported field type)")
+            emit("-- import-c: skipped " .. declaration.kind .. " " .. tostring(name) .. " (unsupported field type)")
         end
     end
 

@@ -399,6 +399,33 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             argStr = callArgs.str
             argTable = callArgs.table
         end
+        -- Resolve the standard-library binding rather than trusting the spelling, so a
+        -- project table called `jit` changes nothing. With no argument LuaJIT disables
+        -- the containing function; with one it disables that named function value.
+        if baseName == "jit" and memberName == "off" and not argStr and not argTable then
+            local globalJit = c.env and c.env.globals and c.env.globals.jit or nil
+            local resolvedJit = c.lookupEntry("jit")
+            if globalJit and resolvedJit == globalJit then
+                local subject = argExprs[1]
+                if not subject then
+                    local body = c.functionBodies[#c.functionBodies]
+                    if body then
+                        body.jitDisabled = true
+                    end
+                elseif subject.kind == "name" and subject.token then
+                    local entry = c.lookupEntry(subject.token.text)
+                    local definition = entry and (entry.jitTarget or entry.definition) or nil
+                    if definition then
+                        definition.jitDisabled = true
+                    end
+                elseif subject.kind == "funcExpr" or subject.kind == "shortfn" then
+                    local body = subject.body or subject
+                    body.jitDisabled = true
+                elseif subject.kind == "dotIndex" and subject.name and subject.name.definition then
+                    subject.name.definition.jitDisabled = true
+                end
+            end
+        end
         local comptimeIntrinsic, intrinsicQualified = cst.comptimeTypeIntrinsicSpelling(callee)
         local layoutIntrinsic = intrinsicQualified and comptimeIntrinsic ~= "reflect" and comptimeIntrinsic or nil
         if layoutIntrinsic and not argStr and not argTable then

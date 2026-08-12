@@ -28,6 +28,9 @@ interface cdecl.Member
 
     --- Its byte offset, as this ABI lays the struct out.
     offset: integer?
+
+    --- Width in bits when this member is a C bitfield.
+    bitWidth: integer?
 end
 
 --- One parameter of a function. C lets a declaration leave a parameter unnamed, and a
@@ -45,7 +48,7 @@ end
 --- That is what lets a recursive or mutually-referential header terminate: the members
 --- live in the declaration `structById` returns.
 interface cdecl.CType
-    --- "void", "boolean", "integer", "float", "pointer", "struct", "enum", "array",
+    --- "void", "boolean", "integer", "float", "pointer", "struct", "union", "enum", "array",
     --- "function", or "unknown" for what this model does not spell.
     kind: string
 
@@ -139,13 +142,14 @@ end
 -- lj_ctype.h kinds, as they appear in the high nibble of `info`.
 local CT_NUM, CT_STRUCT, CT_PTR, CT_ARRAY = 0, 1, 2, 3
 local CT_VOID, CT_ENUM, CT_FUNC = 4, 5, 6
-local CT_TYPEDEF, CT_ATTRIB, CT_FIELD = 7, 8, 9
+local CT_TYPEDEF, CT_ATTRIB, CT_FIELD, CT_BITFIELD = 7, 8, 9, 10
 local CT_CONSTVAL = 11
 
 local CTF_BOOL = 0x08000000
 local CTF_FP = 0x04000000
 local CTF_UNSIGNED = 0x00800000
 local CTF_CONST = 0x02000000
+local CTF_UNION = 0x00800000
 local MAX_CTYPE_ID = 8192
 
 local function kindOf(value)
@@ -237,7 +241,11 @@ decodeType = function(id)
             const = pointee and bit.band(pointee.info, CTF_CONST) ~= 0 or false,
         }
     elseif kind == CT_STRUCT then
-        return {kind = "struct", id = rid, name = entry.name}
+        return {
+            kind = bit.band(entry.info, CTF_UNION) ~= 0 and "union" or "struct",
+            id = rid,
+            name = entry.name,
+        }
     elseif kind == CT_ENUM then
         return {
             kind = "enum",
@@ -265,11 +273,32 @@ local function decodeStruct(id, entry)
         end
         if kindOf(centry.info) == CT_FIELD and centry.name then
             fields[#fields + 1] = {name = centry.name, type = decodeType(refOf(centry.info)), offset = centry.size,}
+        elseif kindOf(centry.info) == CT_BITFIELD and centry.name then
+            local width = bit.band(bit.rshift(centry.info, 8), 0xff)
+            -- Bitfield entries do not carry a normal CType `size`: LuaJIT packs the
+            -- underlying integer's byte width into the low nibble of the byte above
+            -- the field width (the high bit of that byte is signedness).
+            local storageBits = bit.band(bit.rshift(centry.info, 16), 0x0f) * 8
+            fields[#fields + 1] = {
+                name = centry.name,
+                type = {
+                    kind = "integer",
+                    bits = storageBits,
+                    unsigned = bit.band(centry.info, CTF_UNSIGNED) ~= 0,
+                },
+                bitWidth = width,
+            }
         end
         child = centry.sib
     end
 
-    return {kind = "struct", id = id, name = entry.name, size = entry.size, fields = fields,}
+    return {
+        kind = bit.band(entry.info, CTF_UNION) ~= 0 and "union" or "struct",
+        id = id,
+        name = entry.name,
+        size = entry.size,
+        fields = fields,
+    }
 end
 
 local INT32_MAX, UINT32 = 2147483647, 4294967296

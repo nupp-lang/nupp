@@ -864,14 +864,21 @@ matching terminal consumer as the second argument.
 
 ### Checked spans
 
-`nupp.span` provides `ByteSpan` and affine `ByteWriteSpan` views. They retain a
-root, carry a runtime element count, bounds-check every index and slice, and
-keep an invalidation barrier live for a write span until `commit` or scope exit.
+`nupp.span` provides generic `Span<T>` and affine `WriteSpan<T>` views, with
+`ByteSpan` and `ByteWriteSpan` retained as byte-specialized compatibility names.
+They retain a root, carry a runtime element count, bounds-check every index and slice, and
+keep an invalidation barrier live for a write span until its required consuming
+`span.commit(writable)`.
 Direct pointer or variable-length C-array indexing has no runtime bound and is
 rejected even when its lifetime is rooted. A fixed C array rejects a literal
 index that is statically out of range and inserts a runtime check for every
 non-literal index. Conversion, unchecked indexing, and unknown pointer
 arithmetic remain inside the smallest possible `unsafe` block.
+
+`nupp.heap.allocate(ffi.typeof<T>(), count)` returns an affine malloc-backed
+`T[?]` for arrays too large for LuaJIT's GC allocation. Wrap it with
+`nupp.span.fromCarray` or `writeCarray` before indexing; the owner is freed at
+scope exit after the dependent span ends.
 
 ## Coroutines
 

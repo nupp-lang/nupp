@@ -610,7 +610,7 @@ function checkMod.check(
         automaticOwners = {},
         depth = 0,
         parent = nil
-    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, dropOperationFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, handledDepth = 0, functionDepth = 0, scopedCaptureDepth = 0, closureCaptureStack = {}, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, activeAlias = nil, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldDefs = {}, moduleFieldConst = {}, moduleFieldValues = {}, nominalEffectOwners = {}, nominalEffectEntries = {}, constModulePaths = {}, moduleLocalAnnotated = false)
+    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, dropOperationFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, handledDepth = 0, functionDepth = 0, functionBodies = {}, jitHazards = {}, scopedCaptureDepth = 0, closureCaptureStack = {}, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, activeAlias = nil, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldDefs = {}, moduleFieldConst = {}, moduleFieldValues = {}, nominalEffectOwners = {}, nominalEffectEntries = {}, constModulePaths = {}, moduleLocalAnnotated = false)
     c.rootScope = c.scope
     c.moduleExports.valueDefs = c.moduleExports.valueDefs or {}
     -- What this file has declared to the FFI. Per file, because a cdef binding is
@@ -1714,6 +1714,24 @@ function checkMod.check(
     -- can export them and module return types resolve.
     for _, block in ipairs(result.root.blocks) do
         c.checkBlock(block, true)
+    end
+    for _, hazard in ipairs(c.jitHazards) do
+        local body = hazard.body
+        local definition = body and body.jitDefinition or nil
+        if not hazard.suppressed
+            and not (body and body.jitDisabled)
+            and not (definition and definition.jitDisabled)
+            and not (hazard.disabledBody and hazard.disabledBody.jitDisabled)
+            and not (hazard.disabledDefinition and hazard.disabledDefinition.jitDisabled)
+        then
+            c.diag(
+                body and body.jitRequired and "NUPP2707" or hazard.code,
+                hazard.at,
+                hazard.message,
+                nil,
+                {help = hazard.help}
+            )
+        end
     end
     c.derives.finalize()
     own.finalizeDefaultCleanups()

@@ -791,6 +791,7 @@ function resolve.install(c: state.Checker): nil
                     end
                     if t.cdefName then
                         node.cdefName = t.cdefName
+                        node.cdefKind = t.cdefKind or "struct"
                     end
                 elseif t.tag == "nominal" and t.declKind == "record" then
                     -- a record's runtime table is its identity, which is what `is`

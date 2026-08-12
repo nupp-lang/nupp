@@ -962,7 +962,8 @@ function calls.install(c: state.Checker): calls.Ops
                 if genericMap then
                     unify(ft, vt, genericMap)
                 end
-                local ok, why = isA(borrowedRoot and not storesCapability and rawType(vt) or vt, ft)
+                local expected = genericMap and substType(ft, genericMap) or ft
+                local ok, why = isA(borrowedRoot and not storesCapability and rawType(vt) or vt, expected)
                 if not ok then
                     c.diag("NUPP2202", site, ("%s: %s"):format(label, why))
                 end
@@ -1678,6 +1679,54 @@ function calls.install(c: state.Checker): calls.Ops
         if contextualArgs then
             argPack = T.pack(ats, argPack.tail, argPack.modes)
             node.argumentPack = argPack
+        end
+
+        local jitBody = c.functionBodies[#c.functionBodies]
+        local function jitHazard(code, at, message, help, disabledDefinition, disabledBody)
+            c.jitHazards[#c.jitHazards + 1] = {
+                code = code,
+                at = at,
+                body = jitBody,
+                message = message,
+                help = help,
+                disabledDefinition = disabledDefinition,
+                disabledBody = disabledBody,
+                suppressed = not (jitBody and jitBody.jitRequired) and c.suppressed(code),
+            }
+        end
+        if node.cdefCall and calleeT.vararg then
+            jitHazard(
+                "jit-boundary",
+                node,
+                "a variadic FFI call cannot safely execute on a compiled trace",
+                "move the call into a function disabled with jit.off, or remove @jit from this function"
+            )
+        end
+        if node.cdefCall then
+            for j = 1, math.min(#ats, #params) do
+                local expected = rawType(params[j])
+                local actual = rawType(ats[j])
+                if expected.tag == "func" and expected.foreign and actual.tag == "func" and not actual.foreign then
+                    local argument = argNodes[j]
+                    local disabledDefinition, disabledBody = nil, nil
+                    if argument and argument.kind == "name" and argument.token then
+                        local entry = c.lookupEntry(argument.token.text)
+                        disabledDefinition = entry and (entry.jitTarget or entry.definition) or nil
+                    elseif argument and (argument.kind == "funcExpr" or argument.kind == "shortfn") then
+                        disabledBody = argument.body or argument
+                    elseif argument and argument.kind == "dotIndex" and argument.name then
+                        disabledDefinition = argument.name.definition
+                    end
+                    jitHazard(
+                        "jit-callback",
+                        argument or node,
+                        "a Lua function passed to C becomes an FFI callback and cannot run from a compiled trace",
+                        "disable the callback with jit.off before passing it to C",
+                        disabledDefinition,
+                        disabledBody
+                    )
+                end
+            end
         end
 
         local nparams = #params

@@ -174,6 +174,30 @@ function M.cdefStructRuntime()
    }, "\n")), 12)
 end
 
+function M.cdefUnionsAndBitfieldsKeepTheirCLayout()
+   assertEq(run(table.concat({
+      "cdef union nuppTestValue",
+      "   integer_value: int32",
+      "   number_value: number",
+      "end",
+      "cdef struct nuppTestBits",
+      "   ready: uint32 : 1",
+      "   mode: uint32 : 3",
+      "end",
+      "local value = new nuppTestValue()",
+      "value.integer_value = 7",
+      "local bits = new nuppTestBits()",
+      "bits.ready = 1",
+      "bits.mode = 5",
+      "return value.integer_value + bits.ready + bits.mode",
+   }, "\n")), 13)
+   assertEq((diagsOf(table.concat({
+      "cdef struct nuppBadBits",
+      "   field: number : 2",
+      "end",
+   }, "\n"))), "NUPP2203:2")
+end
+
 function M.ownIsStaticAndDropIsExplicit()
    assertEq(run(table.concat({
       "cdef function free(takes p: voidptr)",

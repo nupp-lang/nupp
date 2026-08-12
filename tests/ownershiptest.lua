@@ -497,7 +497,34 @@ function M.spansCarryBoundsRootsAndAnAffineWriteExtent()
       "do",
       "   local writable = spans.writeCarray(storage, 4)",
       "   writable:set(1, 65)",
+      "   spans.commit(writable)",
       "end",
+   }, "\n"))
+end
+
+function M.spansPreserveTheCArrayElementType()
+   assertClean(table.concat({
+      "local spans = require('nupp.span')",
+      "local storage = ffi.new<int32[4]>()",
+      "do",
+      "   local view = spans.fromCarray(storage, 4)",
+      "   local value: int32 = view:get(1)",
+      "end",
+      "local writable = spans.writeCarray(storage, 4)",
+      "writable:set(2, 42 as int32)",
+      "spans.commit(writable)",
+   }, "\n"))
+end
+
+function M.heapArraysAreOwnedAndBecomeCheckedSpans()
+   assertClean(table.concat({
+      "local heap = require('nupp.heap')",
+      "local spans = require('nupp.span')",
+      "local values = heap.allocate(ffi.typeof<int32>(), 1000000)",
+      "local writable = spans.writeCarray(values, 1000000)",
+      "writable:set(1, 42 as int32)",
+      "print(writable.count)",
+      "spans.commit(writable)",
    }, "\n"))
 end
 

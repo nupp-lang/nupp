@@ -868,11 +868,11 @@ callback cannot escape. `@owned(cleanup)` may decorate a function-valued record
 or interface field so a bodyless API can declare a fresh owning result without
 a wrapper.
 
-Affine nominal fields have path-sensitive live/moved state. A `Set` from
-`nupp.resources` is the checked escape hatch for a dynamic number of
-owners, and `nupp.span` supplies rooted, bounds-checked byte views. Raw or
-unknown coroutine suspension still cannot cross an obligation; checked handled
-suspension may do so only through its cancellation contract.
+Affine nominal fields have path-sensitive state. `nupp.resources.Set` holds a
+dynamic number of owners. `nupp.span` provides rooted generic `Span<T>` and
+affine `WriteSpan<T>` views; `nupp.heap.allocate` provides owned malloc-backed
+arrays. Raw or unknown suspension cannot cross an obligation; checked handled
+suspension may only through its cancellation contract.
 
 Lifetime alone does not prove a C pointer index is in bounds. Direct pointer or
 variable-length C-array indexing therefore requires `unsafe`; use `nupp.span`
@@ -921,14 +921,17 @@ Reports: `NUPP2603`, `NUPP2615`. `nupp explain <code>` says more.
 
 ### C interop
 
-`cdef function` and `cdef struct` declare C with checked signatures. `from
-"lib"` resolves through `ffi.load`; omitting it uses the default namespace.
+`cdef` declares C functions, structs, unions, and integer bitfields.
+`from "lib"` uses `ffi.load`; omitting it uses the default namespace.
 
-`cheader('path.h')` types a pinned header at compile time. The compiler hands it
-to its own `ffi.cdef` and reads the declarations back through `ffi.typeinfo`, so
-LuaJIT's C parser is the source of truth and the sizes are this platform's. No
-generated file, and no C compiler for a self-contained header. `nupp import-c`
-ejects a committed, hand-editable binding module instead.
+`cheader('path.h')` types a pinned header through LuaJIT's C parser at compile
+time. `nupp import-c` ejects the same declarations as an editable module. Both
+preserve unions and bitfields.
+
+C callback positions survive aliases. Passing Lua to one reports
+`jit-callback`; a variadic C call reports `jit-boundary`. Disable the cold
+function with `jit.off`. `@jit` makes avoiding both boundaries a checked
+contract (NUPP2707).
 
 Reconstructing a raw pointer is confined to `unsafe do` blocks.
 
@@ -949,7 +952,8 @@ end
 return m
 ```
 
-Reports: `NUPP2203`, `NUPP2101`. `nupp explain <code>` says more.
+Reports: `NUPP2203`, `NUPP2101`, `NUPP2502`, `NUPP2514`, `NUPP2707`. `nupp
+explain <code>` says more.
 
 ### Annotations
 
@@ -972,6 +976,9 @@ of observable guarantees an optimization may change, locally to one function.
 uses report the suppressible `deprecated` lint, editors strike it through and
 show the migration detail, and generated documentation retains the annotation.
 It changes no runtime behavior.
+
+`@jit` enforces traceability: a variadic FFI call or Lua callback passed into C
+must live in a function disabled with `jit.off`, or it reports NUPP2707.
 
 ```nupp
 local m = {}
@@ -1536,6 +1543,7 @@ says more.
  else-if                         NUPP2510  style        warning
  positional-record-construction  NUPP2512  style        warning
  deprecated                      NUPP2513  suspicious   warning
+ jit-boundary                    NUPP2514  suspicious   warning
 ```
 
 ### Diagnostic codes with a worked example
@@ -1544,13 +1552,18 @@ says more.
 - **NUPP1002**: A required token is missing.
 - **NUPP1006**: The typed layer appears in a plain Lua file.
 - **NUPP2001**: A value does not fit the type it is bound to.
+- **NUPP2002**: A returned value does not fit the declared result.
 - **NUPP2004**: The field does not exist on that type.
 - **NUPP2006**: A call's arguments are not arranged in a way it can be given.
 - **NUPP2009**: A property view does not grant the requested access.
 - **NUPP2010**: A complete value pack does not fit the required sequence.
+- **NUPP2101**: A type name cannot be resolved.
 - **NUPP2106**: An exported declaration needs a type annotation.
 - **NUPP2107**: A dispatch leaves members of a closed set unhandled.
+- **NUPP2108**: A type error is named as though it were a lint.
+- **NUPP2118**: A declaration contains an invalid or conflicting member.
 - **NUPP2119**: A declaration does not say where it lives.
+- **NUPP2120**: A project module is used without being required.
 - **NUPP2121**: A type pack is used where only one value type can appear.
 - **NUPP2122**: A refinement cannot be enforced.
 - **NUPP2123**: A metatable value does not fit the key it is written under.
@@ -1565,9 +1578,12 @@ says more.
 - **NUPP2134**: A projection names something that cannot be projected.
 - **NUPP2135**: An associated type answers through itself.
 - **NUPP2202**: A declaration is built with 'new'.
+- **NUPP2203**: A C declaration uses a type C cannot represent.
 - **NUPP2206**: Only a record or a struct can be constructed.
 - **NUPP2207**: A binding is read before it holds a value.
 - **NUPP2208**: A constructor does not hold up its declaration.
+- **NUPP2504**: An operator uses its customary C-style spelling.
+- **NUPP2506**: A documented function can raise without saying when.
 - **NUPP2507**: A local is declared and nothing reads it.
 - **NUPP2508**: A call that does nothing but return had its result dropped.
 - **NUPP2511**: An associated type was erased because inference did not reach
@@ -1575,10 +1591,14 @@ says more.
 - **NUPP2512**: A record is built by field order rather than by naming its
   fields.
 - **NUPP2513**: An API marked deprecated is used.
+- **NUPP2603**: An ownership obligation is not discharged or cannot escape.
 - **NUPP2605**: Adjusting a value pack would discard an affine value.
+- **NUPP2615**: An owned value names an invalid cleanup operation.
 - **NUPP2701**: A non-suspending region can reach suspension.
 - **NUPP2702**: A non-yieldable C callback can reach suspension.
 - **NUPP2706**: Control cannot jump into a handled suspension region.
+- **NUPP2707**: A function required to compile crosses an unsupported JIT
+  boundary.
 - **NUPP2801**: A derive provider name is unknown or duplicated.
 - **NUPP2802**: A generated derive member conflicts with the declaration.
 - **NUPP2803**: A field cannot participate in derived Debug.

@@ -91,7 +91,7 @@ local function cdefCType(t)
             return "void *"
         end
         if t.cdefName then
-            return "struct " .. t.cdefName
+            return (t.cdefKind or "struct") .. " " .. t.cdefName
         end
         return CP[name]
     elseif t.kind == "tconst" then
@@ -1880,7 +1880,8 @@ function gen.generate(
                 if entry.kind == "fieldDecl" then
                     local ct = cdefCType(entry.type)
                     if ct then
-                        fields[#fields + 1] = ct .. " " .. entry.name.text .. ";"
+                        local width = entry.bitWidth and " : " .. entry.bitWidth.text or ""
+                        fields[#fields + 1] = ct .. " " .. entry.name.text .. width .. ";"
                     else
                         diag(entry.name, "NUPP3003", "cdef field type has no C spelling")
                     end
@@ -1891,8 +1892,15 @@ function gen.generate(
             -- pcall tolerates re-declaration when two modules cdef one struct
             e(
                 (
-                    'pcall(__nuppFfi.cdef, "struct %s { %s };") const %s = __nuppFfi.typeof("struct %s")'
-                ):format(x.name.text, table.concat(fields, " "), x.name.text, x.name.text),
+                    'pcall(__nuppFfi.cdef, "%s %s { %s };") const %s = __nuppFfi.typeof("%s %s")'
+                ):format(
+                    x.aggregateKind or "struct",
+                    x.name.text,
+                    table.concat(fields, " "),
+                    x.name.text,
+                    x.aggregateKind or "struct",
+                    x.name.text
+                ),
                 line
             )
             return

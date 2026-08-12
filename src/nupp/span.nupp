@@ -1,7 +1,7 @@
 --[[
 Bounds-carrying borrowed pointer views.
 
-`ByteSpan` keeps a runtime element count beside a rooted pointer. Indexing and slicing
+`Span<T>` keeps a runtime element count beside a rooted pointer. Indexing and slicing
 check that count before the only unsafe pointer operations in this module. Public code
 never has to dereference or offset a raw pointer.
 ]]
@@ -10,27 +10,23 @@ local span = {}
 
 --- A checked, shared view over contiguous elements.
 --- @export
-local record ByteSpan
+local record Span<T>
     readonly anchor: any
-    readonly pointer: uint8[?] borrows (anchor)
+    readonly pointer: T[?] borrows (anchor)
     readonly offset: integer
     readonly count: integer
 end
 
 --- An affine checked write range. Its live token keeps the source under an
---- incompatible-borrow barrier until `commit` or scope exit consumes it.
+--- incompatible-borrow barrier until `span.commit` or scope exit consumes it.
 --- @export
-local record ByteWriteSpan
+local record WriteSpan<T>
     readonly anchor: any
-    readonly pointer: uint8[?] borrows (anchor)
+    readonly pointer: T[?] borrows (anchor)
     readonly offset: integer
     readonly count: integer
 
-    @drop
-    function commit(takes self: ByteWriteSpan): nil
-    end
-
-    function set(self: ByteWriteSpan, index: integer, value: uint8): nil
+    function set(self: WriteSpan<T>, index: integer, value: T): nil
         if index < 1 or index > self.count then
             error("write span index out of bounds", 2)
         end
@@ -40,9 +36,30 @@ local record ByteWriteSpan
     end
 end
 
---- Returns one byte after checking the one-based index.
+--- The cleanup witness used by `writeCarray`. `span.commit` is the public spelling;
+--- this erased terminal also discharges the static affine token at scope exit.
+local function finish_write(takes self: any): nil
+    nosuspend do
+        unsafe do
+            local _raw = intoRaw(self)
+        end
+    end
+end
+local finish_write_nosuspend = finish_write as nosuspend function(takes self: any): nil
+
+--- Ends an affine write range and releases its exclusive-borrow barrier.
+--- @export
+function span.commit<T>(takes writable: WriteSpan<T>): nil
+    nosuspend do
+        unsafe do
+            local _raw = intoRaw(writable)
+        end
+    end
+end
+
+--- Returns one element after checking the one-based index.
 --- @raises when index is outside 1 through count
-function ByteSpan:get(index: integer): uint8
+function Span.get<T>(self: Span<T>, index: integer): T
     if index < 1 or index > self.count then
         error("span index out of bounds", 2)
     end
@@ -53,48 +70,57 @@ end
 
 --- Returns a checked subspan, inclusive at both ends.
 --- @raises when the requested range is outside this span
-function ByteSpan:slice(first: integer, last: integer?): ByteSpan borrows (self)
+function Span.slice<T>(self: Span<T>, first: integer, last: integer?): Span<T> borrows (self)
     local finish = last or self.count
     if first < 1 or finish < first - 1 or finish > self.count then
         error("span slice out of bounds", 2)
     end
-    return new ByteSpan(
+    return new Span(
         anchor = self,
-        pointer = self.pointer,
+        pointer = self.pointer as any,
         offset = self.offset + first - 1,
         count = finish - first + 1
-    )
+    ) as Span<T>
 end
+
+--- Backwards-compatible names for the byte-specialized views.
+--- @export
+local type ByteSpan = Span<uint8>
+--- @export
+local type ByteWriteSpan = WriteSpan<uint8>
 
 --- Creates a byte span over a Lua string and keeps that string rooted.
 --- @export
 function span.fromString(borrows source: string): ByteSpan borrows (source)
     local pointer = ffi.cast<uint8[?]>(source)
-    return new ByteSpan(anchor = source, pointer = pointer, offset = 0, count = #source)
+    return new Span(anchor = source, pointer = pointer as any, offset = 0, count = #source) as ByteSpan
 end
 
 --- Creates a checked shared span over a C array and an explicit logical count.
 --- @export
 --- @raises when count is negative
-function span.fromCarray(borrows source: uint8[?], count: integer): ByteSpan borrows (source)
+function span.fromCarray<T>(borrows source: T[?], count: integer): Span<T> borrows (source)
     if count < 0 then
         error("span count cannot be negative", 2)
     end
-    return new ByteSpan(anchor = source, pointer = source, offset = 0, count = count)
+    return new Span(anchor = source, pointer = source as any, offset = 0, count = count) as Span<T>
 end
 
 --- Creates an affine write span. The source is exclusive during construction and the
---- returned dependent owner prevents invalidating operations until it is committed.
+--- returned dependent owner prevents invalidating operations until it is explicitly
+--- committed.
 --- @export
 --- @raises when count is negative
-@owned
-function span.writeCarray(exclusive source: uint8[?], count: integer): ByteWriteSpan borrows (source)
+@owned(finish_write_nosuspend)
+function span.writeCarray<T>(exclusive source: T[?], count: integer): WriteSpan<T> borrows (source)
     if count < 0 then
         error("write span count cannot be negative", 2)
     end
-    return new ByteWriteSpan(anchor = source, pointer = source, offset = 0, count = count)
+    return new WriteSpan(anchor = source, pointer = source as any, offset = 0, count = count) as WriteSpan<T>
 end
 
-span.ByteSpan = ByteSpan
-span.ByteWriteSpan = ByteWriteSpan
+span.Span = Span
+span.WriteSpan = WriteSpan
+span.ByteSpan = Span
+span.ByteWriteSpan = WriteSpan
 return span

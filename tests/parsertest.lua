@@ -33,6 +33,15 @@ end
 
 local M = {}
 
+function M.cdefUnionAndBitfieldRoundtrip()
+   local source = "cdef union Value\n   flags: uint32 : 3\n   number: number\nend\n"
+   local result = assertRoundtrip(source)
+   assertEq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
+   local declaration = result.root.blocks[1].stats[1]
+   assertEq(declaration.aggregateKind, "union")
+   assertEq(declaration.entries[1].bitWidth.text, "3")
+end
+
 function M.fileInnerAnnotationsAreRecorded()
    local result = parser.parse("@!internal\n@!nofmt\nlocal x=1\n")
    assertEq(#result.errors, 0, "inner annotations parse")

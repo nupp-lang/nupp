@@ -2025,6 +2025,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 end
                 annotationColon(e, "in field declaration")
                 e.type = add(e, parseReturnType())
+                if cur().kind == ":" then
+                    add(e, advance())
+                    e.bitWidth = add(e, expect("number", "as C bitfield width"))
+                end
             else
                 errAt(cur(), "field or nested declaration expected")
                 e = new cst.ErrorStmt(kind = "errorStmt")
@@ -2162,8 +2166,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         end
         local n = new cst.CdefStruct(kind = "cdefStruct")
         add(n, cdefTok)
-        add(n, advance()) -- the contextual 'struct' name token
-        n.name = add(n, expectName("after 'cdef struct'"))
+        local aggregate = advance()
+        add(n, aggregate) -- the contextual 'struct' or 'union' name token
+        n.aggregateKind = aggregate.text
+        n.name = add(n, expectName("after 'cdef " .. aggregate.text .. "'"))
         parseRecordBody(n)
 
         return n
@@ -2181,7 +2187,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             ].kind == "function" or (
                 tokens[
                     i + 1
-                ].kind == "name" and tokens[i + 1].text == "struct" and tokens[i + 2] and tokens[i + 2].kind == "name"
+                ].kind == "name" and (
+                    tokens[i + 1].text == "struct" or tokens[i + 1].text == "union"
+                ) and tokens[i + 2] and tokens[i + 2].kind == "name"
             )
         ) then
             return parseCdef()
