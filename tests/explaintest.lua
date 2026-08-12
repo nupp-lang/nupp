@@ -26,6 +26,13 @@ local function tempProject(source)
    local file = assert(io.open(dir .. "/sample.nupp", "wb"))
    file:write(source)
    file:close()
+   -- A missing require is visible only when the project really contains the
+   -- module the unresolved name would bind.
+   local module = assert(io.open(dir .. "/mathutil.g.nupp", "wb"))
+   module:write("local mathutil = {}\n"
+      .. "function mathutil.double(value: number): number return value * 2 end\n"
+      .. "return mathutil\n")
+   module:close()
    return dir
 end
 

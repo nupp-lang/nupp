@@ -146,6 +146,19 @@ local ENTRIES: {
     related = {"NUPP2002", "NUPP2006"},
     docs = "docs/diagnostics.md#code-families",
 }, {
+    code = "NUPP2002",
+    summary = "A returned value does not fit the declared result",
+    rule = "A function's result annotation is a promise to every caller. "
+    .. "Each returned value must fit its corresponding result type, and "
+    .. "a function that declares several results must return the complete "
+    .. "sequence.",
+    wrong = "local function length(): integer\n    return \"long\"\nend\n\n"
+    .. "return length\n",
+    right = "local function length(): integer\n    return 4\nend\n\n"
+    .. "return length\n",
+    related = {"NUPP2001", "NUPP2010"},
+    docs = "docs/reference.md#functions",
+}, {
     code = "NUPP2004",
     summary = "The field does not exist on that type",
     rule = "A field read has to name a field the receiver's type actually "
@@ -200,6 +213,16 @@ local ENTRIES: {
     related = {"NUPP2002", "NUPP2007", "NUPP2121"},
     docs = "docs/type-system/packs.md#pack-compatibility",
 }, {
+    code = "NUPP2101",
+    summary = "A type name cannot be resolved",
+    rule = "A type name must be a built-in, a declaration visible in this "
+    .. "file, or a member reached through its module. Declare the type, "
+    .. "require the module that exports it, or correct its spelling.",
+    wrong = "local count: Count = 1\nreturn count\n",
+    right = "local type Count = integer\nlocal count: Count = 1\nreturn count\n",
+    related = {"NUPP2105", "NUPP2120"},
+    docs = "docs/reference.md#types",
+}, {
     code = "NUPP2106",
     summary = "An exported declaration needs a type annotation",
     strict = true,
@@ -222,6 +245,43 @@ local ENTRIES: {
     .. "    else\n        return \"blue\"\n    end\nend\n\nreturn name\n", related = {
     "NUPP2004"
 }, docs = "docs/lints.md",}, {
+    code = "NUPP2108",
+    summary = "A type error is named as though it were a lint",
+    rule = "`@allow` suppresses lint judgements, by lint name or code. A "
+    .. "type error says the program cannot keep its own type claims, so it "
+    .. "cannot be configured or silenced; correct that error instead.",
+    wrong = "@allow(NUPP2001)\nlocal count: integer = \"one\"\nreturn count\n",
+    right = "local count: integer = 1\nreturn count\n",
+    related = {"NUPP2001", "NUPP2112"},
+    docs = "docs/reference.md#lints-and-suppression",
+}, {
+    code = "NUPP2504",
+    summary = "An operator uses its customary C-style spelling",
+    rule = "The C-style spellings `!`, `&&`, `||`, and `!=` are accepted, "
+    .. "but the style lint prefers Lua's `not`, `and`, `or`, and `~=`. "
+    .. "The spelling changes; the expression's meaning does not.",
+    wrong = "local ready = true\nlocal pending = !ready\nreturn pending\n",
+    right = "local ready = true\nlocal pending = not ready\nreturn pending\n",
+    related = {"NUPP2108"},
+    docs = "docs/lints.md#customary-operator",
+}, {
+    code = "NUPP2506",
+    summary = "A documented function can raise without saying when",
+    rule = "A function with a docblock that calls `error` must document the "
+    .. "condition with `@raises`. Callers reading generated documentation "
+    .. "then see the exceptional exit beside the ordinary result.",
+    wrong = "--- Reads a name.\n--- @param name the name to read\n"
+    .. "local function read(name: string): string\n"
+    .. "    if name == \"\" then error(\"empty name\") end\n"
+    .. "    return name\nend\n\nreturn read\n",
+    right = "--- Reads a name.\n--- @param name the name to read\n"
+    .. "--- @raises when name is empty\n"
+    .. "local function read(name: string): string\n"
+    .. "    if name == \"\" then error(\"empty name\") end\n"
+    .. "    return name\nend\n\nreturn read\n",
+    related = {"NUPP2507"},
+    docs = "docs/lints.md#undocumented-raise",
+}, {
     code = "NUPP2507",
     summary = "A local is declared and nothing reads it",
     rule = "A binding nothing reads is a leftover from an edit, or a use "
@@ -252,6 +312,19 @@ local ENTRIES: {
     related = {"NUPP2112", "NUPP2603"},
     docs = "docs/lints.md",
 }, {
+    code = "NUPP2118",
+    summary = "A declaration contains an invalid or conflicting member",
+    rule = "A declaration has one member of a given name and capability. "
+    .. "Duplicate fields, methods with the same parameter pack, conflicting "
+    .. "static and instance members, and unknown metamethods cannot describe "
+    .. "one coherent contract.",
+    wrong = "local record Pair\n    first: string\n    first: integer\nend\n\n"
+    .. "return Pair\n",
+    right = "local record Pair\n    first: string\n    second: integer\nend\n\n"
+    .. "return Pair\n",
+    related = {"NUPP2004", "NUPP2123"},
+    docs = "docs/reference.md#records",
+}, {
     code = "NUPP2119",
     summary = "A declaration does not say where it lives",
     rule = "A declaration is file-local (`local`), a member of a table "
@@ -263,6 +336,17 @@ local ENTRIES: {
     right = "local record Loose\n    id: integer\nend\n\nreturn Loose\n",
     related = {"NUPP2106", "NUPP2120"},
     docs = "docs/modules.md#diagnostics",
+}, {
+    code = "NUPP2120",
+    summary = "A project module is used without being required",
+    rule = "A project file does not put its basename into every other file's "
+    .. "scope. Bind the module with `require` before reading its members; the "
+    .. "diagnostic names the require call that makes the program valid.",
+    wrong = "local answer: number = mathutil.double(21)\nreturn answer\n",
+    right = "local mathutil = require(\"mathutil\")\n"
+    .. "local answer: number = mathutil.double(21)\nreturn answer\n",
+    related = {"NUPP2101", "NUPP2105"},
+    docs = "docs/reference.md#modules",
 }, {
     code = "NUPP2121",
     summary = "A type pack is used where only one value type can appear",
@@ -471,6 +555,16 @@ local ENTRIES: {
     related = {"NUPP2206"},
     docs = "docs/reference.md#records",
 }, {
+    code = "NUPP2203",
+    summary = "A C declaration uses a type C cannot represent",
+    rule = "A `cdef` signature and struct layout cross the C ABI, so their "
+    .. "types must have a C representation. Lua tables, records, and other "
+    .. "garbage-collected values need an explicit pointer or handle boundary.",
+    wrong = "cdef function process(values: {number}): int32\nreturn process\n",
+    right = "cdef function process(values: voidptr): int32\nreturn process\n",
+    related = {"NUPP2201", "NUPP2602"},
+    docs = "docs/reference.md#c-interop",
+}, {
     code = "NUPP2605",
     summary = "Adjusting a value pack would discard an affine value",
     rule = "Lua may truncate extra results, but Nupp cannot silently lose an "
@@ -485,6 +579,36 @@ local ENTRIES: {
     .. "local value = acquire()\nrelease(value)\n",
     related = {"NUPP2602", "NUPP2603", "NUPP2010"},
     docs = "docs/type-system/packs.md#ownership-and-provenance",
+}, {
+    code = "NUPP2603",
+    summary = "An ownership obligation is not discharged or cannot escape",
+    rule = "An owned value must be consumed, dropped, returned under a "
+    .. "matching ownership contract, or explicitly converted to raw form. "
+    .. "Borrows likewise stay within the lifetime and suspension boundaries "
+    .. "their provenance permits.",
+    wrong = "@owned(opaque = true)\ncdef function acquire(): voidptr\n"
+    .. "local value = acquire()\nreturn 0\n",
+    right = "@owned(opaque = true)\ncdef function acquire(): voidptr\n"
+    .. "cdef function release(takes value: voidptr)\n"
+    .. "local value = acquire()\nrelease(value)\nreturn 0\n",
+    related = {"NUPP2601", "NUPP2602", "NUPP2605"},
+    docs = "docs/reference.md#owned-resources",
+}, {
+    code = "NUPP2615",
+    summary = "An owned value names an invalid cleanup operation",
+    rule = "Every cleanup named by `@owned` must be visible and accept the "
+    .. "owned value's raw type. In an ordered cleanup list, only the final "
+    .. "operation may consume it; earlier steps must borrow it.",
+    wrong = "local record Resource\nend\nlocal record Other\nend\n"
+    .. "local function release(value: Other): nil\nend\n"
+    .. "@owned(release)\nlocal function acquire(): Resource\n"
+    .. "    return new Resource()\nend\nreturn acquire\n",
+    right = "local record Resource\nend\nlocal record Other\nend\n"
+    .. "local function release(value: Resource): nil\nend\n"
+    .. "@owned(release)\nlocal function acquire(): Resource\n"
+    .. "    return new Resource()\nend\nreturn acquire\n",
+    related = {"NUPP2602", "NUPP2603"},
+    docs = "docs/reference.md#owned-resources",
 }, {
     code = "NUPP2801",
     summary = "A derive provider name is unknown or duplicated",

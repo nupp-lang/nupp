@@ -234,18 +234,19 @@ in module resolution, no translator subcommand, no `.tl` build input mode.
 
 ## Diagnostics
 
-- [ ] **Grow the worked examples in `explain.nupp`.** Forty codes now have
-      dedicated entries and thirty-two have a `wrong`/`right` pair; every other
+- [x] **Grow the worked examples in `explain.nupp`.** Forty-five codes had
+      dedicated entries and thirty-five had a `wrong`/`right` pair; every other
       code answers through its family, which states the rule but cannot show
       the mistake. Two things lean on that table: `nupp explain` is the
       retrieval path a reader reaches from a diagnostic's `docs` anchor, and
       `nupp reference` lists the codes an example can say more about. Both get
       better per entry added, and `tests/explaintest.lua` compiles each pair, so
-      an entry cannot be added wrongly. The eleven the reference cites and
-      cannot yet expand are
+      an entry cannot be added wrongly. The ten live codes the reference cited
+      and could not expand were
       NUPP2002, NUPP2101, NUPP2108, NUPP2118, NUPP2120, NUPP2203, NUPP2504,
-      NUPP2506, NUPP2603, NUPP2610 and NUPP2615: a reader is pointed at those
-      having just met the construct, so they are worth the most per entry.
+      NUPP2506, NUPP2603 and NUPP2615: a reader is pointed at those having just
+      met the construct, so they are worth the most per entry. NUPP2610 is now
+      reserved in `plans/with.md` and is neither emitted nor cited.
 
 ## Formatting
 
