@@ -124,42 +124,34 @@ work makes sense in.
 
 ## Build, codegen and distribution
 
-- [ ] **`nupp doc` picks between two docs targets by hash order.** With no
-      top-level `docs` table, `manifestSettings` returns the first
-      `kind = "docs"` target `pairs()` reaches
-      (`src/nupp/compiler/doc/init.nupp:845`), and `pairs()` does not promise an order.
-      Two targets named `alpha` and `zulu` sent five consecutive runs to
-      `out-zulu`, `out-alpha`, `out-zulu`, `out-alpha`, `out-alpha`. The
-      command has no `--target`, so there is no way to say which was meant
-      either. Either sort and take the first, prefer `build.default` when it
-      names a docs target, or refuse and ask — but not this.
-- [ ] **An unknown key in most of the manifest is still ignored.** Closed key
-      sets cover the docs target, its diagnostics page, its pages, hero
-      actions, features, tasks, and `config.fmt`
-      (`src/nupp/compiler/build/manifest.nupp:197-211,451`).
-      Everywhere else — top level, module targets, dependencies — a typo is
-      silently accepted. The docs target got the closed set because the
-      generator reads keys the build's validation knows nothing about; the
-      argument is weaker elsewhere, but "this configures nothing" is worth
-      saying wherever it is true. `strict` and `lints` show the shape of the
-      answer: both are checked by name, and a manifest still carrying `strict`
-      is refused outright with what replaced it
-      (`src/nupp/compiler/build/manifest.nupp:462`).
+- [x] **`nupp doc` no longer picks a docs target by hash order.**
+      `manifestSettings` takes the requested target, then the one
+      `build.default` names, then the only one there is, and otherwise says
+      which are configured instead of choosing. `nupp doc --target NAME` names
+      one, the way `nupp build --target` does.
+- [x] **An unknown key anywhere in the manifest is refused.** Closed key sets
+      now cover the top level, the build section, every non-docs target,
+      `test`, `tasks`, `selfHost`, and each dependency against what its own
+      provider reads, alongside the docs target's own. Underscored keys stay
+      allowed: the build folds a command's options into the config it hashes,
+      so a hand-written manifest is not the only table the checks see.
 - [ ] **Single-binary host.** LuaJIT, lua-cjson and luautf8 are pinned by
       revision and SHA-256 and built from source by `host/build.rs`, not
       committed. LPeg is no longer a host C dependency; the compatible runtime
       is generated Lua. `cjson`/`cjson.safe` are registered in
       `package.preload`; the binary container, trailer, stamping, pinned
       revision metadata, and a compiler-built current-platform `stub = "nupp"`
-      are implemented. What remains:
+      are implemented. Their MIT notices ship in `host/NOTICE.md` and
+      `host/notices/`, and the build fails when a committed copy stops
+      matching the archive it just verified. `tests/hostbinarytest.lua`
+      damages a stamped binary twenty ways, feeds its language server nine
+      malformed sessions, and replays a recorded editor session through it
+      against the same session through `bin/nupp`. What remains:
   - [ ] decide whether pinned-and-fetched is enough or the sources should be
         vendored in-tree; a build still needs `curl` and the network, which a
         vendored tree would not
   - [ ] strict JSON numbers and explicit empty array/object semantics are set
         per call site on the Nupp side, not in the host
-  - [ ] malformed-input fuzzing and replay through a stamped host binary;
-        framed stdio and recorded-session LSP replay already have coverage
-  - [ ] dependency MIT license notices in `host/`
   - [ ] cross-target stub selection and shipped per-platform stubs; a binary
         target still has no target list or cross-build selection
 - [ ] Hot-reload typing; the `nupp-cargo` Rust helper.
