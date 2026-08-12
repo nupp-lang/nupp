@@ -492,6 +492,16 @@ function M.stringFormatDerivesArgumentsFromLiteralFormats()
       "NUPP2006", "argument 1: string is not a number")
 end
 
+function M.luaFormatParserUsesThePegRuntime()
+   local luaFormat = require("nupp.compiler.LuaFormat")
+   local kinds, why = luaFormat.argumentKinds("%-+#09.2f %q %% %d")
+   assertEq(why, nil)
+   assertEq(table.concat(kinds or {}, ","), "number,any,number")
+   local missing, invalid = luaFormat.argumentKinds("%..f")
+   assertEq(missing, nil)
+   assertEq(invalid, 'invalid string.format directive starting at "%..f"')
+end
+
 function M.luaPatternsDeriveLiteralCaptureResults()
    clean(table.concat({
       "local whole: string? = string.match('name=42', '[a-z]+=%d+')",

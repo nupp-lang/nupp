@@ -2511,6 +2511,25 @@ local function __NuppFormatArguments(Format: type): typepack
     if info.kind ~= "literal" or type(info.value) ~= "string" then
         return nupp.types.pack({}, nupp.types.any)
     end
+    -- The current compiler supplies a PEG-backed parser here. The fallback keeps the
+    -- preceding compiler able to bootstrap this declaration before it learns that
+    -- comptime operation.
+    local parse = nupp.types.formatArguments
+    if parse then
+        local parsed = parse(info.value)
+        if parsed.error then
+            return nupp.types.error(parsed.error)
+        end
+        local arguments = {}
+        for _, kind in ipairs(parsed.arguments) do
+            if kind == "number" then
+                arguments[#arguments + 1] = nupp.types.number
+            else
+                arguments[#arguments + 1] = nupp.types.any
+            end
+        end
+        return nupp.types.pack(arguments)
+    end
     local format = info.value
     local arguments = {}
     local index = 1
@@ -2575,7 +2594,6 @@ local function __NuppFormatArguments(Format: type): typepack
             end
         end
     end
-
     return nupp.types.pack(arguments)
 end
 

@@ -155,7 +155,7 @@ reported as `have different const argument 1`.
 
 ## `string.format`
 
-The prelude types `string.format` with a comptime scanner. Literal formats get
+The prelude types `string.format` with a PEG-backed comptime parser. Literal formats get
 exact argument arity and conversion checks; a broad runtime `string` retains a
 gradual `...any` tail.
 

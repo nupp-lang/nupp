@@ -8,6 +8,9 @@ the finalized graph through `nupp.compiler.typeblueprint`.
 
 local hash = require("nupp.compiler.build.hash")
 local stable = require("nupp.compiler.build.cache").stable
+local luaFormat = require("nupp.compiler.LuaFormat") as {
+    argumentKinds: function(string): ({string}?, string?)
+}
 
 type typeprovider.Failure = {
     readonly code: string,
@@ -497,6 +500,14 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
             return nil, failure("NUPP2415", "nupp.types.error needs a string message")
         end
         return nil, failure("NUPP2420", args[1])
+    end)
+
+    installIntrinsic(state, library, "formatArguments", function(_, args)
+        if type(args[1]) ~= "string" then
+            return {arguments = {},}
+        end
+        local arguments, why = luaFormat.argumentKinds(args[1])
+        return {arguments = arguments or {}, error = why,}
     end)
 
     env.nupp = env.nupp or {}

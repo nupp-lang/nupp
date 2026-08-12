@@ -1,0 +1,64 @@
+--[[
+LuaJIT format-directive analysis, parsed by Nupp's own PEG implementation.
+
+The returned tags are deliberately plain data so comptime type functions can decide
+which type each directive consumes without a `string.format` checker special case.
+]]
+
+local stdlib = require("nupp.compiler.stdlib")
+
+local record luaFormat
+    argumentKinds: function(string): ({string}?, string?)
+end
+
+local matcher: any
+
+local function parser()
+    if matcher then
+        return matcher
+    end
+
+    local sandbox = {}
+    sandbox._G = sandbox
+    setmetatable(sandbox, {__index = _G})
+    local source = stdlib.bootstrap({["stdlib.peg.compile"] = true})
+    local chunk, why = loadstring(source, "=nupp compiler Lua-format PEG")
+    assert(chunk, why)
+    setfenv(chunk, sandbox)
+    chunk()
+    matcher = sandbox.nupp.peg.compile([[
+        start <- {| (escaped / directive / malformed / ordinary)* |} !.
+        escaped <- '%%'
+        directive <- {| '%' { [-+ #0]* } { [0-9]* } { '.' [0-9]* / '' } { [aAcdiouxXeEfgGpqs] } |}
+        malformed <- { '%' (!'%' .)* }
+        ordinary <- !'%' .
+    ]], {backend = "vm"})
+
+    return matcher
+end
+
+function luaFormat.argumentKinds(format: string): ({string}?, string?)
+    local tokens = parser():match(format)
+    if not tokens then
+        return nil, "invalid string.format directive"
+    end
+
+    local kinds = {}
+    for _, token in ipairs(tokens) do
+        if type(token) ~= "table" then
+            return nil, 'invalid string.format directive starting at "' .. tostring(token) .. '"'
+        end
+        local flags, width, precision, conversion = token[1], token[2], token[3], token[4]
+        if #width > 2 then
+            return nil, 'invalid string.format directive starting at "%' .. flags .. width:sub(1, 3) .. '"'
+        end
+        if #precision > 3 then
+            return nil, 'invalid string.format directive starting at "%' .. flags .. width .. precision:sub(1, 4) .. '"'
+        end
+        kinds[#kinds + 1] = string.find("aAcdiouxXeEfgG", conversion, 1, true) and "number" or "any"
+    end
+
+    return kinds
+end
+
+return luaFormat
