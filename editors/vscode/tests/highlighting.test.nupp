@@ -280,16 +280,12 @@ local type Events<T> = {
 --                                                     ^^^^^^^^ storage.type.function.nupp
 }
 
-local type First<T> = match each T
---                    ^^^^^ keyword.control.nupp
---                          ^^^^ keyword.control.nupp
-   when {infer Item} then Item
--- ^^^^ keyword.control.nupp
---       ^^^^^ keyword.control.nupp
---                   ^^^^ keyword.control.nupp
-   else typeerror<"expected a list">
--- ^^^^ keyword.control.nupp
---      ^^^^^^^^^ keyword.operator.nupp
+@comptime
+-- <- storage.modifier.directive.nupp
+local function First(T: type): type
+--    ^^^^^^^^ storage.type.function.nupp
+   local elements = nupp.types.elements(T)
+   return elements[1]
 end
 
 local function forward<A..., const Format: string>(format: Format, ...: unpackof Arguments<Format>): unpackof Results<Format>

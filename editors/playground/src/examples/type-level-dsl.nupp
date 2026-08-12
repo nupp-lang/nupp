@@ -1,12 +1,21 @@
--- A recursive type can parse a literal and turn it into a function signature.
+-- A comptime type function can parse a literal and build a function signature.
 -- This tiny DSL expands a binary string into exact integer digit types:
--- Binary<"1101"> becomes the tuple {1, 1, 0, 1} while the file is checked.
+-- Binary("1101") becomes the pack (1, 1, 0, 1) while the file is checked.
 
-local type Binary<Source> = match Source
-    when "" then {never}
-    when `0${infer Rest}` then {0, unpackof Binary<Rest>}
-    when `1${infer Rest}` then {1, unpackof Binary<Rest>}
-    else typeerror<`expected binary digits, got ${Source}`>
+@comptime
+local function Binary(Source: string): typepack
+    local digits = {}
+    for index = 1, #Source do
+        local digit = Source:sub(index, index)
+        if digit == "0" then
+            digits[#digits + 1] = nupp.types.literal(0)
+        elseif digit == "1" then
+            digits[#digits + 1] = nupp.types.literal(1)
+        else
+            return nupp.types.error("expected binary digits, got " .. Source)
+        end
+    end
+    return nupp.types.pack(digits)
 end
 
 -- The first argument is a compile-time-known string. `unpackof` turns the
@@ -14,7 +23,7 @@ end
 -- checker requires the caller to supply exactly those integer digits.
 local function decimal<const Source: string>(
     source: Source,
-    ...: unpackof Binary<Source>
+    ...: unpackof Binary(Source)
 ): number
     local value = 0
     for index = 1, select("#", ...) do
