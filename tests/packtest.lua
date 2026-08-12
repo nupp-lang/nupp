@@ -106,19 +106,6 @@ function M.nominalsAcceptOpenPackArguments()
    }, "\n"))
 end
 
-function M.nominalPackPatternsInferTheCompletePack()
-   clean(table.concat({
-      "local interface Source<R...>",
-      "   read: function(self): R...",
-      "end",
-      "local type Reader<T> = match T",
-      "   when Source<infer R...> then function(): R...",
-      "   else never end",
-      "local reader: Reader<Source<(string, integer)>> =",
-      "   function(): (string, integer) return 'one', 1 end",
-   }, "\n"))
-end
-
 function M.packBinderPlacementAndPackPositionsAreChecked()
    assertEq(codes("local function bad<A..., T>(x: T) end"), "NUPP2121")
    assertEq(codes("local value: (number, string)"), "NUPP2121")

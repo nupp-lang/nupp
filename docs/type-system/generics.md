@@ -49,24 +49,23 @@ correlation, and ownership rules.
 A computed tuple or array can supply a pack tail with `unpackof`:
 
 ```nupp
-local type Arguments<Kind> = match Kind when 'pair' then {string, number} when 'flag' then {boolean,} else any
+@comptime
+local function Arguments(Kind: type): typepack
+    local info = nupp.types.describe(Kind)
+    if info.kind == "literal" and info.value == "pair" then
+        return nupp.types.pack({nupp.types.string, nupp.types.number})
+    elseif info.kind == "literal" and info.value == "flag" then
+        return nupp.types.pack({nupp.types.boolean})
+    end
+    return nupp.types.pack({}, nupp.types.any)
 end
 
-local function apply<Kind is string>(kind: Kind, ...: unpackof Arguments<Kind>): string
+local function apply<Kind is string>(kind: Kind, ...: unpackof Arguments(Kind)): string
     return kind
 end
 
 apply('pair', 'x', 1)
 apply('flag', true)
-```
-
-The inverse operation is available in tuple match patterns. A final
-`unpackof infer Tail` captures every slot after the fixed prefix, preserving a
-heterogeneous tuple (and binding `{never}` when that suffix is empty):
-
-```nupp
-local type DropFirst<Values> = match Values when {infer _, unpackof infer Tail} then Tail else never
-end
 ```
 
 Expansion happens after inference and finite type reduction. A tuple contributes
@@ -75,19 +74,21 @@ result becomes `...any`. The trailing comma distinguishes the one-slot tuple
 `{T,}` from the array `{T}`. A concrete result of any other shape is rejected at
 the call.
 
-Computed tuples can be assembled recursively with the same operator inside a
-tuple: `{Head, unpackof Tail}`. When `Tail` reduces to a tuple, its slots are
-appended; `{never}`, the array that cannot contain an element, contributes zero
-slots. This permits a recursive reducer to build a parameter list without an
-arbitrary arity ladder.
+Computed tuples can be assembled with the same operator inside a tuple:
+`{Head, unpackof Tail}`. When `Tail` reduces to a tuple, its slots are appended;
+`{never}`, the array that cannot contain an element, contributes zero slots.
 
-`typeerror<Message>` is the failure result for a type-level computation. Its
-message must become concrete before a consumer such as `unpackof` needs the
-result. The consumer reports that message directly instead of exposing the
-intermediate type used to carry it:
+A comptime type function can instead construct and inspect complete packs.
+`nupp.types.error(message)` rejects a computed contract with an authored
+diagnostic:
 
 ```nupp
-local type Checked<T> = match T when string then {T,} else typeerror<`expected string, got ${T}`>
+@comptime
+local function Checked(T: type): typepack
+    if T == nupp.types.string then
+        return nupp.types.pack({T})
+    end
+    return nupp.types.error("expected string")
 end
 ```
 

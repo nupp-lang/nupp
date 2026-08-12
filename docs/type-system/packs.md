@@ -86,17 +86,15 @@ index retains a homogeneous union of possible elements. `unpack` returns exact
 slots for a tuple table and a homogeneous tail for an array, with constant
 bounds producing an exact slice.
 
-`unpackof` also works in the final position of a tuple match pattern. It is the
-destructuring counterpart to tuple construction:
+`unpackof` also appends a computed tuple or array in the final position of a
+tuple construction:
 
 ```nupp
 local type Prepend<Value, Values> = {Value, unpackof Values}
-local type Tail<Values> = match Values when {infer _, unpackof infer Rest} then Rest else never
-end
 ```
 
-For a one-slot tuple, `Rest` binds to `{never}` rather than `never` or `any`, so
-the captured tail can be fed directly to another `unpackof` or recursive alias.
+Algorithms that inspect or transform a complete pack use an `@comptime`
+function with `typepack` parameters and the `nupp.types` pack API.
 
 ## Coroutine protocols
 

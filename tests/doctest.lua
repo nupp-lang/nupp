@@ -1138,7 +1138,7 @@ function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
       "@!internal",
       "local type Events<T> = {readonly [K in keyof T as `${K}Changed`]: nosuspend function(value: T.[K]): nil}",
       "local type Writable<T> = {writeonly [K in writekeyof T]: writeof T.[K]}",
-      "local type First<T> = match each T when {infer Item} then Item else typeerror<\"expected list\"> end",
+      "local type First<T> = T.[1]",
       "local function worker<P..., const Format: string>(...: unpackof Arguments<Format>): unpackof Results<Format>",
       "   yields (number) resumes (boolean)",
       "   return new Factory(count = 1_000)",
@@ -1153,8 +1153,7 @@ function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
    }, "\n"), "nupp"))
    assert(html:find("nuppdoc-token-meta", 1, true), html)
    for _, keyword in ipairs({
-      "each", "handle", "infer", "keyof", "match",
-      "preserves", "scoped", "suspension", "typeerror", "unpackof", "when", "with",
+      "handle", "keyof", "preserves", "scoped", "suspension", "unpackof", "with",
       "writekeyof", "writeof",
    }) do
       assert(html:find("keyword-" .. keyword, 1, true), html)

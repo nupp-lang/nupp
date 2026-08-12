@@ -237,37 +237,34 @@ Reports: `NUPP2101`, `NUPP2131`. `nupp explain <code>` says more.
 `writeof T.[K]` project their value types. A readonly or writeonly mapped shape
 iterates finite literal keys and may remap them with `as`.
 
-`match` selects the first decidable pattern; `match each` is the only form that
-distributes over a union. `infer` bindings belong to one arm. Backtick template
-types concatenate finite string literal sets and split literal strings at
-unambiguous separators in a match pattern. Function patterns may capture their
-parameter and result packs with `function(infer A...): infer R...`.
+Backtick template types concatenate finite string literal sets. Const parameters,
+associated-type projections, and `unpackof` remain direct finite operators.
 
-A final tuple pattern tail, `{infer Head, unpackof infer Tail}`, binds the fixed
-prefix and remaining tuple. An empty `Tail` is `{never}`.
-
-A generic alias may refer directly to itself beneath a match result. Reduction
-is memoized and bounded; an unconditional reference, mutual recursion, an
-identical active application, or an exhausted recursive budget is NUPP2133.
+Algorithms use ordinary Nupp in an `@comptime` function. Parameters and results
+may be compiler-only `type` or `typepack` handles. `nupp.types` inspects immutable
+type semantics and constructs validated structural results; it cannot create a
+record, interface, name, method, or other declaration. Calls use parentheses in
+type position and erase completely from generated Lua.
 
 ```nupp
 local m = {}
 
 local type Events<T> = {readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil}
 
-local type Element<T> = match T when {infer Item} then Item else T
-end
-
-local type DeepElement<T> = match T when {infer Item} then DeepElement<Item> else T
+@comptime
+local function DeepElement(T: type): type
+    while nupp.types.kind(T) == "array" do
+        T = nupp.types.elements(T)[1]
+    end
+    return T
 end
 
 local events: Events<{
     name: string
 }> = nil as any
 local callback: function(value: string): nil = events.nameChanged
-local element: Element<{integer}> = 1
 local deep: DeepElement<{{integer}}> = 1
-print(callback, element, deep)
+print(callback, deep)
 
 return m
 ```
@@ -290,9 +287,9 @@ value. The explicit `...value` field projection described above is resolved
 before that adjustment.
 
 Inside a computed tuple, `{Head, unpackof Tail}` appends the tuple produced by
-`Tail`; an array of `never` contributes no slots. `typeerror<Message>` carries a
-deliberate failure out of a reducer. When `unpackof` needs that result, it
-reports the authored message directly.
+`Tail`; an array of `never` contributes no slots. A comptime function returning
+`typepack` can construct a complete pack through `nupp.types.pack`, and
+`nupp.types.error(message)` deliberately rejects a computed contract.
 
 Whole-pack unions preserve relationships between results. This is why testing
 the boolean returned by `pcall` narrows its sibling values to the callback's
@@ -1321,7 +1318,7 @@ return m
 ```
 
 Reports: `NUPP2410`, `NUPP2411`, `NUPP2412`, `NUPP2413`, `NUPP2414`, `NUPP2415`,
-`NUPP2416`, `NUPP2419`. `nupp explain <code>` says more.
+`NUPP2416`, `NUPP2419`, `NUPP2420`, `NUPP2421`. `nupp explain <code>` says more.
 
 ### PEG matchers
 
@@ -1579,7 +1576,7 @@ says more.
 - **NUPP2128**: An associated type member cannot mean anything where it is
   written.
 - **NUPP2129**: An associated type collides with another type member.
-- **NUPP2133**: A recursive type alias is unsafe or exceeds its budget.
+- **NUPP2133**: A recursive type alias is not supported.
 - **NUPP2134**: A projection names something that cannot be projected.
 - **NUPP2135**: An associated type answers through itself.
 - **NUPP2202**: A declaration is built with 'new'.

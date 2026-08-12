@@ -383,8 +383,6 @@ primtype       = ["const"] primtype              ; read-only view [CS-15]
                / %s"keyof" primtype
                / %s"writekeyof" primtype
                / %s"writeof" posttype
-               / typeerror
-               / typematch
                / templatetype
                / LiteralString                  ; a literal type: the set
                                                 ; containing just that value
@@ -394,7 +392,7 @@ primtype       = ["const"] primtype              ; read-only view [CS-15]
                / functype
                / "(" type ")"
 typename       = Name *("." Name) ["<" typearg *("," typearg) ">"]
-typeerror      = %s"typeerror" "<" type ">"
+                 ["(" [type *("," type)] ")"] ; checked @comptime type call [CS-24]
 typearg        = type / typepack                 ; packs only where accepted [CS-21]
 tabletype      = "{" tablebody "}"
 tablebody      = mappedfield
@@ -410,10 +408,6 @@ tupleitems     = %s"unpackof" type
 shapefield     = [propertycap] Name ":" type
 indexer        = [propertycap] "[" type "]" ":" type
 mappedfield    = propertycap "[" Name %s"in" type [%s"as" type] "]" ":" type
-typematch      = %s"match" [%s"each"] type
-                 1*(%s"when" typepattern %s"then" type)
-                 [%s"else" type] %s"end"
-typepattern    = type                           ; `infer Name` is contextual here
 templatetype   = istringOpen type *(istringMid type) istringClose
 functype       = "function" [generics] "(" [ftparams] ")"
                  [":" typepack] [coroutineprotocol]
@@ -621,6 +615,12 @@ packunion      = typepack 1*("|" typepack)
 ;   intersections describe overload sets. Directly after a function type's
 ;   return pack, `& function` starts the enclosing callable intersection; a
 ;   return type that itself intersects a function is parenthesized.
+;
+; [CS-24] Type-function calls. Parentheses after a name in type position call a
+;   checked `@comptime` function whose result is `type` or `typepack`. Its
+;   checked parameter kinds decide whether each syntactic argument denotes a
+;   type, pack, or compile-time scalar. Angle brackets remain generic
+;   declaration application.
 ;
 ; Associativity summary: "..", "^", and the ternary condexp are right-
 ; associative; every other binary layer is left-associative. Precedence from

@@ -971,8 +971,11 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
                 local failure
                 local evaluated: Type | T.Pack | nil
                 evaluated, failure = budget.control.evaluateTypeFunction(t.comptimeHelper, arguments)
-                if evaluated then out = evaluated.tag == "pack" and T.packResult(evaluated) or evaluated end
-                if not out then err = failure and failure.message or tostring(failure or "type-function evaluation failed") end
+                if evaluated then
+                    out = evaluated.tag == "pack" and T.packResult(evaluated) or evaluated
+                else
+                    err = failure and failure.message or tostring(failure or "type-function evaluation failed")
+                end
                 if not err and out and not t.comptimeResultPack and t.comptimeBound then
                     local relations = require("nupp.compiler.relations") as {
                         isA: function(Type, Type): (boolean, string?)

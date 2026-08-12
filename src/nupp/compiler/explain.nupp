@@ -537,19 +537,20 @@ local ENTRIES: {
     docs = "docs/type-system/associated-types.md",
 }, {
     code = "NUPP2133",
-    summary = "A recursive type alias is unsafe or exceeds its budget",
-    rule = "A generic alias may refer directly to itself only beneath a match "
-    .. "result. Each application is memoized by its canonical arguments. "
-    .. "Unconditional and mutual recursion are rejected; repeating an active "
-    .. "application or exhausting a deterministic reducer budget reports the "
-    .. "bounded expansion trace.",
+    summary = "A recursive type alias is not supported",
+    rule = "Type aliases describe finite type expressions and cannot refer to "
+    .. "themselves, directly or mutually. Write an ordinary recursive "
+    .. "@comptime helper that returns type or typepack when the computation "
+    .. "needs control flow.",
     wrong = "local type Loop<T> = Loop<T>\nreturn Loop\n",
-    right = "local type DeepElement<T> = match T\n"
-    .. "    when {infer Item} then DeepElement<Item>\n"
-    .. "    else T\nend\n"
-    .. "local value: DeepElement<{{integer}}> = 1\nreturn value\n",
+    right = "@comptime\nlocal function DeepElement(T: type): type\n"
+    .. "    while nupp.types.kind(T) == 'array' do\n"
+    .. "        T = nupp.types.elements(T)[1]\n"
+    .. "    end\n"
+    .. "    return T\nend\n"
+    .. "local value: DeepElement({{integer}}) = 1\nreturn value\n",
     related = {"NUPP2130", "NUPP2132"},
-    docs = "docs/type-system/type-level-computation.md#guarded-recursive-aliases",
+    docs = "docs/type-system/type-level-computation.md#closed-and-generic-calls",
 }, {
     code = "NUPP2202",
     summary = "A declaration is built with 'new'",

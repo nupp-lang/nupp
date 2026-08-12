@@ -44,7 +44,10 @@ local function oneDiagnostic(source, code, message)
    local found = diagnostics(source)
    assertEq(#found, 1, "one diagnostic for:\n" .. source)
    assertEq(found[1].code, code)
-   assertEq(found[1].msg, message)
+   if found[1].msg ~= message
+      and not found[1].msg:match("^" .. message:gsub("([^%w])", "%%%1") .. "\n  called ") then
+      assertEq(found[1].msg, message)
+   end
 end
 
 local function typeDump(typeSource)
@@ -288,8 +291,6 @@ function M.finiteTypeOperatorSyntaxRoundTrips()
          .. "(tpack unpackof (tname Args < (tname F) >))) ) : (tname string))")
    dump = typeDump("{string, unpackof Tail}")
    assertEq(dump, "(ttuple { (tname string) , unpackof (tname Tail) })")
-   dump = typeDump("typeerror<'broken'>")
-   assertEq(dump, "(ttypeerror typeerror < (tliteral 'broken') >)")
 end
 
 function M.computedPackSyntaxFormatsIdempotently()
@@ -298,7 +299,6 @@ function M.computedPackSyntaxFormatsIdempotently()
       "end",
       "local value:{string,}",
       "local type More<T> = {string,unpackof T}",
-      "local type Failure = typeerror<\"broken\">",
    }, "\n")
    local once, errors = fmt.format(source)
    assertEq(#errors, 0)
@@ -308,7 +308,6 @@ function M.computedPackSyntaxFormatsIdempotently()
       "",
       "local value: {string,}",
       "local type More<T> = {string, unpackof T}",
-      "local type Failure = typeerror<\"broken\">",
    }, "\n") .. "\n")
    local twice, again = fmt.format(once)
    assertEq(#again, 0)
@@ -346,67 +345,7 @@ function M.broadAndMissingMemberReductionsReportLocally()
    assertEq(codes("local value: {name: string}.['missing']"), "NUPP2130")
 end
 
-function M.recursiveAliasesMustBeGuardedByAMatchArm()
-   assertEq(codes("local type Loop<T> = Loop<T>"), "NUPP2133")
-   local scrutinee = diagnostics(table.concat({
-      "local type Loop<T> = match Loop<T>",
-      "   when infer X then X else T end",
-   }, "\n"))
-   assertEq(scrutinee[1] and scrutinee[1].code, "NUPP2133")
-   local mappedKey = diagnostics(table.concat({
-      "local type Loop<T> = match T when infer X then",
-      "   {readonly [K in Loop<X>]: string} else T end",
-   }, "\n"))
-   local foundRecursive = false
-   for _, diagnostic in ipairs(mappedKey) do
-      foundRecursive = foundRecursive or diagnostic.code == "NUPP2133"
-   end
-   assert(foundRecursive, "a recursive mapped key reports the recursive rule")
-end
-
-function M.guardedRecursiveAliasesParseRoutesAndNestedContainers()
-   clean(table.concat({
-      "local type Segment<S> = match S",
-      "   when `:${infer Name}` then {readonly [K in Name]: string}",
-      "   else {readonly [K in never]: string} end",
-      "local type RouteParameters<Path> = match Path",
-      "   when `${infer Head}/${infer Tail}` then",
-      "      Segment<Head> & RouteParameters<Tail>",
-      "   else Segment<Path> end",
-      "local params: RouteParameters<'users/:user/posts/:post'> =",
-      "   {user = 'ada', post = 'hello'}",
-      "local user: string = params.user",
-      "local post: string = params.post",
-      "local type DeepElement<T> = match T",
-      "   when {infer Item} then DeepElement<Item>",
-      "   else T end",
-      "local element: DeepElement<{{{integer}}}> = 42",
-   }, "\n"))
-end
-
-function M.recursiveAliasCyclesAndMutualRecursionReportDedicatedErrors()
-   local cycleSource = table.concat({
-      "local type Loop<T> = match T when infer X then Loop<X> end",
-      "local value: Loop<string>",
-   }, "\n")
-   assertEq(codes(cycleSource), "NUPP2133")
-   local cycle = diagnostics(cycleSource)[1]
-   assert(cycle.msg:find("expansion:", 1, true), "cycle carries a bounded expansion trace")
-   assertEq(codes(table.concat({
-      "local type Left<T> = match T when infer X then Right<X> end",
-      "local type Right<T> = match T when infer X then Left<X> end",
-   }, "\n")), "NUPP2133")
-end
-
-function M.recursiveAliasDepthAndReducerCancellationAreBounded()
-   local nested = "integer"
-   for _ = 1, 130 do nested = "{" .. nested .. "}" end
-   assertEq(codes(table.concat({
-      "local type DeepElement<T> = match T",
-      "   when {infer Item} then DeepElement<Item> else T end",
-      "local value: DeepElement<" .. nested .. ">",
-   }, "\n")), "NUPP2133")
-
+function M.finiteReducerCancellationIsBounded()
    local deep = types.string
    for _ = 1, 40 do deep = types.array(deep) end
    local polls = 0
@@ -458,95 +397,18 @@ function M.numericLiteralAndMemberIndexSyntaxStayDistinct()
    }, "\n"))
 end
 
-function M.finiteMatchesInferStructureAndDistributeOnlyExplicitly()
-   clean(table.concat({
-      "local type Element<T> = match T when {infer Item} then Item else T end",
-      "local item: Element<{string}> = 'value'",
-      "local type NonNil<T> = match each T when nil then never else T end",
-      "local present: NonNil<string | nil> = 'yes'",
-      "local type Whole<T> = match T when nil then never else T end",
-      "local whole: Whole<string | nil> = nil",
-   }, "\n"))
-end
-
-function M.tupleTailPatternsDestructureComputedSequences()
-   clean(table.concat({
-      "local type Concat<Left, Right> = match Left",
-      "   when {infer Head, unpackof infer Tail} then",
-      "      {Head, unpackof Concat<Tail, Right>}",
-      "   when {never} then Right",
-      "   else any end",
-      "local type Tail<Tuple> = match Tuple",
-      "   when {infer _, unpackof infer Rest} then Rest",
-      "   else never end",
-      "local type HasTwo<Tuple> = match Tuple",
-      "   when {infer _, infer _, unpackof infer _} then true",
-      "   else false end",
-      "local joined: Concat<{string, integer}, {boolean,}> =",
-      "   nil as {string, integer, boolean}",
-      "local rest: Tail<{string, integer, boolean}> = nil as {integer, boolean}",
-      "local empty: Tail<{string,}> = {}",
-      "local enough: HasTwo<{string, integer}> = true",
-      "local short: HasTwo<{string,}> = false",
-      "print(joined, rest, empty, enough, short)",
-   }, "\n"))
-   assertEq(codes(table.concat({
-      "local type Tail<Tuple> = match Tuple",
-      "   when {infer _, unpackof infer Rest} then Rest else never end",
-      "local wrong: Tail<{string, integer, boolean}> = {true}",
-   }, "\n")), "NUPP2001")
-end
-
-function M.finitePatternsCoverThePublicStructuralForms()
-   clean(table.concat({
-      "local record Box<T> value: T end",
-      "local type First<T> = match T when {infer A, infer B} then A end",
-      "local type Value<T> = match T when {[infer K]: infer V} then V end",
-      "local type Pointee<T> = match T when infer Item* then Item end",
-      "local type Fixed<T> = match T when infer Item[16] then Item end",
-      "local type Mutable<T> = match T when const infer Item then Item end",
-      "local type Unbox<T> = match T when Box<infer Item> then Item end",
-      "local type Result<T> = match T when function(infer A): infer R then R end",
-      "local first: First<{string, integer}> = 'x'",
-      "local value: Value<{[string]: integer}> = 1",
-      "local pointee: Pointee<float*> = 1.0",
-      "local fixed: Fixed<float[16]> = 1.0",
-      "local mutable: Mutable<const {name: string}> = {name = 'x'}",
-      "local unboxed: Unbox<Box<string>> = 'x'",
-      "local result: Result<function(string): integer> = 1",
-   }, "\n"))
-   assertEq(codes(table.concat({
-      "local type Same<T> = match T when {infer X, infer X} then X end",
-      "local impossible: Same<{string, integer}> = 'x'",
-   }, "\n")), "NUPP2001")
-end
-
-function M.functionPatternsInferParameterAndResultPacks()
-   clean(table.concat({
-      "local type Signature<T> = match T",
-      "   when function(infer A...): infer R... then function(A...): R... end",
-      "local mirrored: Signature<function(string, integer): (boolean, string)> = nil as any",
-      "local expected: function(string, integer): (boolean, string) = mirrored",
-      "local type SamePacks<T> = match T",
-      "   when function(infer A...): infer A... then true else false end",
-      "local different: SamePacks<function(string): integer> = false",
-   }, "\n"))
-   assertEq(codes(table.concat({
-      "local type Signature<T> = match T",
-      "   when function(infer A...): infer R... then function(A...): R... end",
-      "local wrong: function(boolean): nil = nil as any",
-      "local bad: Signature<function(string): integer> = wrong",
-   }, "\n")), "NUPP2001")
-end
-
 function M.computedTypesExpandIntoCallablePacks()
    clean(table.concat({
-      "local type Args<F> = match F",
-      "   when 'pair' then {string, number}",
-      "   when 'one' then {boolean,}",
-      "   when 'many' then {integer}",
-      "   else any end",
-      "local function apply<F is string>(kind: F, ...: unpackof Args<F>): string",
+      "@comptime",
+      "local function Args(F: type): typepack",
+      "   local info = nupp.types.describe(F)",
+      "   if info.kind ~= 'literal' then return nupp.types.pack({}, nupp.types.any) end",
+      "   if info.value == 'pair' then return nupp.types.pack({nupp.types.string, nupp.types.number}) end",
+      "   if info.value == 'one' then return nupp.types.pack({nupp.types.boolean}) end",
+      "   if info.value == 'many' then return nupp.types.pack({}, nupp.types.integer) end",
+      "   return nupp.types.pack({}, nupp.types.any)",
+      "end",
+      "local function apply<F is string>(kind: F, ...: unpackof Args(F)): string",
       "   return kind end",
       "local pair: string = apply('pair', 'x', 1)",
       "local one: string = apply('one', true)",
@@ -556,8 +418,15 @@ function M.computedTypesExpandIntoCallablePacks()
       "print(pair, one, many, gradual)",
    }, "\n"))
    assertEq(codes(table.concat({
-      "local type Args<F> = match F when 'pair' then {string, number} else any end",
-      "local function apply<F is string>(kind: F, ...: unpackof Args<F>): nil end",
+      "@comptime",
+      "local function Args(F: type): typepack",
+      "   local info = nupp.types.describe(F)",
+      "   if info.kind == 'literal' and info.value == 'pair' then",
+      "      return nupp.types.pack({nupp.types.string, nupp.types.number})",
+      "   end",
+      "   return nupp.types.pack({}, nupp.types.any)",
+      "end",
+      "local function apply<F is string>(kind: F, ...: unpackof Args(F)): nil end",
       "apply('pair', 'x', 'wrong')",
    }, "\n")), "NUPP2006")
    assertEq(codes(table.concat({
@@ -569,10 +438,18 @@ function M.computedTypesExpandIntoCallablePacks()
       "local function apply(...: unpackof AddHead<{number, boolean}>): nil end",
       "apply('x', 1, true)",
    }, "\n"))
-   oneDiagnostic(table.concat({
-      "local function apply(...: unpackof typeerror<'computed contract failed'>): nil end",
+   local failure = diagnostics(table.concat({
+      "@comptime",
+      "local function Failure(): typepack",
+      "   return nupp.types.error('computed contract failed')",
+      "end",
+      "local function apply(...: unpackof Failure()): nil end",
       "apply()",
-   }, "\n"), "NUPP2006", "computed contract failed")
+   }, "\n"))
+   assertEq(#failure, 1, "one authored type-function diagnostic")
+   assertEq(failure[1].code, "NUPP2420")
+   assert(failure[1].msg:match("^computed contract failed"),
+      "the authored message begins the diagnostic")
 end
 
 function M.stringFormatDerivesArgumentsFromLiteralFormats()
@@ -619,9 +496,14 @@ function M.templateConstructionAndOneSegmentExtractionAreFinite()
    clean(table.concat({
       "local type Event<const Name: string> = `${Name}Changed`",
       "local event: Event<'ready'> = 'readyChanged'",
-      "local type Parameter<Path> =",
-      "   match Path when `${infer _}:${infer Name}` then Name else never end",
-      "local parameter: Parameter<'users:id'> = 'id'",
+      "@comptime",
+      "local function Parameter(Path: type): type",
+      "   local info = nupp.types.describe(Path)",
+      "   local name = info.kind == 'literal' and info.value:match(':(.+)$') or nil",
+      "   if name then return nupp.types.literal(name) end",
+      "   return nupp.types.never",
+      "end",
+      "local parameter: Parameter('users:id') = 'id'",
    }, "\n"))
 end
 
@@ -633,22 +515,34 @@ function M.mappedRemappingBuildsDependentEventAdapters()
       "local events: Events<{name: string, age: integer}> = nil as any",
       "local onName: function(value: string): nil = events.nameChanged",
       "local onAge: function(value: integer): nil = events.ageChanged",
-      "local type Public<T> = {readonly [K in keyof T as",
-      "   match K when 'password' then never else K end]: T.[K]}",
+      "@comptime",
+      "local function PublicKey(K: type): type",
+      "   local info = nupp.types.describe(K)",
+      "   if info.kind == 'literal' and info.value == 'password' then return nupp.types.never end",
+      "   return K",
+      "end",
+      "local type Public<T> = {readonly [K in keyof T as PublicKey(K)]: T.[K]}",
       "local public: Public<{name: string, password: string}> = {name = 'Ada'}",
       "local name: string = public.name",
    }, "\n"))
 end
 
-function M.templateAmbiguityAndRemapCollisionsReportAtTheOperator()
-   assertEq(codes(table.concat({
-      "local type Split<T> = match T",
-      "   when `${infer A}${infer B}` then A else never end",
-   }, "\n")), "NUPP2132")
+function M.remapCollisionsReportAtTheOperator()
    assertEq(codes(table.concat({
       "local type Collision<T> = {readonly [K in keyof T as 'same']: T.[K]}",
       "local collision: Collision<{a: string, b: integer}> = nil as any",
    }, "\n")), "NUPP2130")
+end
+
+function M.removedTypeProgrammingSyntaxHasNoSpecialCst()
+   local parsed = parser.parse("local value: typeerror<'broken'>", "removed.g.nupp")
+   assertEq(#parsed.errors, 0)
+   assert(not cst.dump(parsed.root):find("ttypeerror", 1, true),
+      "typeerror is now an ordinary generic type name")
+   local matched = parser.parse(
+      "local type Old<T> = match T when infer X then X end",
+      "removed.g.nupp")
+   assert(#matched.errors > 0, "type-level match and infer are no longer grammar")
 end
 
 function M.templateProductsHaveABoundedDiagnostic()
