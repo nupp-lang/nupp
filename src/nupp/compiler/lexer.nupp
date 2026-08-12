@@ -112,6 +112,15 @@ type lexer.Token = {
     --- editor can jump to it. Its shape belongs to the checker, not the lexer.
     definition: any,
 
+    --- Tooling-only migration detail inherited by the declaration definition.
+    deprecation: any,
+
+    --- Leading trivia owned by the @deprecated wrapper rather than its declaration.
+    deprecationTrivia: {lexer.Trivia}?,
+
+    --- The definition whose deprecation lint was already emitted at this token.
+    deprecationReported: any,
+
     --- Other declarations contributing the same composed intersection member.
     additionalDefinitions: {any}?,
 

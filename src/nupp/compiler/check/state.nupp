@@ -50,7 +50,8 @@ type state.Options = {[string]: any}
 type state.ModuleExports = {
     types: {[string]: Type},
     typeDefs: {[string]: any},
-    values: {[string]: Type}
+    values: {[string]: Type},
+    valueDefs: {[string]: any}
 }
 
 --- One thing to report about a file.
@@ -416,6 +417,10 @@ record state.Checker
     --- here rather than at the module's `return`, which is often lines away from the
     --- declaration a fix actually touches.
     moduleFieldTokens: {[string]: lexer.Token}
+
+    --- Declaration definitions for direct module members, kept beside their structural
+    --- field types because structural types deliberately carry no source provenance.
+    moduleFieldDefs: {[string]: any}
 
     --- Which direct module exports were established with `const M.field`.
     moduleFieldConst: {[string]: boolean}

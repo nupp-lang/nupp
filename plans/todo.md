@@ -236,17 +236,6 @@ in module resolution, no translator subcommand, no `.tl` build input mode.
 
 ## Diagnostics
 
-- [ ] **`@deprecated` API metadata.** Allow functions, methods, fields, types,
-      and module members to name an optional reason and replacement. Report a
-      suppressible use-site lint; carry the metadata through module interfaces;
-      expose the LSP `deprecated` tag/modifier in completion, hover, and
-      semantic tokens; and render it in generated documentation. The annotation
-      affects tooling only and emits no runtime behavior. Nothing exists today.
-- [ ] **The `pedantic` category has no members**, so setting it in `nupp.lua`
-      moves nothing. (`style` has one now, `customary-operator`.)
-- [ ] **Report an `@allow` that silenced nothing**, so stale suppressions get
-      removed rather than accumulating. Nothing tracks whether a suppression
-      fired (`src/nupp/compiler/check/pragma.nupp:394`).
 - [ ] **Grow the worked examples in `explain.nupp`.** Forty codes now have
       dedicated entries and thirty-two have a `wrong`/`right` pair; every other
       code answers through its family, which states the rule but cannot show

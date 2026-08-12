@@ -889,7 +889,8 @@ function M.constEditorSemantics()
    local initialize = responseWithId(out, 1).result.capabilities
    local tokenTypes = initialize.semanticTokensProvider.legend.tokenTypes
    local modifiers = initialize.semanticTokensProvider.legend.tokenModifiers
-   assert(modifiers[1] == "declaration" and modifiers[2] == "readonly",
+   assert(modifiers[1] == "declaration" and modifiers[2] == "readonly"
+      and modifiers[3] == "deprecated",
       "const semantic modifier legend")
    local data = responseWithId(out, 11).result.data
    local line, character = 0, 0
@@ -907,6 +908,62 @@ function M.constEditorSemantics()
    assert(semanticAt["0:6"].modifiers == 3,
       "const declaration is declaration + readonly")
    assert(semanticAt["1:13"].modifiers == 2, "const use is readonly")
+end
+
+function M.deprecatedApisReachHoverCompletionAndSemanticTokens()
+   local uri = "file://" .. ROOT .. "/deprecated-demo.nupp"
+   local source = table.concat({
+      '@deprecated(reason = "kept for compatibility", replacement = "current")',
+      "local function legacy(): integer return 1 end",
+      "local value = legacy()",
+      "return value",
+   }, "\n") .. "\n"
+   local out = runSession({
+      { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
+      { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = { uri = uri, languageId = "nupp", version = 1,
+            text = source } } },
+      { jsonrpc = "2.0", id = 10, method = "textDocument/hover", params = {
+         textDocument = { uri = uri }, position = { line = 2, character = 16 },
+      } },
+      { jsonrpc = "2.0", id = 11, method = "textDocument/completion",
+        params = { textDocument = { uri = uri },
+           position = { line = 2, character = 14 } } },
+      { jsonrpc = "2.0", id = 12,
+        method = "textDocument/semanticTokens/full",
+        params = { textDocument = { uri = uri } } },
+      { jsonrpc = "2.0", id = 2, method = "shutdown" },
+      { jsonrpc = "2.0", method = "exit" },
+   })
+
+   local hover = responseWithId(out, 10).result
+   assertContains(hover.contents.value, "**Deprecated.** kept for compatibility",
+      "deprecated hover reason")
+   assertContains(hover.contents.value, "Use `current` instead.",
+      "deprecated hover replacement")
+
+   local legacy
+   for _, item in ipairs(responseWithId(out, 11).result) do
+      if item.label == "legacy" then legacy = item end
+   end
+   assert(legacy and legacy.tags and legacy.tags[1] == 1,
+      "completion carries CompletionItemTag.Deprecated")
+
+   local initialize = responseWithId(out, 1).result.capabilities
+   local modifiers = initialize.semanticTokensProvider.legend.tokenModifiers
+   assert(modifiers[3] == "deprecated", "deprecated semantic modifier legend")
+   local data = responseWithId(out, 12).result.data
+   local line, character = 0, 0
+   local semanticAt = {}
+   for index = 1, #data, 5 do
+      line = line + data[index]
+      character = data[index] == 0
+         and character + data[index + 1] or data[index + 1]
+      semanticAt[line .. ":" .. character] = data[index + 4]
+   end
+   assert(semanticAt["1:15"] == 5,
+      "deprecated declaration is declaration + deprecated")
+   assert(semanticAt["2:14"] == 4, "deprecated use has deprecated modifier")
 end
 
 function M.borrowReturnIsAKeyword()
@@ -1407,11 +1464,13 @@ function M.completionAfterAModuleDotOffersOnlyItsMembers()
    writeInto(projectDir, "util.nupp", table.concat({
       "local util = {}",
       "",
+      '@deprecated(replacement = "util.CurrentHandle")',
       "record util.Handle",
       "    id: uint32",
       "end",
       "",
       "--- Doubles a number.",
+      '@deprecated(reason = "use the precise operation", replacement = "util.preciseDouble")',
       "function util.double(x: number): number",
       "    return x * 2",
       "end",
@@ -1430,6 +1489,9 @@ function M.completionAfterAModuleDotOffersOnlyItsMembers()
       { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
          textDocument = { uri = uri, languageId = "nupp", version = 1,
             text = opened } } },
+      { jsonrpc = "2.0", id = 11, method = "textDocument/hover",
+        params = { textDocument = { uri = uri },
+           position = { line = 2, character = 17 } } },
       -- the dot is typed and the name is not, which is when a client asks
       { jsonrpc = "2.0", method = "textDocument/didChange", params = {
          textDocument = { uri = uri, version = 2 },
@@ -1449,13 +1511,27 @@ function M.completionAfterAModuleDotOffersOnlyItsMembers()
    end
    table.sort(labels)
    assert(byName.Handle, "a type the module declares: " .. table.concat(labels, " "))
+   assert(byName.Handle.tags and byName.Handle.tags[1] == 1,
+      "a deprecated exported type carries the completion tag")
    assert(byName.double, "and a plain member it carries")
+   assert(byName.double.tags and byName.double.tags[1] == 1,
+      "with its deprecated completion tag")
    assert(byName.double.documentation
       and byName.double.documentation:find("Doubles a number.", 1, true),
       "with the docblock it was written under")
    assert(not byName.hidden, "a file-private function is not a member")
    assert(not byName["local"] and not byName.util and not byName.string,
       "and nothing ambient is offered: none of it resolves after a dot")
+   local hover = responseWithId(out, 11).result
+   assertContains(hover.contents.value, "**Deprecated.** use the precise operation",
+      "cross-module deprecated hover")
+   local sawDeprecated = false
+   for _, published in ipairs(diagnosticsFor(out, uri)) do
+      for _, diagnostic in ipairs(published) do
+         if diagnostic.code == "NUPP2513" then sawDeprecated = true end
+      end
+   end
+   assert(sawDeprecated, "cross-module deprecated use-site lint")
 end
 
 -- After a record's dot: its fields. After its colon, only what can be called,

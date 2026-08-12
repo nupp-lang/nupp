@@ -1079,11 +1079,18 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
         local ft = c.checkFuncbody(body, selfType)
         c.raises.check(stat, body)
+        local memberDefinition = memberTok and c.definition(memberTok, fname.method and "method" or "function") or nil
+        if memberDefinition then
+            memberDefinition.type = ft
+            c.markToken(memberTok, memberDefinition, ft, memberDefinition.kind)
+        end
         -- `function M.f()` puts f on the module table exactly as `M.f = ...` does, so
         -- what it exports records it the same way.
         if not fname.method and ownerKey == c.moduleLocal and memberTok then
             c.moduleFields[memberTok.text] = ft
             c.moduleFieldTokens[memberTok.text] = memberTok
+            c.moduleFieldDefs[memberTok.text] = memberDefinition
+            c.moduleExports.valueDefs[memberTok.text] = memberDefinition
             -- The body, so that boundary finalization can ask this declaration's own
             -- summary rather than guessing from a type two exports may share.
             c.moduleFieldValues[memberTok.text] = body
@@ -1163,12 +1170,18 @@ function functions.install(c: state.Checker): state.StatHandlers
                     ft.paramKinds
                 )
                 owner.writeByname[member] = owner.byname[member]
+                owner.fieldDefs[member] = owner.fieldDefs[member] or memberDefinition
+                owner.writeFieldDefs[member] = owner.writeFieldDefs[member] or memberDefinition
             elseif owner.declKind == "record" or owner.declKind == "interface" then
                 owner.staticByname[member] = ft
                 owner.staticWriteByname[member] = ft
+                owner.staticFieldDefs[member] = owner.staticFieldDefs[member] or memberDefinition
+                owner.staticWriteFieldDefs[member] = owner.staticWriteFieldDefs[member] or memberDefinition
             else
                 owner.byname[member] = ft
                 owner.writeByname[member] = ft
+                owner.fieldDefs[member] = owner.fieldDefs[member] or memberDefinition
+                owner.writeFieldDefs[member] = owner.writeFieldDefs[member] or memberDefinition
             end
             if body.dropMethod then
                 if fname.method then

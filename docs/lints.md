@@ -52,6 +52,7 @@ Every lint has a name and a stable code:
 | gradual-projection | `NUPP2511` | suspicious | warning |
 | else-if | `NUPP2510` | style | warning |
 | positional-record-construction | `NUPP2512` | style | warning |
+| deprecated | `NUPP2513` | suspicious | warning |
 
 The name is what you write in configuration and suppressions; the code is what
 survives renaming and what tooling keys on. Either is accepted everywhere.
@@ -444,6 +445,30 @@ The lint is off until a project asks for it:
 lints = { performance = "note" }
 ```
 
+### `deprecated`
+
+An API marked `@deprecated` remains valid, but every use points callers toward
+the migration. The annotation may carry an optional reason and replacement;
+the replacement becomes diagnostic help and both appear on hover.
+
+::: code-group
+```nupp [src/deprecated.nupp]
+local function current(): integer return 1 end
+
+@deprecated(reason = "kept for compatibility", replacement = "current")
+local function legacy(): integer return current() end
+
+return legacy()
+```
+
+```text [nupp check output]
+src/deprecated.nupp:6:8: warning: NUPP2513 deprecated: legacy is deprecated: kept for compatibility
+ 6 | return legacy()
+   |        ^~~~~~
+help: use current instead
+```
+:::
+
 ## Categories
 
 Every lint declares one of five, which is what a project
@@ -460,8 +485,6 @@ configures when it wants to move a group of them at once:
   unprompted these would fire on code that is not hot and teach their reader to
   silence the category before meeting the case they were written for. `nupp
   lints` lists them whatever their level, which is where they are discovered.
-- **pedantic**: opinions a project may not share. No lint is in this category
-  yet, so setting it currently moves nothing.
 
 A category is a grouping, not a level: the default comes from each lint's own
 registry entry, and a category setting in `nupp.lua` moves every member at
@@ -481,7 +504,6 @@ return {
       ["exhaustiveness"] = "off",
 
       -- by category, applied before names, so a name still wins
-      pedantic = "warning",
       style = "off",
    },
 }

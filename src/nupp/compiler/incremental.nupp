@@ -32,6 +32,7 @@ type incremental.Decl = {
     visibility: string,
     signature: string,
     isAnnotation: boolean?,
+    deprecated: any?,
 
     --- The token it was declared at; its offset keys the declaration site, which is
     --- what keeps a nominal type's identity across rechecks.
@@ -293,6 +294,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         for _, entry in ipairs(entries or {}) do
             out[#out + 1] = entrySurface(entry)
         end
+
         return out
     end
 
@@ -397,6 +399,32 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
                 return false
             end
         end
+
+        return true
+    end
+
+    local function sameDeprecation(left, right)
+        if left == nil or right == nil then
+            return left == right
+        end
+
+        return left.reason == right.reason and left.replacement == right.replacement
+    end
+
+    local function sameDefinitionMap(left, right)
+        left, right = left or {}, right or {}
+        for name, definition in pairs(left) do
+            local other = right[name]
+            if not other or not sameDeprecation(definition.deprecated, other.deprecated) then
+                return false
+            end
+        end
+        for name in pairs(right) do
+            if not left[name] then
+                return false
+            end
+        end
+
         return true
     end
 
@@ -404,7 +432,13 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         if left == nil or right == nil then
             return left == right
         end
-        return sameTypeMap(left.types, right.types) and sameTypeMap(left.values, right.values)
+        return sameTypeMap(
+            left.types,
+            right.types
+        ) and sameTypeMap(
+            left.values,
+            right.values
+        ) and sameDefinitionMap(left.typeDefs, right.typeDefs) and sameDefinitionMap(left.valueDefs, right.valueDefs)
     end
 
     q:define("moduleExports", function(self, name)
@@ -524,6 +558,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         if name == "projectEntries" or name == "projectPathEntries" or name == "projectAnnotations" then
             value = entryListSurface(value)
         end
+
         return hash.digest(stable(value))
     end
 
@@ -537,17 +572,16 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
                 local identity = dep.name .. "\0" .. tostring(dep.key)
                 if not seen[identity] then
                     seen[identity] = true
-                    dependencies[#dependencies + 1] = {
-                        name = dep.name,
-                        key = dep.key,
-                        fingerprint = projectFingerprint(dep.name, dep.key),
-                    }
+                    dependencies[
+                        #dependencies + 1
+                    ] = {name = dep.name, key = dep.key, fingerprint = projectFingerprint(dep.name, dep.key),}
                 end
             end
         end
         table.sort(dependencies, function(a, b)
             return a.name < b.name or (a.name == b.name and tostring(a.key) < tostring(b.key))
         end)
+
         return dependencies
     end
 

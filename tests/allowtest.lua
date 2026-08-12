@@ -82,6 +82,7 @@ end
 -- until it was deleted.
 function M.everyLintIsWellFormed()
    local seen = {}
+   local categoryMembers = {}
    for _, lint in ipairs(check.lints) do
       local at = "lint " .. tostring(lint.name)
       assert(lint.name and lint.name:match("^[a-z][a-z0-9-]*$"),
@@ -90,6 +91,7 @@ function M.everyLintIsWellFormed()
          at .. ": code must be NUPPnnnn")
       assert(check.lintCategories[lint.category],
          at .. ": no such category: " .. tostring(lint.category))
+      categoryMembers[lint.category] = true
       -- `off` is a legal default for an opt-in category only. Everywhere else it
       -- would make a lint nothing reports and nobody meets, which is the same as
       -- not writing it; in an opt-in category being quiet is the entry's point,
@@ -106,6 +108,10 @@ function M.everyLintIsWellFormed()
       -- manifest accept either
       assertEq(check.lintFor(lint.name), lint, at .. ": name does not resolve")
       assertEq(check.lintFor(lint.code), lint, at .. ": code does not resolve")
+   end
+   for category in pairs(check.lintCategories) do
+      assert(categoryMembers[category],
+         "lint category has no members: " .. category)
    end
 end
 

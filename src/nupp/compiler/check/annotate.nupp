@@ -14,6 +14,7 @@ local T = require("nupp.compiler.types")
 local cst = require("nupp.compiler.cst")
 local relations = require("nupp.compiler.relations")
 local state = require("nupp.compiler.check.state")
+local annotationMod = require("nupp.compiler.annotations")
 
 local annotate = {}
 
@@ -404,11 +405,18 @@ function annotate.install(c: state.Checker): annotate.Ops
         end
 
         if valid and target then
+            local targetAny = target as any
             local reflected = resolvedAnnotation(application, annotation)
             if reflected and application.semanticAnnotationTarget ~= target then
-                target.semanticAnnotations = target.semanticAnnotations or {}
-                target.semanticAnnotations[#target.semanticAnnotations + 1] = reflected
+                targetAny.semanticAnnotations = targetAny.semanticAnnotations or {}
+                targetAny.semanticAnnotations[#targetAny.semanticAnnotations + 1] = reflected
                 application.semanticAnnotationTarget = target
+            end
+            if reflected and reflected.name == "deprecated" then
+                targetAny.deprecation = annotationMod.deprecationOf({reflected})
+                if targetAny.name and cst.isToken(targetAny.name) then
+                    targetAny.name.deprecation = targetAny.deprecation
+                end
             end
         end
 
@@ -470,9 +478,7 @@ function annotate.install(c: state.Checker): annotate.Ops
             c.diag(
                 "NUPP2114",
                 declaration.name,
-                reserved and reserved.builtin and (
-                    "annotation @" .. name .. " is reserved by Nupp for derives"
-                ) or err,
+                reserved and reserved.builtin and ("annotation @" .. name .. " is reserved by Nupp") or err,
                 nil,
                 reserved and reserved.builtin and {
                     help = "rename the project annotation; built-in annotation names are project-wide"

@@ -728,6 +728,16 @@ interface nupp.__DebugAnnotation
     redact: boolean?
 end
 
+--- Internal typed schema for the compiler-owned @deprecated annotation.
+--- @internal
+interface nupp.__DeprecatedAnnotation
+    --- Why callers should stop using the API.
+    reason: string?
+
+    --- The API spelling callers should migrate to.
+    replacement: string?
+end
+
 --- Values with deterministic compiler-generated debug formatting.
 interface nupp.Debug
     debug: function(self): string
@@ -2126,9 +2136,11 @@ record nupp.io
     --- @return the new reader
     @owned
 
-    newScalarReader: function(source: string | ByteQueue): ScalarReader
-        & function(borrows source: ByteView | Buffer): ScalarReader
-        & function(takes source: Reader): ScalarReader
+    newScalarReader: function(
+        source: string | ByteQueue
+    ): ScalarReader & function(
+        borrows source: ByteView | Buffer
+    ): ScalarReader & function(takes source: Reader): ScalarReader
 
     --- Creates a cursor for sized integer and float writes.
     ---
@@ -2141,9 +2153,9 @@ record nupp.io
     --- @return the new writer
     @owned
 
-    newScalarWriter: function(): ScalarWriter
-        & function(borrows destination: Buffer): ScalarWriter borrows (destination)
-        & function(takes destination: Writer): ScalarWriter
+    newScalarWriter: function(): ScalarWriter & function(
+        borrows destination: Buffer
+    ): ScalarWriter borrows(destination) & function(takes destination: Writer): ScalarWriter
 
     --- Filesystem metadata, directory contents, and the operations that move
     --- names rather than bytes.

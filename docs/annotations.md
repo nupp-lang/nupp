@@ -199,6 +199,7 @@ annotated directly.
 | `@default` | Implemented | One literal value | Field in a derived record |
 | `@json` | Implemented | JSON record or field options | record, field |
 | `@debug` | Implemented | skip or redact | Field in a derived record |
+| `@deprecated` | Implemented | Optional reason and replacement | declaration, field |
 | `@jit` | Reserved | None | function |
 | `@comptime` | Reserved | None | local-function |
 
@@ -218,6 +219,14 @@ suppress every lint in that statement. It reaches a lint at any level,
 including one a build would fail on, because a lint is a judgement a project
 may disagree with. It does not reach a type error, which is not a judgement:
 naming one is `NUPP2108` and the error stands.
+
+`@deprecated`, `@deprecated("reason")`, or
+`@deprecated(reason = "...", replacement = "new.name")` keeps an API
+available while marking it for migration. It may decorate functions, methods,
+bindings, type declarations, C declarations, and record/interface fields. A
+use reports the suppressible `deprecated` lint; completion and semantic tokens
+carry the LSP deprecated tag/modifier; hover shows the reason and replacement;
+and generated documentation retains the annotation. It emits no Lua.
 
 `@owned(cleanup, ...)` marks the first return as an affine owner. The checker
 requires it to be transferred or explicitly discharged, and `nupp.drop(value)`

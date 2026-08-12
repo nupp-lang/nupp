@@ -131,6 +131,47 @@ function M.interfaceCutoffAcrossModules()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.deprecationMetadataInvalidatesModuleDependents()
+   local dir = os.tmpname()
+   os.remove(dir)
+   os.execute("mkdir -p '" .. dir .. "'")
+   local depPath = dir .. "/dep.nupp"
+   local mainPath = dir .. "/main.nupp"
+
+   local function write(path, text)
+      local file = assert(io.open(path, "wb"))
+      file:write(text)
+      file:close()
+   end
+
+   local dep = table.concat({
+      "local M = {}",
+      "function M.answer(): number",
+      "   return 42",
+      "end",
+      "return M",
+   }, "\n")
+   write(depPath, dep)
+   write(mainPath, table.concat({
+      "local dep = require('dep')",
+      "return dep.answer()",
+   }, "\n"))
+
+   local inc = incremental.new(dir)
+   assertEq(#inc.checkFile(mainPath).diags, 0, "current API starts clean")
+   local coldChecks = inc.q.stats.checkModule
+
+   inc.changeDocument(depPath, dep:gsub("function M.answer",
+      '@deprecated(replacement = "dep.currentAnswer")\nfunction M.answer'))
+   local changed = inc.checkFile(mainPath)
+   assertEq(inc.q.stats.checkModule, coldChecks + 2,
+      "deprecation metadata rechecks the dependency and dependent")
+   assertEq(changed.diags[1] and changed.diags[1].code, "NUPP2513",
+      "the dependent observes new deprecation metadata")
+
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.publicPackChangesInvalidateTypeDependents()
    local dir = os.tmpname()
    os.remove(dir)

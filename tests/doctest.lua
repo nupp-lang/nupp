@@ -266,6 +266,25 @@ function M.documentsAnnotationsAndParameterModes()
       "the parameter mode is not rendered")
 end
 
+function M.documentsDeprecatedMigrationMetadata()
+   local source = table.concat({
+      "--- The compatibility entry point.",
+      '@deprecated(reason = "legacy protocol", replacement = "connect")',
+      "function legacyConnect(): nil end",
+   }, "\n")
+   local module = assert(doc.extract(source, "src/client.nupp", "client",
+      {includeAll = true}))
+   local item = module.items[1]
+   assert(item.annotations and item.annotations[1]
+      == '@deprecated(reason="legacy protocol", replacement="connect")',
+      item.annotations and item.annotations[1])
+   local markdown = doc.markdown({module})
+   assert(markdown:find("`@deprecated(reason=", 1, true),
+      "deprecated metadata is not rendered")
+   assert(markdown:find("replacement=", 1, true),
+      "deprecated replacement is not rendered")
+end
+
 function M.documentsInheritedContractsMetamethodsAndInlineMethods()
    local source = table.concat({
       "--- A callable task.",

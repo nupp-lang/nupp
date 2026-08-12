@@ -17,6 +17,7 @@ local envMod = require("nupp.compiler.env")
 local fmt = require("nupp.compiler.fmt")
 local lexer = require("nupp.compiler.lexer")
 local T = require("nupp.compiler.types")
+local annotationMod = require("nupp.compiler.annotations")
 
 local lsp = {}
 
@@ -283,6 +284,11 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         end
         for _, tok in ipairs(doc.result.tokens) do
             if tok.kind ~= "eof" and offset >= tok.offset and offset < tok.offset + #tok.text then
+                local member = memberAt(doc, offset)
+                if member then
+                    respond(id, memberLocation(member))
+                    return
+                end
                 if tok.additionalDefinitions and #tok.additionalDefinitions > 1 then
                     local locations = wire.array({})
                     for _, definition in ipairs(tok.additionalDefinitions) do
@@ -325,16 +331,20 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
                 value = value .. "\n\nCanonical value: `" .. literal:gsub("`", "\\`") .. "`"
             elseif comptimeNode.materializationObservation then
                 local observation = comptimeNode.materializationObservation
-                value = value .. ("\n\nMaterialized by `%s` (`%s`, %d-byte blueprint)."):format(
-                    tostring(observation.provider),
-                    tostring(observation.backend),
-                    observation.blueprintSize or 0
-                )
+                value = value .. (
+                    "\n\nMaterialized by `%s` (`%s`, %d-byte blueprint)."
+                ):format(tostring(observation.provider), tostring(observation.backend), observation.blueprintSize or 0)
             end
-            respond(id, {contents = {kind = "markdown", value = value}, range = {
-                start = positionAtOffset(doc.text, from or hoverOffset),
-                ["end"] = positionAtOffset(doc.text, to or hoverOffset),
-            },})
+            respond(
+                id,
+                {
+                    contents = {kind = "markdown", value = value},
+                    range = {
+                        start = positionAtOffset(doc.text, from or hoverOffset),
+                        ["end"] = positionAtOffset(doc.text, to or hoverOffset),
+                    },
+                }
+            )
             return
         end
         local def = tok and tok.definition
@@ -343,10 +353,14 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         -- but the surface is a shape and a shape carries no declaration sites. Where
         -- the checker cannot say where something was written, the declaration as
         -- written is still the better answer.
-        if tok and not def then
+        if tok then
             local member = memberAt(doc, offset)
             local value = member and memberHover(member)
             if value then
+                local deprecated = annotationMod.deprecationMarkdown(def and def.deprecated)
+                if deprecated then
+                    value = value .. "\n\n" .. deprecated
+                end
                 respond(id, {contents = {kind = "markdown", value = value}, range = tokenRange(doc.text, tok),})
                 return
             end
@@ -364,15 +378,18 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             if automatic.status == "moved" then
                 value = value .. "\n\nOwnership moves before the lexical cleanup boundary."
             else
-                value = value .. ("\n\nAutomatically destroyed after line %d with `%s`."):format(
-                    automatic.line,
-                    table.concat(automatic.cleanups or {}, "`, then `")
-                )
+                value = value .. (
+                    "\n\nAutomatically destroyed after line %d with `%s`."
+                ):format(automatic.line, table.concat(automatic.cleanups or {}, "`, then `"))
             end
         end
         local docs = documentationFor(def)
         if docs then
             value = value .. "\n\n" .. docs
+        end
+        local deprecated = annotationMod.deprecationMarkdown(def and def.deprecated)
+        if deprecated then
+            value = value .. "\n\n" .. deprecated
         end
         respond(id, {contents = {kind = "markdown", value = value}, range = tokenRange(doc.text, tok),})
     end
@@ -380,6 +397,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     -- Rich symbol information for command-line and agent clients. LSP hover is
     -- intentionally presentation-shaped Markdown; this private request keeps the
     -- underlying facts structured without changing the public LSP surface.
+
     --- What state a projection is in, beside the spelling it was written as.
     ---
     --- The spelling is kept rather than replaced. `ScalarComponent<number>.Value` and
@@ -462,6 +480,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
                 definition = definitionLocation(def),
                 range = tokenRange(doc.text, tok),
                 automaticCleanup = def and def.automaticCleanup or nil,
+                deprecated = def and def.deprecated or nil,
             }
         )
     end
@@ -520,9 +539,9 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
                 ] = {
                     label = tail.kind == "homogeneous" and (
                         "...: " .. T.tostring(tail.type)
-                    ) or tail.kind == "generic" and (tail.var.name .. "...")
-                        or tail.kind == "computed" and ("...: unpackof " .. T.tostring(tail.type))
-                        or "..."
+                    ) or tail.kind == "generic" and (
+                        tail.var.name .. "..."
+                    ) or tail.kind == "computed" and ("...: unpackof " .. T.tostring(tail.type)) or "..."
                 }
             end
             signatures[#signatures + 1] = {label = name .. ": " .. T.tostring(candidate), parameters = parameters,}
@@ -548,9 +567,9 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             return
         end
         local includeDeclaration = params.context and params.context.includeDeclaration or false
-        if not tok.definition then
-            local member = memberAt(doc, offset)
-            respond(id, member and memberReferences(member, includeDeclaration) or json.empty_array)
+        local member = memberAt(doc, offset)
+        if member then
+            respond(id, memberReferences(member, includeDeclaration))
             return
         end
         respond(id, referencesFor(tok.definition, includeDeclaration))
@@ -564,24 +583,20 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         if not tok then
             return doc, nil, nil
         end
-        if tok.definition then
-            if isProjectDefinition(tok.definition) then
-                return doc, tok, function(includeDeclaration)
-                    return referencesFor(tok.definition, includeDeclaration)
-                end
-            end
-            return doc, nil, nil
-        end
         local member = memberAt(doc, offset)
         local path = member and s.inc.modulePath(member.moduleName)
-        if not path then
-            return doc, nil, nil
-        end
-        for _, projectPath in ipairs(s.inc.projectFiles()) do
-            if projectPath == path then
-                return doc, tok, function(includeDeclaration)
-                    return memberReferences(member, includeDeclaration)
+        if path then
+            for _, projectPath in ipairs(s.inc.projectFiles()) do
+                if projectPath == path then
+                    return doc, tok, function(includeDeclaration)
+                        return memberReferences(member, includeDeclaration)
+                    end
                 end
+            end
+        end
+        if tok.definition and isProjectDefinition(tok.definition) then
+            return doc, tok, function(includeDeclaration)
+                return referencesFor(tok.definition, includeDeclaration)
             end
         end
 
@@ -885,7 +900,8 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             return
         end
         local highlights = wire.array({})
-        local wanted = symbolKey(tok.definition)
+        local member = memberAt(doc, offset)
+        local wanted = not member and symbolKey(tok.definition) or nil
         if wanted then
             for _, other in ipairs(doc.result.tokens or {}) do
                 if symbolKey(other.definition) == wanted then
@@ -893,7 +909,6 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
                 end
             end
         else
-            local member = memberAt(doc, offset)
             for _, hit in ipairs(member and memberOccurrences(doc.result, member.moduleName, member.name) or {}) do
                 highlights[#highlights + 1] = {range = tokenRange(doc.text, hit.token)}
             end
@@ -1062,28 +1077,19 @@ function lsp.run(rootDir: string?): integer
 
     local process = require("nupp.io.process")
     local compilerRoot = os.getenv("NUPP_COMPILER_ROOT")
-    local executable = compilerRoot and compilerRoot .. "/bin/nupp"
-        or type(arg) == "table" and type(arg[0]) == "string" and arg[0]
-        or nil
+    local executable = compilerRoot and compilerRoot .. "/bin/nupp" or type(
+        arg
+    ) == "table" and type(arg[0]) == "string" and arg[0] or nil
     if not executable then
         io.stderr:write("nupp-lsp: cannot identify the current executable\n")
         return 1
     end
     local relayArgs = {executable, "__lsp-reader"}
     if compilerRoot and package.config:sub(1, 1) == "\\" then
-        local path = ("package.path=%q .. package.path")
-            :format(compilerRoot .. "/build/?.lua;")
-        relayArgs = {
-            "luajit", "-e", path,
-            compilerRoot .. "/build/nupp/compiler/main.lua", "__lsp-reader",
-        }
+        local path = ("package.path=%q .. package.path"):format(compilerRoot .. "/build/?.lua;")
+        relayArgs = {"luajit", "-e", path, compilerRoot .. "/build/nupp/compiler/main.lua", "__lsp-reader",}
     end
-    local relay, problem = process.new({
-        args = relayArgs,
-        stdin = "inherit",
-        stdout = "pipe",
-        stderr = "inherit",
-    })
+    local relay, problem = process.new({args = relayArgs, stdin = "inherit", stdout = "pipe", stderr = "inherit",})
     if not relay then
         io.stderr:write("nupp-lsp: cannot start input reader: " .. tostring(problem) .. "\n")
         return 1
@@ -1112,6 +1118,7 @@ function lsp.run(rootDir: string?): integer
         local body = buffered:sub(bodyAt, bodyAt + length - 1)
         buffered = buffered:sub(bodyAt + length)
         local ok, message = pcall(json.decode, body)
+
         return ok and message or nil
     end
 
@@ -1140,22 +1147,15 @@ function lsp.run(rootDir: string?): integer
         harvest()
     end
 
-    host = {
-        currentId = nil,
-        pump = pump,
-        cancelled = function(): boolean
-            return host.currentId ~= nil and cancelled[host.currentId] == true
-        end,
-        cancel = function(id): nil
-            cancelled[id] = true
-        end,
-        isCancelled = function(id): boolean
-            return cancelled[id] == true
-        end,
-        clearCancelled = function(id): nil
-            cancelled[id] = nil
-        end,
-    }
+    host = {currentId = nil, pump = pump, cancelled = function(): boolean
+        return host.currentId ~= nil and cancelled[host.currentId] == true
+    end, cancel = function(id): nil
+        cancelled[id] = true
+    end, isCancelled = function(id): boolean
+        return cancelled[id] == true
+    end, clearCancelled = function(id): nil
+        cancelled[id] = nil
+    end,}
 
     local session = lsp.newSession(rootDir, send, host)
     while session.running() do

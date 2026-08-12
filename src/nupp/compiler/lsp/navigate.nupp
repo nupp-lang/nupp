@@ -190,10 +190,10 @@ function navigate.install(s: navigate.Session): navigate.Api
     local function documentationFor(def)
         local _, tokens, index = resolveDefinition(def)
         if not tokens then
-            return def and def.token and fromTrivia(def.token.trivia)
+            return def and fromTrivia(def.documentationTrivia or def.token and def.token.trivia)
         end
 
-        return documentationAt(tokens, index)
+        return documentationAt(tokens, index) or fromTrivia(def.documentationTrivia)
     end
 
     local function documentAt(params)
@@ -358,9 +358,8 @@ function navigate.install(s: navigate.Session): navigate.Api
         return nil
     end
 
-    --- The member a position names, but only one nothing else already explains: a name
-    --- the checker bound has a definition, and that definition is the better answer
-    --- wherever it exists.
+    --- The plain module member a position names. These keep their project-wide member
+    --- navigation even when tooling metadata gives the checker a definition sidecar.
     local function memberAt(doc, offset)
         if not doc or not doc.result or not offset then
             return nil

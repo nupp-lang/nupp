@@ -391,10 +391,8 @@ local ENTRIES: {
     .. "alias or nested declaration share it, so two of a name is one namespace "
     .. "saying two things. Fields are a separate namespace and may share the "
     .. "spelling.",
-    wrong = "local interface Reader\n    type Item = string\n"
-    .. "    associated type Item\nend\n\nreturn Reader\n",
-    right = "local interface Reader\n    type Unit = string\n"
-    .. "    associated type Item\nend\n\nreturn Reader\n",
+    wrong = "local interface Reader\n    type Item = string\n" .. "    associated type Item\nend\n\nreturn Reader\n",
+    right = "local interface Reader\n    type Unit = string\n" .. "    associated type Item\nend\n\nreturn Reader\n",
     related = {"NUPP2128"},
     docs = "docs/type-system/associated-types.md",
 }, {
@@ -405,8 +403,7 @@ local ENTRIES: {
     .. "has no contract to project through, a bounded one may not state the name, and "
     .. "a union states it only when every alternative does. A projection takes no "
     .. "type arguments.",
-    wrong = "local function first<T>(x: T): T.Item\n    return nil as any\nend\n\n"
-    .. "return first\n",
+    wrong = "local function first<T>(x: T): T.Item\n    return nil as any\nend\n\n" .. "return first\n",
     right = "local interface Reader\n    associated type Item\nend\n\n"
     .. "local function first<T is Reader>(x: T): T.Item\n    return nil as any\n"
     .. "end\n\nreturn first\n",
@@ -558,104 +555,19 @@ local ENTRIES: {
     .. "parking the current coroutine. Remove the yielding call, move it before "
     .. "the protected region, or call an operation whose type or visible body "
     .. "proves that it cannot suspend.",
-    wrong = "local function wait(): nil\n    coroutine.yield()\nend\n\n"
-    .. "nosuspend do\n    wait()\nend\n",
-    right = "local function finish(): nil\nend\n\n"
-    .. "nosuspend do\n    finish()\nend\n",
+    wrong = "local function wait(): nil\n    coroutine.yield()\nend\n\n" .. "nosuspend do\n    wait()\nend\n",
+    right = "local function finish(): nil\nend\n\n" .. "nosuspend do\n    finish()\nend\n",
     related = {"NUPP2602", "NUPP2603"},
     docs = "docs/reference.md#suspension-regions",
 }, {
     code = "NUPP2206",
     summary = "Only a record or a struct can be constructed",
-    rule = "`new` names a type and builds a value of it, so the operand "
-    .. "has to be a declaration with something to build. An interface "
-    .. "declares a contract and has no runtime table to stamp; an enum "
-    .. "value is one of its declared strings, written directly. The "
-    .. "operand is answered as a type rather than through whatever "
-    .. "value stands under the name, because an interface binds none.",
+    rule = "`new` names a type and builds a value of it, so the operand " .. "has to be a declaration with something to build. An interface " .. "declares a contract and has no runtime table to stamp; an enum " .. "value is one of its declared strings, written directly. The " .. "operand is answered as a type rather than through whatever " .. "value stands under the name, because an interface binds none.",
     wrong = "local interface Named\n    name: string\nend\n\n" .. "local n = new Named(name = \"ada\")\n\nreturn n\n",
-    right = "local interface Named\n    name: string\nend\n\n"
-    .. "local record User is Named\n    name: string\nend\n\n"
-    .. "local n = new User(name = \"ada\")\n\nreturn n\n",
+    right = "local interface Named\n    name: string\nend\n\n" .. "local record User is Named\n    name: string\nend\n\n" .. "local n = new User(name = \"ada\")\n\nreturn n\n",
     related = {"NUPP2202"},
     docs = "docs/reference.md#records",
-}, {
-    code = "NUPP2207",
-    summary = "A binding is read before it holds a value",
-    rule = "`local v: Vec2` used to construct one where it was declared, "
-    .. "which was a construction the source did not say. It no longer "
-    .. "does, so the binding holds nil until something assigns to it, "
-    .. "and reading it before that indexes nil at run time rather than "
-    .. "yielding a value of the declared type. Assign it first, or "
-    .. "declare it optional if it is meant to start empty. A "
-    .. "declaration file states what exists elsewhere and assigns "
-    .. "nothing, so it is exempt.",
-    wrong = "local record Point\n    x: integer\nend\n\n" .. "local p: Point\n\nreturn p.x\n",
-    right = "local record Point\n    x: integer\nend\n\n" .. "local p: Point = new Point(x = 0)\n\nreturn p.x\n",
-    related = {"NUPP2202", "NUPP2206"},
-    docs = "docs/reference.md#records",
-}, {
-    code = "NUPP2512",
-    summary = "A record is built by field order rather than by naming its fields",
-    rule = "A record without a declared constructor may be built either way, "
-    .. "and both build the same table. Naming the fields says at the call "
-    .. "site which value lands where; leaving it to the order says it in "
-    .. "the declaration, so a reader has to go there, and adding a field "
-    .. "silently changes what an existing call means. A struct is exempt: "
-    .. "it is its C layout, and that order is the layout's rather than the "
-    .. "program's to name. Turn it off by name or by its `style` category, "
-    .. "or write `@allow(\"positional-record-construction\")`.",
-    wrong = "local record Point\n    x: integer\n    y: integer\nend\n\n" .. "local p = new Point(1, 2)\n\nreturn p\n",
-    right = "local record Point\n    x: integer\n    y: integer\nend\n\n"
-    .. "local p = new Point(x = 1, y = 2)\n\nreturn p\n",
-    related = {"NUPP2202", "NUPP2208"},
-    docs = "docs/lints.md",
-}, {
-    code = "NUPP2208",
-    summary = "A constructor does not hold up its declaration",
-    rule = "A `constructor(self, ...)` body is what `new T(...)` runs. The "
-    .. "instance is made before it and returned after it, so its whole "
-    .. "job is to fill the fields in — and every field that cannot hold "
-    .. "nil has to be filled, or the value handed back does not match "
-    .. "the declaration it claims. That guarantee is the reason to "
-    .. "prefer a constructor over a literal, so declaring one closes "
-    .. "the literal form for that declaration. An interface builds "
-    .. "nothing and cannot carry one, and there is one constructor per "
-    .. "declaration until overloads arrive with intersection types.",
-    wrong = "local record Account\n    name: string\n    balance: number\n"
-    .. "\n    constructor(self, name: string)\n        self.name = name\n"
-    .. "    end\nend\n\nreturn Account\n",
-    right = "local record Account\n    name: string\n    balance: number\n"
-    .. "\n    constructor(self, name: string)\n        self.name = name\n"
-    .. "        self.balance = 0\n    end\nend\n\nreturn Account\n",
-    related = {"NUPP2202", "NUPP2207"},
-    docs = "docs/reference.md#records",
-}, {
-    code = "NUPP3001",
-    summary = "`is` has nothing to test against this type",
-    rule = "A record is identified by the metatable it stamps and a struct "
-    .. "by its ctype, so both answer `is` exactly. An interface has "
-    .. "neither, by design — it is conformance rather than provenance — "
-    .. "so something has to stand in for one.\n\n"
-    .. "Three things can. A literal-typed field is a tag, and the test "
-    .. "is read off it with nothing written. A `satisfies` declaration "
-    .. "says the test outright, for a shape no tag describes. And a subject "
-    .. "whose own type declares the interface needs no test at all: the "
-    .. "declaration already answered, so the `is` compiles to `true`. "
-    .. "An alias has none of these and never will.",
-    wrong = "local interface Drawable\n    width: number\nend\n\n"
-    .. "local record Sprite is Drawable\n    width: number\nend\n\n"
-    .. "local unknown: any = new Sprite(width = 1)\n\n"
-    .. "return unknown is Drawable\n",
-    right = "local interface Drawable\n    kind: \"drawable\"\n"
-    .. "    width: number\nend\n\n"
-    .. "local record Sprite is Drawable\n    kind: \"drawable\"\n"
-    .. "    width: number\nend\n\n"
-    .. "local unknown: any = new Sprite(kind = \"drawable\", width = 1)\n\n"
-    .. "return unknown is Drawable\n",
-    related = {"NUPP2122"},
-    docs = "docs/type-system/interfaces.md",
-},}
+}, {code = "NUPP2207", summary = "A binding is read before it holds a value", rule = "`local v: Vec2` used to construct one where it was declared, " .. "which was a construction the source did not say. It no longer " .. "does, so the binding holds nil until something assigns to it, " .. "and reading it before that indexes nil at run time rather than " .. "yielding a value of the declared type. Assign it first, or " .. "declare it optional if it is meant to start empty. A " .. "declaration file states what exists elsewhere and assigns " .. "nothing, so it is exempt.", wrong = "local record Point\n    x: integer\nend\n\n" .. "local p: Point\n\nreturn p.x\n", right = "local record Point\n    x: integer\nend\n\n" .. "local p: Point = new Point(x = 0)\n\nreturn p.x\n", related = {"NUPP2202", "NUPP2206"}, docs = "docs/reference.md#records",}, {code = "NUPP2512", summary = "A record is built by field order rather than by naming its fields", rule = "A record without a declared constructor may be built either way, " .. "and both build the same table. Naming the fields says at the call " .. "site which value lands where; leaving it to the order says it in " .. "the declaration, so a reader has to go there, and adding a field " .. "silently changes what an existing call means. A struct is exempt: " .. "it is its C layout, and that order is the layout's rather than the " .. "program's to name. Turn it off by name or by its `style` category, " .. "or write `@allow(\"positional-record-construction\")`.", wrong = "local record Point\n    x: integer\n    y: integer\nend\n\n" .. "local p = new Point(1, 2)\n\nreturn p\n", right = "local record Point\n    x: integer\n    y: integer\nend\n\n" .. "local p = new Point(x = 1, y = 2)\n\nreturn p\n", related = {"NUPP2202", "NUPP2208"}, docs = "docs/lints.md",}, {code = "NUPP2513", summary = "An API marked deprecated is used", rule = "`@deprecated` keeps an API available while telling callers to move " .. "away from it. The optional reason explains why and the replacement names " .. "what to use instead. The annotation changes tooling only: it reports this " .. "suppressible lint at use sites and emits no runtime behavior.", wrong = "local function current(): integer return 1 end\n\n" .. "@deprecated(replacement = \"current\")\n" .. "local function legacy(): integer return current() end\n\nreturn legacy()\n", right = "local function current(): integer return 1 end\n\n" .. "@deprecated(replacement = \"current\")\n" .. "local function legacy(): integer return current() end\n\nreturn current()\n", related = {"NUPP2115"}, docs = "docs/lints.md",}, {code = "NUPP2208", summary = "A constructor does not hold up its declaration", rule = "A `constructor(self, ...)` body is what `new T(...)` runs. The " .. "instance is made before it and returned after it, so its whole " .. "job is to fill the fields in — and every field that cannot hold " .. "nil has to be filled, or the value handed back does not match " .. "the declaration it claims. That guarantee is the reason to " .. "prefer a constructor over a literal, so declaring one closes " .. "the literal form for that declaration. An interface builds " .. "nothing and cannot carry one, and there is one constructor per " .. "declaration until overloads arrive with intersection types.", wrong = "local record Account\n    name: string\n    balance: number\n" .. "\n    constructor(self, name: string)\n        self.name = name\n" .. "    end\nend\n\nreturn Account\n", right = "local record Account\n    name: string\n    balance: number\n" .. "\n    constructor(self, name: string)\n        self.name = name\n" .. "        self.balance = 0\n    end\nend\n\nreturn Account\n", related = {"NUPP2202", "NUPP2207"}, docs = "docs/reference.md#records",}, {code = "NUPP3001", summary = "`is` has nothing to test against this type", rule = "A record is identified by the metatable it stamps and a struct " .. "by its ctype, so both answer `is` exactly. An interface has " .. "neither, by design — it is conformance rather than provenance — " .. "so something has to stand in for one.\n\n" .. "Three things can. A literal-typed field is a tag, and the test " .. "is read off it with nothing written. A `satisfies` declaration " .. "says the test outright, for a shape no tag describes. And a subject " .. "whose own type declares the interface needs no test at all: the " .. "declaration already answered, so the `is` compiles to `true`. " .. "An alias has none of these and never will.", wrong = "local interface Drawable\n    width: number\nend\n\n" .. "local record Sprite is Drawable\n    width: number\nend\n\n" .. "local unknown: any = new Sprite(width = 1)\n\n" .. "return unknown is Drawable\n", right = "local interface Drawable\n    kind: \"drawable\"\n" .. "    width: number\nend\n\n" .. "local record Sprite is Drawable\n    kind: \"drawable\"\n" .. "    width: number\nend\n\n" .. "local unknown: any = new Sprite(kind = \"drawable\", width = 1)\n\n" .. "return unknown is Drawable\n", related = {"NUPP2122"}, docs = "docs/type-system/interfaces.md",},}
 
 local byCode: {[string]: any} = {}
 for _, entry in ipairs(ENTRIES) do

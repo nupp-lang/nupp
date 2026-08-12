@@ -1051,6 +1051,10 @@ summary: visible bodies are checked against it and bodyless declarations are
 trusted. `const` is the shallow identity promise for a bodyless binding in a
 `.d.nupp`; it does not freeze a table's fields. `@relax` records a closed set
 of observable guarantees an optimization may change, locally to one function.
+`@deprecated(reason = "...", replacement = "...")` marks an API for tooling:
+uses report the suppressible `deprecated` lint, editors strike it through and
+show the migration detail, and generated documentation retains the annotation.
+It changes no runtime behavior.
 ]=],
         example = [=[
 local m = {}
@@ -1072,10 +1076,7 @@ return m
 
     new reference.Section(
         title = "Declaration derives",
-        codes = {
-            "NUPP2801", "NUPP2802", "NUPP2803", "NUPP2804",
-            "NUPP2805", "NUPP2806", "NUPP2807", "NUPP2808",
-        },
+        codes = {"NUPP2801", "NUPP2802", "NUPP2803", "NUPP2804", "NUPP2805", "NUPP2806", "NUPP2807", "NUPP2808",},
         body = [=[
 `@derive(Debug, Default, From, JSON)` adds checked members to one record without
 source splicing. The providers add `debug`, static `default`, single-field
@@ -1692,27 +1693,16 @@ local function lintRows(): {string}
         category = math.max(category, #lint.category)
     end
     local out: {string} = {"```"}
-    out[#out + 1] = (" %s  %s  %s  %s"):format(
-        pad("Lint", widest),
-        pad("Code", 8),
-        pad("Category", category),
-        "Default"
-    )
-    out[#out + 1] = (" %s  %s  %s  %s"):format(
-        rule(widest),
-        rule(8),
-        rule(category),
-        rule(#"warning")
-    )
+    out[
+        #out + 1
+    ] = (" %s  %s  %s  %s"):format(pad("Lint", widest), pad("Code", 8), pad("Category", category), "Default")
+    out[#out + 1] = (" %s  %s  %s  %s"):format(rule(widest), rule(8), rule(category), rule(#"warning"))
     for _, lint in ipairs(lints.all) do
         out[
             #out + 1
-        ] = (" %s  %s  %s  %s"):format(
-            pad(lint.name, widest),
-            pad(lint.code, 8),
-            pad(lint.category, category),
-            lint.level
-        )
+        ] = (
+            " %s  %s  %s  %s"
+        ):format(pad(lint.name, widest), pad(lint.code, 8), pad(lint.category, category), lint.level)
     end
     out[#out + 1] = "```"
 
@@ -1726,9 +1716,7 @@ local function codeRows(): {string}
     for _, code in ipairs(explain.codes()) do
         local entry = explain.lookup(code)
         if entry then
-            for index, line in ipairs(wrapped(
-                ("- **%s**: %s."):format(entry.code, entry.summary)
-            )) do
+            for index, line in ipairs(wrapped(("- **%s**: %s."):format(entry.code, entry.summary))) do
                 out[#out + 1] = index == 1 and line or ("  " .. line)
             end
         end
@@ -1886,9 +1874,9 @@ local function renderSection(out: {string}, section: reference.Section, level: i
         for _, code in ipairs(section.codes) do
             cited[#cited + 1] = "`" .. code .. "`"
         end
-        for _, line in ipairs(wrapped(
-            "Reports: " .. table.concat(cited, ", ") .. ". `nupp explain <code>` says more."
-        )) do
+        for _, line in ipairs(
+            wrapped("Reports: " .. table.concat(cited, ", ") .. ". `nupp explain <code>` says more.")
+        ) do
             out[#out + 1] = line
         end
         out[#out + 1] = ""
@@ -1912,11 +1900,13 @@ function reference.markdown(opts: {
     local out: {string} = {}
     out[#out + 1] = heading(base, "Nupp language reference")
     out[#out + 1] = ""
-    for _, line in ipairs(wrapped(
-        "Every construct, the shortest program that uses it, and the"
-        .. " diagnostic codes that report getting it wrong. Generated from the"
-        .. " compiler: `nupp reference`."
-    )) do
+    for _, line in ipairs(
+        wrapped(
+            "Every construct, the shortest program that uses it, and the"
+            .. " diagnostic codes that report getting it wrong. Generated from the"
+            .. " compiler: `nupp reference`."
+        )
+    ) do
         out[#out + 1] = line
     end
     out[#out + 1] = ""

@@ -27,6 +27,23 @@ local isFatal, printErrors = diagnosticMod.isFatal, diagnosticMod.report
 
 local modules = {}
 
+local function exportDeprecationsFingerprint(exports: any): string
+    local items = {}
+    for _, field in ipairs({"typeDefs", "valueDefs"}) do
+        for name, definition in pairs(exports and exports[field] or {}) do
+            local deprecated = definition.deprecated
+            if deprecated then
+                items[
+                    #items + 1
+                ] = field .. ":" .. name .. ":" .. stable(deprecated.reason) .. ":" .. stable(deprecated.replacement)
+            end
+        end
+    end
+    table.sort(items)
+
+    return table.concat(items, "\0")
+end
+
 -- Named by module path rather than required: what these say is wanted at compile time
 -- and nothing of them is at run time.
 local type Config = nupp.compiler.build.manifest.Config
@@ -96,11 +113,7 @@ local function constFingerprint(term: nupp.compiler.types.ConstTerm?, binders: B
     return "constop(" .. term.operation .. ":" .. table.concat(operands, ",") .. ")"
 end
 
-local typeFingerprint: function(
-    nupp.compiler.types.Type?,
-    {[nupp.compiler.types.Type]: boolean}?,
-    Binders?
-): string
+local typeFingerprint: function(nupp.compiler.types.Type?, {[nupp.compiler.types.Type]: boolean}?, Binders?): string
 
 local function packFingerprint(
     pack: nupp.compiler.types.Pack,
@@ -125,6 +138,7 @@ local function packFingerprint(
     elseif tail and tail.type then
         tailFingerprint = tail.kind .. ":" .. typeFingerprint(tail.type, active, binders)
     end
+
     return "pack(" .. table.concat(head, ",") .. ";" .. tailFingerprint .. ")"
 end
 
@@ -380,7 +394,9 @@ typeFingerprint = function(
         ) .. ":template=" .. table.concat(
             templates,
             ","
-        ) .. ":match=" .. (t.matchEach and "each:" or "one:") .. table.concat(
+        ) .. ":match=" .. (
+            t.matchEach and "each:" or "one:"
+        ) .. table.concat(
             arms,
             ","
         ) .. ":alias=" .. (
@@ -480,11 +496,9 @@ local function copyModuleRecord(record)
     end
     local projectDependencies = jsonArray({})
     for _, dependency in ipairs(record.projectDependencies or {}) do
-        projectDependencies[#projectDependencies + 1] = {
-            name = dependency.name,
-            key = dependency.key,
-            fingerprint = dependency.fingerprint,
-        }
+        projectDependencies[
+            #projectDependencies + 1
+        ] = {name = dependency.name, key = dependency.key, fingerprint = dependency.fingerprint,}
     end
 
     return {
@@ -691,15 +705,20 @@ local function buildModules(
         records[
             name
         ] = {sourceHash = sourceHash, interfaceHash = hash.digest(
-            typeFingerprint(result.moduleType) .. (external and ("\0" .. sourceHash) or "")
+            typeFingerprint(
+                result.moduleType
+            ) .. "\0deprecated\0" .. exportDeprecationsFingerprint(
+                result.exports
+            ) .. (external and ("\0" .. sourceHash) or "")
         ), artifactHash = artifactHash, dependencies = jsonArray(
             depNames
-        ), projectDependencies = jsonArray(projectDependencies), effects = jsonArray(effectNames), output = output, external = external or nil,
+        ), projectDependencies = jsonArray(
+            projectDependencies
+        ), effects = jsonArray(effectNames), output = output, external = external or nil,
             -- Only what checking found. Generation runs once per artifact and a reused
             -- module does not run it again, so its remarks belong to the run that
             -- produced them and not to the record.
-            diags = jsonArray(result.diags or {}), coverage = coverage,
-            materializations = jsonArray(materializations),}
+            diags = jsonArray(result.diags or {}), coverage = coverage, materializations = jsonArray(materializations),}
         codeFor[name] = code
         reused[name] = nil
         for _, depName in ipairs(depNames) do
@@ -729,8 +748,11 @@ local function buildModules(
                     and previous.interfaceHash
                     and type(
                     previous.dependencies
-                ) == "table" and type(previous.projectDependencies) == "table" and type(previous.effects) == "table" and type(previous.diags) == "table"
-                    and type(previous.materializations) == "table"
+                ) == "table" and type(
+                    previous.projectDependencies
+                ) == "table" and type(
+                    previous.effects
+                ) == "table" and type(previous.diags) == "table" and type(previous.materializations) == "table"
                 if usable and previous then
                     for _, dependency in ipairs(previous.projectDependencies or {}) do
                         if type(dependency) ~= "table" then
@@ -740,19 +762,16 @@ local function buildModules(
                         local dependencyName = dependency.name
                         local dependencyKey = dependency.key
                         local dependencyFingerprint = dependency.fingerprint
-                        if type(dependencyName) ~= "string"
-                            or type(dependencyKey) ~= "string"
-                            or type(dependencyFingerprint) ~= "string"
-                        then
+                        if type(
+                            dependencyName
+                        ) ~= "string" or type(dependencyKey) ~= "string" or type(dependencyFingerprint) ~= "string" then
                             usable = false
                             break
                         end
                         if inc.projectDependencyFingerprint(
                             dependencyName as string,
                             dependencyKey as string
-                        )
-                            ~= dependencyFingerprint
-                        then
+                        ) ~= dependencyFingerprint then
                             usable = false
                             break
                         end

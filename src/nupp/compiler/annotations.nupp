@@ -8,13 +8,19 @@ than CST kind strings, so the registry stays stable when the parser changes.
 
 local annotations = {}
 
+--- Tooling-only migration detail carried by a deprecated API definition.
+record annotations.Deprecation
+    reason: string?
+    replacement: string?
+end
+
 type annotations.TypeAPI = {
     any: table,
     nil_: table,
     string: table,
     boolean: table,
     union: function(values: {table}): table,
-    literal: function(value: string | number | boolean, base: table?): table,
+    literal: function(value: string | number | boolean, base: table?): table
 }
 
 local KNOWN_TARGETS = {
@@ -198,6 +204,7 @@ local BUILTINS = {
     {name = "default", arguments = "typed", targets = {"field"}, builtin = true,},
     {name = "json", arguments = "typed", targets = {"record", "field"}, builtin = true,},
     {name = "debug", arguments = "typed", targets = {"field"}, builtin = true,},
+    {name = "deprecated", arguments = "typed", targets = {"declaration", "field", "c-declaration"}, builtin = true,},
     {name = "jit", arguments = "none", targets = {"function"}, reserved = "the trace checker",},
     {name = "comptime", arguments = "none", targets = {"local-function"},},
 }
@@ -239,9 +246,11 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
     local function optional(t)
         return typesApi.union({t, typesApi.nil_})
     end
+
     local function member(name, t, isOptional)
         return {name = name, type = t, optional = isOptional == true}
     end
+
     local default = registry:get("default")
     default.members = {value = member("value", typesApi.any, false)}
     default.memberOrder = {"value"}
@@ -249,11 +258,7 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
 
     local json = registry:get("json")
     json.members = {
-        unknown = member(
-            "unknown",
-            typesApi.union({typesApi.literal("reject"), typesApi.literal("ignore")}),
-            true
-        ),
+        unknown = member("unknown", typesApi.union({typesApi.literal("reject"), typesApi.literal("ignore")}), true),
         name = member("name", optional(typesApi.string), true),
         omit = member("omit", optional(typesApi.boolean), true),
         omitEmpty = member("omitEmpty", optional(typesApi.boolean), true),
@@ -266,6 +271,49 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
         redact = member("redact", optional(typesApi.boolean), true),
     }
     debug.memberOrder = {"skip", "redact"}
+
+    local deprecated = registry:get("deprecated")
+    deprecated.members = {
+        reason = member("reason", optional(typesApi.string), true),
+        replacement = member("replacement", optional(typesApi.string), true),
+    }
+    deprecated.memberOrder = {"reason", "replacement"}
+    deprecated.singleValue = "reason"
+end
+
+--- Reads the normalized tooling contract from resolved semantic annotations.
+function annotations.deprecationOf(values: {any}?): annotations.Deprecation?
+    for _, annotation in ipairs(values or {}) do
+        if annotation.name == "deprecated" then
+            local deprecated = new annotations.Deprecation()
+            for _, argument in ipairs(annotation.arguments or {}) do
+                if argument.name == "reason" and type(argument.value) == "string" then
+                    deprecated.reason = argument.value
+                elseif argument.name == "replacement" and type(argument.value) == "string" then
+                    deprecated.replacement = argument.value
+                end
+            end
+            return deprecated
+        end
+    end
+
+    return nil
+end
+
+--- Human-readable Markdown used by hover and other presentation-shaped tooling.
+function annotations.deprecationMarkdown(deprecated: annotations.Deprecation?): string?
+    if not deprecated then
+        return nil
+    end
+    local text = "**Deprecated.**"
+    if deprecated.reason and deprecated.reason ~= "" then
+        text = text .. " " .. deprecated.reason
+    end
+    if deprecated.replacement and deprecated.replacement ~= "" then
+        text = text .. " Use `" .. deprecated.replacement:gsub("`", "\\`") .. "` instead."
+    end
+
+    return text
 end
 
 --- Attaches built-in schemas to their hidden prelude declarations for hover and
@@ -279,6 +327,7 @@ function annotations.bindBuiltinDeclarations(
         default = "nupp.__DefaultAnnotation",
         json = "nupp.__JSONAnnotation",
         debug = "nupp.__DebugAnnotation",
+        deprecated = "nupp.__DeprecatedAnnotation",
     }
     for annotationName, typeName in pairs(schemas) do
         local definition = registry:get(annotationName)

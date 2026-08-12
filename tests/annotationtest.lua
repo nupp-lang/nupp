@@ -213,6 +213,62 @@ function M.argumentContractsAreChecked()
     assertEq(diagsOf("@allow(not_a_lint) local x = 1"), "NUPP2108")
 end
 
+function M.deprecatedMetadataIsTypedAndTargeted()
+    assertEq(checked(table.concat({
+        '@deprecated(reason = "compatibility", replacement = "current")',
+        "local function legacy(): integer return 1 end",
+        "return legacy()",
+    }, "\n")), "NUPP2513")
+    assertEq(checked("@deprecated(reason = 42)\nfunction legacy() end"),
+        "NUPP2115")
+    assertEq(checked("@deprecated\ndo end"), "NUPP2112")
+end
+
+function M.deprecatedUsesReportAcrossApiKinds()
+    local codes, _, diagnostics = checked(table.concat({
+        '@deprecated(reason = "kept for compatibility", replacement = "current")',
+        "local function legacy(): integer return 1 end",
+        "local function current(): integer return 2 end",
+        "local record Box",
+        '    @deprecated("old field")',
+        "    old: integer",
+        "    current: integer",
+        "end",
+        '@deprecated(replacement = "Box")',
+        "local type OldBox = Box",
+        "local value: OldBox = new Box(old = legacy(), current = current())",
+        "return value.old",
+    }, "\n"))
+    assertEq(codes, "NUPP2513 NUPP2513 NUPP2513 NUPP2513")
+    assertEq(diagnostics[1].help, "use Box instead")
+    assertEq(diagnostics[3].help, "use current instead")
+    assert(diagnostics[2].msg:find("old field", 1, true), diagnostics[2].msg)
+end
+
+function M.deprecatedLintCanBeAllowed()
+    assertEq(checked(table.concat({
+        "@deprecated local type Old = string",
+        '@allow("deprecated")',
+        "do",
+        '    local value: Old = "ok"',
+        "    print(value)",
+        "end",
+    }, "\n")), "")
+end
+
+function M.deprecatedAnnotationsEmitNoRuntimeBehavior()
+    local codes, result = checked(table.concat({
+        '@deprecated(reason = "compatibility", replacement = "current")',
+        "local function legacy(): integer return 1 end",
+        "return legacy()",
+    }, "\n"))
+    assertEq(codes, "NUPP2513")
+    local lua, errors = gen.generate(result, "test")
+    assertEq(#errors, 0, "generation diagnostics")
+    assert(not lua:find("deprecated", 1, true), lua)
+    assert(not lua:find("compatibility", 1, true), lua)
+end
+
 function M.stackedAnnotationsUseTheUnderlyingStatementAsTheirTarget()
     assertEq(diagsOf("@allow @jit local function f() end"), "NUPP2113")
 end

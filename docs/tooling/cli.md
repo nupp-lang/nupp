@@ -506,7 +506,7 @@ Usage:
 Levels are off, note, warning and error; only an error stops a build. A
 project moves one in nupp.lua by name or by category:
 
-  lints = { ["missing-require"] = "warning", pedantic = "warning" }
+  lints = { ["missing-require"] = "warning", style = "off" }
 
 A statement waves one away with @allow("missing-require"). See docs/lints.md.
 
@@ -526,6 +526,7 @@ The text table has no code column; `--json` includes `code`, `default`, and
 ```text [nupp lints]
 lint                            category     level    summary
 customary-operator              style        warning  a customary operator where Lua has a word
+deprecated                      suspicious   warning  use of an API marked deprecated
 discarded-result                suspicious   warning  a call with nothing to do but return has its result dropped
 else-if                         style        warning  a conditional chain written as separate ifs
 exhaustiveness                  correctness  warning  a dispatch leaves members of a closed set unhandled

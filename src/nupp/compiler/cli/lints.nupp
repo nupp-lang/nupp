@@ -16,7 +16,7 @@ local command = spec.command{
     intro = [[Levels are off, note, warning and error; only an error stops a build. A
 project moves one in nupp.lua by name or by category:
 
-  lints = { ["missing-require"] = "warning", pedantic = "warning" }
+  lints = { ["missing-require"] = "warning", style = "off" }
 
 A statement waves one away with @allow("missing-require"). See docs/lints.md.]],
     options = require("nupp.compiler.cli.options").format(),

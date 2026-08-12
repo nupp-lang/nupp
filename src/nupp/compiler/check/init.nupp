@@ -405,11 +405,7 @@ function checkMod.check(
 
     -- One run's whole state, so the passes below reach it through `c` rather than by
     -- being lexically inside one function. See nupp.compiler.check.state.
-    local c = new state.Checker(result = result, filename = filename, env = env, opts = opts,
-        reducerMemo = {},
-        comptimeDepth = 0,
-        comptimeFunctionDepth = 0,
-        comptimeFunctions = {},
+    local c = new state.Checker(result = result, filename = filename, env = env, opts = opts, reducerMemo = {}, comptimeDepth = 0, comptimeFunctionDepth = 0, comptimeFunctions = {},
         -- A declaration file describes an interface it does not own, so its bare
         -- declarations are that interface and have no table of the file's own to attach
         -- to. Bundled declarations are checked under their module name rather than a
@@ -436,7 +432,8 @@ function checkMod.check(
     ), diags = {}, moduleType = nil, moduleExports = opts and opts.initialExports or {
         types = {},
         typeDefs = {},
-        values = {}
+        values = {},
+        valueDefs = {},
     }, seenDefinitions = {}, scope = {
         vars = {},
         types = {},
@@ -446,8 +443,9 @@ function checkMod.check(
         automaticOwners = {},
         depth = 0,
         parent = nil
-    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, dropOperationFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, handledDepth = 0, functionDepth = 0, scopedCaptureDepth = 0, closureCaptureStack = {}, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, activeAlias = nil, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldConst = {}, moduleFieldValues = {}, constModulePaths = {}, moduleLocalAnnotated = false)
+    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, dropOperationFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, handledDepth = 0, functionDepth = 0, scopedCaptureDepth = 0, closureCaptureStack = {}, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, activeAlias = nil, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldDefs = {}, moduleFieldConst = {}, moduleFieldValues = {}, constModulePaths = {}, moduleLocalAnnotated = false)
     c.rootScope = c.scope
+    c.moduleExports.valueDefs = c.moduleExports.valueDefs or {}
     -- What this file has declared to the FFI. Per file, because a cdef binding is
     -- file-local, and because the alternative is process state deciding what a
     -- program means.
@@ -594,9 +592,7 @@ function checkMod.check(
             local state = entry.ownershipOrigin or entry
             if not entry.ownershipOrigin and ownershipKind and ownershipKind(
                 state.t
-            ) == "owned" and not state.moved and not (
-                state.automaticOwner and state.automaticOwner.lowerable
-            ) then
+            ) == "owned" and not state.moved and not (state.automaticOwner and state.automaticOwner.lowerable) then
                 c.diag(
                     "NUPP2603",
                     entry.definition and entry.definition.token,
@@ -645,7 +641,8 @@ function checkMod.check(
                 end
                 for i = #c.captureWatches, 1, -1 do
                     -- A watch asks about the scopes between its floor and itself.
-                    -- A cleanup region sets no floor and hears every outward resolution;
+                    -- A cleanup region sets no floor and hears every outward
+                    -- resolution;
                     -- a closure being judged for hoisting sets the floor at its loop,
                     -- because a name that was already bound before the loop is the same
                     -- name on every iteration.
@@ -730,6 +727,10 @@ function checkMod.check(
         if kind and (not def.kind or def.kind == "variable") then
             def.kind = kind
         end
+        if tok.deprecation then
+            def.deprecated = tok.deprecation
+            def.documentationTrivia = tok.deprecationTrivia
+        end
         tok.definition = def
 
         return def
@@ -741,6 +742,30 @@ function checkMod.check(
         tok.definition = def
         tok.inferredType = t
         tok.semanticKind = kind or def and def.kind or "variable"
+        local deprecated = def and def.deprecated
+        local declaration = deprecated and def.token and def.token.offset == tok.offset and (
+            not def.filename or def.filename == filename
+        )
+        if deprecated and not declaration and tok.deprecationReported ~= def then
+            tok.deprecationReported = def
+            local label = def.name or tok.text
+            local msg = label .. " is deprecated"
+            if deprecated.reason and deprecated.reason ~= "" then
+                msg = msg .. ": " .. deprecated.reason
+            end
+            c.diag(
+                "NUPP2513",
+                tok,
+                msg,
+                nil,
+                {
+                    help = deprecated.replacement and deprecated.replacement ~= "" and (
+                        "use " .. deprecated.replacement .. " instead"
+                    ) or nil,
+                    related = def.token and {c.related(def, "deprecated API is declared here")} or nil,
+                }
+            )
+        end
     end
     c.bindVar = function(name, t, annotated, tok, kind, constant)
         local old = c.scope.vars[name]
@@ -1485,8 +1510,10 @@ function checkMod.check(
                 elseif cleanup.kind == "field" then
                     return cleanup.field .. " -> " .. cleanupName(cleanup.cleanup)
                 end
+
                 return cleanup.id or cleanup.kind
             end
+
             for _, owner in ipairs(c.scope.automaticOwners) do
                 owner.boundary = boundary
                 local cleanups = {}
@@ -1566,6 +1593,7 @@ function checkMod.check(
 
         return free == true
     end
+
     for _, block in ipairs(facts.bodies or {}) do
         local owners = block.automaticOwners or {}
         if #owners == 1 then

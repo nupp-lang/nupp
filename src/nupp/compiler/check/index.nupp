@@ -115,7 +115,8 @@ function index.install(c: state.Checker): state.ExprHandlers
                 c.diag(
                     "NUPP2604",
                     node,
-                    "dereferencing a raw pointer requires unsafe do; use an " .. "owned or borrowed value in checked code"
+                    "dereferencing a raw pointer requires unsafe do; use an "
+                    .. "owned or borrowed value in checked code"
                 )
             else
                 node.unsafeOwnershipOperation = "raw pointer dereference"
@@ -174,6 +175,19 @@ function index.install(c: state.Checker): state.ExprHandlers
             end
         else
             ft, fieldDef, fieldDefs = c.fieldType(base, memberName)
+        end
+        if not fieldDef and not writing then
+            if holderName == c.moduleLocal then
+                fieldDef = c.moduleFieldDefs and c.moduleFieldDefs[memberName] or nil
+            else
+                local holder = holderName ~= "" and c.lookupEntry(holderName) or nil
+                local exporting = holder and holder.requiredModule
+                local exports = exporting and c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(
+                    c.env,
+                    exporting
+                ) or nil
+                fieldDef = exports and exports.valueDefs and exports.valueDefs[memberName] or nil
+            end
         end
         if not ft then
             local opposite = writing and c.fieldType(base, memberName) or c.fieldWriteType(base, memberName)
@@ -328,16 +342,10 @@ function index.install(c: state.Checker): state.ExprHandlers
         local ot = rawType(trackedObject)
         local writing = node.writeContext == true
         local it = c.infer(key)
-        local staticallyBounded = ot.tag == "carray"
-            and ot.count ~= nil
-            and it.tag == "literal"
-            and type(it.constant) == "number"
-            and it.constant % 1 == 0
-            and it.constant >= 0
-            and it.constant < ot.count
-        local literalIndex = it.tag == "literal"
-            and type(it.constant) == "number"
-            and it.constant % 1 == 0
+        local staticallyBounded = ot.tag == "carray" and ot.count ~= nil and it.tag == "literal" and type(
+            it.constant
+        ) == "number" and it.constant % 1 == 0 and it.constant >= 0 and it.constant < ot.count
+        local literalIndex = it.tag == "literal" and type(it.constant) == "number" and it.constant % 1 == 0
         local boundsReported = false
         if ot.tag == "carray" and ot.count ~= nil and literalIndex and not staticallyBounded then
             c.diag("NUPP2604", node, "fixed C array index is outside its declared bound")
@@ -347,15 +355,14 @@ function index.install(c: state.Checker): state.ExprHandlers
         end
         if (ot.tag == "ptr" or ot.tag == "carray") and not staticallyBounded then
             if boundsReported then
-                -- The precise static bounds diagnostic above already explains it.
+            -- The precise static bounds diagnostic above already explains it.
             elseif node.carrayBound and c.unsafeDepth == 0 then
-                -- Code generation checks the dynamic index against this fixed bound.
+            -- Code generation checks the dynamic index against this fixed bound.
             elseif c.unsafeDepth == 0 then
                 c.diag(
                     "NUPP2604",
                     node,
-                    "indexing C memory requires unsafe do; use a checked span "
-                    .. "when a runtime bound is available"
+                    "indexing C memory requires unsafe do; use a checked span " .. "when a runtime bound is available"
                 )
             else
                 node.unsafeOwnershipOperation = "unchecked C memory indexing"

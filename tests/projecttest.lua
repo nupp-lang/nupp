@@ -772,6 +772,46 @@ return {
    remove(dir)
 end
 
+function M.moduleBuildCacheIncludesDeprecationMetadata()
+   local lib = table.concat({
+      "local M = {}",
+      "function M.answer(): number",
+      "   return 42",
+      "end",
+      "return M",
+   }, "\n")
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   build = {outDir = "out", entries = {"main"}},
+}
+]],
+      ["src/main.nupp"] = table.concat({
+         "local lib = require('lib')",
+         "return lib.answer()",
+      }, "\n"),
+      ["src/lib.nupp"] = lib,
+   })
+
+   assertEq(project.check(dir, {stats = {}, diagnostics = {}}), 0)
+   write(dir .. "/src/lib.nupp", lib:gsub("function M.answer",
+      '@deprecated(replacement = "lib.currentAnswer")\nfunction M.answer'))
+   local stats, diagnostics = {}, {}
+   assertEq(project.check(dir, {stats = stats, diagnostics = diagnostics}), 0)
+   assertEq(stats.checkedModules, 2,
+      "deprecation metadata invalidates the persistent dependent cache")
+   local sawDeprecated = false
+   for _, diagnostic in ipairs(diagnostics) do
+      if diagnostic.code == "NUPP2513" then
+         sawDeprecated = true
+      end
+   end
+   assert(sawDeprecated, "the rebuilt dependent reports the deprecated API")
+
+   remove(dir)
+end
+
 function M.warmBuildInvalidatesOnlyReadersOfAChangedProjectType()
    local model = table.concat({
       "global record ReflectedModel",

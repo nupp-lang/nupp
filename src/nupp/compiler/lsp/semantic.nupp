@@ -25,7 +25,7 @@ type semantic.Entry = {
     --- Index into `semanticTypes`, or absent when nothing names this kind.
     kind: integer?,
 
-    --- The modifier bitmask: 1 declaration, 2 readonly.
+    --- The modifier bitmask: 1 declaration, 2 readonly, 4 deprecated.
     modifiers: integer
 }
 
@@ -84,7 +84,7 @@ semantic.semanticTypes = wire.array({
     "label",
 })
 
-semantic.semanticModifiers = wire.array({"declaration", "readonly"})
+semantic.semanticModifiers = wire.array({"declaration", "readonly", "deprecated"})
 
 semantic.semanticIndex = {}
 for index, name in ipairs(semantic.semanticTypes) do
@@ -376,6 +376,9 @@ function semantic.install(s: semantic.Session): semantic.Api
                 local modifiers = declaration and 1 or 0
                 if tok.definition and tok.definition.constant then
                     modifiers = modifiers + 2
+                end
+                if tok.definition and tok.definition.deprecated then
+                    modifiers = modifiers + 4
                 end
                 addSemanticSpan(entries, doc.text, tok.offset, tok.text, kind, modifiers)
             end

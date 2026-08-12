@@ -131,6 +131,13 @@ lints.all = {
         level = "warning",
         summary = "a record built by field order rather than by naming its fields"
     ),
+    new lints.Lint(
+        name = "deprecated",
+        code = "NUPP2513",
+        category = "suspicious",
+        level = "warning",
+        summary = "use of an API marked deprecated"
+    ),
 }
 
 -- Both spellings reach the same lint: a name is what a person writes, a code is what
@@ -141,9 +148,9 @@ for _, lint in ipairs(lints.all) do
     byKey[lint.code] = lint
 end
 
--- The taxonomy, declared rather than gathered from whichever lints happen to exist: a
--- category a project can configure should not appear and disappear as its membership
--- changes.
+-- The taxonomy is declared beside the registry so configuration validation and its
+-- descriptions have one source. `everyLintIsWellFormed` also keeps every category
+-- useful by requiring at least one member.
 local CATEGORIES: {
     [string]: string
 } = {
@@ -151,7 +158,6 @@ local CATEGORIES: {
     suspicious = "legal, and probably not meant",
     style = "it works and reads badly",
     performance = "a declaration is paying for something it does not use",
-    pedantic = "opinions a project may not share",
 }
 
 -- The levels a lint may be configured to. `off` is a lint's alone: a type error is not

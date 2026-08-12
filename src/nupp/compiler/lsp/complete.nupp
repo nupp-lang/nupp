@@ -171,9 +171,7 @@ function complete.membersOf(t: T.Type?): {[string]: complete.Member}
             return members
         end
         for name, entry in pairs(complete.membersOf(effective)) do
-            members[
-                name
-            ] = {type = generics.specializeSelf(effective, entry.type, subject), kind = entry.kind}
+            members[name] = {type = generics.specializeSelf(effective, entry.type, subject), kind = entry.kind}
         end
 
         return members
@@ -411,19 +409,14 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
             return
         end
         for _, member in ipairs(moduleMemberDeclarations(result, moduleName)) do
-            add(
-                member.name,
-                "function",
-                nil,
-                {
-                    filename = path,
-                    token = member.token,
-                    name = member.name,
-                    kind = "function",
-                    signature = functionSignature(member.stat),
-                },
-                1
-            )
+            local definition = member.token.definition or {
+                filename = path,
+                token = member.token,
+                name = member.name,
+                kind = "function",
+                signature = functionSignature(member.stat),
+            }
+            add(member.name, "function", nil, definition, 1)
         end
     end
 
@@ -432,16 +425,19 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
         local seen = {}
         local context = (completionContext(doc.result, offset) or {}) as complete.Context
         local comptimeNode, comptimeFrom, comptimeTo = tree.comptimeAt(doc.result, offset)
-        local inComptime = comptimeNode ~= nil and comptimeFrom ~= nil and comptimeTo ~= nil
-            and offset >= comptimeFrom and offset <= comptimeTo
+        local inComptime = comptimeNode ~= nil
+            and comptimeFrom ~= nil
+            and comptimeTo ~= nil
+            and offset >= comptimeFrom
+            and offset <= comptimeTo
         local comptimeBindings = {}
         local scopeFrom = comptimeFrom or 1
         local scopeTo = comptimeTo or 0
         local function inComptimeScope(def): boolean
             local at = def.token and def.token.offset
-            return def.comptimeFunction == true
-                or at ~= nil and at >= scopeFrom and at <= scopeTo
+            return def.comptimeFunction == true or at ~= nil and at >= scopeFrom and at <= scopeTo
         end
+
         if inComptime then
             for _, def in ipairs(doc.result.symbols or {}) do
                 if inComptimeScope(def) then
@@ -470,6 +466,9 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
             if t then
                 item.detail = T.tostring(t)
             end
+            if def and def.deprecated then
+                item.tags = wire.array({1})
+            end
             local docs = documentationFor(def)
             if docs then
                 item.documentation = docs
@@ -481,9 +480,7 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
         -- ambient names as well would be offering names that do not resolve there,
         -- which is what makes the broad list useless once it matters.
         if context.path then
-            if inComptime and not COMPTIME_GLOBALS[context.path[1]]
-                and not comptimeBindings[context.path[1]]
-            then
+            if inComptime and not COMPTIME_GLOBALS[context.path[1]] and not comptimeBindings[context.path[1]] then
                 return items
             end
             local t, moduleName = resolveReceiver(doc.checked, context.path)
@@ -521,9 +518,7 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
         end
 
         for _, def in ipairs(doc.result.symbols or {}) do
-            if (not inComptime or inComptimeScope(def))
-                and (not def.token or def.token.offset <= offset)
-            then
+            if (not inComptime or inComptimeScope(def)) and (not def.token or def.token.offset <= offset) then
                 -- a member is written as the path it was declared under
                 add(def.qualifiedName or def.name, def.kind, def.type, def, 1)
             end

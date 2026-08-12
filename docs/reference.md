@@ -968,6 +968,10 @@ summary: visible bodies are checked against it and bodyless declarations are
 trusted. `const` is the shallow identity promise for a bodyless binding in a
 `.d.nupp`; it does not freeze a table's fields. `@relax` records a closed set
 of observable guarantees an optimization may change, locally to one function.
+`@deprecated(reason = "...", replacement = "...")` marks an API for tooling:
+uses report the suppressible `deprecated` lint, editors strike it through and
+show the migration detail, and generated documentation retains the annotation.
+It changes no runtime behavior.
 
 ```nupp
 local m = {}
@@ -1536,6 +1540,7 @@ says more.
  gradual-projection              NUPP2511  suspicious   warning
  else-if                         NUPP2510  style        warning
  positional-record-construction  NUPP2512  style        warning
+ deprecated                      NUPP2513  suspicious   warning
 ```
 
 ### Diagnostic codes with a worked example
@@ -1574,6 +1579,7 @@ says more.
   its head.
 - **NUPP2512**: A record is built by field order rather than by naming its
   fields.
+- **NUPP2513**: An API marked deprecated is used.
 - **NUPP2605**: Adjusting a value pack would discard an affine value.
 - **NUPP2701**: A non-suspending region can reach suspension.
 - **NUPP2801**: A derive provider name is unknown or duplicated.

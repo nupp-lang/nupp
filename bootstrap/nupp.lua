@@ -1195,6 +1195,12 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 local annotations = { }
 
 
+annotations.Deprecation = {} annotations.Deprecation.__index = annotations.Deprecation
+
+
+
+
+
 
 
 
@@ -1384,6 +1390,7 @@ local BUILTINS = {
 { name = "default" , arguments = "typed" , targets = { "field" } , builtin = true , } ,
 { name = "json" , arguments = "typed" , targets = { "record" , "field" } , builtin = true , } ,
 { name = "debug" , arguments = "typed" , targets = { "field" } , builtin = true , } ,
+{ name = "deprecated" , arguments = "typed" , targets = { "declaration" , "field" , "c-declaration" } , builtin = true , } ,
 { name = "jit" , arguments = "none" , targets = { "function" } , reserved = "the trace checker" , } ,
 { name = "comptime" , arguments = "none" , targets = { "local-function" } , } ,
 }
@@ -1425,9 +1432,11 @@ function annotations . hydrateBuiltins ( registry , typesApi )
 local function optional ( t )
 return typesApi . union ( { t , typesApi . nil_ } )
 end
+
 local function member ( name , t , isOptional )
 return { name = name , type = t , optional = isOptional == true }
 end
+
 local default = registry : get ( "default" )
 default . members = { value = member ( "value" , typesApi . any , false ) }
 default . memberOrder = { "value" }
@@ -1435,11 +1444,7 @@ default . singleValue = "value"
 
 local json = registry : get ( "json" )
 json . members = {
-unknown = member (
-"unknown" ,
-typesApi . union ( { typesApi . literal ( "reject" ) , typesApi . literal ( "ignore" ) } ) ,
-true
-) ,
+unknown = member ( "unknown" , typesApi . union ( { typesApi . literal ( "reject" ) , typesApi . literal ( "ignore" ) } ) , true ) ,
 name = member ( "name" , optional ( typesApi . string ) , true ) ,
 omit = member ( "omit" , optional ( typesApi . boolean ) , true ) ,
 omitEmpty = member ( "omitEmpty" , optional ( typesApi . boolean ) , true ) ,
@@ -1452,6 +1457,49 @@ skip = member ( "skip" , optional ( typesApi . boolean ) , true ) ,
 redact = member ( "redact" , optional ( typesApi . boolean ) , true ) ,
 }
 debug . memberOrder = { "skip" , "redact" }
+
+local deprecated = registry : get ( "deprecated" )
+deprecated . members = {
+reason = member ( "reason" , optional ( typesApi . string ) , true ) ,
+replacement = member ( "replacement" , optional ( typesApi . string ) , true ) ,
+}
+deprecated . memberOrder = { "reason" , "replacement" }
+deprecated . singleValue = "reason"
+end
+
+
+function annotations . deprecationOf ( values )
+for _ , annotation in ipairs ( values or { } ) do
+if annotation . name == "deprecated" then
+local deprecated = setmetatable({ }, annotations.Deprecation)
+for _ , argument in ipairs ( annotation . arguments or { } ) do
+if argument . name == "reason" and type ( argument . value ) == "string" then
+deprecated . reason = argument . value
+elseif argument . name == "replacement" and type ( argument . value ) == "string" then
+deprecated . replacement = argument . value
+end
+end
+return deprecated
+end
+end
+
+return nil
+end
+
+
+function annotations . deprecationMarkdown ( deprecated )
+if not deprecated then
+return nil
+end
+local text = "**Deprecated.**"
+if deprecated . reason and deprecated . reason ~= "" then
+text = text .. " " .. deprecated . reason
+end
+if deprecated . replacement and deprecated . replacement ~= "" then
+text = text .. " Use `" .. deprecated . replacement : gsub ( "`" , "\\`" ) .. "` instead."
+end
+
+return text
 end
 
 
@@ -1465,6 +1513,7 @@ local schemas = {
 default = "nupp.__DefaultAnnotation" ,
 json = "nupp.__JSONAnnotation" ,
 debug = "nupp.__DebugAnnotation" ,
+deprecated = "nupp.__DeprecatedAnnotation" ,
 }
 for annotationName , typeName in pairs ( schemas ) do
 local definition = registry : get ( annotationName )
@@ -4334,6 +4383,23 @@ local isFatal , printErrors = diagnosticMod . isFatal , diagnosticMod . report
 
 local modules = { }
 
+local function exportDeprecationsFingerprint ( exports )
+local items = { }
+for _ , field in ipairs ( { "typeDefs" , "valueDefs" } ) do
+for name , definition in pairs ( exports and exports [ field ] or { } ) do
+local deprecated = definition . deprecated
+if deprecated then
+items [
+# items + 1
+] = field .. ":" .. name .. ":" .. stable ( deprecated . reason ) .. ":" .. stable ( deprecated . replacement )
+end
+end
+end
+table . sort ( items )
+
+return table . concat ( items , "\0" )
+end
+
 
 
 
@@ -4405,10 +4471,6 @@ end
 
 local typeFingerprint
 
-
-
-
-
 local function packFingerprint (
 pack ,
 active ,
@@ -4432,6 +4494,7 @@ tailFingerprint = "generic:" .. binderFingerprint ( tail . var , binders , "pack
 elseif tail and tail . type then
 tailFingerprint = tail . kind .. ":" .. typeFingerprint ( tail . type , active , binders )
 end
+
 return "pack(" .. table . concat ( head , "," ) .. ";" .. tailFingerprint .. ")"
 end
 
@@ -4687,7 +4750,9 @@ binders
 ) .. ":template=" .. table . concat (
 templates ,
 ","
-) .. ":match=" .. ( t . matchEach and "each:" or "one:" ) .. table . concat (
+) .. ":match=" .. (
+t . matchEach and "each:" or "one:"
+) .. table . concat (
 arms ,
 ","
 ) .. ":alias=" .. (
@@ -4787,11 +4852,9 @@ effects [ # effects + 1 ] = effect
 end
 local projectDependencies = jsonArray ( { } )
 for _ , dependency in ipairs ( record . projectDependencies or { } ) do
-projectDependencies [ # projectDependencies + 1 ] = {
-name = dependency . name ,
-key = dependency . key ,
-fingerprint = dependency . fingerprint ,
-}
+projectDependencies [
+# projectDependencies + 1
+] = { name = dependency . name , key = dependency . key , fingerprint = dependency . fingerprint , }
 end
 
 return {
@@ -4998,15 +5061,20 @@ local projectDependencies = inc . projectDependencies ( path )
 records [
 name
 ] = { sourceHash = sourceHash , interfaceHash = hash . digest (
-typeFingerprint ( result . moduleType ) .. ( external and ( "\0" .. sourceHash ) or "" )
+typeFingerprint (
+result . moduleType
+) .. "\0deprecated\0" .. exportDeprecationsFingerprint (
+result . exports
+) .. ( external and ( "\0" .. sourceHash ) or "" )
 ) , artifactHash = artifactHash , dependencies = jsonArray (
 depNames
-) , projectDependencies = jsonArray ( projectDependencies ) , effects = jsonArray ( effectNames ) , output = output , external = external or nil ,
+) , projectDependencies = jsonArray (
+projectDependencies
+) , effects = jsonArray ( effectNames ) , output = output , external = external or nil ,
 
 
 
-diags = jsonArray ( result . diags or { } ) , coverage = coverage ,
-materializations = jsonArray ( materializations ) , }
+diags = jsonArray ( result . diags or { } ) , coverage = coverage , materializations = jsonArray ( materializations ) , }
 codeFor [ name ] = code
 reused [ name ] = nil
 for _ , depName in ipairs ( depNames ) do
@@ -5036,8 +5104,11 @@ and previous . sourceHash == sourceHash
 and previous . interfaceHash
 and type (
 previous . dependencies
-) == "table" and type ( previous . projectDependencies ) == "table" and type ( previous . effects ) == "table" and type ( previous . diags ) == "table"
-and type ( previous . materializations ) == "table"
+) == "table" and type (
+previous . projectDependencies
+) == "table" and type (
+previous . effects
+) == "table" and type ( previous . diags ) == "table" and type ( previous . materializations ) == "table"
 if usable and previous then
 for _ , dependency in ipairs ( previous . projectDependencies or { } ) do
 if type ( dependency ) ~= "table" then
@@ -5047,19 +5118,16 @@ end
 local dependencyName = dependency . name
 local dependencyKey = dependency . key
 local dependencyFingerprint = dependency . fingerprint
-if type ( dependencyName ) ~= "string"
-or type ( dependencyKey ) ~= "string"
-or type ( dependencyFingerprint ) ~= "string"
-then
+if type (
+dependencyName
+) ~= "string" or type ( dependencyKey ) ~= "string" or type ( dependencyFingerprint ) ~= "string" then
 usable = false
 break
 end
 if inc . projectDependencyFingerprint (
 dependencyName ,
 dependencyKey
-)
-~= dependencyFingerprint
-then
+) ~= dependencyFingerprint then
 usable = false
 break
 end
@@ -8617,11 +8685,7 @@ registry : removeSource ( filename )
 
 
 
-local c = setmetatable({ result =  result ,  filename =  filename ,  env =  env ,  opts =  opts ,  reducerMemo =
-{ } ,  comptimeDepth =
-0 ,  comptimeFunctionDepth =
-0 ,  comptimeFunctions =
-{ } ,  declarationFile =
+local c = setmetatable({ result =  result ,  filename =  filename ,  env =  env ,  opts =  opts ,  reducerMemo =  { } ,  comptimeDepth =  0 ,  comptimeFunctionDepth =  0 ,  comptimeFunctions =  { } ,  declarationFile =
 
 
 
@@ -8648,7 +8712,8 @@ env
 ) ,  diags =  { } ,  moduleType =  nil ,  moduleExports =  opts and opts . initialExports or {
 types = { } ,
 typeDefs = { } ,
-values = { }
+values = { } ,
+valueDefs = { } ,
 } ,  seenDefinitions =  { } ,  scope =  {
 vars = { } ,
 types = { } ,
@@ -8658,8 +8723,9 @@ pending = { } ,
 automaticOwners = { } ,
 depth = 0 ,
 parent = nil
-} ,  retStack =  { } ,  retPackStack =  { } ,  ownReturnStack =  { } ,  borrowReturnStack =  { } ,  varargPackStack =  { } ,  yieldPackStack =  { } ,  resumePackStack =  { } ,  protocolStack =  { } ,  dropOperationFieldStack =  { } ,  validatedCleanupContracts =  { } ,  unsafeDepth =  0 ,  noSuspendDepth =  0 ,  handledDepth =  0 ,  functionDepth =  0 ,  scopedCaptureDepth =  0 ,  closureCaptureStack =  { } ,  captureWatches =  { } ,  allowed =  { } ,  nextStat =  nil ,  hoisting =  false ,  resolvingAlias =  { } ,  activeAlias =  nil ,  lastCallRets =  nil ,  moduleFields =  { } ,  moduleFieldTokens =  { } ,  moduleFieldConst =  { } ,  moduleFieldValues =  { } ,  constModulePaths =  { } ,  moduleLocalAnnotated =  false }, state.Checker)
+} ,  retStack =  { } ,  retPackStack =  { } ,  ownReturnStack =  { } ,  borrowReturnStack =  { } ,  varargPackStack =  { } ,  yieldPackStack =  { } ,  resumePackStack =  { } ,  protocolStack =  { } ,  dropOperationFieldStack =  { } ,  validatedCleanupContracts =  { } ,  unsafeDepth =  0 ,  noSuspendDepth =  0 ,  handledDepth =  0 ,  functionDepth =  0 ,  scopedCaptureDepth =  0 ,  closureCaptureStack =  { } ,  captureWatches =  { } ,  allowed =  { } ,  nextStat =  nil ,  hoisting =  false ,  resolvingAlias =  { } ,  activeAlias =  nil ,  lastCallRets =  nil ,  moduleFields =  { } ,  moduleFieldTokens =  { } ,  moduleFieldDefs =  { } ,  moduleFieldConst =  { } ,  moduleFieldValues =  { } ,  constModulePaths =  { } ,  moduleLocalAnnotated =  false }, state.Checker)
 c . rootScope = c . scope
+c . moduleExports . valueDefs = c . moduleExports . valueDefs or { }
 
 
 
@@ -8806,9 +8872,7 @@ for name , entry in pairs ( s . vars or { } ) do
 local state = entry . ownershipOrigin or entry
 if not entry . ownershipOrigin and ownershipKind and ownershipKind (
 state . t
-) == "owned" and not state . moved and not (
-state . automaticOwner and state . automaticOwner . lowerable
-) then
+) == "owned" and not state . moved and not ( state . automaticOwner and state . automaticOwner . lowerable ) then
 c . diag (
 "NUPP2603" ,
 entry . definition and entry . definition . token ,
@@ -8856,6 +8920,7 @@ if v . definition then
 c . reads [ v . definition ] = true
 end
 for i = # c . captureWatches , 1 , - 1 do
+
 
 
 
@@ -8942,6 +9007,10 @@ end
 if kind and ( not def . kind or def . kind == "variable" ) then
 def . kind = kind
 end
+if tok . deprecation then
+def . deprecated = tok . deprecation
+def . documentationTrivia = tok . deprecationTrivia
+end
 tok . definition = def
 
 return def
@@ -8953,6 +9022,30 @@ end
 tok . definition = def
 tok . inferredType = t
 tok . semanticKind = kind or def and def . kind or "variable"
+local deprecated = def and def . deprecated
+local declaration = deprecated and def . token and def . token . offset == tok . offset and (
+not def . filename or def . filename == filename
+)
+if deprecated and not declaration and tok . deprecationReported ~= def then
+tok . deprecationReported = def
+local label = def . name or tok . text
+local msg = label .. " is deprecated"
+if deprecated . reason and deprecated . reason ~= "" then
+msg = msg .. ": " .. deprecated . reason
+end
+c . diag (
+"NUPP2513" ,
+tok ,
+msg ,
+nil ,
+{
+help = deprecated . replacement and deprecated . replacement ~= "" and (
+"use " .. deprecated . replacement .. " instead"
+) or nil ,
+related = def . token and { c . related ( def , "deprecated API is declared here" ) } or nil ,
+}
+)
+end
 end
 c . bindVar = function ( name , t , annotated , tok , kind , constant )
 local old = c . scope . vars [ name ]
@@ -9697,8 +9790,10 @@ return ":" .. cleanup . name
 elseif cleanup . kind == "field" then
 return cleanup . field .. " -> " .. cleanupName ( cleanup . cleanup )
 end
+
 return cleanup . id or cleanup . kind
 end
+
 for _ , owner in ipairs ( c . scope . automaticOwners ) do
 owner . boundary = boundary
 local cleanups = { }
@@ -9778,6 +9873,7 @@ local free = visible and effectQueries . free ( known . summary , { "raises" } )
 
 return free == true
 end
+
 for _ , block in ipairs ( facts . bodies or { } ) do
 local owners = block . automaticOwners or { }
 if # owners == 1 then
@@ -9830,6 +9926,7 @@ local T = require ( "nupp.compiler.types" )
 local cst = require ( "nupp.compiler.cst" )
 local relations = require ( "nupp.compiler.relations" )
 local state = require ( "nupp.compiler.check.state" )
+local annotationMod = require ( "nupp.compiler.annotations" )
 
 local annotate = { }
 
@@ -10220,11 +10317,18 @@ valid = false
 end
 
 if valid and target then
+local targetAny = target
 local reflected = resolvedAnnotation ( application , annotation )
 if reflected and application . semanticAnnotationTarget ~= target then
-target . semanticAnnotations = target . semanticAnnotations or { }
-target . semanticAnnotations [ # target . semanticAnnotations + 1 ] = reflected
+targetAny . semanticAnnotations = targetAny . semanticAnnotations or { }
+targetAny . semanticAnnotations [ # targetAny . semanticAnnotations + 1 ] = reflected
 application . semanticAnnotationTarget = target
+end
+if reflected and reflected . name == "deprecated" then
+targetAny . deprecation = annotationMod . deprecationOf ( { reflected } )
+if targetAny . name and cst . isToken ( targetAny . name ) then
+targetAny . name . deprecation = targetAny . deprecation
+end
 end
 end
 
@@ -10286,9 +10390,7 @@ local reserved = c . annotationRegistry : get ( name )
 c . diag (
 "NUPP2114" ,
 declaration . name ,
-reserved and reserved . builtin and (
-"annotation @" .. name .. " is reserved by Nupp for derives"
-) or err ,
+reserved and reserved . builtin and ( "annotation @" .. name .. " is reserved by Nupp" ) or err ,
 nil ,
 reserved and reserved . builtin and {
 help = "rename the project annotation; built-in annotation names are project-wide"
@@ -21228,11 +21330,18 @@ c . bindVar ( fname . base . text , T . any , false , fname . base , "function" 
 end
 local ft = c . checkFuncbody ( body , selfType )
 c . raises . check ( stat , body )
+local memberDefinition = memberTok and c . definition ( memberTok , fname . method and "method" or "function" ) or nil
+if memberDefinition then
+memberDefinition . type = ft
+c . markToken ( memberTok , memberDefinition , ft , memberDefinition . kind )
+end
 
 
 if not fname . method and ownerKey == c . moduleLocal and memberTok then
 c . moduleFields [ memberTok . text ] = ft
 c . moduleFieldTokens [ memberTok . text ] = memberTok
+c . moduleFieldDefs [ memberTok . text ] = memberDefinition
+c . moduleExports . valueDefs [ memberTok . text ] = memberDefinition
 
 
 c . moduleFieldValues [ memberTok . text ] = body
@@ -21312,12 +21421,18 @@ ft . constParams ,
 ft . paramKinds
 )
 owner . writeByname [ member ] = owner . byname [ member ]
+owner . fieldDefs [ member ] = owner . fieldDefs [ member ] or memberDefinition
+owner . writeFieldDefs [ member ] = owner . writeFieldDefs [ member ] or memberDefinition
 elseif owner . declKind == "record" or owner . declKind == "interface" then
 owner . staticByname [ member ] = ft
 owner . staticWriteByname [ member ] = ft
+owner . staticFieldDefs [ member ] = owner . staticFieldDefs [ member ] or memberDefinition
+owner . staticWriteFieldDefs [ member ] = owner . staticWriteFieldDefs [ member ] or memberDefinition
 else
 owner . byname [ member ] = ft
 owner . writeByname [ member ] = ft
+owner . fieldDefs [ member ] = owner . fieldDefs [ member ] or memberDefinition
+owner . writeFieldDefs [ member ] = owner . writeFieldDefs [ member ] or memberDefinition
 end
 if body . dropMethod then
 if fname . method then
@@ -21464,7 +21579,8 @@ if c . unsafeDepth == 0 then
 c . diag (
 "NUPP2604" ,
 node ,
-"dereferencing a raw pointer requires unsafe do; use an " .. "owned or borrowed value in checked code"
+"dereferencing a raw pointer requires unsafe do; use an "
+.. "owned or borrowed value in checked code"
 )
 else
 node . unsafeOwnershipOperation = "raw pointer dereference"
@@ -21523,6 +21639,19 @@ node . postWriteType = after
 end
 else
 ft , fieldDef , fieldDefs = c . fieldType ( base , memberName )
+end
+if not fieldDef and not writing then
+if holderName == c . moduleLocal then
+fieldDef = c . moduleFieldDefs and c . moduleFieldDefs [ memberName ] or nil
+else
+local holder = holderName ~= "" and c . lookupEntry ( holderName ) or nil
+local exporting = holder and holder . requiredModule
+local exports = exporting and c . env and c . env . resolveModuleExports and c . env . resolveModuleExports (
+c . env ,
+exporting
+) or nil
+fieldDef = exports and exports . valueDefs and exports . valueDefs [ memberName ] or nil
+end
 end
 if not ft then
 local opposite = writing and c . fieldType ( base , memberName ) or c . fieldWriteType ( base , memberName )
@@ -21677,16 +21806,10 @@ local trackedObject = c . infer ( target )
 local ot = rawType ( trackedObject )
 local writing = node . writeContext == true
 local it = c . infer ( key )
-local staticallyBounded = ot . tag == "carray"
-and ot . count ~= nil
-and it . tag == "literal"
-and type ( it . constant ) == "number"
-and it . constant % 1 == 0
-and it . constant >= 0
-and it . constant < ot . count
-local literalIndex = it . tag == "literal"
-and type ( it . constant ) == "number"
-and it . constant % 1 == 0
+local staticallyBounded = ot . tag == "carray" and ot . count ~= nil and it . tag == "literal" and type (
+it . constant
+) == "number" and it . constant % 1 == 0 and it . constant >= 0 and it . constant < ot . count
+local literalIndex = it . tag == "literal" and type ( it . constant ) == "number" and it . constant % 1 == 0
 local boundsReported = false
 if ot . tag == "carray" and ot . count ~= nil and literalIndex and not staticallyBounded then
 c . diag ( "NUPP2604" , node , "fixed C array index is outside its declared bound" )
@@ -21703,8 +21826,7 @@ elseif c . unsafeDepth == 0 then
 c . diag (
 "NUPP2604" ,
 node ,
-"indexing C memory requires unsafe do; use a checked span "
-.. "when a runtime bound is available"
+"indexing C memory requires unsafe do; use a checked span " .. "when a runtime bound is available"
 )
 else
 node . unsafeOwnershipOperation = "unchecked C memory indexing"
@@ -24563,6 +24685,31 @@ target . isAnnotationDefinition = true
 end
 local annotation , valid = validateAnnotation ( stat , target )
 
+
+
+
+local targetAny = target
+if written == "deprecated" and valid and target and targetAny . deprecation then
+local function deprecate ( tok )
+if tok then
+tok . deprecation = targetAny . deprecation
+local annotationToken = cst . firstToken ( stat )
+tok . deprecationTrivia = annotationToken and annotationToken . trivia or nil
+end
+end
+
+if target . kind == "localStmt" then
+for _ , name in ipairs ( target . names or { } ) do
+deprecate ( name )
+end
+elseif target . kind == "funcStmt" and target . name then
+local _ , member = c . funcOwner ( target . name )
+deprecate ( member or targetAny . name . base )
+else
+deprecate ( targetAny . name )
+end
+end
+
 if not annotation then
 if stat . stat then
 c . checkStat ( stat . stat )
@@ -24583,11 +24730,7 @@ if valid and target and target . kind == "localFuncStmt" and target . name and t
 local helper = target
 local body = helper . body
 if body . generics then
-c . diag (
-"NUPP2411" ,
-body . generics ,
-"generic @comptime functions are not yet available"
-)
+c . diag ( "NUPP2411" , body . generics , "generic @comptime functions are not yet available" )
 end
 for _ , rawParam in ipairs ( body . params or { } ) do
 local param = rawParam
@@ -24614,7 +24757,10 @@ if valid and target and target . kind == "recordDecl" then
 target . deriveApplications = target . deriveApplications or { }
 local seen = false
 for _ , prior in ipairs ( target . deriveApplications ) do
-if prior == stat then seen = true break end
+if prior == stat then
+seen = true
+break
+end
 end
 if not seen then
 target . deriveApplications [ # target . deriveApplications + 1 ] = stat
@@ -26315,7 +26461,12 @@ local state = { }
 
 
 
+
 state.Checker = {} state.Checker.__index = state.Checker
+
+
+
+
 
 
 
@@ -29090,7 +29241,7 @@ usage = { "nupp lints [--format text|json]" } ,
 intro = [[Levels are off, note, warning and error; only an error stops a build. A
 project moves one in nupp.lua by name or by category:
 
-  lints = { ["missing-require"] = "warning", pedantic = "warning" }
+  lints = { ["missing-require"] = "warning", style = "off" }
 
 A statement waves one away with @allow("missing-require"). See docs/lints.md.]] ,
 options = require ( "nupp.compiler.cli.options" ) . format ( ) ,
@@ -43337,6 +43488,12 @@ local envMod = { }
 
 
 
+
+
+
+
+
+
 local modulePatterns = {
 "/%s.d.nupp" ,
 "/%s.nupp" ,
@@ -43422,8 +43579,7 @@ local function listLjppFiles ( root , withDeclarations )
 if package . config : sub ( 1 , 1 ) == "\\" then
 local files = { }
 for _ , path in ipairs ( fs . listFiles ( root ) ) do
-if path : match ( "%.nupp$" )
-and ( withDeclarations or not path : match ( "%.d%.nupp$" ) ) then
+if path : match ( "%.nupp$" ) and ( withDeclarations or not path : match ( "%.d%.nupp$" ) ) then
 files [ # files + 1 ] = path
 end
 end
@@ -43612,16 +43768,48 @@ end
 return "type"
 end
 
+local function annotationString ( expr )
+if not expr or expr . kind ~= "string" or not expr . token then
+return nil
+end
+local text = expr . token . text
+local chunk = loadstring ( "return " .. text )
+if chunk then
+local ok , value = pcall ( chunk )
+if ok and type ( value ) == "string" then
+return value
+end
+end
+
+return nil
+end
+
+local function syntacticDeprecation ( application )
+local deprecated = { }
+for _ , argument in ipairs ( application . annotationArgs or { } ) do
+local name = argument . name and argument . name . text or "reason"
+local value = annotationString ( argument . expr )
+if ( name == "reason" or name == "replacement" ) and value then
+deprecated [ name ] = value
+end
+end
+
+return deprecated
+end
+
 local function annotatedDeclaration ( stat )
 local annotationDefinition = false
+local deprecated = nil
 while stat and stat . kind == "pragmaStmt" do
 if stat . name and stat . name . text == "annotation" then
 annotationDefinition = true
+elseif stat . name and stat . name . text == "deprecated" then
+deprecated = syntacticDeprecation ( stat )
 end
 stat = stat . stat
 end
 
-return stat , annotationDefinition
+return stat , annotationDefinition , deprecated
 end
 
 
@@ -43639,7 +43827,9 @@ walk ( child )
 end
 end
 end
+
 walk ( stat )
+
 return table . concat ( parts , "\2" )
 end
 
@@ -43676,7 +43866,7 @@ local moduleLocal = cst . returnedLocal ( parsed . root )
 header . moduleLocal = moduleLocal
 for _ , block in ipairs ( parsed . root . blocks or { } ) do
 for _ , stat in ipairs ( block . stats or { } ) do
-local declaration , isAnnotation = annotatedDeclaration ( stat )
+local declaration , isAnnotation , deprecated = annotatedDeclaration ( stat )
 local visibility = declaration and cst . declVisibility ( declaration , moduleLocal )
 if declaration and (
 declaration . kind == "typeAlias" or declaration . kind == "recordDecl"
@@ -43691,6 +43881,7 @@ visibility = visibility ,
 token = declarationToken ( declaration . name ) ,
 signature = declarationSignature ( stat ) ,
 isAnnotation = isAnnotation ,
+deprecated = deprecated ,
 }
 end
 end
@@ -43736,6 +43927,7 @@ filename = header . path ,
 token = declaration . token ,
 name = declaration . name ,
 kind = declaration . kind == "record" and "type" or declaration . kind ,
+deprecated = declaration . deprecated ,
 } ,
 }
 if declaration . statKind ~= "typeAlias" then
@@ -43940,9 +44132,10 @@ if not envMod . isProjectPath ( env , filename ) then
 return nil
 end
 local path = normalizePath ( filename )
-local entries = env . projectPathEntries and env . projectPathEntries ( env , path )
-or projectIndexFor ( env ) . byPath [ path ]
-or { }
+local entries = env . projectPathEntries and env . projectPathEntries (
+env ,
+path
+) or projectIndexFor ( env ) . byPath [ path ] or { }
 for _ , entry in ipairs ( entries ) do
 if entry . name == name and entry . kind == kind and entry . visibility == visibility then
 return entry . type , entry
@@ -44004,11 +44197,12 @@ return findModulePath ( env , name , runtimeModulePatterns )
 end
 
 local function seededExports ( env , path )
-local exports = { types = { } , typeDefs = { } , values = { } }
+local exports = { types = { } , typeDefs = { } , values = { } , valueDefs = { } }
 path = normalizePath ( path )
-local entries = env . projectPathEntries and env . projectPathEntries ( env , path )
-or projectIndexFor ( env ) . byPath [ path ]
-or { }
+local entries = env . projectPathEntries and env . projectPathEntries (
+env ,
+path
+) or projectIndexFor ( env ) . byPath [ path ] or { }
 for _ , entry in ipairs ( entries ) do
 if entry . visibility == "module" and entry . type then
 exports . types [ entry . name ] = entry . type
@@ -44119,8 +44313,7 @@ env ,
 filename ,
 name
 )
-local entries = env . projectEntries and env . projectEntries ( env , name )
-or projectIndexFor ( env ) . byName [ name ]
+local entries = env . projectEntries and env . projectEntries ( env , name ) or projectIndexFor ( env ) . byName [ name ]
 local entry , err , conflicts = loadedGlobal ( env , entries )
 if not entry then
 return nil , nil , err , nil , nil , conflicts
@@ -44146,9 +44339,7 @@ end
 
 function envMod . modulesExporting ( env , name )
 local modules , seen = { } , { }
-local entries = env . projectEntries and env . projectEntries ( env , name )
-or projectIndexFor ( env ) . byName [ name ]
-or { }
+local entries = env . projectEntries and env . projectEntries ( env , name ) or projectIndexFor ( env ) . byName [ name ] or { }
 for _ , entry in ipairs ( entries ) do
 if entry . visibility == "module" and entry . moduleName and not seen [ entry . moduleName ] then
 seen [ entry . moduleName ] = true
@@ -44165,8 +44356,7 @@ env ,
 filename ,
 name
 )
-local entries = env . projectEntries and env . projectEntries ( env , name )
-or projectIndexFor ( env ) . byName [ name ]
+local entries = env . projectEntries and env . projectEntries ( env , name ) or projectIndexFor ( env ) . byName [ name ]
 local entry , err , conflicts = loadedGlobal ( env , entries , "struct" )
 if not entry then
 return nil , nil , err , nil , conflicts
@@ -44179,8 +44369,10 @@ end
 
 
 function envMod . resolveProjectAnnotation ( env , filename , name )
-local entries = env . projectAnnotations and env . projectAnnotations ( env , name )
-or projectIndexFor ( env ) . annotationsByName [ name ]
+local entries = env . projectAnnotations and env . projectAnnotations (
+env ,
+name
+) or projectIndexFor ( env ) . annotationsByName [ name ]
 if not entries or # entries == 0 then
 return nil
 end
@@ -44243,9 +44435,10 @@ end
 
 function envMod . exportedNominal ( env , moduleName , typeName )
 local entry = nil
-local entries = env . projectEntries and env . projectEntries ( env , typeName )
-or projectIndexFor ( env ) . byName [ typeName ]
-or { }
+local entries = env . projectEntries and env . projectEntries (
+env ,
+typeName
+) or projectIndexFor ( env ) . byName [ typeName ] or { }
 for _ , candidate in ipairs ( entries ) do
 if candidate . moduleName == moduleName and candidate . visibility == "module" and (
 candidate . kind == "record" or candidate . kind == "struct"
@@ -44313,8 +44506,7 @@ annotationMod . hydrateBuiltins ( env . annotations , T )
 
 local config = opts and opts . config or configAt ( rootDir )
 env . config = config or { }
-local selectedTarget = env . config . _target
-or require ( "nupp.compiler.build.tasks" ) . targetConfig ( env . config )
+local selectedTarget = env . config . _target or require ( "nupp.compiler.build.tasks" ) . targetConfig ( env . config )
 env . layoutTarget = selectedTarget and selectedTarget . layoutTarget or nil
 
 local typeRoots = opts and opts . typeRoots or nil
@@ -44322,11 +44514,9 @@ if not typeRoots then
 
 
 
-local rocks = selectedTarget and require ( "nupp.compiler.build.deps" ) . rockPaths (
-rootDir ,
-env . config ,
-selectedTarget
-) or nil
+local rocks = selectedTarget and require (
+"nupp.compiler.build.deps"
+) . rockPaths ( rootDir , env . config , selectedTarget ) or nil
 typeRoots = rocks and rocks . typeRoots or { }
 end
 env . typeRoots = { }
@@ -44390,9 +44580,11 @@ local BUNDLED = { [
 "string.buffer"
 ] = "/decls/stringbuffer.d.nupp" , [
 "cjson"
-] = "/decls/cjson.d.nupp" , [ "cjson.safe" ] = "/decls/cjsonsafe.d.nupp" , [ "ffi" ] = "/decls/ffi.d.nupp" ,
-[ "lpeg" ] = "/decls/lpeg.d.nupp" ,
-[ "re" ] = "/decls/re.d.nupp" ,
+] = "/decls/cjson.d.nupp" , [
+"cjson.safe"
+] = "/decls/cjsonsafe.d.nupp" , [
+"ffi"
+] = "/decls/ffi.d.nupp" , [ "lpeg" ] = "/decls/lpeg.d.nupp" , [ "re" ] = "/decls/re.d.nupp" ,
 
 
 
@@ -44402,7 +44594,9 @@ local BUNDLED = { [
 "jit.profile"
 ] = "/decls/jit/profile.d.nupp" , [
 "jit.zone"
-] = "/decls/jit/zone.d.nupp" , [ "jit.vmdef" ] = "/decls/jit/vmdef.d.nupp" , [
+] = "/decls/jit/zone.d.nupp" , [
+"jit.vmdef"
+] = "/decls/jit/vmdef.d.nupp" , [
 "nupp.io.processnative"
 ] = "/decls/processnative.d.nupp" , [
 "nupp.io.httpnative"
@@ -44905,10 +45099,8 @@ rule = "A declaration has one type namespace. An associated type and a nested "
 .. "alias or nested declaration share it, so two of a name is one namespace "
 .. "saying two things. Fields are a separate namespace and may share the "
 .. "spelling." ,
-wrong = "local interface Reader\n    type Item = string\n"
-.. "    associated type Item\nend\n\nreturn Reader\n" ,
-right = "local interface Reader\n    type Unit = string\n"
-.. "    associated type Item\nend\n\nreturn Reader\n" ,
+wrong = "local interface Reader\n    type Item = string\n" .. "    associated type Item\nend\n\nreturn Reader\n" ,
+right = "local interface Reader\n    type Unit = string\n" .. "    associated type Item\nend\n\nreturn Reader\n" ,
 related = { "NUPP2128" } ,
 docs = "docs/type-system/associated-types.md" ,
 } , {
@@ -44919,8 +45111,7 @@ rule = "`T.Item` is the associated type `Item` as whatever T answers it with, so
 .. "has no contract to project through, a bounded one may not state the name, and "
 .. "a union states it only when every alternative does. A projection takes no "
 .. "type arguments." ,
-wrong = "local function first<T>(x: T): T.Item\n    return nil as any\nend\n\n"
-.. "return first\n" ,
+wrong = "local function first<T>(x: T): T.Item\n    return nil as any\nend\n\n" .. "return first\n" ,
 right = "local interface Reader\n    associated type Item\nend\n\n"
 .. "local function first<T is Reader>(x: T): T.Item\n    return nil as any\n"
 .. "end\n\nreturn first\n" ,
@@ -45072,104 +45263,19 @@ rule = "A `nosuspend` region and every cleanup contract must finish without "
 .. "parking the current coroutine. Remove the yielding call, move it before "
 .. "the protected region, or call an operation whose type or visible body "
 .. "proves that it cannot suspend." ,
-wrong = "local function wait(): nil\n    coroutine.yield()\nend\n\n"
-.. "nosuspend do\n    wait()\nend\n" ,
-right = "local function finish(): nil\nend\n\n"
-.. "nosuspend do\n    finish()\nend\n" ,
+wrong = "local function wait(): nil\n    coroutine.yield()\nend\n\n" .. "nosuspend do\n    wait()\nend\n" ,
+right = "local function finish(): nil\nend\n\n" .. "nosuspend do\n    finish()\nend\n" ,
 related = { "NUPP2602" , "NUPP2603" } ,
 docs = "docs/reference.md#suspension-regions" ,
 } , {
 code = "NUPP2206" ,
 summary = "Only a record or a struct can be constructed" ,
-rule = "`new` names a type and builds a value of it, so the operand "
-.. "has to be a declaration with something to build. An interface "
-.. "declares a contract and has no runtime table to stamp; an enum "
-.. "value is one of its declared strings, written directly. The "
-.. "operand is answered as a type rather than through whatever "
-.. "value stands under the name, because an interface binds none." ,
+rule = "`new` names a type and builds a value of it, so the operand " .. "has to be a declaration with something to build. An interface " .. "declares a contract and has no runtime table to stamp; an enum " .. "value is one of its declared strings, written directly. The " .. "operand is answered as a type rather than through whatever " .. "value stands under the name, because an interface binds none." ,
 wrong = "local interface Named\n    name: string\nend\n\n" .. "local n = new Named(name = \"ada\")\n\nreturn n\n" ,
-right = "local interface Named\n    name: string\nend\n\n"
-.. "local record User is Named\n    name: string\nend\n\n"
-.. "local n = new User(name = \"ada\")\n\nreturn n\n" ,
+right = "local interface Named\n    name: string\nend\n\n" .. "local record User is Named\n    name: string\nend\n\n" .. "local n = new User(name = \"ada\")\n\nreturn n\n" ,
 related = { "NUPP2202" } ,
 docs = "docs/reference.md#records" ,
-} , {
-code = "NUPP2207" ,
-summary = "A binding is read before it holds a value" ,
-rule = "`local v: Vec2` used to construct one where it was declared, "
-.. "which was a construction the source did not say. It no longer "
-.. "does, so the binding holds nil until something assigns to it, "
-.. "and reading it before that indexes nil at run time rather than "
-.. "yielding a value of the declared type. Assign it first, or "
-.. "declare it optional if it is meant to start empty. A "
-.. "declaration file states what exists elsewhere and assigns "
-.. "nothing, so it is exempt." ,
-wrong = "local record Point\n    x: integer\nend\n\n" .. "local p: Point\n\nreturn p.x\n" ,
-right = "local record Point\n    x: integer\nend\n\n" .. "local p: Point = new Point(x = 0)\n\nreturn p.x\n" ,
-related = { "NUPP2202" , "NUPP2206" } ,
-docs = "docs/reference.md#records" ,
-} , {
-code = "NUPP2512" ,
-summary = "A record is built by field order rather than by naming its fields" ,
-rule = "A record without a declared constructor may be built either way, "
-.. "and both build the same table. Naming the fields says at the call "
-.. "site which value lands where; leaving it to the order says it in "
-.. "the declaration, so a reader has to go there, and adding a field "
-.. "silently changes what an existing call means. A struct is exempt: "
-.. "it is its C layout, and that order is the layout's rather than the "
-.. "program's to name. Turn it off by name or by its `style` category, "
-.. "or write `@allow(\"positional-record-construction\")`." ,
-wrong = "local record Point\n    x: integer\n    y: integer\nend\n\n" .. "local p = new Point(1, 2)\n\nreturn p\n" ,
-right = "local record Point\n    x: integer\n    y: integer\nend\n\n"
-.. "local p = new Point(x = 1, y = 2)\n\nreturn p\n" ,
-related = { "NUPP2202" , "NUPP2208" } ,
-docs = "docs/lints.md" ,
-} , {
-code = "NUPP2208" ,
-summary = "A constructor does not hold up its declaration" ,
-rule = "A `constructor(self, ...)` body is what `new T(...)` runs. The "
-.. "instance is made before it and returned after it, so its whole "
-.. "job is to fill the fields in — and every field that cannot hold "
-.. "nil has to be filled, or the value handed back does not match "
-.. "the declaration it claims. That guarantee is the reason to "
-.. "prefer a constructor over a literal, so declaring one closes "
-.. "the literal form for that declaration. An interface builds "
-.. "nothing and cannot carry one, and there is one constructor per "
-.. "declaration until overloads arrive with intersection types." ,
-wrong = "local record Account\n    name: string\n    balance: number\n"
-.. "\n    constructor(self, name: string)\n        self.name = name\n"
-.. "    end\nend\n\nreturn Account\n" ,
-right = "local record Account\n    name: string\n    balance: number\n"
-.. "\n    constructor(self, name: string)\n        self.name = name\n"
-.. "        self.balance = 0\n    end\nend\n\nreturn Account\n" ,
-related = { "NUPP2202" , "NUPP2207" } ,
-docs = "docs/reference.md#records" ,
-} , {
-code = "NUPP3001" ,
-summary = "`is` has nothing to test against this type" ,
-rule = "A record is identified by the metatable it stamps and a struct "
-.. "by its ctype, so both answer `is` exactly. An interface has "
-.. "neither, by design — it is conformance rather than provenance — "
-.. "so something has to stand in for one.\n\n"
-.. "Three things can. A literal-typed field is a tag, and the test "
-.. "is read off it with nothing written. A `satisfies` declaration "
-.. "says the test outright, for a shape no tag describes. And a subject "
-.. "whose own type declares the interface needs no test at all: the "
-.. "declaration already answered, so the `is` compiles to `true`. "
-.. "An alias has none of these and never will." ,
-wrong = "local interface Drawable\n    width: number\nend\n\n"
-.. "local record Sprite is Drawable\n    width: number\nend\n\n"
-.. "local unknown: any = new Sprite(width = 1)\n\n"
-.. "return unknown is Drawable\n" ,
-right = "local interface Drawable\n    kind: \"drawable\"\n"
-.. "    width: number\nend\n\n"
-.. "local record Sprite is Drawable\n    kind: \"drawable\"\n"
-.. "    width: number\nend\n\n"
-.. "local unknown: any = new Sprite(kind = \"drawable\", width = 1)\n\n"
-.. "return unknown is Drawable\n" ,
-related = { "NUPP2122" } ,
-docs = "docs/type-system/interfaces.md" ,
-} , }
+} , { code = "NUPP2207" , summary = "A binding is read before it holds a value" , rule = "`local v: Vec2` used to construct one where it was declared, " .. "which was a construction the source did not say. It no longer " .. "does, so the binding holds nil until something assigns to it, " .. "and reading it before that indexes nil at run time rather than " .. "yielding a value of the declared type. Assign it first, or " .. "declare it optional if it is meant to start empty. A " .. "declaration file states what exists elsewhere and assigns " .. "nothing, so it is exempt." , wrong = "local record Point\n    x: integer\nend\n\n" .. "local p: Point\n\nreturn p.x\n" , right = "local record Point\n    x: integer\nend\n\n" .. "local p: Point = new Point(x = 0)\n\nreturn p.x\n" , related = { "NUPP2202" , "NUPP2206" } , docs = "docs/reference.md#records" , } , { code = "NUPP2512" , summary = "A record is built by field order rather than by naming its fields" , rule = "A record without a declared constructor may be built either way, " .. "and both build the same table. Naming the fields says at the call " .. "site which value lands where; leaving it to the order says it in " .. "the declaration, so a reader has to go there, and adding a field " .. "silently changes what an existing call means. A struct is exempt: " .. "it is its C layout, and that order is the layout's rather than the " .. "program's to name. Turn it off by name or by its `style` category, " .. "or write `@allow(\"positional-record-construction\")`." , wrong = "local record Point\n    x: integer\n    y: integer\nend\n\n" .. "local p = new Point(1, 2)\n\nreturn p\n" , right = "local record Point\n    x: integer\n    y: integer\nend\n\n" .. "local p = new Point(x = 1, y = 2)\n\nreturn p\n" , related = { "NUPP2202" , "NUPP2208" } , docs = "docs/lints.md" , } , { code = "NUPP2513" , summary = "An API marked deprecated is used" , rule = "`@deprecated` keeps an API available while telling callers to move " .. "away from it. The optional reason explains why and the replacement names " .. "what to use instead. The annotation changes tooling only: it reports this " .. "suppressible lint at use sites and emits no runtime behavior." , wrong = "local function current(): integer return 1 end\n\n" .. "@deprecated(replacement = \"current\")\n" .. "local function legacy(): integer return current() end\n\nreturn legacy()\n" , right = "local function current(): integer return 1 end\n\n" .. "@deprecated(replacement = \"current\")\n" .. "local function legacy(): integer return current() end\n\nreturn current()\n" , related = { "NUPP2115" } , docs = "docs/lints.md" , } , { code = "NUPP2208" , summary = "A constructor does not hold up its declaration" , rule = "A `constructor(self, ...)` body is what `new T(...)` runs. The " .. "instance is made before it and returned after it, so its whole " .. "job is to fill the fields in — and every field that cannot hold " .. "nil has to be filled, or the value handed back does not match " .. "the declaration it claims. That guarantee is the reason to " .. "prefer a constructor over a literal, so declaring one closes " .. "the literal form for that declaration. An interface builds " .. "nothing and cannot carry one, and there is one constructor per " .. "declaration until overloads arrive with intersection types." , wrong = "local record Account\n    name: string\n    balance: number\n" .. "\n    constructor(self, name: string)\n        self.name = name\n" .. "    end\nend\n\nreturn Account\n" , right = "local record Account\n    name: string\n    balance: number\n" .. "\n    constructor(self, name: string)\n        self.name = name\n" .. "        self.balance = 0\n    end\nend\n\nreturn Account\n" , related = { "NUPP2202" , "NUPP2207" } , docs = "docs/reference.md#records" , } , { code = "NUPP3001" , summary = "`is` has nothing to test against this type" , rule = "A record is identified by the metatable it stamps and a struct " .. "by its ctype, so both answer `is` exactly. An interface has " .. "neither, by design — it is conformance rather than provenance — " .. "so something has to stand in for one.\n\n" .. "Three things can. A literal-typed field is a tag, and the test " .. "is read off it with nothing written. A `satisfies` declaration " .. "says the test outright, for a shape no tag describes. And a subject " .. "whose own type declares the interface needs no test at all: the " .. "declaration already answered, so the `is` compiles to `true`. " .. "An alias has none of these and never will." , wrong = "local interface Drawable\n    width: number\nend\n\n" .. "local record Sprite is Drawable\n    width: number\nend\n\n" .. "local unknown: any = new Sprite(width = 1)\n\n" .. "return unknown is Drawable\n" , right = "local interface Drawable\n    kind: \"drawable\"\n" .. "    width: number\nend\n\n" .. "local record Sprite is Drawable\n    kind: \"drawable\"\n" .. "    width: number\nend\n\n" .. "local unknown: any = new Sprite(kind = \"drawable\", width = 1)\n\n" .. "return unknown is Drawable\n" , related = { "NUPP2122" } , docs = "docs/type-system/interfaces.md" , } , }
 
 local byCode = { }
 for _ , entry in ipairs ( ENTRIES ) do
@@ -54165,6 +54271,7 @@ local incremental = { }
 
 
 
+
 incremental.Inc = {} incremental.Inc.__index = incremental.Inc
 
 
@@ -54382,6 +54489,7 @@ local out = { }
 for _ , entry in ipairs ( entries or { } ) do
 out [ # out + 1 ] = entrySurface ( entry )
 end
+
 return out
 end
 
@@ -54486,6 +54594,32 @@ if left [ name ] ~= value then
 return false
 end
 end
+
+return true
+end
+
+local function sameDeprecation ( left , right )
+if left == nil or right == nil then
+return left == right
+end
+
+return left . reason == right . reason and left . replacement == right . replacement
+end
+
+local function sameDefinitionMap ( left , right )
+left , right = left or { } , right or { }
+for name , definition in pairs ( left ) do
+local other = right [ name ]
+if not other or not sameDeprecation ( definition . deprecated , other . deprecated ) then
+return false
+end
+end
+for name in pairs ( right ) do
+if not left [ name ] then
+return false
+end
+end
+
 return true
 end
 
@@ -54493,7 +54627,13 @@ local function sameExports ( left , right )
 if left == nil or right == nil then
 return left == right
 end
-return sameTypeMap ( left . types , right . types ) and sameTypeMap ( left . values , right . values )
+return sameTypeMap (
+left . types ,
+right . types
+) and sameTypeMap (
+left . values ,
+right . values
+) and sameDefinitionMap ( left . typeDefs , right . typeDefs ) and sameDefinitionMap ( left . valueDefs , right . valueDefs )
 end
 
 q : define ( "moduleExports" , function ( self , name )
@@ -54613,6 +54753,7 @@ local value = q : get ( name , key )
 if name == "projectEntries" or name == "projectPathEntries" or name == "projectAnnotations" then
 value = entryListSurface ( value )
 end
+
 return hash . digest ( stable ( value ) )
 end
 
@@ -54626,17 +54767,16 @@ if PROJECT_QUERY [ dep . name ] then
 local identity = dep . name .. "\0" .. tostring ( dep . key )
 if not seen [ identity ] then
 seen [ identity ] = true
-dependencies [ # dependencies + 1 ] = {
-name = dep . name ,
-key = dep . key ,
-fingerprint = projectFingerprint ( dep . name , dep . key ) ,
-}
+dependencies [
+# dependencies + 1
+] = { name = dep . name , key = dep . key , fingerprint = projectFingerprint ( dep . name , dep . key ) , }
 end
 end
 end
 table . sort ( dependencies , function ( a , b )
 return a . name < b . name or ( a . name == b . name and tostring ( a . key ) < tostring ( b . key ) )
 end )
+
 return dependencies
 end
 
@@ -54681,6 +54821,15 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 local lexer = { }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -55436,6 +55585,13 @@ lints . all = { setmetatable({ name =
 "style" ,  level =
 "warning" ,  summary =
 "a record built by field order rather than by naming its fields" }, lints.Lint)
+, setmetatable({ name =
+
+"deprecated" ,  code =
+"NUPP2513" ,  category =
+"suspicious" ,  level =
+"warning" ,  summary =
+"use of an API marked deprecated" }, lints.Lint)
 ,
 }
 
@@ -55457,7 +55613,6 @@ correctness = "the program is very likely wrong" ,
 suspicious = "legal, and probably not meant" ,
 style = "it works and reads badly" ,
 performance = "a declaration is paying for something it does not use" ,
-pedantic = "opinions a project may not share" ,
 }
 
 
@@ -55537,6 +55692,7 @@ local envMod = require ( "nupp.compiler.env" )
 local fmt = require ( "nupp.compiler.fmt" )
 local lexer = require ( "nupp.compiler.lexer" )
 local T = require ( "nupp.compiler.types" )
+local annotationMod = require ( "nupp.compiler.annotations" )
 
 local lsp = { }
 
@@ -55803,6 +55959,11 @@ return
 end
 for _ , tok in ipairs ( doc . result . tokens ) do
 if tok . kind ~= "eof" and offset >= tok . offset and offset < tok . offset + # tok . text then
+local member = memberAt ( doc , offset )
+if member then
+respond ( id , memberLocation ( member ) )
+return
+end
 if tok . additionalDefinitions and # tok . additionalDefinitions > 1 then
 local locations = wire . array ( { } )
 for _ , definition in ipairs ( tok . additionalDefinitions ) do
@@ -55845,16 +56006,20 @@ end
 value = value .. "\n\nCanonical value: `" .. literal : gsub ( "`" , "\\`" ) .. "`"
 elseif comptimeNode . materializationObservation then
 local observation = comptimeNode . materializationObservation
-value = value .. ( "\n\nMaterialized by `%s` (`%s`, %d-byte blueprint)." ) : format (
-tostring ( observation . provider ) ,
-tostring ( observation . backend ) ,
-observation . blueprintSize or 0
-)
+value = value .. (
+"\n\nMaterialized by `%s` (`%s`, %d-byte blueprint)."
+) : format ( tostring ( observation . provider ) , tostring ( observation . backend ) , observation . blueprintSize or 0 )
 end
-respond ( id , { contents = { kind = "markdown" , value = value } , range = {
+respond (
+id ,
+{
+contents = { kind = "markdown" , value = value } ,
+range = {
 start = positionAtOffset ( doc . text , from or hoverOffset ) ,
 [ "end" ] = positionAtOffset ( doc . text , to or hoverOffset ) ,
-} , } )
+} ,
+}
+)
 return
 end
 local def = tok and tok . definition
@@ -55863,10 +56028,14 @@ local t = tok and ( tok . inferredType or def and def . type )
 
 
 
-if tok and not def then
+if tok then
 local member = memberAt ( doc , offset )
 local value = member and memberHover ( member )
 if value then
+local deprecated = annotationMod . deprecationMarkdown ( def and def . deprecated )
+if deprecated then
+value = value .. "\n\n" .. deprecated
+end
 respond ( id , { contents = { kind = "markdown" , value = value } , range = tokenRange ( doc . text , tok ) , } )
 return
 end
@@ -55884,18 +56053,22 @@ if automatic then
 if automatic . status == "moved" then
 value = value .. "\n\nOwnership moves before the lexical cleanup boundary."
 else
-value = value .. ( "\n\nAutomatically destroyed after line %d with `%s`." ) : format (
-automatic . line ,
-table . concat ( automatic . cleanups or { } , "`, then `" )
-)
+value = value .. (
+"\n\nAutomatically destroyed after line %d with `%s`."
+) : format ( automatic . line , table . concat ( automatic . cleanups or { } , "`, then `" ) )
 end
 end
 local docs = documentationFor ( def )
 if docs then
 value = value .. "\n\n" .. docs
 end
+local deprecated = annotationMod . deprecationMarkdown ( def and def . deprecated )
+if deprecated then
+value = value .. "\n\n" .. deprecated
+end
 respond ( id , { contents = { kind = "markdown" , value = value } , range = tokenRange ( doc . text , tok ) , } )
 end
+
 
 
 
@@ -55982,6 +56155,7 @@ documentation = documentationFor ( def ) ,
 definition = definitionLocation ( def ) ,
 range = tokenRange ( doc . text , tok ) ,
 automaticCleanup = def and def . automaticCleanup or nil ,
+deprecated = def and def . deprecated or nil ,
 }
 )
 end
@@ -56040,9 +56214,9 @@ parameters [
 ] = {
 label = tail . kind == "homogeneous" and (
 "...: " .. T . tostring ( tail . type )
-) or tail . kind == "generic" and ( tail . var . name .. "..." )
-or tail . kind == "computed" and ( "...: unpackof " .. T . tostring ( tail . type ) )
-or "..."
+) or tail . kind == "generic" and (
+tail . var . name .. "..."
+) or tail . kind == "computed" and ( "...: unpackof " .. T . tostring ( tail . type ) ) or "..."
 }
 end
 signatures [ # signatures + 1 ] = { label = name .. ": " .. T . tostring ( candidate ) , parameters = parameters , }
@@ -56068,9 +56242,9 @@ respond ( id , json . empty_array )
 return
 end
 local includeDeclaration = params . context and params . context . includeDeclaration or false
-if not tok . definition then
 local member = memberAt ( doc , offset )
-respond ( id , member and memberReferences ( member , includeDeclaration ) or json . empty_array )
+if member then
+respond ( id , memberReferences ( member , includeDeclaration ) )
 return
 end
 respond ( id , referencesFor ( tok . definition , includeDeclaration ) )
@@ -56084,24 +56258,20 @@ local _ , doc , tok , offset = symbolAt ( params )
 if not tok then
 return doc , nil , nil
 end
-if tok . definition then
-if isProjectDefinition ( tok . definition ) then
-return doc , tok , function ( includeDeclaration )
-return referencesFor ( tok . definition , includeDeclaration )
-end
-end
-return doc , nil , nil
-end
 local member = memberAt ( doc , offset )
 local path = member and s . inc . modulePath ( member . moduleName )
-if not path then
-return doc , nil , nil
-end
+if path then
 for _ , projectPath in ipairs ( s . inc . projectFiles ( ) ) do
 if projectPath == path then
 return doc , tok , function ( includeDeclaration )
 return memberReferences ( member , includeDeclaration )
 end
+end
+end
+end
+if tok . definition and isProjectDefinition ( tok . definition ) then
+return doc , tok , function ( includeDeclaration )
+return referencesFor ( tok . definition , includeDeclaration )
 end
 end
 
@@ -56405,7 +56575,8 @@ respond ( id , json . empty_array )
 return
 end
 local highlights = wire . array ( { } )
-local wanted = symbolKey ( tok . definition )
+local member = memberAt ( doc , offset )
+local wanted = not member and symbolKey ( tok . definition ) or nil
 if wanted then
 for _ , other in ipairs ( doc . result . tokens or { } ) do
 if symbolKey ( other . definition ) == wanted then
@@ -56413,7 +56584,6 @@ highlights [ # highlights + 1 ] = { range = tokenRange ( doc . text , other ) }
 end
 end
 else
-local member = memberAt ( doc , offset )
 for _ , hit in ipairs ( member and memberOccurrences ( doc . result , member . moduleName , member . name ) or { } ) do
 highlights [ # highlights + 1 ] = { range = tokenRange ( doc . text , hit . token ) }
 end
@@ -56582,28 +56752,19 @@ end
 
 local process = require ( "nupp.io.process" )
 local compilerRoot = os . getenv ( "NUPP_COMPILER_ROOT" )
-local executable = compilerRoot and compilerRoot .. "/bin/nupp"
-or type ( arg ) == "table" and type ( arg [ 0 ] ) == "string" and arg [ 0 ]
-or nil
+local executable = compilerRoot and compilerRoot .. "/bin/nupp" or type (
+arg
+) == "table" and type ( arg [ 0 ] ) == "string" and arg [ 0 ] or nil
 if not executable then
 io . stderr : write ( "nupp-lsp: cannot identify the current executable\n" )
 return 1
 end
 local relayArgs = { executable , "__lsp-reader" }
 if compilerRoot and package . config : sub ( 1 , 1 ) == "\\" then
-local path = ( "package.path=%q .. package.path" )
-: format ( compilerRoot .. "/build/?.lua;" )
-relayArgs = {
-"luajit" , "-e" , path ,
-compilerRoot .. "/build/nupp/compiler/main.lua" , "__lsp-reader" ,
-}
+local path = ( "package.path=%q .. package.path" ) : format ( compilerRoot .. "/build/?.lua;" )
+relayArgs = { "luajit" , "-e" , path , compilerRoot .. "/build/nupp/compiler/main.lua" , "__lsp-reader" , }
 end
-do local __nuppT13=0; local  __nuppT19 ; const __nuppT14,__nuppT15,__nuppT16=__nuppT6(function() do const __nuppT20=__nuppT1( process . new ( {
-args = relayArgs ,
-stdin = "inherit" ,
-stdout = "pipe" ,
-stderr = "inherit" ,
-} ) ); __nuppT19= __nuppT20[1] ; __nuppT13=1;  local  relay , problem = __nuppT20[1] , __nuppT20[2] ;
+do local __nuppT13=0; local  __nuppT19 ; const __nuppT14,__nuppT15,__nuppT16=__nuppT6(function() do const __nuppT20=__nuppT1( process . new ( { args = relayArgs , stdin = "inherit" , stdout = "pipe" , stderr = "inherit" , } ) ); __nuppT19= __nuppT20[1] ; __nuppT13=1;  local  relay , problem = __nuppT20[1] , __nuppT20[2] ;
 if not relay then
 io . stderr : write ( "nupp-lsp: cannot start input reader: " .. tostring ( problem ) .. "\n" )
 return "return",__nuppT1( 1 )
@@ -56632,6 +56793,7 @@ end
 local body = buffered : sub ( bodyAt , bodyAt + length - 1 )
 buffered = buffered : sub ( bodyAt + length )
 local ok , message = pcall ( json . decode , body )
+
 return ok and message or nil
 end
 
@@ -56660,22 +56822,15 @@ end
 harvest ( )
 end
 
-host = {
-currentId = nil ,
-pump = pump ,
-cancelled = function ( )
+host = { currentId = nil , pump = pump , cancelled = function ( )
 return host . currentId ~= nil and cancelled [ host . currentId ] == true
-end ,
-cancel = function ( id )
+end , cancel = function ( id )
 cancelled [ id ] = true
-end ,
-isCancelled = function ( id )
+end , isCancelled = function ( id )
 return cancelled [ id ] == true
-end ,
-clearCancelled = function ( id )
+end , clearCancelled = function ( id )
 cancelled [ id ] = nil
-end ,
-}
+end , }
 
 local session = lsp . newSession ( rootDir , send , host )
 while session . running ( ) do
@@ -56876,9 +57031,7 @@ if not effective then
 return members
 end
 for name , entry in pairs ( complete . membersOf ( effective ) ) do
-members [
-name
-] = { type = generics . specializeSelf ( effective , entry . type , subject ) , kind = entry . kind }
+members [ name ] = { type = generics . specializeSelf ( effective , entry . type , subject ) , kind = entry . kind }
 end
 
 return members
@@ -57116,19 +57269,14 @@ if not result then
 return
 end
 for _ , member in ipairs ( moduleMemberDeclarations ( result , moduleName ) ) do
-add (
-member . name ,
-"function" ,
-nil ,
-{
+local definition = member . token . definition or {
 filename = path ,
 token = member . token ,
 name = member . name ,
 kind = "function" ,
 signature = functionSignature ( member . stat ) ,
-} ,
-1
-)
+}
+add ( member . name , "function" , nil , definition , 1 )
 end
 end
 
@@ -57137,16 +57285,19 @@ local items = wire . array ( { } )
 local seen = { }
 local context = ( completionContext ( doc . result , offset ) or { } )
 local comptimeNode , comptimeFrom , comptimeTo = tree . comptimeAt ( doc . result , offset )
-local inComptime = comptimeNode ~= nil and comptimeFrom ~= nil and comptimeTo ~= nil
-and offset >= comptimeFrom and offset <= comptimeTo
+local inComptime = comptimeNode ~= nil
+and comptimeFrom ~= nil
+and comptimeTo ~= nil
+and offset >= comptimeFrom
+and offset <= comptimeTo
 local comptimeBindings = { }
 local scopeFrom = comptimeFrom or 1
 local scopeTo = comptimeTo or 0
 local function inComptimeScope ( def )
 local at = def . token and def . token . offset
-return def . comptimeFunction == true
-or at ~= nil and at >= scopeFrom and at <= scopeTo
+return def . comptimeFunction == true or at ~= nil and at >= scopeFrom and at <= scopeTo
 end
+
 if inComptime then
 for _ , def in ipairs ( doc . result . symbols or { } ) do
 if inComptimeScope ( def ) then
@@ -57175,6 +57326,9 @@ sortText = tostring ( priority or 5 ) .. label ,
 if t then
 item . detail = T . tostring ( t )
 end
+if def and def . deprecated then
+item . tags = wire . array ( { 1 } )
+end
 local docs = documentationFor ( def )
 if docs then
 item . documentation = docs
@@ -57186,9 +57340,7 @@ end
 
 
 if context . path then
-if inComptime and not COMPTIME_GLOBALS [ context . path [ 1 ] ]
-and not comptimeBindings [ context . path [ 1 ] ]
-then
+if inComptime and not COMPTIME_GLOBALS [ context . path [ 1 ] ] and not comptimeBindings [ context . path [ 1 ] ] then
 return items
 end
 local t , moduleName = resolveReceiver ( doc . checked , context . path )
@@ -57226,9 +57378,7 @@ return items
 end
 
 for _ , def in ipairs ( doc . result . symbols or { } ) do
-if ( not inComptime or inComptimeScope ( def ) )
-and ( not def . token or def . token . offset <= offset )
-then
+if ( not inComptime or inComptimeScope ( def ) ) and ( not def . token or def . token . offset <= offset ) then
 
 add ( def . qualifiedName or def . name , def . kind , def . type , def , 1 )
 end
@@ -57485,6 +57635,7 @@ local envMod = require ( "nupp.compiler.env" )
 local fmt = require ( "nupp.compiler.fmt" )
 local lexer = require ( "nupp.compiler.lexer" )
 local T = require ( "nupp.compiler.types" )
+local annotationMod = require ( "nupp.compiler.annotations" )
 
 local lsp = { }
 
@@ -57751,6 +57902,11 @@ return
 end
 for _ , tok in ipairs ( doc . result . tokens ) do
 if tok . kind ~= "eof" and offset >= tok . offset and offset < tok . offset + # tok . text then
+local member = memberAt ( doc , offset )
+if member then
+respond ( id , memberLocation ( member ) )
+return
+end
 if tok . additionalDefinitions and # tok . additionalDefinitions > 1 then
 local locations = wire . array ( { } )
 for _ , definition in ipairs ( tok . additionalDefinitions ) do
@@ -57793,16 +57949,20 @@ end
 value = value .. "\n\nCanonical value: `" .. literal : gsub ( "`" , "\\`" ) .. "`"
 elseif comptimeNode . materializationObservation then
 local observation = comptimeNode . materializationObservation
-value = value .. ( "\n\nMaterialized by `%s` (`%s`, %d-byte blueprint)." ) : format (
-tostring ( observation . provider ) ,
-tostring ( observation . backend ) ,
-observation . blueprintSize or 0
-)
+value = value .. (
+"\n\nMaterialized by `%s` (`%s`, %d-byte blueprint)."
+) : format ( tostring ( observation . provider ) , tostring ( observation . backend ) , observation . blueprintSize or 0 )
 end
-respond ( id , { contents = { kind = "markdown" , value = value } , range = {
+respond (
+id ,
+{
+contents = { kind = "markdown" , value = value } ,
+range = {
 start = positionAtOffset ( doc . text , from or hoverOffset ) ,
 [ "end" ] = positionAtOffset ( doc . text , to or hoverOffset ) ,
-} , } )
+} ,
+}
+)
 return
 end
 local def = tok and tok . definition
@@ -57811,10 +57971,14 @@ local t = tok and ( tok . inferredType or def and def . type )
 
 
 
-if tok and not def then
+if tok then
 local member = memberAt ( doc , offset )
 local value = member and memberHover ( member )
 if value then
+local deprecated = annotationMod . deprecationMarkdown ( def and def . deprecated )
+if deprecated then
+value = value .. "\n\n" .. deprecated
+end
 respond ( id , { contents = { kind = "markdown" , value = value } , range = tokenRange ( doc . text , tok ) , } )
 return
 end
@@ -57832,18 +57996,22 @@ if automatic then
 if automatic . status == "moved" then
 value = value .. "\n\nOwnership moves before the lexical cleanup boundary."
 else
-value = value .. ( "\n\nAutomatically destroyed after line %d with `%s`." ) : format (
-automatic . line ,
-table . concat ( automatic . cleanups or { } , "`, then `" )
-)
+value = value .. (
+"\n\nAutomatically destroyed after line %d with `%s`."
+) : format ( automatic . line , table . concat ( automatic . cleanups or { } , "`, then `" ) )
 end
 end
 local docs = documentationFor ( def )
 if docs then
 value = value .. "\n\n" .. docs
 end
+local deprecated = annotationMod . deprecationMarkdown ( def and def . deprecated )
+if deprecated then
+value = value .. "\n\n" .. deprecated
+end
 respond ( id , { contents = { kind = "markdown" , value = value } , range = tokenRange ( doc . text , tok ) , } )
 end
+
 
 
 
@@ -57930,6 +58098,7 @@ documentation = documentationFor ( def ) ,
 definition = definitionLocation ( def ) ,
 range = tokenRange ( doc . text , tok ) ,
 automaticCleanup = def and def . automaticCleanup or nil ,
+deprecated = def and def . deprecated or nil ,
 }
 )
 end
@@ -57988,9 +58157,9 @@ parameters [
 ] = {
 label = tail . kind == "homogeneous" and (
 "...: " .. T . tostring ( tail . type )
-) or tail . kind == "generic" and ( tail . var . name .. "..." )
-or tail . kind == "computed" and ( "...: unpackof " .. T . tostring ( tail . type ) )
-or "..."
+) or tail . kind == "generic" and (
+tail . var . name .. "..."
+) or tail . kind == "computed" and ( "...: unpackof " .. T . tostring ( tail . type ) ) or "..."
 }
 end
 signatures [ # signatures + 1 ] = { label = name .. ": " .. T . tostring ( candidate ) , parameters = parameters , }
@@ -58016,9 +58185,9 @@ respond ( id , json . empty_array )
 return
 end
 local includeDeclaration = params . context and params . context . includeDeclaration or false
-if not tok . definition then
 local member = memberAt ( doc , offset )
-respond ( id , member and memberReferences ( member , includeDeclaration ) or json . empty_array )
+if member then
+respond ( id , memberReferences ( member , includeDeclaration ) )
 return
 end
 respond ( id , referencesFor ( tok . definition , includeDeclaration ) )
@@ -58032,24 +58201,20 @@ local _ , doc , tok , offset = symbolAt ( params )
 if not tok then
 return doc , nil , nil
 end
-if tok . definition then
-if isProjectDefinition ( tok . definition ) then
-return doc , tok , function ( includeDeclaration )
-return referencesFor ( tok . definition , includeDeclaration )
-end
-end
-return doc , nil , nil
-end
 local member = memberAt ( doc , offset )
 local path = member and s . inc . modulePath ( member . moduleName )
-if not path then
-return doc , nil , nil
-end
+if path then
 for _ , projectPath in ipairs ( s . inc . projectFiles ( ) ) do
 if projectPath == path then
 return doc , tok , function ( includeDeclaration )
 return memberReferences ( member , includeDeclaration )
 end
+end
+end
+end
+if tok . definition and isProjectDefinition ( tok . definition ) then
+return doc , tok , function ( includeDeclaration )
+return referencesFor ( tok . definition , includeDeclaration )
 end
 end
 
@@ -58353,7 +58518,8 @@ respond ( id , json . empty_array )
 return
 end
 local highlights = wire . array ( { } )
-local wanted = symbolKey ( tok . definition )
+local member = memberAt ( doc , offset )
+local wanted = not member and symbolKey ( tok . definition ) or nil
 if wanted then
 for _ , other in ipairs ( doc . result . tokens or { } ) do
 if symbolKey ( other . definition ) == wanted then
@@ -58361,7 +58527,6 @@ highlights [ # highlights + 1 ] = { range = tokenRange ( doc . text , other ) }
 end
 end
 else
-local member = memberAt ( doc , offset )
 for _ , hit in ipairs ( member and memberOccurrences ( doc . result , member . moduleName , member . name ) or { } ) do
 highlights [ # highlights + 1 ] = { range = tokenRange ( doc . text , hit . token ) }
 end
@@ -58530,28 +58695,19 @@ end
 
 local process = require ( "nupp.io.process" )
 local compilerRoot = os . getenv ( "NUPP_COMPILER_ROOT" )
-local executable = compilerRoot and compilerRoot .. "/bin/nupp"
-or type ( arg ) == "table" and type ( arg [ 0 ] ) == "string" and arg [ 0 ]
-or nil
+local executable = compilerRoot and compilerRoot .. "/bin/nupp" or type (
+arg
+) == "table" and type ( arg [ 0 ] ) == "string" and arg [ 0 ] or nil
 if not executable then
 io . stderr : write ( "nupp-lsp: cannot identify the current executable\n" )
 return 1
 end
 local relayArgs = { executable , "__lsp-reader" }
 if compilerRoot and package . config : sub ( 1 , 1 ) == "\\" then
-local path = ( "package.path=%q .. package.path" )
-: format ( compilerRoot .. "/build/?.lua;" )
-relayArgs = {
-"luajit" , "-e" , path ,
-compilerRoot .. "/build/nupp/compiler/main.lua" , "__lsp-reader" ,
-}
+local path = ( "package.path=%q .. package.path" ) : format ( compilerRoot .. "/build/?.lua;" )
+relayArgs = { "luajit" , "-e" , path , compilerRoot .. "/build/nupp/compiler/main.lua" , "__lsp-reader" , }
 end
-do local __nuppT13=0; local  __nuppT19 ; const __nuppT14,__nuppT15,__nuppT16=__nuppT6(function() do const __nuppT20=__nuppT1( process . new ( {
-args = relayArgs ,
-stdin = "inherit" ,
-stdout = "pipe" ,
-stderr = "inherit" ,
-} ) ); __nuppT19= __nuppT20[1] ; __nuppT13=1;  local  relay , problem = __nuppT20[1] , __nuppT20[2] ;
+do local __nuppT13=0; local  __nuppT19 ; const __nuppT14,__nuppT15,__nuppT16=__nuppT6(function() do const __nuppT20=__nuppT1( process . new ( { args = relayArgs , stdin = "inherit" , stdout = "pipe" , stderr = "inherit" , } ) ); __nuppT19= __nuppT20[1] ; __nuppT13=1;  local  relay , problem = __nuppT20[1] , __nuppT20[2] ;
 if not relay then
 io . stderr : write ( "nupp-lsp: cannot start input reader: " .. tostring ( problem ) .. "\n" )
 return "return",__nuppT1( 1 )
@@ -58580,6 +58736,7 @@ end
 local body = buffered : sub ( bodyAt , bodyAt + length - 1 )
 buffered = buffered : sub ( bodyAt + length )
 local ok , message = pcall ( json . decode , body )
+
 return ok and message or nil
 end
 
@@ -58608,22 +58765,15 @@ end
 harvest ( )
 end
 
-host = {
-currentId = nil ,
-pump = pump ,
-cancelled = function ( )
+host = { currentId = nil , pump = pump , cancelled = function ( )
 return host . currentId ~= nil and cancelled [ host . currentId ] == true
-end ,
-cancel = function ( id )
+end , cancel = function ( id )
 cancelled [ id ] = true
-end ,
-isCancelled = function ( id )
+end , isCancelled = function ( id )
 return cancelled [ id ] == true
-end ,
-clearCancelled = function ( id )
+end , clearCancelled = function ( id )
 cancelled [ id ] = nil
-end ,
-}
+end , }
 
 local session = lsp . newSession ( rootDir , send , host )
 while session . running ( ) do
@@ -58843,10 +58993,10 @@ end
 local function documentationFor ( def )
 local _ , tokens , index = resolveDefinition ( def )
 if not tokens then
-return def and def . token and fromTrivia ( def . token . trivia )
+return def and fromTrivia ( def . documentationTrivia or def . token and def . token . trivia )
 end
 
-return documentationAt ( tokens , index )
+return documentationAt ( tokens , index ) or fromTrivia ( def . documentationTrivia )
 end
 
 local function documentAt ( params )
@@ -59010,7 +59160,6 @@ end
 
 return nil
 end
-
 
 
 
@@ -59254,7 +59403,7 @@ semantic . semanticTypes = wire . array ( {
 "label" ,
 } )
 
-semantic . semanticModifiers = wire . array ( { "declaration" , "readonly" } )
+semantic . semanticModifiers = wire . array ( { "declaration" , "readonly" , "deprecated" } )
 
 semantic . semanticIndex = { }
 for index , name in ipairs ( semantic . semanticTypes ) do
@@ -59546,6 +59695,9 @@ def . filename == nil or def . filename == doc . path
 local modifiers = declaration and 1 or 0
 if tok . definition and tok . definition . constant then
 modifiers = modifiers + 2
+end
+if tok . definition and tok . definition . deprecated then
+modifiers = modifiers + 4
 end
 addSemanticSpan ( entries , doc . text , tok . offset , tok . text , kind , modifiers )
 end
@@ -71306,6 +71458,10 @@ summary: visible bodies are checked against it and bodyless declarations are
 trusted. `const` is the shallow identity promise for a bodyless binding in a
 `.d.nupp`; it does not freeze a table's fields. `@relax` records a closed set
 of observable guarantees an optimization may change, locally to one function.
+`@deprecated(reason = "...", replacement = "...")` marks an API for tooling:
+uses report the suppressible `deprecated` lint, editors strike it through and
+show the migration detail, and generated documentation retains the annotation.
+It changes no runtime behavior.
 ]=] ,  example =
 [=[
 local m = {}
@@ -71327,10 +71483,7 @@ return m
 
 
 "Declaration derives" ,  codes =
-{
-"NUPP2801" , "NUPP2802" , "NUPP2803" , "NUPP2804" ,
-"NUPP2805" , "NUPP2806" , "NUPP2807" , "NUPP2808" ,
-} ,  body =
+{ "NUPP2801" , "NUPP2802" , "NUPP2803" , "NUPP2804" , "NUPP2805" , "NUPP2806" , "NUPP2807" , "NUPP2808" , } ,  body =
 [=[
 `@derive(Debug, Default, From, JSON)` adds checked members to one record without
 source splicing. The providers add `debug`, static `default`, single-field
@@ -71947,27 +72100,16 @@ for _ , lint in ipairs ( lints . all ) do
 category = math . max ( category , # lint . category )
 end
 local out = { "```" }
-out [ # out + 1 ] = ( " %s  %s  %s  %s" ) : format (
-pad ( "Lint" , widest ) ,
-pad ( "Code" , 8 ) ,
-pad ( "Category" , category ) ,
-"Default"
-)
-out [ # out + 1 ] = ( " %s  %s  %s  %s" ) : format (
-rule ( widest ) ,
-rule ( 8 ) ,
-rule ( category ) ,
-rule ( # "warning" )
-)
+out [
+# out + 1
+] = ( " %s  %s  %s  %s" ) : format ( pad ( "Lint" , widest ) , pad ( "Code" , 8 ) , pad ( "Category" , category ) , "Default" )
+out [ # out + 1 ] = ( " %s  %s  %s  %s" ) : format ( rule ( widest ) , rule ( 8 ) , rule ( category ) , rule ( # "warning" ) )
 for _ , lint in ipairs ( lints . all ) do
 out [
 # out + 1
-] = ( " %s  %s  %s  %s" ) : format (
-pad ( lint . name , widest ) ,
-pad ( lint . code , 8 ) ,
-pad ( lint . category , category ) ,
-lint . level
-)
+] = (
+" %s  %s  %s  %s"
+) : format ( pad ( lint . name , widest ) , pad ( lint . code , 8 ) , pad ( lint . category , category ) , lint . level )
 end
 out [ # out + 1 ] = "```"
 
@@ -71981,9 +72123,7 @@ local out = { }
 for _ , code in ipairs ( explain . codes ( ) ) do
 local entry = explain . lookup ( code )
 if entry then
-for index , line in ipairs ( wrapped (
-( "- **%s**: %s." ) : format ( entry . code , entry . summary )
-) ) do
+for index , line in ipairs ( wrapped ( ( "- **%s**: %s." ) : format ( entry . code , entry . summary ) ) ) do
 out [ # out + 1 ] = index == 1 and line or ( "  " .. line )
 end
 end
@@ -72141,9 +72281,9 @@ local cited = { }
 for _ , code in ipairs ( section . codes ) do
 cited [ # cited + 1 ] = "`" .. code .. "`"
 end
-for _ , line in ipairs ( wrapped (
-"Reports: " .. table . concat ( cited , ", " ) .. ". `nupp explain <code>` says more."
-) ) do
+for _ , line in ipairs (
+wrapped ( "Reports: " .. table . concat ( cited , ", " ) .. ". `nupp explain <code>` says more." )
+) do
 out [ # out + 1 ] = line
 end
 out [ # out + 1 ] = ""
@@ -72167,11 +72307,13 @@ local base = opts and opts . level or 1
 local out = { }
 out [ # out + 1 ] = heading ( base , "Nupp language reference" )
 out [ # out + 1 ] = ""
-for _ , line in ipairs ( wrapped (
+for _ , line in ipairs (
+wrapped (
 "Every construct, the shortest program that uses it, and the"
 .. " diagnostic codes that report getting it wrong. Generated from the"
 .. " compiler: `nupp reference`."
-) ) do
+)
+) do
 out [ # out + 1 ] = line
 end
 out [ # out + 1 ] = ""
@@ -85116,6 +85258,16 @@ interface nupp.__DebugAnnotation
     redact: boolean?
 end
 
+--- Internal typed schema for the compiler-owned @deprecated annotation.
+--- @internal
+interface nupp.__DeprecatedAnnotation
+    --- Why callers should stop using the API.
+    reason: string?
+
+    --- The API spelling callers should migrate to.
+    replacement: string?
+end
+
 --- Values with deterministic compiler-generated debug formatting.
 interface nupp.Debug
     debug: function(self): string
@@ -86514,9 +86666,11 @@ record nupp.io
     --- @return the new reader
     @owned
 
-    newScalarReader: function(source: string | ByteQueue): ScalarReader
-        & function(borrows source: ByteView | Buffer): ScalarReader
-        & function(takes source: Reader): ScalarReader
+    newScalarReader: function(
+        source: string | ByteQueue
+    ): ScalarReader & function(
+        borrows source: ByteView | Buffer
+    ): ScalarReader & function(takes source: Reader): ScalarReader
 
     --- Creates a cursor for sized integer and float writes.
     ---
@@ -86529,9 +86683,9 @@ record nupp.io
     --- @return the new writer
     @owned
 
-    newScalarWriter: function(): ScalarWriter
-        & function(borrows destination: Buffer): ScalarWriter borrows (destination)
-        & function(takes destination: Writer): ScalarWriter
+    newScalarWriter: function(): ScalarWriter & function(
+        borrows destination: Buffer
+    ): ScalarWriter borrows(destination) & function(takes destination: Writer): ScalarWriter
 
     --- Filesystem metadata, directory contents, and the operations that move
     --- names rather than bytes.

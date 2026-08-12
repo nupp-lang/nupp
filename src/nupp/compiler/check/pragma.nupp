@@ -128,6 +128,31 @@ function pragma.install(c: state.Checker): state.StatHandlers
         end
         local annotation, valid = validateAnnotation(stat, target)
 
+        -- Statement annotations wrap declarations, so put the tooling metadata on the
+        -- token that will become the declaration's durable definition before the
+        -- underlying statement is checked.
+        local targetAny = target as any
+        if written == "deprecated" and valid and target and targetAny.deprecation then
+            local function deprecate(tok)
+                if tok then
+                    tok.deprecation = targetAny.deprecation
+                    local annotationToken = cst.firstToken(stat)
+                    tok.deprecationTrivia = annotationToken and annotationToken.trivia or nil
+                end
+            end
+
+            if target.kind == "localStmt" then
+                for _, name in ipairs(target.names or {}) do
+                    deprecate(name)
+                end
+            elseif target.kind == "funcStmt" and target.name then
+                local _, member = c.funcOwner(target.name)
+                deprecate(member or targetAny.name.base)
+            else
+                deprecate(targetAny.name)
+            end
+        end
+
         if not annotation then
             if stat.stat then
                 c.checkStat(stat.stat)
@@ -148,11 +173,7 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 local helper = target as cst.LocalFuncStmt
                 local body = helper.body as cst.Funcbody
                 if body.generics then
-                    c.diag(
-                        "NUPP2411",
-                        body.generics,
-                        "generic @comptime functions are not yet available"
-                    )
+                    c.diag("NUPP2411", body.generics, "generic @comptime functions are not yet available")
                 end
                 for _, rawParam in ipairs(body.params or {}) do
                     local param = rawParam as cst.Param
@@ -179,7 +200,10 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 target.deriveApplications = target.deriveApplications or {}
                 local seen = false
                 for _, prior in ipairs(target.deriveApplications) do
-                    if prior == stat then seen = true break end
+                    if prior == stat then
+                        seen = true
+                        break
+                    end
                 end
                 if not seen then
                     target.deriveApplications[#target.deriveApplications + 1] = stat
