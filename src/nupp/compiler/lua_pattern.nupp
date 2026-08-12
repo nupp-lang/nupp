@@ -1,0 +1,80 @@
+--[[
+Lua-pattern capture analysis, parsed by Nupp's own PEG implementation.
+
+The compiler loads the same pure-Lua PEG bootstrap that generated programs use,
+in a private environment. This deliberately keeps the grammar on the public
+`nupp.peg.compile` path: extending the Lua pattern surface exercises the parser,
+validator, bytecode compiler, and VM rather than growing a second hand scanner.
+]]
+
+local stdlib = require("nupp.compiler.stdlib")
+
+local record luaPattern
+    captureKinds: function(string): ({string}?, string?)
+end
+
+local matcher: any
+
+local function parser()
+    if matcher then
+        return matcher
+    end
+
+    local sandbox = {}
+    sandbox._G = sandbox
+    setmetatable(sandbox, {__index = _G})
+    local source = stdlib.bootstrap({["stdlib.peg.compile"] = true})
+    local chunk, why = loadstring(source, "=nupp compiler Lua-pattern PEG")
+    assert(chunk, why)
+    setfenv(chunk, sandbox)
+    chunk()
+    matcher = sandbox.nupp.peg.compile([[
+        start <- {| (position / opening / closing / balanced / frontier / escaped / class / ordinary)* |} !.
+        position <- '()' -> 'position'
+        opening <- '(' -> 'string'
+        closing <- ')' -> 'close'
+        balanced <- '%' 'b' . .
+        frontier <- '%' 'f' class
+        escaped <- '%' .
+        class <- '[' '^'? ']'? classByte* ']'
+        classByte <- '%' . / !']' .
+        ordinary <- !'%' !'[' .
+    ]], {backend = "vm"})
+
+    return matcher
+end
+
+function luaPattern.captureKinds(source: string): ({string}?, string?)
+    local ok, tokens = pcall(function()
+        return parser():match(source)
+    end)
+    if not ok or not tokens then
+        return nil, "malformed pattern"
+    end
+
+    local depth = 0
+    local captures = {}
+    for _, token in ipairs(tokens) do
+        if token == "close" then
+            if depth == 0 then
+                return nil, "unexpected ')'"
+            end
+            depth = depth - 1
+        else
+            captures[#captures + 1] = token
+            if token == "string" then
+                depth = depth + 1
+                if depth > 32 then
+                    return nil, "too many captures"
+                end
+            end
+        end
+    end
+    if depth ~= 0 then
+        return nil, "unfinished capture"
+    end
+
+    return captures
+end
+
+return luaPattern

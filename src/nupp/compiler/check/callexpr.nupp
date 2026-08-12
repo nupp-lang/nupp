@@ -25,6 +25,9 @@ local state = require("nupp.compiler.check.state")
 local pegTyping = require("nupp.compiler.materialize.peg") as {
     inferSourceResult: function(string, T.Type?): (T.Pack?, any)
 }
+local luaPattern = require("nupp.compiler.lua_pattern") as {
+    captureKinds: function(string): ({string}?, string?)
+}
 
 local isA = relations.isA
 local packIsA = relations.packIsA
@@ -240,6 +243,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         return literalToken(token)
     end
 
+    local function literalStringType(t: Type?): string?
+        return t and t.tag == "literal" and type(t.constant) == "string" and t.constant or nil
+    end
+
     local function readableField(t: Type?, name: string): Type?
         if not t then
             return nil
@@ -290,6 +297,72 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local binder = matcher and matcher.packParams and matcher.packParams[1]
 
         return matcher and binder and generics.instantiate(matcher, {[binder] = result}) or nil
+    end
+
+    local function preludeStringMember(callee: Node?): string?
+        if not callee or callee.kind ~= "dotIndex" or not callee.name then
+            return nil
+        end
+        local base = callee.obj
+        local token = base and base.kind == "name" and base.token or nil
+        local global = c.env and c.env.globals and c.env.globals.string
+        local resolved = token and c.lookupEntry(token.text) or nil
+        if token and token.text == "string" and global and resolved and resolved.definition == global.definition then
+            return callee.name.text
+        end
+        return nil
+    end
+
+    local function patternResults(source: string, operation: string): T.Pack?, string?
+        local kinds, why = luaPattern.captureKinds(source)
+        if not kinds then
+            return nil, why
+        end
+        local results = {}
+        if operation == "find" then
+            results[1], results[2] = T.optional(T.integer), T.optional(T.integer)
+        end
+        if #kinds == 0 then
+            if operation ~= "find" then
+                results[#results + 1] = operation == "gmatch" and T.string or T.optional(T.string)
+            end
+        else
+            for index, kind in ipairs(kinds) do
+                local capture = kind == "position" and T.integer or T.string
+                results[#results + 1] = operation == "match" and index == 1 and T.optional(capture) or capture
+            end
+        end
+        return T.pack(results)
+    end
+
+    local function applyPatternResults(
+        node: Node,
+        operation: string,
+        source: string?,
+        at: Node?,
+        first: Type,
+        rets: {Type}?,
+        pack: T.Pack?
+    ): Type, {Type}?, T.Pack?
+        if not source then
+            return first, rets, pack
+        end
+        local results, why = patternResults(source, operation)
+        if not results then
+            c.diag("NUPP2006", at or node, "invalid Lua pattern: " .. (why or "malformed pattern"))
+            return first, rets, pack
+        end
+        if operation == "gsub" then
+            return first, rets, pack
+        elseif operation == "gmatch" then
+            local iterator = T.func({}, results.head, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, T.pack({}), results)
+            return iterator, {iterator}, T.pack({iterator})
+        end
+        return T.packAt(results, 1) or T.nil_, results.head, results
+    end
+
+    local function isLiteralTrue(t: Type?): boolean
+        return t ~= nil and t.tag == "literal" and t.constant == true
     end
 
     --- Selects the replacement entry point only when both the concrete built-in PEG
@@ -1286,6 +1359,25 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
             end
         end
+        local stringMember = preludeStringMember(callee)
+        if node.kind == "call" and (
+            stringMember == "find" or stringMember == "gmatch" or stringMember == "gsub" or stringMember == "match"
+        ) then
+            local pattern = literalString(argExprs[2])
+                or literalStringType(node.argumentPack and T.packAt(node.argumentPack, 2) or nil)
+            if stringMember == "find" and isLiteralTrue(node.argumentPack and T.packAt(node.argumentPack, 4) or nil) then
+                pattern = nil
+            end
+            first, rets, pack = applyPatternResults(
+                node,
+                stringMember as string,
+                pattern,
+                argExprs[2],
+                first,
+                rets,
+                pack
+            )
+        end
         if node.kind == "safeCall" then
             local calledPack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))
             pack = T.packUnion({calledPack, T.pack({T.nil_})})
@@ -1516,6 +1608,23 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     node.regionPath = regionPath
                     node.returnRegionPaths = {[1] = regionPath}
                 end
+            end
+            if (member.text == "find" or member.text == "gmatch" or member.text == "gsub" or member.text == "match") and isA(ot, T.string) then
+                local actualArgs = node.args and node.args.kind == "args" and node.args.exprs or {}
+                local pattern = literalString(actualArgs[1])
+                    or literalStringType(node.argumentPack and T.packAt(node.argumentPack, 1) or nil)
+                if member.text == "find" and isLiteralTrue(node.argumentPack and T.packAt(node.argumentPack, 3) or nil) then
+                    pattern = nil
+                end
+                first, rets, pack = applyPatternResults(
+                    node,
+                    member.text,
+                    pattern,
+                    actualArgs[1],
+                    first,
+                    rets,
+                    pack
+                )
             end
             if optional then
                 local calledPack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))

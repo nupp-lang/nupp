@@ -492,6 +492,30 @@ function M.stringFormatDerivesArgumentsFromLiteralFormats()
       "NUPP2006", "argument 1: string is not a number")
 end
 
+function M.luaPatternsDeriveLiteralCaptureResults()
+   clean(table.concat({
+      "local whole: string? = string.match('name=42', '[a-z]+=%d+')",
+      "local name: string?, count: string? = string.match('name=42', '([a-z]+)=(%d+)')",
+      "local value: string?, at: integer? = string.match('name', '([a-z]+)()')",
+      "local storedPattern = '([a-z]+)()'",
+      "local storedValue: string?, storedAt: integer? = string.match('name', storedPattern)",
+      "local first: integer?, last: integer?, word: string?, position: integer? = string.find('name', '([a-z]+)()')",
+      "local words: function(): (string?) = string.gmatch('one two', '[a-z]+')",
+      "local pairs: function(): (string?, string?) = string.gmatch('one=1', '([a-z]+)=(%d+)')",
+      "local method: string?, methodAt: integer? = ('name'):match('([a-z]+)()')",
+      "local literalFirst, literalLast = string.find('[', '[', 1, true)",
+      "return whole, name, count, value, at, storedValue, storedAt, first, last, word, position, words, pairs, method, methodAt, literalFirst, literalLast",
+   }, "\n"))
+   oneDiagnostic("local value: integer? = string.match('name', '([a-z]+)')\nprint(value)",
+      "NUPP2001", "cannot initialize value: string? is not a integer? (member string does not fit)")
+   oneDiagnostic("local bad = string.match('name', '[abc')\nprint(bad)",
+      "NUPP2006", "invalid Lua pattern: malformed pattern")
+   oneDiagnostic("local bad = string.gmatch('name', '%')\nprint(bad)",
+      "NUPP2006", "invalid Lua pattern: malformed pattern")
+   oneDiagnostic("local bad = string.gsub('name', '[abc', '#')\nprint(bad)",
+      "NUPP2006", "invalid Lua pattern: malformed pattern")
+end
+
 function M.templateConstructionAndOneSegmentExtractionAreFinite()
    clean(table.concat({
       "local type Event<const Name: string> = `${Name}Changed`",

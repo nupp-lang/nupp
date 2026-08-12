@@ -191,6 +191,21 @@ local invalid = string.format("%q %y", 1, 2)
 Arity errors report at the call, and a conversion mismatch reports at the
 argument that does not fit.
 
+## Lua string patterns
+
+Literal Lua patterns are parsed while checking. `string.match`, `find`, and
+`gmatch` receive the pattern's capture pack: ordinary captures are `string`, and
+empty `()` captures are `integer`. `match` keeps its first result optional because
+the pattern may not match; `find` retains optional endpoints. `gsub` validates a
+literal pattern even though its return stays `(string, integer)`. A dynamic pattern
+keeps the ordinary gradual result contract.
+
+```nupp
+local word: string?, at: integer? = string.match("ready", "([a-z]+)()")
+local first, last, name: integer?, integer?, string = string.find("ready", "([a-z]+)")
+local nextWord: function(): string = string.gmatch("one two", "[a-z]+")
+```
+
 ## Limits and isolation
 
 Type functions run in the isolated comptime worker with deterministic iteration,
