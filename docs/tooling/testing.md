@@ -76,6 +76,13 @@ It is not installed for you. `nupp rock init` writes a manifest whose
 path to replace; a project that wants this runner copies it and
 `tests/assert.lua` out of the Nupp repository.
 
+The runner is written in Lua, not Nupp, because it loads the compiler the build
+just produced and calls it to compile the Nupp suites. A runner written in Nupp
+would be a build product of the code under test, so the change that broke
+compilation would take the report of that breakage with it. Compiling a suite
+is work the runner does at run time, and a suite that fails to compile is
+reported as a failing test rather than a missing runner.
+
 The runner prints `.` for a pass, `S` for a skip, and `E` for a failure while
 it runs, and its summary reports every outcome and elapsed time. Output from
 passing tests is captured; it is printed for failures or with `--verbose`.
@@ -89,18 +96,6 @@ local M = {}
 function M.narrowsOnIs()
    local got = checkOf("local s: string | number = 'x' if s is string then end")
    test.equal(got, "")
-end
-
-return M
-```
-
-The same shape works in Nupp; save this as `tests/mathstest.nupp`:
-
-```nupp
-local M = {}
-
-function M.addsNumbers(): nil
-    assert(20 + 22 == 42)
 end
 
 return M
@@ -146,8 +141,35 @@ return M
 `beforeAll` failure prevents the suite's cases from running and is reported as
 `beforeAll`; `afterAll` still runs. A failing `afterEach` is reported with the
 case failure, if there was one, so cleanup failures do not hide the original
-problem. The same four names work in Nupp; a hook in a `.nupp` file needs a `:
-nil` return annotation, since that is a strict file and its exports are typed.
+problem. The same four names work in a Nupp suite.
+
+### Suites in Nupp
+
+A suite named `tests/*test.nupp` is a suite like any other. The runner compiles
+it when it loads it and keeps the project's runtime loader installed while its
+cases run, so it can require project modules the same way the code under test
+does:
+
+```nupp:static
+local M = {}
+local fixture = require("tests.nuppfixture")
+
+function M.addsNumbers(): nil
+    assert(20 + 22 == 42)
+end
+
+function M.requiresNuppProjectModules(): nil
+    assert(fixture.answer == 42)
+end
+
+return M
+```
+
+Cases and lifecycle hooks need a `: nil` return annotation, since a `.nupp`
+file is held to the strict floor and its exports are typed. The compiler's own
+suite carries `tests/nupptest.nupp`, `tests/ioscalarstest.nupp`, and
+`tests/processcompat_test.nupp`, which is what keeps discovery, compilation,
+and runtime loading of Nupp suites covered by the ordinary run.
 
 ## Parallel runs
 
