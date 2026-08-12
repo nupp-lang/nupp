@@ -156,8 +156,9 @@ work makes sense in.
       readable without blocking, which this loop does not have. Graceful
       stale-request results need request-id tracking, which nothing does.
       Workspace folders are read and re-root correctly but collapse into one
-      session, so real multi-root remains — see
-      [plan.md](plan.md#lsp-follow-up).
+      session, so real multi-root remains: one env, one cache and one
+      diagnostic set per folder, and a request routed by the folder its file
+      belongs to.
 - [ ] **Doc comments as checked grammar.** `@param` parses
       (`src/nupp/compiler/docblock.nupp:23`) and renders, but nothing verifies the names
       against the real parameter list — `@raises` is the only tag any checker
@@ -181,30 +182,27 @@ work makes sense in.
 
 ## Build, codegen and distribution
 
-- [ ] **`--gen-target` guardrails for struct modules** (plan §4: no silent
-      erasure). No such flag exists yet; the only target flag is the manifest's
-      `--target`.
 - [ ] **`nupp doc` picks between two docs targets by hash order.** With no
       top-level `docs` table, `manifestSettings` returns the first
       `kind = "docs"` target `pairs()` reaches
-      (`src/nupp/compiler/doc/init.nupp:804`), and `pairs()` does not promise an order.
+      (`src/nupp/compiler/doc/init.nupp:845`), and `pairs()` does not promise an order.
       Two targets named `alpha` and `zulu` sent five consecutive runs to
       `out-zulu`, `out-alpha`, `out-zulu`, `out-alpha`, `out-alpha`. The
       command has no `--target`, so there is no way to say which was meant
       either. Either sort and take the first, prefer `build.default` when it
       names a docs target, or refuse and ask — but not this.
 - [ ] **An unknown key in most of the manifest is still ignored.** Closed key
-      sets cover the docs target, its pages, hero actions, features, and
-      `config.fmt` (`src/nupp/compiler/build/manifest.nupp:193,420`). Everywhere else
-      — top level, module targets, dependencies — a typo is silently accepted.
-      The docs target got the closed set because the generator reads keys the
-      build's validation knows nothing about; the argument is weaker elsewhere,
-      but "this configures nothing" is worth saying wherever it is true.
-- [ ] **`nupp.lua`'s `syntax` and `runtimeTarget` configure nothing.** Neither
-      key appears anywhere in `src/`, and neither is validated, so a manifest
-      setting them is a silent no-op. Manifest-level `strict`, by contrast, is
-      explicitly rejected because file extensions and `--strict` own that
-      policy.
+      sets cover the docs target, its diagnostics page, its pages, hero
+      actions, features, tasks, and `config.fmt`
+      (`src/nupp/compiler/build/manifest.nupp:197-211,451`).
+      Everywhere else — top level, module targets, dependencies — a typo is
+      silently accepted. The docs target got the closed set because the
+      generator reads keys the build's validation knows nothing about; the
+      argument is weaker elsewhere, but "this configures nothing" is worth
+      saying wherever it is true. `strict` and `lints` show the shape of the
+      answer: both are checked by name, and a manifest still carrying `strict`
+      is refused outright with what replaced it
+      (`src/nupp/compiler/build/manifest.nupp:462`).
 - [ ] **Single-binary host.** LuaJIT, lua-cjson and luautf8 are pinned by
       revision and SHA-256 and built from source by `host/build.rs`, not
       committed. LPeg is no longer a host C dependency; the compatible runtime
@@ -213,7 +211,8 @@ work makes sense in.
       revision metadata, and a compiler-built current-platform `stub = "nupp"`
       are implemented. What remains:
   - [ ] decide whether pinned-and-fetched is enough or the sources should be
-        vendored in-tree (plan.md §Distribution said vendored)
+        vendored in-tree; a build still needs `curl` and the network, which a
+        vendored tree would not
   - [ ] strict JSON numbers and explicit empty array/object semantics are set
         per call site on the Nupp side, not in the host
   - [ ] malformed-input fuzzing and replay through a stamped host binary;
@@ -225,7 +224,7 @@ work makes sense in.
 
 ## Dialect interop (`import-tl`)
 
-Design in plan.md §Dialect interop. Nothing is implemented: no `.tl` handling
+No design document in the tree, and nothing is implemented: no `.tl` handling
 in module resolution, no translator subcommand, no `.tl` build input mode.
 
 - [ ] source translator CLI (eject model, visible residue comments, `any`
