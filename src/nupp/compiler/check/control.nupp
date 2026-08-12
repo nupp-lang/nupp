@@ -125,9 +125,7 @@ function control.install(c: state.Checker): state.StatHandlers
                 local state = ownershipState(entry)
                 if state and state.ownership and not seen[state] then
                     seen[state] = true
-                    snapshot[
-                        #snapshot + 1
-                    ] = {state = state, moved = state.moved or false, movedAt = state.movedAt}
+                    snapshot[#snapshot + 1] = {state = state, moved = state.moved or false, movedAt = state.movedAt}
                 end
             end
             scope = scope.parent
@@ -182,17 +180,13 @@ function control.install(c: state.Checker): state.StatHandlers
                     c.diag("NUPP2619", stat.exprs[j] or stat, "cannot prove all declared borrowed-result sources")
                 end
             end
-            if ownershipKind(valueT) == "borrowed" and not (
-                j == 1 and c.borrowReturnStack[#c.borrowReturnStack]
-            ) then
+            if ownershipKind(valueT) == "borrowed" and not (j == 1 and c.borrowReturnStack[#c.borrowReturnStack]) then
                 local expr = stat.exprs[j] or stat
                 local ownCode = c.ownReturnStack[#c.ownReturnStack] and "NUPP2616" or nil
                 c.diag(
                     ownCode or "NUPP2603",
                     expr,
-                    ownCode
-                    and "an owning result cannot retain an input borrow"
-                    or "borrowed value cannot be returned"
+                    ownCode and "an owning result cannot retain an input borrow" or "borrowed value cannot be returned"
                 )
             elseif ownershipKind(valueT) == "owned" or ownershipKind(valueT) == "pinned" then
                 -- The branch above is what proves it has one.
@@ -300,11 +294,7 @@ function control.install(c: state.Checker): state.StatHandlers
                 end
                 local ok, why = isA(got, expected)
                 if not ok then
-                    c.diag(
-                        "NUPP2002",
-                        stat.exprs and stat.exprs[j] or stat,
-                        ("return %d: %s"):format(j, why)
-                    )
+                    c.diag("NUPP2002", stat.exprs and stat.exprs[j] or stat, ("return %d: %s"):format(j, why))
                 end
             end
             if #ts > #annotated then
@@ -330,11 +320,7 @@ function control.install(c: state.Checker): state.StatHandlers
                 end
                 local ok, why = isA(got, expected)
                 if not ok then
-                    c.diag(
-                        "NUPP2002",
-                        stat.exprs and stat.exprs[j] or stat,
-                        ("return %d: %s"):format(j, why)
-                    )
+                    c.diag("NUPP2002", stat.exprs and stat.exprs[j] or stat, ("return %d: %s"):format(j, why))
                 end
             end
             if not annotatedPack.tail and not returnedPack.tail and #returnedPack.head > #annotatedPack.head then
@@ -583,49 +569,116 @@ function control.install(c: state.Checker): state.StatHandlers
     end
 
     handlers.handleStmt = function(stat: cst.HandleStmt)
-        -- The handler is an ordinary expression, checked as one. What it has to satisfy
-        -- is `suspension.Handler`, and a file that never required the module cannot
-        -- name that type, so this reports nothing about its shape: an installation that
-        -- is not a handler fails where it is installed, which is one call away.
+        -- The construct itself requires the runtime module, so its type is available
+        -- even when the source did not spell a `require`. Checking the expression here
+        -- keeps the syntax at the same boundary as calling `suspension.install`
+        -- directly instead of deferring a bad handler until generated code runs.
         if stat.handler then
-            c.infer(stat.handler as cst.Node)
+            local actual = c.infer(stat.handler as cst.Node)
+            local exports = c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(
+                c.env,
+                "nupp.suspension"
+            ) or nil
+            local expected = exports and exports.types and exports.types.Handler or nil
+            if expected then
+                local ok, why = isA(actual, expected)
+                if not ok then
+                    c.diag(
+                        "NUPP2001",
+                        stat.handler as cst.Node,
+                        "suspension handler: " .. (why or (T.tostring(actual) .. " is not " .. T.tostring(expected)))
+                    )
+                end
+            end
         end
-        -- The body lowers to a protected closure, so control leaving it would return
-        -- from that closure rather than from the function around it -- silently. Until
-        -- cleanup lowering handles the same problem, so leaving is refused
-        -- rather than mis-compiled.
-        local function escapes(node: any, insideLoop: boolean)
+        -- Leaving the protected closure is transported by cleanup lowering. Entering
+        -- it cannot be: a jump from outside would have to acquire an installation and
+        -- invent the lexical state before the label. Refuse that edge explicitly
+        -- instead of emitting Lua with an inaccessible label.
+        local inside, labels = {}, {}
+        local function collect(node: any)
             if not node or cst.isToken(node) then
                 return
             end
-            local kind = node.kind
-            if kind == "funcExpr" or kind == "shortfn" or kind == "localFuncStmt" or kind == "funcStmt" then
+            inside[node] = true
+            if node ~= stat.body and (
+                node.kind == "funcExpr"
+                or node.kind == "shortfn"
+                or node.kind == "localFuncStmt"
+                or node.kind == "funcStmt"
+            ) then
                 return
             end
-            if kind == "returnStmt" or (kind == "breakStmt" and not insideLoop) then
-                c.diag(
-                    "NUPP2706",
-                    node,
-                    "control cannot leave a `handle suspension` region yet",
-                    nil,
-                    {help = "put the value in a local declared outside the region, and " .. "leave after it"}
-                )
-                return
-            end
-            local loops = insideLoop
-                or kind == "whileStmt"
-                or kind == "repeatStmt"
-                or kind == "fornumStmt"
-                or kind == "forinStmt"
-            for _, child in ipairs(node.stats or {}) do
-                escapes(child, loops)
+            if node.kind == "labelStmt" and node.name then
+                labels[node.name.text] = true
             end
             for _, child in ipairs(node) do
-                escapes(child, loops)
+                collect(child)
             end
         end
 
-        escapes(stat.body, false)
+        collect(stat.body)
+        if next(labels) then
+            local targetFunction = nil
+            local function locate(node: any, currentFunction: any)
+                if not node or cst.isToken(node) then
+                    return false
+                end
+                local nextFunction = currentFunction
+                if node.kind == "funcExpr"
+                    or node.kind == "shortfn"
+                    or node.kind == "localFuncStmt"
+                    or node.kind == "funcStmt"
+                then
+                    nextFunction = node
+                end
+                if node == stat then
+                    targetFunction = nextFunction
+                    return true
+                end
+                for _, child in ipairs(node) do
+                    if locate(child, nextFunction) then
+                        return true
+                    end
+                end
+
+                return false
+            end
+
+            locate(c.result.root, nil)
+            local function refuse(node: any, currentFunction: any)
+                if not node or cst.isToken(node) then
+                    return
+                end
+                local nextFunction = currentFunction
+                if node.kind == "funcExpr"
+                    or node.kind == "shortfn"
+                    or node.kind == "localFuncStmt"
+                    or node.kind == "funcStmt"
+                then
+                    nextFunction = node
+                end
+                if nextFunction == targetFunction and not inside[
+                    node
+                ] and node.kind == "gotoStmt" and node.name and labels[
+                    node.name.text
+                ] and not node.handledEntryDiagnosed then
+                    node.handledEntryDiagnosed = true
+                    c.diag(
+                        "NUPP2706",
+                        node,
+                        "control cannot enter a `handle suspension` region",
+                        nil,
+                        {help = "move the label outside the handled region"}
+                    )
+                end
+                for _, child in ipairs(node) do
+                    refuse(child, nextFunction)
+                end
+            end
+
+            refuse(c.result.root, nil)
+        end
         -- Installing a handler is what puts `require("nupp.suspension")` in the
         -- generated module, so the target has to carry that runtime. Recorded
         -- here because this statement is the only thing that asks for it.

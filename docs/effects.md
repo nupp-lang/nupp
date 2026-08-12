@@ -438,7 +438,8 @@ current limits are part of the contract with users:
 - there is no CFG/SSA-sensitive effect query yet;
 - path strings use canonical conventions but are not yet grammar-validated;
 - builtin fallback recognition is spelling-based after same-file resolution;
-- imported effect summaries are not yet part of incremental interface hashes;
+- full imported effect summaries are not yet part of incremental interface
+  hashes; the checked suspension guarantee is, including nominal methods;
 - unknown calls widen to `top` rather than accepting an optimistic annotation;
 - trusted C and `.d.nupp` declarations are only as correct as their author.
 

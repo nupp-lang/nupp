@@ -347,7 +347,8 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         end
         -- route require() through the query graph so dependencies record
         local qenv = setmetatable({resolveModule = function(_, name)
-            return self:get("moduleInterface", name)
+            local interface = self:get("moduleInterface", name)
+            return interface and interface.type or nil
         end, resolveModuleExports = function(_, name)
             return self:get("moduleExports", name)
         end, projectEntries = function(_, name)
@@ -378,14 +379,25 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         if not path then
             -- project files shadow bundled declarations; see env.resolveModule
             local bundled = env.bundled and env.bundled[name]
-            return bundled and bundled.type or nil
+            return bundled and {
+                type = bundled.type,
+                nominalEffectFingerprint = bundled.exports and bundled.exports.nominalEffectFingerprint,
+            } or nil
         end
         -- nil on the re-entrant edge of a require cycle: the module is mid-check, so
         -- nothing is known about it yet
         local r = self:get("checkModule", path)
 
-        return r and r.moduleType or nil
-    end) -- default eq: interned identity IS the interface hash
+        return r and {
+            type = r.moduleType,
+            nominalEffectFingerprint = r.exports and r.exports.nominalEffectFingerprint,
+        } or nil
+    end, function(left, right)
+        if left == nil or right == nil then
+            return left == right
+        end
+        return left.type == right.type and left.nominalEffectFingerprint == right.nominalEffectFingerprint
+    end)
 
     local function sameTypeMap(left, right)
         left, right = left or {}, right or {}
@@ -432,7 +444,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         if left == nil or right == nil then
             return left == right
         end
-        return sameTypeMap(
+        return left.nominalEffectFingerprint == right.nominalEffectFingerprint and sameTypeMap(
             left.types,
             right.types
         ) and sameTypeMap(

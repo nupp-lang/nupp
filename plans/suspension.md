@@ -1,8 +1,8 @@
 # Suspension — design record
 
-Status: unstarted design. The file-local effect analysis this rests on is
-built; cross-module effect transport, the handler, the region rules, and the
-resource interaction are not.
+Status: implemented. Cross-module effect transport, checked regions, handlers,
+resource-safe cancellation, nominal-method interfaces, structured exits, and
+the process proving case have landed.
 
 ## Decision
 
@@ -195,14 +195,11 @@ boundary, and the resource model has rules about closures that have nothing to
 do with this.
 
 The dynamic state is coroutine-local, never one process-global stack. Each
-coroutine has an inherited handler and its own nested override stack. A
-`coroutine.resume` temporarily supplies the resumer's effective handler as the
-target's inherited handler, restores the target's previous inherited value
-when it yields or returns, and leaves the target's local overrides intact. This
-gives a tecs task the scheduler handler around `runFrame()` without letting a
-nested handler in one parked task leak into another. `coroutine.create` and
-`coroutine.wrap` use the same context machinery; raw Lua entry points must pass
-through the runtime wrappers that implement it.
+coroutine created through `suspension.create` records the effective handler at
+creation and keeps its own nested override stack. Resuming needs no wrapper or
+context switch. A stock `coroutine.create` inherits no handler, which keeps raw
+Lua entry points explicit and prevents an override in one parked task leaking
+into another.
 
 ### Forbidding suspension
 
@@ -695,7 +692,7 @@ not assigned a checker diagnostic code merely to make the ranges look full.
 
 ## Milestones
 
-### S0: the effect, transported
+### S0: the effect, transported — landed
 
 - Serialize `yields` in the cross-module callable summary and include it in the
   interface hash.
@@ -708,7 +705,7 @@ Exit test: direct and aliased calls propagate `yields` across a module boundary;
 a known non-yielding value stays clear; an unconstrained callback is
 conservatively may-yield; an unchanged summary is cache-stable.
 
-### S1: the effect, checked
+### S1: the effect, checked — landed
 
 - `nosuspend do ... end`, and `@effects(yields = false)` on a declaration.
 - NUPP2701 with its call chain, from the existing inferred `yields`.
@@ -721,12 +718,12 @@ same file without the region.
 This milestone is worth landing alone after S0. It converts one of tecs's
 run-time errors into a checked one and needs no handler or run-time component.
 
-### S2: the handler and the operation
+### S2: the handler and the operation — landed
 
 - `suspend(operation, subscribe)` and the built-in blocking handler.
 - `handle suspension with h do ... end`, nesting, and restoration on unwind.
-- Coroutine-local inherited handlers and overrides across `create`, `resume`,
-  and `wrap`.
+- Coroutine-local inherited handlers at `suspension.create`, with isolated
+  nested overrides and unwrapped resumption.
 - Generic one-shot subscriptions, `SuspensionContext`, ordered sources, source
   shutdown, and the `Suspension` interface.
 - The O(1) handler lookup and nil-to-blocking fast path in §Cost model.
@@ -737,7 +734,7 @@ handlers do not leak between coroutines. Benchmarks show no measurable
 regression against tecs's ready path, frame pump, or hand-written cooperative
 park.
 
-### S3: the C boundary
+### S3: the C boundary — landed
 
 - Implicit `nosuspend` for known non-yieldable FFI and standard-library callback
   invocation sites, not for metamethods or generic loops as categories.
@@ -748,7 +745,7 @@ Exit test: a suspend inside an FFI callback is refused at compile time; one
 reached dynamically fails with a diagnosable message rather than LuaJIT's; a
 direct metamethod and an `ipairs` loop body may suspend.
 
-### S4: resources
+### S4: resources — landed
 
 - Permit handled suspension with a live obligation; keep NUPP2603 for raw
   yields.
@@ -760,7 +757,7 @@ Exit test: an owner held across a handled suspension is dropped when its lexical
 scope ends, whether that scope ends by resuming normally or by cancellation
 unwinding it; a raw yield in the same position is still refused.
 
-### S5: `nupp.io.Process`
+### S5: `nupp.io.Process` — landed
 
 The platform layer and the API. Separable from S1–S4 in every respect except
 that it is what proves them.
@@ -788,8 +785,8 @@ module with only the import changed.
 
 - region checking: direct, transitive, through a declared contract, through a
   function value and a module interface, and the negative case at each
-- handler: install, nest, restore on normal exit, restore on error, restore on
-  cancellation, inherit across resume, and isolate overrides between tasks
+- handler: install, nest, restore on normal and structured exits, restore on
+  error and cancellation, inherit at creation, and isolate overrides between tasks
 - subscription: generic result, synchronous completion, cancellation winning,
   second resume, subscribe raising, and a missing cancellation
 - blocking handler: parks that settle, parks that time out, several sources

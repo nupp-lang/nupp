@@ -1264,6 +1264,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 {help = ("call it with `%s.%s(...)`"):format(owner.name, member.text)}
             )
             local first, rets, pack = c.inferCall(node, static, node.args)
+            c.nosuspend.call(node)
             c.lastCallRets = rets
             node.valuePack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))
             return first
@@ -1289,6 +1290,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             -- o:m(...) desugars to m(o, ...): drop the self parameter
             local methodType = callable and specializeReceiver(mt, ot) or mt
             local first, rets, pack = c.inferCall(node, callable and dropSelf(methodType) or methodType, node.args)
+            c.nosuspend.call(node)
             local owner = rawType(ot)
             node.overloadMember = pegReplacementMember(
                 ot,
@@ -1318,7 +1320,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 local entry, nameNode = actualArgs[1] and c.ownershipEntry(actualArgs[1]) or nil
                 entry = c.ownershipState(entry)
                 if not entry or not entry.resourceCapability or entry.moved then
-                    c.diag("NUPP2602", actualArgs[1] or node, "resources.Set.remove needs a live value returned by adopt")
+                    c.diag(
+                        "NUPP2602",
+                        actualArgs[1] or node,
+                        "resources.Set.remove needs a live value returned by adopt"
+                    )
                 else
                     local capability = entry.resourceCapability
                     entry.moved = true
@@ -1413,6 +1419,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         if node.args then
             c.inferCall(node, T.any, node.args)
         end
+        c.nosuspend.call(node)
         -- Nothing is known about what an unresolvable method returns, which includes
         -- how many values, so the pack this call publishes stays open the way an
         -- untyped call's does.

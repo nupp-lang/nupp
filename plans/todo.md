@@ -45,12 +45,12 @@ work makes sense in.
         serialized descriptor/result envelope, then accept, narrow or reject a
         restricted semantic API in writing. Do not expose token, AST or CST
         macros, mutable compiler objects, or private lowering IR.
-- [ ] **Suspension follow-ups** ([design](suspension.md)): checked, handled
+- [x] **Suspension follow-ups** ([design](suspension.md)): checked, handled
       waiting has landed. One call site parks under a scheduler and blocks
       without one, so a library that waits works inside a game frame and inside
-      a CLI without knowing which it is in. The open work is effect-interface
-      precision for nominal methods and permitting structured exits from a
-      handled region without weakening cleanup.
+      a CLI without knowing which it is in. Nominal methods carry suspension
+      guarantees through incremental interfaces, and structured exits from a
+      handled region reuse the ownership cleanup protocol.
 - [ ] **HTTP client** ([design](http.md)): optional `nupp.io.http` over a
       feature-gated Reqwest/Tokio provider. Preserve direct string, byte-view,
       buffer and file paths; make responses progressive `Reader` values; use

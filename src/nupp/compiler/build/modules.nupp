@@ -709,6 +709,8 @@ local function buildModules(
                 result.moduleType
             ) .. "\0deprecated\0" .. exportDeprecationsFingerprint(
                 result.exports
+            ) .. "\0nominal-callables:" .. (
+                result.exports.nominalEffectFingerprint or ""
             ) .. (external and ("\0" .. sourceHash) or "")
         ), artifactHash = artifactHash, dependencies = jsonArray(
             depNames

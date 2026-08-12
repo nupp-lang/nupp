@@ -62,7 +62,9 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
         if c.noSuspendDepth <= 0 or not call then
             return
         end
-        candidates[#candidates + 1] = {call = call, calleeType = call.calleeType, code = "NUPP2701"}
+        candidates[
+            #candidates + 1
+        ] = {call = call, calleeType = call.calleeType or call.signatureType, code = "NUPP2701"}
     end
 
     -- Callback bodies invoked from C, registered as implicit regions.

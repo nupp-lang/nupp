@@ -255,25 +255,112 @@ function M.aHandleRegionPreservesTheLineCount()
    assertEq(lines(code), lines(src), "attribution holds: " .. code)
 end
 
-function M.refusesControlLeavingAHandleRegion()
-   -- The body lowers to a protected closure, so a `return` inside it would return from
-   -- that closure and the function around it would carry on -- silently. Refused until
-   -- the lowering reuses the ordinary cleanup-region machinery.
-   local _, diags = diagnose(table.concat({
-      "local h = {park = function() end}",
-      "local function f(): integer",
-      "    handle suspension with h do",
-      "        return 1",
-      "    end",
-      "    return 0",
-      "end",
-      "return f",
-   }, "\n"))
-   local found = nil
+local function runGenerated(src)
+   local _, diags, result = diagnose(src)
    for _, diag in ipairs(diags) do
-      if diag.code == "NUPP2706" then found = diag end
+      assertTrue(diag.severity == "warning" or diag.severity == "note",
+         "source checks before execution: " .. diag.code .. " " .. diag.msg)
    end
-   assertTrue(found ~= nil, "leaving the region is refused rather than mis-compiled")
+   local code = gen.generate(result, "test")
+   local chunk, problem = loadstring(code, "@handled-exit")
+   assertTrue(chunk ~= nil, "generated Lua loads: " .. tostring(problem) .. "\n" .. code)
+   return chunk()
+end
+
+function M.aReturnLeavesAHandleRegionAfterReleasingIt()
+   local first, second, released = runGenerated(table.concat({
+      "local released: integer = 0",
+      "local h = {shutdown = function() released = released + 1 end}",
+      "local function f(): integer, integer",
+      "    handle suspension with h do",
+      "        return 1, released",
+      "    end",
+      "end",
+      "local answer, beforeRelease = f()",
+      "return answer, beforeRelease, released",
+   }, "\n"))
+   assertEq(first, 1, "the first return survives the protected boundary")
+   assertEq(second, 0, "return values are evaluated before release")
+   assertEq(released, 1, "the installation is released exactly once")
+end
+
+function M.aBodyAndReleaseFailureAreBothPreserved()
+   local ok, problem = runGenerated(table.concat({
+      "local h = {shutdown = function() error('release failed') end}",
+      "local ok, problem = pcall(function()",
+      "    handle suspension with h do",
+      "        error('body failed')",
+      "    end",
+      "end)",
+      "return ok, tostring(problem)",
+   }, "\n"))
+   assertEq(ok, false, "the handled body still raises")
+   assertTrue(problem:find("body failed", 1, true) ~= nil,
+      "the body failure remains primary: " .. problem)
+   assertTrue(problem:find("release failed", 1, true) ~= nil,
+      "the release failure is retained: " .. problem)
+end
+
+function M.loopControlCanLeaveAHandleRegion()
+   local continued, broken = runGenerated(table.concat({
+      "local h = {}",
+      "local total = 0",
+      "for index = 1, 3 do",
+      "    handle suspension with h do",
+      "        if index == 2 then continue end",
+      "        total = total + index",
+      "    end",
+      "end",
+      "while true do",
+      "    handle suspension with h do",
+      "        break",
+      "    end",
+      "end",
+      "return total, true",
+   }, "\n"))
+   assertEq(continued, 4, "continue reaches the enclosing loop")
+   assertEq(broken, true, "break reaches the enclosing loop")
+end
+
+function M.aGotoCanLeaveAHandleRegion()
+   local answer = runGenerated(table.concat({
+      "local h = {}",
+      "local answer = 0",
+      "handle suspension with h do",
+      "    answer = 1",
+      "    goto done",
+      "end",
+      "answer = 2",
+      "::done::",
+      "return answer",
+   }, "\n"))
+   assertEq(answer, 1, "goto resumes outside after releasing the installation")
+end
+
+function M.refusesAGotoIntoAHandleRegion()
+   local _, diags = diagnose(table.concat({
+      "local h = {}",
+      "goto inside",
+      "handle suspension with h do",
+      "    ::inside::",
+      "end",
+   }, "\n"))
+   local found = 0
+   for _, diag in ipairs(diags) do
+      if diag.code == "NUPP2706" then found = found + 1 end
+   end
+   assertEq(found, 1, "one diagnostic refuses the impossible incoming edge")
+end
+
+function M.aHandleRegionRequiresAHandler()
+   local _, diags = diagnose("handle suspension with 42 do\nend")
+   local found = false
+   for _, diag in ipairs(diags) do
+      if diag.code == "NUPP2001" and diag.msg:find("handler", 1, true) then
+         found = true
+      end
+   end
+   assertTrue(found, "a concrete non-handler is rejected at the construct")
 end
 
 function M.allowsABreakInsideALoopInAHandleRegion()

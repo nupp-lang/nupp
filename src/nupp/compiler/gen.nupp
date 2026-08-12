@@ -1036,6 +1036,12 @@ function gen.generate(
 
     local emitAutomaticBlock
     local function emitChildren(n)
+        if n.kind == "suspensionInstallExpr" then
+            e(suspensionModule() .. ".install(", sourceLine(n))
+            emit(n.handler)
+            e(")")
+            return
+        end
         if n.kind == "block" and n.automaticOwners and #n.automaticOwners > 0 then
             emitAutomaticBlock(n)
             return
@@ -2809,28 +2815,38 @@ function gen.generate(
             return
 
         elseif kind == "handleStmt" then
-            -- Acquire, run the body protected, discharge on every exit, and re-raise
-            -- what the body raised. This is written out because the acquisition is
-            -- a call to a module this file may never have required and only codegen
-            -- knows the name it bound.
-            local installed = nextTemp()
-            local ok = nextTemp()
-            local err = nextTemp()
-            e(
-                ("do const %s = %s.install("):format(installed, suspensionModule()),
-                x.handleTok and x.handleTok.line or nil
-            )
-            if x.handler then
-                emit(x.handler)
-            end
-            e((("); const %s, %s = pcall(function()"):format(ok, err)), x.doTok and x.doTok.line or nil)
-            if x.body then
-                emit(x.body)
-            end
-            e(
-                ("end); %s:release(); if not %s then error(%s, 0) end end"):format(installed, ok, err),
-                x.endTok and x.endTok.line or nil
-            )
+            -- A handled extent is an ordinary owned cleanup region whose acquisition
+            -- happens to be compiler-provided. Reusing the same lowering is what lets
+            -- return, loop control and goto cross the protected closure while release
+            -- still runs exactly once and combines its failure with a body failure.
+            local name = nextTemp()
+            local definition = {}
+            local binding: any = {
+                kind = "cleanupBinding",
+                name = {
+                    kind = "name",
+                    text = name,
+                    line = x.handleTok and x.handleTok.line or sourceLine(x),
+                    offset = x.handleTok and x.handleTok.offset or 0,
+                    definition = definition,
+                },
+                expr = {
+                    kind = "suspensionInstallExpr",
+                    handler = x.handler,
+                    line = x.handleTok and x.handleTok.line or sourceLine(x),
+                },
+                ownerCleanups = {{kind = "method", name = "release", id = "method:release"}},
+            }
+            local region: any = {
+                kind = "cleanupRegion",
+                startTok = x.handleTok,
+                doTok = x.doTok,
+                endTok = x.endTok,
+                bindings = {binding},
+                body = x.body,
+            }
+            region.capturesEnclosing = automaticCaptures(x.body, region.bindings)
+            emit(region)
 
         elseif kind == "cleanupRegion" then
             needsCleanupRegions = true

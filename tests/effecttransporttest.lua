@@ -199,21 +199,19 @@ function M.theQualifierReachesBothIdentityMechanisms()
       "the build fingerprint separates them too")
 end
 
-function M.aNominalMethodIsNotQualified()
-   -- Scope decision, pinned on the method's own type rather than on its absence from
-   -- the module shape. A nominal's identity deliberately survives rechecks and
-   -- `typeFingerprint` does not expand its members, so a method body that started
-   -- yielding could not invalidate a dependent through the type. Claiming a guarantee
-   -- nothing can invalidate is worse than claiming none, so methods carry none.
-   --
-   -- This test is what would fail first if the effect digest lands and the boundary
-   -- moves; it should be updated then rather than deleted.
+function M.nominalMethodsCarryTheirOwnGuarantees()
+   -- Nominal identity stays stable, but its callable effect surface has a separate
+   -- immutable fingerprint. Qualifying each body from its provenance keeps two
+   -- identical signatures distinct just as the ordinary module boundary does.
    local _, _, exports = moduleTypeOf(table.concat({
       "local M = {}",
       "record M.Thing",
       "    n: integer",
       "end",
       "function M.Thing:quiet(): nil",
+      "end",
+      "function M.Thing:waits(): nil",
+      "    coroutine.yield()",
       "end",
       "function M.plain(): nil",
       "end",
@@ -223,8 +221,68 @@ function M.aNominalMethodIsNotQualified()
    assertTrue(thing ~= nil and thing.tag == "nominal", "the record is exported")
    local method = thing.byname and thing.byname.quiet
    assertTrue(method ~= nil and method.tag == "func", "and its method is reachable")
-   assertEq(method.noYield, nil,
-      "a method carries no guarantee, because none here could be invalidated")
+   assertEq(method.noYield, true, "the quiet method carries its guarantee")
+   local waits = thing.byname and thing.byname.waits
+   assertTrue(waits ~= nil and waits.tag == "func", "the yielding method is reachable")
+   assertEq(waits.noYield, nil, "a yielding method remains may-yield")
+end
+
+function M.inlineNominalMethodsCarryTheirOwnGuarantees()
+   local _, _, exports = moduleTypeOf(table.concat({
+      "local M = {}",
+      "record M.Inline",
+      "    n: integer",
+      "    function quiet(self): nil",
+      "    end",
+      "    function waits(self): nil",
+      "        coroutine.yield()",
+      "    end",
+      "end",
+      "return M",
+   }, "\n"))
+   local inline = exports and exports.types and exports.types.Inline
+   assertTrue(inline ~= nil and inline.tag == "nominal", "the inline record is exported")
+   assertEq(inline.byname.quiet.noYield, true, "the inline quiet method is qualified")
+   assertEq(inline.byname.waits.noYield, nil, "the inline yielding method stays may-yield")
+end
+
+function M.overloadedNominalMethodsKeepTheRightGuarantee()
+   local source = table.concat({
+      "local M = {}",
+      "record M.Codec",
+      "    function decode(self, text: string): string",
+      "        return text",
+      "    end",
+      "    function decode(self, value: integer): string",
+      "        coroutine.yield()",
+      "        return tostring(value)",
+      "    end",
+      "end",
+      "return M",
+   }, "\n")
+   local _, _, exports = moduleTypeOf(source)
+   local codec = exports and exports.types and exports.types.Codec
+   local overload = codec and codec.byname and codec.byname.decode
+   assertTrue(overload ~= nil and overload.tag == "intersection",
+      "the overload set is exported")
+
+   local generics = require("nupp.compiler.generics")
+   local found = {}
+   for _, member in ipairs(overload.members) do
+      local callable = generics.dropSelf(member)
+      found[callable.params[1]] = member
+   end
+   assertEq(found[T.string].noYield, true,
+      "the string overload keeps the quiet body's guarantee")
+   assertEq(found[T.integer].noYield, nil,
+      "the integer overload keeps the yielding body's effect")
+
+   local reversed = source
+      :gsub("        return text\n    end\n    function decode%(self, value", "        coroutine.yield()\n        return text\n    end\n    function decode(self, value")
+      :gsub("        coroutine.yield%(%)\n        return tostring%(value%)", "        return tostring(value)")
+   local _, _, reversedExports = moduleTypeOf(reversed)
+   assertTrue(exports.nominalEffectFingerprint ~= reversedExports.nominalEffectFingerprint,
+      "the digest associates each guarantee with its overload signature")
 end
 
 function M.withYieldsPreservesEverythingElse()
@@ -380,6 +438,17 @@ local QUIET = table.concat({
    "return M",
 }, "\n")
 
+local QUIET_METHOD = table.concat({
+   "local M = {}",
+   "record M.Thing",
+   "    n: integer",
+   "end",
+   "function M.Thing:waiter(): nil",
+   "    local n = 1",
+   "end",
+   "return M",
+}, "\n")
+
 function M.aBodyThatStartsYieldingInvalidatesDependents()
    withProject(QUIET, function(inc, depPath, mainPath)
       inc.checkFile(mainPath)
@@ -401,6 +470,45 @@ function M.aBodyEditThatKeepsTheEffectDoesNot()
       assertEq(inc.q.stats.checkModule, cold + 1,
          "only dep rechecks: the boundary is unchanged, so cutoff holds")
    end)
+end
+
+function M.aNominalMethodThatStartsYieldingInvalidatesDependents()
+   local query = require("nupp.compiler.query")
+   local incremental = require("nupp.compiler.incremental")
+   local dir = os.tmpname()
+   os.remove(dir)
+   os.execute("mkdir -p '" .. dir .. "'")
+   local function write(path, text)
+      local f = assert(io.open(path, "w"))
+      f:write(text)
+      f:close()
+   end
+   local depPath, mainPath = dir .. "/dep.g.nupp", dir .. "/main.g.nupp"
+   write(depPath, QUIET_METHOD)
+   write(mainPath, table.concat({
+      "local dep = require('dep')",
+      "local value = new dep.Thing(n = 1)",
+      "nosuspend do value:waiter() end",
+   }, "\n"))
+   local inc = incremental.new(dir)
+   local ok, err = pcall(function()
+      local before = inc.checkFile(mainPath)
+      assertEq(#before.diags, 0, "the original nominal method is non-suspending: "
+         .. tostring(before.diags[1] and before.diags[1].code) .. " "
+         .. tostring(before.diags[1] and before.diags[1].msg))
+      local cold = inc.q.stats.checkModule
+      inc.changeDocument(depPath, (QUIET_METHOD:gsub("local n = 1", "coroutine.yield()")))
+      local after = inc.checkFile(mainPath)
+      assertEq(inc.q.stats.checkModule, cold + 2,
+         "the nominal effect digest invalidates the dependency and consumer")
+      local found = false
+      for _, diag in ipairs(after.diags or {}) do
+         if diag.code == "NUPP2701" then found = true end
+      end
+      assertTrue(found, "the rechecked consumer observes the yielding method")
+   end)
+   os.execute("rm -rf '" .. dir .. "'")
+   if not ok then error(err, 0) end
 end
 
 return M

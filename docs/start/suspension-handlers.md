@@ -188,48 +188,46 @@ subscriptions, wakes their coroutines, and invokes `shutdown`. A cancelled
 `suspend` raises inside its parked coroutine, so lexical resource drops run as
 the stack unwinds.
 
-The region currently refuses a `return` or an unbound `break` that would cross
-its boundary:
+Structured exits leave the region only after its installation has been
+released. `return` preserves all values, `break` and `continue` reach the loop
+that owns them, and `goto` may reach a label outside:
 
-```nupp [wrong.nupp]
+```nupp
 local frame = require("scheduler")
 
 local function choose(): integer
     handle suspension with frame.handler do
         return 1
     end
-    return 0
 end
 
 print(choose())
+```
+
+The lowering uses the same completion protocol as automatic resource cleanup.
+That is what preserves the body failure as primary when releasing the handler
+also fails, while still reporting the release failure.
+
+Control cannot jump *into* a handled region. Such a jump would bypass handler
+installation and the lexical state before the label:
+
+```nupp [wrong.nupp]
+local frame = require("scheduler")
+
+goto inside
+handle suspension with frame.handler do
+    ::inside::
+end
 ```
 
 ```text [nupp check wrong.nupp]
-error: NUPP2706: control cannot leave a `handle suspension` region yet
-```
-
-Store the result outside the region and return after the previous handler has
-been restored:
-
-```nupp
-local frame = require("scheduler")
-
-local function choose(): integer
-    local answer: integer = 0
-    handle suspension with frame.handler do
-        answer = 1
-    end
-
-    return answer
-end
-
-print(choose())
+error: NUPP2706: control cannot enter a `handle suspension` region
 ```
 
 ## Diagnostics
 
-- **[NUPP2706](../reference.md#suspension-regions)** reports a `return` or
-  unbound `break` that leaves a `handle suspension` region.
+- **[NUPP2706](../reference.md#suspension-regions)** reports a jump into a
+  `handle suspension` region.
 
 ## Next
 

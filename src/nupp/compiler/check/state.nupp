@@ -51,7 +51,8 @@ type state.ModuleExports = {
     types: {[string]: Type},
     typeDefs: {[string]: any},
     values: {[string]: Type},
-    valueDefs: {[string]: any}
+    valueDefs: {[string]: any},
+    nominalEffectFingerprint: string?
 }
 
 --- One thing to report about a file.
@@ -438,6 +439,16 @@ record state.Checker
     --- identical signatures share one type, so `moduleType` alone cannot say which of
     --- them yields. The definition can, and boundary finalization asks it.
     moduleFieldValues: {[string]: cst.Node}
+
+    --- Nominals whose callable members must be rebuilt once the file-wide effect
+    --- fixed point is available. Method signatures are published before bodies are
+    --- checked, so their suspension qualifier cannot be correct until then.
+    nominalEffectOwners: {[Type]: boolean}
+
+    --- Method declarations written outside a nominal body. Inline and inherited
+    --- entries retain declaration provenance on the nominal itself; these direct
+    --- declarations need the same provenance kept alongside their destination slot.
+    nominalEffectEntries: {any}
 
     --- Every immutable path rooted at the returned module table. This includes nested
     --- `const` fields in a fresh exported table constructor.

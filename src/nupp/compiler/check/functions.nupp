@@ -1119,6 +1119,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             stat.memberName = member
         end
         if owner and member and ft.tag == "func" then
+            local stored
             if fname.method then
                 -- stored with the receiver as the first parameter, the shape
                 -- declaration files use; call sites drop it again
@@ -1172,16 +1173,31 @@ function functions.install(c: state.Checker): state.StatHandlers
                 owner.writeByname[member] = owner.byname[member]
                 owner.fieldDefs[member] = owner.fieldDefs[member] or memberDefinition
                 owner.writeFieldDefs[member] = owner.writeFieldDefs[member] or memberDefinition
+                stored = owner.byname[member]
             elseif owner.declKind == "record" or owner.declKind == "interface" then
                 owner.staticByname[member] = ft
                 owner.staticWriteByname[member] = ft
                 owner.staticFieldDefs[member] = owner.staticFieldDefs[member] or memberDefinition
                 owner.staticWriteFieldDefs[member] = owner.staticWriteFieldDefs[member] or memberDefinition
+                stored = ft
             else
                 owner.byname[member] = ft
                 owner.writeByname[member] = ft
                 owner.fieldDefs[member] = owner.fieldDefs[member] or memberDefinition
                 owner.writeFieldDefs[member] = owner.writeFieldDefs[member] or memberDefinition
+                stored = ft
+            end
+            if stored then
+                c.nominalEffectOwners[owner] = true
+                c.nominalEffectEntries[
+                    #c.nominalEffectEntries + 1
+                ] = {
+                    owner = owner,
+                    member = member,
+                    static = not fname.method and (owner.declKind == "record" or owner.declKind == "interface"),
+                    signature = stored,
+                    body = body,
+                }
             end
             if body.dropMethod then
                 if fname.method then

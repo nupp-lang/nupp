@@ -45,6 +45,8 @@ local metatable = require("nupp.compiler.check.metatable")
 local cst = require("nupp.compiler.cst")
 local annotationMod = require("nupp.compiler.annotations")
 local state = require("nupp.compiler.check.state")
+local generics = require("nupp.compiler.generics")
+local methodslots = require("nupp.compiler.methodslots")
 
 local checkMod = {}
 
@@ -373,6 +375,171 @@ local function finalizeBoundary(c: state.Checker)
     c.moduleType = qualifyExport(c.moduleType, c.moduleReturnValue) as Type
 end
 
+-- Rebuilds nominal callable slots from their own declarations after effect analysis.
+-- Nominal identity deliberately does not expand members, so this is provenance-led in
+-- the same way as ordinary module exports: each method body qualifies exactly the slot
+-- it implements, even when another method has the same parameter and result types.
+local function finalizeNominalEffects(c: state.Checker)
+    local function matchingSurface(entry, surface, static: boolean): Type?
+        if not surface then
+            return nil
+        end
+        local candidates = surface.tag == "intersection" and surface.members or {surface}
+        for _, candidate in ipairs(candidates) do
+            local callable = static and candidate or generics.dropSelf(candidate)
+            if callable.tag == "func" and methodslots.parameters(callable) == entry.parameterKey then
+                return candidate
+            end
+        end
+
+        return #candidates == 1 and candidates[1] or nil
+    end
+
+    local function qualifyEntry(entry, surface)
+        local declaration = entry and entry.declaration
+        local body = declaration and declaration.body
+        if not body then
+            return surface or entry and entry.signature
+        end
+        -- Preserve the published surface's receiver ownership mode. In particular an
+        -- `@drop` method is checked with a taking receiver while ordinary method lookup
+        -- retains the nominal's established callable shape; effect finalization changes
+        -- only the suspension bit.
+        local qualified = qualifyExport(surface or entry.signature, body)
+        entry.signature = qualified
+        if entry.definition then
+            entry.definition.type = qualified
+        end
+
+        return qualified
+    end
+
+    for ownerType in pairs(c.nominalEffectOwners or {}) do
+        local owner = ownerType as T.Nominal
+        for name, entries in pairs(owner.methodDispatchEntries or {}) do
+            local members, seen = {}, {}
+            local surface = owner.byname[name]
+            for _, entry in ipairs(entries) do
+                local qualified = qualifyEntry(entry, matchingSurface(entry, surface, false))
+                if qualified and not seen[entry.member] then
+                    seen[entry.member] = true
+                    members[#members + 1] = qualified
+                end
+            end
+            if #members > 0 then
+                local combined = #members == 1 and members[1] or T.intersection(members)
+                owner.byname[name] = combined
+                owner.writeByname[name] = combined
+            end
+        end
+        for name, entries in pairs(owner.staticEntries or {}) do
+            local members = {}
+            local surface = owner.staticByname[name]
+            for _, entry in ipairs(entries) do
+                members[#members + 1] = qualifyEntry(entry, matchingSurface(entry, surface, true))
+            end
+            if #members > 0 then
+                local combined = #members == 1 and members[1] or T.intersection(members)
+                owner.staticByname[name] = combined
+                owner.staticWriteByname[name] = combined
+            end
+        end
+    end
+
+    -- A `function M.Thing:method` declaration is not one of the inline dispatch
+    -- entries above. Its exact owner and slot were retained while it was checked.
+    for _, entry in ipairs(c.nominalEffectEntries or {}) do
+        local qualified = qualifyExport(entry.signature, entry.body)
+        local reads = entry.static and entry.owner.staticByname or entry.owner.byname
+        local writes = entry.static and entry.owner.staticWriteByname or entry.owner.writeByname
+        reads[entry.member] = qualified
+        writes[entry.member] = qualified
+        if entry.definition then
+            entry.definition.type = qualified
+        end
+    end
+
+    -- The nominals above keep stable identity across rechecks, so comparing their
+    -- tables cannot reveal a body-only effect change: the old interface observes the
+    -- same mutated object. Snapshot the callable effect surface as immutable text for
+    -- the incremental cutoff and persistent build interface hash.
+    local parts, seen = {}, {}
+    local function effect(t, method: boolean): string?
+        if not t then
+            return nil
+        end
+        if t.tag == "func" then
+            local callable = method and generics.dropSelf(t) or t
+            return methodslots.parameters(callable) .. "=" .. (t.noYield and "quiet" or "may-yield")
+        end
+        if t.tag == "intersection" then
+            local members = {}
+            for _, member in ipairs(t.members or {}) do
+                if member.tag ~= "func" then
+                    return nil
+                end
+                local callable = method and generics.dropSelf(member) or member
+                members[
+                    #members + 1
+                ] = methodslots.parameters(callable) .. "=" .. (member.noYield and "quiet" or "may-yield")
+            end
+            table.sort(members)
+            return #members > 0 and table.concat(members, ",") or nil
+        end
+
+        return nil
+    end
+
+    local function visit(nominal: T.Nominal, path: string)
+        if seen[nominal] then
+            return
+        end
+        seen[nominal] = true
+        local function record(which: string, members: {[string]: Type}, method: boolean)
+            local names = {}
+            for name, member in pairs(members) do
+                if effect(member, method) then
+                    names[#names + 1] = name
+                end
+            end
+            table.sort(names)
+            for _, name in ipairs(names) do
+                local answer = effect(members[name], method)
+                if answer then
+                    parts[#parts + 1] = path .. ":" .. which .. ":" .. name .. "=" .. answer
+                end
+            end
+        end
+
+        record("byname", nominal.byname or {}, true)
+        record("staticByname", nominal.staticByname or {}, false)
+        local nested = {}
+        for name in pairs(nominal.nestedTypes or {}) do
+            nested[#nested + 1] = name
+        end
+        table.sort(nested)
+        for _, name in ipairs(nested) do
+            local child = nominal.nestedTypes[name]
+            if child and child.tag == "nominal" then
+                visit(child as T.Nominal, path .. "." .. name)
+            end
+        end
+    end
+
+    local names = {}
+    for name in pairs(c.moduleExports.types or {}) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    for _, name in ipairs(names) do
+        local exported = c.moduleExports.types[name]
+        if exported.tag == "nominal" then
+            visit(exported as T.Nominal, name)
+        end
+    end
+    c.moduleExports.nominalEffectFingerprint = table.concat(parts, "\0")
+end
+
 -- Returns diags, moduleType (top-level return plus runtime declaration exports), and
 -- the module's exported type/value interface.
 function checkMod.check(
@@ -443,7 +610,7 @@ function checkMod.check(
         automaticOwners = {},
         depth = 0,
         parent = nil
-    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, dropOperationFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, handledDepth = 0, functionDepth = 0, scopedCaptureDepth = 0, closureCaptureStack = {}, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, activeAlias = nil, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldDefs = {}, moduleFieldConst = {}, moduleFieldValues = {}, constModulePaths = {}, moduleLocalAnnotated = false)
+    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, dropOperationFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, handledDepth = 0, functionDepth = 0, scopedCaptureDepth = 0, closureCaptureStack = {}, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, activeAlias = nil, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldDefs = {}, moduleFieldConst = {}, moduleFieldValues = {}, nominalEffectOwners = {}, nominalEffectEntries = {}, constModulePaths = {}, moduleLocalAnnotated = false)
     c.rootScope = c.scope
     c.moduleExports.valueDefs = c.moduleExports.valueDefs or {}
     -- What this file has declared to the FFI. Per file, because a cdef binding is
@@ -1612,6 +1779,7 @@ function checkMod.check(
             end
         end
     end
+    finalizeNominalEffects(c)
     finalizeBoundary(c)
     -- Both of these needed the whole file before they could answer, so they answer here
     -- and their diagnostics are put back in source order with everything else.

@@ -1080,6 +1080,7 @@ function declare.install(
             n.staticEntries = {}
             n.overloadedStatics = {}
             n.defaultEntries = {}
+            c.nominalEffectOwners[n] = true
             n.annotations = stat.semanticAnnotations or {}
             -- bind the name first so fields may reference the type recursively
             c.bindDeclaredType(stat, n)
@@ -1404,10 +1405,7 @@ function declare.install(
                                     ownedApplication
                                 )
                                 c.own.validateCleanups(resultType, cleanups, ownedApplication)
-                                wrapped[#wrapped + 1] = T.withFirstResult(
-                                    callable,
-                                    T.owned(resultType, cleanups)
-                                )
+                                wrapped[#wrapped + 1] = T.withFirstResult(callable, T.owned(resultType, cleanups))
                             end
                             ft = #wrapped == 1 and wrapped[1] or T.intersection(wrapped)
                         end
