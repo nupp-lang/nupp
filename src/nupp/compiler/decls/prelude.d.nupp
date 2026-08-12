@@ -2597,6 +2597,113 @@ local function __NuppFormatArguments(Format: type): typepack
     return nupp.types.pack(arguments)
 end
 
+-- Literal Lua patterns carry their capture shape through ordinary prelude type
+-- functions. The compiler supplies the PEG-backed parser, but these declarations
+-- decide each string API's result contract.
+
+--- @local
+@comptime
+local function __NuppMatchResults(Pattern: type): typepack
+    local info = nupp.types.describe(Pattern)
+    if info.kind ~= "literal" or type(info.value) ~= "string" then
+        return nupp.types.pack({nupp.types.optional(nupp.types.string)})
+    end
+    local parse = nupp.types.patternCaptures
+    if not parse then
+        return nupp.types.pack({nupp.types.optional(nupp.types.string)})
+    end
+    local parsed = parse(info.value)
+    if parsed.error then
+        return nupp.types.error("invalid Lua pattern: " .. parsed.error)
+    end
+    local results = {}
+    if #parsed.captures == 0 then
+        results[1] = nupp.types.optional(nupp.types.string)
+    else
+        for index, kind in ipairs(parsed.captures) do
+            local capture = nupp.types.string
+            if kind == "position" then
+                capture = nupp.types.integer
+            end
+            if index == 1 then
+                capture = nupp.types.optional(capture)
+            end
+            results[index] = capture
+        end
+    end
+    return nupp.types.pack(results)
+end
+
+--- @local
+@comptime
+local function __NuppFindResults(Pattern: type, Plain: type): typepack
+    local plain = nupp.types.describe(Plain)
+    local endpoints = {nupp.types.optional(nupp.types.integer), nupp.types.optional(nupp.types.integer)}
+    if plain.kind == "literal" and plain.value == true then
+        return nupp.types.pack(endpoints)
+    end
+    local info = nupp.types.describe(Pattern)
+    if info.kind ~= "literal" or type(info.value) ~= "string" then
+        return nupp.types.pack(endpoints)
+    end
+    local parse = nupp.types.patternCaptures
+    if not parse then
+        return nupp.types.pack(endpoints)
+    end
+    local parsed = parse(info.value)
+    if parsed.error then
+        return nupp.types.error("invalid Lua pattern: " .. parsed.error)
+    end
+    for _, kind in ipairs(parsed.captures) do
+        if kind == "position" then
+            endpoints[#endpoints + 1] = nupp.types.integer
+        else
+            endpoints[#endpoints + 1] = nupp.types.string
+        end
+    end
+    return nupp.types.pack(endpoints)
+end
+
+--- @local
+@comptime
+local function __NuppGmatchResults(Pattern: type): typepack
+    local results = {nupp.types.string}
+    local info = nupp.types.describe(Pattern)
+    local parse = nupp.types.patternCaptures
+    if info.kind == "literal" and type(info.value) == "string" and parse then
+        local parsed = parse(info.value)
+        if parsed.error then
+            return nupp.types.error("invalid Lua pattern: " .. parsed.error)
+        end
+        if #parsed.captures > 0 then
+            results = {}
+            for index, kind in ipairs(parsed.captures) do
+                if kind == "position" then
+                    results[index] = nupp.types.integer
+                else
+                    results[index] = nupp.types.string
+                end
+            end
+        end
+    end
+    local iterator = nupp.types.function_(nupp.types.pack({}), nupp.types.pack(results))
+    return nupp.types.pack({iterator})
+end
+
+--- @local
+@comptime
+local function __NuppGsubResults(Pattern: type): typepack
+    local info = nupp.types.describe(Pattern)
+    local parse = nupp.types.patternCaptures
+    if info.kind == "literal" and type(info.value) == "string" and parse then
+        local parsed = parse(info.value)
+        if parsed.error then
+            return nupp.types.error("invalid Lua pattern: " .. parsed.error)
+        end
+    end
+    return nupp.types.pack({nupp.types.string, nupp.types.integer})
+end
+
 --- The severity operations are compiler intrinsics. A call in statement position
 --- whose format is a literal compiles to a level test around a direct emit, so a
 --- filtered call evaluates none of its arguments. Every other spelling stays an
@@ -2743,7 +2850,12 @@ local string: {
     --- @param plain whether to match `pat` literally, ignoring pattern syntax
     --- @return the index where the match starts, or nil when there is none
     --- @return the index where the match ends
-    find: nosuspend function(s: string, pat: string, init: number?, plain: boolean?): (integer?, integer?),
+    find: nosuspend function<Pattern is string, Plain is boolean?>(
+        s: string,
+        pat: Pattern,
+        init: number?,
+        plain: Plain?
+    ): unpackof __NuppFindResults(Pattern, Plain),
 
     --- Formats the arguments into `fmt` using LuaJIT's bounded-width `printf` subset,
     --- plus `%q` quoting, `%p` object identity, and hexadecimal floats with `%a`/`%A`.
@@ -2759,7 +2871,7 @@ local string: {
     --- @param s the string to scan
     --- @param pat the pattern to repeat across `s`
     --- @return an iterator yielding one match at a time
-    gmatch: nosuspend function(s: string, pat: string): function(): string,
+    gmatch: nosuspend function<Pattern is string>(s: string, pat: Pattern): unpackof __NuppGmatchResults(Pattern),
 
     --- Replaces matches of `pat` in `s`. `repl` may be a string, in which `%1` through
     --- `%9` stand for captures and `%0` for the whole match, a table looked up by the
@@ -2771,7 +2883,12 @@ local string: {
     --- @param n how many matches to replace at most, all of them by default
     --- @return the string with the replacements applied
     --- @return how many matches were replaced
-    gsub: nosuspend function(s: string, pat: string, repl: any, n: number?): (string, integer),
+    gsub: nosuspend function<Pattern is string>(
+        s: string,
+        pat: Pattern,
+        repl: any,
+        n: number?
+    ): unpackof __NuppGsubResults(Pattern),
 
     --- Returns the length of `s` in bytes.
     ---
@@ -2792,7 +2909,11 @@ local string: {
     --- @param pat the pattern to look for
     --- @param init where to start, 1 by default; negative counts from the end
     --- @return the captures or the whole match, or nil when nothing matches
-    match: nosuspend function(s: string, pat: string, init: number?): string?,
+    match: nosuspend function<Pattern is string>(
+        s: string,
+        pat: Pattern,
+        init: number?
+    ): unpackof __NuppMatchResults(Pattern),
 
     --- Returns `n` copies of `s`, with `sep` between consecutive copies.
     ---

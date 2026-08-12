@@ -502,6 +502,16 @@ function M.luaFormatParserUsesThePegRuntime()
    assertEq(invalid, 'invalid string.format directive starting at "%..f"')
 end
 
+function M.luaPatternParserUsesThePegRuntime()
+   local luaPattern = require("nupp.compiler.LuaPattern")
+   local captures, why = luaPattern.captureKinds("([a-z]+)()")
+   assertEq(why, nil)
+   assertEq(table.concat(captures or {}, ","), "string,position")
+   local missing, invalid = luaPattern.captureKinds("[abc")
+   assertEq(missing, nil)
+   assertEq(invalid, "malformed pattern")
+end
+
 function M.luaPatternsDeriveLiteralCaptureResults()
    clean(table.concat({
       "local whole: string? = string.match('name=42', '[a-z]+=%d+')",
@@ -513,8 +523,11 @@ function M.luaPatternsDeriveLiteralCaptureResults()
       "local words: function(): (string?) = string.gmatch('one two', '[a-z]+')",
       "local pairs: function(): (string?, string?) = string.gmatch('one=1', '([a-z]+)=(%d+)')",
       "local method: string?, methodAt: integer? = ('name'):match('([a-z]+)()')",
+      "local methodFirst: integer?, methodLast: integer?, methodWord: string?, methodPosition: integer? = ('name'):find('([a-z]+)()')",
+      "local methodWords: function(): (string?) = ('one two'):gmatch('[a-z]+')",
+      "local replaced: string, replacements: integer = ('name'):gsub('[a-z]+', '#')",
       "local literalFirst, literalLast = string.find('[', '[', 1, true)",
-      "return whole, name, count, value, at, storedValue, storedAt, first, last, word, position, words, pairs, method, methodAt, literalFirst, literalLast",
+      "return whole, name, count, value, at, storedValue, storedAt, first, last, word, position, words, pairs, method, methodAt, methodFirst, methodLast, methodWord, methodPosition, methodWords, replaced, replacements, literalFirst, literalLast",
    }, "\n"))
    oneDiagnostic("local value: integer? = string.match('name', '([a-z]+)')\nprint(value)",
       "NUPP2001", "cannot initialize value: string? is not a integer? (member string does not fit)")

@@ -193,7 +193,8 @@ argument that does not fit.
 
 ## Lua string patterns
 
-Literal Lua patterns are parsed while checking. `string.match`, `find`, and
+Literal Lua patterns are parsed by a PEG-backed comptime type function.
+`string.match`, `find`, and
 `gmatch` receive the pattern's capture pack: ordinary captures are `string`, and
 empty `()` captures are `integer`. `match` keeps its first result optional because
 the pattern may not match; `find` retains optional endpoints. `gsub` validates a
