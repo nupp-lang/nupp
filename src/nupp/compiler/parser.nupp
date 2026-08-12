@@ -613,6 +613,20 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 end
                 add(n, expectGenericClose("to close type arguments")).generic = true
             end
+            if cur().kind == "(" then
+                local call = new cst.Ttypecall(kind = "ttypecall", arguments = {})
+                call.callee = add(call, n)
+                add(call, advance())
+                if cur().kind ~= ")" then
+                    call.arguments[1] = add(call, parseType())
+                    while cur().kind == "," do
+                        add(call, advance())
+                        call.arguments[#call.arguments + 1] = add(call, parseType())
+                    end
+                end
+                add(call, expect(")", "to close type-function arguments"))
+                return call
+            end
             return n
         elseif kind == "(" then
             local open = advance()

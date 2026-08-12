@@ -47,6 +47,8 @@ local annotationMod = require("nupp.compiler.annotations")
 local state = require("nupp.compiler.check.state")
 local generics = require("nupp.compiler.generics")
 local methodslots = require("nupp.compiler.methodslots")
+local comptime = require("nupp.compiler.comptime")
+local typeblueprint = require("nupp.compiler.typeblueprint")
 
 local checkMod = {}
 
@@ -572,7 +574,7 @@ function checkMod.check(
 
     -- One run's whole state, so the passes below reach it through `c` rather than by
     -- being lexically inside one function. See nupp.compiler.check.state.
-    local c = new state.Checker(result = result, filename = filename, env = env, opts = opts, reducerMemo = {}, comptimeDepth = 0, comptimeFunctionDepth = 0, comptimeFunctions = {},
+    local c = new state.Checker(result = result, filename = filename, env = env, opts = opts, reducerMemo = {}, comptimeDepth = 0, comptimeFunctionDepth = 0, comptimeFunctions = {}, typeFunctionMemo = {},
         -- A declaration file describes an interface it does not own, so its bare
         -- declarations are that interface and have no table of the file's own to attach
         -- to. Bundled declarations are checked under their module name rather than a
@@ -651,6 +653,36 @@ function checkMod.check(
     c.unused = unused.install(c)
     c.discard = discard.install(c)
     c.nosuspend = nosuspendMod.install(c)
+    c.typeFunctionEvaluator = function(helper, arguments, helpers)
+        local memo = c.typeFunctionMemo[helper]
+        if not memo then
+            memo = {}
+            c.typeFunctionMemo[helper] = memo
+        end
+        local keyParts = {}
+        for position, argument in ipairs(arguments) do
+            local value = argument.value
+            keyParts[position] = argument.kind .. ":" .. (
+                type(value) == "table" and value.id or type(value) .. ":" .. tostring(value)
+            )
+        end
+        local key = table.concat(keyParts, "\0")
+        local cached = memo[key]
+        if cached then return cached.result, cached.failure end
+        local envelope, evaluationFailure = comptime.evaluateTypeFunctionDirect(helper, arguments, helpers)
+        if not envelope then
+            memo[key] = {failure = evaluationFailure}
+            return nil, evaluationFailure
+        end
+        local resultType, validationFailure = typeblueprint.validate(envelope)
+        memo[key] = {result = resultType, failure = validationFailure}
+        return resultType, validationFailure
+    end
+    c.reductionControl = {
+        evaluateTypeFunction = function(helper, arguments)
+            return c.typeFunctionEvaluator(helper, arguments, c.comptimeFunctions)
+        end
+    }
     resolve.install(c)
     local ownershipKind = own.ownershipKind
 

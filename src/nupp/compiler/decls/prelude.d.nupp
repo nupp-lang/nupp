@@ -222,6 +222,10 @@ local nupp: {
     --- Type-directed keyed codecs materialized from semantic reflection.
     fieldcodec: nupp.fieldcodec,
 
+    --- Compiler-only type inspection and construction inside `@comptime` functions.
+    --- Kept gradual until the bootstrap compiler admits compiler-only handle types.
+    types: any,
+
     --- Reflects a concrete type for use inside a `comptime` block.
     reflect: function(typeName: any): TypeInfo,
 
@@ -248,6 +252,7 @@ local nupp: {
     --- @internal
     __materializationTest: nupp.__MaterializationTestAPI
 }
+
 
 --- A compile-time-only graph handle used by the compiler's materialization tests.
 --- @internal

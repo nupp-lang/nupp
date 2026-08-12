@@ -1325,7 +1325,7 @@ return m
 
     new reference.Section(
         title = "Comptime",
-        codes = {"NUPP2410", "NUPP2411", "NUPP2412", "NUPP2413", "NUPP2414", "NUPP2415", "NUPP2416", "NUPP2419",},
+        codes = {"NUPP2410", "NUPP2411", "NUPP2412", "NUPP2413", "NUPP2414", "NUPP2415", "NUPP2416", "NUPP2419", "NUPP2420", "NUPP2421",},
         body = [=[
 `comptime do ... end` is an expression whose value is computed while the file is
 compiled. The block is ordinary Nupp, and what it returns is written into the

@@ -108,6 +108,21 @@ function typeblueprint.validate(envelope: any): any, typeblueprint.Failure?
         if node.kind == "primitive" then
             value = PRIMITIVES[node.name]
             if not value then why = "type blueprint names an unknown primitive " .. tostring(node.name) end
+        elseif node.kind == "reference" then
+            local reference = type(envelope.references) == "table" and envelope.references[node.reference] or nil
+            if type(node.fingerprint) ~= "string" or type(reference) ~= "table"
+                or type(reference.fingerprint) ~= "string" or not reference.source
+                or node.fingerprint ~= reference.fingerprint then
+                why = "type blueprint names an invalid permitted input reference"
+            else
+                local reflection = require("nupp.compiler.reflection")
+                local described = reflection.describe(reference.source)
+                if described.fingerprint ~= reference.fingerprint then
+                    why = "type blueprint input reference fingerprint is stale"
+                else
+                    value = reference.source
+                end
+            end
         elseif node.kind == "literal" then
             local base
             base, why = edge(node.base, "literal base")
@@ -126,6 +141,29 @@ function typeblueprint.validate(envelope: any): any, typeblueprint.Failure?
             element, why = edge(node.element, "array element")
             if element and element.tag ~= "pack" then value = T.array(element)
             elseif element then why = "array element is a type pack" end
+        elseif node.kind == "carray" then
+            local element
+            element, why = edge(node.element, "C-array element")
+            if element and element.tag == "pack" then why, element = "C-array element is a type pack", nil end
+            if element then
+                if node.count ~= nil and (type(node.count) ~= "number" or node.count ~= math.floor(node.count) or node.count < 0) then
+                    why = "C-array count is not a non-negative exact integer"
+                else
+                    value = T.carray(element, node.count)
+                end
+            end
+        elseif node.kind == "ptr" or node.kind == "const" or node.kind == "borrowed"
+            or node.kind == "pinned" or node.kind == "owned" then
+            local inner
+            inner, why = edge(node.inner, node.kind .. " inner type")
+            if inner and inner.tag == "pack" then why, inner = node.kind .. " inner value is a type pack", nil end
+            if inner then
+                if node.kind == "ptr" then value = T.ptr(inner)
+                elseif node.kind == "const" then value = T.constOf(inner)
+                elseif node.kind == "borrowed" then value = T.borrowed(inner)
+                elseif node.kind == "pinned" then value = T.pinned(inner)
+                else value = T.owned(inner) end
+            end
         elseif node.kind == "tuple" then
             local members
             members, why = edgeArray(node.members, "tuple")
@@ -134,6 +172,91 @@ function typeblueprint.validate(envelope: any): any, typeblueprint.Failure?
             local members
             members, why = edgeArray(node.members, "union")
             if members then value = T.union(members) end
+        elseif node.kind == "intersection" then
+            local members
+            members, why = edgeArray(node.members, "intersection")
+            if members then value = T.intersection(members) end
+        elseif node.kind == "indexer" then
+            local values, labels = {}, {"read key", "read value", "write key", "write value"}
+            local edges = {node.readKey, node.readValue, node.writeKey, node.writeValue}
+            for position = 1, 4 do
+                local indexValue = edges[position]
+                if indexValue ~= nil then
+                    values[position], why = edge(indexValue, "indexer " .. labels[position])
+                    if why or values[position].tag == "pack" then
+                        why = why or "indexer " .. labels[position] .. " is a type pack"
+                        break
+                    end
+                end
+            end
+            if not why then
+                if (values[1] == nil) ~= (values[2] == nil) or (values[3] == nil) ~= (values[4] == nil)
+                    or values[1] == nil and values[3] == nil then
+                    why = "indexer capabilities do not contain complete key/value pairs"
+                else
+                    value = T.indexer(values[1], values[2], values[3], values[4])
+                end
+            end
+        elseif node.kind == "shape" then
+            if type(node.fields) ~= "table" or #node.fields > typeblueprint.MAX_MEMBERS then
+                why = "shape has an invalid or oversized field array"
+            else
+                local fields, seen = {}, {}
+                for position, field in ipairs(node.fields) do
+                    if type(field) ~= "table" or type(field.name) ~= "string" or field.name == "" or seen[field.name] then
+                        why = "shape has an invalid or repeated field at " .. tostring(position)
+                        break
+                    end
+                    local read, write
+                    if field.read ~= nil then read, why = edge(field.read, "shape read field " .. field.name) end
+                    if not why and field.write ~= nil then write, why = edge(field.write, "shape write field " .. field.name) end
+                    if why or read and read.tag == "pack" or write and write.tag == "pack" or not read and not write then
+                        why = why or "shape field " .. field.name .. " has invalid capabilities"
+                        break
+                    end
+                    seen[field.name] = true
+                    fields[#fields + 1] = {name = field.name, read = read, write = write}
+                end
+                local indexer
+                if not why and node.indexer ~= nil then
+                    indexer, why = edge(node.indexer, "shape indexer")
+                    if indexer and indexer.tag ~= "map" then why, indexer = "shape indexer is not an indexer", nil end
+                end
+                if not why then
+                    value = T.shape(fields, indexer and {
+                        readKey = indexer.readable and indexer.key or nil,
+                        readValue = indexer.readable and indexer.value or nil,
+                        writeKey = indexer.writeKey,
+                        writeValue = indexer.writeValue,
+                    } or nil)
+                end
+            end
+        elseif node.kind == "function" then
+            local parameters, results
+            parameters, why = edge(node.parameters, "function parameters")
+            if not why then results, why = edge(node.results, "function results") end
+            if not why and (parameters.tag ~= "pack" or results.tag ~= "pack") then
+                why = "function parameters and results must be type packs"
+            elseif not why then
+                local tail = parameters.tail
+                value = T.func(
+                    parameters.head,
+                    results.head,
+                    tail ~= nil,
+                    parameters.modes,
+                    nil,
+                    nil,
+                    nil,
+                    nil,
+                    nil,
+                    nil,
+                    nil,
+                    tail and tail.type or nil,
+                    nil,
+                    parameters,
+                    results
+                )
+            end
         elseif node.kind == "pack" then
             local head
             head, why = edgeArray(node.head, "pack")

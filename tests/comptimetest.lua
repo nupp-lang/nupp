@@ -82,14 +82,18 @@ local function run(src, ...)
 end
 
 local function firstLocalBinding(result)
-   return result.root.blocks[1].stats[1].names[1].definition.type
+   local declaration = result.root.blocks[1].stats[1]
+   assert(declaration.kind == "localStmt")
+   return declaration.names[1].definition.type
 end
 
 local function evaluateTypeBlueprint(body)
    local result = parser.parse("return comptime do " .. body .. " end", "type-blueprint-test.g.nupp")
    assertEq(#result.errors, 0, "type blueprint source parses")
    local returned = result.root.blocks[1].stats[1]
+   assert(returned.kind == "returnStmt")
    local node = returned.exprs[1]
+   assert(node.kind == "comptimeExpr")
    local _, _, failure, envelope = comptime.evaluateDirect(node, node.body, {}, {}, {})
    if failure then
       error(("unexpected %s: %s"):format(failure.code, failure.message), 2)
@@ -127,6 +131,50 @@ function M.finalizesAndValidatesTypePackHandles()
    assertEq(value.head[1], T.string, "pack head keeps its first type")
    assertEq(value.modes[2], "borrowed", "pack modes survive validation")
    assertEq(value.tail.type, T.any, "pack homogeneous tail survives validation")
+end
+
+function M.preservesStructuralFieldAndIndexerCapabilities()
+   local value = evaluateTypeBlueprint([[
+      const indexer = nupp.types.indexer(
+         nupp.types.string,
+         nupp.types.number,
+         nupp.types.string,
+         nupp.types.integer
+      )
+      return nupp.types.shape({
+         {name = "read", read = nupp.types.string},
+         {name = "write", write = nupp.types.integer},
+         {name = "both", read = nupp.types.number, write = nupp.types.number}
+      }, indexer)
+   ]])
+   assertEq(value.tag, "shape", "the shape is interned structurally")
+   assertEq(value.byname.read, T.string, "read-only capability survives")
+   assertEq(value.writeByname.read, nil, "read-only field grants no write")
+   assertEq(value.byname.write, nil, "write-only field grants no read")
+   assertEq(value.writeByname.write, T.integer, "write-only capability survives")
+   assertEq(value.indexReadValue, T.number, "read indexer survives")
+   assertEq(value.indexWriteValue, T.integer, "write indexer survives")
+end
+
+function M.reconstructsWrappersCArrayIntersectionsAndFunctions()
+   local wrapped = evaluateTypeBlueprint([[
+      return nupp.types.intersection({
+         nupp.types.pointer(nupp.types.uint8),
+         nupp.types.constof(nupp.types.carray(nupp.types.uint8, 16))
+      })
+   ]])
+   assertEq(wrapped, T.intersection({T.ptr(T.uint8), T.constOf(T.carray(T.uint8, 16))}),
+      "wrappers and C arrays use canonical constructors")
+
+   local callable = evaluateTypeBlueprint([[
+      const parameters = nupp.types.pack({nupp.types.string}, nupp.types.any)
+      const results = nupp.types.pack({nupp.types.boolean})
+      return nupp.types.function_(parameters, results)
+   ]])
+   assertEq(callable.tag, "func", "function blueprint interns as an ordinary function")
+   assertEq(callable.paramPack.head[1], T.string, "function parameters survive")
+   assertEq(callable.paramPack.tail.type, T.any, "function vararg tail survives")
+   assertEq(callable.retPack.head[1], T.boolean, "function results survive")
 end
 
 function M.scansFormatArgumentsWithOrdinaryComptimeControlFlow()
@@ -177,8 +225,12 @@ function M.separatesAuthoredTypeFailureFromEvaluatorFailure()
       end
    ]], "type-error-test.g.nupp")
    assertEq(#result.errors, 0, "authored type error source parses")
-   local node = result.root.blocks[1].stats[1].exprs[1]
+   local returned = result.root.blocks[1].stats[1]
+   assert(returned.kind == "returnStmt")
+   local node = returned.exprs[1]
+   assert(node.kind == "comptimeExpr")
    local _, _, failure = comptime.evaluateDirect(node, node.body, {}, {}, {})
+   if not failure then error("expected an authored type failure", 2) end
    assertEq(failure.code, "NUPP2420", "authored type rejection has its own diagnostic")
    assertEq(failure.message, "expected a literal format", "authored message is preserved")
 end
@@ -187,6 +239,7 @@ function M.rejectsTamperedTypeBlueprints()
    local _, envelope = evaluateTypeBlueprint([[return nupp.types.array(nupp.types.string)]])
    envelope.payload.nodes[1].element = 999
    local _, invalid = typeblueprint.validate(envelope)
+   if not invalid then error("expected a rejected blueprint", 2) end
    assertEq(invalid.code, "NUPP2415", "the parent rejects a forged graph edge")
 end
 

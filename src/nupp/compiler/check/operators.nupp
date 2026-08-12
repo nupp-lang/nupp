@@ -170,7 +170,7 @@ function operators.install(c: state.Checker): state.ExprHandlers
     end
 
     local function reducedCaptures(t: Type): Type
-        local reduced = generics.evaluate(t)
+        local reduced = generics.evaluate(t, nil, c.reductionControl)
         return reduced.error and lpegUnknown or reduced.type
     end
 
@@ -192,11 +192,11 @@ function operators.install(c: state.Checker): state.ExprHandlers
     end
 
     local function capturesFromPack(pack: T.Pack): Type
-        local evaluated = generics.evaluatePack(pack)
+        local evaluated = generics.evaluatePack(pack, c.reductionControl)
         if evaluated.error or evaluated.pack.alternatives then
             return lpegUnknown
         end
-        local concrete, why = generics.expandComputedPack(evaluated.pack)
+        local concrete, why = generics.expandComputedPack(evaluated.pack, c.reductionControl)
         if why then
             return lpegUnknown
         end

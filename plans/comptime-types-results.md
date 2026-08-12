@@ -119,3 +119,30 @@ authored type rejection from evaluator failure.
 The expressiveness half of the gate is therefore proven provisionally. The
 persistent-worker cold/warm/cache measurements remain open; production prelude
 migration cannot begin until those numbers are recorded here.
+
+## CT1 and CT2 implementation result
+
+The compiler now has opaque evaluator `type` and `typepack` handles, a
+versioned `TypeBlueprint` graph with parent-side validation, structural
+builders and inspectors, permitted references back to existing nominal inputs,
+and no nominal allocator. Closed private `@comptime` functions can be called
+with ordinary parentheses in type position. Type and const arguments execute
+ordinary evaluator control flow, authored `nupp.types.error` failures report
+NUPP2420, invalid applications report NUPP2421, and successful queries are
+memoized per checker run.
+
+The first CT3 slice is active too: open calls are interned type terms,
+substitute through generic type and const inference, and execute through the
+checker-owned query callback once closed. `type<Bound>` exposes the bound while
+open and validates the concrete result. Generated `typepack` results expand
+through retained `unpackof`, including after generic inference. Semantic
+fingerprints and reflection carry the new terms without live checker objects.
+
+Focused evidence after this slice:
+
+- 36/36 `typeleveltest` cases pass in 684 ms, including nine new type-function
+  cases;
+- direct blueprint coverage passes for structures, packs, field/indexer
+  capabilities, wrappers, C arrays, intersections, functions, authored errors,
+  and malformed graph rejection; and
+- a complete compiler build succeeds from the tracked bootstrap.

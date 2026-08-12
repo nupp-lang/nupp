@@ -50,11 +50,192 @@ end
 local function typeDump(typeSource)
    local parsed = parser.parse("local value: " .. typeSource, "test.g.nupp")
    assertEq(#parsed.errors, 0)
-   local annotation = parsed.root.blocks[1].stats[1].types[1]
+   local declaration = parsed.root.blocks[1].stats[1]
+   assert(declaration.kind == "localStmt")
+   local annotation = declaration.types[1]
    return cst.dump(annotation), cst.textOf(parsed.root)
 end
 
 local M = {}
+
+function M.closedComptimeTypeFunctionsConstructTypes()
+   clean(table.concat({
+      "@comptime",
+      "local function Optional(T: type): type",
+      "   return nupp.types.optional(T)",
+      "end",
+      "local yes: Optional(string) = 'yes'",
+      "local no: Optional(string) = nil",
+      "return yes, no",
+   }, "\n"))
+   assertEq(codes(table.concat({
+      "@comptime",
+      "local function Optional(T: type): type",
+      "   return nupp.types.optional(T)",
+      "end",
+      "local bad: Optional(string) = 42",
+      "return bad",
+   }, "\n")), "NUPP2001")
+end
+
+function M.closedComptimeTypeFunctionsUseScalarControlFlowAndInspection()
+   clean(table.concat({
+      "@comptime",
+      "local function Binary(source: string): type",
+      "   local elements = {}",
+      "   for index = 1, #source do",
+      "      local digit = source:sub(index, index)",
+      "      if digit == '0' then",
+      "         elements[#elements + 1] = nupp.types.literal(0)",
+      "      elseif digit == '1' then",
+      "         elements[#elements + 1] = nupp.types.literal(1)",
+      "      else",
+      "         return nupp.types.error('expected binary digits')",
+      "      end",
+      "   end",
+      "   return nupp.types.tuple(elements)",
+      "end",
+      "@comptime",
+      "local function DeepElement(T: type): type",
+      "   while nupp.types.kind(T) == 'array' do",
+      "      T = nupp.types.elements(T)[1]",
+      "   end",
+      "   return T",
+      "end",
+      "local bits: Binary('101') = nil as any",
+      "local leaf: DeepElement({{{integer}}}) = 42",
+      "return bits, leaf",
+   }, "\n"))
+end
+
+function M.closedComptimeTypeFunctionsReportApplicationFailures()
+   assertEq(codes(table.concat({
+      "@comptime",
+      "local function Binary(source: string): type",
+      "   return nupp.types.error('expected binary digits')",
+      "end",
+      "local bad: Binary('2')",
+      "return bad",
+   }, "\n")), "NUPP2420")
+   assertEq(codes(table.concat({
+      "@comptime",
+      "local function Optional(T: type): type",
+      "   return nupp.types.optional(T)",
+      "end",
+      "local bad: Optional(string, number)",
+      "return bad",
+   }, "\n")), "NUPP2421")
+   assertEq(codes(table.concat({
+      "local function Runtime(T: any): any return T end",
+      "local bad: Runtime(string)",
+      "return Runtime(1), bad",
+   }, "\n")), "NUPP2421")
+end
+
+function M.compilerOnlyTypeHandlesCannotEnterRuntimeSignatures()
+   assertEq(codes(table.concat({
+      "local function identity(T: type): type return T end",
+      "return identity",
+   }, "\n")), "NUPP2421 NUPP2421")
+   assertEq(codes(table.concat({
+      "local value: type = nil as any",
+      "return value",
+   }, "\n")), "NUPP2421")
+end
+
+function M.openComptimeTypeCallsCloseAfterGenericInference()
+   clean(table.concat({
+      "@comptime",
+      "local function Optional(T: type): type",
+      "   return nupp.types.optional(T)",
+      "end",
+      "local function choose<T>(value: T, fallback: Optional(T)): Optional(T)",
+      "   return fallback",
+      "end",
+      "local answer: string? = choose('ready', nil)",
+      "return answer",
+   }, "\n"))
+   assertEq(codes(table.concat({
+      "@comptime",
+      "local function Optional(T: type): type",
+      "   return nupp.types.optional(T)",
+      "end",
+      "local function choose<T>(value: T, fallback: Optional(T)): Optional(T)",
+      "   return fallback",
+      "end",
+      "return choose('ready', 42)",
+   }, "\n")), "NUPP2006")
+end
+
+function M.openScalarTypeCallsCloseAfterConstInference()
+   clean(table.concat({
+      "@comptime",
+      "local function Literal(value: integer): type",
+      "   return nupp.types.literal(value)",
+      "end",
+      "local function preserve<const N: integer>(value: N): Literal(N)",
+      "   return value as any",
+      "end",
+      "local one: 1 = preserve(1)",
+      "return one",
+   }, "\n"))
+end
+
+function M.comptimeTypeFunctionsPreserveExistingNominalIdentity()
+   clean(table.concat({
+      "local record User name: string end",
+      "@comptime",
+      "local function Maybe(T: type): type",
+      "   return nupp.types.optional(T)",
+      "end",
+      "local user: Maybe(User) = new User(name = 'Ada')",
+      "return user",
+   }, "\n"))
+end
+
+function M.constrainedOpenTypeCallsExposeOnlyTheirDeclaredBound()
+   clean(table.concat({
+      "@comptime",
+      "local function ReadView(T: type): type<{readonly name: string}>",
+      "   return nupp.types.shape({{name = 'name', read = nupp.types.string}})",
+      "end",
+      "local function nameOf<T>(value: ReadView(T)): string",
+      "   return value.name",
+      "end",
+      "return nameOf",
+   }, "\n"))
+   assertEq(codes(table.concat({
+      "@comptime",
+      "local function Bad(T: type): type<{readonly name: string}>",
+      "   return nupp.types.integer",
+      "end",
+      "local value: Bad(string)",
+      "return value",
+   }, "\n")), "NUPP2421")
+end
+
+function M.comptimeTypePackResultsExpandThroughUnpackof()
+   clean(table.concat({
+      "@comptime",
+      "local function Pair(T: type): typepack",
+      "   return nupp.types.pack({T, nupp.types.string})",
+      "end",
+      "local function closed(...: unpackof Pair(integer)): nil end",
+      "local function inferred<T>(value: T, ...: unpackof Pair(T)): nil end",
+      "closed(1, 'one')",
+      "inferred(true, true, 'yes')",
+      "return closed, inferred",
+   }, "\n"))
+   assertEq(codes(table.concat({
+      "@comptime",
+      "local function Pair(T: type): typepack",
+      "   return nupp.types.pack({T, nupp.types.string})",
+      "end",
+      "local function inferred<T>(value: T, ...: unpackof Pair(T)): nil end",
+      "inferred(true, 1, 'yes')",
+      "return inferred",
+   }, "\n")), "NUPP2006")
+end
 
 function M.finiteTypeOperatorSyntaxRoundTrips()
    local dump, text = typeDump("writeof Cell.[\"value\"]")
@@ -486,9 +667,13 @@ function M.cachedGenericInstantiationsLearnLateDeclaredMembers()
    local refreshed = generics.instantiate(declaration, {[parameter] = types.string})
 
    assertEq(refreshed, first, "refreshing preserves nominal identity")
-   assertEq(refreshed.byname.get.rets[1], types.string,
+   local getter = refreshed.byname.get
+   local stringify = refreshed.metamethods.__tostring
+   assert(getter and getter.tag == "func")
+   assert(stringify and stringify.tag == "func")
+   assertEq(getter.rets[1], types.string,
       "late members are specialized onto the cached instance")
-   assertEq(refreshed.metamethods.__tostring.rets[1], types.string,
+   assertEq(stringify.rets[1], types.string,
       "late metamethods are copied onto the cached instance")
 end
 

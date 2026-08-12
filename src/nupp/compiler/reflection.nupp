@@ -251,18 +251,31 @@ function reflection.describe(root: any, qualifiedName: string?): any
                 out.constParameters[position] = intern(parameter)
             end
             out.parameterKinds = t.paramKinds or {}
-        elseif tag == "neutral" and t.op == "alias" then
-            out.operation = "recursiveAlias"
-            out.name = t.aliasHeader and t.aliasHeader.name or nil
-            out.typeArguments, out.packArguments, out.constArguments = {}, {}, {}
-            for position, argument in ipairs(t.aliasTypeArgs or {}) do
-                out.typeArguments[position] = intern(argument)
-            end
-            for position, argument in ipairs(t.aliasPackArgs or {}) do
-                out.packArguments[position] = intern(argument)
-            end
-            for position, argument in ipairs(t.aliasConstArgs or {}) do
-                out.constArguments[position] = intern(argument)
+        elseif tag == "neutral" and (t.op == "alias" or t.op == "comptimeCall") then
+            if t.op == "alias" then
+                out.operation = "recursiveAlias"
+                out.name = t.aliasHeader and t.aliasHeader.name or nil
+                out.typeArguments, out.packArguments, out.constArguments = {}, {}, {}
+                for position, argument in ipairs(t.aliasTypeArgs or {}) do
+                    out.typeArguments[position] = intern(argument)
+                end
+                for position, argument in ipairs(t.aliasPackArgs or {}) do
+                    out.packArguments[position] = intern(argument)
+                end
+                for position, argument in ipairs(t.aliasConstArgs or {}) do
+                    out.constArguments[position] = intern(argument)
+                end
+            else
+                out.operation = "comptimeTypeCall"
+                out.identity = t.comptimeIdentity
+                out.arguments = {}
+                for position, argument in ipairs(t.comptimeArguments or {}) do
+                    out.arguments[position] = argument.kind == "type"
+                        and {kind = "type", type = intern(argument.value)}
+                        or {kind = "const", value = argument.value.value, domain = argument.value.domain}
+                end
+                out.bound = intern(t.comptimeBound)
+                out.resultKind = t.comptimeResultPack and "typepack" or "type"
             end
         elseif tag == "literal" then
             out.value = t.constant
@@ -270,6 +283,10 @@ function reflection.describe(root: any, qualifiedName: string?): any
         elseif tag == "typevar" then
             out.name = t.name
             out.bound = intern(t.bound)
+        elseif tag == "typeHandle" then
+            out.bound = intern(t.bound)
+        elseif tag == "packResult" then
+            out.pack = intern(t.pack)
         elseif tag == "packvar" then
             out.name = t.name
         elseif tag == "constLiteral" then

@@ -571,6 +571,16 @@ record state.Checker
     --- File-private comptime helper declarations visible so far, by name.
     comptimeFunctions: {[string]: any}
 
+    --- Closed type-function evaluation installed by the checker root to keep the
+    --- pure resolver independent of the evaluator and reflection module graph.
+    typeFunctionEvaluator: (function(any, {any}, any): (any, any))?
+
+    --- Successful and failed closed applications memoized for this checker run.
+    typeFunctionMemo: {[any]: any}
+
+    --- Query callback supplied to generic normalization when an open type call closes.
+    reductionControl: any
+
     --- The ownership modes a body's parameters are used with, when it declared none.
     inferredParameterModes: function(body: any): any
 end

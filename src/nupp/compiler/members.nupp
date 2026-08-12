@@ -279,6 +279,8 @@ build = function(t: T.Type, memo: ViewMemo): members.View
         out = build(t.base, memo)
     elseif t.tag == "typevar" and t.bound then
         out = build(t.bound, memo)
+    elseif t.tag == "neutral" and t.op == "comptimeCall" and t.comptimeBound then
+        out = build(t.comptimeBound, memo)
     elseif t.tag == "shape" or t.tag == "nominal" then
         out = direct(t)
     elseif t.tag == "intersection" then
@@ -457,6 +459,9 @@ lookup = function(t: T.Type, name: string): members.Entry?
         return lookup((t as T.Literal).base, name)
     elseif tag == "typevar" and (t as T.TypeVar).bound then
         return lookup((t as T.TypeVar).bound as T.Type, name)
+    elseif tag == "neutral" and (t as T.Neutral).op == "comptimeCall"
+        and (t as T.Neutral).comptimeBound then
+        return lookup((t as T.Neutral).comptimeBound as T.Type, name)
     elseif tag == "shape" or tag == "nominal" then
         return directEntry(t as T.Shape | T.Nominal, name)
     elseif tag == "intersection" then

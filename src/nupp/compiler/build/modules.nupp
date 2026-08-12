@@ -312,10 +312,14 @@ typeFingerprint = function(
         -- and every one of them compares equal, which is the collision the binder
         -- numbering above exists to prevent.
         value = "proj(" .. typeFingerprint(t.of, active, binders) .. "," .. t.name .. ")"
+    elseif tag == "typeHandle" then
+        value = "typeHandle(" .. typeFingerprint(t.bound, active, binders) .. ")"
+    elseif tag == "packResult" then
+        value = "packResult(" .. packFingerprint(t.pack, active, binders) .. ")"
     elseif tag == "literal" then
         value = "literal(" .. stable(t.constant) .. ":" .. typeFingerprint(t.base, active, binders) .. ")"
     elseif tag == "neutral" then
-        local templates, arms, aliasArguments = {}, {}, {}
+        local templates, arms, aliasArguments, comptimeArguments = {}, {}, {}, {}
         for _, part in ipairs(t.templateParts or {}) do
             templates[
                 #templates + 1
@@ -376,6 +380,13 @@ typeFingerprint = function(
         for _, argument in ipairs(t.aliasConstArgs or {}) do
             aliasArguments[#aliasArguments + 1] = "const=" .. constFingerprint(argument, binders)
         end
+        for _, argument in ipairs(t.comptimeArguments or {}) do
+            if argument.kind == "type" then
+                comptimeArguments[#comptimeArguments + 1] = "type=" .. typeFingerprint(argument.value, active, binders)
+            else
+                comptimeArguments[#comptimeArguments + 1] = "const=" .. constFingerprint(argument.value, binders)
+            end
+        end
         value = "neutral#1(" .. t.op .. ":" .. tostring(
             t.capability or "-"
         ) .. ":subject=" .. typeFingerprint(
@@ -415,7 +426,11 @@ typeFingerprint = function(
             ","
         ) .. ":alias=" .. (
             t.aliasHeader and t.aliasHeader.name or "-"
-        ) .. "<" .. table.concat(aliasArguments, ",") .. ">)"
+        ) .. "<" .. table.concat(aliasArguments, ",") .. ">:comptime=" .. tostring(
+            t.comptimeIdentity or "-"
+        ) .. "(" .. table.concat(comptimeArguments, ",") .. "):" .. (
+            t.comptimeResultPack and "pack" or "type"
+        ) .. ")"
     elseif tag == "genericAlias" then
         local parameters = {}
         for _, parameter in ipairs(t.typeParams or {}) do

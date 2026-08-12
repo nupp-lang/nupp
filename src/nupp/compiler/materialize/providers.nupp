@@ -25,7 +25,8 @@ local typeprovider = require("nupp.compiler.materialize.typeprovider") as {
     installEvaluator: function(any, any, any, any),
     opaqueKind: function(any, any): string?,
     operator: function(any, string, any, any): (any, any),
-    finalize: function(any, any): (any, any)
+    finalize: function(any, any): (any, any),
+    importDescriptor: function(any, any, any?): (any, any)
 }
 
 type providers.Failure = {
@@ -46,6 +47,11 @@ local record providers
     operator: function(any, string, any, any, any): (any, providers.Failure?)
     finalize: function(any, any): (any, providers.Failure?)
     lower: function(any, any, any): (any, providers.Failure?, any)
+    importTypeDescriptor: function(any, any, any?): (any, providers.Failure?)
+end
+
+function providers.importTypeDescriptor(state: any, descriptor: any, source: any?): any, providers.Failure?
+    return typeprovider.importDescriptor(state, descriptor, source)
 end
 
 providers.ABI = 1

@@ -202,7 +202,7 @@ function resolve.install(c: state.Checker): nil
         if t and t.tag == "genericAlias" then
             local map = aliasArgumentMap(t, node)
             local rebound = generics.materialize(t.body, map)
-            local reduced, reductionError = generics.reduce(rebound, {}, c.reducerMemo)
+            local reduced, reductionError = generics.reduce(rebound, {}, c.reducerMemo, c.reductionControl)
             if reductionError then
                 c.diag(
                     reductionError:find("recursive alias", 1, true) and "NUPP2133" or "NUPP2130",
@@ -534,11 +534,137 @@ function resolve.install(c: state.Checker): nil
             recursiveArmDepth = recursiveArmDepth - 1
             arms[#arms + 1] = T.matchArm(T.matchPattern("default"), fallback)
             local term = T.neutral("match", scrutinee, nil, nil, nil, nil, nil, nil, nil, nil, node.each, arms)
-            local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo)
+            local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo, c.reductionControl)
             if reductionError then
                 c.diag("NUPP2132", node, reductionError)
             end
             return reduced
+        elseif kind == "ttypecall" then
+            local callee = node.callee
+            local calleeName = callee and callee.kind == "tname" and callee as cst.Tname or nil
+            local name = calleeName and calleeName.base and calleeName.base.text or nil
+            local helper = name and c.comptimeFunctions[name] or nil
+            if not helper or not helper.body then
+                c.diag("NUPP2421", callee or node, "a type-position call must name a checked @comptime function")
+                return T.any
+            end
+            local helperType, helperDefinition = c.lookupVar(name as string)
+            if calleeName and calleeName.base then
+                c.markToken(calleeName.base, helperDefinition or helper.name, helperType or T.type_, "function")
+            end
+            if not helperType or helperType.tag ~= "func" then
+                c.diag("NUPP2421", callee or node, "a type-position call must resolve to a checked function signature")
+                return T.any
+            end
+            local body = helper.body as cst.Funcbody
+            local params = body.params or {}
+            if #params ~= #(node.arguments or {}) then
+                c.diag(
+                    "NUPP2421",
+                    node,
+                    ("type function %q expects %d argument%s, got %d"):format(
+                        name as string,
+                        #params,
+                        #params == 1 and "" or "s",
+                        #(node.arguments or {})
+                    )
+                )
+                return T.any
+            end
+            local arguments = {}
+            local deferredArguments: {T.ComptimeArgument} = {}
+            local open = false
+            for position, argumentNode in ipairs(node.arguments or {}) do
+                local parameter = params[position] as cst.Param
+                local expected = helperType.params[position]
+                local supplied = c.resolveType(argumentNode)
+                if expected == T.type_ or expected.tag == "typeHandle" then
+                    if expected.tag == "typeHandle" then
+                        local fits, why = relations.isA(supplied, expected.bound)
+                        if not fits then
+                            c.diag("NUPP2421", argumentNode, "type-function type argument violates its bound: " .. (why or "not satisfied"))
+                            return T.any
+                        end
+                    end
+                    arguments[position] = {kind = "type", value = supplied}
+                    deferredArguments[position] = {
+                        kind = "type", value = supplied,
+                    } as T.ComptimeTypeArgument
+                    open = open or T.hasTypevar(supplied) or T.hasProjection(supplied) or supplied.tag == "neutral"
+                elseif expected == T.typepack then
+                    c.diag("NUPP2421", argumentNode, "source type-pack arguments are not yet admitted in closed type calls")
+                    return T.any
+                elseif expected == T.string or expected == T.boolean or expected == T.integer then
+                    local term = consteval.fromType(supplied)
+                    local reduced, constFailure = nil, nil
+                    if term then reduced, constFailure = consteval.reduce(term) end
+                    local domain = reduced and (reduced.tag == "constLiteral" or reduced.tag == "constVar")
+                        and reduced.domain or nil
+                    if constFailure or not reduced or domain ~= expected.tag then
+                        c.diag("NUPP2421", argumentNode, "a scalar type-function argument must be a literal or const binder in its declared domain")
+                        return T.any
+                    end
+                    if reduced.tag == "constLiteral" then
+                        arguments[position] = {kind = "value", value = reduced.value}
+                    else
+                        open = true
+                    end
+                    deferredArguments[position] = {
+                        kind = "const", value = reduced,
+                    } as T.ComptimeConstArgument
+                else
+                    c.diag("NUPP2421", parameter.type or parameter, "type-function parameters must be type, typepack, string, boolean, or integer")
+                    return T.any
+                end
+            end
+            local declared = helperType.rets[1] or T.any
+            if declared ~= T.type_ and declared ~= T.typepack and declared.tag ~= "typeHandle" then
+                c.diag("NUPP2421", body.rets and body.rets[1] or body, "a type-position @comptime function must return type or typepack")
+                return T.any
+            end
+            if open then
+                local token = helper.name
+                local identity = tostring(c.filename) .. ":" .. tostring(token and token.offset or 0) .. ":" .. (name as string)
+                local term = T.comptimeCall(
+                    identity,
+                    helper,
+                    deferredArguments,
+                    declared.tag == "typeHandle" and declared.bound or T.unknown,
+                    declared == T.typepack
+                )
+                node.resolvedType = term
+                return term
+            end
+            local result, evaluationFailure
+            if c.typeFunctionEvaluator then
+                result, evaluationFailure = c.typeFunctionEvaluator(helper, arguments, c.comptimeFunctions)
+            end
+            if not result then
+                c.diag(
+                    evaluationFailure and evaluationFailure.code or "NUPP2412",
+                    node,
+                    evaluationFailure and evaluationFailure.message or "type-function evaluation failed"
+                )
+                return T.any
+            end
+            if declared == T.type_ and result.tag == "pack" or declared == T.typepack and result.tag ~= "pack" then
+                c.diag("NUPP2421", node, "type-function result does not match its declared type or typepack kind")
+                return T.any
+            end
+            if declared == T.typepack then
+                local wrapped = T.packResult(result)
+                node.resolvedType = wrapped
+                return wrapped
+            end
+            if declared.tag == "typeHandle" then
+                local fits, why = relations.isA(result, declared.bound)
+                if not fits then
+                    c.diag("NUPP2421", node, "generated type violates its declared result bound: " .. (why or "not satisfied"))
+                    return T.any
+                end
+            end
+            node.resolvedType = result
+            return result
         elseif kind == "tinfer" then
             c.diag("NUPP2132", node, "infer is only valid inside a type-match pattern")
             return T.any
@@ -725,6 +851,17 @@ function resolve.install(c: state.Checker): nil
             if name == "ctype" and node.typeArgs and node.typeArgs[1] then
                 return T.ctype(c.resolveType(node.typeArgs[1]))
             end
+            if name == "type" and node.typeArgs then
+                if (c.comptimeDepth or 0) == 0 and (c.comptimeFunctionDepth or 0) == 0 then
+                    c.diag("NUPP2421", node, "type<Bound> is a compiler-only result type")
+                    return T.any
+                end
+                if #node.typeArgs ~= 1 then
+                    c.diag("NUPP2421", node, "type<Bound> needs exactly one result bound")
+                    return T.typeHandle(T.unknown)
+                end
+                return T.typeHandle(c.resolveType(node.typeArgs[1]))
+            end
             if name == "metatable" and node.typeArgs and node.typeArgs[1] then
                 return T.metatable(c.resolveType(node.typeArgs[1]))
             end
@@ -781,6 +918,15 @@ function resolve.install(c: state.Checker): nil
             c.markToken(base, def, t, def and def.kind or "type")
             t = applyTypeArgs(t, node)
             if t then
+                if (t == T.type_ or t == T.typepack or t.tag == "typeHandle") and (c.comptimeDepth or 0) == 0
+                    and (c.comptimeFunctionDepth or 0) == 0 then
+                    c.diag(
+                        "NUPP2421",
+                        node,
+                        ("%s is a compiler-only value type and is available only inside comptime"):format(name)
+                    )
+                    return T.any
+                end
                 -- hint for the code generator: this name is a reified struct whose
                 -- runtime ctype is local, global, or project-exported
                 if t.tag == "nominal" and t.declKind == "struct" then
@@ -881,7 +1027,7 @@ function resolve.install(c: state.Checker): nil
         elseif kind == "tkeyof" then
             local subject = c.resolveType(node.inner)
             local term = T.neutral("keyof", subject, nil, node.capability)
-            local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo)
+            local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo, c.reductionControl)
             if reductionError then
                 c.diag("NUPP2130", node, reductionError)
             end
@@ -891,7 +1037,7 @@ function resolve.install(c: state.Checker): nil
         elseif kind == "tmember" then
             local subject, key = c.resolveType(node.object), c.resolveType(node.key)
             local term = T.neutral("member", subject, key, "read")
-            local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo)
+            local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo, c.reductionControl)
             if reductionError then
                 c.diag("NUPP2130", node, reductionError)
             end
@@ -904,7 +1050,7 @@ function resolve.install(c: state.Checker): nil
             end
             local subject, key = c.resolveType(indexed.object), c.resolveType(indexed.key)
             local term = T.neutral("member", subject, key, "write")
-            local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo)
+            local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo, c.reductionControl)
             if reductionError then
                 c.diag("NUPP2130", node, reductionError)
             end
@@ -1012,7 +1158,7 @@ function resolve.install(c: state.Checker): nil
             c.popScope()
             local capability = node.capability and node.capability.propertyCapability or "read"
             local term = T.neutral("mapped", nil, nil, capability, binder, keys, value, remap)
-            local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo)
+            local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo, c.reductionControl)
             if reductionError then
                 c.diag("NUPP2130", node, reductionError)
             end
@@ -1044,7 +1190,7 @@ function resolve.install(c: state.Checker): nil
                 end
             end
             local term = T.neutral("template", nil, nil, nil, nil, nil, nil, nil, nil, parts)
-            local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo)
+            local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo, c.reductionControl)
             if reductionError then
                 c.diag("NUPP2132", node, reductionError)
             end
@@ -1062,7 +1208,7 @@ function resolve.install(c: state.Checker): nil
             if T.hasTypevar(term) then
                 return term
             end
-            local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo)
+            local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo, c.reductionControl)
             if reductionError then
                 c.diag("NUPP2132", node.tail, reductionError)
             end

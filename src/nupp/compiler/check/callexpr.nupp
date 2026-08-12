@@ -166,11 +166,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
     end
 
     local function lpegCapturesFromPack(pack: T.Pack, skip: integer?): Type
-        local evaluated = generics.evaluatePack(pack)
+        local evaluated = generics.evaluatePack(pack, c.reductionControl)
         if evaluated.error or evaluated.pack.alternatives then
             return lpegUnknown
         end
-        local concrete, why = generics.expandComputedPack(evaluated.pack)
+        local concrete, why = generics.expandComputedPack(evaluated.pack, c.reductionControl)
         if why then
             return lpegUnknown
         end

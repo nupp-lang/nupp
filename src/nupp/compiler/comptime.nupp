@@ -22,10 +22,12 @@ description of one. See `plans/comptime.md`.
 local cst = require("nupp.compiler.cst")
 local T = require("nupp.compiler.types")
 local materializeProviders = require("nupp.compiler.materialize.providers")
+local reflection = require("nupp.compiler.reflection")
 
 local record comptime
     evaluateDirect: function(cst.Node, cst.Node?, any, any, any): (string?, T.Type?, any, any)
     evaluate: function(cst.Node, cst.Node?, any, any, any, any?): (string?, T.Type?, any, any)
+    evaluateTypeFunctionDirect: function(any, {any}, any): (any, any)
 end
 
 local isToken = cst.isToken
@@ -1424,6 +1426,75 @@ function comptime.evaluateDirect(
     end
 
     return quoted as string, typeOf(state.result), nil
+end
+
+--- Executes one already-checked private type function with closed arguments.
+--- Type and pack arguments enter through the versioned semantic graph and become
+--- opaque evaluator handles; no checker object is reachable from user code.
+function comptime.evaluateTypeFunctionDirect(helper: any, arguments: {any}, helpers: any): any, comptime.Failure?
+    local node = helper and helper.body or helper
+    local name = helper and helper.name and helper.name.text or ""
+    if not node or name == "" then
+        return nil, {code = "NUPP2412", message = "type function has no checked body"} as comptime.Failure
+    end
+    local state = newState()
+    local env, libraries = buildEnvironment(state)
+    state.env, state.libraries = env, libraries
+    local available = {}
+    for helperName, supplied in pairs(helpers or {}) do available[helperName] = supplied end
+    available[name] = helper
+    installComptimeFunctions(state, env, available)
+    state.scope = scope(nil)
+    local values = {n = #arguments}
+    for position, argument in ipairs(arguments) do
+        if argument.kind == "type" or argument.kind == "typepack" then
+            local descriptor = reflection.describe(argument.value)
+            local handle, importFailure = materializeProviders.importTypeDescriptor(state, descriptor, argument.value)
+            if not handle then
+                return nil, {
+                    code = importFailure and importFailure.code or "NUPP2415",
+                    node = helper,
+                    message = importFailure and importFailure.message or "cannot import a type-function argument",
+                } as comptime.Failure
+            end
+            values[position] = handle
+        else
+            values[position] = argument.value
+        end
+    end
+    local token = env[name]
+    local ok, produced = pcall(callValues, state, helper, token, values)
+    if not ok then
+        if type(produced) == "table" and produced[FAILURE] then
+            return nil, produced as comptime.Failure
+        end
+        return nil, {code = "NUPP2412", node = helper, message = tostring(produced)} as comptime.Failure
+    end
+    local value = produced[1]
+    if not materializeProviders.isOpaque(state, value) then
+        return nil, {
+            code = "NUPP2415",
+            node = helper,
+            message = "a type function must return a type or type-pack handle",
+        } as comptime.Failure
+    end
+    local envelope, finalFailure = materializeProviders.finalize(state, value)
+    if not envelope then
+        return nil, {
+            code = finalFailure and finalFailure.code or "NUPP2415",
+            node = helper,
+            message = finalFailure and finalFailure.message or "cannot finalize a type-function result",
+            help = finalFailure and finalFailure.help or nil,
+        } as comptime.Failure
+    end
+    if envelope.provider ~= "types" then
+        return nil, {
+            code = "NUPP2415",
+            node = helper,
+            message = "a type function returned a non-type compiler blueprint",
+        } as comptime.Failure
+    end
+    return envelope, nil
 end
 
 --- Evaluates through the isolated worker when the compiler was launched from its

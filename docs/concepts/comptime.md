@@ -39,6 +39,34 @@ return m
 The generated Lua holds a 256-entry table of numbers. The loop that built it is
 not in the program at all.
 
+## Type functions
+
+An `@comptime` function may accept compiler-only `type` values and return a
+`type`. Calling it with ordinary parentheses in type position constructs a
+structural type during checking:
+
+```nupp
+@comptime
+local function Optional(T: type): type
+    return nupp.types.optional(T)
+end
+
+local value: Optional(string) = nil
+```
+
+The opaque handles have no runtime representation and are illegal in ordinary
+function signatures or values. `nupp.types` supplies immutable inspection and
+structural builders; it can preserve an existing nominal identity but cannot
+create a record, interface, struct, declaration, or runtime member. An open call
+inside a generic signature is deferred until inference supplies concrete type
+and const arguments. A `type<Bound>` result exposes only `Bound` while the call
+is open and checks every generated result against that promise.
+
+Use the direct finite operators—`keyof`, indexed members, mapped shapes,
+template construction, const parameters, associated projections, and
+`unpackof`—when they state a local operation clearly. Type functions are for
+algorithms needing ordinary loops, branches, string processing, or recursion.
+
 ## Accumulating loops are the reason
 
 A constant expression does not need `comptime`, because `-O1` folds one already.
@@ -96,10 +124,14 @@ return m
 - **NUPP2415**: a declared type has no registered materialization for the
   opaque result, or a worker payload failed the provider's checks.
 - **NUPP2416** / **NUPP2419**: a provider rejected the request.
+- **NUPP2420**: a comptime type function deliberately rejected its application
+  through `nupp.types.error`.
+- **NUPP2421**: a type-position comptime call has an invalid callee, signature,
+  argument, result kind, or result bound.
 
 ## Next
 
 - [Semantic reflection](reflection.md): the descriptor a comptime block reads
   to generate code from a declaration.
-- [Type-level computation](../type-system/type-level-computation.md): the same
-  question answered in the type system rather than at compile time.
+- [Type system overview](../type-system/overview.md): the finite type operators
+  that remain direct language syntax.

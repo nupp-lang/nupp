@@ -32,8 +32,8 @@ local rawType = T.unwrapOwnership
 --- nothing left to say why.
 ---
 --- @param erased collects the associated members this specialization erased
-local function substType(t: Type, map: {[any]: any}, erased: {string}?): Type
-    local found = generics.evaluate(generics.materialize(t, map))
+local function substType(t: Type, map: {[any]: any}, erased: {string}?, control: any?): Type
+    local found = generics.evaluate(generics.materialize(t, map), nil, control)
     if erased then
         for _, name in ipairs(found.gradual) do
             erased[#erased + 1] = name
@@ -588,7 +588,7 @@ function calls.install(c: state.Checker): calls.Ops
             local bound = bounds and bounds[j]
             local actual = map[tv]
             if bound and actual and actual ~= T.any then
-                local ok, why = isA(actual, substType(bound, map))
+                local ok, why = isA(actual, substType(bound, map, nil, c.reductionControl))
                 if not ok then
                     c.diag("NUPP2116", node, ("type argument %s for %s: %s"):format(T.tostring(actual), tv.name, why))
                 end
@@ -649,7 +649,7 @@ function calls.install(c: state.Checker): calls.Ops
                 local bound = ft.typeBounds and ft.typeBounds[j]
                 local actual = map[tv]
                 if bound and actual then
-                    local ok, why = isA(actual, substType(bound, map))
+                local ok, why = isA(actual, substType(bound, map, nil, c.reductionControl))
                     if not ok then
                         c.diag(
                             "NUPP2116",
@@ -662,22 +662,22 @@ function calls.install(c: state.Checker): calls.Ops
             local p2, r2 = {}, {}
             local erasedProjections: {string} = {}
             for j, p in ipairs(params) do
-                p2[j] = substType(p, map, erasedProjections)
+                p2[j] = substType(p, map, erasedProjections, c.reductionControl)
             end
             for j, r in ipairs(rets) do
-                r2[j] = substType(r, map, erasedProjections)
+                r2[j] = substType(r, map, erasedProjections, c.reductionControl)
             end
             params, rets = p2, r2
             paramPack, retPack = substPack(paramPack, map), substPack(retPack, map)
             if varargType then
-                varargType = substType(varargType, map, erasedProjections)
+                varargType = substType(varargType, map, erasedProjections, c.reductionControl)
             end
             reportGradualProjections(c, site, erasedProjections)
         end
         local packProblem
-        paramPack, packProblem = generics.expandComputedPack(paramPack)
+        paramPack, packProblem = generics.expandComputedPack(paramPack, c.reductionControl)
         if not packProblem then
-            retPack, packProblem = generics.expandComputedPack(retPack)
+            retPack, packProblem = generics.expandComputedPack(retPack, c.reductionControl)
         end
         if packProblem then
             c.diag("NUPP2006", site, operation .. " contract: " .. packProblem)
@@ -1588,7 +1588,7 @@ function calls.install(c: state.Checker): calls.Ops
                 local bound = calleeT.typeBounds and calleeT.typeBounds[j]
                 local actual = map[tv]
                 if bound and actual then
-                    local expected = substType(bound, map)
+                    local expected = substType(bound, map, nil, c.reductionControl)
                     local ok, why = isA(actual, expected)
                     if not ok then
                         c.diag(
@@ -1602,17 +1602,17 @@ function calls.install(c: state.Checker): calls.Ops
             local p2, r2 = {}, {}
             local erasedProjections: {string} = {}
             for j, p in ipairs(params) do
-                p2[j] = substType(p, map, erasedProjections)
+                p2[j] = substType(p, map, erasedProjections, c.reductionControl)
             end
             for j, r in ipairs(rets) do
-                r2[j] = substType(r, map, erasedProjections)
+                r2[j] = substType(r, map, erasedProjections, c.reductionControl)
             end
             -- The packs are authoritative: materialized once, evaluated once, and the
             -- scalar views derived from what came back. Deriving first and evaluating
             -- the views would lose whatever a homogeneous or computed tail said, and
             -- the pack would then overwrite the results anyway.
-            local paramEval = generics.evaluatePack(substPack(paramPack, map))
-            local retEval = generics.evaluatePack(substPack(retPack, map))
+            local paramEval = generics.evaluatePack(substPack(paramPack, map), c.reductionControl)
+            local retEval = generics.evaluatePack(substPack(retPack, map), c.reductionControl)
             paramPack, retPack = paramEval.pack, retEval.pack
             for _, name in ipairs(paramEval.gradual) do
                 erasedProjections[#erasedProjections + 1] = name
@@ -1626,13 +1626,13 @@ function calls.install(c: state.Checker): calls.Ops
             if paramPack.tail and paramPack.tail.kind == "homogeneous" then
                 varargType = paramPack.tail.type
             elseif varargType then
-                varargType = substType(varargType, map)
+                varargType = substType(varargType, map, nil, c.reductionControl)
             end
         end
         local packProblem
-        paramPack, packProblem = generics.expandComputedPack(paramPack)
+        paramPack, packProblem = generics.expandComputedPack(paramPack, c.reductionControl)
         if not packProblem then
-            retPack, packProblem = generics.expandComputedPack(retPack)
+            retPack, packProblem = generics.expandComputedPack(retPack, c.reductionControl)
         end
         if packProblem then
             c.diag("NUPP2006", node, packProblem, nil, callDetails(node))

@@ -266,6 +266,26 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
                 constArgs[j] = substConst(argument, map)
             end
             return T.aliasCall(t.aliasHeader as T.AliasHeader, typeArgs, packArgs, constArgs)
+        elseif t.op == "comptimeCall" then
+            local arguments: {T.ComptimeArgument} = {}
+            for position, argument in ipairs(t.comptimeArguments or {}) do
+                if argument.kind == "type" then
+                    arguments[position] = {
+                        kind = "type", value = substWith(argument.value, map, unmapped),
+                    } as T.ComptimeTypeArgument
+                else
+                    arguments[position] = {
+                        kind = "const", value = substConst(argument.value, map),
+                    } as T.ComptimeConstArgument
+                end
+            end
+            return T.comptimeCall(
+                t.comptimeIdentity as string,
+                t.comptimeHelper,
+                arguments,
+                t.comptimeBound and substWith(t.comptimeBound, map, unmapped) or T.unknown,
+                t.comptimeResultPack
+            )
         end
         local innerMap = map
         if t.binder then
@@ -321,6 +341,10 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
         -- observations nobody holds, which is how a gradual projection was consumed
         -- before the caller's evaluation ever saw it.
         return rebound
+    elseif tag == "typeHandle" then
+        return T.typeHandle(substWith(t.bound, map, unmapped))
+    elseif tag == "packResult" then
+        return T.packResult(substPackWith(t.pack, map, unmapped))
     elseif tag == "ptr" then
         return T.ptr(substWith(t.elem, map, unmapped))
     elseif tag == "carray" then
@@ -642,7 +666,8 @@ local type ReductionMemoEntry = {
 }
 local type ReductionMemo = {[Type]: ReductionMemoEntry}
 type generics.ReductionControl = {
-    cancelled: function(): boolean
+    cancelled: (function(): boolean)?,
+    evaluateTypeFunction: (function(any, {any}): (Type | T.Pack | nil, any))?
 }
 
 --- One evaluation's state.
@@ -1474,8 +1499,66 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
         else
             out, err = reduceProjection(head, t.name, memo, budget)
         end
+    elseif t.tag == "typeHandle" then
+        local bound
+        bound, err = normalize(t.bound, memo, budget)
+        if not err then out = T.typeHandle(bound) end
+    elseif t.tag == "packResult" then
+        local pack
+        pack, err = normalizeReductionPack(t.pack, memo, budget)
+        if not err then out = T.packResult(pack) end
     elseif t.tag == "neutral" then
-        if t.op == "singleton" then
+        if t.op == "comptimeCall" then
+            local arguments, open = {}, false
+            for position, argument in ipairs(t.comptimeArguments or {}) do
+                if argument.kind == "type" then
+                    local reduced
+                    reduced, err = normalize(argument.value, memo, budget)
+                    if err then break end
+                    arguments[position] = {kind = "type", value = reduced}
+                    open = open or T.hasTypevar(reduced) or T.hasProjection(reduced) or reduced.tag == "neutral"
+                else
+                    local reduced
+                    reduced, err = consteval.reduce(argument.value)
+                    if err then break end
+                    arguments[position] = {kind = "value", value = reduced.tag == "constLiteral" and reduced.value or reduced}
+                    open = open or reduced.tag ~= "constLiteral"
+                end
+            end
+            if not err and open then
+                local rebound = {}
+                for position, argument in ipairs(arguments) do
+                    rebound[position] = argument.kind == "type"
+                        and argument
+                        or {kind = "const", value = argument.value}
+                end
+                out = T.comptimeCall(
+                    t.comptimeIdentity as string,
+                    t.comptimeHelper,
+                    rebound,
+                    t.comptimeBound,
+                    t.comptimeResultPack
+                )
+            elseif not err and budget.control and budget.control.evaluateTypeFunction then
+                local failure
+                local evaluated: Type | T.Pack | nil
+                evaluated, failure = budget.control.evaluateTypeFunction(t.comptimeHelper, arguments)
+                if evaluated then out = evaluated.tag == "pack" and T.packResult(evaluated) or evaluated end
+                if not out then err = failure and failure.message or tostring(failure or "type-function evaluation failed") end
+                if not err and out and not t.comptimeResultPack and t.comptimeBound then
+                    local relations = require("nupp.compiler.relations") as {
+                        isA: function(Type, Type): (boolean, string?)
+                    }
+                    local fits, why = relations.isA(out, t.comptimeBound)
+                    if not fits then
+                        err = "generated type violates its declared result bound: " .. (why or "not satisfied")
+                        out = T.any
+                    end
+                end
+            elseif not err then
+                out = t
+            end
+        elseif t.op == "singleton" then
             local term
             term, err = consteval.reduce(t.constTerm as T.ConstTerm)
             out = not err and consteval.singleton(term) or T.any
@@ -1784,12 +1867,12 @@ end
 --- Resolves a computed tail after its dependencies have been substituted. Tuples add
 --- fixed slots, arrays become a homogeneous tail, and an undecidable type stays
 --- gradual so a signature can retain its dynamic fallback.
-function generics.expandComputedPack(pack: T.Pack): T.Pack, string?
+function generics.expandComputedPack(pack: T.Pack, control: generics.ReductionControl?): T.Pack, string?
     local tail = pack.tail
     if not tail or tail.kind ~= "computed" then
         return pack
     end
-    local computed, reductionError = generics.reduce(tail.type)
+    local computed, reductionError = generics.reduce(tail.type, nil, nil, control)
     if reductionError then
         return pack, "unpackof could not reduce its type: " .. reductionError
     end
@@ -1808,6 +1891,16 @@ function generics.expandComputedPack(pack: T.Pack): T.Pack, string?
             return T.pack(pack.head, nil, pack.modes)
         end
         return T.pack(pack.head, {kind = "homogeneous", type = computed.elem}, pack.modes)
+    end
+    if computed.tag == "packResult" then
+        local head, modes = {}, {}
+        for position, value in ipairs(pack.head) do
+            head[position], modes[position] = value, pack.modes[position] or "plain"
+        end
+        for position, value in ipairs(computed.pack.head) do
+            head[#head + 1], modes[#modes + 1] = value, computed.pack.modes[position] or "plain"
+        end
+        return T.pack(head, computed.pack.tail, modes)
     end
     if computed.tag == "neutral" and computed.op == "typeError" then
         local message, messageError = generics.reduce(computed.subject as Type)

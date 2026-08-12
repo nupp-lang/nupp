@@ -23,6 +23,7 @@ local record typeprovider
     opaqueKind: function(any, any): string?
     operator: function(any, string, any, any): (any, typeprovider.Failure?)
     finalize: function(any, any): (any, typeprovider.Failure?)
+    importDescriptor: function(any, any, any?): (any, typeprovider.Failure?)
 end
 
 typeprovider.SCHEMA = 1
@@ -112,6 +113,7 @@ end
 
 function typeprovider.installEvaluator(state, env, opaque, provenance)
     state.typeHandles = {}
+    state.typeOpaque = opaque
     local library = {}
 
     local function primitive(name)
@@ -188,6 +190,25 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         )
     end)
 
+    installIntrinsic(state, library, "intersection", function(at, args)
+        local members, why = memberArray(state, args[1], "Type", "nupp.types.intersection")
+        if not members then return nil, why end
+        local byKey = {}
+        for _, member in ipairs(members) do byKey[keyOf(state, member)] = member end
+        local keys = {}
+        for key in pairs(byKey) do keys[#keys + 1] = key end
+        table.sort(keys)
+        local canonical = {}
+        for index, key in ipairs(keys) do canonical[index] = byKey[key] end
+        return make(
+            state,
+            opaque,
+            "Type",
+            {kind = "intersection", members = canonical, key = "intersection:" .. table.concat(keys, "&")},
+            provenance(at, "intersection")
+        )
+    end)
+
     installIntrinsic(state, library, "optional", function(at, args)
         local inner = entry(state, args[1], "Type")
         if not inner then
@@ -204,6 +225,122 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
             "Type",
             {kind = "union", members = members, key = "union:" .. table.concat(keys, "|")},
             provenance(at, "optional")
+        )
+    end)
+
+    local function unary(name, kind)
+        installIntrinsic(state, library, name, function(at, args)
+            local inner = entry(state, args[1], "Type")
+            if not inner then return nil, failure("NUPP2415", "nupp.types." .. name .. " needs one type handle") end
+            return make(
+                state,
+                opaque,
+                "Type",
+                {kind = kind, inner = args[1], key = kind .. ":" .. inner.payload.key},
+                provenance(at, kind)
+            )
+        end)
+    end
+    unary("pointer", "ptr")
+    unary("constof", "const")
+    unary("borrowed", "borrowed")
+    unary("pinned", "pinned")
+    unary("owned", "owned")
+
+    installIntrinsic(state, library, "carray", function(at, args)
+        local element = entry(state, args[1], "Type")
+        local count = args[2]
+        if not element then return nil, failure("NUPP2415", "nupp.types.carray needs an element type") end
+        if count ~= nil and (type(count) ~= "number" or count ~= math.floor(count) or count < 0) then
+            return nil, failure("NUPP2415", "nupp.types.carray count must be a non-negative exact integer")
+        end
+        return make(
+            state,
+            opaque,
+            "Type",
+            {kind = "carray", element = args[1], count = count, key = "carray:" .. element.payload.key .. ":" .. tostring(count)},
+            provenance(at, "carray")
+        )
+    end)
+
+    installIntrinsic(state, library, "indexer", function(at, args)
+        local names = {"read key", "read value", "write key", "write value"}
+        for index = 1, 4 do
+            if args[index] ~= nil and not entry(state, args[index], "Type") then
+                return nil, failure("NUPP2415", "nupp.types.indexer " .. names[index] .. " must be a type handle")
+            end
+        end
+        if (args[1] == nil) ~= (args[2] == nil) or (args[3] == nil) ~= (args[4] == nil) then
+            return nil, failure("NUPP2415", "nupp.types.indexer capabilities need key/value pairs")
+        end
+        if args[1] == nil and args[3] == nil then
+            return nil, failure("NUPP2415", "nupp.types.indexer needs a read or write capability")
+        end
+        local keys = {}
+        for index = 1, 4 do keys[index] = args[index] and keyOf(state, args[index]) or "-" end
+        return make(
+            state,
+            opaque,
+            "Type",
+            {kind = "indexer", readKey = args[1], readValue = args[2], writeKey = args[3], writeValue = args[4], key = table.concat(keys, ":")},
+            provenance(at, "indexer")
+        )
+    end)
+
+    installIntrinsic(state, library, "map", function(at, args)
+        local readKey, readValue = entry(state, args[1], "Type"), entry(state, args[2], "Type")
+        local writeKey = args[3] ~= nil and entry(state, args[3], "Type") or readKey
+        local writeValue = args[4] ~= nil and entry(state, args[4], "Type") or readValue
+        if not readKey or not readValue or not writeKey or not writeValue then
+            return nil, failure("NUPP2415", "nupp.types.map needs read key/value handles and optional write key/value handles")
+        end
+        local keys = {readKey.payload.key, readValue.payload.key, writeKey.payload.key, writeValue.payload.key}
+        return make(
+            state,
+            opaque,
+            "Type",
+            {kind = "indexer", readKey = args[1], readValue = args[2], writeKey = args[3] or args[1], writeValue = args[4] or args[2], key = table.concat(keys, ":")},
+            provenance(at, "map")
+        )
+    end)
+
+    installIntrinsic(state, library, "shape", function(at, args)
+        local supplied, indexer = args[1], args[2]
+        if type(supplied) ~= "table" or #supplied > typeprovider.MAX_MEMBERS then
+            return nil, failure("NUPP2415", "nupp.types.shape needs at most 1000 field descriptors")
+        end
+        if indexer ~= nil then
+            local found = entry(state, indexer, "Type")
+            if not found or found.payload.kind ~= "indexer" then
+                return nil, failure("NUPP2415", "nupp.types.shape indexer must come from nupp.types.indexer")
+            end
+        end
+        local fields, seen = {}, {}
+        for position, field in ipairs(supplied) do
+            if type(field) ~= "table" or type(field.name) ~= "string" or field.name == "" or seen[field.name] then
+                return nil, failure("NUPP2415", "nupp.types.shape has an invalid or repeated field at " .. tostring(position))
+            end
+            local read, write = field.read, field.write
+            if read == nil and write == nil or read ~= nil and not entry(state, read, "Type")
+                or write ~= nil and not entry(state, write, "Type") then
+                return nil, failure("NUPP2415", "nupp.types.shape field " .. field.name .. " needs a read or write type")
+            end
+            seen[field.name] = true
+            fields[#fields + 1] = {name = field.name, read = read, write = write}
+        end
+        table.sort(fields, function(left, right) return left.name < right.name end)
+        local keys = {}
+        for position, field in ipairs(fields) do
+            keys[position] = field.name .. ":" .. (field.read and keyOf(state, field.read) or "-")
+                .. ":" .. (field.write and keyOf(state, field.write) or "-")
+        end
+        local indexKey = indexer and keyOf(state, indexer) or "-"
+        return make(
+            state,
+            opaque,
+            "Type",
+            {kind = "shape", fields = fields, indexer = indexer, key = table.concat(keys, ",") .. "[" .. indexKey .. "]"},
+            provenance(at, "shape")
         )
     end)
 
@@ -237,6 +374,36 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         )
     end)
 
+    installIntrinsic(state, library, "function_", function(at, args)
+        local parameters, results = entry(state, args[1], "Pack"), entry(state, args[2], "Pack")
+        if not parameters or not results then
+            return nil, failure("NUPP2415", "nupp.types.function_ needs parameter and result type packs")
+        end
+        return make(
+            state,
+            opaque,
+            "Type",
+            {kind = "function", parameters = args[1], results = args[2], key = parameters.payload.key .. "->" .. results.payload.key},
+            provenance(at, "function")
+        )
+    end)
+
+    installIntrinsic(state, library, "parameters", function(_, args)
+        local found = entry(state, args[1], "Type")
+        if not found or found.payload.kind ~= "function" then
+            return nil, failure("NUPP2415", "nupp.types.parameters needs a function type")
+        end
+        return found.payload.parameters
+    end)
+
+    installIntrinsic(state, library, "results", function(_, args)
+        local found = entry(state, args[1], "Type")
+        if not found or found.payload.kind ~= "function" then
+            return nil, failure("NUPP2415", "nupp.types.results needs a function type")
+        end
+        return found.payload.results
+    end)
+
     installIntrinsic(state, library, "kind", function(_, args)
         local found = entry(state, args[1])
         if not found then return nil, failure("NUPP2415", "nupp.types.kind needs a type or type-pack handle") end
@@ -253,9 +420,14 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
             value = payload.value,
             element = payload.element,
             members = payload.members,
+            fields = payload.fields,
+            indexer = payload.indexer,
             head = payload.head,
             tail = payload.tail,
             modes = payload.modes,
+            count = payload.count,
+            parameters = payload.parameters,
+            results = payload.results,
         }
     end)
 
@@ -263,10 +435,62 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         local found = entry(state, args[1], "Type")
         if not found then return nil, failure("NUPP2415", "nupp.types.elements needs a type handle") end
         local payload = found.payload
-        if payload.kind == "array" then return {payload.element} end
-        if payload.kind == "tuple" or payload.kind == "union" then return payload.members end
+        if payload.kind == "array" or payload.kind == "carray" then return {payload.element} end
+        if payload.kind == "ptr" or payload.kind == "const" or payload.kind == "borrowed"
+            or payload.kind == "pinned" or payload.kind == "owned" then return {payload.inner} end
+        if payload.kind == "tuple" or payload.kind == "union" or payload.kind == "intersection" then return payload.members end
         return nil, failure("NUPP2415", "nupp.types.elements cannot inspect " .. tostring(payload.kind))
     end)
+
+    installIntrinsic(state, library, "fields", function(_, args)
+        local found = entry(state, args[1], "Type")
+        if not found or found.payload.kind ~= "shape" then
+            return nil, failure("NUPP2415", "nupp.types.fields needs a structural shape handle")
+        end
+        local fields = {}
+        for position, field in ipairs(found.payload.fields or {}) do
+            fields[position] = {name = field.name, read = field.read, write = field.write}
+        end
+        return fields
+    end)
+
+    local function keysFor(args, capability)
+        local found = entry(state, args[1], "Type")
+        if not found or found.payload.kind ~= "shape" and found.payload.kind ~= "indexer" then
+            return nil, failure("NUPP2415", "nupp.types." .. capability .. "Keys needs a shape or indexer handle")
+        end
+        local keys = {}
+        for _, field in ipairs(found.payload.fields or {}) do
+            if field[capability] then
+                local value = field.name
+                keys[#keys + 1] = make(state, opaque, "Type", {
+                    kind = "literal", value = value, base = library.string,
+                    key = "literal:string:" .. value,
+                }, nil)
+            end
+        end
+        local indexer = found.payload.kind == "indexer" and found or entry(state, found.payload.indexer, "Type")
+        local indexKey = indexer and indexer.payload[capability .. "Key"] or nil
+        if indexKey then keys[#keys + 1] = indexKey end
+        return keys
+    end
+    installIntrinsic(state, library, "readKeys", function(_, args) return keysFor(args, "read") end)
+    installIntrinsic(state, library, "writeKeys", function(_, args) return keysFor(args, "write") end)
+
+    local function atFor(args, capability)
+        local found, key = entry(state, args[1], "Type"), entry(state, args[2], "Type")
+        if not found or not key then return nil, failure("NUPP2415", "nupp.types." .. capability .. "At needs type handles") end
+        if key.payload.kind == "literal" and type(key.payload.value) == "string" then
+            for _, field in ipairs(found.payload.fields or {}) do
+                if field.name == key.payload.value and field[capability] then return field[capability] end
+            end
+        end
+        local indexer = found.payload.kind == "indexer" and found or entry(state, found.payload.indexer, "Type")
+        if indexer and indexer.payload[capability .. "Value"] then return indexer.payload[capability .. "Value"] end
+        return nil, failure("NUPP2420", "type has no " .. capability .. " capability at the requested key")
+    end
+    installIntrinsic(state, library, "readAt", function(_, args) return atFor(args, "read") end)
+    installIntrinsic(state, library, "writeAt", function(_, args) return atFor(args, "write") end)
 
     installIntrinsic(state, library, "error", function(_, args)
         if type(args[1]) ~= "string" then
@@ -277,6 +501,149 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
 
     env.nupp = env.nupp or {}
     env.nupp.types = library
+end
+
+function typeprovider.importDescriptor(state: any, descriptor: any, source: any?): any, typeprovider.Failure?
+    if type(descriptor) ~= "table" or type(descriptor.types) ~= "table"
+        or type(descriptor.root) ~= "number" or not state.typeHandles then
+        return nil, failure("NUPP2415", "type-function input has a malformed semantic descriptor")
+    end
+    local nodes, built, active = descriptor.types, {}, {}
+    local opaque = state.typeOpaque
+    if not opaque then return nil, failure("NUPP2415", "the type provider is not installed") end
+    local import
+    local function list(indices, label)
+        if type(indices) ~= "table" or #indices > typeprovider.MAX_MEMBERS then
+            return nil, failure("NUPP2415", label .. " has an invalid member list")
+        end
+        local values = {}
+        for position, index in ipairs(indices) do
+            values[position] = import(index)
+            if not values[position] then return nil, failure("NUPP2415", label .. " has an invalid edge") end
+        end
+        return values, nil
+    end
+    import = function(index)
+        if built[index] then return built[index] end
+        if active[index] or type(index) ~= "number" or type(nodes[index]) ~= "table" then return nil end
+        active[index] = true
+        local node = nodes[index]
+        local kind = node.kind
+        local made
+        if node.nominal and index == descriptor.root and source then
+            made = make(state, opaque, "Type", {
+                kind = "reference", source = source,
+                fingerprint = descriptor.fingerprint,
+                key = "reference:" .. descriptor.fingerprint,
+            }, nil)
+        elseif PRIMITIVES[kind] then
+            made = make(state, opaque, "Type", {kind = "primitive", name = kind, key = "primitive:" .. kind}, nil)
+        elseif kind == "literal" then
+            local base = import(node.base)
+            if base then
+                made = make(state, opaque, "Type", {
+                    kind = "literal", value = node.value, base = base,
+                    key = "literal:" .. type(node.value) .. ":" .. tostring(node.value),
+                }, nil)
+            end
+        elseif kind == "array" then
+            local element = import(node.element)
+            if element then made = make(state, opaque, "Type", {kind = "array", element = element, key = "array:" .. keyOf(state, element)}, nil) end
+        elseif kind == "map" then
+            local readKey = node.readKey and import(node.readKey) or nil
+            local readValue = node.readValue and import(node.readValue) or nil
+            local writeKey = node.writeKey and import(node.writeKey) or nil
+            local writeValue = node.writeValue and import(node.writeValue) or nil
+            if (readKey == nil) == (readValue == nil) and (writeKey == nil) == (writeValue == nil)
+                and (readKey or writeKey) then
+                local keys = {
+                    readKey and keyOf(state, readKey) or "-", readValue and keyOf(state, readValue) or "-",
+                    writeKey and keyOf(state, writeKey) or "-", writeValue and keyOf(state, writeValue) or "-",
+                }
+                made = make(state, opaque, "Type", {
+                    kind = "indexer", readKey = readKey, readValue = readValue,
+                    writeKey = writeKey, writeValue = writeValue, key = table.concat(keys, ":"),
+                }, nil)
+            end
+        elseif kind == "shape" then
+            local fields, keys = {}, {}
+            for position, field in ipairs(node.fields or {}) do
+                local read = field.read and import(field.read) or nil
+                local write = field.write and import(field.write) or nil
+                if not read and not write then return nil end
+                fields[position] = {name = field.name, read = read, write = write}
+                keys[position] = field.name .. ":" .. (read and keyOf(state, read) or "-")
+                    .. ":" .. (write and keyOf(state, write) or "-")
+            end
+            local reflected = node.index or {}
+            local readKey = reflected.readKey and import(reflected.readKey) or nil
+            local readValue = reflected.readValue and import(reflected.readValue) or nil
+            local writeKey = reflected.writeKey and import(reflected.writeKey) or nil
+            local writeValue = reflected.writeValue and import(reflected.writeValue) or nil
+            local indexer
+            if readKey or writeKey then
+                local indexKeys = {
+                    readKey and keyOf(state, readKey) or "-", readValue and keyOf(state, readValue) or "-",
+                    writeKey and keyOf(state, writeKey) or "-", writeValue and keyOf(state, writeValue) or "-",
+                }
+                indexer = make(state, opaque, "Type", {
+                    kind = "indexer", readKey = readKey, readValue = readValue,
+                    writeKey = writeKey, writeValue = writeValue, key = table.concat(indexKeys, ":"),
+                }, nil)
+            end
+            made = make(state, opaque, "Type", {
+                kind = "shape", fields = fields, indexer = indexer,
+                key = table.concat(keys, ",") .. "[" .. (indexer and keyOf(state, indexer) or "-") .. "]",
+            }, nil)
+        elseif kind == "tuple" or kind == "union" or kind == "intersection" then
+            local members = list(node.members, kind)
+            if members then
+                local keys = {}
+                for position, member in ipairs(members) do keys[position] = keyOf(state, member) end
+                made = make(state, opaque, "Type", {kind = kind, members = members, key = kind .. ":" .. table.concat(keys, ",")}, nil)
+            end
+        elseif kind == "ptr" or kind == "const" or kind == "borrowed" or kind == "pinned" or kind == "owned" then
+            local inner = import(node.element)
+            if inner then made = make(state, opaque, "Type", {kind = kind, inner = inner, key = kind .. ":" .. keyOf(state, inner)}, nil) end
+        elseif kind == "carray" then
+            local element = import(node.element)
+            if element then made = make(state, opaque, "Type", {
+                kind = "carray", element = element, count = node.count,
+                key = "carray:" .. keyOf(state, element) .. ":" .. tostring(node.count),
+            }, nil) end
+        elseif kind == "pack" then
+            local headIndices, modes = {}, {}
+            for position, member in ipairs(node.head or {}) do
+                headIndices[position] = member.type
+                modes[position] = member.mode or "plain"
+            end
+            local head = list(headIndices, "pack")
+            local tail = node.tail and node.tail.type and import(node.tail.type) or nil
+            if head then
+                local keys = {}
+                for position, member in ipairs(head) do keys[position] = modes[position] .. ":" .. keyOf(state, member) end
+                made = make(state, opaque, "Pack", {
+                    kind = "pack", head = head, modes = modes, tail = tail,
+                    key = table.concat(keys, ",") .. "..." .. (tail and keyOf(state, tail) or "-"),
+                }, nil)
+            end
+        elseif kind == "func" then
+            local parameters = node.parameterPack and import(node.parameterPack)
+            local results = node.returnPack and import(node.returnPack)
+            if parameters and results then made = make(state, opaque, "Type", {
+                kind = "function", parameters = parameters, results = results,
+                key = keyOf(state, parameters) .. "->" .. keyOf(state, results),
+            }, nil) end
+        end
+        active[index] = nil
+        built[index] = made
+        return made
+    end
+    local root = import(descriptor.root)
+    if not root then
+        return nil, failure("NUPP2415", "type-function input uses a semantic kind the type provider cannot import")
+    end
+    return root, nil
 end
 
 function typeprovider.opaqueKind(state, value): string?
@@ -297,7 +664,7 @@ function typeprovider.operator(state, op, left, right): any, typeprovider.Failur
 end
 
 local function finalizeGraph(state, root)
-    local indices, nodes, origins = {}, {}, {}
+    local indices, nodes, origins, references = {}, {}, {}, {}
     local failed
 
     local function intern(handle)
@@ -319,14 +686,43 @@ local function finalizeGraph(state, root)
         nodes[index], origins[index] = node, found.provenance
         if payload.kind == "primitive" then
             node.name = payload.name
+        elseif payload.kind == "reference" then
+            node.reference = #references + 1
+            node.fingerprint = payload.fingerprint
+            references[node.reference] = {
+                source = payload.source,
+                fingerprint = payload.fingerprint,
+            }
         elseif payload.kind == "literal" then
             node.value = payload.value
             node.base = intern(payload.base)
-        elseif payload.kind == "array" then
+        elseif payload.kind == "array" or payload.kind == "carray" then
             node.element = intern(payload.element)
-        elseif payload.kind == "tuple" or payload.kind == "union" then
+            node.count = payload.count
+        elseif payload.kind == "ptr" or payload.kind == "const" or payload.kind == "borrowed"
+            or payload.kind == "pinned" or payload.kind == "owned" then
+            node.inner = intern(payload.inner)
+        elseif payload.kind == "tuple" or payload.kind == "union" or payload.kind == "intersection" then
             node.members = {}
             for position, member in ipairs(payload.members or {}) do node.members[position] = intern(member) end
+        elseif payload.kind == "indexer" then
+            node.readKey = payload.readKey and intern(payload.readKey) or nil
+            node.readValue = payload.readValue and intern(payload.readValue) or nil
+            node.writeKey = payload.writeKey and intern(payload.writeKey) or nil
+            node.writeValue = payload.writeValue and intern(payload.writeValue) or nil
+        elseif payload.kind == "shape" then
+            node.fields = {}
+            for position, field in ipairs(payload.fields or {}) do
+                node.fields[position] = {
+                    name = field.name,
+                    read = field.read and intern(field.read) or nil,
+                    write = field.write and intern(field.write) or nil,
+                }
+            end
+            node.indexer = payload.indexer and intern(payload.indexer) or nil
+        elseif payload.kind == "function" then
+            node.parameters = intern(payload.parameters)
+            node.results = intern(payload.results)
         elseif payload.kind == "pack" then
             node.head, node.modes = {}, payload.modes
             for position, member in ipairs(payload.head or {}) do node.head[position] = intern(member) end
@@ -347,6 +743,7 @@ local function finalizeGraph(state, root)
         schema = typeprovider.SCHEMA,
         family = entry(state, root).family,
         payload = payload,
+        references = references,
         provenance = origins,
         fingerprint = fingerprint,
         summary = ("%d-node %s blueprint"):format(#nodes, entry(state, root).family:lower()),
