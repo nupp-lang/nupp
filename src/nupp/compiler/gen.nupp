@@ -661,6 +661,37 @@ function gen.generate(
         raw(text)
     end
 
+    -- Emits a function this compiler wrote, rather than one the source did.
+    --
+    -- LuaJIT has no recording for the bytecode that builds a function. A loop containing
+    -- one aborts trace recording, is blacklisted after enough attempts, and then never
+    -- compiles at all -- so a lowering that builds a function inside a loop costs that
+    -- whole loop its trace, however hot it gets and whatever else is in it. Nothing
+    -- observes it: the answers stay right and every test passes. Six lowerings had it
+    -- wrong before anyone looked, and `nupp bc --check` found them by reading the
+    -- bytecode afterwards. This is that rule enforced before the bytecode exists.
+    --
+    -- So a lowering building a function inside a loop has to say why it cannot be
+    -- declared once instead. Every reason passed today is the same one: the body assigns
+    -- a local belonging to its own site, and Lua gives no way to hand another function's
+    -- local over to be written. A lowering with any other reason does not have one --
+    -- declare it for the module with `pluck.declareHelper` and call it.
+    --
+    -- Saying nothing from inside a loop is a compiler bug and reports itself as one,
+    -- because the alternative is emitting code that is correct and never compiles.
+    local function loweredFunction(text, line, reason)
+        if emitDepth.loop > 0 and not reason then
+            error(
+                "gen: a lowering built a function inside a loop without saying why. "
+                .. "LuaJIT cannot record that, so the loop will never compile. Declare it "
+                .. "once with pluck.declareHelper and call it, or pass a reason when the "
+                .. "body assigns one of its own site's locals. Emitted: " .. tostring(text),
+                0
+            )
+        end
+        e(text, line)
+    end
+
     -- OPT-5 finishes where its loop closes: the accumulator becomes the string it would
     -- have been. Every branch that emits a loop has to call this, because two passes
     -- may claim one loop -- OPT-2 rewrites a generic `for` into a numeric one and emits
@@ -707,6 +738,23 @@ function gen.generate(
         statementActive = {},
         helpers = helpers,
         declareHelper = declareHelper,
+        loweredFunction = loweredFunction,
+        -- Why each lowering that still builds a function inside a loop cannot be
+        -- declared once for the module instead. Every one is the same shape: the body
+        -- writes a local belonging to its own site, and Lua gives no way to hand another
+        -- function's local over to be written. Anything else has no reason and belongs in
+        -- `declareHelper`.
+        --
+        -- Named here rather than written at each site so the set can be read in one
+        -- place, and carried on this table because `emit` sits at exactly 60 upvalues and
+        -- reaching one more name from it will not load.
+        reasons = {
+            capture = "the body sets this site's own capture flags",
+            reinit = "the body sets this site's own reinit flag",
+            move = "the body clears this site's own move flag",
+            cheader = "a C header is declared once where it is imported",
+            region = "the protected body reads and writes this region's own owners and flags",
+        },
     }
 
     local function dottedPathParts(node): string?, {string}?
@@ -1335,7 +1383,11 @@ function gen.generate(
         for _, capture in ipairs(captures) do
             names[#names + 1] = capture.name
         end
-        e(("(function(%s) local %s=true; "):format(table.concat(names, ","), active), line)
+        pluck.loweredFunction(
+            ("(function(%s) local %s=true; "):format(table.concat(names, ","), active),
+            line,
+            pluck.reasons.capture
+        )
         for _, capture in ipairs(captures) do
             local outerActive = activeWith(capture.move)
             if outerActive then
@@ -1469,7 +1521,9 @@ function gen.generate(
                 local reinit = x.automaticOwnerReinit
                 local slot = not reinit.field and automaticSlot(reinit) or nil
                 x.automaticOwnerReinit = nil
-                e("(function(__p) ", sourceLine(x))
+                pluck.loweredFunction(
+                    "(function(__p) ", sourceLine(x), pluck.reasons.reinit
+                )
                 if slot then
                     e(slot .. "=__p; ")
                 end
@@ -2460,7 +2514,9 @@ function gen.generate(
                 and not x.ownershipMoveCleared
                 and (x.ownershipIntrinsic == "drop" or x.ownershipIntrinsic == "intoRaw")
             if wrapsMove then
-                e(("(function() %s=false; return "):format(movedActive), line)
+                pluck.loweredFunction(
+                    ("(function() %s=false; return "):format(movedActive), line, pluck.reasons.move
+                )
             end
             if x.ownershipIntrinsic == "borrow" then
                 if args[1] then
@@ -2611,7 +2667,11 @@ function gen.generate(
             local ns = x.cheaderLib and ("__nuppFfi.load(%q)"):format(x.cheaderLib) or "__nuppFfi.C"
             -- pcall: a header may be declared twice in one process, and redeclaring a
             -- type is an error rather than a no-op
-            e(("(function() pcall(__nuppFfi.cdef, %q) return %s end)()"):format(x.cheaderCdef, ns), line)
+            pluck.loweredFunction(
+                ("(function() pcall(__nuppFfi.cdef, %q) return %s end)()"):format(x.cheaderCdef, ns),
+                line,
+                pluck.reasons.cheader
+            )
             return
 
         elseif kind == "newExpr" then
@@ -2637,7 +2697,9 @@ function gen.generate(
                 end
             end
             local callable = nextTemp()
-            e(("(function(%s,...) "):format(callable), sourceLine(x))
+            pluck.loweredFunction(
+                ("(function(%s,...) "):format(callable), sourceLine(x), pluck.reasons.move
+            )
             for _, activeName in ipairs(activeNames) do
                 e(("%s=false; "):format(activeName))
             end
@@ -2682,7 +2744,7 @@ function gen.generate(
                 end
             end
             local object, value = nextTemp(), nextTemp()
-            e(("(function(%s,%s) "):format(object, value), line)
+            pluck.loweredFunction(("(function(%s,%s) "):format(object, value), line, pluck.reasons.move)
             for _, activeName in ipairs(activeNames) do
                 e(("%s=false; "):format(activeName))
             end
@@ -3087,10 +3149,12 @@ function gen.generate(
                         e(("; local %s=false"):format(fieldActive[j][field]))
                     end
                 end
-                e(
+                pluck.loweredFunction(
                     (
                         "; const %s,%s,%s=%s(function(%s)"
-                    ):format(ok, tag, payload, cleanupGlobals.xpcall, variadic and "..." or "")
+                    ):format(ok, tag, payload, cleanupGlobals.xpcall, variadic and "..." or ""),
+                    nil,
+                    pluck.reasons.region
                 )
                 cleanupStack[#cleanupStack + 1] = ctx
                 -- Emits the acquisition and hands back the flag its move clears, if it has
