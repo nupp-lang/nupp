@@ -39,6 +39,7 @@ const chrome = EditorView.theme({
     paddingRight: "1px",
     color: "var(--pg-faint, color-mix(in srgb, var(--pg-muted) 72%, transparent))",
   },
+  "&.cm-hide-line-numbers .cm-lineNumbers": { display: "none !important" },
   ".cm-foldGutter span": { padding: "0" },
   ".cm-gutter-lint": { width: "1em" },
   ".cm-gutter-lint .cm-gutterElement": { padding: "0" },
@@ -64,6 +65,10 @@ const chrome = EditorView.theme({
     whiteSpace: "pre-wrap",
   },
 });
+
+export function updateLineNumberVisibility(view) {
+  view.dom.classList.toggle("cm-hide-line-numbers", view.state.doc.lines < 5);
+}
 
 // Keep these categories and colors aligned with the documentation highlighter
 // in src/nupp/compiler/doc/highlight.nupp.

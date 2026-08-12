@@ -3,7 +3,7 @@ import { hoverTooltip, tooltips } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
 import { linter, lintGutter, setDiagnostics } from "@codemirror/lint";
 import { nuppLanguage } from "./nupp-lang.js";
-import { nuppEditorTheme } from "./cm-theme.js";
+import { nuppEditorTheme, updateLineNumberVisibility } from "./cm-theme.js";
 import { EXAMPLES } from "./examples.js";
 import { renderLuaOutput } from "./lua-output.js";
 
@@ -415,6 +415,7 @@ class NuppDocPlayground extends HTMLElement {
           tooltips({ parent: tooltipLayer }),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
+              updateLineNumberVisibility(update.view);
               this.readerSource.textContent = update.state.doc.toString();
               this.scheduleCheck();
             }
@@ -422,6 +423,7 @@ class NuppDocPlayground extends HTMLElement {
         ],
       }),
     });
+    updateLineNumberVisibility(this.view);
     root.querySelector(".cm-gutters")?.setAttribute("aria-hidden", "true");
 
     const select = root.querySelector("select");

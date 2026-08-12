@@ -36,6 +36,18 @@ test("condensed controls sit above the rounded editor border", () => {
   assert.doesNotMatch(embed, /id="options-button"/);
 });
 
+test("playgrounds hide line numbers for sources shorter than five lines", () => {
+  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+  const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
+  const theme = readFileSync(new URL("../src/cm-theme.js", import.meta.url), "utf8");
+  assert.match(theme, /view\.state\.doc\.lines < 5/);
+  assert.match(theme, /"&\.cm-hide-line-numbers \.cm-lineNumbers": \{ display: "none !important" \}/);
+  assert.match(app, /updateLineNumberVisibility\(sourceView\)/);
+  assert.match(app, /updateLineNumberVisibility\(update\.view\)/);
+  assert.match(docApp, /updateLineNumberVisibility\(this\.view\)/);
+  assert.match(docApp, /updateLineNumberVisibility\(update\.view\)/);
+});
+
 test("documentation playgrounds are inline and have dismissible output", () => {
   const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
   assert.match(docApp, /customElements\.define\("nupp-playground"/);

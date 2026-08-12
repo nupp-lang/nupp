@@ -3,7 +3,7 @@ import { hoverTooltip } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
 import { linter, lintGutter, setDiagnostics } from "@codemirror/lint";
 import { nuppLanguage } from "./nupp-lang.js";
-import { nuppEditorTheme } from "./cm-theme.js";
+import { nuppEditorTheme, updateLineNumberVisibility } from "./cm-theme.js";
 import { EXAMPLES } from "./examples.js";
 import { renderLuaOutput } from "./lua-output.js";
 
@@ -252,11 +252,15 @@ const sourceView = new EditorView({
       lintGutter(),
       nuppHover,
       EditorView.updateListener.of((update) => {
-        if (update.docChanged) scheduleCheck();
+        if (update.docChanged) {
+          updateLineNumberVisibility(update.view);
+          scheduleCheck();
+        }
       }),
     ],
   }),
 });
+updateLineNumberVisibility(sourceView);
 
 // --- Generated-code panel (index.html only) -----------------------------------
 
