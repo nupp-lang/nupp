@@ -10,17 +10,22 @@ match can fail.
 
 local type __LpegEmpty = {never}
 
-local type __LpegOptional<Captures> = match Captures
-    when {infer Head, unpackof infer Tail} then
-        {Head?, unpackof __LpegOptional<Tail>}
-    when {never} then {never}
-    when {infer Item} then {Item?}
-    else any
-end
-
-local type __LpegMatch<Captures> = match Captures
-    when {never} then {integer?,}
-    else __LpegOptional<Captures>
+@comptime
+local function __LpegMatch(Captures: type): typepack
+    local info = nupp.types.describe(Captures)
+    if info.kind == "array" then
+        if nupp.types.kind(info.element) == "never" then
+            return nupp.types.pack({nupp.types.optional(nupp.types.integer)})
+        end
+        return nupp.types.pack({}, nupp.types.optional(info.element))
+    elseif info.kind == "tuple" then
+        local optional = {}
+        for _, capture in ipairs(info.members) do
+            optional[#optional + 1] = nupp.types.optional(capture)
+        end
+        return nupp.types.pack(optional)
+    end
+    return nupp.types.pack({}, nupp.types.any)
 end
 
 --- A composable LPeg pattern carrying the values it captures.
@@ -40,7 +45,7 @@ record Pattern<Captures>
 
     --- Matches at `init`, returning captures or the next byte position, and nil on
     --- failure.
-    match: function(any, subject: string, init: integer?, ...: any): unpackof __LpegMatch<Captures>
+    match: function(any, subject: string, init: integer?, ...: any): unpackof __LpegMatch(Captures)
 end
 
 local record Locale
@@ -89,7 +94,7 @@ local record lpeg
         subject: string,
         init: integer?,
         ...: any
-    ): unpackof __LpegMatch<Captures>
+    ): unpackof __LpegMatch(Captures)
     type: function(value: any): "pattern"?
     locale: function(target: table?): Locale
     setmaxstack: function(maximum: integer): nil
