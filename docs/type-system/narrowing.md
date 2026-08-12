@@ -48,8 +48,16 @@ end
 -- NUPP2002: return 1: number | string is not a string
 ```
 
-`type` is an ordinary function returning an ordinary string, and nothing ties
-its result back to `s`. Write `s is string`.
+`type` is an ordinary function and nothing ties its result back to `s`. Write
+`s is string`.
+
+What `type` answers is a closed set — `"nil" | "boolean" | "number" |
+"string" | "table" | "function" | "thread" | "userdata" | "cdata"` — so the
+*result* narrows even though the argument does not. A comparison against a name
+LuaJIT never returns is caught where it is written, and a returning dispatch
+over the set reports the [`exhaustiveness`](../lints.md) lint for the names it
+leaves out. A guard chain whose remaining cases are handled by the code after
+it says so with `@allow("exhaustiveness")`.
 
 **`assert(x)` as a statement does not narrow `x`.** It narrows through its
 *return value*, because its signature subtracts `nil`:

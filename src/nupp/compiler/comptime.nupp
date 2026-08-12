@@ -151,6 +151,9 @@ local function keyLess(a, b)
     if ta == "number" or ta == "string" then
         return a < b
     end
+    -- Everything the comparisons above do not order compares equal, which the final
+    -- return says once for all of it.
+    @allow("exhaustiveness")
     if ta == "boolean" then
         return (not a) and b
     end
@@ -330,7 +333,10 @@ local function buildEnvironment(state)
         if materializeProviders.isOpaque(state, value) then
             error("tostring is unavailable for an opaque comptime value", 0)
         end
+        -- The scalars answer; everything else is the error below, named by what it
+        -- turned out to be rather than by a branch for each.
         local kind = type(value)
+        @allow("exhaustiveness")
         if kind == "string" then
             return value
         end

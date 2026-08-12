@@ -30,9 +30,21 @@ local print: nosuspend function(...: any)
 --- Returns the type name of a value: "nil", "boolean", "number", "string", "table",
 --- "function", "thread" or "userdata", plus "cdata" for FFI values.
 ---
+--- The result is the closed set of those names rather than `string`, so a comparison
+--- against one of them narrows, a chain over all of them is exhaustive, and a
+--- comparison against a name LuaJIT never returns is caught where it is written.
+---
 --- @param v the value to classify
 --- @return the type name
-local type: nosuspend function(v: any): string
+local type: nosuspend function(v: any): ("nil"
+    | "boolean"
+    | "number"
+    | "string"
+    | "table"
+    | "function"
+    | "thread"
+    | "userdata"
+    | "cdata")
 
 --- Converts a value to a string, honoring a `__tostring` metamethod.
 ---

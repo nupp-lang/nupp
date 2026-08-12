@@ -156,6 +156,9 @@ local function unsendable(value: any, path: string, depth: integer, seen: {[any]
     if SENDABLE[kind] then
         return nil
     end
+    -- What is left once the sendable scalars are gone is the table this walks into,
+    -- and the checks below are what it has to hold up.
+    @allow("exhaustiveness")
     if kind ~= "table" then
         return ("%s is a %s"):format(path, kind)
     end
