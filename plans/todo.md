@@ -29,13 +29,12 @@ work makes sense in.
       a CLI without knowing which it is in. The open work is effect-interface
       precision for nominal methods and permitting structured exits from a
       handled region without weakening cleanup.
-- [ ] **Closure capture** ([design](closure-capture.md)): a closure states what
-      it `takes (...)` and borrows everything else, which makes an
-      owner-capturing closure affine rather than rejected, and lets `Buffer`,
-      `ByteView`, `Reader` and `Writer` carry `@drop` on `close` without
-      rewriting the call sites that capture them. Amends the deliberate limit
-      recorded in [ownership hardening](ownership-hardening.md) without
-      weakening it: an *ordinary copyable* closure still may not hold an owner.
+- [x] **Closure capture** ([design](closure-capture.md)): a closure states what
+      it `takes (...)` and borrows everything else. Ordinary copyable closures
+      may borrow owners; `takes (...)` moves captures into an affine closure
+      whose call or lexical drop discharges them. `Buffer`, `ByteView`, `Reader`
+      and `Writer` now carry `@drop` on `close` without forcing their capturing
+      call sites to use unsafe code.
 - [ ] **Files adoption** ([design](files.md)): `nupp.io.files`, its native
       provider, bounded request lane, suspension integration, and compiler
       adoption have landed. The remaining project is tecs adoption: delete

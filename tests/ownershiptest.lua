@@ -1091,7 +1091,7 @@ function M.borrowedValuesCannotEscape()
    assertEq(codes(stored), "NUPP2603")
 end
 
-function M.ownersAndBorrowsCannotBeCaptured()
+function M.aBorrowingClosureCannotEraseProvenanceOnReturn()
    local got = codes(RESOURCE .. table.concat({
       "",
       "local function callback(borrows value: resource*): function(): int32",

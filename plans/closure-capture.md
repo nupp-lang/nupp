@@ -32,11 +32,12 @@ Concretely:
   called is dropped at scope exit, and its drop runs the drop of everything in
   its `takes` list. Called or dropped, the obligation is discharged exactly
   once.
-- **A closure that borrows names its source.** Capturing `scratch` by borrow
-  gives the closure value the type `function(): any borrows (scratch)`, so every
-  rule that already governs a borrow — not returned without a contract, not
-  outliving its source, no anonymous storage — governs the closure that holds
-  it.
+- **A closure that borrows retains its source.** Capturing `scratch` by borrow
+  gives the closure a borrowed callable capability rooted at `scratch`. The
+  explicit spelling is `function(): any borrows (scratch)`; an inferred literal
+  records the concrete root as value-flow provenance. Every rule that already
+  governs a borrow — not returned without a contract, not outliving its source,
+  no anonymous storage — governs the closure that holds it.
 - **`borrows (...)` is required in type position and optional in expression
   position.** A field or parameter has no body to infer from and must name its
   sources; a closure literal borrows by default and only pins the contract when
@@ -298,13 +299,15 @@ So four things need separating, and the plan previously ran them together:
  expression-level capture info    which values move, at construction
  the affine callable type         what crosses a function boundary
  cleanup witnesses                producer-specific, carried by the value
- borrowed provenance              must stay visible in the type
+ borrowed callable capability     visible in the structural type
+ concrete borrowed roots          value-flow metadata
 ```
 
-Local borrowed provenance travels as value-flow metadata without becoming part of
-interned type identity. A record field spells sibling provenance in its declared
-`borrows (...)` type. Affine closure values carry cleanup witnesses separately from
-both, and may be returned as `owned<function>`.
+The structural type exposes `borrowed<function (...)>`. Exact local roots travel
+as value-flow metadata without becoming part of interned type identity. A
+record field spells sibling provenance in its declared `borrows (...)` type.
+Affine closure values carry cleanup witnesses separately from both, and may be
+returned as `owned<function>`.
 
 ## Diagnostics
 

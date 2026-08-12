@@ -85,8 +85,12 @@ occasional use-after-free.
 - `T borrows (a, b)`: the result remains tied to every named source.
 - `T preserves p`: the result transports the exact capability arriving through
   `p`.
-- `scoped callback: function(...)`: the callback may capture borrows because the
-  callee proves it cannot escape.
+- `function(): R borrows (p)`: declare that a closure carries a borrow rooted at
+  `p`; closure literals infer omitted borrow captures from their bodies.
+- `function(): R takes (p)`: move `p` into an affine, single-shot closure whose
+  call or lexical drop discharges the capture.
+- `scoped callback: function(...)`: the callee proves a borrow-carrying callback
+  cannot escape the call.
 - `field: View borrows (source)`: a nominal field is tied to its declared
   sibling root.
 - `owned<T>`: a value carrying one affine discharge obligation.
@@ -841,10 +845,19 @@ Lexically placing raw `coroutine.yield` inside a handled region does not bless
 it. Handler shutdown cancels every park before succeeding, and cleanup still
 cannot suspend while cancellation is discharging another obligation.
 
-Scoped callback parameters are the synchronous analogue: an inline closure may
-capture a borrow only when the visible callee proves it invokes the callback
+Reading an owner or borrow from an ordinary closure captures a tracked borrow.
+The closure remains copyable, but its callable capability is borrowed and its
+exact roots travel as value-flow provenance. Consequently it cannot outlive a
+root, enter anonymous storage, or be returned without a declared relation.
+
+A `takes (...)` clause instead moves the named owners into the closure. That
+makes the closure affine and single-shot: calling it consumes the closure, and
+leaving it uncalled lets lexical cleanup drop both the closure and its captures.
+An ordinary copyable closure may borrow an owner, but it may not own one.
+
+A scoped callback parameter is the synchronous transport rule for a
+borrow-carrying closure. The visible callee must prove it invokes the callback
 without storing, returning, retaining, or forwarding it to an unknown target.
-Owners are never captured by ordinary copyable closures.
 
 ## Proof and trust
 

@@ -42,7 +42,9 @@ The initial implementation is deliberately narrow:
 - An existing owner may be moved into a `with`.
 - Producers may take call-duration borrows.
 - A returned owner may retain a borrow of an input when it says so.
-- A visible binding may not be captured by a closure or a coroutine.
+- A visible binding may be captured by an ordinary closure as a tracked borrow,
+  but that closure may not escape the `with` lifetime; unstructured coroutine
+  capture remains rejected.
 - Nominal record fields may be `owned<T>` or `pinned<T>`; borrowed fields are
   not supported.
 - No ownership-aware `assert` or other generic pass-through.
@@ -264,7 +266,8 @@ not:
 - drop or consume them;
 - return them;
 - store them in a table or longer-lived object;
-- capture them in any closure or coroutine; or
+- let a borrow-carrying closure escape the `with` lifetime;
+- capture them in an unstructured coroutine; or
 - assign another value to a `with` binding.
 
 The hidden owner is inaccessible to source code. Consequently the compiler
@@ -566,7 +569,7 @@ initial diagnostics are:
 | --- | --- |
 | `NUPP2610` | A `with` acquisition is not a non-optional owned value. |
 | `NUPP2611` | An acquired owner has no known cleanup functions. |
-| `NUPP2612` | A `with` borrow escapes by return, storage, or capture. |
+| `NUPP2612` | A `with` borrow escapes by return, storage, an escaping closure, or coroutine capture. |
 | `NUPP2613` | A `with` binding is reassigned. |
 | `NUPP2614` | A visible `with` borrow is dropped or passed to `takes`. |
 | `NUPP2615` | A cleanup signature is invalid or a non-final step takes. |
@@ -614,9 +617,9 @@ path and does not block the rewrite.
   ownership lost through `assert`, ignored extra results, and partial
   acquisition failure.
 - **Borrow checking:** calls and methods, reassignment, drop/consume,
-  return, table storage, closure capture, coroutine capture, use of the moved
-  source local, a returned owner retaining an input borrow, and the composite
-  consuming producer that replaces it.
+  return, table storage, tracked closure capture, rejected escaping closure and
+  coroutine capture, use of the moved source local, a returned owner retaining
+  an input borrow, and the composite consuming producer that replaces it.
 - **Control flow:** fallthrough, return with zero/one/multiple values, break,
   continue, every outward goto target, rejected inward goto, nested `with`,
   and a body reading `...` at every nesting depth.
@@ -653,7 +656,6 @@ single-region design:
   partial mutation would require more initialization-state tracking.
 - Ownership-preserving generic pass-throughs, so that `assert` and functions
   like it can narrow an `owned<T?>` without losing its cleanup list.
-- Proven non-escaping callbacks that may capture a `with` borrow.
 - Structured child coroutines borrowing from a parent resource scope.
 - Destructuring or multi-name acquisition.
 - An inline `using` or `adopt` form for unannotated producers.

@@ -40,8 +40,9 @@ owning producers, and the `ownership-audit` command.
 
 The safety-first limits are explicit:
 
-- arbitrary table storage and ordinary owner-capturing closures remain
-  rejected;
+- arbitrary anonymous table storage remains rejected; ordinary copyable
+  closures borrow captured owners, while `takes (...)` creates an affine
+  closure that owns and discharges its named captures;
 - raw or variable-length pointer indexing requires a checked span or `unsafe`;
 - structured children may not borrow a parent until a future structured task
   API supplies a statically unavoidable join/cancel obligation; and
@@ -634,19 +635,30 @@ Exit criteria:
 - no ordinary owner pays a runtime metadata cost; and
 - the implementation contains the only audited dynamic discharge erasure.
 
-## S7: Scoped callback capture
+## S7: Closure capture
 
-Owners and borrows currently cannot be captured. Preserve that default, then
-allow a closure capture only when the closure value itself is proven not to
-escape its roots.
+Status: implemented. [Closure capture](closure-capture.md) is the authoritative
+design record.
 
-A visible Nupp callee can infer that a callback parameter is invoked only
+An ordinary closure borrows every captured ownership value. It remains
+copyable, but its callable capability is borrowed and its concrete roots travel
+as value-flow provenance. It cannot outlive those roots, enter anonymous
+storage, or be returned without a declared relation. `borrows (...)` spells
+that relation in type position and can pin it on a closure expression; an
+expression with no clause infers its borrow captures from the body.
+
+`takes (...)` moves named owners into a closure, makes that closure affine and
+single-shot, and carries the owners' cleanup witnesses. Calling the closure
+consumes it. Lexical cleanup drops an uncalled closure and its captures.
+Ordinary copyable closures may borrow owners but never own them.
+
+A visible Nupp callee infers that a scoped callback parameter is invoked only
 during the call and is neither stored, returned, retained, nor passed to an
-unknown target. A bodyless or foreign declaration needs an explicit scoped
-callback contract; settle its spelling alongside the existing parameter modes
-rather than encoding it as a structural function intersection.
+unknown target. A bodyless or foreign declaration uses an explicit `scoped`
+parameter contract. This lets a borrow-carrying closure cross a synchronous
+call without erasing its provenance.
 
-The analysis must cover:
+The implemented analysis covers:
 
 - immediate and repeated synchronous invocation;
 - callbacks forwarded through other proven scoped calls;
@@ -657,25 +669,13 @@ The analysis must cover:
 - asynchronous/retained callbacks, which require `pin` plus matching
   `retains`/`releases` and are never scoped by inference.
 
-Mark C-derived function types at construction so a Lua callback reaching C is
-distinguishable from an ordinary function. The same mark enables the existing
-callback `jit.off` safety work; ownership and JIT diagnostics should share the
-fact without sharing policy.
-
-After scoped captures are sound, evaluate moved owner capture separately. A
-closure that captures an owner by move would itself have to become affine,
-carry cleanup for an invocation that never happens, and expose a consuming
-one-shot call when invocation discharges the capture. Do not permit owning
-captures as ordinary copyable Lua functions. If no acceptance-corpus case
-justifies the runtime wrapper needed to drop their upvalues, keep them an
-explicit documented rejection rather than weakening closure types.
-
-Exit criteria:
+Exit criteria, completed:
 
 - common iterator and protected-scope callbacks may capture a borrow without
   unsafe code;
-- any storage, return, coroutine capture, or unknown forwarding rejects the
-  capture at its escape point;
+- invalid storage, return, coroutine capture, or unknown forwarding rejects the
+  borrow at its escape point;
+- an owner moved into a closure is discharged exactly once by call or drop;
 - re-entrant exclusivity remains sound; and
 - a C-retained callback requires a pinned anchor and an explicit release.
 
@@ -915,7 +915,8 @@ Implement in this order:
 8. **S5 aggregate state.** Add declared stored borrows and partial moves.
 9. **S6 dynamic owner collections.** Reify cleanup and explicit terminal
    consumers at one audited abstraction.
-10. **S7 scoped callbacks.** Permit captures only after provenance is complete.
+10. **S7 closure capture.** Add provenance-tracked borrowed closures, scoped
+    transport, and affine `takes (...)` captures after provenance is complete.
 11. **S8 structured-concurrency tail.** Add resource-set regressions and
     structured children after their obligation and callback carriers exist.
 12. **S11 protocol audit.** Prove whether any separate typestate work remains.

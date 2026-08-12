@@ -18851,7 +18851,11 @@ local capturedKind = c . ownershipKind ( entry . t )
 c . diag (
 "NUPP2603" ,
 node ,
-( "%s value %q cannot be captured by a closure" ) : format ( capturedKind , nameText )
+( "%s value %q has no closure borrow contract" ) : format ( capturedKind , nameText ) ,
+nil ,
+{
+help = "name the source in borrows (...) or let an expression closure infer it"
+}
 )
 node . ownershipCaptureReported = true
 end
@@ -48794,6 +48798,12 @@ emit ( child )
 end
 return
 end
+if kind == "assignStmt" and x . presizedIntoConstructor and not coverageOn then
+
+
+
+return
+end
 if x . automaticOwnerReinit then
 local active = activeWith ( x . automaticOwnerReinit )
 if active then
@@ -50712,7 +50722,20 @@ emit ( x . body )
 end
 e ( "end" , x . endTok and x . endTok . line or nil )
 
+elseif kind == "tableExpr" and x . presizeFields and not coverageOn then
+
+
+
+e ( "{" , sourceLine ( x ) )
+for _ , field in ipairs ( x . presizeFields ) do
+e ( field . name . text .. "=" , sourceLine ( field . stat ) )
+emit ( field . value )
+e ( "," )
+end
+e ( "}" )
+
 elseif kind == "tableExpr" and x . presize then
+
 
 
 
@@ -65494,6 +65517,34 @@ end
 
 
 
+local function constructorField ( stat , name , keys )
+if stat . kind ~= "assignStmt"
+or stat . isConst
+or stat . automaticOwner
+or stat . automaticOwnerMove
+or stat . automaticOwnerMoves
+or stat . automaticOwnerReinit
+or # ( stat . targets or { } ) ~= 1
+or # ( stat . exprs or { } ) ~= 1 then
+return nil
+end
+local target = stat . targets [ 1 ]
+if not target or isToken ( target ) or target . kind ~= "dotIndex" or fieldTargetBase ( target ) ~= name then
+return nil
+end
+local key = target . name and target . name . text or nil
+if not key or keys [ key ] then
+return nil
+end
+keys [ key ] = true
+
+return { name = target . name , value = stat . exprs [ 1 ] , stat = stat }
+end
+
+
+
+
+
 
 
 
@@ -65506,8 +65557,10 @@ end
 
 local function planPresize ( stats , at , name )
 local hashKeys , opaque , array = { } , 0 , 0
-local hashCount = 0
+local hashCount , writeCount = 0 , 0
 local stoppedAt = nil
+local constructorFields , constructorKeys = { } , { }
+local constructorGap , constructorRejected = false , false
 for j = at + 1 , # stats do
 local stat = stats [ j ]
 local writes = fieldWrites ( stat , name )
@@ -65515,6 +65568,20 @@ if occurrences ( stat , name ) ~= # writes then
 stoppedAt = stat
 break
 end
+if # writes == 0 then
+constructorGap = true
+elseif constructorGap then
+constructorRejected = true
+end
+if # writes > 0 and not constructorRejected then
+local field = constructorField ( stat , name , constructorKeys )
+if field then
+constructorFields [ # constructorFields + 1 ] = field
+else
+constructorRejected = true
+end
+end
+writeCount = writeCount + # writes
 for _ , target in ipairs ( writes ) do
 local kind , value = writtenKey ( target )
 if kind == "array" then
@@ -65532,7 +65599,11 @@ end
 end
 end
 
-return array , hashCount + opaque , stoppedAt
+if constructorRejected or # constructorFields ~= writeCount then
+constructorFields = nil
+end
+
+return array , hashCount + opaque , stoppedAt , constructorFields
 end
 
 
@@ -65573,16 +65644,31 @@ stat . exprs [ 1 ]
 ) then
 local name = stat . names [ 1 ] . text
 local constructor = stat . exprs [ 1 ]
-local array , hash , stoppedAt = planPresize ( stats , i , name )
+local array , hash , stoppedAt , constructorFields = planPresize ( stats , i , name )
 if array + hash >= PRESIZE_MIN then
 constructor . presize = { narr = array , nhash = hash }
+if constructorFields then
+constructor . presizeFields = constructorFields
+for _ , field in ipairs ( constructorFields ) do
+field . stat . presizedIntoConstructor = true
+end
+end
+local message
+if constructorFields then
+message = ( "presize: %s is created with %d named fields" ) : format (
+name ,
+# constructorFields
+)
+else
+message = (
+"presize: %s is created with room for %d array and %d hash entries"
+) : format ( name , array , hash )
+end
 remark (
 remarks ,
 constructor ,
 "OPT-1" ,
-(
-"presize: %s is created with room for %d array and %d " .. "hash entries"
-) : format ( name , array , hash )
+message
 )
 elseif stoppedAt then
 local token = firstToken ( stoppedAt )
@@ -71090,10 +71176,15 @@ call.
 
 `T preserves value` on a result transports the exact capability of that
 parameter through scalar generic narrowing. `T borrows (source)` ties a result,
-or a nominal record field, to its named root. A `scoped` callback parameter may
-capture borrows only because its callee proves that callback cannot escape.
-`@owned(cleanup)` may decorate a function-valued record or interface field so a
-bodyless API can declare a fresh owning result without a wrapper.
+or a nominal record field, to its named root. A closure literal borrows captured
+ownership values by default; its callable capability is borrowed and its exact
+roots travel as value-flow provenance. `borrows (source)` declares or pins that
+relation. `takes (source)` instead moves the owner into an affine, single-shot
+closure whose call or lexical drop discharges the capture. A `scoped` callback
+parameter accepts a borrow-carrying closure because its callee proves that
+callback cannot escape. `@owned(cleanup)` may decorate a function-valued record
+or interface field so a bodyless API can declare a fresh owning result without
+a wrapper.
 
 Affine nominal fields have path-sensitive live/moved state. A `Set` from
 `nupp.resources` is the checked escape hatch for a dynamic number of

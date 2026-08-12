@@ -388,7 +388,11 @@ function expr.install(c: state.Checker): nil
                         c.diag(
                             "NUPP2603",
                             node,
-                            ("%s value %q cannot be captured by a closure"):format(capturedKind, nameText)
+                            ("%s value %q has no closure borrow contract"):format(capturedKind, nameText),
+                            nil,
+                            {
+                                help = "name the source in borrows (...) or let an expression closure infer it"
+                            }
                         )
                         node.ownershipCaptureReported = true
                     end

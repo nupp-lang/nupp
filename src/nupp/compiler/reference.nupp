@@ -919,10 +919,15 @@ call.
 
 `T preserves value` on a result transports the exact capability of that
 parameter through scalar generic narrowing. `T borrows (source)` ties a result,
-or a nominal record field, to its named root. A `scoped` callback parameter may
-capture borrows only because its callee proves that callback cannot escape.
-`@owned(cleanup)` may decorate a function-valued record or interface field so a
-bodyless API can declare a fresh owning result without a wrapper.
+or a nominal record field, to its named root. A closure literal borrows captured
+ownership values by default; its callable capability is borrowed and its exact
+roots travel as value-flow provenance. `borrows (source)` declares or pins that
+relation. `takes (source)` instead moves the owner into an affine, single-shot
+closure whose call or lexical drop discharges the capture. A `scoped` callback
+parameter accepts a borrow-carrying closure because its callee proves that
+callback cannot escape. `@owned(cleanup)` may decorate a function-valued record
+or interface field so a bodyless API can declare a fresh owning result without
+a wrapper.
 
 Affine nominal fields have path-sensitive live/moved state. A `Set` from
 `nupp.resources` is the checked escape hatch for a dynamic number of
