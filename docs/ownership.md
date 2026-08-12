@@ -137,8 +137,8 @@ The whole surface, in one place:
 - `nupp.borrow(x)`: create an explicit lexical borrow of `x`.
 - `nupp.intoRaw(x)`: in `unsafe`, abandon tracking and return the underlying
   value.
-- `nupp.fromRaw(x, cleanup...)`: in `unsafe`, assert fresh ownership of a raw
-  value.
+- `nupp.fromRaw(x, cleanup...)`: in `unsafe`, assert fresh ownership of an
+  unmanaged pointer. Not the inverse of `intoRaw`: see below.
 - `nupp.borrowFrom(raw, source)`: in `unsafe`, assert raw provenance from a
   named source.
 - `nupp.pin(pointer, anchor)`: bind a managed pointer to the Lua object keeping
@@ -660,6 +660,14 @@ end
 exclusive and associates the named cleanup list. A false assertion can still
 double-free, so small unsafe blocks are easier to audit than ambient unchecked
 FFI code.
+
+The two are not a matched pair. `intoRaw` surrenders any owner, a record and a
+pointer alike, which is what lets a container hold owners of types it never
+learns. `fromRaw` reconstitutes only an unmanaged pointer, and refuses a record
+with `fromRaw expects an unmanaged pointer`. So a value that left the checked
+world as a table does not come back as an owner, and a container that hands one
+back — `resources.Set.remove` — relies on the checker re-typing the result at
+the call site rather than on anything the body can say.
 
 ## C output parameters
 

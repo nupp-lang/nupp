@@ -182,6 +182,29 @@ methods keep behavior beside the fields and contracts it relies on, declare
 `self` first, and are still emitted as ordinary `shapes.Path` methods. Use a
 separate qualified method only when adapting a type outside its declaration.
 
+A qualified method defines a body; it does not add a member. Callers see
+`shapes.Path.trim` only if the record body declares `trim` as a field, and a
+call through a name the record never declared is an untyped call rather than an
+error, so the symptom is a diagnostic somewhere else — an argument that lost its
+ownership mode, a result inferred `any`. Declare the member and let the
+qualified function fill it in:
+
+```nupp
+record shapes.Path
+    points: {shapes.Point}
+
+    trim: function(self: shapes.Path, count: integer): shapes.Path
+end
+
+function shapes.Path.trim(self, count: integer): shapes.Path
+    return self
+end
+```
+
+The one case that forces this split is a method taking an owner: `takes` on an
+inline method does not currently make the parameter owned, and a qualified
+method is where it works.
+
 ## Conventions
 
 None of this is enforced, and there is no naming lint, but it is what the

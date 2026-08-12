@@ -57,6 +57,16 @@ work makes sense in.
       a CLI without knowing which it is in. Nominal methods carry suspension
       guarantees through incremental interfaces, and structured exits from a
       handled region reuse the ownership cleanup protocol.
+- [ ] **`takes` is dropped on an inline record method.** The same body checks
+      clean as a qualified method and fails inline: a `takes` parameter of
+      `function keep<T>(self, takes value: T)` declared in a record body is not
+      owned by the time the body runs, so `intoRaw` on it reports `intoRaw
+      requires a owned value`. Moving the definition out to
+      `function m.Box.keep<T>(self, takes value: T)` fixes it with no other
+      change. `resources.Set` is written qualified for exactly this reason. The
+      inline form is the one the style guide prefers, so the gap points every
+      owner-taking method at the shape docs discourage.
+
 ## FFI and the C boundary
 
 - [ ] **`import-c` stops at the file it was pointed at.** One boundary
@@ -222,6 +232,25 @@ work makes sense in.
   - [ ] cross-target stub selection and shipped per-platform stubs; a binary
         target still has no target list or cross-build selection
 - [ ] Hot-reload typing; the `nupp-cargo` Rust helper.
+
+- [ ] **A discarded `intoRaw` emits Lua that will not load.** `nupp.intoRaw`
+      lowers to its argument, so calling it as a statement rather than binding
+      the result emits the bare expression. On a `takes` parameter, with no
+      cleanup bookkeeping to wrap it, that is the whole statement:
+
+      ```nupp
+      function m.spend<T>(takes value: T): nil
+          unsafe do
+              nupp.intoRaw(value)
+          end
+      end
+      ```
+
+      emits `do value end`, and `loadfile` answers `'=' expected near 'end'`.
+      The check passes and the build reports success; only running the output
+      fails. Binding it, `local _ = nupp.intoRaw(value)`, is the workaround in
+      `nupp.resources`. Either emit nothing for a discarded intrinsic or refuse
+      the statement, but do not write a file that cannot load.
 
 ## Dialect interop (`import-tl`)
 
