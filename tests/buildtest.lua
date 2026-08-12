@@ -180,6 +180,49 @@ function M.importCWritesAModule()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A positional is a source file and a target is named with `--target`, so a manifest
+-- target's name in first position is a mistake the report has to name. It used to reach
+-- the compiler as a path, and a directory that does not read as a module was all that
+-- was left to say about it.
+function M.cliTellsATargetNameFromASourceFile()
+   local dir = tempProject({
+      ["nupp.lua"] = [[return {
+   include = {"src"},
+   build = {targets = {docs = {kind = "docs", sources = {"src"}, outDir = "site"}}},
+}]],
+      ["src/mini.nupp"] = "function value(): number return 1 end\n",
+      ["docs/home.md"] = "# Home\n",
+   })
+
+   local named = capture(("cd '%s' && '%s' build docs"):format(dir, NUPP))
+   assert(named:find("docs names a build target rather than a source file", 1, true),
+      "a target name in first position is named as one: " .. named)
+   assert(named:find("--target docs", 1, true),
+      "the report says how to build it: " .. named)
+   assert(named:find("nupp help build", 1, true),
+      "validation errors point to command help: " .. named)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- Every failure carries a reason. A directory opens on POSIX and reads as nothing, so
+-- the read used to fail with no second result and the command printed the word "nil"
+-- where the path belonged.
+function M.readingSomethingThatIsNotAFileSaysWhy()
+   local dir = tempProject({["src/mini.nupp"] = "function value(): number return 1 end\n"})
+
+   local directory = capture(("cd '%s' && '%s' check src"):format(dir, NUPP))
+   assert(directory:find("src is a directory", 1, true),
+      "a directory says it is one: " .. directory)
+   assert(not directory:find("nupp: nil", 1, true),
+      "no failure reports itself as nil: " .. directory)
+
+   local missing = capture(("cd '%s' && '%s' check nosuch.nupp"):format(dir, NUPP))
+   assert(missing:find("nosuch.nupp", 1, true), "a missing file is named: " .. missing)
+   assert(not missing:find("nupp: nil", 1, true),
+      "no failure reports itself as nil: " .. missing)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.cliProvidesCommandHelpAndValidatesOptions()
    local help = capture(("'%s' help build"):format(NUPP))
    assert(help:find("Build source files", 1, true),
