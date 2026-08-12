@@ -9,20 +9,42 @@ work makes sense in.
 - [ ] **Derives** ([design](derives.md)): the compiler-owned `Debug`, `Default`,
       single-field `From`, and `JSON` derives have landed as checked semantic
       additions with closed lowering recipes, never source or CST fragments.
-      The remaining work is editor and incremental hardening, acceptance, and
-      deciding whether a restricted user-defined provider is justified.
-      The remaining work must preserve line-count-invariant output,
-      module-interface fingerprints and generated-member tooling. Associated
-      types are not a prerequisite;
-      user-defined providers are evaluated only after the four built-ins prove
-      the constrained result model.
-  - [ ] D5: finish incremental precision, generated-member editor integration,
-        cancellation/recovery, remaining output/local/upvalue limits, external
-        acceptance workloads, and fixpoint closure. Reference/skill output,
-        plan and field limits, deterministic fingerprints, and idempotence
-        coverage have landed.
-  - [ ] D6: decide a restricted user-defined semantic provider API from an
-        external proving case; do not expose token or AST macros.
+      Reference/skill output, canonical plan hashing, idempotent rechecking,
+      basic plan/field limits, and a passing compiler fixpoint have landed.
+      D5 still owns generated-member tooling, source-position-free incremental
+      identity and equal-plan cutoff, the remaining resource limits,
+      cancellation/recovery, build observations, acceptance workloads, and
+      closure coverage. Associated types are not a prerequisite.
+  - [ ] D5a: give every generated member a distinct semantic identity while
+        retaining its provider and derive-argument origin. Completion, hover,
+        definition, references and inspection consume that identity; document
+        symbols mark generated children without invented ranges; rename is
+        refused with useful help; derive diagnostics offer whole quick fixes.
+  - [ ] D5b: extract planning into a memoized `planDerives` query keyed by the
+        provider/helper ABI, frozen written declaration, relevant annotations,
+        reached semantic dependencies and target policy. Separate runtime
+        registration keys from semantic fingerprints, remove filenames and
+        line numbers from the latter, publish generated signatures, contracts,
+        effects and behavior fingerprints in module interfaces, and prove an
+        equal public plan cuts off downstream work.
+  - [ ] D5c: retain and directly test the field and semantic-node limits; add
+        rendered-output and any necessary generated-member, local and upvalue
+        limits, or document and test the structural reason a category is
+        bounded without a counter. Add cooperative budgets, cancellation and
+        recovery for derive planning, plus provider/owner/fingerprint, size,
+        effect, cached-state and duration build observations.
+  - [ ] D5d: run all four derives in real acceptance workloads: compiler-owned
+        configuration or diagnostic records for `Debug`/`Default`, one generic
+        newtype path for `From`, internal manifest/build-cache JSON differential
+        tests, and one external tecs configuration or protocol corpus.
+  - [ ] D5e: close with check/build/LSP agreement; cached/cold byte identity;
+        body-, field-, annotation-, bound- and dependency-edit counters;
+        adversarial limit and cancellation tests; exact line-count and LuaJIT
+        loadability coverage; the full suite; and byte-identical fixpoint.
+  - [ ] D6: only after D5d, prototype one external provider against a versioned
+        serialized descriptor/result envelope, then accept, narrow or reject a
+        restricted semantic API in writing. Do not expose token, AST or CST
+        macros, mutable compiler objects, or private lowering IR.
 - [ ] **Suspension follow-ups** ([design](suspension.md)): checked, handled
       waiting has landed. One call site parks under a scheduler and blocks
       without one, so a library that waits works inside a game frame and inside

@@ -1174,22 +1174,138 @@ paths; pure bundled output runs with no compiler present.
 
 ### D5: incremental, tooling and hardening closure
 
-- Add fine-grained cross-module derive dependencies and equal-plan cutoff.
-- Enforce member, plan, output, local and upvalue limits.
-- Finish code actions, generated-symbol presentation and build observations.
-- Test worker cancellation and recovery for JSON blueprint construction.
-- Add derives to `nupp reference language`, its source reference, and the
-  ejected `--format skill` language skill.
-- Run all four derives in the self-hosted compiler where useful.
+The landed D5 baseline is narrower than closure. Derives are present in the
+source reference, generated reference and ejected `--format skill` language
+skill. Rechecking one parse is idempotent, plans are canonically hashed, the
+planner caps fields and semantic nodes, and the compiler currently reaches a
+byte-identical fixpoint. These are retained gates, not evidence that the editor
+and incremental model are complete. In particular, a runtime derive key still
+contains a filename and declaration line, generated JSON members share their
+derive-argument definition identity, and planning is still part of the whole
+module check rather than an independently memoized query.
 
-Exit test: cached and cold builds are byte-identical; an unchanged public plan
-cuts off downstream work; adversarial types cannot hang or overflow the
-compiler or LSP; fixpoint remains byte-identical.
+#### D5a: generated-member semantic and editor model
+
+- Give every generated member its own stable semantic identity. It records the
+  owner, namespace, member name, signature, provider, derive-argument origin,
+  contributing fields and plan fingerprint. Several members produced by one
+  provider must not share the same definition key.
+- Retain the derive argument as the navigation origin without pretending that
+  its token spells the generated member. Definition goes to that origin;
+  related field locations remain separate structured links.
+- Make completion, hover, signature/inspection, definition and references read
+  the canonical generated-member record. Hover names the provider and owner;
+  references for `toJSON`, `fromJSON` and `fieldCodec` remain disjoint.
+- Refuse prepare-rename and rename for a generated member with help to change
+  or remove the derive. Renaming an input field remains an ordinary semantic
+  rename followed by replanning.
+- Add generated children to document symbols with a generated marker and no
+  invented source range. Keep source-only outline behavior available while a
+  declaration is incomplete.
+- Add whole quick fixes for the errors where one source action is unambiguous:
+  remove a conflicting derive or member, add a literal default, omit a JSON
+  field, or remove a duplicate provider. A fix is one titled edit set, never a
+  selection of synthetic-member edits.
+
+Exit test: completion, hover, inspect, definition, references, rename, symbols
+and actions have local, qualified and cross-module derive fixtures. Each JSON
+member keeps a distinct identity; generated-member rename is refused; no
+request navigates to or edits a token merely because it carries a shared
+provider name.
+
+#### D5b: incremental query and published interface
+
+- Extract `planDerives` as a pure memoized query over provider and helper ABI
+  versions, the frozen written declaration, relevant checked annotations,
+  reached semantic type dependencies and target/runtime policy. Diagnostic
+  source locations travel beside the canonical result and do not participate
+  in equality.
+- Separate a hygienic runtime registration key from semantic identity. The
+  canonical plan and every nested record reference use resolved nominal
+  identity that is stable across line moves and workspace relocation; filename
+  and source line never enter a semantic or behavior fingerprint.
+- Intern equal plans or compare their canonical serialized envelopes so an
+  unchanged result supplies early cutoff even when an irrelevant input caused
+  the query to run.
+- Publish requested providers and ABI versions, generated public signatures,
+  interface contracts, effects, behavior/private-value fingerprints and
+  reached exported-type dependencies in the module interface. Consumers do
+  not infer these facts from mutable nominal tables or source spelling.
+- Record counters for plan executions, cache hits, equal-plan cutoffs and
+  downstream module checks. Test body, field, relevant and irrelevant
+  annotation, generic-bound, dependency-interface, provider-ABI and helper-ABI
+  edits separately.
+
+Exit test: moving a declaration or relocating the project leaves semantic and
+behavior fingerprints unchanged; a body-only or irrelevant-annotation edit
+does not replan; an equal public plan cuts off consumers; a changed generated
+signature, contract, effect or behavior fingerprint invalidates exactly the
+modules that observed it; cached and cold output remain byte-identical.
+
+#### D5c: bounded work, cancellation and observations
+
+- Retain the field and semantic-node caps and add direct NUPP2808 fixtures at
+  and beyond each boundary.
+- Bound rendered plan/output bytes before lowering. Add explicit generated
+  member, local and upvalue counters where a provider can grow them. Where the
+  closed built-ins make a category constant, document that structural bound
+  and test the maximum recipe instead of adding a ceremonial counter.
+- Thread a cooperative budget/cancellation probe through declaration walking,
+  recursive type planning, dependency validation and canonical serialization.
+  Cancellation returns one ordinary cancelled result, publishes no partial
+  plan or generated members, and leaves the next request able to recompute.
+- If JSON planning moves through an isolated worker, validate and bound its
+  envelope before merge and test cancel, crash, malformed response and retry.
+  If it remains in-process, delete the worker-specific promise and test the
+  equivalent in-process cancellation and recovery contract explicitly.
+- Add build observations containing provider, owner, semantic fingerprint,
+  generated member count, canonical/private-value sizes, runtime effects,
+  cached state and duration. Observations are reporting data and do not alter
+  a module interface or cache key.
+
+Exit test: adversarial fields, shapes, unions, recursion and annotation values
+terminate with a deterministic diagnostic or cancellation; no over-limit Lua
+is emitted; a cancelled or failed request poisons no later check; cold and warm
+observations describe the same semantic product.
+
+#### D5d: internal and external acceptance
+
+- Derive `Debug` and `Default` on compiler-owned configuration or diagnostic
+  records whose handwritten behavior can be compared byte-for-byte or
+  value-for-value before duplication is removed.
+- Replace one handwritten scalar/newtype constructor with `From` and exercise
+  it through `nupp.into` in generic code.
+- Put derived JSON beside the existing manifest/build-cache codecs, run their
+  real corpora and compare bytes, accepted values and failure paths before
+  deleting any reference validation.
+- Apply JSON to one external tecs configuration or protocol model and run the
+  complete consumer corpus. Record every operation the constrained result
+  model needed and every requested operation it deliberately refused.
+
+Exit test: all four providers replace real boilerplate without compatibility
+regressions; the internal and external differential corpora pass; the proving
+case leaves enough evidence to evaluate D6 without designing from examples
+invented for the provider API.
+
+#### D5e: closure verification
+
+- Add check/build/LSP agreement and cached/cold byte-identity fixtures for the
+  accepted workloads.
+- Pin exact source/output line counts, LuaJIT loadability, runtime feature
+  manifests and every generation boundary.
+- Run the full suite and the stage-one/stage-two compiler fixpoint after the
+  compiler adoption, not only before derived records enter the compiler.
+
+Exit test: every D5a-D5d exit test passes; cached and cold builds are
+byte-identical; unchanged public plans cut off downstream work; adversarial
+types cannot hang or overflow the compiler or LSP; the compiler using accepted
+derives rebuilds itself byte-identically.
 
 ### D6: evaluate user-defined providers
 
-- Implement no public surface until the four built-ins and one external
-  acceptance corpus demonstrate that the constrained IR is sufficient.
+- Implement no public surface until D5d has run the four built-ins through an
+  internal acceptance corpus and one external proving case. D5 completion is
+  an entry condition, not work that D6 may assume or perform speculatively.
 - Prototype one derive outside the compiler against a versioned serialized
   descriptor and result envelope.
 - Accept, narrow or reject the public provider proposal based on the required
