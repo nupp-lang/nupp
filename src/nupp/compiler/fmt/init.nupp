@@ -97,6 +97,9 @@ local CLOSERS = {
     ["}"] = true,
     [")"] = true,
     ["]"] = true,
+    -- A broken generic parameter list closes with `>`, and the `>(` that follows it
+    -- belongs to the declaration rather than to the parameters above it.
+    [">"] = true,
 }
 local BRACKET_PAIR = {["("] = ")", ["["] = "]", ["{"] = "}", ["<"] = ">"}
 -- Operators a line may break before when it has no breakable group.
@@ -301,6 +304,16 @@ local function annotate(root)
         elseif kind == "binop" then
             if n.op and BREAK_OPS[n.op.kind] then
                 n.op.breakOp = true
+            end
+        elseif kind == "tunion" or kind == "tintersection" then
+            -- `|` and `&` join whole types, so they are the loosest thing on a line
+            -- that carries one: a signature too long to fit belongs on one line per
+            -- member, not exploded through whichever bracket comes first.
+            for _, child in ipairs(n) do
+                if cst.isToken(child) and (child.kind == "|" or child.kind == "&") then
+                    child.breakOp = true
+                    child.typeOp = true
+                end
             end
         elseif kind == "methodCall" then
             markChainStep(n)
@@ -821,16 +834,21 @@ end
 
 -- The indices of the tokens `accepts` takes, seen at the line's own bracket depth: what
 -- is inside a group on the line is that group's business to break, not the line's.
+--
+-- Depth is tracked by the closer each group named when it opened, rather than by
+-- counting brackets. A generic parameter list closes with `>`, which counting would
+-- never take back -- everything after `function<A, B>` would read as nested, and the
+-- `&` joining two overloads would be invisible on the very lines that need it.
 local function breakPoints(line, accepts)
-    local depth, points = 0, {}
+    local points, open = {}, {}
     for idx, item in ipairs(line.items) do
         if item.kind == "token" then
-            local k = item.token.kind
-            if BRACKET_PAIR[k] and item.token.opensGroup then
-                depth = depth + 1
-            elseif (k == ")" or k == "]" or k == "}") and depth > 0 then
-                depth = depth - 1
-            elseif depth == 0 and idx > 1 and accepts(item.token) then
+            local tok = item.token
+            if open[#open] == tok then
+                open[#open] = nil
+            elseif tok.opensGroup and BRACKET_PAIR[tok.kind] then
+                open[#open + 1] = tok.opensGroup.close
+            elseif #open == 0 and idx > 1 and accepts(tok) then
                 points[#points + 1] = idx
             end
         end
@@ -885,7 +903,22 @@ local function splitLine(line)
         return breakBefore(#ops > 0 and ops or chain)
     end
 
+    -- A union or an intersection joins whole types, so it is looser than any bracket
+    -- on the line: an overloaded signature reads as one line per overload, rather than
+    -- as one overload's generic parameters spread down the page while the other stays
+    -- where it was.
+    local typeOps = breakPoints(line, function(tok) return tok.typeOp end)
+    if #typeOps > 0 then
+        return breakBefore(typeOps)
+    end
+
     local openIdx, closeIdx, group
+    -- A generic parameter list is part of a signature's header, the way `is Y` and a
+    -- `where` refinement are: `function<A, B>(...)` that does not fit is nearly always
+    -- the parameters that did not fit, and breaking the type parameters instead reads
+    -- as a list of one while leaving the long part where it was. It is still taken
+    -- when it is all the line has.
+    local genericOpen, genericClose, generic
     for idx, item in ipairs(line.items) do
         if item.kind == "token" and item.token.opensGroup then
             local g = item.token.opensGroup
@@ -901,12 +934,19 @@ local function splitLine(line)
                     line.items,
                     nextItem.token.opensGroup.close
                 ) == cIdx - 1
-                if not wrapsTable then
+                if wrapsTable then
+                    -- the group is a table's parentheses, which break as the table
+                elseif item.token.kind == "<" then
+                    genericOpen, genericClose, generic = genericOpen or idx, genericClose or cIdx, generic or g
+                else
                     openIdx, closeIdx, group = idx, cIdx, g
                     break
                 end
             end
         end
+    end
+    if not group and generic then
+        openIdx, closeIdx, group = genericOpen, genericClose, generic
     end
 
     if group then

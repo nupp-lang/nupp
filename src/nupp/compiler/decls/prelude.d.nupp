@@ -149,15 +149,8 @@ local error: nosuspend function(msg: any, level: number?): never
 --- @param ... the arguments to pass to `f`
 --- @return true when the call finished, false when it raised
 --- @return the call's results, or the error value
-local pcall: function<
-    A...,
-    R...
-    >(
-    scoped f: function(A...): R...,
-    A...
-): (
-    (true, R...) | (false, any)
-) & function<A..., R...>(takes f: function(A...): R..., A...): ((true, R...) | (false, any))
+local pcall: function<A..., R...>(scoped f: function(A...): R..., A...): ((true, R...) | (false, any))
+    & function<A..., R...>(takes f: function(A...): R..., A...): ((true, R...) | (false, any))
 
 --- Like `pcall`, but runs `handler` on the error before the stack unwinds, so it can
 --- still collect a traceback.
@@ -167,21 +160,16 @@ local pcall: function<
 --- @param ... the arguments to pass to `f`
 --- @return true when the call finished, false when it raised
 --- @return the call's results, or the handler's result
-local xpcall: function<
-    E,
-    A...,
-    R...
-    >(
+local xpcall: function<E, A..., R...>(
     scoped f: function(A...): R...,
     scoped handler: function(any): E,
     A...
-): (
-    (true, R...) | (false, E)
-) & function<
-    E,
-    A...,
-    R...
-    >(takes f: function(A...): R..., scoped handler: function(any): E, A...): ((true, R...) | (false, E))
+): ((true, R...) | (false, E))
+    & function<E, A..., R...>(
+    takes f: function(A...): R...,
+    scoped handler: function(any): E,
+    A...
+): ((true, R...) | (false, E))
 
 --- Returns the elements of `t` from index `i` through `j` as separate values.
 ---
@@ -252,7 +240,6 @@ local nupp: {
     --- @internal
     __materializationTest: nupp.__MaterializationTestAPI
 }
-
 
 --- A compile-time-only graph handle used by the compiler's materialization tests.
 --- @internal
@@ -2141,11 +2128,9 @@ record nupp.io
     --- @return the new reader
     @owned
 
-    newScalarReader: function(
-        source: string | ByteQueue
-    ): ScalarReader & function(
-        borrows source: ByteView | Buffer
-    ): ScalarReader & function(takes source: Reader): ScalarReader
+    newScalarReader: function(source: string | ByteQueue): ScalarReader
+        & function(borrows source: ByteView | Buffer): ScalarReader
+        & function(takes source: Reader): ScalarReader
 
     --- Creates a cursor for sized integer and float writes.
     ---
@@ -2158,9 +2143,9 @@ record nupp.io
     --- @return the new writer
     @owned
 
-    newScalarWriter: function(): ScalarWriter & function(
-        borrows destination: Buffer
-    ): ScalarWriter borrows(destination) & function(takes destination: Writer): ScalarWriter
+    newScalarWriter: function(): ScalarWriter
+        & function(borrows destination: Buffer): ScalarWriter borrows(destination)
+        & function(takes destination: Writer): ScalarWriter
 
     --- Filesystem metadata, directory contents, and the operations that move
     --- names rather than bytes.
@@ -2350,10 +2335,9 @@ end
 --- @param arg the step size or parameter that the operation takes
 --- @return what the operation reports: "count" gives the kilobytes in use, while
 ---     "step" and "isrunning" answer a boolean
-local collectgarbage: function(): number & function(
-    opt: 'collect' | 'stop' | 'restart' | 'count' | 'setpause' | 'setstepmul',
-    arg: number?
-): number & function(opt: 'step' | 'isrunning', arg: number?): boolean
+local collectgarbage: function(): number
+    & function(opt: 'collect' | 'stop' | 'restart' | 'count' | 'setpause' | 'setstepmul', arg: number?): number
+    & function(opt: 'step' | 'isrunning', arg: number?): boolean
 
 --- Compiles a chunk read piecewise from `chunk`, a function returning successive pieces
 --- of source, without running it.
@@ -2428,6 +2412,7 @@ local _VERSION: string
 
 -- string.format derives its trailing parameter pack from a literal first
 -- argument. A broad string deliberately retains the ordinary variadic fallback.
+
 --- @local
 @comptime
 local function __NuppFormatArguments(Format: type): typepack
@@ -2455,8 +2440,7 @@ local function __NuppFormatArguments(Format: type): typepack
                 end
                 if current == "%" then
                     return nupp.types.error(
-                        'invalid string.format directive starting at "%' .. seen
-                            .. format:sub(index) .. '"'
+                        'invalid string.format directive starting at "%' .. seen .. format:sub(index) .. '"'
                     )
                 end
 
@@ -2467,9 +2451,7 @@ local function __NuppFormatArguments(Format: type): typepack
                     index = index + 1
                     current = format:sub(index, index)
                     if width > 2 then
-                        return nupp.types.error(
-                            'invalid string.format directive starting at "%' .. seen .. '"'
-                        )
+                        return nupp.types.error('invalid string.format directive starting at "%' .. seen .. '"')
                     end
                 end
 
@@ -2484,9 +2466,7 @@ local function __NuppFormatArguments(Format: type): typepack
                         index = index + 1
                         current = format:sub(index, index)
                         if precision > 2 then
-                            return nupp.types.error(
-                                'invalid string.format directive starting at "%' .. seen .. '"'
-                            )
+                            return nupp.types.error('invalid string.format directive starting at "%' .. seen .. '"')
                         end
                     end
                 end
@@ -2497,8 +2477,7 @@ local function __NuppFormatArguments(Format: type): typepack
                     arguments[#arguments + 1] = nupp.types.any
                 else
                     return nupp.types.error(
-                        'invalid string.format directive starting at "%' .. seen
-                            .. format:sub(index) .. '"'
+                        'invalid string.format directive starting at "%' .. seen .. format:sub(index) .. '"'
                     )
                 end
                 index = index + 1
@@ -2508,7 +2487,7 @@ local function __NuppFormatArguments(Format: type): typepack
 
     return nupp.types.pack(arguments)
 end
----
+
 --- The severity operations are compiler intrinsics. A call in statement position
 --- whose format is a literal compiles to a level test around a direct emit, so a
 --- filtered call evaluates none of its arguments. Every other spelling stays an

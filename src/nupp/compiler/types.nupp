@@ -29,7 +29,31 @@ local types = {}
 --- is what makes them nominal.
 
 --- Which primitive: the tags that carry no parts.
-type types.PrimTag = 'any' | 'unknown' | 'never' | 'nil' | 'boolean' | 'string' | 'number' | 'integer' | 'table' | 'thread' | 'userdata' | 'float' | 'cdata' | 'cstring' | 'voidptr' | 'int8' | 'int16' | 'int32' | 'int64' | 'uint8' | 'uint16' | 'uint32' | 'uint64' | 'type' | 'typepack'
+type types.PrimTag = 'any'
+    | 'unknown'
+    | 'never'
+    | 'nil'
+    | 'boolean'
+    | 'string'
+    | 'number'
+    | 'integer'
+    | 'table'
+    | 'thread'
+    | 'userdata'
+    | 'float'
+    | 'cdata'
+    | 'cstring'
+    | 'voidptr'
+    | 'int8'
+    | 'int16'
+    | 'int32'
+    | 'int64'
+    | 'uint8'
+    | 'uint16'
+    | 'uint32'
+    | 'uint64'
+    | 'type'
+    | 'typepack'
 
 --- A type with no parts: the primitives and the C-boundary scalars.
 record types.Prim
@@ -169,8 +193,7 @@ record types.ComptimeConstArgument
     value: types.ConstTerm
 end
 
-type types.ComptimeArgument = types.ComptimeTypeArgument | types.ComptimePackArgument
-    | types.ComptimeConstArgument
+type types.ComptimeArgument = types.ComptimeTypeArgument | types.ComptimePackArgument | types.ComptimeConstArgument
 
 type types.TemplatePart = string | types.Type
 
@@ -537,7 +560,13 @@ end
 --- default it differently, so the answer has to be written. `unfit` -- the answer
 --- does not satisfy every bound, which only a caller holding the subtyping relation
 --- can decide, so nothing here ever sets it.
-type types.AssociatedReason = 'unprojectable' | 'unknown' | 'incomplete' | 'missing' | 'conflict' | 'unfit' | 'contradicted'
+type types.AssociatedReason = 'unprojectable'
+    | 'unknown'
+    | 'incomplete'
+    | 'missing'
+    | 'conflict'
+    | 'unfit'
+    | 'contradicted'
 
 --- What a projection through a head, for one name, resolves to.
 record types.AssociatedLookup
@@ -755,7 +784,31 @@ record types.Nominal
 end
 
 --- Any type.
-type types.Type = types.Prim | types.Array | types.Map | types.Tuple | types.Shape | types.Union | types.Intersection | types.Ptr | types.CArray | types.Owned | types.Borrowed | types.Pinned | types.Const | types.CType | types.Func | types.Literal | types.TypeVar | types.TypeHandle | types.PackResult | types.Neutral | types.Metatable | types.Projection | types.Nominal | types.ProtocolThread | types.GenericAlias
+type types.Type = types.Prim
+    | types.Array
+    | types.Map
+    | types.Tuple
+    | types.Shape
+    | types.Union
+    | types.Intersection
+    | types.Ptr
+    | types.CArray
+    | types.Owned
+    | types.Borrowed
+    | types.Pinned
+    | types.Const
+    | types.CType
+    | types.Func
+    | types.Literal
+    | types.TypeVar
+    | types.TypeHandle
+    | types.PackResult
+    | types.Neutral
+    | types.Metatable
+    | types.Projection
+    | types.Nominal
+    | types.ProtocolThread
+    | types.GenericAlias
 
 --- One field of a structural shape. `type` is accepted as the legacy spelling passed by
 --- compiler internals and means an ordinary read-write property.
@@ -2114,9 +2167,7 @@ function types.neutral(
         value and value.id or "-"
     ) .. ":" .. (
         remap and remap.id or "-"
-    ) .. ":" .. (
-        constTerm and constTerm.id or "-"
-    ) .. ":" .. table.concat(templateIds, ",") .. ")"
+    ) .. ":" .. (constTerm and constTerm.id or "-") .. ":" .. table.concat(templateIds, ",") .. ")"
 
     return interned(id) or intern(id, function()
         return new types.Neutral(

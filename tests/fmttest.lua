@@ -263,6 +263,57 @@ function M.severalSupertypesStillFitOnOneLine()
    end
 end
 
+-- An overloaded signature is an intersection of whole function types, so it breaks
+-- between the overloads. It used to break inside the first one instead: the depth a
+-- break point is judged at counted `<` as a nesting bracket and never took it back at
+-- `>`, so everything past a generic parameter list read as nested and the `&` joining
+-- the overloads was invisible.
+function M.intersectionsBreakBetweenTheirOverloads()
+   local src = "local pcall: function<A..., R...>(scoped f: function(A...): R..., A...):"
+      .. " ((true, R...) | (false, any)) & function<A..., R...>(takes f: function(A...): R...,"
+      .. " A...): ((true, R...) | (false, any))\n"
+   local out = fmt.format(src, "overloads.d.nupp")
+   local lines = {}
+   for line in out:gmatch("(.-)\n") do lines[#lines + 1] = line end
+   assertEq(#lines, 2, "an overload apiece, got:\n" .. out)
+   assertEq(lines[1], "local pcall: function<A..., R...>(scoped f: function(A...): R..., A...):"
+      .. " ((true, R...) | (false, any))")
+   assertEq(lines[2], "    & function<A..., R...>(takes f: function(A...): R..., A...):"
+      .. " ((true, R...) | (false, any))")
+   assertEq(fmt.format(out, "overloads.d.nupp"), out, "and the layout is stable")
+end
+
+-- Type parameters are part of a signature's header, the way a record's `is` clause is.
+-- A signature too long to fit is nearly always its parameters, so those are what break,
+-- and the `>` closing the list stays with the declaration rather than taking a
+-- continuation indent of its own.
+function M.typeParametersStayOnTheSignatureLine()
+   local src = "local xpcall: function<E, A..., R...>(scoped f: function(A...): R...,"
+      .. " scoped handler: function(any): E, A...): ((true, R...) | (false, E))\n"
+   local out = fmt.format(src, "header.d.nupp")
+   if out:find("local xpcall: function<E, A..., R...>(\n", 1, true) == nil then
+      error("the type parameters left the header line, got:\n" .. out, 0)
+   end
+   assertEq(fmt.format(out, "header.d.nupp"), out, "and the layout is stable")
+end
+
+-- A union longer than the width reads as one member per line. It used to be left over
+-- the width instead, because a union's `|` was no kind of break point.
+function M.longUnionsBreakBetweenTheirMembers()
+   local src = "local kind: function(v: any): \"nil\" | \"boolean\" | \"number\" | \"string\""
+      .. " | \"table\" | \"function\" | \"thread\" | \"userdata\" | \"cdata\"\n"
+   local out = fmt.format(src, "union.d.nupp")
+   for line in out:gmatch("(.-)\n") do
+      if #line > 120 then
+         error("a member per line keeps every one inside the width, got:\n" .. out, 0)
+      end
+   end
+   if out:find("\n    | \"boolean\"\n", 1, true) == nil then
+      error("the union did not break between its members, got:\n" .. out, 0)
+   end
+   assertEq(fmt.format(out, "union.d.nupp"), out, "and the layout is stable")
+end
+
 -- One case per file rather than one loop over all six.
 --
 -- Formatting a compiler source twice and reparsing it is seconds of work, and together

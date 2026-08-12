@@ -61,6 +61,21 @@ An operator joining two operands is looser than the chain inside either of
 them, so a chain that is one operand of an `and` waits until the line is down
 to the chain itself. A single method call is not a chain: its arguments break.
 
+A type breaks in the same order. The `|` and `&` of a union or an intersection
+join whole types, so they are looser than any bracket on the line: an
+overloaded signature breaks between its overloads, and a union too long to fit
+reads as one member per line.
+
+```nupp:static
+local pcall: function<A..., R...>(scoped f: function(A...): R..., A...): ((true, R...) | (false, any))
+    & function<A..., R...>(takes f: function(A...): R..., A...): ((true, R...) | (false, any))
+```
+
+Type parameters are part of a signature's header, the way a record's `is`
+clause is. A signature that does not fit is nearly always its parameters, so
+those are what break and `function<E, A..., R...>` stays as written. A generic
+parameter list breaks only when it is all the line has to break.
+
 Blank runs collapse to one, leading blanks are stripped, trailing whitespace
 goes, and a file ends with exactly one newline.
 
