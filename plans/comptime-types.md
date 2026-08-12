@@ -14,8 +14,8 @@ workloads have moved, remove:
 - `match` and `match each` in type position;
 - every type-pattern spelling headed by `infer`, including inferred packs and
   template segments;
-- `typeerror<Message>`, whose authored failure becomes `error(message)` in a
-  type function;
+- `typeerror<Message>`, whose authored failure becomes
+  `nupp.types.error(message)` in a type function;
 - guarded recursive aliases and their admission rules;
 - recursive alias calls, expansion traces, and reducer budgets; and
 - the static PEG example whose purpose is demonstrating a type-level
@@ -46,6 +46,16 @@ structural type, a type pack, or an existing nominal type. They do not create a
 record, struct, interface, method, module member, runtime identity, or source
 text. Declaration generation remains a derive or macro-system question and is
 outside this plan.
+
+This boundary is permanent. A nominal declaration needs a source-owned name,
+identity, visibility, recursive shell, tooling location, initialization order,
+and runtime representation; a type-function result has none of those. A schema
+that needs new records or interfaces uses a source generator which writes a
+reviewable `.g.nupp` file, following `importc`'s existing rule that generated
+declarations are committed, hand-editable source and never a black box. A
+derive may augment one explicitly written declaration through the constrained
+semantic plan in [`derives.md`](derives.md), but it does not create that
+declaration or any nested nominal declaration.
 
 ## Why replace type-level inference
 
@@ -193,6 +203,22 @@ end
 local type MaybeName = Optional(string)
 ```
 
+`type<Bound>` is a constrained handle result. It promises that every concrete
+type returned by the function satisfies `Bound`:
+
+```nupp
+@comptime
+local function ReadView(T: type): type<{readonly [string]: unknown}>
+    -- Return a structural type satisfying the written bound.
+end
+```
+
+The checker verifies the promise for every closed result. While a call remains
+open, ordinary type consumers may use only facts supplied by the bound. Bare
+`type` has the implicit bound `unknown`; it carries no members or ownership
+facts while open. This is a result constraint, not symbolic execution of the
+function body.
+
 The declaration is checked once as ordinary Nupp. Its parameter annotations
 describe which call arguments are types, packs, or compile-time values. The
 body may call other reachable `@comptime` helpers and uses the same step and
@@ -278,10 +304,12 @@ end
 ```
 
 The spelling is an API sketch, not a requirement to expose one operation for
-every internal constructor. The admission requirement is semantic coverage:
-every type and pack that `match`/`infer` can currently destructure or construct
-must have a checked inspection or construction path before that syntax is
-removed.
+every internal constructor. CT0 produces a constructor/inspector coverage
+matrix for generic nominal application, field read/write capabilities,
+optional fields, ownership modes, const binders and arguments, associated-type
+projections, and every type and pack that `match`/`infer` can currently
+destructure or construct. Every matrix row must have a checked inspection or
+construction path before that syntax is removed.
 
 `nupp.types.describe` extends the existing versioned semantic reflection graph.
 Edges exposed to evaluator code yield type handles, not raw integer indexes or
@@ -295,10 +323,11 @@ an invalid intermediate type and rely on a later consumer to notice.
 
 ### Authored failures
 
-`error(message)` inside a type function fails the type application. A dedicated
-`nupp.types.error(message)` may be added only if a delayed error value is needed
-for composition. The initial surface prefers raising immediately once the call
-is concrete.
+`nupp.types.error(message)` ships with closed type functions and deliberately
+rejects the type application. It preserves the semantic distinction between an
+authored invalid type and NUPP2412 evaluator, protocol, timeout, or worker
+failure. Ordinary `error(message)` remains an evaluator failure and is not the
+migration target for `typeerror<Message>`.
 
 A failure reports:
 
@@ -337,6 +366,7 @@ When any argument is open, the resolver creates an interned
 - stable type-function identity;
 - type, pack, and const arguments in parameter order;
 - the result kind, `type` or `typepack`; and
+- the declared result constraint; and
 - the generator-program semantic version.
 
 Generic substitution rebuilds this term with rebound arguments. Normalization
@@ -346,9 +376,11 @@ type constructor.
 
 The checker does not partially execute the function with symbolic handles.
 Doing so would recreate a second evaluator with branching, loops, unknown
-values, and symbolic heap state. An operation that needs the concrete result
-of an open call reports that the type function cannot yet be evaluated, unless
-the existing gradual rule at that boundary explicitly answers `any`.
+values, and symbolic heap state. Relations, member lookup, and ownership may
+use the declared result constraint but no fact inferred from the body. An
+operation needing more than that constraint reports that the type function
+cannot yet be evaluated, unless the existing gradual rule at that boundary
+explicitly answers `any`.
 
 This is the principal difference from eager per-instantiation generic checking.
 Nupp retains symbolic declaration checking and defers only the type answer.
@@ -415,7 +447,10 @@ end
 The public call remains `string.format(fmt, ...)`. Literal formats retain exact
 arity and conversion diagnostics; dynamic formats retain `...any`. The new
 implementation must be materially shorter than the recursive alias machine
-and must not add a format-specific checker branch.
+and must not add a format-specific checker branch. CT0 records the current
+roughly 260-line declaration implementation and the total compiler machinery
+supporting it; CT5 compares both rather than treating one source-line count as
+the sole gate.
 
 ### Nested element normalization
 
@@ -607,6 +642,12 @@ comptime worker service per compiler or LSP session:
 - no evaluator heap value survives between requests except immutable parsed
   program caches owned by the worker protocol.
 
+Iteration that can affect a type result is deterministic compiler semantics.
+`pairs` uses the evaluator's existing canonical key order, descriptor members
+retain semantic declaration order where promised, and string iterators are
+byte-deterministic. No allocator, hash-table, filesystem, locale, or plugin
+order may affect a blueprint or diagnostic.
+
 Batch builds may execute safe cache hits without contacting the worker. Direct
 in-process evaluation remains available to the existing embedders only if it
 uses identical type protocols, validation, and limits.
@@ -740,7 +781,7 @@ The migration guide gives direct recipes:
 | recursive alias | loop or recursive `@comptime` helper |
 | tuple reconstruction | `nupp.types.tuple` or `nupp.types.pack` |
 | `function(infer A...): infer R...` | `parameters(F)` and `results(F)` |
-| `typeerror<Message>` in a match | `error(message)` in the type function |
+| `typeerror<Message>` in a match | `nupp.types.error(message)` in the type function |
 
 There is no migration for `keyof`, `writekeyof`, `T.[K]`, `writeof T.[K]`,
 mapped structural shapes, template construction, const parameters,
@@ -778,6 +819,27 @@ range based on whether evaluation or result validation failed.
 
 ## Milestones
 
+### CT-1: format feasibility spike
+
+- Prototype the smallest type-handle, pack-builder, and query path needed to
+  express `string.format` argument computation as an ordinary scanner.
+- Measure evaluator computation separately from process startup, then measure
+  cold, warm-memory, and persistent-cache behavior through a persistent-worker
+  prototype representative of CT4.
+- Count canonical unique query keys as well as the 717 source `format(` call
+  sites; repeated literals must demonstrate in-memory reuse.
+- Compare exact types and diagnostics with the current recursive aliases and
+  record self-host build and LSP-keystroke latency.
+- Record the accepted T5 recursion measurements from
+  [`type-level-computation-results.md`](type-level-computation-results.md) as
+  counter-evidence which this replacement must beat in total complexity and
+  interactive behavior.
+
+Exit test: the intended persistent and cached architecture has a credible path
+to the latency budget without a format-specific checker branch. Failure gates
+the query/worker architecture and may reject the replacement; the obsolete
+one-process-per-query transport is not itself the decision benchmark.
+
 ### CT0: inventory and acceptance baselines
 
 - Inventory every type-match pattern and recursive alias in production,
@@ -788,6 +850,12 @@ range based on whether evaluation or result validation failed.
 - Record cold and warm check, LSP hover/completion, incremental edit, and full
   suite timings.
 - Specify the initial type and pack graph schemas and cardinality limits.
+- Produce the constructor/inspector coverage matrix described above, including
+  generic nominal application, field capabilities and optionality, ownership
+  modes, const binders/arguments, associated projections, and packs.
+- Inventory mapped shapes and template construction as retained operators, not
+  candidates for removal, and separate template construction from removed
+  template-pattern decomposition.
 
 Exit test: every old-syntax user has a named migration and observable parity
 fixture; no removal begins from an incomplete inventory.
@@ -795,23 +863,33 @@ fixture; no removal begins from an incomplete inventory.
 ### CT1: compiler-only handles and builders
 
 - Add checker-only `type` and `typepack` value types.
-- Add opaque evaluator handles and the closed `nupp.types` API.
-- Reuse semantic reflection for read-only inspection.
-- Add `TypeBlueprint` finalization, parent validation, and canonical interning.
+- Add a `types` provider to the existing opaque evaluator handle,
+  indexing/provenance, and NUPP2414 escape machinery.
+- Add the closed `nupp.types` API and `TypeBlueprint` finalizer.
+- Re-plumb semantic reflection from literal source-path lookup to graph-backed
+  `describe(T)` over any admitted type handle; do not describe this as direct
+  reuse of the current worker reflection path.
+- Land the versioned input/result graph protocol needed by the worker, even
+  while CT1's direct evaluator tests remain in-process.
+- Add parent validation and canonical interning for finalized blueprints.
 - Reject every value-position escape.
 - Test the full current type and pack vocabulary, nominal references, malformed
   graphs, limits, and deterministic fingerprints.
 
-Exit test: a direct evaluator test can inspect and reconstruct every type shape
-used by existing `match` patterns, but source cannot yet call a type function.
+Exit test: a direct in-process evaluator test can inspect and reconstruct every
+row of CT0's coverage matrix, but source cannot yet call a type function.
 
 ### CT2: closed private type functions
 
 - Admit `type` and `typepack` in `@comptime` signatures.
+- Settle their status as contextual compiler-only type names, including the
+  public names of keyword-shaped `nupp.types` members.
 - Parse ordinary calls in type position.
 - Check and seal private type-function program descriptors.
 - Evaluate closed type, pack, string, boolean, and integer arguments.
 - Add authored failures and application/definition traces.
+- Ship `nupp.types.error` with a diagnostic distinct from evaluator and worker
+  failure.
 - Add in-memory query memoization.
 
 Exit test: binary strings, a closed route, and a closed nested-element example
@@ -820,9 +898,11 @@ produce canonical types with no `match`/`infer` in their replacement sources.
 ### CT3: deferred generic calls
 
 - Add `ComptimeTypeCall` terms for open applications.
+- Admit and validate `type<Bound>` result constraints and carry the constraint
+  on every open call.
 - Substitute and normalize them through a checker-owned query callback.
 - Carry calls through generic function signatures, aliases, associated types,
-  exports, hovers, and fingerprints.
+  hovers, and local fingerprints. Export carriage waits for CT4 sealing.
 - Define open-call behavior at every exhaustive type consumer.
 - Preserve dynamic gradual fallbacks where the function explicitly returns
   them for a broad concrete type.
@@ -834,6 +914,8 @@ inference, and uses the generated type to check later arguments and results.
 
 - Seal transitive helper closures in exported function descriptors.
 - Add canonical module-interface fingerprints.
+- Carry sealed open calls through exported signatures, aliases, associated
+  types, hovers, and interface fingerprints.
 - Add the persistent cancellable worker service and crash recovery.
 - Add persisted type-function result caching and revalidation.
 - Track reflected and layout dependencies by observation.
@@ -842,6 +924,18 @@ inference, and uses the generated type to check later arguments and results.
 Exit test: an exported open call evaluates in a consumer, survives an LSP
 restart through the cache, invalidates on a semantic helper edit, cuts off on an
 identical result, and cannot stall the editor past its documented budget.
+
+### CT4b: bootstrap admission
+
+- Refresh the tracked bootstrap compiler after CT1--CT4 are implemented without
+  using type-function syntax in compiler or prelude source.
+- Prove the refreshed bootstrap can build the current compiler, then run the
+  stage-one/stage-two byte-identical `fixpoint`.
+- Only after that commit may CT5 place type-function syntax in
+  `prelude.d.nupp` or compiler source.
+
+Exit test: a cold checkout builds through the refreshed stage-0 compiler and
+reaches the same fixpoint before any production source depends on the feature.
 
 ### CT5: production migrations
 
@@ -858,6 +952,9 @@ the CT0 baselines or have an explicitly accepted improvement.
 
 ### CT6: remove type-level inference
 
+- Refresh the tracked bootstrap after CT5 so the stage-0 compiler understands
+  every migrated declaration before old grammar support is deleted.
+- Run a cold bootstrap build and `fixpoint` at that boundary.
 - Delete the grammar, CST, resolver, type representation, reducer, fingerprint,
   reflection, diagnostic, formatter, highlighter, and tooling cases in the
   removal inventory.
@@ -932,4 +1029,7 @@ The replacement is complete only when:
 5. the old syntax, reducer, recursion machinery, diagnostics, and tooling paths
    are gone; and
 6. the language reference teaches one compile-time programming language:
-   ordinary Nupp under comptime, with types among its compiler-only values.
+   ordinary Nupp under comptime, with types among its compiler-only values; and
+7. compiler-owned derive generation shares the versioned semantic type graph,
+   and any future public provider proposal must reuse the same `nupp.types`
+   handles and blueprint vocabulary rather than a parallel signature language.

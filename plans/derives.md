@@ -1096,6 +1096,12 @@ registration, capability limits and cache ABI compatibility. It may expose only
 constrained result operations proven by external workloads. It cannot expose the
 compiler's CST, type objects, mutable member tables or runtime-expression IR.
 
+Any such proposal must consume the `nupp.types` handles and type-blueprint
+vocabulary defined by [`comptime-types.md`](comptime-types.md), rather than grow
+a parallel signature language. It may augment its one written owner but cannot
+generate a record, interface, nested nominal declaration, import, or module
+member.
+
 No plugin discovery or filesystem scanning participates in checking. Any future
 proposal must make a provider an explicit imported semantic dependency and
 record its resolved identity and ABI in the module interface.
@@ -1360,6 +1366,9 @@ derives rebuilds itself byte-identically.
   duplicates the built-in field-redaction policy and the first unmet operation,
   a package helper call, has no proven semantic or trust contract. See the
   [decision](derives-d6-provider-decision.md).
+- Any reconsideration must use CT1's semantic type handles and CT4's sealed
+  worker, module identity and cache protocol; it must not invent a second
+  envelope or execution path.
 
 Exit test: passed. The decision records the real workload, prototype operations,
 trust model, explicitly unstable ABI and the evidence required to reconsider;
