@@ -21,6 +21,12 @@ local fieldcodec = require("nupp.compiler.materialize.fieldcodec") as {
     finalize: function(any, any): (any, any),
     lower: function(any, any, any): (any, any, any)
 }
+local typeprovider = require("nupp.compiler.materialize.typeprovider") as {
+    installEvaluator: function(any, any, any, any),
+    opaqueKind: function(any, any): string?,
+    operator: function(any, string, any, any): (any, any),
+    finalize: function(any, any): (any, any)
+}
 
 type providers.Failure = {
     readonly code: string,
@@ -111,6 +117,14 @@ function providers.installEvaluator(state: any, env: any)
         end,
         provenance
     )
+    typeprovider.installEvaluator(
+        state,
+        env,
+        function(provider, family, payload, at)
+            return opaque(state, provider, family, payload, at)
+        end,
+        provenance
+    )
 end
 
 local function reflectionValue(state, value, at)
@@ -140,7 +154,8 @@ end
 
 function providers.opaqueKind(state: any, value: any): string?
     local entry = state.opaque[value]
-    return entry and entry.provider == "reflection" and "table" or nil
+    if entry and entry.provider == "reflection" then return "table" end
+    return typeprovider.opaqueKind(state, value)
 end
 
 function providers.index(state: any, handle: any, key: any, at: any): any, providers.Failure?
@@ -231,6 +246,9 @@ function providers.operator(state: any, op: string, left: any, right: any, at: a
     if entry and entry.provider == "peg" then
         return peg.operator(state, op, left, right, at)
     end
+    if entry and entry.provider == "types" then
+        return typeprovider.operator(state, op, left, right)
+    end
 
     return nil, {code = "NUPP2411", message = "this operator is unavailable for opaque comptime values"}
 end
@@ -305,6 +323,8 @@ function providers.finalize(state: any, value: any): any, providers.Failure?
         return peg.finalize(state, value)
     elseif entry.provider == "fieldcodec" then
         return fieldcodec.finalize(state, value)
+    elseif entry.provider == "types" then
+        return typeprovider.finalize(state, value)
     end
 
     return nil, {code = "NUPP2415", message = "no finalizer owns this opaque value"}
@@ -361,6 +381,11 @@ function providers.lower(envelope: any, expected: any, env: any): any, providers
             return peg.lower(envelope, expected, env)
         elseif envelope.provider == "fieldcodec" then
             return fieldcodec.lower(envelope, expected, env)
+        elseif envelope.provider == "types" then
+            return nil, {
+                code = "NUPP2414",
+                message = "a type blueprint is valid only as the result of a type-position comptime call",
+            }
         end
         return nil, {code = "NUPP2415", message = "no materializer owns provider " .. envelope.provider}
     end

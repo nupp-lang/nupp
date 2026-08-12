@@ -1,0 +1,184 @@
+--[[
+Parent-side validation and interning for worker-produced type blueprints.
+
+This module trusts no worker field, fingerprint or edge. It constructs only structural
+types and packs through the ordinary interned constructors; there is deliberately no
+operation which allocates a nominal declaration.
+]]
+
+local T = require("nupp.compiler.types")
+local hash = require("nupp.compiler.build.hash")
+local stable = require("nupp.compiler.build.cache").stable
+
+type typeblueprint.Failure = {
+    readonly code: string,
+    readonly message: string
+}
+
+local record typeblueprint
+    SCHEMA: integer
+    MAX_NODES: integer
+    MAX_MEMBERS: integer
+    validate: function(any): (any, typeblueprint.Failure?)
+end
+
+typeblueprint.SCHEMA = 1
+typeblueprint.MAX_NODES = 10000
+typeblueprint.MAX_MEMBERS = 1000
+
+local PRIMITIVES = {
+    any = T.any,
+    unknown = T.unknown,
+    never = T.never,
+    ["nil"] = T.nil_,
+    boolean = T.boolean,
+    string = T.string,
+    number = T.number,
+    integer = T.integer,
+    ["table"] = T.table_,
+    thread = T.thread,
+    userdata = T.userdata,
+    float = T.float,
+    cdata = T.cdata,
+    cstring = T.cstring,
+    voidptr = T.voidptr,
+    int8 = T.int8,
+    int16 = T.int16,
+    int32 = T.int32,
+    int64 = T.int64,
+    uint8 = T.uint8,
+    uint16 = T.uint16,
+    uint32 = T.uint32,
+    uint64 = T.uint64,
+}
+
+local function failure(message)
+    return {code = "NUPP2415", message = message} as typeblueprint.Failure
+end
+
+function typeblueprint.validate(envelope: any): any, typeblueprint.Failure?
+    if type(envelope) ~= "table" or envelope.kind ~= "type-blueprint"
+        or envelope.provider ~= "types" or envelope.schema ~= typeblueprint.SCHEMA
+        or envelope.family ~= "Type" and envelope.family ~= "Pack"
+        or type(envelope.payload) ~= "table" or type(envelope.fingerprint) ~= "string" then
+        return nil, failure("the comptime worker returned a malformed type blueprint envelope")
+    end
+    local payload, nodes = envelope.payload, envelope.payload.nodes
+    if type(nodes) ~= "table" or #nodes < 1 or #nodes > typeblueprint.MAX_NODES
+        or type(payload.root) ~= "number" or payload.root ~= math.floor(payload.root)
+        or payload.root < 1 or payload.root > #nodes then
+        return nil, failure("type blueprint has an invalid graph root or node count")
+    end
+    local expectedFingerprint = hash.sha256("nupp.types\0v1\0" .. stable(payload))
+    if envelope.fingerprint ~= expectedFingerprint then
+        return nil, failure("type blueprint fingerprint does not match its payload")
+    end
+
+    local built, active = {}, {}
+    local build
+    local function edge(index, label)
+        if type(index) ~= "number" or index ~= math.floor(index) or index < 1 or index > #nodes then
+            return nil, label .. " has an invalid type edge"
+        end
+        return build(index)
+    end
+    local function edgeArray(values, label)
+        if type(values) ~= "table" or #values > typeblueprint.MAX_MEMBERS then
+            return nil, label .. " has an invalid or oversized member array"
+        end
+        local out = {}
+        for position, index in ipairs(values) do
+            local value, why = edge(index, label .. " member " .. tostring(position))
+            if not value then return nil, why end
+            if value.tag == "pack" then return nil, label .. " contains a type pack where a type is required" end
+            out[position] = value
+        end
+        return out, nil
+    end
+
+    build = function(index)
+        if built[index] then return built[index] end
+        if active[index] then return nil, "type blueprint contains a structural cycle" end
+        local node = nodes[index]
+        if type(node) ~= "table" or type(node.kind) ~= "string" then
+            return nil, "type blueprint node " .. tostring(index) .. " has no kind"
+        end
+        active[index] = true
+        local value, why
+        if node.kind == "primitive" then
+            value = PRIMITIVES[node.name]
+            if not value then why = "type blueprint names an unknown primitive " .. tostring(node.name) end
+        elseif node.kind == "literal" then
+            local base
+            base, why = edge(node.base, "literal base")
+            if base and base.tag == "pack" then why, base = "literal base is a type pack", nil end
+            if base then
+                local kind = type(node.value)
+                if kind ~= "string" and kind ~= "boolean"
+                    and (kind ~= "number" or node.value ~= math.floor(node.value)) then
+                    why = "type blueprint literal is not a string, boolean, or exact integer"
+                else
+                    value = T.literal(node.value, base)
+                end
+            end
+        elseif node.kind == "array" then
+            local element
+            element, why = edge(node.element, "array element")
+            if element and element.tag ~= "pack" then value = T.array(element)
+            elseif element then why = "array element is a type pack" end
+        elseif node.kind == "tuple" then
+            local members
+            members, why = edgeArray(node.members, "tuple")
+            if members then value = T.tuple(members) end
+        elseif node.kind == "union" then
+            local members
+            members, why = edgeArray(node.members, "union")
+            if members then value = T.union(members) end
+        elseif node.kind == "pack" then
+            local head
+            head, why = edgeArray(node.head, "pack")
+            if head then
+                local modes = node.modes or {}
+                if type(modes) ~= "table" or #modes > #head then
+                    why = "type blueprint pack modes do not align with its head"
+                else
+                    local copiedModes = {}
+                    for position = 1, #head do
+                        local mode = modes[position] or "plain"
+                        if mode ~= "plain" and mode ~= "owned" and mode ~= "borrowed" and mode ~= "pinned" then
+                            why = "type blueprint pack has an invalid mode at " .. tostring(position)
+                            break
+                        end
+                        copiedModes[position] = mode
+                    end
+                    local tail
+                    if not why and node.tail ~= nil then
+                        tail, why = edge(node.tail, "pack tail")
+                        if tail and tail.tag == "pack" then why, tail = "pack tail is a type pack", nil end
+                    end
+                    if not why then
+                        value = T.pack(head, tail and {kind = "homogeneous", type = tail} or nil, copiedModes)
+                    end
+                end
+            end
+        else
+            why = "type blueprint uses unsupported kind " .. tostring(node.kind)
+        end
+        active[index] = nil
+        if not value then return nil, why end
+        built[index] = value
+        return value
+    end
+
+    local result, why = build(payload.root)
+    if not result then return nil, failure(why as string) end
+    if envelope.family == "Pack" and result.tag ~= "pack" then
+        return nil, failure("type blueprint claims a pack but returns a type")
+    elseif envelope.family == "Type" and result.tag == "pack" then
+        return nil, failure("type blueprint claims a type but returns a pack")
+    end
+
+    return result, nil
+end
+
+return typeblueprint

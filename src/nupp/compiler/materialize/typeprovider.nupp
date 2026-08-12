@@ -1,0 +1,363 @@
+--[[
+The worker-side provider for compiler-only type and type-pack handles.
+
+Handles contain only immutable blueprint nodes. They never contain checker objects,
+nominal allocation identities, scopes or CST nodes. The parent validates and interns
+the finalized graph through `nupp.compiler.typeblueprint`.
+]]
+
+local hash = require("nupp.compiler.build.hash")
+local stable = require("nupp.compiler.build.cache").stable
+
+type typeprovider.Failure = {
+    readonly code: string,
+    readonly message: string,
+    readonly help: string?
+}
+
+local record typeprovider
+    SCHEMA: integer
+    MAX_NODES: integer
+    MAX_MEMBERS: integer
+    installEvaluator: function(any, any, any, any)
+    opaqueKind: function(any, any): string?
+    operator: function(any, string, any, any): (any, typeprovider.Failure?)
+    finalize: function(any, any): (any, typeprovider.Failure?)
+end
+
+typeprovider.SCHEMA = 1
+typeprovider.MAX_NODES = 10000
+typeprovider.MAX_MEMBERS = 1000
+
+local PRIMITIVES = {
+    any = true,
+    unknown = true,
+    never = true,
+    ["nil"] = true,
+    boolean = true,
+    string = true,
+    number = true,
+    integer = true,
+    ["table"] = true,
+    thread = true,
+    userdata = true,
+    float = true,
+    cdata = true,
+    cstring = true,
+    voidptr = true,
+    int8 = true,
+    int16 = true,
+    int32 = true,
+    int64 = true,
+    uint8 = true,
+    uint16 = true,
+    uint32 = true,
+    uint64 = true,
+}
+
+local function failure(code, message, help)
+    return {code = code, message = message, help = help} as typeprovider.Failure
+end
+
+local function entry(state, value, family)
+    local found = state.opaque[value]
+    if not found or found.provider ~= "types" or family and found.family ~= family then
+        return nil
+    end
+
+    return found
+end
+
+local function memberArray(state, values, family, label)
+    if type(values) ~= "table" then
+        return nil, failure("NUPP2415", label .. " needs an array")
+    end
+    if #values > typeprovider.MAX_MEMBERS then
+        return nil, failure("NUPP2416", label .. " exceeds the 1000-member type limit")
+    end
+    local out = {}
+    for index, value in ipairs(values) do
+        local found = entry(state, value, family)
+        if not found then
+            return nil, failure("NUPP2415", label .. " contains a foreign handle at " .. tostring(index))
+        end
+        out[index] = value
+    end
+
+    return out, nil
+end
+
+local function keyOf(state, handle)
+    local found = entry(state, handle)
+    return found and found.payload and found.payload.key or nil
+end
+
+local function make(state, opaque, family, payload, at)
+    local key = family .. ":" .. payload.key
+    local prior = state.typeHandles[key]
+    if prior then
+        return prior
+    end
+    local made = opaque("types", family, payload, at)
+    state.typeHandles[key] = made
+
+    return made
+end
+
+local function installIntrinsic(state, library, name, implementation)
+    local token = function() end
+    state.intrinsics[token] = implementation
+    library[name] = token
+end
+
+function typeprovider.installEvaluator(state, env, opaque, provenance)
+    state.typeHandles = {}
+    local library = {}
+
+    local function primitive(name)
+        return make(state, opaque, "Type", {kind = "primitive", name = name, key = "primitive:" .. name}, nil)
+    end
+
+    for name in pairs(PRIMITIVES) do
+        library[name == "nil" and "nil_" or name == "table" and "table_" or name] = primitive(name)
+    end
+
+    installIntrinsic(state, library, "literal", function(at, args)
+        local value = args[1]
+        local valueKind = type(value)
+        if valueKind ~= "string" and valueKind ~= "boolean"
+            and (valueKind ~= "number" or value ~= math.floor(value)) then
+            return nil, failure("NUPP2415", "nupp.types.literal needs a string, boolean, or exact integer")
+        end
+        local base = valueKind == "string" and library.string
+            or valueKind == "boolean" and library.boolean or library.integer
+        local encoded = valueKind .. ":" .. tostring(value)
+        return make(
+            state,
+            opaque,
+            "Type",
+            {kind = "literal", value = value, base = base, key = "literal:" .. encoded},
+            provenance(at, "literal")
+        )
+    end)
+
+    installIntrinsic(state, library, "array", function(at, args)
+        local element = entry(state, args[1], "Type")
+        if not element then
+            return nil, failure("NUPP2415", "nupp.types.array needs one type handle")
+        end
+        return make(
+            state,
+            opaque,
+            "Type",
+            {kind = "array", element = args[1], key = "array:" .. element.payload.key},
+            provenance(at, "array")
+        )
+    end)
+
+    installIntrinsic(state, library, "tuple", function(at, args)
+        local members, why = memberArray(state, args[1], "Type", "nupp.types.tuple")
+        if not members then return nil, why end
+        local keys = {}
+        for index, member in ipairs(members) do keys[index] = keyOf(state, member) end
+        return make(
+            state,
+            opaque,
+            "Type",
+            {kind = "tuple", members = members, key = "tuple:" .. table.concat(keys, ",")},
+            provenance(at, "tuple")
+        )
+    end)
+
+    installIntrinsic(state, library, "union", function(at, args)
+        local members, why = memberArray(state, args[1], "Type", "nupp.types.union")
+        if not members then return nil, why end
+        local byKey = {}
+        for _, member in ipairs(members) do byKey[keyOf(state, member)] = member end
+        local keys = {}
+        for key in pairs(byKey) do keys[#keys + 1] = key end
+        table.sort(keys)
+        local canonical = {}
+        for index, key in ipairs(keys) do canonical[index] = byKey[key] end
+        return make(
+            state,
+            opaque,
+            "Type",
+            {kind = "union", members = canonical, key = "union:" .. table.concat(keys, "|")},
+            provenance(at, "union")
+        )
+    end)
+
+    installIntrinsic(state, library, "optional", function(at, args)
+        local inner = entry(state, args[1], "Type")
+        if not inner then
+            return nil, failure("NUPP2415", "nupp.types.optional needs one type handle")
+        end
+        local nilHandle = library.nil_
+        local members = {args[1], nilHandle}
+        local keys = {inner.payload.key, keyOf(state, nilHandle)}
+        table.sort(keys)
+        if keys[1] ~= inner.payload.key then members = {nilHandle, args[1]} end
+        return make(
+            state,
+            opaque,
+            "Type",
+            {kind = "union", members = members, key = "union:" .. table.concat(keys, "|")},
+            provenance(at, "optional")
+        )
+    end)
+
+    installIntrinsic(state, library, "pack", function(at, args)
+        local head, why = memberArray(state, args[1] or {}, "Type", "nupp.types.pack")
+        if not head then return nil, why end
+        local tail = args[2]
+        if tail ~= nil and not entry(state, tail, "Type") then
+            return nil, failure("NUPP2415", "nupp.types.pack tail must be a type handle")
+        end
+        local modes = args[3] or {}
+        if type(modes) ~= "table" or #modes > #head then
+            return nil, failure("NUPP2415", "nupp.types.pack modes must align with its fixed head")
+        end
+        local keys, copiedModes = {}, {}
+        for index, member in ipairs(head) do
+            local mode = modes[index] or "plain"
+            if mode ~= "plain" and mode ~= "owned" and mode ~= "borrowed" and mode ~= "pinned" then
+                return nil, failure("NUPP2415", "nupp.types.pack has an invalid mode at " .. tostring(index))
+            end
+            copiedModes[index] = mode
+            keys[index] = mode .. ":" .. keyOf(state, member)
+        end
+        local tailKey = tail and keyOf(state, tail) or "-"
+        return make(
+            state,
+            opaque,
+            "Pack",
+            {kind = "pack", head = head, tail = tail, modes = copiedModes, key = table.concat(keys, ",") .. "..." .. tailKey},
+            provenance(at, "pack")
+        )
+    end)
+
+    installIntrinsic(state, library, "kind", function(_, args)
+        local found = entry(state, args[1])
+        if not found then return nil, failure("NUPP2415", "nupp.types.kind needs a type or type-pack handle") end
+        return found.payload.kind
+    end)
+
+    installIntrinsic(state, library, "describe", function(_, args)
+        local found = entry(state, args[1])
+        if not found then return nil, failure("NUPP2415", "nupp.types.describe needs a type or type-pack handle") end
+        local payload = found.payload
+        return {
+            kind = payload.kind,
+            name = payload.name,
+            value = payload.value,
+            element = payload.element,
+            members = payload.members,
+            head = payload.head,
+            tail = payload.tail,
+            modes = payload.modes,
+        }
+    end)
+
+    installIntrinsic(state, library, "elements", function(_, args)
+        local found = entry(state, args[1], "Type")
+        if not found then return nil, failure("NUPP2415", "nupp.types.elements needs a type handle") end
+        local payload = found.payload
+        if payload.kind == "array" then return {payload.element} end
+        if payload.kind == "tuple" or payload.kind == "union" then return payload.members end
+        return nil, failure("NUPP2415", "nupp.types.elements cannot inspect " .. tostring(payload.kind))
+    end)
+
+    installIntrinsic(state, library, "error", function(_, args)
+        if type(args[1]) ~= "string" then
+            return nil, failure("NUPP2415", "nupp.types.error needs a string message")
+        end
+        return nil, failure("NUPP2420", args[1])
+    end)
+
+    env.nupp = env.nupp or {}
+    env.nupp.types = library
+end
+
+function typeprovider.opaqueKind(state, value): string?
+    local found = entry(state, value)
+    if not found then return nil end
+    return found.family == "Pack" and "typepack" or "type"
+end
+
+function typeprovider.operator(state, op, left, right): any, typeprovider.Failure?
+    local found = entry(state, left)
+    if not found or op ~= "==" and op ~= "~=" then
+        return nil, failure("NUPP2411", "this operator is unavailable for type handles")
+    end
+    local other = entry(state, right)
+    local equal = other ~= nil and found.family == other.family and found.payload.key == other.payload.key
+    if op == "==" then return equal, nil end
+    return not equal, nil
+end
+
+local function finalizeGraph(state, root)
+    local indices, nodes, origins = {}, {}, {}
+    local failed
+
+    local function intern(handle)
+        local prior = indices[handle]
+        if prior then return prior end
+        if #nodes >= typeprovider.MAX_NODES then
+            failed = failure("NUPP2416", "type blueprint exceeds the 10000-node limit")
+            return 0
+        end
+        local found = entry(state, handle)
+        if not found then
+            failed = failure("NUPP2415", "type blueprint contains a foreign handle")
+            return 0
+        end
+        local index = #nodes + 1
+        indices[handle] = index
+        local payload = found.payload
+        local node = {kind = payload.kind}
+        nodes[index], origins[index] = node, found.provenance
+        if payload.kind == "primitive" then
+            node.name = payload.name
+        elseif payload.kind == "literal" then
+            node.value = payload.value
+            node.base = intern(payload.base)
+        elseif payload.kind == "array" then
+            node.element = intern(payload.element)
+        elseif payload.kind == "tuple" or payload.kind == "union" then
+            node.members = {}
+            for position, member in ipairs(payload.members or {}) do node.members[position] = intern(member) end
+        elseif payload.kind == "pack" then
+            node.head, node.modes = {}, payload.modes
+            for position, member in ipairs(payload.head or {}) do node.head[position] = intern(member) end
+            node.tail = payload.tail and intern(payload.tail) or nil
+        else
+            failed = failure("NUPP2415", "type blueprint uses unsupported kind " .. tostring(payload.kind))
+        end
+        return index
+    end
+
+    local rootIndex = intern(root)
+    if failed then return nil, failed end
+    local payload = {root = rootIndex, nodes = nodes}
+    local fingerprint = hash.sha256("nupp.types\0v1\0" .. stable(payload))
+    return {
+        kind = "type-blueprint",
+        provider = "types",
+        schema = typeprovider.SCHEMA,
+        family = entry(state, root).family,
+        payload = payload,
+        provenance = origins,
+        fingerprint = fingerprint,
+        summary = ("%d-node %s blueprint"):format(#nodes, entry(state, root).family:lower()),
+    }, nil
+end
+
+function typeprovider.finalize(state, value): any, typeprovider.Failure?
+    if not entry(state, value) then
+        return nil, failure("NUPP2415", "the value is not a type handle")
+    end
+    return finalizeGraph(state, value)
+end
+
+return typeprovider

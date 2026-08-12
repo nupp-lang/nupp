@@ -10,6 +10,8 @@ local gen = require("nupp.compiler.gen")
 local check = require("fragment")
 local envMod = require("nupp.compiler.env")
 local T = require("nupp.compiler.types")
+local comptime = require("nupp.compiler.comptime")
+local typeblueprint = require("nupp.compiler.typeblueprint")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
@@ -83,7 +85,110 @@ local function firstLocalBinding(result)
    return result.root.blocks[1].stats[1].names[1].definition.type
 end
 
+local function evaluateTypeBlueprint(body)
+   local result = parser.parse("return comptime do " .. body .. " end", "type-blueprint-test.g.nupp")
+   assertEq(#result.errors, 0, "type blueprint source parses")
+   local returned = result.root.blocks[1].stats[1]
+   local node = returned.exprs[1]
+   local _, _, failure, envelope = comptime.evaluateDirect(node, node.body, {}, {}, {})
+   if failure then
+      error(("unexpected %s: %s"):format(failure.code, failure.message), 2)
+   end
+   assertTrue(envelope ~= nil, "a type handle finalizes as an envelope")
+   local value, invalid = typeblueprint.validate(envelope)
+   if invalid then
+      error(("invalid %s: %s"):format(invalid.code, invalid.message), 2)
+   end
+   return value, envelope
+end
+
 local M = {}
+
+function M.finalizesAndValidatesStructuralTypeHandles()
+   local value = evaluateTypeBlueprint([[
+      const name = nupp.types.literal("id")
+      const maybeInteger = nupp.types.optional(nupp.types.integer)
+      return nupp.types.tuple({name, maybeInteger})
+   ]])
+   assertEq(value.tag, "tuple", "the parent interns the structural result")
+   assertEq(value.elems[1].constant, "id", "literal payload survives validation")
+   assertEq(value.elems[2], T.optional(T.integer), "builder results use ordinary interning")
+end
+
+function M.finalizesAndValidatesTypePackHandles()
+   local value = evaluateTypeBlueprint([[
+      return nupp.types.pack(
+         {nupp.types.string, nupp.types.integer},
+         nupp.types.any,
+         {"plain", "borrowed"}
+      )
+   ]])
+   assertEq(value.tag, "pack", "the parent interns a pack result")
+   assertEq(value.head[1], T.string, "pack head keeps its first type")
+   assertEq(value.modes[2], "borrowed", "pack modes survive validation")
+   assertEq(value.tail.type, T.any, "pack homogeneous tail survives validation")
+end
+
+function M.scansFormatArgumentsWithOrdinaryComptimeControlFlow()
+   local value = evaluateTypeBlueprint([[
+      const format = "%s=%04d %% %q"
+      local arguments = {}
+      local cursor = 1
+      while cursor <= #format do
+         if format:sub(cursor, cursor) == "%" then
+            cursor = cursor + 1
+            if format:sub(cursor, cursor) ~= "%" then
+               while format:sub(cursor, cursor):match("[-+ #0]") do
+                  cursor = cursor + 1
+               end
+               while format:sub(cursor, cursor):match("[0-9]") do
+                  cursor = cursor + 1
+               end
+               if format:sub(cursor, cursor) == "." then
+                  cursor = cursor + 1
+                  while format:sub(cursor, cursor):match("[0-9]") do
+                     cursor = cursor + 1
+                  end
+               end
+               const conversion = format:sub(cursor, cursor)
+               if conversion == "s" or conversion == "q" then
+                  arguments[#arguments + 1] = nupp.types.any
+               elseif conversion == "d" or conversion == "i" then
+                  arguments[#arguments + 1] = nupp.types.number
+               else
+                  return nupp.types.error("unsupported format conversion %" .. conversion)
+               end
+            end
+         end
+         cursor = cursor + 1
+      end
+      return nupp.types.pack(arguments)
+   ]])
+   assertEq(#value.head, 3, "the ordinary scanner computes format arity")
+   assertEq(value.head[1], T.any, "%s accepts the gradual printable input")
+   assertEq(value.head[2], T.number, "%d accepts a numeric input")
+   assertEq(value.head[3], T.any, "%q accepts the gradual printable input")
+end
+
+function M.separatesAuthoredTypeFailureFromEvaluatorFailure()
+   local result = parser.parse([[
+      return comptime do
+         return nupp.types.error("expected a literal format")
+      end
+   ]], "type-error-test.g.nupp")
+   assertEq(#result.errors, 0, "authored type error source parses")
+   local node = result.root.blocks[1].stats[1].exprs[1]
+   local _, _, failure = comptime.evaluateDirect(node, node.body, {}, {}, {})
+   assertEq(failure.code, "NUPP2420", "authored type rejection has its own diagnostic")
+   assertEq(failure.message, "expected a literal format", "authored message is preserved")
+end
+
+function M.rejectsTamperedTypeBlueprints()
+   local _, envelope = evaluateTypeBlueprint([[return nupp.types.array(nupp.types.string)]])
+   envelope.payload.nodes[1].element = 999
+   local _, invalid = typeblueprint.validate(envelope)
+   assertEq(invalid.code, "NUPP2415", "the parent rejects a forged graph edge")
+end
 
 local LAYOUT_SOURCE = [[
 local struct Inner
