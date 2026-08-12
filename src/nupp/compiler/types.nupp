@@ -174,34 +174,6 @@ type types.ComptimeArgument = types.ComptimeTypeArgument | types.ComptimePackArg
 
 type types.TemplatePart = string | types.Type
 
---- A resolved, source-spellable type-match pattern.
-record types.MatchPattern
-    id: string
-    kind: string
-    binder: types.TypeVar?
-    expected: types.Type?
-    children: {types.MatchPattern}?
-    templateParts: {types.MatchPatternPart}?
-    countTerm: types.ConstTerm?
-    paramCount: integer?
-    paramPackBinder: types.PackVar?
-    retPackBinder: types.PackVar?
-
-    --- A tuple suffix matched by `unpackof` after the fixed children.
-    tupleTail: types.MatchPattern?
-
-    --- Pack binders in a nominal pattern, in nominal pack-parameter order.
-    nominalPackBinders: {types.PackVar}?
-end
-
-type types.MatchPatternPart = string | types.MatchPattern
-
-record types.MatchArm
-    id: string
-    pattern: types.MatchPattern
-    result: types.Type
-end
-
 --- One operation that can discharge an owned value. Function references carry the
 --- binding resolved where the contract was declared; the other forms reach through
 --- the owned value itself and therefore need no module linkage.
@@ -308,20 +280,6 @@ record types.ProtocolThread
     returnPack: types.Pack
 end
 
---- The stable identity and binder signature of a recursive alias.  The checker creates
---- the header before resolving the body, then seals `body` exactly once.  Alias calls
---- point here instead of copying a partially-resolved body into the type arena.
-record types.AliasHeader
-    id: string
-    name: string
-    body: types.Type?
-    typeParams: {types.Type}
-    typeBounds: {types.Type}
-    packParams: {types.PackVar}
-    constParams: {types.ConstVar}
-    paramKinds: {string}
-end
-
 --- A structural generic alias awaiting explicit type and pack arguments.
 record types.GenericAlias
     id: string
@@ -333,7 +291,6 @@ record types.GenericAlias
     packParams: {types.PackVar}
     constParams: {types.ConstVar}
     paramKinds: {string}
-    header: types.AliasHeader?
 end
 
 --- A function.
@@ -477,12 +434,6 @@ record types.Neutral
     remap: types.Type?
     constTerm: types.ConstTerm?
     templateParts: {types.TemplatePart}?
-    matchEach: boolean?
-    matchArms: {types.MatchArm}?
-    aliasHeader: types.AliasHeader?
-    aliasTypeArgs: {types.Type}?
-    aliasPackArgs: {types.Pack}?
-    aliasConstArgs: {types.ConstTerm}?
     comptimeIdentity: string?
     comptimeHelper: any
     comptimeArguments: {types.ComptimeArgument}?
@@ -839,8 +790,6 @@ local capabilityArena: {[string]: types.Capability} = {}
 local capabilityIdentity = setmetatable({}, {__mode = "k"})
 local nextCapabilityIdentity: integer = 0
 local constArena: {[string]: types.ConstTerm} = {}
-local patternArena: {[string]: types.MatchPattern} = {}
-local aliasHeaderSerial = 0
 
 local function flowIdentity(value: any): integer
     if value == nil then
@@ -1618,81 +1567,6 @@ function types.tostringConst(term: types.ConstTerm): string
     ) .. " " .. term.operation .. " " .. types.tostringConst(term.operands[2]) .. ")"
 end
 
-function types.matchPattern(
-    kind: string,
-    binder: types.TypeVar?,
-    expected: types.Type?,
-    children: {types.MatchPattern}?,
-    templateParts: {types.MatchPatternPart}?,
-    countTerm: types.ConstTerm?,
-    paramCount: integer?,
-    paramPackBinder: types.PackVar?,
-    retPackBinder: types.PackVar?,
-    tupleTail: types.MatchPattern?,
-    nominalPackBinders: {types.PackVar}?
-): types.MatchPattern
-    local childIds, partIds, nominalPackIds = {}, {}, {}
-    for j, child in ipairs(children or {}) do
-        childIds[j] = child.id
-    end
-    -- Length in front for the same reason as in `types.neutral`: these are joined with
-    -- a separator a literal part may contain.
-    for j, part in ipairs(templateParts or {}) do
-        partIds[
-            j
-        ] = type(
-            part
-        ) == "string" and "s" .. #(part as string) .. ":" .. (part as string) or "p:" .. (part as types.MatchPattern).id
-    end
-    for index, nominalBinder in ipairs(nominalPackBinders or {}) do
-        nominalPackIds[index] = nominalBinder.id
-    end
-    local id = "pattern(" .. kind .. ":" .. (
-        binder and binder.id or "-"
-    ) .. ":" .. (
-        expected and expected.id or "-"
-    ) .. ":" .. table.concat(
-        childIds,
-        ","
-    ) .. ":" .. table.concat(
-        partIds,
-        ","
-    ) .. ":" .. (
-        countTerm and countTerm.id or "-"
-    ) .. ":" .. tostring(
-        paramCount or "-"
-    ) .. ":" .. (
-        paramPackBinder and paramPackBinder.id or "-"
-    ) .. ":" .. (
-        retPackBinder and retPackBinder.id or "-"
-    ) .. ":" .. (tupleTail and tupleTail.id or "-") .. ":" .. table.concat(nominalPackIds, ",") .. ")"
-    local found = patternArena[id]
-    if found then
-        return found
-    end
-    local made = new types.MatchPattern(
-        kind = kind,
-        binder = binder,
-        expected = expected,
-        children = children,
-        templateParts = templateParts,
-        countTerm = countTerm,
-        paramCount = paramCount,
-        paramPackBinder = paramPackBinder,
-        retPackBinder = retPackBinder,
-        tupleTail = tupleTail,
-        nominalPackBinders = nominalPackBinders
-    )
-    made.id = inheritedMarks(id) .. serial("m")
-    patternArena[id] = made
-
-    return made
-end
-
-function types.matchArm(pattern: types.MatchPattern, result: types.Type): types.MatchArm
-    return new types.MatchArm(id = pattern.id .. "=>" .. result.id, pattern = pattern, result = result)
-end
-
 function types.packUnion(alternatives: {types.Pack}): types.Pack
     local flat, seen, ids = {}, {}, {}
     for _, p in ipairs(alternatives) do
@@ -1771,8 +1645,7 @@ function types.genericAlias(
     typeBounds: {types.Type}?,
     packParams: {types.PackVar}?,
     constParams: {types.ConstVar}?,
-    paramKinds: {string}?,
-    header: types.AliasHeader?
+    paramKinds: {string}?
 ): types.Type
     local parts = {"alias(" .. name, body.id}
     for _, tv in ipairs(typeParams or {}) do
@@ -1795,34 +1668,9 @@ function types.genericAlias(
             typeBounds = typeBounds or {},
             packParams = packParams or {},
             constParams = constParams or {},
-            paramKinds = paramKinds or {},
-            header = header
+            paramKinds = paramKinds or {}
         )
     end)
-end
-
---- Creates the declaration-local header used by recursive alias calls.  Headers are
---- intentionally not interned: their body is sealed after the declaration has been
---- resolved, while every type placed in the global arena remains immutable.
-function types.aliasHeader(
-    identity: string,
-    name: string,
-    typeParams: {types.Type}?,
-    typeBounds: {types.Type}?,
-    packParams: {types.PackVar}?,
-    constParams: {types.ConstVar}?,
-    paramKinds: {string}?
-): types.AliasHeader
-    aliasHeaderSerial = aliasHeaderSerial + 1
-    return new types.AliasHeader(
-        id = "alias-header(" .. identity .. "#" .. tostring(aliasHeaderSerial) .. ")",
-        name = name,
-        typeParams = typeParams or {},
-        typeBounds = typeBounds or {},
-        packParams = packParams or {},
-        constParams = constParams or {},
-        paramKinds = paramKinds or {}
-    )
 end
 
 function types.tostringPack(pack: types.Pack): string
@@ -2237,9 +2085,7 @@ function types.neutral(
     value: types.Type?,
     remap: types.Type?,
     constTerm: types.ConstTerm?,
-    templateParts: {types.TemplatePart}?,
-    matchEach: boolean?,
-    matchArms: {types.MatchArm}?
+    templateParts: {types.TemplatePart}?
 ): types.Type
     -- A literal part is written with its length in front, because the parts are joined
     -- with a separator that a literal is free to contain. Without the length, the two
@@ -2253,10 +2099,6 @@ function types.neutral(
         ] = type(
             part
         ) == "string" and "s" .. #(part as string) .. ":" .. (part as string) or "t:" .. (part as types.Type).id
-    end
-    local armIds = {}
-    for j, arm in ipairs(matchArms or {}) do
-        armIds[j] = arm.id
     end
     local id = "neutral(" .. op .. ":" .. (
         capability or "-"
@@ -2274,10 +2116,7 @@ function types.neutral(
         remap and remap.id or "-"
     ) .. ":" .. (
         constTerm and constTerm.id or "-"
-    ) .. ":" .. table.concat(
-        templateIds,
-        ","
-    ) .. ":" .. (matchEach and "each" or "one") .. ":" .. table.concat(armIds, ",") .. ")"
+    ) .. ":" .. table.concat(templateIds, ",") .. ")"
 
     return interned(id) or intern(id, function()
         return new types.Neutral(
@@ -2291,42 +2130,7 @@ function types.neutral(
             value = value,
             remap = remap,
             constTerm = constTerm,
-            templateParts = templateParts,
-            matchEach = matchEach,
-            matchArms = matchArms
-        )
-    end)
-end
-
---- Interns one application of a recursive alias header.  The header body is not part
---- of the key: declaration identity plus canonical arguments name the request, while
---- the enclosing exported alias fingerprints the sealed body.
-function types.aliasCall(
-    header: types.AliasHeader,
-    typeArgs: {types.Type}?,
-    packArgs: {types.Pack}?,
-    constArgs: {types.ConstTerm}?
-): types.Type
-    local ids = {header.id}
-    for _, argument in ipairs(typeArgs or {}) do
-        ids[#ids + 1] = "t:" .. argument.id
-    end
-    for _, argument in ipairs(packArgs or {}) do
-        ids[#ids + 1] = "p:" .. argument.id
-    end
-    for _, argument in ipairs(constArgs or {}) do
-        ids[#ids + 1] = "c:" .. argument.id
-    end
-    local id = "neutral(alias:" .. table.concat(ids, ",") .. ")"
-
-    return interned(id) or intern(id, function()
-        return new types.Neutral(
-            tag = "neutral",
-            op = "alias",
-            aliasHeader = header,
-            aliasTypeArgs = typeArgs or {},
-            aliasPackArgs = packArgs or {},
-            aliasConstArgs = constArgs or {}
+            templateParts = templateParts
         )
     end)
 end
@@ -2387,33 +2191,6 @@ end
 --- `hasTypevar` is, so normalization can decline to walk what cannot contain one.
 function types.hasProjection(t: types.Type): boolean
     return t.id:find(MARK_PROJECTION, 1, true) ~= nil
-end
-
-local function tostringPattern(pattern: types.MatchPattern): string
-    if pattern.kind == "infer" then
-        return "infer " .. (pattern.binder and pattern.binder.name or "_")
-    end
-    if pattern.kind == "ordinary" then
-        return types.tostring(pattern.expected as types.Type)
-    end
-    if pattern.kind == "default" then
-        return "_"
-    end
-    if pattern.kind == "array" then
-        return "{" .. tostringPattern((pattern.children as {types.MatchPattern})[1]) .. "}"
-    end
-    if pattern.kind == "ptr" then
-        return tostringPattern((pattern.children as {types.MatchPattern})[1]) .. "*"
-    end
-    if pattern.kind == "template" then
-        local parts = {}
-        for j, part in ipairs(pattern.templateParts or {}) do
-            parts[j] = type(part) == "string" and part or "${" .. tostringPattern(part as types.MatchPattern) .. "}"
-        end
-        return "`" .. table.concat(parts) .. "`"
-    end
-
-    return "<" .. pattern.kind .. " pattern>"
 end
 
 -- Cheap containment test used to decide whether instantiation is needed.
@@ -2607,20 +2384,7 @@ function types.tostring(t: types.Type): string
     elseif tag == "packResult" then
         return "typepack(" .. types.tostringPack(t.pack) .. ")"
     elseif tag == "neutral" then
-        if t.op == "alias" then
-            local arguments = {}
-            for _, argument in ipairs(t.aliasTypeArgs or {}) do
-                arguments[#arguments + 1] = types.tostring(argument)
-            end
-            for _, argument in ipairs(t.aliasPackArgs or {}) do
-                arguments[#arguments + 1] = types.tostringPack(argument)
-            end
-            for _, argument in ipairs(t.aliasConstArgs or {}) do
-                arguments[#arguments + 1] = types.tostringConst(argument)
-            end
-            local name = t.aliasHeader and t.aliasHeader.name or "<recursive alias>"
-            return name .. (#arguments > 0 and "<" .. table.concat(arguments, ", ") .. ">" or "")
-        elseif t.op == "comptimeCall" then
+        if t.op == "comptimeCall" then
             local arguments = {}
             for _, argument in ipairs(t.comptimeArguments or {}) do
                 if argument.kind == "type" then
@@ -2654,8 +2418,6 @@ function types.tostring(t: types.Type): string
                 parts[j] = type(part) == "string" and part or "${" .. types.tostring(part as types.Type) .. "}"
             end
             return "`" .. table.concat(parts) .. "`"
-        elseif t.op == "typeError" then
-            return "typeerror<" .. types.tostring(t.subject as types.Type) .. ">"
         elseif t.op == "tupleConcat" then
             local prefix = t.subject as types.Tuple
             local parts = {}
@@ -2664,18 +2426,6 @@ function types.tostring(t: types.Type): string
             end
             parts[#parts + 1] = "unpackof " .. types.tostring(t.key as types.Type)
             return "{" .. table.concat(parts, ", ") .. "}"
-        elseif t.op == "match" then
-            local arms = {}
-            for _, arm in ipairs(t.matchArms or {}) do
-                if arm.pattern.kind == "default" then
-                    arms[#arms + 1] = "else " .. types.tostring(arm.result)
-                else
-                    arms[#arms + 1] = "when " .. tostringPattern(arm.pattern) .. " then " .. types.tostring(arm.result)
-                end
-            end
-            return "match " .. (
-                t.matchEach and "each " or ""
-            ) .. types.tostring(t.subject as types.Type) .. " " .. table.concat(arms, " ") .. " end"
         end
         return "<" .. t.op .. ">"
     elseif tag == "metatable" then

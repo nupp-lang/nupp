@@ -259,8 +259,6 @@ record state.Checker
 
     --- The innermost alias body being resolved.  Together with `resolvingAlias` this
     --- distinguishes permitted direct recursion from unsupported mutual recursion.
-    activeAlias: any
-
     --- Every value the last call returned, so a multi-value expansion can reach past
     --- the first.
     lastCallRets: {Type}?

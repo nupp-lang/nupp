@@ -1570,6 +1570,7 @@ function calls.install(c: state.Checker): calls.Ops
         local varargType = calleeT.varargType
         local computedParamTail = paramPack.tail and paramPack.tail.kind == "computed"
         local constInferenceFailed = false
+        local packProblem
         -- Only bind generics introduced by the callable itself. A callback type such as
         -- `function(A...): R...` inside an outer generic function mentions the outer
         -- binders, but calling that callback must preserve those symbolic packs rather
@@ -1624,6 +1625,7 @@ function calls.install(c: state.Checker): calls.Ops
             local paramEval = generics.evaluatePack(substPack(paramPack, map), c.reductionControl)
             local retEval = generics.evaluatePack(substPack(retPack, map), c.reductionControl)
             paramPack, retPack = paramEval.pack, retEval.pack
+            packProblem = paramEval.error or retEval.error
             for _, name in ipairs(paramEval.gradual) do
                 erasedProjections[#erasedProjections + 1] = name
             end
@@ -1639,8 +1641,9 @@ function calls.install(c: state.Checker): calls.Ops
                 varargType = substType(varargType, map, nil, c.reductionControl)
             end
         end
-        local packProblem
-        paramPack, packProblem = generics.expandComputedPack(paramPack, c.reductionControl)
+        if not packProblem then
+            paramPack, packProblem = generics.expandComputedPack(paramPack, c.reductionControl)
+        end
         if not packProblem then
             retPack, packProblem = generics.expandComputedPack(retPack, c.reductionControl)
         end

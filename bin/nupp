@@ -173,7 +173,7 @@ build_now() {
 # their job twice or undoing it. `help` and a bare invocation answer without
 # reading a single source file.
 case "${1:-}" in
-    ""|-h|--help|help) rebuild=no ;;
+    ""|-h|--help|help|__comptime-worker-service) rebuild=no ;;
     build|clean)       rebuild=no ;;
     *)                 rebuild=yes ;;
 esac

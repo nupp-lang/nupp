@@ -291,7 +291,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     end
 
     local parseExp, parseBlock, parseSuffixedexp, parseTableconstructor, parseFuncbody, parseType, parsePosttype, parseTypePack, parseStatement, parseReturnType, parseIstring, parseCaptureClause
-    local typePatternDepth = 0
 
     -- Tokens that can begin a type expression.
     local TYPE_START = {
@@ -492,60 +491,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- A type without its postfixes.
     local function parseTypePrimary(): Node
         local kind = cur().kind
-        if typePatternDepth > 0 and kind == "name" and cur().text == "infer" and tokens[
-            i + 1
-        ] and tokens[i + 1].kind == "name" then
-            local n = new cst.Tinfer(kind = "tinfer")
-            add(n, advance()).contextualOp = true
-            n.name = add(n, advance())
-            if cur().kind == "..." then
-                n.pack = true
-                add(n, advance()).generic = true
-            end
-            return n
-        end
-        if kind == "name" and cur().text == "match" and startsType(tokens[i + 1]) then
-            local n = new cst.Tmatch(kind = "tmatch", arms = {})
-            add(n, advance()).contextualOp = true
-            if cur().kind == "name" and cur().text == "each" then
-                n.each = true
-                add(n, advance()).contextualOp = true
-            end
-            n.scrutinee = add(n, parseType())
-            while cur().kind == "name" and cur().text == "when" do
-                local arm = new cst.TmatchArm(kind = "tmatchArm")
-                add(arm, advance()).contextualOp = true
-                typePatternDepth = typePatternDepth + 1
-                arm.pattern = add(arm, parseType())
-                typePatternDepth = typePatternDepth - 1
-                if not (cur().kind == "then") then
-                    errAt(cur(), "'then' expected after type-match pattern")
-                end
-                add(arm, expect("then", "after type-match pattern"))
-                arm.result = add(arm, parseType())
-                n.arms[#n.arms + 1] = add(n, arm)
-            end
-            if cur().kind == "else" then
-                add(n, advance())
-                n.fallback = add(n, parseType())
-            end
-            add(n, expect("end", "to close type match"))
-            return n
-        end
         if kind == "name" and (
             cur().text == "keyof" or cur().text == "writekeyof"
         ) and startsType(tokens[i + 1]) and tokens[i + 1].line == cur().line then
             local n = new cst.Tkeyof(kind = "tkeyof", capability = cur().text == "keyof" and "read" or "write")
             add(n, advance()).contextualOp = true
             n.inner = add(n, parseTypePrimary())
-            return n
-        end
-        if kind == "name" and cur().text == "typeerror" and tokens[i + 1] and tokens[i + 1].kind == "<" then
-            local n = new cst.Ttypeerror(kind = "ttypeerror")
-            add(n, advance()).contextualOp = true
-            add(n, advance()).generic = true
-            n.message = add(n, parseType())
-            add(n, expect(">", "to close typeerror message")).generic = true
             return n
         end
         if kind == "name" and cur().text == "writeof" and startsType(
@@ -1453,7 +1404,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         add(n, advance()) -- istringOpen
         n.parts = {}
         while true do
-            n.parts[#n.parts + 1] = add(n, typePatternDepth > 0 and parseType() or resetNoMethod(parseExp))
+            n.parts[#n.parts + 1] = add(n, resetNoMethod(parseExp))
             local k = cur().kind
             if k == "istringMid" then
                 add(n, advance())

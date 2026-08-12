@@ -319,7 +319,7 @@ typeFingerprint = function(
     elseif tag == "literal" then
         value = "literal(" .. stable(t.constant) .. ":" .. typeFingerprint(t.base, active, binders) .. ")"
     elseif tag == "neutral" then
-        local templates, arms, aliasArguments, comptimeArguments = {}, {}, {}, {}
+        local templates, comptimeArguments = {}, {}
         for _, part in ipairs(t.templateParts or {}) do
             templates[
                 #templates + 1
@@ -328,57 +328,6 @@ typeFingerprint = function(
             ) == "string" and "text(" .. stable(
                 part
             ) .. ")" or typeFingerprint(part as nupp.compiler.types.Type, active, binders)
-        end
-        local function patternFingerprint(pattern: nupp.compiler.types.MatchPattern): string
-            local children, parts = {}, {}
-            for j, child in ipairs(pattern.children or {}) do
-                children[j] = patternFingerprint(child)
-            end
-            for j, part in ipairs(pattern.templateParts or {}) do
-                parts[
-                    j
-                ] = type(
-                    part
-                ) == "string" and "text(" .. stable(
-                    part
-                ) .. ")" or patternFingerprint(part as nupp.compiler.types.MatchPattern)
-            end
-
-            return "pattern(" .. pattern.kind .. ":" .. (
-                pattern.binder and binderFingerprint(pattern.binder, binders, "infer") or "-"
-            ) .. ":" .. typeFingerprint(
-                pattern.expected,
-                active,
-                binders
-            ) .. ":" .. table.concat(
-                children,
-                ","
-            ) .. ":" .. table.concat(
-                parts,
-                ","
-            ) .. ":" .. constFingerprint(
-                pattern.countTerm,
-                binders
-            ) .. ":params=" .. tostring(
-                pattern.paramCount or "-"
-            ) .. ":" .. (
-                pattern.paramPackBinder and binderFingerprint(pattern.paramPackBinder, binders, "inferpack") or "-"
-            ) .. ":returns=" .. (
-                pattern.retPackBinder and binderFingerprint(pattern.retPackBinder, binders, "inferpack") or "-"
-            ) .. ")"
-        end
-
-        for j, arm in ipairs(t.matchArms or {}) do
-            arms[j] = patternFingerprint(arm.pattern) .. "=>" .. typeFingerprint(arm.result, active, binders)
-        end
-        for _, argument in ipairs(t.aliasTypeArgs or {}) do
-            aliasArguments[#aliasArguments + 1] = "type=" .. typeFingerprint(argument, active, binders)
-        end
-        for _, argument in ipairs(t.aliasPackArgs or {}) do
-            aliasArguments[#aliasArguments + 1] = "pack=" .. packFingerprint(argument, active, binders)
-        end
-        for _, argument in ipairs(t.aliasConstArgs or {}) do
-            aliasArguments[#aliasArguments + 1] = "const=" .. constFingerprint(argument, binders)
         end
         for _, argument in ipairs(t.comptimeArguments or {}) do
             if argument.kind == "type" then
@@ -421,14 +370,7 @@ typeFingerprint = function(
         ) .. ":template=" .. table.concat(
             templates,
             ","
-        ) .. ":match=" .. (
-            t.matchEach and "each:" or "one:"
-        ) .. table.concat(
-            arms,
-            ","
-        ) .. ":alias=" .. (
-            t.aliasHeader and t.aliasHeader.name or "-"
-        ) .. "<" .. table.concat(aliasArguments, ",") .. ">:comptime=" .. tostring(
+        ) .. ":comptime=" .. tostring(
             t.comptimeIdentity or "-"
         ) .. "(" .. table.concat(comptimeArguments, ",") .. "):" .. (
             t.comptimeResultPack and "pack" or "type"

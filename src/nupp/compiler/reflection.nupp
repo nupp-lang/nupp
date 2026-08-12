@@ -252,39 +252,24 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
                 out.constParameters[position] = intern(parameter)
             end
             out.parameterKinds = t.paramKinds or {}
-        elseif tag == "neutral" and (t.op == "alias" or t.op == "comptimeCall") then
-            if t.op == "alias" then
-                out.operation = "recursiveAlias"
-                out.name = t.aliasHeader and t.aliasHeader.name or nil
-                out.typeArguments, out.packArguments, out.constArguments = {}, {}, {}
-                for position, argument in ipairs(t.aliasTypeArgs or {}) do
-                    out.typeArguments[position] = intern(argument)
+        elseif tag == "neutral" and t.op == "comptimeCall" then
+            out.operation = "comptimeTypeCall"
+            out.identity = t.comptimeIdentity
+            out.arguments = {}
+            for position, argument in ipairs(t.comptimeArguments or {}) do
+                if argument.kind == "type" then
+                    out.arguments[position] = {kind = "type", type = intern(argument.value)}
+                elseif argument.kind == "typepack" then
+                    out.arguments[position] = {kind = "typepack", pack = intern(argument.value)}
+                else
+                    out.arguments[position] = {
+                        kind = "const", value = argument.value.value,
+                        domain = argument.value.domain,
+                    }
                 end
-                for position, argument in ipairs(t.aliasPackArgs or {}) do
-                    out.packArguments[position] = intern(argument)
-                end
-                for position, argument in ipairs(t.aliasConstArgs or {}) do
-                    out.constArguments[position] = intern(argument)
-                end
-            else
-                out.operation = "comptimeTypeCall"
-                out.identity = t.comptimeIdentity
-                out.arguments = {}
-                for position, argument in ipairs(t.comptimeArguments or {}) do
-                    if argument.kind == "type" then
-                        out.arguments[position] = {kind = "type", type = intern(argument.value)}
-                    elseif argument.kind == "typepack" then
-                        out.arguments[position] = {kind = "typepack", pack = intern(argument.value)}
-                    else
-                        out.arguments[position] = {
-                            kind = "const", value = argument.value.value,
-                            domain = argument.value.domain,
-                        }
-                    end
-                end
-                out.bound = intern(t.comptimeBound)
-                out.resultKind = t.comptimeResultPack and "typepack" or "type"
             end
+            out.bound = intern(t.comptimeBound)
+            out.resultKind = t.comptimeResultPack and "typepack" or "type"
         elseif tag == "literal" then
             out.value = t.constant
             out.base = intern(t.base)
