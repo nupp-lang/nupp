@@ -13,46 +13,10 @@ work makes sense in.
       bounded cancellation/recovery, build observations and internal/external
       acceptance workloads and the D5 closure gates have landed. Associated
       types are not a prerequisite.
-  - [x] D5a: give every generated member a distinct semantic identity while
-        retaining its provider and derive-argument origin. Completion, hover,
-        definition, references and inspection consume that identity; document
-        symbols mark generated children without invented ranges; rename is
-        refused with useful help; derive diagnostics offer whole quick fixes.
-  - [x] D5b: extract planning into a memoized `planDerives` query keyed by the
-        provider/helper ABI, frozen written declaration, relevant annotations,
-        reached semantic dependencies and target policy. Define the hash input
-        as an explicit root projection whose recursive serializer retains every
-        nested field, including a Debug map's `key`; never exclude fields by
-        name at arbitrary depth. Separate runtime registration keys from
-        semantic fingerprints, derive them from resolved module/declaration
-        identity rather than invocation paths, publish generated signatures,
-        contracts, effects and behavior fingerprints in module interfaces, and
-        prove an equal public plan cuts off downstream work.
-  - [x] D5c: retain and directly test the field and semantic-node limits; add
-        rendered-output and any necessary generated-member, local and upvalue
-        limits, or document and test the structural reason a category is
-        bounded without a counter. Add cooperative budgets, cancellation and
-        recovery for derive planning, plus provider/owner/fingerprint, size,
-        effect, cached-state and duration build observations.
-  - [x] D5d: run all four derives in real acceptance workloads: compiler-owned
-        configuration or diagnostic records for `Debug`/`Default`, one generic
-        newtype path for `From`, internal manifest/build-cache JSON differential
-        tests, and one external tecs configuration or protocol corpus.
-  - [x] D5e: close with check/build/LSP agreement; cached/cold byte identity;
-        body-, field-, annotation-, bound- and dependency-edit counters;
-        distinct Debug-map-key fingerprints, path-spelling-independent output,
-        adversarial limit and cancellation tests; exact line-count and LuaJIT
-        loadability coverage; the full suite; and byte-identical fixpoint.
   - [ ] D6: only after D5d, prototype one external provider against a versioned
         serialized descriptor/result envelope, then accept, narrow or reject a
         restricted semantic API in writing. Do not expose token, AST or CST
         macros, mutable compiler objects, or private lowering IR.
-- [x] **Suspension follow-ups** ([design](suspension.md)): checked, handled
-      waiting has landed. One call site parks under a scheduler and blocks
-      without one, so a library that waits works inside a game frame and inside
-      a CLI without knowing which it is in. Nominal methods carry suspension
-      guarantees through incremental interfaces, and structured exits from a
-      handled region reuse the ownership cleanup protocol.
 - [ ] **An inline method's `borrows` result is lost when its body returns
       through a cast.** Two records, the same signature
       `lend: function(self: H): thing* borrows (self)` and the same body
@@ -71,42 +35,6 @@ work makes sense in.
       member. `resources.Set.adopt` is declared and defined apart because of
       this; its sibling `remove`, which returns no borrow, is inline.
 
-## FFI and the C boundary
-
-- [x] **`import-c` stops at the file it was pointed at.** The exact-file policy is
-      retained. Linemarker matching uses the normalized requested path, not a
-      basename that could collide with an included sibling. Declarations and
-      constants owned only by included private headers intentionally stay out.
-- [x] **Mark C-derived function types, then land the callback `jit.off`
-      lint.** C-derived signatures now carry semantic foreign-function identity
-      through cdef, cheader, aliases, and function pointers. NUPP2502 now finds
-      Lua functions passed into C callback positions; NUPP2514 finds variadic
-      FFI calls. A semantic `jit.off` on the callback or containing function
-      discharges the hazard.
-- [x] **Propagate string-pointer provenance past a bare name.** Pointer casts
-      now collect provenance from names, indexed values, concatenations,
-      constructed records, aliases, and declared preserved or borrowed call
-      results. NUPP2501 is emitted at the cast, so assignment form does not
-      create the earlier hole.
-- [x] **Generic bounds-carrying spans.** Rooted generic `Span<T>` and affine
-      `WriteSpan<T>` retain the compatible `ByteSpan` and `ByteWriteSpan` names,
-      checked indexing and slicing, a consuming `span.commit`, and
-      provenance-preserving conversions. Read-only elements use `const T`.
-      Conversion to a raw pointer or unchecked bulk copy remains `unsafe`.
-- [x] **`@jit` trace checker.** `@jit` is now an enforced contract over semantic
-      variadic and callback boundaries; `jit.off` on the containing function or
-      callback discharges the corresponding hazard.
-- [x] **Struct unions, bitfields, and malloc-backed big arrays.** `cdef union`,
-      integer bitfield widths, cheader/import-c decoding, and ABI-correct generation
-      have landed. `nupp.heap.allocate<T>` owns arrays beyond LuaJIT's GC allocation
-      limit; `nupp.span` supplies their checked view. Fixed arrays `T[N]` remain the
-      inline form.
-- [x] **Decide whether to add a generalized `Serializable`.** Closed without a
-      language-wide serialization contract. `layoutof` supplies the accepted
-      reflection/layout primitive from [layout.md](layout.md); wire format, graph
-      identity, versioning, and table conversion remain application or derive policy
-      rather than an implicit promise attached to every reified value.
-
 ## Editor and docs tooling
 
 - [ ] **Stale LSP results and true multi-root.** Cancellation is no longer a
@@ -124,17 +52,6 @@ work makes sense in.
 
 ## Build, codegen and distribution
 
-- [x] **`nupp doc` no longer picks a docs target by hash order.**
-      `manifestSettings` takes the requested target, then the one
-      `build.default` names, then the only one there is, and otherwise says
-      which are configured instead of choosing. `nupp doc --target NAME` names
-      one, the way `nupp build --target` does.
-- [x] **An unknown key anywhere in the manifest is refused.** Closed key sets
-      now cover the top level, the build section, every non-docs target,
-      `test`, `tasks`, `selfHost`, and each dependency against what its own
-      provider reads, alongside the docs target's own. Underscored keys stay
-      allowed: the build folds a command's options into the config it hashes,
-      so a hand-written manifest is not the only table the checks see.
 - [ ] **Single-binary host.** LuaJIT, lua-cjson and luautf8 are pinned by
       revision and SHA-256 and built from source by `host/build.rs`, not
       committed. LPeg is no longer a host C dependency; the compatible runtime
@@ -165,22 +82,6 @@ in module resolution, no translator subcommand, no `.tl` build input mode.
       fallbacks), translating metamethod declarations, `record X is Y`,
       bounded generics, nested type namespaces, and `self` directly into their
       landed nupp forms
-
-## Diagnostics
-
-- [x] **Grow the worked examples in `explain.nupp`.** Forty-five codes had
-      dedicated entries and thirty-five had a `wrong`/`right` pair; every other
-      code answers through its family, which states the rule but cannot show
-      the mistake. Two things lean on that table: `nupp explain` is the
-      retrieval path a reader reaches from a diagnostic's `docs` anchor, and
-      `nupp reference` lists the codes an example can say more about. Both get
-      better per entry added, and `tests/explaintest.lua` compiles each pair, so
-      an entry cannot be added wrongly. The ten live codes the reference cited
-      and could not expand were
-      NUPP2002, NUPP2101, NUPP2108, NUPP2118, NUPP2120, NUPP2203, NUPP2504,
-      NUPP2506, NUPP2603 and NUPP2615: a reader is pointed at those having just
-      met the construct, so they are worth the most per entry. NUPP2610 is now
-      reserved in `plans/with.md` and is neither emitted nor cited.
 
 ## Formatting
 
@@ -346,47 +247,6 @@ What is left:
       Both halves matter. `reifiable-record` was written whitelist-first and
       the silent cases are most of its value; a lint with only a positive test
       passes while firing on everything.
-- [x] **Attribute the intermittent `luajit tests/run.lua` libunwind
-      segfault.** It is not a Nupp runner defect. Retired macOS reports carry
-      the same signature across unrelated projects and Codex sessions from
-      August 4 onward, before this Process work and outside this repository.
-
-      ```
-      EXC_BAD_ACCESS  KERN_INVALID_ADDRESS at 0x8
-        libunwind.dylib   unw_set_reg
-        luajit            ?
-        libunwind.dylib   _Unwind_RaiseException
-        luajit            lua_pcall
-        luajit            lua_cpcall
-      ```
-
-      So: an error being raised through LuaJIT's external unwinder, which then
-      dereferences near-null in the system library. LuaJIT's own `lj_err.c`
-      states the constraint: external unwinding requires correct unwind tables
-      for every transitive C frame between the catch and throw. Nupp cannot
-      enforce that property on every native library loaded into the host.
-
-      Upstream supplies the escape hatch rather than requiring a runner
-      change: build LuaJIT with
-      `TARGET_XCFLAGS=-DLUAJIT_UNWIND_INTERNAL`. An upstream checkout built that
-      way completed the whole Nupp suite on this machine; it needs its matching
-      `src/jit` Lua modules on `LUA_PATH`, not Homebrew's modules from a
-      different VM build. Keep external unwinding only where C++ exception
-      interoperability is required and the whole native stack is known to
-      carry conforming tables.
-
-      What it is not: a wrong answer. The suite passes on the runs that
-      complete, and `fixpoint` has never been affected. What it costs is a CI
-      job failing at random, which is why it is worth a note rather than a
-      shrug.
-
-      Leads, in the order worth trying: reproduce under a LuaJIT built with
-      assertions, or with `MallocStackLogging=1` for a real backtrace; check
-      whether it correlates with the tests that deliberately raise; and see
-      whether a LuaJIT newer than 2.1.1785577137 has touched arm64 unwinding.
-      Re-running the suite has stopped being informative — it reproduces about
-      as often as a coin lands heads three times, which is enough to be sure it
-      is real and not enough to bisect by hand.
 - [ ] **`tests/profiletest.lua traceRecordsWhereTheCompilerGaveUp` is
       flaky.** Recorded failing once in six runs with "unrecordable bytecode
       must be reported"; it depends on the JIT attempting and aborting a trace
