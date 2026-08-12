@@ -25,7 +25,7 @@ local state = require("nupp.compiler.check.state")
 local pegTyping = require("nupp.compiler.materialize.peg") as {
     inferSourceResult: function(string, T.Type?): (T.Pack?, any)
 }
-local luaPattern = require("nupp.compiler.lua_pattern") as {
+local luaPattern = require("nupp.compiler.LuaPattern") as {
     captureKinds: function(string): ({string}?, string?)
 }
 
