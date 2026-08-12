@@ -208,6 +208,33 @@ What is left:
       the loop, so the loop calls rather than builds. Decide the severity and
       the category before writing it; the detection is the easy half and already
       exists in `nupp bc`.
+- [ ] **A cleanup region inside a loop still builds a function every iteration.**
+      An owned binding needs its body run under `xpcall`, and `xpcall` takes a
+      function. Where that function is built per entry, the loop holding it
+      never compiles, for the same reason as the entry above — and acquiring a
+      resource per iteration is an ordinary thing to write, not a corner case.
+      Half of this is already handled and the half that is left is bigger than
+      it looks. `gen` caches the region function in a module table and passes
+      the binding in, building it on first entry and reusing it after
+      (`src/nupp/compiler/gen.nupp`, the `shared` path); nine of the twenty-three
+      regions in this compiler's own source take it, and `nupp bc --check`
+      correctly says those loops compile.
+      What gates the rest is `automaticCaptures`: a body naming anything defined
+      before the region — which includes every module-level function, so any
+      body that calls something — cannot be lifted to a module-level table,
+      because the name would not be in scope there.
+      Moving the region's own bookkeeping into a table passed to the function
+      does **not** unblock this, which is worth writing down because it looks
+      like it should. `xpcall` does forward extra arguments, so the count, the
+      owners and the active flags could travel that way and still be readable
+      after an error. The free variables cannot: the body reads and sometimes
+      writes names belonging to the enclosing function, and passing those means
+      lambda lifting with write-back, not an extra parameter.
+      So this is a transformation rather than a lowering change, and it lands in
+      the machinery where being wrong means a leak or a double free. It wants
+      its own design pass. Until then `nupp bc --check` names the loops it
+      affects, and hoisting the acquisition out of the loop avoids it where the
+      resource does not have to be per-iteration.
 
 ## Testing and CI
 
