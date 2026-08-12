@@ -71,31 +71,27 @@ is banned whatever follows. It names the question the section answers rather
 than the thing the section is about, so every one of them reads the same and
 none of them says which is which. Name the subject:
 
-```
- Banned                     Write instead
- ─────────────────────────  ─────────────────────
- What it provides           LSP features
- What it does               Inlining
- What is public             Public surface
- What this costs            Cost
- What narrows               Narrowing tests
- What a struct field holds  Struct field types
- What is inferred           Inference
- What this does not do      Limits
-```
+| Banned | Write instead |
+| --- | --- |
+| What it provides | LSP features |
+| What it does | Inlining |
+| What is public | Public surface |
+| What this costs | Cost |
+| What narrows | Narrowing tests |
+| What a struct field holds | Struct field types |
+| What is inferred | Inference |
+| What this does not do | Limits |
 
 The same applies to a title naming the document rather than its subject:
 
-```
- Banned                  Write instead
- ──────────────────────  ────────────────────────────────
- Why it's this way       The reason: "One layout per struct"
- Overview                Delete it; that is the intro
- Introduction            Delete it; that is the intro
- Usage / How to use      The task: "Writing one"
- Advanced usage          The topic: "Type packs"
- Notes / Miscellaneous   Split it or drop it
-```
+| Banned | Write instead |
+| --- | --- |
+| Why it's this way | The reason: "One layout per struct" |
+| `Overview` | Delete it; that is the intro |
+| `Introduction` | Delete it; that is the intro |
+| Usage / How to use | The task: "Writing one" |
+| Advanced usage | The topic: "Type packs" |
+| Notes / Miscellaneous | Split it or drop it |
 
 A section that genuinely covers a boundary is titled for the boundary, as
 "Limits", rather than for the negation, as "What it will not do".
@@ -105,17 +101,15 @@ push the identifying word off the front, which is where a reader scanning an
 outline looks. This holds for a declarative title too: state the fact starting
 from its subject, which usually means writing the subject plural.
 
-```
- Banned                          Write instead
- ──────────────────────────────  ─────────────────────────────────
- The passes                      Passes
- The diagnostic index            Diagnostic index
- A self-contained binary         Self-contained binary
- The call is an intrinsic        Severity calls are intrinsics
- A union of literals is an enum  Literal unions are enums
- A wait parks one coroutine      Waits park one coroutine
- The checker tracks it           Suspension propagates through calls
-```
+| Banned | Write instead |
+| --- | --- |
+| The passes | Passes |
+| The diagnostic index | Diagnostic index |
+| A self-contained binary | Self-contained binary |
+| The call is an intrinsic | Severity calls are intrinsics |
+| A union of literals is an enum | Literal unions are enums |
+| A wait parks one coroutine | Waits park one coroutine |
+| The checker tracks it | Suspension propagates through calls |
 
 Sentence case. No trailing colons or question marks. A question as a heading
 is a fact you have not committed to yet, so skip FAQ framing. Stop at H3;
@@ -192,18 +186,22 @@ Link generously. A page is a node, not a document.
 
 ## Tables
 
-Space-aligned columns in a plain fence, one rule under the header, no outer
-borders, no per-row separators, indented one space. Never Markdown pipe tables.
+Markdown pipe tables. A table drawn with spaces inside a code fence is a
+picture of a table: it cannot wrap, it cannot carry a link or a code span, and a
+narrow screen scrolls it sideways rather than reflowing it.
 
+```markdown
+| Tag                  | Shape                                 |
+| -------------------- | ------------------------------------- |
+| `@param <name> <text>` | Named, by parameter                 |
+| `@return <text>`     | Listed, one per occurrence, in order  |
 ```
- Tag                        Shape
- ─────────────────────────  ──────────────────────────────────
- @param <name> <text>       Named, by parameter
- @return <text>             Listed, one per occurrence, in order
-```
+
+The source columns do not have to line up. What matters is the rendered table,
+so let a long cell be long rather than padding every other row to meet it.
 
 Tables are for comparing several things across several axes, or for a closed
-enumeration of surface syntax. Two columns of key → value is a list, not a
+enumeration of surface syntax. Two columns of key to value is a list, not a
 table. A table with one row is a sentence.
 
 ## Diagnostics sections
@@ -241,14 +239,12 @@ deleted, not retitled.
 Present tense, active, declarative. State what the tool does; the reader infers
 the guarantee.
 
-```
- Write                                    Not
- ───────────────────────────────────────  ──────────────────────────────────
- The checker reports NUPP2112.            You may get an error.
- A scope boundary releases it.            It should get released.        
- A struct lowers to FFI cdata.            Structs are basically C structs.
- This is a compile error.                 Unfortunately this won't work.
-```
+| Write | Not |
+| --- | --- |
+| The checker reports NUPP2112. | You may get an error. |
+| A scope boundary releases it. | It should get released. |
+| A struct lowers to FFI cdata. | Structs are basically C structs. |
+| This is a compile error. | Unfortunately this won't work. |
 
 - **"You" for the reader, never "we".** There is no narrator, and the compiler
   is not a person the reader is in a room with.
@@ -362,10 +358,6 @@ Before a page lands:
 These predate the guide and are the standing fix list. Correct them when the
 page is next edited, rather than in one sweep.
 
-- Six converted tables run wider than 80 columns, because their cells carry
-  sentences that cannot shorten without deciding what they mean: the built-in
-  annotations in `annotations.md`, three member tables in `data.md`, the proof
-  table in `ownership.md`, and two in `tooling/optimization.md`.
 - Em dashes are still live in doc comments under `src/` and in CLI help text.
   The handwritten pages under `docs/` no longer carry any.
 

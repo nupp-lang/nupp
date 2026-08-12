@@ -68,20 +68,18 @@ documentation.
 
 ### Tags
 
-```
- Tag                     Shape
- ──────────────────────  ────────────────────────────────────────────
- @param <name> <text>    Named, by parameter
- @field <name> <text>    Named, by field
- @typearg <name> <text>  Named, by type parameter
- @return <text>          Listed, one per occurrence, in order
- @returns <text>         The same tag
- @raises <text>          Listed, one per occurrence, in order
- @module [text]          Overrides the file's module blurb
- @export, @public        Force a declaration public
- @local                  Keep a declaration out; --all brings it back
- @namespace [prefix]     Document a shape's own fields as modules
-```
+| Tag | Shape |
+| --- | --- |
+| @param <name> <text> | Named, by parameter |
+| @field <name> <text> | Named, by field |
+| @typearg <name> <text> | Named, by type parameter |
+| @return <text> | Listed, one per occurrence, in order |
+| @returns <text> | The same tag |
+| @raises <text> | Listed, one per occurrence, in order |
+| @module [text] | Overrides the file's module blurb |
+| `@export`, `@public` | Force a declaration public |
+| `@local` | Keep a declaration out; --all brings it back |
+| @namespace [prefix] | Document a shape's own fields as modules |
 
 A tag's description continues onto any following indented line. Any other
 `@name` is kept as a tag with its value.

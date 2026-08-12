@@ -139,16 +139,14 @@ unknown.
 
 Paths are symbolic strings. Use these canonical roots:
 
-```
- Form          Meaning
- ────────────  ───────────────────────────────────────────────────
- parameter     The parameter value itself
- parameter[*]  An element or field reached through the parameter
- self          A method receiver
- $capture      State reached through a captured local
- $capture[*]   An element or field reached through captured state
- $global       State reached through a global declaration contract
-```
+| Form | Meaning |
+| --- | --- |
+| `parameter` | The parameter value itself |
+| `parameter[*]` | An element or field reached through the parameter |
+| `self` | A method receiver |
+| $capture | State reached through a captured local |
+| $capture[*] | An element or field reached through captured state |
+| $global | State reached through a global declaration contract |
 
 Examples:
 

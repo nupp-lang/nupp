@@ -60,16 +60,14 @@ every other module so a level change is seen everywhere at once.
 Every other spelling keeps an ordinary call meaning exactly the same thing, only
 slower. The module shows as `?`, and the arguments are evaluated:
 
-```
- Spelling                    Lowered  Why not
- ──────────────────────────  ───────  ────────────────────────────
- nupp.log.info("id %d", id)  yes
- nupp.log.info(format, id)   no       format is not a literal
- local f = nupp.log.info     no       a value, not a call
- x = nupp.log.info("hi")     no       not statement position
- local nupp = ...            no       nupp is not the ambient one
- logger:info("id %d", id)    no       a named logger, not the path
-```
+| Spelling | Lowered | Why not |
+| --- | --- | --- |
+| nupp.log.info("id %d", id) | yes |  |
+| nupp.log.info(format, id) | no | format is not a literal |
+| local f = nupp.log.info | no | a value, not a call |
+| x = nupp.log.info("hi") | no | not statement position |
+| local nupp = ... | no | nupp is not the ambient one |
+| logger:info("id %d", id) | no | a named logger, not the path |
 
 ## Levels
 

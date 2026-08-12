@@ -113,15 +113,13 @@ require("nupp.zone")` receiver, they are generated inline against the module's
 own state rather than called at all, so there is no call left for a hot path
 to pay for.
 
-```
- Spelling                   Lowered  Why not
- ─────────────────────────  ───────  ───────────────────────────
- zone.push("frame")         yes
- zone.pop()                 yes      result discarded
- local name = zone.pop()    no       the popped name is kept
- holder.zone.push("frame")  no       receiver is not a bare name
- other.push("frame")        no       other is not nupp.zone
-```
+| Spelling | Lowered | Why not |
+| --- | --- | --- |
+| `zone.push("frame")` | yes |  |
+| `zone.pop()` | yes | result discarded |
+| local name = zone.pop() | no | the popped name is kept |
+| `holder.zone.push("frame")` | no | receiver is not a bare name |
+| `other.push("frame")` | no | other is not nupp.zone |
 
 Mark warm paths, not the innermost loop, regardless: `push`/`pop` still call
 through the ordinary API in every other spelling, and `enter`/`leave` below

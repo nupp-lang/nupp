@@ -213,20 +213,18 @@ Inheriting the contract rebinds `self`, so `Position(...)` has type `Position`.
 
 The declarable set:
 
-```
- Contract           Operation
- ─────────────────  ──────────────────────
- __call             value(...)
- __index            value[key], value.name
- __newindex         value[key] = v
- __add __sub __mul  + - *
- __div __mod __pow  / % ^
- __unm              unary -
- __concat           ..
- __len              #
- __lt __le          ordered comparison
- __eq __tostring    protocol surface only
-```
+| Contract | Operation |
+| --- | --- |
+| `__call` | value(...) |
+| `__index` | value[key], value.name |
+| `__newindex` | value[key] = v |
+| __add __sub __mul | + - * |
+| __div __mod __pow | / % ^ |
+| `__unm` | unary - |
+| `__concat` | .. |
+| `__len` | # |
+| __lt __le | ordered comparison |
+| __eq __tostring | protocol surface only |
 
 `__eq` and `__tostring` participate in conformance but do not change a result
 type: `==` is always `boolean` and `tostring` is always `string`.

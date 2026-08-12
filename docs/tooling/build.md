@@ -354,20 +354,18 @@ compiles against are found from the running interpreter's own module path;
 `luaDir`, or the `NUPP_LUA_DIR` environment variable, names them instead.
 `server` adds a rocks server to fetch from, and `luarocks` names the executable.
 
-```
- Field       Meaning
- ──────────  ──────────────────────────────────────────────────────
- rock        The rock's name, when it differs from the dependency's
- version     The exact version to install
- rockspec    A rockspec in the project to install from
- path        A directory to build in place with luarocks make
- bundle      Globs naming what a bundle or binary carries
- tree        Where to install, .rocks by default
- luaVersion  The tree's Lua version, 5.1 by default
- luaDir      Where the Lua headers and libraries live
- server      An additional rocks server to fetch from
- luarocks    The LuaRocks executable, luarocks by default
-```
+| Field | Meaning |
+| --- | --- |
+| `rock` | The rock's name, when it differs from the dependency's |
+| `version` | The exact version to install |
+| `rockspec` | A rockspec in the project to install from |
+| `path` | A directory to build in place with luarocks make |
+| `bundle` | Globs naming what a bundle or binary carries |
+| `tree` | Where to install, .rocks by default |
+| `luaVersion` | The tree's Lua version, 5.1 by default |
+| `luaDir` | Where the Lua headers and libraries live |
+| `server` | An additional rocks server to fetch from |
+| `luarocks` | The LuaRocks executable, luarocks by default |
 
 A pinned rock already installed at the version asked for is left alone, so a
 warm build reaches for nothing. A rock built from `path` is remade whenever its

@@ -183,26 +183,24 @@ annotated directly.
 
 ## Built-in annotations
 
-```
- Name              Status       Arguments                               May attach to
- ────────────────  ───────────  ──────────────────────────────────────  ───────────────────────────────────
- @annotation       Implemented  targets = {"..."}                       record, struct
- @annotationValue  Implemented  None                                    An annotation definition field
- @ref              Implemented  None                                    An annotation definition field
- @allow            Implemented  Lint names or codes        statement
- @owned            Implemented  Cleanup, default, opaque or output  fu  tion, c-function
- @borrowed         Implemented  Foreign output and source      c-funct  n
- @drop             Implemented  None                                    function, c-function, field
- @override         Implemented  None                                    function
- @effects          Implemented  Named effect members                    function, c-function, local-binding
- @relax            Implemented  Observable guarantee names              function
- @derive           Implemented  Debug, Default, From, JSON              record
- @default          Implemented  One literal value                       Field in a derived record
- @json             Implemented  JSON record or field options            record, field
- @debug            Implemented  skip or redact                          Field in a derived record
- @jit              Reserved     None                                    function
- @comptime         Reserved     None                                    local-function
-```
+| Name | Status | Arguments | May attach to |
+| --- | --- | --- | --- |
+| `@annotation` | Implemented | targets = {"..."} | record, struct |
+| `@annotationValue` | Implemented | None | An annotation definition field |
+| `@ref` | Implemented | None | An annotation definition field |
+| `@allow` | Implemented | Lint names or codes        statement |  |
+| `@owned` | Implemented | Cleanup, default, opaque or output  fu | tion, c-function |
+| `@borrowed` | Implemented | Foreign output and source      c-funct | n |
+| `@drop` | Implemented | None | function, c-function, field |
+| `@override` | Implemented | None | function |
+| `@effects` | Implemented | Named effect members | function, c-function, local-binding |
+| `@relax` | Implemented | Observable guarantee names | function |
+| `@derive` | Implemented | Debug, Default, From, JSON | record |
+| `@default` | Implemented | One literal value | Field in a derived record |
+| `@json` | Implemented | JSON record or field options | record, field |
+| `@debug` | Implemented | skip or redact | Field in a derived record |
+| `@jit` | Reserved | None | function |
+| `@comptime` | Reserved | None | local-function |
 
 A reserved annotation parses and resolves, then reports `NUPP2113` naming what
 it is held for: `@jit` for the trace checker, `@comptime` for compile-time

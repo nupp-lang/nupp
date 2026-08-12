@@ -13,24 +13,22 @@ end
 
 ## Narrowing tests
 
-```
- Construct                     Example
- ────────────────────────────  ───────────────────────────────────
- Truthiness of a name          if s then
- Truthiness of a dotted path   if config.name then
- not <cond>                    if not s then ... else ... end
- == nil / ~= nil               if s ~= nil then
- A discriminant field          if shape.kind == "circle" then
- The is operator               if v is Point then
- ffi.istype<T>(v)              if ffi.istype<Point>(v) then
- A predicate function          if isPoint(v) then
- and / or                      if a and a.b then
- if / elseif chains            else-branches accumulate facts
- Ternary arms                  v is Point ? v.x : 0
- while cond do                 the body sees the condition
- Guard clauses                 if not s then return end
- never-returning helper calls  bail() narrows like an inline error
-```
+| Construct | Example |
+| --- | --- |
+| Truthiness of a name | if s then |
+| Truthiness of a dotted path | if config.name then |
+| not <cond> | if not s then ... else ... end |
+| == nil / ~= nil | if s ~= nil then |
+| A discriminant field | if shape.kind == "circle" then |
+| The is operator | if v is Point then |
+| ffi.istype<T>(v) | if ffi.istype<Point>(v) then |
+| A predicate function | if isPoint(v) then |
+| and / or | if a and a.b then |
+| if / elseif chains | else-branches accumulate facts |
+| Ternary arms | v is Point ? v.x : 0 |
+| while cond do | the body sees the condition |
+| Guard clauses | if not s then return end |
+| never-returning helper calls | bail() narrows like an inline error |
 
 Discriminant narrowing also follows a copied local, so binding the value to a
 new name first does not lose the fact.

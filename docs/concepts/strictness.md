@@ -25,14 +25,12 @@ is the same program, checked the same way, without that floor underneath it.
 
 ## Four extensions
 
-```
- Extension  Floor    Effect
- ─────────  ───────  ─────────────────────────────────────────────────
- .nupp      strict   unknown variables and untyped exports are errors
- .g.nupp    gradual  the same typed syntax, without that floor
- .d.nupp    gradual  declares an interface somebody else implements
- .lua       gradual  plain Lua, and the typed layer is refused in it
-```
+| Extension | Floor | Effect |
+| --- | --- | --- |
+| `.nupp` | strict | unknown variables and untyped exports are errors |
+| `.g.nupp` | gradual | the same typed syntax, without that floor |
+| `.d.nupp` | gradual | declares an interface somebody else implements |
+| `.lua` | gradual | plain Lua, and the typed layer is refused in it |
 
 A `.lua` file is required, built and run unchanged. Writing an annotation there
 is `NUPP1006` rather than a silently ignored comment, because the extension has

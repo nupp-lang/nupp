@@ -29,15 +29,13 @@ local text = compact.encodeJSON({1, 2, 3})
 JSON selects the `cjson` native feature. No `require("cjson")` is needed or
 recommended.
 
-```
- Member                 Result           Purpose
- ─────────────────────  ───────────────  ─────────────────────────────────────
- encodeJSON(value)      string           Encode one Lua value.
- decodeJSON(text)       any              Decode one JSON document.
- newJSON()              nupp.data.JSON   Create a separately configured codec.
- null, emptyArray       sentinel values  JSON values plain Lua cannot express.
- arrayMt, emptyArrayMt  metatables       Mark array-shaped tables explicitly.
-```
+| Member | Result | Purpose |
+| --- | --- | --- |
+| `encodeJSON(value)` | string | Encode one Lua value. |
+| `decodeJSON(text)` | any | Decode one JSON document. |
+| `newJSON()` | nupp.data.JSON | Create a separately configured codec. |
+| `null`, `emptyArray` | sentinel values | JSON values plain Lua cannot express. |
+| `arrayMt`, `emptyArrayMt` | metatables | Mark array-shaped tables explicitly. |
 
 Both `nupp.data` and an object returned by `newJSON` provide the configuration
 methods `encodeEmptyTableAsObject`, `decodeArrayWithArrayMt`,
@@ -76,17 +74,15 @@ than the byte budget. `truncate` applies that operation to a string. The
 underlying lua-utf8 provider loads only when this namespace is selected and
 reached.
 
-```
- Member                              Result             Position rule
- ──────────────────────────────────  ─────────────────  ─────────────────────────────────────────────────────
- length(value)                       integer            Counts scalars, replacing malformed bytes one by one.
- decodeAt(value, byteOffset)         integer?, integer  Decodes forward from a 1-based offset, then the next.
- decodeBefore(value, byteOffset)     integer?, integer  Decodes the scalar ending before a 1-based offset.
- encode(codepoint)                   string             Encodes one Unicode scalar value.
- isValid(value)                      boolean            Validates the complete byte sequence.
- validPrefixLength(value, maxBytes)  integer            Finds a valid prefix within a byte budget.
- truncate(text, maxBytes)            string             Copies that valid prefix.
-```
+| Member | Result | Position rule |
+| --- | --- | --- |
+| `length(value)` | integer | Counts scalars, replacing malformed bytes one by one. |
+| decodeAt(value, byteOffset) | integer?, integer | Decodes forward from a 1-based offset, then the next. |
+| decodeBefore(value, byteOffset) | integer?, integer | Decodes the scalar ending before a 1-based offset. |
+| `encode(codepoint)` | string | Encodes one Unicode scalar value. |
+| `isValid(value)` | boolean | Validates the complete byte sequence. |
+| validPrefixLength(value, maxBytes) | integer | Finds a valid prefix within a byte budget. |
+| truncate(text, maxBytes) | string | Copies that valid prefix. |
 
 ## UUIDs
 
@@ -126,13 +122,11 @@ FNV-1a, Adler-32 and CRC-32 are pure generated Lua. SHA-256 is independently
 gated in the shared Rust provider. See [automatic native
 selection](tooling/build.md#compiler-native-features).
 
-```
- Member                     Result                   Native provider
- ─────────────────────────  ───────────────────────  ───────────────────────────────
- uuid4()                    canonical UUID string    shared provider, uuid feature
- uuid7()                    canonical UUID string    shared provider, uuid feature
- fnv1a64(value)             16 lowercase hex digits  none
- sha256(value)              64 lowercase hex digits  shared provider, sha256 feature
- adler32(value, previous?)  unsigned 32-bit number   none
- crc32(value, previous?)    unsigned 32-bit number   none
-```
+| Member | Result | Native provider |
+| --- | --- | --- |
+| `uuid4()` | canonical UUID string | shared provider, uuid feature |
+| `uuid7()` | canonical UUID string | shared provider, uuid feature |
+| `fnv1a64(value)` | 16 lowercase hex digits | none |
+| `sha256(value)` | 64 lowercase hex digits | shared provider, sha256 feature |
+| adler32(value, previous?) | unsigned 32-bit number | none |
+| crc32(value, previous?) | unsigned 32-bit number | none |

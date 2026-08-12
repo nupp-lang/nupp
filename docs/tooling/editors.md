@@ -24,14 +24,12 @@ For other workspaces, install `nupp` on `PATH` or point the extension at it.
 
 ### Settings
 
-```
- Setting                 Default
- ──────────────────────  ──────────────────────────────────────────
- nupp.serverPath         The checkout's bin/nupp, else nupp on PATH
- nupp.serverArgs         ["lsp", "serve", "${workspaceFolder}"]
- nupp.serverCwd          ${workspaceFolder}
- nupp.serverEnvironment  {}
-```
+| Setting | Default |
+| --- | --- |
+| `nupp.serverPath` | The checkout's bin/nupp, else nupp on PATH |
+| `nupp.serverArgs` | ["lsp", "serve", "${workspaceFolder}"] |
+| `nupp.serverCwd` | ${workspaceFolder} |
+| `nupp.serverEnvironment` | {} |
 
 All four expand `${workspaceFolder}` and `${env:NAME}`, and all four restart
 the server when changed. Arguments are passed without shell interpretation.

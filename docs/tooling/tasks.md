@@ -28,14 +28,12 @@ return {
 }
 ```
 
-```
- Key          Required  Means
- ───────────  ────────  ──────────────────────────────────────────
- argv         yes       The command, as an argv array
- description  no        Shown by `nupp tasks`
- build        no        A build target to build first
- env          no        Environment variables, as string to string
-```
+| Key | Required | Means |
+| --- | --- | --- |
+| `argv` | yes | The command, as an argv array |
+| `description` | no | Shown by `nupp tasks` |
+| `build` | no | A build target to build first |
+| `env` | no | Environment variables, as string to string |
 
 Unlike `test`, which always builds because there is exactly one test command and
 it answers for code that has to exist first, a task only builds when `build`

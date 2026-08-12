@@ -33,22 +33,20 @@ Measurement operations are `length`, `lengthSquared`, `distance`, and
 `moveTowards`, `rotate`, `angle`, `angleBetween`, and `signedAngleBetween`.
 `project` projects onto another vector; `reflect` reflects across a normal.
 
-```
- Operation                         Signature shape
- ────────────────────────────────  ─────────────────────────────────────
- add, subtract                     (ax, ay, bx, by) -> x, y
- scale                             (x, y, factor) -> x, y
- dot, cross                        (ax, ay, bx, by) -> number
- length, lengthSquared             (x, y) -> number
- distance, distanceSquared         (ax, ay, bx, by) -> number
- normalize                         (x, y) -> x, y
- lerp                              (ax, ay, bx, by, t) -> x, y
- moveTowards                       (ax, ay, bx, by, maxDistance) -> x, y
- rotate                            (x, y, radians) -> x, y
- angle                             (x, y) -> radians
- angleBetween, signedAngleBetween  (ax, ay, bx, by) -> radians
- project, reflect                  (x, y, axisX, axisY) -> x, y
-```
+| Operation | Signature shape |
+| --- | --- |
+| `add`, `subtract` | (ax, ay, bx, by) -> x, y |
+| `scale` | (x, y, factor) -> x, y |
+| `dot`, `cross` | (ax, ay, bx, by) -> number |
+| `length`, `lengthSquared` | (x, y) -> number |
+| `distance`, `distanceSquared` | (ax, ay, bx, by) -> number |
+| `normalize` | (x, y) -> x, y |
+| `lerp` | (ax, ay, bx, by, t) -> x, y |
+| `moveTowards` | (ax, ay, bx, by, maxDistance) -> x, y |
+| `rotate` | (x, y, radians) -> x, y |
+| `angle` | (x, y) -> radians |
+| `angleBetween`, `signedAngleBetween` | (ax, ay, bx, by) -> radians |
+| `project`, `reflect` | (x, y, axisX, axisY) -> x, y |
 
 `normalize(0, 0)` and projection onto the zero vector return `(0, 0)`.
 `moveTowards` snaps exactly to the destination when the remaining distance is

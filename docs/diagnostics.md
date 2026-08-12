@@ -63,20 +63,18 @@ faster than searching for the number.
 
 ## Code families
 
-```
- Codes     Meaning
- ────────  ─────────────────────────────────────────────────────────────
- NUPP0001  Source input could not be read.
- NUPP1001  Invalid or unterminated lexical input.
- NUPP1002  A required token is missing.
- NUPP1003  A required name is missing.
- NUPP1004  A required expression is missing.
- NUPP1005  Another syntax or recovery constraint failed.
- NUPP2xxx  Type, declaration, lint, FFI, or ownership diagnostics.
- NUPP3xxx  Code generation cannot represent a checked construct.
- NUPP4001  Formatting could not safely produce the requested result.
- OPT-n     An optimization pass reporting what it did or declined to do.
-```
+| Codes | Meaning |
+| --- | --- |
+| `NUPP0001` | Source input could not be read. |
+| `NUPP1001` | Invalid or unterminated lexical input. |
+| `NUPP1002` | A required token is missing. |
+| `NUPP1003` | A required name is missing. |
+| `NUPP1004` | A required expression is missing. |
+| `NUPP1005` | Another syntax or recovery constraint failed. |
+| `NUPP2xxx` | Type, declaration, lint, FFI, or ownership diagnostics. |
+| `NUPP3xxx` | Code generation cannot represent a checked construct. |
+| `NUPP4001` | Formatting could not safely produce the requested result. |
+| OPT-n | An optimization pass reporting what it did or declined to do. |
 
 `OPT-n` is the one family that does not describe a problem. A pass emits it to
 say that it rewrote something, or that it looked at something and could not,
@@ -118,22 +116,20 @@ Every command whose result is data rather than a side effect takes
 schema is declared beside the code that writes it and a test validates real
 output against it, so the two cannot drift.
 
-```
- Command   --json reports
- ────────  ────────────────────────────────────────────────
- check     diagnostics
- build     diagnostics, the target, and every path written
- fmt       unformatted, written, and failed, kept apart
- test      totals and a record per test, with file and line
- lints     every lint, its level here, and its default
- tasks     the task list, or one task's configuration
- ast       the lossless syntax tree
- clean     the paths removed, or that would be
- fixpoint  whether it reproduced, and why not
- import-c  the module written and any warnings
- explain   a code's rule and worked examples
- lsp       per operation; each has its own schema
-```
+| Command | --json reports |
+| --- | --- |
+| `check` | diagnostics |
+| `build` | diagnostics, the target, and every path written |
+| `fmt` | unformatted, written, and failed, kept apart |
+| `test` | totals and a record per test, with file and line |
+| `lints` | every lint, its level here, and its default |
+| `tasks` | the task list, or one task's configuration |
+| `ast` | the lossless syntax tree |
+| `clean` | the paths removed, or that would be |
+| `fixpoint` | whether it reproduced, and why not |
+| import-c | the module written and any warnings |
+| `explain` | a code's rule and worked examples |
+| `lsp` | per operation; each has its own schema |
 
 `nupp run` is absent because the program's own output is the output, and
 `nupp doc` because it writes a site rather than an answer.

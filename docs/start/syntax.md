@@ -80,23 +80,21 @@ end -- checked test
 
 Type syntax:
 
-```
- Form            Means
- ──────────────  ──────────────────────────────────
- T?              T or nil
- T*              pointer to T
- T*?             pointer that may be NULL
- T[4] / T[?]     C array, zero-based
- {T}             Lua array, one-based
- {T, U}          tuple
- {[K]: V}        map
- {x: T, y: U}    inline shape
- A | B           union
- const T         read-only view
- function(A): B  function type
- Box<T>          generic application
- self            the receiver, inside a declaration
-```
+| Form | Means |
+| --- | --- |
+| T? | T or nil |
+| T* | pointer to T |
+| T*? | pointer that may be NULL |
+| T[4] / T[?] | C array, zero-based |
+| {T} | Lua array, one-based |
+| {T, U} | tuple |
+| {[K]: V} | map |
+| {x: T, y: U} | inline shape |
+| `A` | B | union |
+| const T | read-only view |
+| function(A): B | function type |
+| `Box<T>` | generic application |
+| `self` | the receiver, inside a declaration |
 
 ## Keywords are contextual
 
@@ -151,32 +149,28 @@ Most level-0 syntax is written straight through, because 2.1 backported it. A
 native `?.` is one branch where the equivalent lowering would be a closure
 call, so passing it through is both shorter and faster:
 
-```
- Written            Generated
- ─────────────────  ─────────────────
- a & b              a & b
- a >> 1             a >> 1
- a > b ? "x" : "y"  a > b ? "x" : "y"
- x ?? "fallback"    x ?? "fallback"
- t?.x               t?.x
- a += 1             a += 1
- |v| -> v + 1       |v| -> (v)
- continue           continue
- const X = 1        const X = 1
- 1_000  /  1LL      1_000  /  1LL
-```
+| Written | Generated |
+| --- | --- |
+| a & b | a & b |
+| a >> 1 | a >> 1 |
+| a > b ? "x" : "y" | a > b ? "x" : "y" |
+| x ?? "fallback" | x ?? "fallback" |
+| t?.x | t?.x |
+| a += 1 | a += 1 |
+|  | v | -> v + 1 |  | v | -> (v) |
+| `continue` | continue |
+| const X = 1 | const X = 1 |
+| 1_000  /  1LL | 1_000  /  1LL |
 
 Four constructs are lowered, because 2.1 did not take them:
 
-```
- Written          Generated
- ───────────────  ────────────────────────────────────────────────────
- a // b           math.floor((a) / (b))
- a //= b          a = math.floor((a) / (b))
- x ??= "set"      if x == nil then x = "set" end
- function(...xs)  function(...) const xs = {n = select("#", ...), ...}
- `a is ${a}`      ("a is " .. tostring(a))
-```
+| Written | Generated |
+| --- | --- |
+| a // b | math.floor((a) / (b)) |
+| a //= b | a = math.floor((a) / (b)) |
+| x ??= "set" | if x == nil then x = "set" end |
+| `function(...xs)` | function(...) const xs = {n = select("#", ...), ...} |
+| `a is ${a}` | ("a is " .. tostring(a)) |
 
 Everything in level 1 erases: annotations, `as`, generics, `unsafe do` (which
 becomes `do`), and the `interface` and `type` declarations, which have no

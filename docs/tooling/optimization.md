@@ -28,15 +28,13 @@ than mixing artifacts compiled at different levels.
 
 ## Passes
 
-```
- Code   Name             Level  Rewrite
- ─────  ───────────────  ─────  ──────────────────────────────────────────────────────────────────
- OPT-1  presize          -O1    Size an empty table for the writes about to follow
- OPT-2  numeric-ipairs   -O1    Use a numeric loop for a proved stable dense array
- OPT-3  constant-fold    -O1    Fold exact primitives, branches, dead loops, and immutable paths
- OPT-4  static-callable  -O1    Bind repeated immutable dotted callees at first use
- OPT-5  concat-buffer    -O1    Append to a string.buffer instead of rebuilding a string each pass
-```
+| Code | Name | Level | Rewrite |
+| --- | --- | --- | --- |
+| `OPT-1` | `presize` | -O1 | Size an empty table for the writes about to follow |
+| `OPT-2` | numeric-ipairs | -O1 | Use a numeric loop for a proved stable dense array |
+| `OPT-3` | constant-fold | -O1 | Fold exact primitives, branches, dead loops, and immutable paths |
+| `OPT-4` | static-callable | -O1 | Bind repeated immutable dotted callees at first use |
+| `OPT-5` | concat-buffer | -O1 | Append to a string.buffer instead of rebuilding a string each pass |
 
 Each `OPT-n` example below shows Nupp beside its `-O1` and `-O0` output.
 Generated temporary names are illustrative.
@@ -333,21 +331,19 @@ two concatenations cost, so rewriting `a .. b .. c` would be slower.
 These are fresh local medians with LuaJIT enabled. They measure the exact
 generated-Lua shapes shown above, not checker time.
 
-```
- Pass and scenario                                  Before   After    Change
- ─────────────────────────────────────────────────  ───────  ───────  ────────────
- OPT-1, 200,000 tables, four named fields           0.0159s  0.0053s  3.02x faster
- OPT-1, 200,000 tables, eight hash fields           0.0262s  0.0106s  2.47x faster
- OPT-1, 200,000 tables, four array slots            0.0168s  0.0024s  7.06x faster
- OPT-2, eight million visits, 4-element arrays      0.0126s  0.0087s  1.44x faster
- OPT-2, eight million visits, 32-element arrays     0.0053s  0.0050s  1.06x faster
- OPT-2, eight million visits, 256-element arrays    0.0051s  0.0047s  1.07x faster
- OPT-3, 20,000 primitive expressions, load and run  0.0039s  0.0024s  1.64x faster
- OPT-3, 20,000 nested paths, load only              0.0095s  0.0025s  3.82x faster
- OPT-3, 20,000 nested paths, load and run           0.0099s  0.0025s  3.95x faster
- OPT-4, 20,000 dotted calls, load only              0.0027s  0.0011s  2.54x faster
- OPT-4, 20,000 dotted calls, load and run           0.0030s  0.0012s  2.53x faster
-```
+| Pass and scenario | Before | After | Change |
+| --- | --- | --- | --- |
+| OPT-1, 200,000 tables, four named fields | 0.0159s | 0.0053s | 3.02x faster |
+| OPT-1, 200,000 tables, eight hash fields | 0.0262s | 0.0106s | 2.47x faster |
+| OPT-1, 200,000 tables, four array slots | 0.0168s | 0.0024s | 7.06x faster |
+| OPT-2, eight million visits, 4-element arrays | 0.0126s | 0.0087s | 1.44x faster |
+| OPT-2, eight million visits, 32-element arrays | 0.0053s | 0.0050s | 1.06x faster |
+| OPT-2, eight million visits, 256-element arrays | 0.0051s | 0.0047s | 1.07x faster |
+| OPT-3, 20,000 primitive expressions, load and run | 0.0039s | 0.0024s | 1.64x faster |
+| OPT-3, 20,000 nested paths, load only | 0.0095s | 0.0025s | 3.82x faster |
+| OPT-3, 20,000 nested paths, load and run | 0.0099s | 0.0025s | 3.95x faster |
+| OPT-4, 20,000 dotted calls, load only | 0.0027s | 0.0011s | 2.54x faster |
+| OPT-4, 20,000 dotted calls, load and run | 0.0030s | 0.0012s | 2.53x faster |
 
 Primitive folding reduced its generated input by 32.1%; nested propagation by
 60.8%; static callable binding by 63.6%. Warmed results were 0.99x, 2.01x, and

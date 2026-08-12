@@ -14,14 +14,12 @@ Clippy's split between `rustc` errors and `clippy::` lints is the same line.
 
 ## Severity levels
 
-```
- level    reported  build     @allow  editor
- ───────  ────────  ────────  ──────  ───────────────
- off      no        -         -       -
- note     yes       continue  yes     Information (3)
- warning  yes       continue  yes     Warning (2)
- error    yes       FAILS     yes     Error (1)
-```
+| level | reported | build | @allow | editor |
+| --- | --- | --- | --- | --- |
+| `off` | no | - | - | - |
+| `note` | yes | continue | yes | Information (3) |
+| `warning` | yes | continue | yes | Warning (2) |
+| `error` | yes | FAILS | yes | Error (1) |
 
 Three things vary independently, which is why they are three columns rather
 than one switch:
@@ -38,24 +36,22 @@ than one switch:
 
 Every lint has a name and a stable code:
 
-```
- name                            code      category     default
- ──────────────────────────────  ────────  ───────────  ───────
- missing-require                 NUPP2120  correctness  error
- exhaustiveness                  NUPP2107  correctness  warning
- string-pointer                  NUPP2501  suspicious   warning
- jit-callback                    NUPP2502  suspicious   warning
- lossy-narrowing                 NUPP2503  suspicious   warning
- customary-operator              NUPP2504  style        warning
- loop-invariant-closure          NUPP2505  suspicious   warning
- undocumented-raise              NUPP2506  suspicious   warning
- unused-binding                  NUPP2507  suspicious   warning
- discarded-result                NUPP2508  suspicious   warning
- reifiable-record                NUPP2509  performance  off
- gradual-projection              NUPP2511  suspicious   warning
- else-if                         NUPP2510  style        warning
- positional-record-construction  NUPP2512  style        warning
-```
+| name | code | category | default |
+| --- | --- | --- | --- |
+| missing-require | `NUPP2120` | correctness | error |
+| `exhaustiveness` | `NUPP2107` | correctness | warning |
+| string-pointer | `NUPP2501` | suspicious | warning |
+| jit-callback | `NUPP2502` | suspicious | warning |
+| lossy-narrowing | `NUPP2503` | suspicious | warning |
+| customary-operator | `NUPP2504` | style | warning |
+| loop-invariant-closure | `NUPP2505` | suspicious | warning |
+| undocumented-raise | `NUPP2506` | suspicious | warning |
+| unused-binding | `NUPP2507` | suspicious | warning |
+| discarded-result | `NUPP2508` | suspicious | warning |
+| reifiable-record | `NUPP2509` | performance | off |
+| gradual-projection | `NUPP2511` | suspicious | warning |
+| else-if | `NUPP2510` | style | warning |
+| positional-record-construction | `NUPP2512` | style | warning |
 
 The name is what you write in configuration and suppressions; the code is what
 survives renaming and what tooling keys on. Either is accepted everywhere.
@@ -419,14 +415,12 @@ code that walks the value by its keys has to be told how.
 That last cost is the one worth checking before taking the suggestion, because
 it reaches further than the declaration:
 
-```
- what                        on a record      on a struct
- ──────────────────────────  ───────────────  ──────────────────────────
- type(v)                     "table"          "cdata"
- pairs(v)                    iterates fields  needs a __pairs metamethod
- string.buffer.encode(v)     encodes          raises, and takes no hook
- a table-walking serializer  works            sees no keys
-```
+| what | on a record | on a struct |
+| --- | --- | --- |
+| `type(v)` | "table" | "cdata" |
+| `pairs(v)` | iterates fields | needs a __pairs metamethod |
+| `string.buffer.encode(v)` | encodes | raises, and takes no hook |
+| a table-walking serializer | works | sees no keys |
 
 `__pairs` is dispatched on a `ffi.metatype`, so iteration can be restored by
 declaring one. Serialization cannot be patched the same way, because LuaJIT's

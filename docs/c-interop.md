@@ -6,13 +6,11 @@ cannot describe lifetime behavior.
 
 There are three ways in, and they suit different sizes of problem:
 
-```
- Route                 Use it when
- ────────────────────  ────────────────────────────────────────────────
- cdef declarations     The API is small, or you want exact control
- cheader("mini.h")     You want the header typed with no generated file
- nupp import-c mini.h  You want a committed module you can edit
-```
+| Route | Use it when |
+| --- | --- |
+| cdef declarations | The API is small, or you want exact control |
+| `cheader("mini.h")` | You want the header typed with no generated file |
+| nupp import-c mini.h | You want a committed module you can edit |
 
 ## Import a header
 
@@ -88,21 +86,19 @@ module table, which is what `import-c` generates.
 
 ### Type mapping
 
-```
- Nupp               C
- ─────────────────  ──────────────────
- number             double
- float              float
- boolean            bool
- integer            int32_t
- int8 … int64       int8_t … int64_t
- uint8 … uint64     uint8_t … uint64_t
- cstring            const char *
- voidptr            void *
- T (a cdef struct)  struct T
- T*                 <C spelling> *
- function(A): R     R (*)(A)
-```
+| Nupp | C |
+| --- | --- |
+| `number` | double |
+| `float` | float |
+| `boolean` | bool |
+| `integer` | int32_t |
+| int8 … int64 | int8_t … int64_t |
+| uint8 … uint64 | uint8_t … uint64_t |
+| `cstring` | const char * |
+| `voidptr` | void * |
+| T (a cdef struct) | struct T |
+| T* | <C spelling> * |
+| function(A): R | R (*)(A) |
 
 `cstring` and `voidptr` are allowed in a `cdef struct` but rejected in a plain
 Nupp `struct`, because a GC-managed struct gives them no anchor.

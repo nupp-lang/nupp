@@ -251,21 +251,19 @@ Square brackets match one byte from a set. Ranges are inclusive:
 
 The predefined ASCII classes are:
 
-```
- Short  Long     Bytes
- ─────  ───────  ───────────────────────────────
- %a     %alpha   ASCII letters
- %c     %cntrl   control bytes and DEL
- %d     %digit   decimal digits
- %g     %graph   printable non-space ASCII bytes
- %l     %lower   lowercase ASCII letters
- %nl             newline
- %p     %punct   ASCII punctuation
- %s     %space   ASCII whitespace
- %u     %upper   uppercase ASCII letters
- %w     %alnum   ASCII letters and digits
- %x     %xdigit  hexadecimal digits
-```
+| Short | Long | Bytes |
+| --- | --- | --- |
+| `%a` | `%alpha` | ASCII letters |
+| `%c` | `%cntrl` | control bytes and DEL |
+| `%d` | `%digit` | decimal digits |
+| `%g` | `%graph` | printable non-space ASCII bytes |
+| `%l` | `%lower` | lowercase ASCII letters |
+| `%nl` |  | newline |
+| `%p` | `%punct` | ASCII punctuation |
+| `%s` | `%space` | ASCII whitespace |
+| `%u` | `%upper` | uppercase ASCII letters |
+| `%w` | `%alnum` | ASCII letters and digits |
+| `%x` | `%xdigit` | hexadecimal digits |
 
 The one-letter uppercase forms `%A`, `%C`, `%D`, `%G`, `%L`, `%P`, `%S`, `%U`,
 `%W`, and `%X` match the complement of their lowercase class. Predefined classes
@@ -312,16 +310,14 @@ as in LPeg.
 
 Suffix operators repeat the expression immediately to their left:
 
-```
- Form  Meaning
- ────  ─────────────
- p?    zero or one
- p*    zero or more
- p+    one or more
- p^4   exactly four
- p^+4  at least four
- p^-4  at most four
-```
+| Form | Meaning |
+| --- | --- |
+| p? | zero or one |
+| p* | zero or more |
+| p+ | one or more |
+| p^4 | exactly four |
+| p^+4 | at least four |
+| p^-4 | at most four |
 
 Use parentheses to repeat a sequence:
 

@@ -5,25 +5,23 @@ generator, language server, profiler, and C importer. They share a parse, a
 type checker, and an incremental engine, so the editor and the build agree
 about what your code means.
 
-```
- Command   What it does                            More
- ────────  ──────────────────────────────────────  ──────────────────
- check     Type-check the project                  cli.md
- build     Compile to Lua, incrementally           build.md
- run       Compile and run; profile behind a flag  profiling.md
- test      Build, then run the configured suite    testing.md
- fmt       Format; fixed style                     fmt.md
- doc       Generate an API site from the parse     doc.md
- lsp       Language server, and CLI equivalents    lsp.md
- explain   Describe a diagnostic code              ../diagnostics.md
- lints     List the lints and their levels         ../lints.md
- import-c  Turn a C header into declarations       ../c-interop.md
- rock      Create and package typed Lua rocks      luarocks.md
- tasks     List or inspect manifest targets        build.md
- clean     Remove configured build outputs         build.md
- fixpoint  Verify the self-hosting rebuild         ../distribution.md
- ast       Dump a parsed syntax tree               cli.md
-```
+| Command | What it does | More |
+| --- | --- | --- |
+| `check` | Type-check the project | cli.md |
+| `build` | Compile to Lua, incrementally | build.md |
+| `run` | Compile and run; profile behind a flag | profiling.md |
+| `test` | Build, then run the configured suite | testing.md |
+| `fmt` | Format; fixed style | fmt.md |
+| `doc` | Generate an API site from the parse | doc.md |
+| `lsp` | Language server, and CLI equivalents | lsp.md |
+| `explain` | Describe a diagnostic code | ../diagnostics.md |
+| `lints` | List the lints and their levels | ../lints.md |
+| import-c | Turn a C header into declarations | ../c-interop.md |
+| `rock` | Create and package typed Lua rocks | luarocks.md |
+| `tasks` | List or inspect manifest targets | build.md |
+| `clean` | Remove configured build outputs | build.md |
+| `fixpoint` | Verify the self-hosting rebuild | ../distribution.md |
+| `ast` | Dump a parsed syntax tree | cli.md |
 
 Every command takes `-h`, and `nupp help <command>` prints the same reference.
 

@@ -9,15 +9,13 @@ That sentence is the design. Everything below follows from it.
 
 ## Inference
 
-```
- Position                    Inferred?
- ──────────────────────────  ───────────────────────────────────────
- Local from its initializer  Yes; mutable bindings widen - see below
- Function parameters         No; an unannotated parameter is any
- Function return types       No; the body's returns go unchecked
- Short-function body         Yes, one inferred result
- Unknown global              any, silently
-```
+| Position | Inferred? |
+| --- | --- |
+| Local from its initializer | Yes; mutable bindings widen - see below |
+| Function parameters | No; an unannotated parameter is any |
+| Function return types | No; the body's returns go unchecked |
+| Short-function body | Yes, one inferred result |
+| Unknown global | any, silently |
 
 A function with no return annotation is not checked against its `return`
 statements at all. Annotating the return is what starts checking them.
@@ -82,14 +80,12 @@ Everything else is checked identically either way.
 Which files hold that floor is decided by their extension, so a file says what
 it is where anyone reading it can see it:
 
-```
- Extension  Floor    What it means
- ─────────  ───────  ────────────────────────────────────────────────
- .nupp      strict   Ordinary Nupp.
- .g.nupp    gradual  The typed syntax, without the floor.
- .d.nupp    gradual  Describes an interface somebody else implements.
- .lua       gradual  Plain Lua, and the typed layer is refused there.
-```
+| Extension | Floor | What it means |
+| --- | --- | --- |
+| `.nupp` | strict | Ordinary Nupp. |
+| `.g.nupp` | gradual | The typed syntax, without the floor. |
+| `.d.nupp` | gradual | Describes an interface somebody else implements. |
+| `.lua` | gradual | Plain Lua, and the typed layer is refused there. |
 
 `.g.nupp` is the opt-out, and it is a whole file at a time on purpose: a
 per-declaration escape would be a second way to say `any`, which the language

@@ -107,15 +107,13 @@ Wherever a table literal meets a `metatable<T>`, whether as an argument to
 `setmetatable` or to any function declaring one, or as a binding or assignment
 under a `metatable<T>` annotation, each of its `__` keys is checked:
 
-```
- Key                             Held to
- ──────────────────────────────  ────────────────────────────────────────────
- one T contracts for             the declared contract, self specialized to T
- __mode                          a string
- __index, __newindex             a table to defer to, or a function to run
- any other key LuaJIT knows      a function, since LuaJIT calls it
- a __ name LuaJIT does not know  reported as a misspelling, with the repair
-```
+| Key | Held to |
+| --- | --- |
+| one T contracts for | the declared contract, self specialized to T |
+| `__mode` | a string |
+| `__index`, `__newindex` | a table to defer to, or a function to run |
+| any other key LuaJIT knows | a function, since LuaJIT calls it |
+| a __ name LuaJIT does not know | reported as a misspelling, with the repair |
 
 A table written directly under `__index` is what instances read their members
 through, so an entry naming a declared member is held to what the declaration
@@ -132,19 +130,17 @@ Only literals are checked. Nothing here can see what a function returns, so
 
 The checker dispatches these contracts:
 
-```
- Contract             Checked operation       Declared parameters
- ───────────────────  ──────────────────────  ───────────────────────────────
- __call               value(...)              receiver, then source arguments
- __index              value[key], value.name  receiver, key
- __newindex           value[key] = newValue   receiver, key, value
- __add, __sub, __mul  +, -, *                 left, right
- __div, __mod, __pow  /, %, ^                 left, right
- __unm                unary -                 operand
- __concat             ..                      left, right
- __len                #                       operand
- __lt, __le           ordered comparison      left, right
-```
+| Contract | Checked operation | Declared parameters |
+| --- | --- | --- |
+| `__call` | value(...) | receiver, then source arguments |
+| `__index` | value[key], value.name | receiver, key |
+| `__newindex` | value[key] = newValue | receiver, key, value |
+| `__add`, `__sub`, `__mul` | +, -, * | left, right |
+| `__div`, `__mod`, `__pow` | /, %, ^ | left, right |
+| `__unm` | unary - | operand |
+| `__concat` | .. | left, right |
+| `__len` | # | operand |
+| `__lt`, `__le` | ordered comparison | left, right |
 
 `__eq` and `__tostring` may also be declared as protocol surface. Equality is
 always a valid Lua operation and always returns `boolean`, so the checker does

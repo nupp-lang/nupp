@@ -863,21 +863,19 @@ without storing, returning, retaining, or forwarding it to an unknown target.
 
 ## Proof and trust
 
-```
- Fact                                                    Derived or checked?       Why
- ──────────────────────────────────────────────────────  ────────────────────────  ─────────────────────────────────────────────────────
- Local owner moved exactly once                          Checked                   Visible in Nupp control flow.
- Borrow stored, captured, returned, or outliving source  Checked                   Visible lexical escape and provenance.
- Resource parameter does not escape a body               Derived conservatively    A property of the body.
- Explicit borrows body honors non-escape                 Checked                   The declaration pins a verifiable contract.
- Result expression derives from named parameters         Checked for bodies        Provenance is traceable in the implementation.
- Result is an exclusive external resource                Trusted                   Exclusivity is not observable from its bits.
- Correct cleanup operation                               Trusted                   The type does not identify free versus close.
- C consumes, retains, or releases a pointer              Trusted                   A header has no body or lifetime metadata.
- C borrowed output derives from the named input          Trusted                   The foreign implementation is unavailable.
- Unsafe pointer manipulation is valid                    Trusted locally           unsafe explicitly abandons the proof.
- A handled park eventually resumes or cancels            Trusted handler contract  Scheduler behavior is not derivable from a Lua value.
-```
+| Fact | Derived or checked? | Why |
+| --- | --- | --- |
+| Local owner moved exactly once | Checked | Visible in Nupp control flow. |
+| Borrow stored, captured, returned, or outliving source | Checked | Visible lexical escape and provenance. |
+| Resource parameter does not escape a body | Derived conservatively | A property of the body. |
+| Explicit borrows body honors non-escape | Checked | The declaration pins a verifiable contract. |
+| Result expression derives from named parameters | Checked for bodies | Provenance is traceable in the implementation. |
+| Result is an exclusive external resource | Trusted | Exclusivity is not observable from its bits. |
+| Correct cleanup operation | Trusted | The type does not identify free versus close. |
+| C consumes, retains, or releases a pointer | Trusted | A header has no body or lifetime metadata. |
+| C borrowed output derives from the named input | Trusted | The foreign implementation is unavailable. |
+| Unsafe pointer manipulation is valid | Trusted locally | unsafe explicitly abandons the proof. |
+| A handled park eventually resumes or cancels | Trusted handler contract | Scheduler behavior is not derivable from a Lua value. |
 
 Indirect or untyped calls are conservative. If the checker cannot see a
 callee contract, an owner or borrow may not cross it. Convert through

@@ -70,13 +70,11 @@ return {
 }
 ```
 
-```
- Key    Required  Means
- ─────  ────────  ──────────────────────────────────────────
- argv   yes       The command, as an argv array
- build  no        The target to build first
- env    no        Environment variables, as string to string
-```
+| Key | Required | Means |
+| --- | --- | --- |
+| `argv` | yes | The command, as an argv array |
+| `build` | no | The target to build first |
+| `env` | no | Environment variables, as string to string |
 
 `test` requires a `build` table to exist in the manifest. The command runs with
 the project root as its working directory, and anything you pass after

@@ -207,13 +207,11 @@ A whole-file `read`, `write`, `append`, `writeAtomic` or `copy` settles on a
 worker thread rather than on yours, and the call waits for it by suspending.
 What that means depends on where the call runs, and on nothing the call says:
 
-```
- Where it runs                What waiting means
- ───────────────────────────  ─────────────────────────────────────
- an ordinary program          it sleeps, driving the readiness pump
- under an installed handler   it parks, and the handler resumes it
- inside a `nosuspend` region  NUPP2701, at compile time
-```
+| Where it runs | What waiting means |
+| --- | --- |
+| an ordinary program | it sleeps, driving the readiness pump |
+| under an installed handler | it parks, and the handler resumes it |
+| inside a `nosuspend` region | NUPP2701, at compile time |
 
 One call site covers all three. A library that reads a file works inside a game
 frame and inside a command-line program without knowing which it is in, and a

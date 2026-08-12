@@ -35,13 +35,11 @@ not:
 
 ## Formatting rules
 
-```
- Setting              Value
- ───────────────────  ─────────────────────
- Indent               4 spaces
- Code width           120 columns (--width)
- Docblock text width  88 columns
-```
+| Setting | Value |
+| --- | --- |
+| `Indent` | 4 spaces |
+| Code width | 120 columns (--width) |
+| Docblock text width | 88 columns |
 
 Ordinary line breaks are soft: a short expression or delimited group is put on
 one line. Statements, comments, docblocks, blank lines, and block closers are

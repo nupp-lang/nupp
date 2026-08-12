@@ -4,22 +4,20 @@ Two declarations share one syntax and compile to different things. A `record`
 is a Lua table with a nominal name. A `struct` is FFI cdata with a fixed C
 layout. Choosing between them is choosing a representation.
 
-```
-                       record                     struct
- ────────────────────  ─────────────────────────  ─────────────────────────
- Runtime               Lua table + metatable      FFI cdata
- Field access          Hash lookup                Offset
- Field types           Anything                   C-representable only
- Construction          new R(x = 1)               new S(x = 1) or S(1, 2)
- Uninitialized         Not nil-able; needs a val  Zero-initialized
- Garbage collected     Yes                        Managed by the FFI
- Array part {T}        Allowed                    Rejected
- Property capabilitie  `readonly` / `writeonly`   Ordinary fields only
- Nested declarations   Allowed                    Rejected
- Inline methods        Yes                        Yes, via ffi.metatype
- metamethod contracts  Yes                        Rejected
- `is` runtime test     getmetatable(v)?.__index   R        ffi.istype(S, v)
-```
+|  | record | struct |
+| --- | --- | --- |
+| `Runtime` | Lua table + metatable | FFI cdata |
+| Field access | Hash lookup | Offset |
+| Field types | `Anything` | C-representable only |
+| `Construction` | new R(x = 1) | new S(x = 1) or S(1, 2) |
+| `Uninitialized` | Not nil-able; needs a val | Zero-initialized |
+| Garbage collected | Yes | Managed by the FFI |
+| Array part {T} | `Allowed` | Rejected |
+| Property capabilitie | `readonly` / `writeonly` | Ordinary fields only |
+| Nested declarations | `Allowed` | Rejected |
+| Inline methods | Yes | Yes, via ffi.metatype |
+| metamethod contracts | Yes | Rejected |
+| `is` runtime test | getmetatable(v)?.__index | R        ffi.istype(S, v) |
 
 ## Records
 

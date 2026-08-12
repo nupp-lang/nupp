@@ -14,14 +14,12 @@ a syntax error on a line nobody wrote.
 
 Everything else is optional and buys one feature each:
 
-```
- Component      Needed for                        Installed by
- ─────────────  ────────────────────────────────  ────────────────
- lua-cjson      --json output and the LSP server  luarocks install
- lunamark       nupp doc                          nupp doc
- Scintillua     highlighting in generated sites   nupp doc
- Rust toolchai  building the binary host stub     rustup
-```
+| Component | Needed for | Installed by |
+| --- | --- | --- |
+| lua-cjson | --json output and the LSP server | luarocks install |
+| `lunamark` | nupp doc | nupp doc |
+| `Scintillua` | highlighting in generated sites | nupp doc |
+| Rust toolchai | building the binary host stub | rustup |
 
 That table is about a **checkout**. A stamped binary carries all three of the
 first ones already, as [the binary](#self-contained-binary) describes, and
@@ -97,16 +95,14 @@ That writes `build/dist/nupp`, a single file carrying the compiler, its
 standard library, and what it documents with, needing no LuaJIT installed
 alongside:
 
-```
- Carried            How                     For
- ─────────────────  ──────────────────────  ─────────────────────────
- LuaJIT             linked into the stub    running anything
- lua-cjson          detected and linked     --json and the LSP
- Nupp PEG frontend  emitted in the payload  legacy LPeg pattern calls
- luautf8            detected and linked     nupp doc's entities
- lunamark           in the payload          nupp doc's markdown
- Scintillua (45)    in the payload          highlighting fences
-```
+| Carried | How | For |
+| --- | --- | --- |
+| `LuaJIT` | linked into the stub | running anything |
+| lua-cjson | detected and linked | --json and the LSP |
+| Nupp PEG frontend | emitted in the payload | legacy LPeg pattern calls |
+| `luautf8` | detected and linked | nupp doc's entities |
+| `lunamark` | in the payload | nupp doc's markdown |
+| Scintillua (45) | in the payload | highlighting fences |
 
 The lexers are a chosen set rather than all hundred and sixty Scintillua ships.
 They are the languages a technical document actually fences, listed at the top

@@ -29,15 +29,13 @@ local function collect<T is Reader>(source: T): {T.Item}
 Where the member is written, and which operator it uses, is the whole of what it
 means.
 
-```
- Where          Written                        Means
- ─────────────  ─────────────────────────────  ───────────────────────
- interface      associated type Item           a requirement
- interface      associated type Item is Bound  …and what may answer it
- interface      associated type Item = T       an overridable default
- interface      associated type Item == T      a fixed equality
- record/struct  associated type Item = T       an answer
-```
+| Where | Written | Means |
+| --- | --- | --- |
+| `interface` | associated type Item | a requirement |
+| `interface` | associated type Item is Bound | …and what may answer it |
+| `interface` | associated type Item = T | an overridable default |
+| `interface` | associated type Item == T | a fixed equality |
+| record/struct | associated type Item = T | an answer |
 
 `==` is refused outside an interface, because a concrete declaration already
 answers exactly with `=`. A requirement is refused inside one, because nothing

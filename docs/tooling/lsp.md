@@ -13,25 +13,23 @@ editor and `nupp check` agree about what your code means.
 
 ## LSP features
 
-```
- Capability          Notes
- ──────────────────  ──────────────────────────────────────────────
- Diagnostics         Push-based, republished on change
- Hover               Signature, then the docblock
- Completion          Members after . and :, plus scope and keywords
- Signature help      One signature; no overloads exist
- Go to definition    Single location
- References          Honours includeDeclaration
- Rename              With prepare support
- Document symbols    Hierarchical, with children
- Workspace symbols   Case-insensitive substring over the index
- Semantic tokens     Full, delta, and range
- Document highlight  Occurrences of the symbol under the cursor
- Folding ranges      Any multi-line node
- Selection ranges    The enclosing node chain
- Formatting          Whole document and range
- Code actions        Quick fixes and refactorings
-```
+| Capability | Notes |
+| --- | --- |
+| `Diagnostics` | Push-based, republished on change |
+| `Hover` | Signature, then the docblock |
+| `Completion` | Members after . and :, plus scope and keywords |
+| Signature help | One signature; no overloads exist |
+| Go to definition | Single location |
+| `References` | Honours includeDeclaration |
+| `Rename` | With prepare support |
+| Document symbols | Hierarchical, with children |
+| Workspace symbols | Case-insensitive substring over the index |
+| Semantic tokens | Full, delta, and range |
+| Document highlight | Occurrences of the symbol under the cursor |
+| Folding ranges | Any multi-line node |
+| Selection ranges | The enclosing node chain |
+| `Formatting` | Whole document and range |
+| Code actions | Quick fixes and refactorings |
 
 Document sync is full-text. Inlay hints, code lens, call hierarchy, type
 hierarchy, and go-to-implementation have no handler; an unknown request gets
@@ -60,17 +58,15 @@ Quick fixes come from the checker, so an editor offers exactly what
 `nupp check --json` reports in `fixes`. They are offered anywhere within the
 token carrying the diagnostic rather than only at its first byte.
 
-```
- Title                                  From
- ─────────────────────────────────────  ───────────────────────────────────
- change to `name`                       A misspelling, within edit distance
- cast to `Name`                         Intended lossy narrowing
- require("module")                      NUPP2120, one fix per candidate
- use bound.name                         The module is already required
- require("m") and use m.name            It is not required yet
- drop `local` / mark it local / global  NUPP2119 visibility
- attach it to <moduleLocal>             NUPP2119, when a table is returned
-```
+| Title | From |
+| --- | --- |
+| change to `name` | A misspelling, within edit distance |
+| cast to `Name` | Intended lossy narrowing |
+| `require("module")` | NUPP2120, one fix per candidate |
+| use bound.name | The module is already required |
+| require("m") and use m.name | It is not required yet |
+| drop `local` / mark it local / global | NUPP2119 visibility |
+| attach it to <moduleLocal> | NUPP2119, when a table is returned |
 
 A spelling fix refuses on a tie rather than picking one. A missing require
 offers one fix per candidate module rather than guessing between them.

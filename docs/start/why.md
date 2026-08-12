@@ -127,19 +127,17 @@ follows the model from an application call down to the subscription contract.
 
 One binary, built from one parse of your source:
 
-```
- Command       What it does
- ────────────  ────────────────────────────────────────────────
- nupp check    Type-check the project
- nupp build    Compile to Lua, incrementally
- nupp run      Compile and run, with a profiler behind a flag
- nupp fmt      Format; fixed style, nothing to configure
- nupp doc      Generate an API site from the parse tree
- nupp lsp      Language server: hover, rename, code actions
- nupp test     Build, then run the configured suite
- nupp explain  Describe a diagnostic code, with worked examples
- nupp import-  Turn a C header into typed declarations
-```
+| Command | What it does |
+| --- | --- |
+| nupp check | Type-check the project |
+| nupp build | Compile to Lua, incrementally |
+| nupp run | Compile and run, with a profiler behind a flag |
+| nupp fmt | Format; fixed style, nothing to configure |
+| nupp doc | Generate an API site from the parse tree |
+| nupp lsp | Language server: hover, rename, code actions |
+| nupp test | Build, then run the configured suite |
+| nupp explain | Describe a diagnostic code, with worked examples |
+| nupp import- | Turn a C header into typed declarations |
 
 The profiler is the part people are most surprised to find in a compiler. `nupp
 run --profile` writes collapsed-stack text that speedscope reads, and `nupp run

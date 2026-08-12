@@ -2,33 +2,31 @@
 
 These names, and only these, resolve as bare builtin types:
 
-```
- Name      Means
- ────────  ──────────────────────────────────────────────────────
- any       The gradual type; compatible with everything
- unknown   The top type; everything fits it, it fits nothing else
- never     The bottom type; fits everything, nothing fits it
- nil       The nil singleton
- boolean   true or false
- string    A Lua string
- number    A LuaJIT double
- integer   A number known to be integral
- table     Any table shape; gradual in both directions
- thread    A coroutine
- userdata  Userdata
- float     A C float; widens to number
- cdata     Any cdata value
- cstring   const char *
- voidptr   void *
- int8      Sized C integers, signed and unsigned
- int16
- int32
- int64
- uint8
- uint16
- uint32
- uint64
-```
+| Name | Means |
+| --- | --- |
+| `any` | The gradual type; compatible with everything |
+| `unknown` | The top type; everything fits it, it fits nothing else |
+| `never` | The bottom type; fits everything, nothing fits it |
+| `nil` | The nil singleton |
+| `boolean` | true or false |
+| `string` | A Lua string |
+| `number` | A LuaJIT double |
+| `integer` | A number known to be integral |
+| `table` | Any table shape; gradual in both directions |
+| `thread` | A coroutine |
+| `userdata` | Userdata |
+| `float` | A C float; widens to number |
+| `cdata` | Any cdata value |
+| `cstring` | const char * |
+| `voidptr` | void * |
+| `int8` | Sized C integers, signed and unsigned |
+| `int16` |  |
+| `int32` |  |
+| `int64` |  |
+| `uint8` |  |
+| `uint16` |  |
+| `uint32` |  |
+| `uint64` |  |
 
 `metatable<T>`, `ctype<T>`, `carray<T>`, `owned<T>`, `borrowed<T>`, and
 `pinned<T>` are constructors rather than names. Each needs a type argument, and
@@ -221,16 +219,14 @@ Write `A | B` with spaces. `A||B` lexes as the single `||` operator.
 
 ## Collections
 
-```
- Form          Means
- ────────────  ─────────────────────────────────────────
- {T}           Lua array, one-based, dense
- {T, U}        Tuple, fixed positions
- {[K]: V}      Map with an explicit key type
- {x: T, y: U}  Inline shape
- T[4]          C array of fixed length, zero-based
- T[?]          C array of unspecified length, zero-based
-```
+| Form | Means |
+| --- | --- |
+| {T} | Lua array, one-based, dense |
+| {T, U} | Tuple, fixed positions |
+| {[K]: V} | Map with an explicit key type |
+| {x: T, y: U} | Inline shape |
+| `T[4]` | C array of fixed length, zero-based |
+| `T[?]` | C array of unspecified length, zero-based |
 
 Reading a map yields `V?`, because a key may be absent. Reading an array yields
 `T` rather than `T?`, a pragmatic choice since almost every array read in
@@ -240,12 +236,10 @@ practice is in range.
 
 ## Pointers
 
-```
- Form  Means
- ────  ────────────────────────
- T*    Pointer to T
- T*?   Pointer that may be NULL
-```
+| Form | Means |
+| --- | --- |
+| T* | Pointer to T |
+| T*? | Pointer that may be NULL |
 
 Pointers are invariant in their pointee. `nil` is not a `T*`; the diagnostic
 says so and names `T*?` as the fix. A struct value is accepted where `struct*`

@@ -4,13 +4,11 @@ A typed declaration says where it lives, using the spelling Lua already has for
 saying where a definition lives. There is no fourth rule to learn and no
 default to remember.
 
-```
- form             value side (plain Lua)  type side
- ───────────────  ──────────────────────  ────────────────
- local record R   file-local              file-local
- record M.R       a member of M           a member of M
- global record R  a _G global             a project global
-```
+| form | value side (plain Lua) | type side |
+| --- | --- | --- |
+| local record R | file-local | file-local |
+| record M.R | a member of M | a member of M |
+| global record R | a _G global | a project global |
 
 The parallel is exact: `record M.Point` is to `record` what `function M.f` is
 to `function`. A dot puts the thing on a table; `local` keeps it in the file;
