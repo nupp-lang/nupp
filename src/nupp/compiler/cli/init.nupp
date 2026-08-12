@@ -33,6 +33,8 @@ local REGISTRY: {{
     load: Loader
 }} = {{name = "ast", load = function(): specMod.Handler
     return require("nupp.compiler.cli.ast")
+end}, {name = "bc", load = function(): specMod.Handler
+    return require("nupp.compiler.cli.bc")
 end}, {name = "check", load = function(): specMod.Handler
     return require("nupp.compiler.cli.check")
 end}, {name = "fmt", load = function(): specMod.Handler

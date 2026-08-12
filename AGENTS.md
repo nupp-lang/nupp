@@ -55,6 +55,13 @@ whenever output is not a terminal, so piped output never carries escapes.
 - `./bin/nupp explain CODE [--json]` describes a diagnostic code: the rule, a
   program that reports it, and the same program corrected. Every diagnostic
   carries a `docs` anchor pointing at the same reference.
+- `./bin/nupp bc [--check] FILE` prints the bytecode a file compiles to, beside
+  the source line each instruction came from. `--check` marks work LuaJIT cannot
+  record inside a loop and exits 1 for it: a loop that builds a function aborts
+  trace recording and is blacklisted, so it runs interpreted however hot it
+  gets, and nothing else reports that because the answers do not change. It
+  reads bytecode rather than timing anything, so it needs no quiet machine and
+  answers the same every run.
 - `./bin/nupp lsp inspect --json FILE LINE COLUMN` describes the symbol at a
   position.
 - `./bin/nupp lsp definition --json FILE LINE COLUMN` finds its definition.

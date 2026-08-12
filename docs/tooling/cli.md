@@ -199,6 +199,74 @@ chunk
   eof ""
 ```
 
+### `bc`
+
+```text [nupp bc --help]
+Show the bytecode a Nupp file compiles to
+
+Usage:
+  nupp bc [--check] [--prologue] [--format text|json] <file>
+
+Options:
+  --format FORMAT  Output format: text (default) or json
+  --json           Shorthand for --format json
+  --text           Shorthand for --format text
+  --check          Report bytecode a loop cannot compile, and exit non-zero for
+                   it
+  --prologue       Include the generated runtime preamble, folded away by
+                   default
+  --schema         Print the JSON Schema of --json output and exit
+  --color[=WHEN]   When to colour output: always, never, or auto (default)
+  --no-color       Never colour output; the same as --color=never
+  -h, --help       Show this help
+
+Source lines are shown against the instructions they produced. The generated
+runtime preamble all lands on line 1 and is folded away unless `--prologue`
+asks for it.
+
+`--check` marks every instruction LuaJIT cannot record that sits inside a loop,
+and exits 1 when there is one. Building a function is the usual cause: the loop
+holding it aborts trace recording and is blacklisted, so it runs interpreted
+however hot it gets. Nothing else reports that, because nothing about the
+program's answers changes.
+```
+
+Generated Lua keeps source line numbers one to one, so the listing shows the
+file that was written rather than the file that was generated. The runtime
+preamble all lands on line 1 and is folded away; `--prologue` keeps it.
+
+```text [nupp bc src/greet.nupp]
+-- chunk, lines 0-6
+     ... 44 instructions of runtime preamble
+    3 | end
+      0044  FNEW     4   7      ; greet.nupp:1
+    5 | return {greet = greet}
+      0045  TDUP     5   8
+      0046  TSETS    4   5   9  ; "greet"
+      0047  UCLO     0 => 0048
+      0048  RET1     5   2
+
+  -- function, lines 1-3
+      1 | local function greet(name: string): string
+        0000  FUNCF    3 
+      2 |     return "Hello, " .. name
+        0001  KSTR     1   0      ; "Hello, "
+        0002  MOV      2   0
+        0003  CAT      1   1   2
+        0004  RET1     1   2
+```
+
+`--check` reads the bytecode for work LuaJIT cannot record inside a loop, and
+exits 1 when it finds any. Building a function is the usual cause: LuaJIT has
+no recording for it, so the loop holding one aborts recording, is blacklisted
+after enough attempts, and then runs interpreted however hot it gets. Nothing
+else reports that, because the program's answers do not change.
+
+This is a stronger reading than [`loop-invariant-closure`](../lints.md), which
+only reports a function that could be lifted out unchanged. One that reads the
+iteration cannot be lifted and is not reported, and it costs the loop its trace
+just the same.
+
 ### `check`
 
 ```text [nupp check --help]
@@ -1232,6 +1300,7 @@ Usage:
 
 Commands:
   ast              Dump a Nupp file's parsed syntax tree
+  bc               Show the bytecode a Nupp file compiles to
   check            Type-check source without emitting Lua
   fmt              Format Nupp source
   build            Build source files or a configured project target
