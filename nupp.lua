@@ -408,9 +408,19 @@ nupp lsp            # start the language server]],
                   source = "docs/start/why.md",
                },
                {
+                  path = "concepts/strictness",
+                  title = "Strictness floors",
+                  source = "docs/concepts/strictness.md",
+               },
+               {
                   path = "concepts/syntax",
                   title = "Nupp syntax",
                   source = "docs/start/syntax.md",
+               },
+               {
+                  path = "concepts/calls",
+                  title = "Named and plucked arguments",
+                  source = "docs/concepts/calls.md",
                },
                {
                   path = "concepts/declarations",
@@ -463,6 +473,16 @@ nupp lsp            # start the language server]],
                   source = "docs/metamethods.md",
                },
                {
+                  path = "concepts/comptime",
+                  title = "Comptime",
+                  source = "docs/concepts/comptime.md",
+               },
+               {
+                  path = "concepts/reflection",
+                  title = "Semantic reflection",
+                  source = "docs/concepts/reflection.md",
+               },
+               {
                   path = "getting-started/tooling",
                   title = "Tooling",
                   source = "docs/start/tooling.md",
@@ -487,6 +507,11 @@ nupp lsp            # start the language server]],
                   path = "type-system/interfaces",
                   title = "Interfaces",
                   source = "docs/type-system/interfaces.md",
+               },
+               {
+                  path = "type-system/refinements",
+                  title = "Refinements",
+                  source = "docs/type-system/refinements.md",
                },
                {
                   path = "type-system/properties",

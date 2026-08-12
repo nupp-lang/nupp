@@ -1,0 +1,114 @@
+# Named and plucked arguments
+
+Inside a parenthesized call, `name = value` fills that parameter by name, and
+`(name) = value` fills it from the field of `value` that the parameter names.
+Both erase to ordinary positional Lua arguments, so neither costs anything at
+run time.
+
+```nupp
+local m = {}
+
+local record Vec3
+    x: number
+    y: number
+    z: number
+end
+
+local function draw(x: number, y: number, color: string?): nil
+    print(x, y, color)
+end
+
+function m.render(position: Vec3): nil
+    draw((x, y) = position, color = "blue")
+end
+
+return m
+```
+
+`(x, y) = position` means `x = position.x, y = position.y` and nothing more.
+
+## Named arguments come last
+
+A named argument follows every positional one and appears in parameter order. An
+optional slot skipped before a later named argument is emitted as `nil`, so the
+generated call is the positional one you would have written.
+
+```nupp
+local m = {}
+
+local function draw(x: number, y: number, color: string?): nil
+    print(x, y, color)
+end
+
+function m.render(): nil
+    draw(10, 20, color = "blue")
+    draw(10, y = 20)
+end
+
+return m
+```
+
+## Plucking reads a field, not a contract
+
+Nothing is declared on the operand's type. A plucked name reaches any record
+carrying a field of that name, including one the caller does not own, which is
+what lets a function take `x` and `y` from a value that was never designed
+around it.
+
+A name that is not a field of the operand is **NUPP2004**. The binding it
+produces is then checked like any other named argument, so a field whose type
+does not fit its parameter is an ordinary rejected call rather than a special
+case.
+
+## Groups are sets, not sequences
+
+Every read in a group is a field of one path, so no order among them is
+observable and `(y, x)` binds exactly what `(x, y)` does. Ordering is enforced
+between arguments, not inside a group.
+
+## Operands are names or paths
+
+A plucked operand is a name or a dotted field path, such as `entity.position`.
+Bind a call, a computed index, or any other producing expression to a local
+first. That restriction is what lets the reads be unordered and evaluated once:
+a statement-level call evaluates each dotted path and common prefix a single
+time, while the projected fields stay direct positional arguments.
+
+```nupp
+local m = {}
+
+local record Vec3
+    x: number
+    y: number
+    z: number
+end
+
+local record Entity
+    position: Vec3
+end
+
+local function draw(x: number, y: number, color: string?): nil
+    print(x, y, color)
+end
+
+function m.render(entity: Entity): nil
+    draw((x, y) = entity.position, color = "blue")
+end
+
+return m
+```
+
+Plucking never introduces a closure or an upvalue.
+
+## Diagnostics
+
+- **NUPP2004**: a plucked name is not a field of the operand.
+- **NUPP2006**: an argument does not fit the parameter it fills.
+- **NUPP2125**: no overload accepts the call the arguments build.
+
+## Next
+
+- [Records and structs](../type-system/records.md): the declarations these
+  arguments are usually read from.
+- [Overloads and overrides](../type-system/overloads.md): how an argument pack
+  selects one entry of an overload set.
