@@ -307,22 +307,59 @@ is one part of the proof for numeric array-loop lowering.
 
 ## Relaxing observable guarantees
 
-Some future rewrites may deliberately trade a named observable property for
-speed. A function can opt in locally with `@relax`, and a compilation can opt
-in with repeatable `--relax=GUARANTEE` flags:
+A guarantee is a property of a running program that a reader could notice, and
+Nupp keeps all six by default. `@relax` says a function may give one up, which
+is what lets a rewrite that would otherwise change observable behavior apply
+there.
 
 ```nupp
+local m = {}
+
 @relax("frames", "error-site")
-local function dispatch(handler: function()): nil
+function m.dispatch(handler: function()): nil
     handler()
 end
+
+return m
 ```
 
-The closed set is `function-identity`, `load-order`, `error-site`, `frames`,
-`gc-timing`, and `table-order`. Recording a relaxation does not itself request
-a rewrite; a pass must name and check the guarantee it would change. The
-current numeric `ipairs` rewrite needs no relaxation because it preserves the
-language's observable behavior under its proof.
+That says two things about `dispatch`: a traceback through it need not show the
+frames it would have shown, and an error raised inside it need not report the
+position it would have reported. Nothing else about it changes.
+
+### The six guarantees
+
+Each name is one property, and giving it up permits a specific class of
+rewrite.
+
+| Guarantee | What holding it promises | What giving it up permits |
+| --- | --- | --- |
+| `function-identity` | two closures built at one site are distinct values, so `a == b` answers no | caching a closure and handing the same one back |
+| `load-order` | modules initialize in the order the requires run | hoisting an import, or binding a callee statically |
+| `error-site` | an error reports the position that raised it | hoisting a check or a chain out of a loop |
+| `frames` | a traceback shows the frames the source describes | inlining a call away |
+| `gc-timing` | a value becomes collectable when it goes unreachable | keeping one alive longer, or dropping it sooner |
+| `table-order` | `pairs` visits a table's keys in one order per run | rebuilding a table so iteration reaches keys differently |
+
+### Two places to opt in
+
+A function opts in for itself with `@relax`. A whole compilation opts in with
+`--relax=GUARANTEE`, which repeats:
+
+```bash
+nupp build --relax=frames --relax=function-identity
+```
+
+A name outside the closed set is **NUPP2112**, so a typo is refused rather than
+silently granting nothing.
+
+### Recording one does not request a rewrite
+
+`@relax` widens what a pass is allowed to do; it never asks for anything. A pass
+still has to name the guarantee it would change and check that the site granted
+it, and a pass that changes nothing observable needs no grant at all. The
+numeric `ipairs` rewrite is one of those: it preserves the language's observable
+behavior under its own proof, so it applies whether or not anything was relaxed.
 
 Compiler integrations can still add definitions directly through the
 extensible `nupp.compiler.annotations` registry. Source declarations are the
