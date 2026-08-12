@@ -67,7 +67,11 @@ local TYPE_KINDS = {tname = true, topt = true, tptr = true, tunion = true, tinte
     -- A pack reaches here whole when it has a tail -- `...integer`, `T...` -- since
     -- only tailless packs are spliced. Its `...` is as much type material as the type
     -- beside it, and without this the token was emitted into the function's body.
-    tpack = true, tpackUnion = true, captureClause = true,}
+    tpack = true, tpackUnion = true, captureClause = true,
+    -- A comptime call in type position, `local v: Optional(string)`. It reduced while
+    -- the program was checked and names no runtime function, so its call parentheses
+    -- are type material; without this they were emitted as `local v ( ) = nil`.
+    ttypecall = true,}
 
 -- Erased declarations. recordDecl is conditional: declKind == "struct" reifies to
 -- ffi.typeof instead (M3).

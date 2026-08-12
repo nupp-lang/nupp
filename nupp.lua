@@ -548,7 +548,7 @@ nupp lsp            # start the language server]],
                },
                {
                   path = "type-system/type-level-computation",
-                  title = "Type-level computation",
+                  title = "Comptime types",
                   source = "docs/type-system/type-level-computation.md",
                },
                {

@@ -1,4 +1,4 @@
-# Type-level computation
+# Comptime types
 
 Nupp has one general compile-time programming language: ordinary Nupp inside
 `@comptime` functions. A comptime function may accept compiler-only `type` and
@@ -12,8 +12,18 @@ local function Optional(T: type): type
     return nupp.types.optional(T)
 end
 
+-- Optional(string) runs while this line is checked and answers string?,
+-- so the annotation means exactly what `local value: string?` would mean.
 local value: Optional(string) = nil
+value = "ready"
+if value ~= nil then
+    -- Narrowing sees through the call: value is string here.
+    print(#value)
+end
 ```
+
+The compiled Lua is `local value = nil` followed by the assignment and the
+test. `Optional` itself is not emitted, and nothing calls it at runtime.
 
 Type functions generate types, not declarations. They may construct structural
 shapes, tuples, maps, functions, unions, intersections, wrappers, and packs, or
@@ -38,7 +48,10 @@ local function DeepElement(T: type): type
     return T
 end
 
+-- The loop peels three array layers off {{{integer}}}, so the annotation
+-- is integer and 42 is accepted.
 local leaf: DeepElement({{{integer}}}) = 42
+print(leaf + 1)
 ```
 
 `nupp.types.error(message)` deliberately rejects the type application. It is
@@ -68,7 +81,18 @@ local function apply<Kind is string>(
 ): string
     return kind
 end
+
+-- Kind infers as the literal "pair", which closes Arguments("pair") to
+-- (string, number), so this call is checked against exactly those.
+local paired = apply("pair", "left", 2)
+
+-- Any other literal closes it to (...any), so the tail is unconstrained.
+local loose = apply("other", true, nil, 3)
 ```
+
+Until inference makes `Kind` concrete the application stays open: inside
+`apply`, the tail is only what `unpackof Arguments(Kind)` promises, not what
+either branch happens to return.
 
 `type<Bound>` constrains a generated result. Until an open call closes, ordinary
 type consumers may use only facts promised by that bound. Nupp does not
@@ -83,9 +107,24 @@ template construction, const parameters, associated-type projections, and
 `unpackof` are also retained.
 
 ```nupp
+local record Settings
+    theme: string
+    volume: integer
+end
+
 local type Events<T> = {
     readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil
 }
+
+-- Events<Settings> is {readonly themeChanged: function(string): nil,
+-- readonly volumeChanged: function(integer): nil}. Each member's parameter
+-- comes from the field it was named after.
+local handlers: Events<Settings> = {
+    themeChanged = function(value: string): nil end,
+    volumeChanged = function(value: integer): nil end,
+}
+
+handlers.themeChanged("dark")
 ```
 
 These bounded operators are preferred when they state the transformation more
@@ -102,7 +141,17 @@ Const parameters admit only `string`, `boolean`, and exactly representable
 local record Matrix<T, const Rows: integer, const Columns: integer>
     values: T[Rows * Columns]
 end
+
+-- The dimensions are type arguments, so Rows * Columns folds to 12 while
+-- this is checked and values has the exact array type float[12].
+local grid: Matrix<float, 4, 3> = nil as any
+local cells: float[12] = grid.values
 ```
+
+`grid` holds one array at runtime and carries no dimension fields: the consts
+are checked and then erased. They still tell the two shapes apart, so assigning
+a `Matrix<float, 4, 3>` where a `Matrix<float, 3, 4>` is wanted is NUPP2001,
+reported as `have different const argument 1`.
 
 ## `string.format`
 
@@ -112,12 +161,35 @@ gradual `...any` tail.
 
 ```nupp
 local count = string.format("%s has %d messages", "Ada", 3)
+
+-- A format the checker cannot read is not an error; the call keeps the
+-- gradual ...any tail instead of an exact parameter list.
+local function report(template: string, name: string, unread: integer): string
+    return string.format(template, name, unread)
+end
 ```
 
 Supported conversions match LuaJIT's bounded formatting surface. Invalid,
 missing, surplus, and mismatched arguments report on the ordinary call. This is
 implemented through the same type-function mechanism available to user code,
 not a format-specific checker branch.
+
+```nupp
+-- NUPP2006: omitted argument 3 supplies nil, not number
+local missing = string.format("%s has %d messages", "Ada")
+
+-- NUPP2006: argument 2: string is not a number
+local mismatched = string.format("%d", "three")
+
+-- NUPP2007: too many arguments (expected 2, got 3)
+local surplus = string.format("%s", "Ada", "Grace")
+
+-- NUPP2006: invalid string.format directive starting at "%y"
+local invalid = string.format("%q %y", 1, 2)
+```
+
+Arity errors report at the call, and a conversion mismatch reports at the
+argument that does not fit.
 
 ## Limits and isolation
 

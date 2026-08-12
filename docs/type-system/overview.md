@@ -155,7 +155,7 @@ One page per idea, in the order they build on each other:
 - [Overloads and overrides](overloads.md): callable intersections, separate
   method bodies, interface defaults, and constructors.
 - [Generics](generics.md): type parameters, inference, and bounds.
-- [Type-level computation](type-level-computation.md): member transforms,
+- [Comptime types](type-level-computation.md): member transforms,
   const parameters, matching, template literal types, and guarded recursion.
 - [Type packs](packs.md): heterogeneous variadics, Lua value-list adjustment,
   protected calls, and coroutine protocols.

@@ -221,5 +221,5 @@ or runtime freezing is involved: `const` records the checked, shallow guarantee;
 
 - [Optimization](optimization.md): the other passes, and how to inspect or
   turn one off.
-- [Type-level computation](../type-system/type-level-computation.md): the
+- [Comptime types](../type-system/type-level-computation.md): the
   `const` binder this pass reads.

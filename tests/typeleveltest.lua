@@ -623,4 +623,25 @@ function M.typeComputationAndConstBindersEraseFromGeneratedLua()
    assertEq(chunk(), "ok")
 end
 
+function M.comptimeCallsInAnnotationPositionEraseFromGeneratedLua()
+   local source = table.concat({
+      "@comptime",
+      "local function Optional(T: type): type",
+      "   return nupp.types.optional(T)",
+      "end",
+      "local value: Optional(string) = 'ok'",
+      "return value",
+   }, "\n")
+   clean(source)
+   local parsed = parser.parse(source, "annotation.g.nupp")
+   local lua, emitted = gen.generate(parsed, "annotation")
+   assertEq(#emitted, 0, "code generation diagnostics")
+   -- The call is type material, so its parentheses erase with the annotation
+   -- rather than reaching the statement as `local value ( ) = 'ok'`, which is
+   -- not Lua and so fails to load rather than to type-check.
+   assert(lua:find("local value = 'ok'", 1, true), "annotation reached runtime Lua:\n" .. lua)
+   local chunk = assert(loadstring(lua))
+   assertEq(chunk(), "ok")
+end
+
 return M
