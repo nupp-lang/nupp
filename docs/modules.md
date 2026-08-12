@@ -213,7 +213,7 @@ disguising the foreign name.
 
 Module names are luacase: all lowercase, run together, with no separator of any
 kind and in particular no underscore. `nupp.resources`, `nupp.io.processtypes`,
-`nupp.resources.native`. A module name is a filesystem path before it is an
+`nupp.workers.native`. A module name is a filesystem path before it is an
 identifier, which is what stops it being spelled like every other name here.
 Case does not survive that round trip: a case-insensitive filesystem resolves
 `nupp.io.processTypes` to `processtypes.nupp` and a case-sensitive one does not,
@@ -225,7 +225,7 @@ settled this before we arrived: `string`, `table`, `coroutine`, `os`.
 
 Where a name wants two words, run them together while they still read as one
 thing (`processtypes`), or make the second word a submodule when it really is
-one (`resources.native`). If neither reads, the length is the symptom rather
+one (`workers.native`). If neither reads, the length is the symptom rather
 than the problem: the module is holding two subjects and wants splitting, or it
 is named for how it is built instead of what it is for.
 

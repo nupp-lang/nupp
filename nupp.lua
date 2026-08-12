@@ -84,7 +84,6 @@ return {
                {source = "src/nupp/compiler/decls/processnative.d.nupp", output = "nupp/compiler/decls/processnative.d.nupp"},
                {source = "src/nupp/compiler/decls/workersnative.d.nupp", output = "nupp/compiler/decls/workersnative.d.nupp"},
                {source = "src/nupp/compiler/decls/httpnative.d.nupp", output = "nupp/compiler/decls/httpnative.d.nupp"},
-               {source = "runtime/lua/resourcesnative.lua", output = "nupp/resources/native.lua"},
             },
          },
          -- Nupp stamped into a feature-matched host as one self-contained
@@ -114,7 +113,6 @@ return {
                {source = "src/nupp/compiler/decls/processnative.d.nupp", output = "nupp/compiler/decls/processnative.d.nupp"},
                {source = "src/nupp/compiler/decls/workersnative.d.nupp", output = "nupp/compiler/decls/workersnative.d.nupp"},
                {source = "src/nupp/compiler/decls/httpnative.d.nupp", output = "nupp/compiler/decls/httpnative.d.nupp"},
-               {source = "runtime/lua/resourcesnative.lua", output = "nupp/resources/native.lua"},
             },
             stub = "nupp",
             output = "build/dist/nupp",

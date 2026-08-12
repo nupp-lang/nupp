@@ -1115,7 +1115,7 @@ function declare.install(
             n.staticFieldDefs = {}
             n.staticWriteFieldDefs = {}
             stat.resolvedType = n
-            if c.result.moduleName == "nupp.resources.native" and n.name == "Set" then
+            if c.result.moduleName == "nupp.resources" and n.name == "Set" then
                 n.resourceSet = true
             end
 

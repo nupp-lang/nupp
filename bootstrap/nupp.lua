@@ -16595,7 +16595,7 @@ n . writeFieldDefs = { }
 n . staticFieldDefs = { }
 n . staticWriteFieldDefs = { }
 stat . resolvedType = n
-if c . result . moduleName == "nupp.resources.native" and n . name == "Set" then
+if c . result . moduleName == "nupp.resources" and n . name == "Set" then
 n . resourceSet = true
 end
 
@@ -44403,8 +44403,6 @@ local BUNDLED = { [
 ] = "/decls/jit/profile.d.nupp" , [
 "jit.zone"
 ] = "/decls/jit/zone.d.nupp" , [ "jit.vmdef" ] = "/decls/jit/vmdef.d.nupp" , [
-"nupp.resources.native"
-] = "/decls/resourcesnative.d.nupp" , [
 "nupp.io.processnative"
 ] = "/decls/processnative.d.nupp" , [
 "nupp.io.httpnative"
@@ -70420,7 +70418,10 @@ local type Either = string | integer
 local type Mode = "read" | "write"
 local type Counts = {[string]: integer}
 local type Row = {integer}
-local type Point = {x: integer, y: integer}
+local type Point = {
+    x: integer,
+    y: integer
+}
 local type Handler = function(event: string): boolean
 local type Reply = unknown
 return m
@@ -70579,20 +70580,17 @@ identical active application, or an exhausted recursive budget is NUPP2133.
 [=[
 local m = {}
 
-local type Events<T> = {
-    readonly [K in keyof T as `${K}Changed`]:
-        function(value: T.[K]): nil
-}
+local type Events<T> = {readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil}
 
-local type Element<T> =
-    match T when {infer Item} then Item else T end
-
-local type DeepElement<T> = match T
-    when {infer Item} then DeepElement<Item>
-    else T
+local type Element<T> = match T when {infer Item} then Item else T
 end
 
-local events: Events<{name: string}> = nil as any
+local type DeepElement<T> = match T when {infer Item} then DeepElement<Item> else T
+end
+
+local events: Events<{
+    name: string
+}> = nil as any
 local callback: function(value: string): nil = events.nameChanged
 local element: Element<{integer}> = 1
 local deep: DeepElement<{{integer}}> = 1
@@ -70636,10 +70634,7 @@ function m.forward<A...>(...: A...): A...
     return ...
 end
 
-function m.protected<A..., R...>(
-    callback: function(A...): R...,
-    ...: A...
-): ((true, R...) | (false, any))
+function m.protected<A..., R...>(callback: function(A...): R..., ...: A...): ((true, R...) | (false, any))
     return pcall(callback, ...)
 end
 
@@ -70663,8 +70658,12 @@ These are views of members. `const T` makes a whole value read-only, and
 [=[
 local m = {}
 
-local type Input = {readonly value: string | integer}
-local type Output = {writeonly value: string}
+local type Input = {
+    readonly value: string | integer
+}
+local type Output = {
+    writeonly value: string
+}
 
 record m.Cell
     readonly value: string
@@ -70721,20 +70720,28 @@ method bodies, interface contracts, per-entry defaults, generics, constructors,
 ambiguity, and dynamic facades.
 ]=] ,  example =
 [=[
-local type Named = {readonly name: string}
-local type Counted = {readonly count: integer}
+local type Named = {
+    readonly name: string
+}
+local type Counted = {
+    readonly count: integer
+}
 local type Entry = Named & Counted
 
-local type Parse = function(text: string): integer
-    & function(text: string, base: integer): string
+local type Parse = function(text: string): integer & function(text: string, base: integer): string
 
 local parse: Parse = nil as any
 local decimal: integer = parse("10")
 local hexadecimal: string = parse("10", 16)
 
 local record Decoder
-    function decode(self, text: string): string return "text:" .. text end
-    function decode(self, value: integer): string return "integer:" .. tostring(value) end
+    function decode(self, text: string): string
+        return "text:" .. text
+    end
+
+    function decode(self, value: integer): string
+        return "integer:" .. tostring(value)
+    end
 end
 
 local decoder = new Decoder()
@@ -71009,7 +71016,9 @@ interface m.Circle is m.Shape
 end
 
 function m.area(s: m.Shape): number
-    if s is m.Circle then return 3 * s.radius * s.radius end
+    if s is m.Circle then
+        return 3 * s.radius * s.radius
+    end
     return 0
 end
 
@@ -71094,9 +71103,13 @@ local m = {}
 type m.Color = "red" | "green" | "blue"
 
 function m.describe(c: m.Color): string
-    if c == "red" then return "warm"
-    elseif c == "green" then return "cool"
-    else return "cool" end
+    if c == "red" then
+        return "warm"
+    elseif c == "green" then
+        return "cool"
+    else
+        return "cool"
+    end
 end
 
 record m.Circle
@@ -71148,9 +71161,14 @@ function m.describe(value: string | integer): string
     return "number " .. value
 end
 
-function m.nameOf(user: {name: string?}): string
+function m.nameOf(user: {
+    name: string?
+}): string
     local name = user.name
-    if not name then return "anonymous" end
+    if not name then
+        return "anonymous"
+    end
+
     return name
 end
 
@@ -71218,7 +71236,10 @@ end
 @owned(closeFile)
 function m.open(path: string): LuaFile
     local file = io.open(path, "r")
-    if not file then error("cannot open " .. path) end
+    if not file then
+        error("cannot open " .. path)
+    end
+
     return file
 end
 
@@ -71348,7 +71369,10 @@ local m = {}
 --- @raises when the file cannot be read
 function m.load(path: string): string
     local file = io.open(path, "r")
-    if not file then error("no such file: " .. path) end
+    if not file then
+        error("no such file: " .. path)
+    end
+
     return file:read("*a")
 end
 
@@ -71416,7 +71440,7 @@ new table graph:
 
 ```nupp
 local M = {}
-const... M.settings = {name = "nupp", nested = {count = 0}}
+const ... M.settings = {name = "nupp", nested = {count = 0}}
 return M
 ```
 
@@ -71437,10 +71461,13 @@ function m.demo(n: integer, flag: boolean, label: string?): integer
     local shown = flag ? "on" : "off"
     local name = label ?? "anonymous"
     for i = 1, 10 do
-        if i == 5 then continue end
+        if i == 5 then
+            continue
+        end
         total += i
     end
     local double = |x: integer| -> x * 2
+
     return total + #shown + #name + double(2)
 end
 
@@ -71601,7 +71628,8 @@ ABI versions; manifest caches retain the canonical blueprint and lowering.
 [=[
 local m = {}
 
-@comptime local function step(acc: integer): integer
+@comptime
+local function step(acc: integer): integer
     return acc & 1 ~= 0 and 0xedb88320 ~ (acc >> 1) or acc >> 1
 end
 
@@ -71622,6 +71650,7 @@ function m.checksum(text: string): integer
     for index = 1, #text do
         acc = CRC32[((acc ~ text:byte(index)) & 0xff) + 1] ~ (acc >> 8)
     end
+
     return acc ~ 0xffffffff
 end
 
@@ -81647,9 +81676,15 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 
+
 local resources = { }
 
-local native = require ( "nupp.resources.native" )
+
+
+
+
+
+const Entry = {} Entry.__index = Entry
 
 
 
@@ -81659,6 +81694,124 @@ local native = require ( "nupp.resources.native" )
 
 
 
+
+
+resources.Set = {} resources.Set.__index = resources.Set
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function resources . Set . close ( self )
+local first = nil
+local suppressed = 0
+if not self . _closed then
+self . _closed = true
+for index = # self . _entries , 1 , - 1 do
+local entry = self . _entries [ index ]
+local ok , reason = pcall ( entry . cleanup , entry . value )
+if not ok then
+if first == nil then
+first = reason
+else
+suppressed = suppressed + 1
+end
+end
+end
+self . _entries = { }
+end
+
+
+do
+local _ = self
+end
+if first ~= nil then
+if suppressed > 0 then
+error ( tostring ( first ) .. " (suppressed " .. tostring ( suppressed ) .. " cleanup failure(s))" , 0 )
+end
+error ( first , 0 )
+end
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+function resources . Set . adopt ( self , value , terminal )
+assert ( not self . _closed , "resource set is closed" )
+do
+local witness = terminal
+assert ( type ( witness ) == "function" , "resource adoption needs a discharge witness" )
+self . _entries [ # self . _entries + 1 ] = setmetatable({ value =  value ,  cleanup =  witness }, Entry)
+return self . _entries [ # self . _entries ] . value
+end
+end
+
+
+
+
+
+
+
+
+function resources . Set . remove ( self , value )
+assert ( not self . _closed , "resource set is closed" )
+for index = # self . _entries , 1 , - 1 do
+local entry = self . _entries [ index ]
+if entry . value == value then
+table . remove ( self . _entries , index )
+return entry . value
+end
+end
+error ( "resource is not registered in this set" , 2 )
+end
 
 
 
@@ -81670,7 +81823,7 @@ local native = require ( "nupp.resources.native" )
 
 
 function resources . set ( label )
-return native . new ( label )
+return setmetatable({ label =  label or "resource" ,  _entries =  { } ,  _closed =  false }, resources.Set)
 end
 
 local function close_file ( file )
@@ -81689,7 +81842,7 @@ end
 
 
 
-__nuppCleanups["nupp.resources#close_file@1701"]=close_file;
+__nuppCleanups["nupp.resources#close_file@6849"]=close_file;
 function resources . openFile ( path , mode )
 local file , reason = io . open ( path , mode )
 if not file then
@@ -81708,7 +81861,7 @@ end
 
 
 
-__nuppCleanups["nupp.resources#close_file@1701"]=close_file;
+__nuppCleanups["nupp.resources#close_file@6849"]=close_file;
 function resources . openProcess ( command , mode )
 local file , reason = io . popen ( command , mode )
 if not file then
@@ -81725,7 +81878,7 @@ end
 
 
 
-__nuppCleanups["nupp.resources#close_file@1701"]=close_file;
+__nuppCleanups["nupp.resources#close_file@6849"]=close_file;
 function resources . temporaryFile ( )
 local file = io . tmpfile ( )
 if not file then
@@ -87993,43 +88146,6 @@ end
 
 return re
 ]],
-["/decls/resourcesnative.d.nupp"] = [[
---- The unchecked body behind `resources.Set`.
----
---- Registering owners in a table and discharging them in a loop is what the ownership
---- checker refuses, so the container that does it lives outside the checked language and
---- is trusted here once, rather than every caller reaching for `unsafe`. `nupp.resources`
---- is the module to use; nothing else should name this one.
-local native = {}
-
---- A container for as many owners as a program turns out to need.
-record native.Set
-    --- What the set is for, in diagnostics.
-    label: string
-
-    --- Discharges every registration in reverse.
-    ---
-    --- Attempts all of them, then reports the first failure with a count of the ones it
-    --- suppressed. Idempotent.
-    @drop
-    close: nosuspend function(takes self: native.Set)
-
-    --- Moves an owner in and returns a borrow tied to the set.
-    ---
-    --- An opaque owner has no cleanup to reify, so it needs its terminal consumer named.
-    adopt: function<T>(self: native.Set, takes value: T, terminal: function(takes value: T)?): T borrows (self)
-
-    --- Deletes one registration and returns the original capability exactly once.
-    remove: function<T>(self: native.Set, borrows value: T): T
-end
-
---- Creates an empty set owned by the caller.
-@owned
-function native.new(label: string?): native.Set
-end
-
-return native
-]],
 ["/decls/stringbuffer.d.nupp"] = [=[
 --[[
 Declarations for LuaJIT's string.buffer module, loaded for
@@ -91588,18 +91704,27 @@ so the checker knows a handle must be discharged and lexical cleanup can do it â
 on fallthrough, on error, and on structured control flow alike.
 
 Producing owners and holding them are the two halves of one subject, so they are
-one module. `Set` is the audited exception to the rule that an owner cannot live in
-dynamic storage: its body is the unchecked `nupp.resources.native`, because
-registering owners in a table and discharging them in a loop is exactly what the
-checker refuses, and something has to be trusted for the rest to be checkable.
-Nothing else here needs that trust.
+one module. `Set` is the audited exception to the rule that an owner cannot live
+in dynamic storage. How many owners a set holds, and of what types, is known only
+while running, so the proof of discharge cannot stay in the checker: it is carried
+into the entry as the witness `adopt` is handed. Surrendering an owner to that
+storage is what `intoRaw` is for, and the two `unsafe` blocks below are the whole
+of what this module asks to be trusted about. `nupp ownership-audit` lists them.
 
 See `docs/ownership.md`.
 ]]
 
 local resources = {}
 
-local native = require("nupp.resources.native")
+--- One adopted owner and the witness that discharges it.
+---
+--- Both are erased: the set is one table holding owners of types it never learns,
+--- and the witness the call site reified is the only thing that knows what to do
+--- with the value beside it.
+local record Entry
+    value: any
+    cleanup: any
+end
 
 --- A container for as many owners as a program turns out to need.
 ---
@@ -91608,7 +91733,122 @@ local native = require("nupp.resources.native")
 --- with a count of the ones it suppressed.
 ---
 --- @export
-type resources.Set = native.Set
+record resources.Set
+    --- What the set is for, in diagnostics.
+    label: string
+
+    --- Adopted owners, in the order they arrived.
+    _entries: {Entry}
+
+    --- Whether `close` has already run.
+    _closed: boolean
+
+    --- Discharges every registration in reverse.
+    ---
+    --- Attempts all of them, so one failing cleanup cannot strand the rest, then
+    --- reports the first failure with a count of the ones it suppressed. Idempotent.
+    @drop
+    close: nosuspend function(takes self: resources.Set)
+
+    --- Moves an owner in and returns a borrow tied to the set.
+    ---
+    --- The second argument is the discharge witness. A caller never writes it: the
+    --- checker reifies the adopted value's own cleanup contract at the call site, and
+    --- asks for an explicit terminal consumer only where there is no contract to reify.
+    ---
+    --- @param value the owner the set takes responsibility for
+    --- @param terminal what discharges an opaque owner, which carries no contract
+    --- @return the adopted value, borrowed from the set
+    --- @raises when the set is already closed, or adoption carries no witness
+    adopt: function<T>(self: resources.Set, takes value: T, terminal: function(takes value: T)?): T borrows (self)
+
+    --- Deletes one registration and returns the original capability exactly once.
+    ---
+    --- @param value a value a previous `adopt` returned
+    --- @return that value, owned by the caller again
+    --- @raises when the value is not registered in this set
+    remove: function<T>(self: resources.Set, borrows value: T): T
+end
+
+--- Discharges every registration in reverse.
+---
+--- Attempts all of them, so one failing cleanup cannot strand the rest, then reports
+--- the first failure with a count of the ones it suppressed. Idempotent.
+---
+--- @export
+--- @param self the set, spent by this call
+--- @raises when a registration's cleanup fails
+function resources.Set.close(takes self)
+    local first: any = nil
+    local suppressed = 0
+    if not self._closed then
+        self._closed = true
+        for index = #self._entries, 1, -1 do
+            local entry = self._entries[index]
+            local ok, reason = pcall(entry.cleanup, entry.value)
+            if not ok then
+                if first == nil then
+                    first = reason
+                else
+                    suppressed = suppressed + 1
+                end
+            end
+        end
+        self._entries = {}
+    end
+    -- The set is spent either way, and saying so before raising keeps a failing
+    -- cleanup from also reading as an undischarged owner.
+    unsafe do
+        local _ = nupp.intoRaw(self)
+    end
+    if first ~= nil then
+        if suppressed > 0 then
+            error(tostring(first) .. " (suppressed " .. tostring(suppressed) .. " cleanup failure(s))", 0)
+        end
+        error(first, 0)
+    end
+end
+
+--- Moves an owner in and returns a borrow tied to the set.
+---
+--- The second argument is the discharge witness. A caller never writes it: the checker
+--- reifies the adopted value's own cleanup contract at the call site, and asks for an
+--- explicit terminal consumer only where there is no contract to reify.
+---
+--- @export
+--- @param self the set taking responsibility
+--- @param value the owner the set takes responsibility for
+--- @param terminal what discharges an opaque owner, which carries no contract
+--- @return the adopted value, borrowed from the set
+--- @raises when the set is already closed, or adoption carries no witness
+function resources.Set.adopt<T>(self, takes value: T, terminal: function(takes value: T)?): T borrows (self)
+    assert(not self._closed, "resource set is closed")
+    unsafe do
+        local witness = nupp.intoRaw(terminal)
+        assert(type(witness) == "function", "resource adoption needs a discharge witness")
+        self._entries[#self._entries + 1] = new Entry(value = nupp.intoRaw(value), cleanup = witness)
+        return self._entries[#self._entries].value as T
+    end
+end
+
+--- Deletes one registration and returns the original capability exactly once.
+---
+--- @export
+--- @param self the set giving the owner up
+--- @param value a value a previous `adopt` returned
+--- @return that value, owned by the caller again
+--- @raises when the value is not registered in this set, or the set is closed
+function resources.Set.remove<T>(self, borrows value: T): T
+    assert(not self._closed, "resource set is closed")
+    for index = #self._entries, 1, -1 do
+        local entry = self._entries[index]
+        if entry.value == value then
+            table.remove(self._entries, index)
+            return entry.value as T
+        end
+    end
+    error("resource is not registered in this set", 2)
+end
 
 --- Creates a set that owns whatever is adopted into it.
 ---
@@ -91620,7 +91860,7 @@ type resources.Set = native.Set
 --- @return the empty set, owned by the caller
 @owned
 function resources.set(label: string?): resources.Set
-    return native.new(label)
+    return new resources.Set(label = label or "resource", _entries = {}, _closed = false)
 end
 
 local function close_file(file: LuaFile)

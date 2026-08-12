@@ -787,23 +787,26 @@ function M.standardResourcesApiHasCompleteDocumentation()
    assert(#errors == 0)
    assert(module.text ~= "", "nupp.resources has no module documentation")
 
-   -- Only the openers reach an operation that can fail; handing back an empty set
-   -- cannot, so a documented failure condition is required of the three that can.
+   -- Only what reaches an operation that can fail documents a failure. Handing back
+   -- an empty set cannot fail, and neither can discharging one.
    local expected = {
       ["resources.openFile"] = "raises",
       ["resources.openProcess"] = "raises",
       ["resources.temporaryFile"] = "raises",
+      ["resources.Set.adopt"] = "raises",
+      ["resources.Set.remove"] = "raises",
       ["resources.set"] = "function",
-      ["Set"] = "type",
+      ["resources.Set.close"] = "function",
+      ["Set"] = "record",
    }
-   assert(#module.items == 5, "nupp.resources must document exactly its public surface")
+   assert(#module.items == 8, "nupp.resources must document exactly its public surface")
    for _, item in ipairs(module.items) do
       local prefix = item.path
       local want = expected[item.name]
       assert(want, prefix .. " is not part of the public API")
       expected[item.name] = nil
-      assert(item.kind == (want == "type" and "type" or "function"),
-         prefix .. " is not documented as a " .. (want == "type" and "type" or "function"))
+      local kind = want == "record" and "record" or "function"
+      assert(item.kind == kind, prefix .. " is not documented as a " .. kind)
       assert(item.doc.text ~= "", prefix .. " has no documentation")
       for _, param in ipairs(item.params) do
          assert(param.text ~= "", prefix .. " parameter " .. param.name
@@ -815,6 +818,14 @@ function M.standardResourcesApiHasCompleteDocumentation()
       end
       if want == "raises" then
          assert(#item.raises > 0, prefix .. " has no documented failure condition")
+      end
+      -- The set's storage is its own business. A reader of these docs is told what a
+      -- set does, never what it keeps to do it.
+      if want == "record" then
+         for _, member in ipairs(item.members) do
+            assert(member.name ~= "_entries" and member.name ~= "_closed",
+               "the set's private storage leaked into the public docs")
+         end
       end
    end
    assert(next(expected) == nil, "nupp.resources is missing part of its public API")

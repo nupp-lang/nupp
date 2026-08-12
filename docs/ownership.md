@@ -843,7 +843,12 @@ end
 ```
 
 `adopt` moves the owner and returns a borrow tied to the set. The compiler
-reifies that producer's exact cleanup references only at this call. Set cleanup
+reifies that producer's exact cleanup references only at this call, and hands
+them to `adopt` as the discharge witness: how many owners a set holds, and of
+what types, is known only while running, so the proof of discharge travels with
+the entry rather than staying in the checker. The set is ordinary checked Nupp
+apart from the two `unsafe` blocks that surrender an owner to dynamic storage,
+which `nupp ownership-audit` lists. Set cleanup
 runs registrations in reverse order, attempts every cleanup step, and reports
 primary and suppressed failures. `remove` deletes one registration and returns
 the original capability exactly once. An opaque owner needs an explicit
