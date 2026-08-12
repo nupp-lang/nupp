@@ -601,10 +601,22 @@ function project.clean(root: string?, opts: project.CleanOptions?): integer
     return 0
 end
 
+-- `native/` is excluded for the reason `treeDigest` gives -- it is Cargo's target
+-- directory rather than the compiler's output -- and for a second one. A copy here goes
+-- through `writeFile`, which creates a file the way any other written file is created,
+-- and a Cargo target directory holds executables: the build script Cargo compiles for
+-- each crate that has one. Copying those over the destination's own left them readable
+-- and not executable, and every native build in that tree afterwards failed with
+-- "could not execute process ... Permission denied" until the directory was deleted by
+-- hand. So a `fixpoint` broke the next `build`, which is a fine way to lose an
+-- afternoon. The destination keeps the Cargo cache it already had, which is the one
+-- that matches where it is.
 local function copyTree(source, destination)
     for _, path in ipairs(listFiles(source)) do
         local relative = path:sub(#normalize(source) + 2)
-        if relative ~= ".nupp-state.json" and relative ~= ".nupp-complete" then
+        if relative ~= ".nupp-state.json"
+            and relative ~= ".nupp-complete"
+            and not relative:match("^native/") then
             local ok, err = copyFile(path, join(destination, relative))
             if not ok then
                 return nil, err
