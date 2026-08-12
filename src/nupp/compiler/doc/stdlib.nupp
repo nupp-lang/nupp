@@ -70,6 +70,28 @@ local TYPES = "The types the declarations above name in their signatures. They a
     .. "written by the prelude rather than by a program, which is why they have no "
     .. "module of their own to be documented from."
 
+local REFLECTION = "What the compiler hands a program about the program's own types. "
+    .. "`nupp.reflect` answers with a [](TypeInfo) inside a `comptime` block and "
+    .. "`layoutof` answers with a [](Layout) for a reified `struct`; everything else "
+    .. "here is reached from one of those two. They sit apart from the types above "
+    .. "because reading them is metaprogramming rather than calling a library."
+
+-- The reflection surface, by name. A type belongs here when a program reaches it by
+-- asking about a type rather than by calling something: the `TypeInfo` graph a comptime
+-- block walks, and the `Layout` a struct's memory is described by. Naming them is what
+-- keeps the list honest -- a prelude type added later stays under Types until someone
+-- decides it is reflection.
+local REFLECTION_TYPES: {[string]: boolean} = {
+    Layout = true,
+    LayoutField = true,
+    TypeInfo = true,
+    TypeInfoAnnotation = true,
+    TypeInfoAnnotationArgument = true,
+    TypeInfoEntry = true,
+    TypeInfoField = true,
+    TypeInfoNode = true,
+}
+
 -- A value is a global, a type is a type, and everything else on this page is a library
 -- of its own. `item.module` is set on a declaration whose name qualifies it into another
 -- module -- `record nupp.data` is written in the prelude and belongs to `nupp` -- and
@@ -80,6 +102,10 @@ end
 
 local function isType(item: extractMod.Item): boolean
     return not item.module and item.kind ~= "function" and item.kind ~= "variable"
+end
+
+local function isReflection(item: extractMod.Item): boolean
+    return REFLECTION_TYPES[item.name] == true
 end
 
 local function only(items: {extractMod.Item}, wanted: function(extractMod.Item): boolean): {extractMod.Item}
@@ -106,6 +132,16 @@ local function anchorByName(items: {extractMod.Item})
     end
 end
 
+-- A library's member is written qualified, and a page says what a program writes: the
+-- heading over `math.abs` reads `math.abs`, so the outline, the site's search and the
+-- browser's own find all answer to the spelling a reader is looking for. The anchor
+-- already said so; this makes the name beside it agree.
+local function qualifyNames(library: string, items: {extractMod.Item})
+    for _, item in ipairs(items) do
+        item.name = library .. "." .. item.name
+    end
+end
+
 -- A declaration file's library is the record it hands back, and the binding underneath
 -- it -- `local util: JitUtil` -- adds a second entry that repeats the first. The record
 -- carries the documentation, so the binding goes.
@@ -120,6 +156,17 @@ local function withoutRedeclaredBindings(items: {extractMod.Item}): {extractMod.
     return only(items, function(item: extractMod.Item): boolean
         return not (item.kind == "variable" and types[item.signature:match(": ([%w_]+)$") or ""])
     end)
+end
+
+-- The page is an index, and an index is searched: the browser's own find has to reach
+-- every signature at once, and text inside an editor frame is not findable. A Nupp fence
+-- would otherwise open as a playground, so the whole page is static, the same way the
+-- diagnostic index is. A signature is a declaration rather than a program besides, so
+-- there is nothing here for an editor to check.
+local function staticFences(markdown: string): string
+    local marked = ("\n" .. markdown):gsub("\n```nupp(\r?\n)", "\n```nupp:static%1")
+
+    return marked:sub(2)
 end
 
 local function section(out: {string}, title: string, text: string?, items: {extractMod.Item}?)
@@ -164,12 +211,9 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
             )
             if module then
                 if source.required then
-                    section(
-                        out,
-                        "`" .. source.required .. "`",
-                        module.text,
-                        withoutRedeclaredBindings(module.items)
-                    )
+                    local items = withoutRedeclaredBindings(module.items)
+                    qualifyNames(source.required, items)
+                    section(out, "`" .. source.required .. "`", module.text, items)
                 else
                     local globals = only(module.items, isGlobal)
                     anchorByName(globals)
@@ -182,17 +226,21 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
             -- Each shape-typed global is a library of its own, in the order the
             -- declarations give them.
             for _, library in ipairs(libraries or {}) do
+                qualifyNames(library.name, library.items)
                 section(out, "`" .. library.name .. "`", library.text, library.items)
             end
         end
     end
     anchorByName(types)
-    section(out, "Types", TYPES, types)
+    section(out, "Types", TYPES, only(types, function(item: extractMod.Item): boolean
+        return not isReflection(item)
+    end))
+    section(out, "Reflection", REFLECTION, only(types, isReflection))
 
     return {
         path = settings.path or "luajit",
         title = title,
-        markdown = table.concat(out, "\n")
+        markdown = staticFences(table.concat(out, "\n"))
     }
 end
 

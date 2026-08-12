@@ -2172,13 +2172,40 @@ function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
    local sections = {
       "Globals", "`string`", "`table`", "`math`", "`os`", "`package`", "`io`",
       "`coroutine`", "`bit`", "`jit`", "`debug`", "`ffi`", "`string.buffer`",
-      "`jit.util`", "`jit.profile`", "`jit.zone`", "Types",
+      "`jit.util`", "`jit.profile`", "`jit.zone`", "Types", "Reflection",
    }
    for _, section in ipairs(sections) do
       assert(page.markdown:find("\n## " .. section .. "\n", 1, true), "no section for " .. section)
    end
-   assert(page.markdown:find("### `format`", 1, true), "no member of a library table")
+   -- A library's member is headed by the name a program writes, so the heading agrees
+   -- with the anchor beside it and with what a reader searches for.
+   assert(page.markdown:find("### `string.format`", 1, true), "no member of a library table")
    assert(page.markdown:find("### `print`", 1, true), "no ambient global")
+end
+
+-- The page is an index, and an index is searched. An editor frame holds text the
+-- browser's own find cannot reach, so every fence on it is a plain code block.
+function M.stdlibIndexIsStaticThroughout()
+   local stdlib = require("nupp.compiler.doc.stdlib")
+   local page = assert(stdlib.page({path = "luajit"}))
+
+   assert(page.markdown:find("```nupp:static\n", 1, true), "no static fence at all")
+   assert(not page.markdown:find("```nupp\n", 1, true), "a fence would open as a playground")
+end
+
+-- Reflection is reached by asking about a type rather than by calling a library, so
+-- the `TypeInfo` graph and the `Layout` a struct is described by sit apart from the
+-- types the signatures above merely name.
+function M.stdlibIndexSectionsReflectionApartFromTypes()
+   local stdlib = require("nupp.compiler.doc.stdlib")
+   local page = assert(stdlib.page({path = "luajit"}))
+   local reflection = assert(page.markdown:find("\n## Reflection\n", 1, true))
+   local types = assert(page.markdown:find("\n## Types\n", 1, true))
+
+   assert(types < reflection, "reflection is a section of its own after the types")
+   assert(page.markdown:find("### `TypeInfo`", 1, true) > reflection, "TypeInfo left behind")
+   assert(page.markdown:find("### `Layout`", 1, true) > reflection, "Layout left behind")
+   assert(page.markdown:find("### `LuaFile`", 1, true) < reflection, "an ordinary type was moved")
 end
 
 -- A global's anchor is the name a program writes. `print` is not a member of the file

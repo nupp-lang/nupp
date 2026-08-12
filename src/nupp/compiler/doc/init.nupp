@@ -583,6 +583,23 @@ local function appendSearchEntries(entries, candidate, file, markdown)
     end
 end
 
+-- The outline follows the page rather than flattening it: a heading written under a
+-- section is listed under that section, so a long generated page -- every diagnostic
+-- code, every LuaJIT declaration -- opens as the handful of sections it is made of
+-- instead of a list of two hundred names with no shape.
+local function appendOutline(items: {pageMod.Entry}, markdown: string?)
+    for _, heading in ipairs(markdownOutline(markdown)) do
+        local parent = items[#items]
+        if heading.level > 2 and parent then
+            local children = parent.items or {}
+            children[#children + 1] = {path = heading.path, name = heading.name}
+            parent.items = children
+        else
+            items[#items + 1] = {path = heading.path, name = heading.name}
+        end
+    end
+end
+
 local function renderSite(root, outDir, modules, title, settings)
     configureScintillua(root, settings)
     local ok, err = copyPublicFiles(root, outDir, settings.public)
@@ -660,9 +677,7 @@ local function renderSite(root, outDir, modules, title, settings)
             local module = candidate.module
             local children = childModules(modules, module.name)
             current = module.name
-            for _, heading in ipairs(markdownOutline(candidate.overview)) do
-                items[#items + 1] = {path = heading.path, name = heading.name}
-            end
+            appendOutline(items, candidate.overview)
             if #children > 0 then
                 items[#items + 1] = {path = "modules", name = "Submodules"}
             end
@@ -733,9 +748,7 @@ local function renderSite(root, outDir, modules, title, settings)
             end
         else
             local links = symbolLinks(linkIndex, nil, relativePrefix(file))
-            for _, heading in ipairs(markdownOutline(markdown)) do
-                items[#items + 1] = {path = heading.path, name = heading.name}
-            end
+            appendOutline(items, markdown)
             body[#body + 1] = homeHero(candidate, links)
             local renderedMarkdown = rewriteConfiguredPageLinks(markdown, candidate, pages, file)
             local featureStart, featureEnd

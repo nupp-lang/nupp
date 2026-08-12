@@ -269,6 +269,11 @@ public route at build time. Fragments survive.
 
 A page source may open with `---`-delimited front matter, which is stripped.
 
+A page's outline follows its own structure: a heading written under a section
+is listed under that section, the way a module page lists a declaration under
+its group. A long generated page opens as the handful of sections it is made
+of rather than as a list of everything on it.
+
 ## Moved pages
 
 `redirects` lists the routes a page used to answer at. A stub is written at
@@ -346,8 +351,20 @@ the signature the checker enforces, because the two read the same file.
 
 The ambient globals come first, then one section per library table — `string`,
 `table`, `math` and the rest — then the modules `require` loads, then the types
-those signatures name. A global's anchor is the name a program writes, so
-`#print` and `#string.format` both address what they look like they address.
+those signatures name, and last the reflection those types describe: the
+`TypeInfo` graph a `comptime` block walks and the `Layout` a reified `struct`
+is measured by, which are reached by asking about a type rather than by calling
+a library.
+
+A name on the page is the name a program writes. `print` is a global and
+`string.format` is a member, so that is what each one's heading, anchor and
+search entry say, and `#print` and `#string.format` both address what they look
+like they address.
+
+Every code block on the page is static, as on the diagnostic index and for the
+same reason: an index is searched, and the browser's own find cannot reach text
+inside an editor frame. A signature is a declaration rather than a program
+besides, so there is nothing there for an editor to check.
 
 What `nupp` itself provides is not on the page. Those are modules with pages of
 their own, and the prelude declares them only so that checked code can see them.
