@@ -77,8 +77,9 @@ each generated member by the derive that owns it.
 - Point every failure at `@derive`, a contributing field, or one of its helper
   annotations rather than at synthetic source.
 - Prove the phase with `Debug`, `Default`, single-field `From`, and `JSON`.
-- Leave a restricted, versioned semantic provider interface for user-defined
-  derives without exposing it in the first release.
+- Evaluate a restricted, versioned semantic provider interface after the
+  built-ins prove the result model, and expose it only if an external workload
+  justifies a stable contract.
 
 ## Non-goals
 
@@ -348,17 +349,17 @@ existing descriptor before generated members merge, retaining:
 The canonical member view remains the one answer to field enumeration.
 Reflection and derives project it differently; neither reimplements record,
 interface, intersection or generic-instantiation member rules. A future public
-provider may receive the versioned `TypeInfo` serialization directly. The
+provider, if later evidence justifies one, may receive the versioned `TypeInfo`
+serialization directly. The
 compiler-owned providers use its semantic source view so freezing does not
 round-trip through JSON inside the checker.
 
 The first version has no user callback and therefore does not need to send a
 derive request to the comptime worker. `JSON` may send its codec blueprint
-through the existing closed materialization path. D6 does not assume how a
-later user-defined derive executes: its proving case must choose and justify an
-in-process or isolated trust model. Either model receives a serialized,
-versioned descriptor and returns a separately versioned `DeriveResult`
-envelope rather than live compiler objects.
+through the existing closed materialization path. D6 evaluated a one-shot
+external process: it received a serialized, versioned descriptor and returned a
+separately versioned result envelope rather than live compiler objects. The
+decision did not accept that prototype protocol as a stable ABI.
 
 ## Prelude surface
 
@@ -1047,7 +1048,7 @@ semantic plan. JSON planning remains in-process and follows the same bounded
 cancellation and recovery contract as the other providers. There is no
 derive-specific worker protocol to validate.
 
-## User-defined derives later
+## User-defined derives decision
 
 The built-ins must not hard-code themselves into declaration checking. They
 implement an internal provider interface equivalent to:
@@ -1061,7 +1062,8 @@ type DeriveProvider = {
 }
 ```
 
-After the four proving cases, a separate proposal may expose a restricted form:
+After the four proving cases, D6 evaluated the following illustrative surface
+without adding it to the language:
 
 ```nupp
 @deriveProvider(name = "RedactedDebug")
@@ -1079,16 +1081,24 @@ local record Credentials
 end
 ```
 
-That proposal must settle provider import identity, package trust, isolated
-worker distribution, semantic type handles in result envelopes, helper
-registration, capability limits and cache ABI compatibility. It may expose
-only the constrained result operations proven by built-ins. It cannot expose
-the compiler's CST, type objects, mutable member tables or runtime-expression
-IR.
+The [D6 decision](derives-d6-provider-decision.md) rejects a public provider ABI
+for now. The external Tecs redacted-Debug prototype passed immutable versioned
+descriptors and closed semantic results through a one-shot process, but its
+accepted operation duplicates `@debug(redact = true)`. The identified way to
+make the example non-redundant needs a package helper call, whose identity, type,
+effects, ownership, cancellation and cache contract have not been proven by an
+external differential corpus. The prototype protocol is a test artifact, not a
+compatibility promise.
 
-No plugin discovery or filesystem scanning participates in checking. A provider
-must be an explicit imported semantic dependency, and the module interface
-records its resolved identity and ABI.
+A later proposal must settle provider import identity, package trust, isolated
+worker distribution, semantic type handles in result envelopes, helper
+registration, capability limits and cache ABI compatibility. It may expose only
+constrained result operations proven by external workloads. It cannot expose the
+compiler's CST, type objects, mutable member tables or runtime-expression IR.
+
+No plugin discovery or filesystem scanning participates in checking. Any future
+proposal must make a provider an explicit imported semantic dependency and
+record its resolved identity and ABI in the module interface.
 
 ## Implementation stages
 
@@ -1341,17 +1351,19 @@ derives rebuilds itself byte-identically.
 
 ### D6: evaluate user-defined providers
 
-- Implement no public surface until D5d has run the four built-ins through an
-  internal acceptance corpus and one external proving case. D5 completion is
-  an entry condition, not work that D6 may assume or perform speculatively.
-- Prototype one derive outside the compiler against a versioned serialized
-  descriptor and result envelope.
-- Accept, narrow or reject the public provider proposal based on the required
-  capabilities; do not widen it merely to imitate token macros.
+- Completed after D5: one provider outside the compiler consumes a versioned
+  serialized descriptor and returns a closed, bounded semantic Debug result.
+- The Tecs request corpus proves deterministic redaction, descriptor/result
+  identity checks and refusal of raw source, syntax trees, arbitrary helpers and
+  over-limit results.
+- The public proposal is rejected for now because the accepted operation
+  duplicates the built-in field-redaction policy and the first unmet operation,
+  a package helper call, has no proven semantic or trust contract. See the
+  [decision](derives-d6-provider-decision.md).
 
-Exit test: the decision is written with a real workload and explicitly says
-which operations, trust model and ABI are accepted or why the feature remains
-compiler-owned.
+Exit test: passed. The decision records the real workload, prototype operations,
+trust model, explicitly unstable ABI and the evidence required to reconsider;
+derive execution remains compiler-owned.
 
 ## Test matrix
 
@@ -1430,7 +1442,8 @@ has covered the acceptance corpus.
 - Whether derived methods may opt into ownership or effect annotations.
 - Whether a public provider can request a checked forwarding helper from its
   own module without opening arbitrary expression generation.
-- Whether user-defined derives earn a stable semantic provider ABI at all.
+- Which external workload, if any, justifies reconsidering the rejected stable
+  semantic provider ABI.
 - Whether the bundled decoder should expose a pull or SAX interface so derived
   decode can validate while scanning without allocating an intermediate table.
 

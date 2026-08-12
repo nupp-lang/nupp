@@ -6,17 +6,6 @@ work makes sense in.
 
 ## Type system
 
-- [ ] **Derives** ([design](derives.md)): the compiler-owned `Debug`, `Default`,
-      single-field `From`, and `JSON` derives have landed as checked semantic
-      additions with closed lowering recipes, never source or CST fragments.
-      Generated-member tooling, path-stable fingerprints, incremental cutoff,
-      bounded cancellation/recovery, build observations and internal/external
-      acceptance workloads and the D5 closure gates have landed. Associated
-      types are not a prerequisite.
-  - [ ] D6: only after D5d, prototype one external provider against a versioned
-        serialized descriptor/result envelope, then accept, narrow or reject a
-        restricted semantic API in writing. Do not expose token, AST or CST
-        macros, mutable compiler objects, or private lowering IR.
 - [ ] **An inline method's `borrows` result is lost when its body returns
       through a cast.** Two records, the same signature
       `lend: function(self: H): thing* borrows (self)` and the same body
