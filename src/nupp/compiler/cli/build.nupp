@@ -77,7 +77,7 @@ local command = spec.command{name = "build", summary = "Build source files or a 
         },
         derives = {
             type = "array",
-            description = "Compiler-owned derive plans and their bounded generation facts.",
+            description = "Closed derive recipes and their bounded generation facts.",
             items = {
                 type = "object",
                 properties = {
@@ -151,9 +151,9 @@ local function run(parsed: any): integer
     -- is left to report is that a directory did not read as a module.
     for _, path in ipairs(paths) do
         if not nupp.io.files.isFile(path) and configuredTarget(path) then
-            return command:usageError((
-                "%s names a build target rather than a source file; build it with --target %s"
-            ):format(path, path))
+            return command:usageError(
+                ("%s names a build target rather than a source file; build it with --target %s"):format(path, path)
+            )
         end
     end
     local reportMod = require("nupp.compiler.cli.report")

@@ -69,7 +69,7 @@ type cache.ModuleRecord = {
     --- observations alongside them. Plain data only; never evaluator handles.
     materializations: {any}?,
 
-    --- Compiler-owned derive plan observations. Reporting only; never a build key.
+    --- Closed derive recipe observations. Reporting only; never a build key.
     derives: {any}?
 }
 
@@ -101,7 +101,8 @@ type cache.DependencyRecord = {
 --- There used to be a `projectIndexHash` beside them, a digest of every declaration of
 --- every project header. It gated reuse for the whole project, so an edit to any
 --- exported type rechecked every module. Each module now records the project queries it
---- actually read (`incremental.projectDependencies`), which invalidates the readers of a
+--- actually read (`incremental.projectDependencies`), which invalidates the readers of
+--- a
 --- changed declaration and nobody else, and the whole-project digest became a hash
 --- computed on every command and compared by nothing.
 type cache.State = {

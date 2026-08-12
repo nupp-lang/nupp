@@ -5,7 +5,7 @@ local gen = require("nupp.compiler.gen")
 local check = require("fragment")
 local envMod = require("nupp.compiler.env")
 local derive = require("nupp.compiler.check.derive")
-local derivePlan = require("nupp.compiler.derive_plan")
+local recipeCodec = require("nupp.compiler.materialize.codec")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
@@ -68,7 +68,7 @@ local M = {}
 
 function M.derivesTheFourBuiltinsAndInfersFactoryResults()
    local result, code = run([[
-@derive(Debug, Default, JSON)
+@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.JSON)
 local record User
     @json(name = "user_name")
     @default("anonymous")
@@ -77,7 +77,7 @@ local record User
     active: boolean
 end
 
-@derive(Debug, From)
+@derive(nupp.derive.Debug, nupp.derive.From)
 local record UserId
     value: integer
 end
@@ -110,7 +110,7 @@ end
 
 function M.constructsFreshMutableDefaults()
    local result = run([[
-@derive(Default)
+@derive(nupp.derive.Default)
 local record Options
     tags: {string}
     values: {[string]: integer}
@@ -137,7 +137,7 @@ end
 
 function M.appliesJSONPoliciesAndKeepsDecoderConfigurationPrivate()
    local result = run([[
-@derive(JSON)
+@derive(nupp.derive.JSON)
 @json(unknown = "ignore")
 local record Payload
     @default("missing")
@@ -188,7 +188,7 @@ end
 
 function M.handlesRecursiveDebugAndJSONGraphs()
    local result = run([[
-@derive(Debug, JSON)
+@derive(nupp.derive.Debug, nupp.derive.JSON)
 local record Node
     value: integer
     next: Node?
@@ -215,18 +215,18 @@ end
 
 function M.supportsNestedAndBoundedGenericDebugRecords()
    local result = run([[
-@derive(Debug)
+@derive(nupp.derive.Debug)
 local record Item
     label: string
 end
 
-@derive(Debug)
+@derive(nupp.derive.Debug)
 local record Box<T is nupp.Debug>
     value: T
 end
 
 local record Namespace
-    @derive(Debug, Default)
+    @derive(nupp.derive.Debug, nupp.derive.Default)
     record Inner
         count: integer
     end
@@ -242,17 +242,17 @@ end
 
 function M.roundTripsDiscriminatedJSONRecordUnions()
    local result = run([[
-@derive(JSON)
+@derive(nupp.derive.JSON)
 local record Cat
     kind: "cat"
     lives: integer
 end
-@derive(JSON)
+@derive(nupp.derive.JSON)
 local record Dog
     kind: "dog"
     barks: boolean
 end
-@derive(JSON)
+@derive(nupp.derive.JSON)
 local record Envelope
     pet: Cat | Dog
 end
@@ -274,38 +274,38 @@ end
 function M.reportsProviderAndSchemaFailuresAtTheDeclaration()
    local cases = {
       {"NUPP2801", [[
-@derive(Debug, Debug)
+@derive(nupp.derive.Debug, nupp.derive.Debug)
 local record Bad value: integer end
 ]]},
       {"NUPP2802", [[
-@derive(Debug)
+@derive(nupp.derive.Debug)
 local record Bad
     debug: function(self): string
 end
 ]]},
       {"NUPP2804", [[
 local fallback = "runtime"
-@derive(Default)
+@derive(nupp.derive.Default)
 local record Bad
     @default(fallback)
     value: string
 end
 ]]},
       {"NUPP2805", [[
-@derive(From)
+@derive(nupp.derive.From)
 local record Bad
     left: integer
     right: integer
 end
 ]]},
       {"NUPP2806", [[
-@derive(JSON)
+@derive(nupp.derive.JSON)
 local record Bad
     value: uint64
 end
 ]]},
       {"NUPP2807", [[
-@derive(Default)
+@derive(nupp.derive.Default)
 local record Bad
     next: Bad
 end
@@ -325,13 +325,23 @@ end
    end
 end
 
+function M.requiresResolvedProviderSymbols()
+   local codes = errorsOf([[
+@derive(Debug)
+local record Legacy
+    value: integer
+end
+]])
+   assertEq(codes[1], "NUPP2809", "bare built-in derive names are removed")
+end
+
 function M.offersWholeFixesForDuplicateAndConflictingProviders()
    local _, duplicateDiagnostics = compile([[
-@derive(Debug, Debug)
+@derive(nupp.derive.Debug, nupp.derive.Debug)
 local record Duplicate value: integer end
 ]])
    local _, conflictDiagnostics = compile([[
-@derive(Debug)
+@derive(nupp.derive.Debug)
 local record Conflict
     debug: function(self): string
 end
@@ -344,15 +354,15 @@ end
       end
       return false
    end
-   assert(hasFix(duplicateDiagnostics, "remove duplicate @derive(Debug)"),
+   assert(hasFix(duplicateDiagnostics, "remove duplicate @derive(nupp.derive.Debug)"),
       "duplicate provider has no whole removal fix")
-   assert(hasFix(conflictDiagnostics, "remove @derive(Debug)"),
+   assert(hasFix(conflictDiagnostics, "remove @derive(nupp.derive.Debug)"),
       "generated-member collision has no whole derive removal fix")
 end
 
 function M.recheckingADerivedDeclarationIsIdempotent()
    local source = [[
-@derive(Debug, Default, JSON)
+@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.JSON)
 local record Stable
     value: integer
 end
@@ -373,7 +383,7 @@ end
 
 function M.fingerprintsJSONSchemaAndAnnotationChanges()
    local first = run([[
-@derive(JSON)
+@derive(nupp.derive.JSON)
 local record Fingerprinted
     @json(name = "first")
     value: integer
@@ -381,7 +391,7 @@ end
 return Fingerprinted.fieldCodec().fingerprint
 ]])
    local second = run([[
-@derive(JSON)
+@derive(nupp.derive.JSON)
 local record Fingerprinted
     @json(name = "second")
     value: integer
@@ -393,7 +403,7 @@ end
 
 function M.givesEveryGeneratedMemberADistinctSemanticIdentity()
    local _, diagnostics, parsed = compile([[
-@derive(Debug, Default, JSON)
+@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.JSON)
 local record Identified
     value: integer
 end
@@ -410,7 +420,7 @@ end
    local identities = {}
    for _, definition in ipairs(defs) do
       assert(definition, "missing generated definition")
-      assert(definition.generatedPlanFingerprint, "definition has no plan provenance")
+      assert(definition.generatedRecipeFingerprint, "definition has no recipe provenance")
       assert(not identities[definition.generatedIdentity],
          "generated members share a semantic identity")
       identities[definition.generatedIdentity] = true
@@ -421,22 +431,22 @@ end
 
 function M.fingerprintsNestedDebugMapKeysAndIgnoresPathSpelling()
    local stringCode, stringDiagnostics, stringParsed = compileAt([[
-@derive(Debug)
+@derive(nupp.derive.Debug)
 local record Mapped entries: {[string]: string} end
 ]], "spelling/../mapped.g.nupp")
    local integerCode, integerDiagnostics, integerParsed = compileAt([[
-@derive(Debug)
+@derive(nupp.derive.Debug)
 local record Mapped entries: {[integer]: string} end
 ]], "mapped.g.nupp")
    assertEq(#stringDiagnostics, 0, "string map diagnostics")
    assertEq(#integerDiagnostics, 0, "integer map diagnostics")
-   local stringPlan = assert(firstDeclaration(stringParsed).derivePlan)
-   local integerPlan = assert(firstDeclaration(integerParsed).derivePlan)
-   assert(stringPlan.fingerprint ~= integerPlan.fingerprint,
-      "a Debug map key edit kept the plan fingerprint")
+   local stringRecipe = assert(firstDeclaration(stringParsed).deriveRecipe)
+   local integerRecipe = assert(firstDeclaration(integerParsed).deriveRecipe)
+   assert(stringRecipe.fingerprint ~= integerRecipe.fingerprint,
+      "a Debug map key edit kept the recipe fingerprint")
 
    local alternateCode, alternateDiagnostics = compileAt([[
-@derive(Debug)
+@derive(nupp.derive.Debug)
 local record Mapped entries: {[string]: string} end
 ]], "/tmp/another-spelling/mapped.g.nupp")
    assertEq(#alternateDiagnostics, 0, "alternate path diagnostics")
@@ -444,18 +454,18 @@ local record Mapped entries: {[string]: string} end
       "generated bytes depend on the invocation path spelling")
 end
 
-function M.boundsFieldsAndSemanticPlanNodesAtTheirExactLimits()
+function M.boundsFieldsAndSemanticRecipeNodesAtTheirExactLimits()
    assertEq(derive.MAX_FIELDS, 2048, "production field limit")
-   assertEq(derive.MAX_PLAN_NODES, 16384, "production semantic-node limit")
+   assertEq(derive.MAX_RECIPE_NODES, 16384, "production semantic-node limit")
    assertEq(derive.MAX_GENERATED_MEMBERS, 6, "production generated-member limit")
-   assertEq(derivePlan.MAX_CANONICAL_BYTES, 1048576,
+   assertEq(recipeCodec.MAX_CANONICAL_BYTES, 1048576,
       "production canonical-byte limit")
-   assertEq(derivePlan.MAX_OUTPUT_BYTES, 2097152,
+   assertEq(recipeCodec.MAX_OUTPUT_BYTES, 2097152,
       "production rendered-byte limit")
 
    local limits = {fields = 8, nodes = 64}
    local function fixture(fields, deepLast)
-      local lines = {"@derive(Debug)", "local record Bounded"}
+      local lines = {"@derive(nupp.derive.Debug)", "local record Bounded"}
       for index = 1, fields do
          local depth = index == fields and deepLast or 7
          lines[#lines + 1] = ("    f%d: %sstring%s"):format(
@@ -482,7 +492,7 @@ function M.boundsFieldsAndSemanticPlanNodesAtTheirExactLimits()
    end
    assert(nodeLimited, "the semantic-node boundary has no direct NUPP2808 fixture")
 
-   local fields = {"@derive(From)", "local record TooMany"}
+   local fields = {"@derive(nupp.derive.From)", "local record TooMany"}
    for index = 1, 9 do fields[#fields + 1] = "    f" .. index .. ": integer" end
    fields[#fields + 1] = "end"
    local _, beyondFields = compileAt(table.concat(fields, "\n"),
@@ -495,9 +505,9 @@ function M.boundsFieldsAndSemanticPlanNodesAtTheirExactLimits()
    assert(fieldLimited, "the field boundary has no direct NUPP2808 fixture")
 end
 
-function M.cancelsWithoutPublishingAPartialPlanAndRecovers()
+function M.cancelsWithoutPublishingAPartialRecipeAndRecovers()
    local source = [[
-@derive(Debug, Default, JSON)
+@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.JSON)
 local record Recoverable
     names: {{{string}}}
     values: {[string]: {integer}}
@@ -514,14 +524,14 @@ end
    assert(parsed.cancelled and parsed.deriveAborted == "cancelled",
       "the check does not expose its ordinary cancelled result")
    local declaration = firstDeclaration(parsed)
-   assert(not declaration.derivePlan and not declaration.hoistedType.derivePlan,
-      "a cancelled check published a partial plan")
+   assert(not declaration.deriveRecipe and not declaration.hoistedType.deriveRecipe,
+      "a cancelled check published a partial recipe")
    assert(not declaration.hoistedType.derivedDefinitions.debug,
       "a cancelled check left a generated member behind")
 
    local recovered = check.check(parsed, "cancelled.g.nupp", env)
    assertEq(#recovered, 0, "the request after cancellation recovers")
-   assert(not parsed.cancelled and firstDeclaration(parsed).derivePlan,
+   assert(not parsed.cancelled and firstDeclaration(parsed).deriveRecipe,
       "cancellation poisoned the next check")
 
    local budgetParsed = parser.parse(source, "budget.g.nupp")
@@ -532,15 +542,15 @@ end
       exhausted = exhausted or diagnostic.code == "NUPP2808"
          and diagnostic.msg:find("work budget", 1, true)
    end
-   assert(exhausted and not firstDeclaration(budgetParsed).derivePlan,
-      "budget exhaustion did not abort the partial plan")
+   assert(exhausted and not firstDeclaration(budgetParsed).deriveRecipe,
+      "budget exhaustion did not abort the partial recipe")
    assertEq(#check.check(budgetParsed, "budget.g.nupp", env), 0,
       "budget exhaustion poisoned the retry")
 end
 
-function M.boundsRenderedPlansAndReportsColdAndWarmObservations()
+function M.boundsRenderedRecipesAndReportsColdAndWarmObservations()
    local source = [[
-@derive(Debug, Default, From, JSON)
+@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.From, nupp.derive.JSON)
 local record ObservedClosure
     value: integer
 end
@@ -551,7 +561,12 @@ end
    assertEq(#warmDiagnostics, 0, "warm observation diagnostics")
    assertEq(#cold.deriveObservations, 4, "one observation per provider")
    assertEq(#warm.deriveObservations, 4, "warm observation count")
-   local expected = {Debug = 1, Default = 1, From = 1, JSON = 3}
+   local expected = {
+      ["nupp.derive.Debug"] = 1,
+      ["nupp.derive.Default"] = 1,
+      ["nupp.derive.From"] = 1,
+      ["nupp.derive.JSON"] = 3,
+   }
    for index, observation in ipairs(cold.deriveObservations) do
       local warmed = warm.deriveObservations[index]
       assertEq(observation.generatedMembers, expected[observation.provider],
@@ -568,7 +583,7 @@ end
    end
 
    local hugeName = string.rep("x", 300)
-   local hugeSource = "@derive(JSON)\nlocal record Huge\n"
+   local hugeSource = "@derive(nupp.derive.JSON)\nlocal record Huge\n"
       .. "    @json(name = \"" .. hugeName .. "\")\n"
       .. "    value: string\nend\n"
    local code, diagnostics, parsed = compileAt(hugeSource, "huge.g.nupp", {
@@ -580,7 +595,7 @@ end
          and diagnostic.msg:find("canonical bytes", 1, true)
    end
    assert(limited, "an over-limit canonical plan did not report NUPP2808")
-   assert(not firstDeclaration(parsed).derivePlan,
+   assert(not firstDeclaration(parsed).deriveRecipe,
       "an over-limit plan reached lowering")
    assert(not code:find("__derive.register", 1, true),
       "over-limit derive Lua was emitted")
@@ -593,7 +608,7 @@ end
 
 function M.recordsTheExactRuntimeFeatureManifest()
    local _, debugDiagnostics, debug = compile([[
-@derive(Debug, Default, From)
+@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.From)
 local record Pure value: integer end
 ]])
    assertEq(#debugDiagnostics, 0, "pure derive feature diagnostics")
@@ -602,7 +617,7 @@ local record Pure value: integer end
       "pure derive feature manifest")
 
    local _, jsonDiagnostics, json = compile([[
-@derive(JSON)
+@derive(nupp.derive.JSON)
 local record Encoded value: integer end
 ]])
    assertEq(#jsonDiagnostics, 0, "JSON derive feature diagnostics")
@@ -613,7 +628,7 @@ end
 
 function M.delimitsTheRuntimeFromAnEmittedFirstLine()
    local result = run([[local marker = "first"
-@derive(Debug)
+@derive(nupp.derive.Debug)
 local record First value: integer end
 return marker .. ":" .. (new First(value = 1)):debug()
 ]])

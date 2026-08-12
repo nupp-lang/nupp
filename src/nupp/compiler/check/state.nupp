@@ -125,7 +125,7 @@ record state.Checker
     --- The definitions this file itself declared, by name.
     annotationDefinitions: any
 
-    --- Compiler-owned derive planning for this checking run.
+    --- Closed derive recipe construction for this checking run.
     derives: any
 
     --- A project's `lints` table, so a level resolves the same way wherever a lint is

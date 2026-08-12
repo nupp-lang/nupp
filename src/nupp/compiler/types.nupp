@@ -636,9 +636,9 @@ record types.Nominal
     derivedDefinitions: {[string]: any}?
     derivedStaticDefinitions: {[string]: any}?
     derivedContracts: {[any]: boolean}?
-    deriveProviders: {[string]: boolean}?
+    deriveOperations: {[string]: boolean}?
     deriveKey: string?
-    derivePlan: any
+    deriveRecipe: any
 
     indexReadKey: types.Type?
     indexReadValue: types.Type?

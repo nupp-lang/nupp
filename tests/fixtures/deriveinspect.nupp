@@ -45,9 +45,21 @@ function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
         if field.readType == nil then
             return nupp.derive.error("Inspect requires readable fields", field.reference)
         end
+        local redact = false
+        for _, applied in ipairs(field.annotations) do
+            if applied.name == "debug" then
+                for _, argument in ipairs(applied.arguments) do
+                    if argument.name == "redact" and argument.value == true then
+                        redact = true
+                    end
+                end
+            end
+        end
         local kind = nupp.types.kind(field.readType)
         local value
-        if kind == "primitive" then
+        if redact then
+            value = nupp.derive.constant("<redacted>")
+        elseif kind == "primitive" then
             value = nupp.derive.field(field)
         else
             if not nupp.derive.claims(field.readType, info.interfaceType) then

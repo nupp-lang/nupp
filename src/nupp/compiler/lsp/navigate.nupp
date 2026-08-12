@@ -135,6 +135,9 @@ function navigate.install(s: navigate.Session): navigate.Api
     -- Callers report nothing rather than navigate somewhere wrong.
     local function declarationIndex(def, source, tokens)
         local tok = def.token
+        if not tok or not tok.text then
+            return nil
+        end
         local found
         if source:sub(tok.offset, tok.offset + #tok.text - 1) == tok.text then
             found = tok.offset
@@ -157,6 +160,13 @@ function navigate.install(s: navigate.Session): navigate.Api
     local function resolveDefinition(def)
         if not def or not def.token or not def.filename then
             return nil
+        end
+        if def.generatedBy and def.generatedOrigin then
+            def = {
+                token = def.generatedOrigin,
+                filename = def.generatedOrigin.filename or def.filename,
+                documentationTrivia = def.documentationTrivia,
+            }
         end
         local source = definitionSource(def)
         if not source then

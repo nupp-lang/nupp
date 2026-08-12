@@ -29,7 +29,7 @@ local record comptime
     evaluateDirect: function(cst.Node, cst.Node?, any, any, any): (string?, T.Type?, any, any)
     evaluate: function(cst.Node, cst.Node?, any, any, any, any?): (string?, T.Type?, any, any)
     evaluateTypeFunctionDirect: function(any, {any}, any): (any, any)
-    evaluateDeriveProviderDirect: function(any, any, any, any, string?): (any, any)
+    evaluateDeriveProviderDirect: function(any, any, any, any, string?, string?): (any, any)
     typeFunctionProgram: function(any, any): any
     sealTypeFunction: function(any, any, any, any): any
 end
@@ -1694,7 +1694,8 @@ function comptime.evaluateDeriveProviderDirect(
     input: any,
     helpers: any,
     runtimeHelpers: any,
-    providerModule: string?
+    providerModule: string?,
+    internalProvider: string?
 ): any, comptime.Failure?
     if helper and helper.sealedTypeFunction then
         local parsedHelpers = {}
@@ -1752,6 +1753,7 @@ function comptime.evaluateDeriveProviderDirect(
     state.env, state.libraries = env, libraries
     state.deriveHelpers = runtimeHelpers or {}
     state.deriveProviderModule = providerModule
+    state.deriveInternalProvider = internalProvider
     local available = {}
     for helperName, supplied in pairs(helpers or {}) do
         available[helperName] = supplied

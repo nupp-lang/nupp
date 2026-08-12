@@ -125,7 +125,7 @@ interface cst.Hints
     --- consumes this hint only after deciding that it will emit the node.
     compilerFeatureEffect: string?
 
-    --- Runtime features required by one synthetic construct, such as a derive plan or
+    --- Runtime features required by one synthetic construct, such as a derive recipe or
     --- suspension handler, rather than by an indexed expression inside it.
     compilerFeatureEffects: {string}?
 
@@ -1066,7 +1066,7 @@ record cst.RecordDecl is cst.Hints
     deriveApplications: {cst.PragmaStmt}?
 
     --- The finalized, source-free lowering plan consumed by code generation.
-    derivePlan: any
+    deriveRecipe: any
 end
 
 --- A declaration refinement introduced by `where`.

@@ -1,9 +1,10 @@
--- Closed evaluator surface for user-defined derive recipes. Provider code can
+-- Closed evaluator surface shared by compiler-shipped and package derive recipes.
+-- Provider code can
 -- inspect immutable input handles and assemble forwarding blueprints, but it
 -- never receives checker objects or source nodes.
 
 local hash = require("nupp.compiler.build.hash")
-local planCodec = require("nupp.compiler.derive_plan")
+local recipeCodec = require("nupp.compiler.materialize.codec")
 
 local record deriveProvider
     installEvaluator: function(any, any, any, any, any): nil
@@ -140,20 +141,42 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
     end)
     install("implement", function(at, args)
         local specification = args[1]
-        if args.n ~= 1 or not hasOnly(specification, {methods = true}) or type(specification.methods) ~= "table" then
+        if args.n ~= 1 or not hasOnly(
+            specification,
+            {methods = true, statics = true}
+        ) or type(specification.methods or {}) ~= "table" or type(specification.statics or {}) ~= "table" then
             return nil, failure(
                 "NUPP2810",
                 (
-                    "derive.implement needs a methods table (arguments=%d, value=%s, methods=%s)"
-                ):format(
-                    args.n,
-                    type(specification),
-                    type(type(specification) == "table" and specification.methods or nil)
-                )
+                    "derive.implement needs methods and optional statics tables (arguments=%d, value=%s)"
+                ):format(args.n, type(specification))
             )
         end
 
-        return opaque("derive", "Result", {methods = specification.methods}, provenance(at, "implement"))
+        return opaque(
+            "derive",
+            "Result",
+            {methods = specification.methods or {}, statics = specification.statics or {}, operations = {},},
+            provenance(at, "implement")
+        )
+    end)
+    install("internal", function(at, args)
+        local info = args[1] and entryOf(args[1]) or nil
+        if not state.deriveInternalProvider
+            or args.n ~= 1
+            or not info
+            or info.provider ~= "derive"
+            or info.family ~= "Info"
+        then
+            return nil, failure("NUPP2810", "derive.internal is available only to compiler-shipped providers")
+        end
+
+        return opaque(
+            "derive",
+            "Result",
+            {methods = {}, statics = {}, operations = {{kind = state.deriveInternalProvider},},},
+            provenance(at, state.deriveInternalProvider)
+        )
     end)
     install("error", function(at, args)
         local reference = args[2] and entryOf(args[2]) or nil
@@ -403,7 +426,7 @@ function deriveProvider.finalize(state: any, root: any): any, any
             providerIdentity = state.deriveRequest and state.deriveRequest.providerIdentity,
             ownerIdentity = state.deriveRequest and state.deriveRequest.ownerIdentity,
         }
-        local canonical = assert(planCodec.canonical(payload))
+        local canonical = assert(recipeCodec.canonical(payload))
         return {
             kind = "materialized",
             provider = "derive",
@@ -468,39 +491,54 @@ function deriveProvider.finalize(state: any, root: any): any, any
         return out
     end
 
-    local methods = {}
-    for name, handle in pairs(rootEntry.payload.methods) do
-        if not takeNode() then
-            return nil, failure("NUPP2810", "recipe exceeds its node limit")
-        end
-        if type(name) ~= "string" or name == "" then
-            return nil, failure("NUPP2810", "derive method names must be non-empty strings")
-        end
-        local entry = state.opaque[handle]
-        if not entry or entry.provider ~= "derive" or entry.family ~= "Forward" then
-            return nil, failure("NUPP2810", "derive method " .. name .. " is not a forward recipe")
-        end
-        if not takeNode() then
-            return nil, failure("NUPP2810", "recipe exceeds its node limit")
-        end
-        local arguments = {}
-        for index, child in ipairs(entry.payload.arguments or {}) do
-            local why
-            arguments[index], why = argument(child)
-            if why then
-                return nil, failure("NUPP2810", why)
+    local function forwards(source, namespace)
+        local methods = {}
+        for name, handle in pairs(source or {}) do
+            if not takeNode() then
+                return nil, failure("NUPP2810", "recipe exceeds its node limit")
             end
+            if type(name) ~= "string" or name == "" then
+                return nil, failure("NUPP2810", "derive member names must be non-empty strings")
+            end
+            local entry = state.opaque[handle]
+            if not entry or entry.provider ~= "derive" or entry.family ~= "Forward" then
+                return nil, failure("NUPP2810", "derive " .. namespace .. " " .. name .. " is not a forward recipe")
+            end
+            if not takeNode() then
+                return nil, failure("NUPP2810", "recipe exceeds its node limit")
+            end
+            local arguments = {}
+            for index, child in ipairs(entry.payload.arguments or {}) do
+                local why
+                arguments[index], why = argument(child)
+                if why then
+                    return nil, failure("NUPP2810", why)
+                end
+            end
+            methods[name] = {operation = "forward.v1", helper = entry.payload.helper, arguments = arguments,}
         end
-        methods[name] = {operation = "forward.v1", helper = entry.payload.helper, arguments = arguments,}
+
+        return methods
+    end
+
+    local methods, methodsFailure = forwards(rootEntry.payload.methods, "method")
+    if not methods then
+        return nil, methodsFailure
+    end
+    local statics, staticsFailure = forwards(rootEntry.payload.statics, "static")
+    if not statics then
+        return nil, staticsFailure
     end
     local payload = {
-        version = "nupp.derive.result.v1",
+        version = "nupp.derive.result.v2",
         requestFingerprint = state.deriveRequest and state.deriveRequest.fingerprint,
         providerIdentity = state.deriveRequest and state.deriveRequest.providerIdentity,
         ownerIdentity = state.deriveRequest and state.deriveRequest.ownerIdentity,
         methods = methods,
+        statics = statics,
+        operations = rootEntry.payload.operations or {},
     }
-    local canonical, why = planCodec.canonical(payload)
+    local canonical, why = recipeCodec.canonical(payload)
     if not canonical then
         return nil, failure("NUPP2810", "derive result is not canonical: " .. tostring(why))
     end
@@ -511,7 +549,7 @@ function deriveProvider.finalize(state: any, root: any): any, any
         schema = 1,
         family = "Result",
         payload = payload,
-        fingerprint = hash.sha256("nupp.derive.result\0v1\0" .. canonical),
+        fingerprint = hash.sha256("nupp.derive.result\0v2\0" .. canonical),
     }
 end
 

@@ -6,7 +6,7 @@ top-level declarations, modules, records, interfaces, or independently
 nameable types.
 
 ```nupp
-@derive(Debug, Default, JSON)
+@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.JSON)
 local record User
     @json(name = "user_id")
     id: integer
@@ -17,7 +17,7 @@ local record User
     tags: {string}
 end
 
-@derive(From)
+@derive(nupp.derive.From)
 local record UserId
     value: integer
 end
@@ -27,12 +27,12 @@ local id = nupp.into(42, UserId)
 print(user:debug(), id.value, user:toJSON())
 ```
 
-The four built-in providers are:
+The four compiler-shipped comptime providers are:
 
-- `Debug`: `debug(self): string` and `nupp.Debug` conformance.
-- `Default`: static `default(): T` and `nupp.default(T)` support.
-- `From`: static `from(value): T` and `nupp.into(value, T)` support.
-- `JSON`: `toJSON`, static `fromJSON`, `fieldCodec`, and
+- `nupp.derive.Debug`: `debug(self): string` and `nupp.Debug` conformance.
+- `nupp.derive.Default`: static `default(): T` and `nupp.default(T)` support.
+- `nupp.derive.From`: static `from(value): T` and `nupp.into(value, T)` support.
+- `nupp.derive.JSON`: `toJSON`, static `fromJSON`, `fieldCodec`, and
   `nupp.data.JSONEncodable` conformance.
 
 Generated members participate in normal member lookup, generic inference, and
@@ -40,7 +40,12 @@ interface checking. A written member of the same name is a compile-time
 conflict. Stacked `@derive` applications combine, but a provider cannot be
 requested twice.
 
-## Comptime providers
+All four travel through the same sealed comptime worker, immutable `Info`,
+versioned result envelope, cache and recipe lowering used by package providers.
+Their schema configuration (`@debug`, `@default`, and `@json`) is included in
+the semantic annotations visible through `Info`; it is not a second planner.
+
+## Package providers
 
 A package may export a derive provider as an `@comptime` function. Its exact
 signature names the one existing interface it implements:
@@ -146,7 +151,7 @@ such optimization is not part of the provider contract.
 comes back names the record and its fields in declaration order.
 
 ```nupp
-@derive(Debug)
+@derive(nupp.derive.Debug)
 local record Point
     x: integer
     y: integer
@@ -165,12 +170,12 @@ records render through their own `debug`, and a runtime table that reaches
 itself renders as `<cycle>`.
 
 ```nupp
-@derive(Debug)
+@derive(nupp.derive.Debug)
 local record Tag
     name: string
 end
 
-@derive(Debug)
+@derive(nupp.derive.Debug)
 local record Post
     title: string
     views: integer
@@ -196,7 +201,7 @@ replaces the value, which is what a secret wants; `skip` removes the field from
 the output entirely.
 
 ```nupp
-@derive(Debug)
+@derive(nupp.derive.Debug)
 local record Credentials
     user: string
     @debug(redact = true)
@@ -221,7 +226,7 @@ numerics zero, strings the empty string, and arrays and maps a fresh table each
 call.
 
 ```nupp
-@derive(Debug, Default)
+@derive(nupp.derive.Debug, nupp.derive.Default)
 local record Settings
     name: string
     retries: integer
@@ -241,13 +246,13 @@ Settings { name = "", retries = 0, verbose = false, timeout = nil, tags = {} }
 uses its own derived `default()`, so one call fills a whole graph.
 
 ```nupp
-@derive(Debug, Default)
+@derive(nupp.derive.Debug, nupp.derive.Default)
 local record Settings
     name: string
     retries: integer
 end
 
-@derive(Debug, Default)
+@derive(nupp.derive.Debug, nupp.derive.Default)
 local record Server
     @default("localhost")
     host: string
@@ -278,12 +283,12 @@ field and no written constructor, so there is never a question of which field a
 value lands in.
 
 ```nupp
-@derive(Debug, From)
+@derive(nupp.derive.Debug, nupp.derive.From)
 local record UserId
     value: integer
 end
 
-@derive(Debug, From)
+@derive(nupp.derive.Debug, nupp.derive.From)
 local record Email
     value: string
 end
@@ -300,7 +305,7 @@ UserId { value = 42 }	Email { value = "ada@example.com" }
 What that buys is a parameter that cannot be filled by the wrong integer:
 
 ```nupp
-@derive(From)
+@derive(nupp.derive.From)
 local record UserId
     value: integer
 end
@@ -323,7 +328,7 @@ shape fields follow declaration order and string map keys sort by byte order, so
 the same value always produces the same bytes.
 
 ```nupp
-@derive(JSON, Debug)
+@derive(nupp.derive.JSON, nupp.derive.Debug)
 local record User
     @json(name = "user_id")
     id: integer
@@ -346,7 +351,7 @@ User { id = 7, name = "ada" }
 rather than saying the document was bad:
 
 ```nupp
-@derive(JSON)
+@derive(nupp.derive.JSON)
 local record User
     @json(name = "user_id")
     id: integer
@@ -387,7 +392,7 @@ A field decides how it appears on the wire.
 of the output is still required coming back in.
 
 ```nupp
-@derive(JSON)
+@derive(nupp.derive.JSON)
 local record User
     id: integer
     @json(omitEmpty = true)

@@ -2,7 +2,9 @@
 
 ## Decision
 
-Reject a public provider ABI for now. Keep derive execution compiler-owned.
+This historical rejection was superseded by
+[`comptime-derive-recipes.md`](comptime-derive-recipes.md). The rejected JSON
+prototype was removed after the sealed comptime provider boundary landed.
 
 D6 did not find evidence for token, AST, or CST macros, mutable compiler
 objects, arbitrary helper calls, private lowering IR, filesystem discovery, or
@@ -13,12 +15,9 @@ proving that it solves the first problem the public API is meant to solve.
 
 ## External proving prototype
 
-`tests/fixtures/derive_provider/redacted_debug.lua` is a provider outside the
-compiler. `tests/deriveprovidertest.lua` invokes it as a one-shot process with a
-JSON descriptor and validates its JSON result before interpreting the result as
-a semantic Debug recipe. The case is adapted from the Tecs MCP transport request
-corpus. Request names remain visible while already-encoded argument payloads,
-including credentials, are replaced by `<redacted>`.
+The removed prototype used a one-shot Lua process, a JSON descriptor and a
+single semantic Debug operation. It is retained here only as design history;
+the current tests exercise exported Nupp `@comptime` providers directly.
 
 The version-one prototype descriptor contains only:
 
@@ -44,7 +43,7 @@ loader recognizes it.
 
 ## Why the prototype does not justify a public API
 
-The same accepted result is already written directly as `@derive(Debug)` with
+The same accepted result is already written directly as `@derive(nupp.derive.Debug)` with
 `@debug(redact = true)` on the sensitive field. A provider saves spelling but
 adds no semantic capability. Making the Tecs example non-redundant would require
 an operation such as a safe request summary: call a package-owned helper that

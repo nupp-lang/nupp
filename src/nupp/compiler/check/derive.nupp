@@ -1,20 +1,25 @@
--- Compiler-owned declaration derives. Plans contain semantic data only; generation
--- lowers the closed provider set without parsing or synthesizing source syntax.
+-- Declaration derives share one closed provider and recipe pipeline.
 
 local T = require("nupp.compiler.types")
 local cst = require("nupp.compiler.cst")
 local relations = require("nupp.compiler.relations")
 local generics = require("nupp.compiler.generics")
 local hash = require("nupp.compiler.build.hash")
-local planCodec = require("nupp.compiler.derive_plan")
+local recipeCodec = require("nupp.compiler.materialize.codec")
 local reflection = require("nupp.compiler.reflection")
-local comptime = require("nupp.compiler.comptime")
+local comptime = require("nupp.compiler.comptime") as {
+    evaluateDeriveProviderDirect: function(any, any, any, any, string?, string?): (any, any)
+}
 local state = require("nupp.compiler.check.state")
 
 local derive = {}
 
-local PROVIDERS = {Debug = true, Default = true, From = true, JSON = true}
-local PROVIDER_ABI = {Debug = 1, Default = 1, From = 1, JSON = 1}
+local INTERNAL_PROVIDERS = {
+    ["nupp.derive.Debug"] = {name = "Debug", operation = "debug.v1", contract = "nupp.Debug"},
+    ["nupp.derive.Default"] = {name = "Default", operation = "default.v1"},
+    ["nupp.derive.From"] = {name = "From", operation = "from.v1"},
+    ["nupp.derive.JSON"] = {name = "JSON", operation = "json.v1", contract = "nupp.data.JSONEncodable"},
+}
 local HELPER_ABI = {debug = 1, default = 1, from = 1, json = 1}
 local NUMERIC = {
     number = true,
@@ -37,32 +42,17 @@ local RANGES = {
     uint32 = {0, 4294967295},
     integer = {-9007199254740991, 9007199254740991},
 }
-local MAX_FIELDS, MAX_PLAN_NODES = 2048, 16384
+local MAX_FIELDS, MAX_RECIPE_NODES = 2048, 16384
 local MAX_GENERATED_MEMBERS = 6
 
 derive.MAX_FIELDS = MAX_FIELDS
-derive.MAX_PLAN_NODES = MAX_PLAN_NODES
+derive.MAX_RECIPE_NODES = MAX_RECIPE_NODES
 derive.MAX_GENERATED_MEMBERS = MAX_GENERATED_MEMBERS
 
 record derive.Ops
     claim: function(stat: any, nominal: any): nil
     merge: function(stat: any, nominal: any): nil
     finalize: function(): nil
-end
-
-local function argumentName(arg)
-    local expr = arg and arg.expr
-    if not expr then
-        return nil
-    end
-    if expr.kind == "name" then
-        return expr.token and expr.token.text or nil
-    elseif expr.kind == "string" then
-        local text = expr.token and expr.token.text or ""
-        return #text >= 2 and text:sub(2, -2) or nil
-    end
-
-    return nil
 end
 
 local function constant(expr)
@@ -182,7 +172,7 @@ function derive.install(c: state.Checker): derive.Ops
     c.result.deriveInterface = nil
     local pending = {}
     local ops = new derive.Ops()
-    local planNodes, planLimitAt, planLimitReported = 0, nil, false
+    local recipeNodes, recipeLimitAt, recipeLimitReported = 0, nil, false
     local currentItem = nil
     local keyOccurrences = {}
     local aborted, abortReason = false, nil
@@ -190,9 +180,9 @@ function derive.install(c: state.Checker): derive.Ops
     local budgetReported = false
     local configuredLimits = c.opts and c.opts.deriveLimits or {}
     local maxFields = configuredLimits.fields or MAX_FIELDS
-    local maxPlanNodes = configuredLimits.nodes or MAX_PLAN_NODES
-    local maxCanonicalBytes = configuredLimits.canonicalBytes or planCodec.MAX_CANONICAL_BYTES
-    local maxOutputBytes = configuredLimits.outputBytes or planCodec.MAX_OUTPUT_BYTES
+    local maxRecipeNodes = configuredLimits.nodes or MAX_RECIPE_NODES
+    local maxCanonicalBytes = configuredLimits.canonicalBytes or recipeCodec.MAX_CANONICAL_BYTES
+    local maxOutputBytes = configuredLimits.outputBytes or recipeCodec.MAX_OUTPUT_BYTES
     local providerMemo = {}
     local addDefinition: function(any, string, any, any, string, string, boolean, any?, boolean?): boolean
 
@@ -212,10 +202,50 @@ function derive.install(c: state.Checker): derive.Ops
         return nil
     end
 
+    local function namedType(path)
+        local segments = {}
+        for segment in path:gmatch("[^.]+") do
+            segments[#segments + 1] = segment
+        end
+        local contract = c.env and c.env.globalTypes and c.env.globalTypes[segments[1] .. "." .. (segments[2] or "")]
+        for index = 3, #segments do
+            contract = contract and contract.tag == "nominal" and contract.nestedTypes and contract.nestedTypes[
+                segments[index]
+            ]
+        end
+
+        return contract
+    end
+
+    local function internalProvider(path, specification)
+        local entry = "__nuppInternalDerive"
+        local identity = hash.sha256("nupp.derive.internal-provider\0v1\0" .. path)
+        local source = ("local function %s(info) return nupp.derive.internal(info) end"):format(entry)
+        local contract = specification.contract and namedType(specification.contract) or nil
+
+        return {
+            sealedTypeFunction = true,
+            deriveProvider = true,
+            deriveInterface = contract,
+            deriveInterfaceIdentity = contract and contract.id or nil,
+            identity = identity,
+            main = entry,
+            serializedHelpers = {[entry] = {source = source, line = 1, column = 1},},
+            runtimeHelpers = {},
+            providerModule = "nupp.derive",
+            internalOperation = specification.operation,
+            internalName = specification.name,
+        }
+    end
+
     local function resolveProvider(arg)
         local path = expressionPath(arg and arg.expr)
         if not path or not path:find(".", 1, true) then
             return nil
+        end
+        local builtIn = INTERNAL_PROVIDERS[path]
+        if builtIn then
+            return internalProvider(path, builtIn), "nupp.derive", path
         end
         local parts = {}
         for part in path:gmatch("[^.]+") do
@@ -255,31 +285,30 @@ function derive.install(c: state.Checker): derive.Ops
         end
         for _, application in ipairs(stat.deriveApplications or {}) do
             for _, arg in ipairs(application.annotationArgs or {}) do
-                local builtin = argumentName(arg)
-                if not (builtin and PROVIDERS[builtin]) then
-                    local provider, _, spelling = resolveProvider(arg)
-                    if not provider then
-                        c.diag(
-                            "NUPP2809",
-                            arg.expr or arg,
-                            ("%s is not an exported @comptime derive provider"):format(spelling or "this expression")
+                local provider, _, spelling = resolveProvider(arg)
+                if not provider then
+                    c.diag(
+                        "NUPP2809",
+                        arg.expr or arg,
+                        ("%s is not an exported @comptime derive provider"):format(spelling or "this expression")
+                    )
+                else
+                    arg.deriveProvider = provider
+                    arg.deriveProviderSpelling = spelling
+                    local contract = provider.deriveInterface
+                    if contract and not seen[contract] then
+                        n.supertypes[#n.supertypes + 1] = contract
+                        n.deriveClaimedContracts[#n.deriveClaimedContracts + 1] = contract
+                        seen[contract] = true
+                    end
+                    stat.deriveInterfaceRuntimeNames = stat.deriveInterfaceRuntimeNames or {}
+                    if contract then
+                        local base = spelling and spelling:match("^(.*)%.[^.]+$") or nil
+                        stat.deriveInterfaceRuntimeNames[
+                            contract
+                        ] = provider.internalOperation and contract.name or (
+                            base and (base .. "." .. contract.name) or contract.name
                         )
-                    else
-                        arg.deriveProvider = provider
-                        arg.deriveProviderSpelling = spelling
-                        local contract = provider.deriveInterface
-                        if contract and not seen[contract] then
-                            n.supertypes[#n.supertypes + 1] = contract
-                            n.deriveClaimedContracts[#n.deriveClaimedContracts + 1] = contract
-                            seen[contract] = true
-                        end
-                        stat.deriveInterfaceRuntimeNames = stat.deriveInterfaceRuntimeNames or {}
-                        if contract then
-                            local base = spelling and spelling:match("^(.*)%.[^.]+$") or nil
-                            stat.deriveInterfaceRuntimeNames[
-                                contract
-                            ] = base and (base .. "." .. contract.name) or contract.name
-                        end
                     end
                 end
             end
@@ -302,9 +331,9 @@ function derive.install(c: state.Checker): derive.Ops
                     c.diag(
                         "NUPP2808",
                         at,
-                        "derive planning exhausted its cooperative work budget",
+                        "derive recipe construction exhausted its cooperative work budget",
                         nil,
-                        {help = "split the declaration or increase the compiler-owned derive budget"}
+                        {help = "split the declaration or increase the derive recipe budget"}
                     )
                 end
                 return false
@@ -319,16 +348,16 @@ function derive.install(c: state.Checker): derive.Ops
         if not probe(at) then
             return false
         end
-        planNodes = planNodes + 1
-        if planNodes <= maxPlanNodes then
+        recipeNodes = recipeNodes + 1
+        if recipeNodes <= maxRecipeNodes then
             return true
         end
-        if not planLimitReported then
-            planLimitReported = true
+        if not recipeLimitReported then
+            recipeLimitReported = true
             c.diag(
                 "NUPP2808",
-                at or planLimitAt,
-                ("derive plan exceeds %d semantic nodes"):format(maxPlanNodes),
+                at or recipeLimitAt,
+                ("derive recipe exceeds %d semantic nodes"):format(maxRecipeNodes),
                 nil,
                 {help = "split the record or replace part of the derive with a written implementation"}
             )
@@ -454,7 +483,7 @@ function derive.install(c: state.Checker): derive.Ops
             annotations = input.annotations,
             hasConstructor = input.hasConstructor,
             owner = input.ownerType.descriptor.fingerprint,
-            interface = input.interfaceType.descriptor.fingerprint,
+            interface = input.interfaceType and input.interfaceType.descriptor.fingerprint or "none",
             fields = {},
         }
         for index, field in ipairs(input.fields) do
@@ -473,7 +502,7 @@ function derive.install(c: state.Checker): derive.Ops
                 fingerprintInput.fields[index].claims[claimIndex] = claim.descriptor.fingerprint
             end
         end
-        input.fingerprint = hash.sha256(assert(planCodec.canonical(fingerprintInput)))
+        input.fingerprint = hash.sha256(assert(recipeCodec.canonical(fingerprintInput)))
         local helperKeys, helperFingerprints = {}, {}
         for key in pairs(provider.sealed.runtimeHelpers or {}) do
             helperKeys[#helperKeys + 1] = key
@@ -501,8 +530,8 @@ function derive.install(c: state.Checker): derive.Ops
             ) == "table" and cached.provider == "derive" and cached.schema == 1 and (
                 cached.family == "Result" or cached.family == "Error"
             ) then
-                local canonical = planCodec.canonical(cached.payload)
-                local prefix = cached.family == "Result" and "nupp.derive.result\0v1\0" or "nupp.derive.error\0v1\0"
+                local canonical = recipeCodec.canonical(cached.payload)
+                local prefix = cached.family == "Result" and "nupp.derive.result\0v2\0" or "nupp.derive.error\0v1\0"
                 if canonical and cached.fingerprint == hash.sha256(
                     prefix .. canonical
                 )
@@ -518,7 +547,7 @@ function derive.install(c: state.Checker): derive.Ops
             local executable = root and root .. "/bin/nupp" or nil
             if executable and not os.getenv("NUPP_COMPTIME_WORKER_CHILD") then
                 local worker = require("nupp.compiler.comptime_worker") as {
-                    evaluateDeriveProvider: function(any, any, any, string?, string, any?): (any, any)
+                    evaluateDeriveProvider: function(any, any, any, string?, string, any?, string?): (any, any)
                 }
                 envelope, evaluationFailure = worker.evaluateDeriveProvider(
                     provider.sealed,
@@ -526,7 +555,8 @@ function derive.install(c: state.Checker): derive.Ops
                     provider.sealed.runtimeHelpers or {},
                     provider.sealed.providerModule,
                     executable,
-                    c.env and c.env.comptimeHost or nil
+                    c.env and c.env.comptimeHost or nil,
+                    provider.internalOperation
                 )
             else
                 envelope, evaluationFailure = comptime.evaluateDeriveProviderDirect(
@@ -534,7 +564,8 @@ function derive.install(c: state.Checker): derive.Ops
                     input,
                     c.comptimeFunctions,
                     provider.sealed.runtimeHelpers or {},
-                    provider.sealed.providerModule
+                    provider.sealed.providerModule,
+                    provider.internalOperation
                 )
             end
             if envelope then
@@ -579,7 +610,7 @@ function derive.install(c: state.Checker): derive.Ops
         if envelope.family ~= "Result"
             or envelope.schema ~= 1
             or not envelope.payload
-            or envelope.payload.version ~= "nupp.derive.result.v1"
+            or envelope.payload.version ~= "nupp.derive.result.v2"
             or envelope.payload.requestFingerprint ~= input.fingerprint
             or envelope.payload.providerIdentity ~= provider.identity
             or envelope.payload.ownerIdentity ~= n.deriveKey
@@ -591,8 +622,24 @@ function derive.install(c: state.Checker): derive.Ops
             )
             return
         end
-        plan.forwarding = plan.forwarding or {}
-        local diagnosticCount, addedMethods = #c.diags, {}
+        if provider.internalOperation then
+            local operations = envelope.payload.operations or {}
+            if #operations ~= 1 or operations[1].kind ~= provider.internalOperation then
+                c.diag(
+                    "NUPP2810",
+                    provider.site.arg.expr or provider.site.arg,
+                    "internal provider returned the wrong recipe"
+                )
+                return
+            end
+            plan.operations = plan.operations or {}
+            plan.operations[provider.internalOperation] = true
+            plan.providerABI[provider.label] = 1
+            local helper = provider.internalName:lower()
+            plan.helperABI[helper] = HELPER_ABI[helper]
+            return
+        end
+        local diagnosticCount, addedMembers = #c.diags, {}
         local existingMembers, requestedMembers = 0, 0
         for _ in pairs(n.derivedDefinitions or {}) do
             existingMembers = existingMembers + 1
@@ -601,6 +648,9 @@ function derive.install(c: state.Checker): derive.Ops
             existingMembers = existingMembers + 1
         end
         for _ in pairs(envelope.payload.methods or {}) do
+            requestedMembers = requestedMembers + 1
+        end
+        for _ in pairs(envelope.payload.statics or {}) do
             requestedMembers = requestedMembers + 1
         end
         if existingMembers + requestedMembers > MAX_GENERATED_MEMBERS then
@@ -613,209 +663,258 @@ function derive.install(c: state.Checker): derive.Ops
             )
             return
         end
-        for methodName, recipe in pairs(envelope.payload.methods or {}) do
-            local requirement = contract.byname and contract.byname[methodName] or nil
-            if not requirement or requirement.tag ~= "func" then
-                c.diag(
-                    "NUPP2811",
-                    provider.site.arg.expr or provider.site.arg,
-                    ("%s is not a bodyless callable requirement of %s"):format(methodName, contract.name)
-                )
-            elseif contract.defaults and contract.defaults[methodName] then
-                c.diag(
-                    "NUPP2811",
-                    provider.site.arg.expr or provider.site.arg,
-                    "a derive cannot replace an interface default"
-                )
-            elseif contract.overloadedMethods and contract.overloadedMethods[methodName] then
-                c.diag(
-                    "NUPP2811",
-                    provider.site.arg.expr or provider.site.arg,
-                    "forward.v1 cannot select an overloaded requirement"
-                )
-            elseif n.derivedDefinitions and n.derivedDefinitions[methodName] then
-                c.diag(
-                    "NUPP2802",
-                    provider.site.arg.expr or provider.site.arg,
-                    (
-                        "derive providers %s and %s both generate %s"
-                    ):format(tostring(n.derivedDefinitions[methodName].generatedBy), provider.label, methodName)
-                )
-            elseif n.fieldDefs and n.fieldDefs[methodName] then
-                c.diag(
-                    "NUPP2802",
-                    n.fieldDefs[methodName].token or item.stat,
-                    "a derive cannot replace a written member"
-                )
-            else
-                local callable = generics.specializeSelf(contract, requirement, n) as T.Func
-                local argumentTypes, valid = {}, true
-                local parameterTypes = {}
-                for index, parameterName in ipairs(callable.paramNames or {}) do
-                    if index > 1 and parameterName ~= "" then
-                        parameterTypes[parameterName] = callable.params[index]
-                    end
-                end
-                local function argumentType(argument)
-                    if argument.kind == "receiver" then
-                        return n
-                    elseif argument.kind == "argument" then
-                        local found = parameterTypes[argument.name]
-                        if not found then
-                            c.diag(
-                                "NUPP2812",
-                                provider.site.arg.expr or provider.site.arg,
-                                "unknown method argument " .. tostring(argument.name)
-                            )
-                            valid = false
-                        end
-                        return found or T.unknown
-                    elseif argument.kind == "field" then
-                        local found = n.byname[argument.name]
-                        if not found then
-                            c.diag(
-                                "NUPP2812",
-                                nodes[argument.name] or item.stat,
-                                "derive recipe cannot read field " .. tostring(argument.name)
-                            )
-                            valid = false
-                        end
-                        return found or T.unknown
-                    elseif argument.kind == "constant" then
-                        return valueType(argument.value)
-                    elseif argument.kind == "array" then
-                        local children = {}
-                        for _, child in ipairs(argument.values or {}) do
-                            children[#children + 1] = argumentType(child)
-                        end
-                        return T.array(
-                            #children == 0 and T.unknown or #children == 1 and children[1] or T.union(children)
-                        )
-                    end
-                    valid = false
-
-                    return T.unknown
-                end
-
-                for index, argument in ipairs(recipe.arguments or {}) do
-                    argumentTypes[index] = argumentType(argument)
-                end
-                local helperType = runtimeHelperType(recipe.helper)
-                if not helperType or helperType.tag ~= "func" then
+        local function validateForwards(recipes, isStatic)
+            local requirements = isStatic and contract.staticByname or contract.byname
+            local generated = isStatic and n.derivedStaticDefinitions or n.derivedDefinitions
+            local written = isStatic and n.staticFieldDefs or n.fieldDefs
+            local namespace = isStatic and "static" or "method"
+            for methodName, recipe in pairs(recipes or {}) do
+                local requirement = requirements and requirements[methodName] or nil
+                if not requirement or requirement.tag ~= "func" then
                     c.diag(
-                        "NUPP2813",
+                        "NUPP2811",
                         provider.site.arg.expr or provider.site.arg,
                         (
-                            "derive helper %s.%s is missing or is not an exported function"
-                        ):format(
-                            tostring(recipe.helper and recipe.helper.module),
-                            tostring(recipe.helper and recipe.helper.member)
-                        )
+                            "%s is not a bodyless callable %s requirement of %s"
+                        ):format(methodName, namespace, contract.name)
                     )
-                    valid = false
+                elseif not isStatic and contract.defaults and contract.defaults[methodName] then
+                    c.diag(
+                        "NUPP2811",
+                        provider.site.arg.expr or provider.site.arg,
+                        "a derive cannot replace an interface default"
+                    )
+                elseif (
+                    not isStatic and contract.overloadedMethods and contract.overloadedMethods[methodName]
+                ) or requirement.tag == "intersection" then
+                    c.diag(
+                        "NUPP2811",
+                        provider.site.arg.expr or provider.site.arg,
+                        "forward.v1 cannot select an overloaded requirement"
+                    )
+                elseif generated and generated[methodName] then
+                    c.diag(
+                        "NUPP2802",
+                        provider.site.arg.expr or provider.site.arg,
+                        (
+                            "derive providers %s and %s both generate %s"
+                        ):format(tostring(generated[methodName].generatedBy), provider.label, methodName)
+                    )
+                elseif written and written[methodName] and not written[methodName].generatedBy then
+                    c.diag(
+                        "NUPP2802",
+                        written[methodName].token or item.stat,
+                        "a derive cannot replace a written member"
+                    )
                 else
-                    if #(
-                        helperType.typeParams or {}
-                    ) > 0 or #(helperType.packParams or {}) > 0 or #(helperType.constParams or {}) > 0 then
-                        c.diag(
-                            "NUPP2813",
-                            provider.site.arg.expr or provider.site.arg,
-                            "generic runtime helpers are not available to forward.v1"
-                        )
-                        valid = false
+                    local callable = generics.specializeSelf(contract, requirement, n) as T.Func
+                    local argumentTypes, valid = {}, true
+                    local parameterTypes = {}
+                    for index, parameterName in ipairs(callable.paramNames or {}) do
+                        if index > (isStatic and 0 or 1) and parameterName ~= "" then
+                            parameterTypes[parameterName] = callable.params[index]
+                        end
                     end
-                    if #helperType.params ~= #argumentTypes then
-                        c.diag(
-                            "NUPP2813",
-                            provider.site.arg.expr or provider.site.arg,
-                            "derive helper parameter count does not match the forwarding recipe"
-                        )
-                        valid = false
-                    else
-                        for index, actual in ipairs(argumentTypes) do
-                            local fits, why = relations.isA(actual, helperType.params[index])
-                            if not fits then
+                    local function argumentType(argument)
+                        if argument.kind == "receiver" then
+                            if isStatic then
                                 c.diag(
-                                    "NUPP2813",
+                                    "NUPP2812",
                                     provider.site.arg.expr or provider.site.arg,
-                                    (
-                                        "forwarded argument %d does not fit helper parameter %s%s"
-                                    ):format(index, T.tostring(helperType.params[index]), why and (": " .. why) or "")
+                                    "a static recipe has no receiver"
+                                )
+                                valid = false
+                                return T.unknown
+                            end
+                            return n
+                        elseif argument.kind == "argument" then
+                            local found = parameterTypes[argument.name]
+                            if not found then
+                                c.diag(
+                                    "NUPP2812",
+                                    provider.site.arg.expr or provider.site.arg,
+                                    "unknown method argument " .. tostring(argument.name)
                                 )
                                 valid = false
                             end
+                            return found or T.unknown
+                        elseif argument.kind == "field" then
+                            local found = n.byname[argument.name]
+                            if not found then
+                                c.diag(
+                                    "NUPP2812",
+                                    nodes[argument.name] or item.stat,
+                                    "derive recipe cannot read field " .. tostring(argument.name)
+                                )
+                                valid = false
+                            end
+                            return found or T.unknown
+                        elseif argument.kind == "constant" then
+                            return valueType(argument.value)
+                        elseif argument.kind == "array" then
+                            local children = {}
+                            for _, child in ipairs(argument.values or {}) do
+                                children[#children + 1] = argumentType(child)
+                            end
+                            return T.array(
+                                #children == 0 and T.unknown or #children == 1 and children[1] or T.union(children)
+                            )
                         end
+                        valid = false
+
+                        return T.unknown
                     end
-                    local returnsFit, why = relations.packIsA(helperType.retPack, callable.retPack)
-                    if not returnsFit then
+
+                    for index, argument in ipairs(recipe.arguments or {}) do
+                        argumentTypes[index] = argumentType(argument)
+                    end
+                    local helperType = runtimeHelperType(recipe.helper)
+                    if not helperType or helperType.tag ~= "func" then
                         c.diag(
                             "NUPP2813",
                             provider.site.arg.expr or provider.site.arg,
-                            "derive helper result does not satisfy the interface requirement" .. (
-                                why and (": " .. why) or ""
+                            (
+                                "derive helper %s.%s is missing or is not an exported function"
+                            ):format(
+                                tostring(recipe.helper and recipe.helper.module),
+                                tostring(recipe.helper and recipe.helper.member)
                             )
                         )
                         valid = false
-                    end
-                    if callable.noYield and not helperType.noYield then
-                        c.diag(
-                            "NUPP2813",
-                            provider.site.arg.expr or provider.site.arg,
-                            "a suspending helper cannot implement a non-suspending requirement"
-                        )
-                        valid = false
-                    end
-                end
-                if valid then
-                    local providerName = provider.label
-                    if addDefinition(
-                        n,
-                        methodName,
-                        callable,
-                        provider.site.arg.expr or provider.site.arg,
-                        "method",
-                        providerName,
-                        false,
-                        nil,
-                        true
-                    ) then
-                        recipe.provider = provider.identity
-                        recipe.interface = contract.id
-                        recipe.signature = T.tostring(callable)
-                        recipe.paramNames = callable.paramNames
-                        if recipe.helper.module == c.result.moduleName and c.moduleLocal then
-                            recipe.helper.localPath = c.moduleLocal .. "." .. recipe.helper.member
+                    else
+                        if #(
+                            helperType.typeParams or {}
+                        ) > 0 or #(helperType.packParams or {}) > 0 or #(helperType.constParams or {}) > 0 then
+                            c.diag(
+                                "NUPP2813",
+                                provider.site.arg.expr or provider.site.arg,
+                                "generic runtime helpers are not available to forward.v1"
+                            )
+                            valid = false
                         end
-                        plan.forwarding[methodName] = recipe
-                        addedMethods[#addedMethods + 1] = methodName
-                        plan.helperABI[recipe.helper.module .. "." .. recipe.helper.member] = 1
-                        local definition = n.derivedDefinitions and n.derivedDefinitions[methodName]
-                        if definition then
-                            definition.generatedInterface = contract.name
-                            definition.generatedInterfaceDefinition = contract.definition
-                            definition.generatedHelper = recipe.helper.module .. "." .. recipe.helper.member
-                            definition.generatedHelperDefinition = runtimeHelperDefinition(recipe.helper)
+                        if #helperType.params ~= #argumentTypes then
+                            c.diag(
+                                "NUPP2813",
+                                provider.site.arg.expr or provider.site.arg,
+                                "derive helper parameter count does not match the forwarding recipe"
+                            )
+                            valid = false
+                        else
+                            for index, actual in ipairs(argumentTypes) do
+                                local fits, why = relations.isA(actual, helperType.params[index])
+                                if not fits then
+                                    c.diag(
+                                        "NUPP2813",
+                                        provider.site.arg.expr or provider.site.arg,
+                                        (
+                                            "forwarded argument %d does not fit helper parameter %s%s"
+                                        ):format(
+                                            index,
+                                            T.tostring(helperType.params[index]),
+                                            why and (": " .. why) or ""
+                                        )
+                                    )
+                                    valid = false
+                                end
+                            end
+                        end
+                        local returnsFit, why = relations.packIsA(helperType.retPack, callable.retPack)
+                        if not returnsFit then
+                            c.diag(
+                                "NUPP2813",
+                                provider.site.arg.expr or provider.site.arg,
+                                "derive helper result does not satisfy the interface requirement" .. (
+                                    why and (": " .. why) or ""
+                                )
+                            )
+                            valid = false
+                        end
+                        if callable.noYield and not helperType.noYield then
+                            c.diag(
+                                "NUPP2813",
+                                provider.site.arg.expr or provider.site.arg,
+                                "a suspending helper cannot implement a non-suspending requirement"
+                            )
+                            valid = false
+                        end
+                    end
+                    if valid then
+                        local providerName = provider.label
+                        if addDefinition(
+                            n,
+                            methodName,
+                            callable,
+                            provider.site.arg.expr or provider.site.arg,
+                            isStatic and "function" or "method",
+                            providerName,
+                            isStatic,
+                            nil,
+                            true
+                        ) then
+                            recipe.provider = provider.identity
+                            recipe.interface = contract.id
+                            recipe.signature = T.tostring(callable)
+                            recipe.paramNames = callable.paramNames
+                            if recipe.helper.module == c.result.moduleName and c.moduleLocal then
+                                recipe.helper.localPath = c.moduleLocal .. "." .. recipe.helper.member
+                            end
+                            local generatedMember = {
+                                name = methodName,
+                                namespace = isStatic and "static" or "instance",
+                                operation = "forward.v1",
+                                helper = recipe.helper,
+                                arguments = recipe.arguments,
+                                paramNames = recipe.paramNames,
+                                provider = recipe.provider,
+                                interface = recipe.interface,
+                                signature = recipe.signature,
+                            }
+                            plan.members[#plan.members + 1] = generatedMember
+                            addedMembers[
+                                #addedMembers + 1
+                            ] = {name = methodName, static = isStatic, member = generatedMember}
+                            plan.helperABI[recipe.helper.module .. "." .. recipe.helper.member] = 1
+                            local definitions = isStatic and n.derivedStaticDefinitions or n.derivedDefinitions
+                            local definition = definitions and definitions[methodName]
+                            if definition then
+                                definition.generatedInterface = contract.name
+                                definition.generatedInterfaceDefinition = contract.definition
+                                definition.generatedHelper = recipe.helper.module .. "." .. recipe.helper.member
+                                definition.generatedHelperDefinition = runtimeHelperDefinition(recipe.helper)
+                            end
                         end
                     end
                 end
             end
         end
+
+        validateForwards(envelope.payload.methods, false)
+        validateForwards(envelope.payload.statics, true)
         if #c.diags > diagnosticCount then
-            for _, methodName in ipairs(addedMethods) do
-                local inherited = contract.byname and contract.byname[methodName] or nil
+            for _, added in ipairs(addedMembers) do
+                local methodName, isStatic = added.name, added.static
+                local requirements = isStatic and contract.staticByname or contract.byname
+                local inherited = requirements and requirements[methodName] or nil
                 inherited = inherited and generics.specializeSelf(contract, inherited, n) or nil
-                n.byname[methodName] = inherited
-                n.writeByname[methodName] = inherited
-                n.derivedByname[methodName] = nil
-                n.derivedDefinitions[methodName] = nil
-                n.fieldDefs[methodName] = nil
-                n.writeFieldDefs[methodName] = nil
-                plan.forwarding[methodName] = nil
+                local reads = isStatic and n.staticByname or n.byname
+                local writes = isStatic and n.staticWriteByname or n.writeByname
+                local derived = isStatic and n.derivedStaticByname or n.derivedByname
+                local definitions = isStatic and n.derivedStaticDefinitions or n.derivedDefinitions
+                local fieldDefs = isStatic and n.staticFieldDefs or n.fieldDefs
+                local writeFieldDefs = isStatic and n.staticWriteFieldDefs or n.writeFieldDefs
+                reads[methodName], writes[methodName] = inherited, inherited
+                derived[methodName], definitions[methodName] = nil, nil
+                fieldDefs[methodName], writeFieldDefs[methodName] = nil, nil
+                for index = #plan.members, 1, -1 do
+                    if plan.members[index] == added.member then
+                        table.remove(plan.members, index)
+                        break
+                    end
+                end
             end
             relations.invalidate()
             return
         end
-        plan.providers[provider.label] = true
         plan.providerABI[provider.label] = 1
     end
 
@@ -998,8 +1097,8 @@ function derive.install(c: state.Checker): derive.Ops
     local function abortAll()
         for _, item in ipairs(pending) do
             clearGeneratedMembers(item.nominal)
-            item.nominal.derivePlan = nil
-            item.stat.derivePlan = nil
+            item.nominal.deriveRecipe = nil
+            item.stat.deriveRecipe = nil
         end
         local symbols = {}
         for _, definition in ipairs(c.result.symbols or {}) do
@@ -1033,45 +1132,46 @@ function derive.install(c: state.Checker): derive.Ops
             return
         end
         clearGeneratedMembers(n)
-        local requested, origins, order, providerSites = {}, {}, {}, {}
-        local customProviders, customIdentities = {}, {}
+        local requested, origins, order, providerSites, providerLabels = {}, {}, {}, {}, {}
+        local providers, providerIdentities = {}, {}
         for _, application in ipairs(applications) do
             for _, arg in ipairs(application.annotationArgs or {}) do
-                local name = argumentName(arg)
-                local at = arg.expr and (arg.expr.token or arg.expr) or arg
-                local custom = arg.deriveProvider
-                local customIdentity = custom and custom.identity or nil
-                if custom and customIdentities[customIdentity] then
-                    c.diag("NUPP2801", at, "the same derive provider was requested twice")
-                elseif custom then
-                    customIdentities[customIdentity] = true
-                    local label = arg.deriveProviderSpelling or customIdentity
+                local at = arg.expr and (arg.expr.token or cst.firstToken(arg.expr) or arg.expr) or arg
+                local provider = arg.deriveProvider
+                if not provider then
+                    local resolved, _, spelling = resolveProvider(arg)
+                    provider = resolved
+                    arg.deriveProvider = resolved
+                    arg.deriveProviderSpelling = spelling
+                end
+                local providerIdentity = provider and provider.identity or nil
+                if provider and providerIdentities[providerIdentity] then
+                    local label = arg.deriveProviderSpelling or providerIdentity
+                    local remove = removeProviderFix(application, arg, label, true)
+                    c.diag("NUPP2801", at, "the same derive provider was requested twice", remove and {remove} or nil)
+                elseif provider then
+                    providerIdentities[providerIdentity] = true
+                    local label = arg.deriveProviderSpelling or providerIdentity
                     origins[label] = at
                     providerSites[label] = {application = application, arg = arg}
                     order[#order + 1] = label
-                    customProviders[
-                        #customProviders + 1
+                    if provider.internalName then
+                        requested[provider.internalName] = true
+                        origins[provider.internalName] = at
+                        providerSites[provider.internalName] = providerSites[label]
+                        providerLabels[provider.internalName] = label
+                    end
+                    providers[
+                        #providers + 1
                     ] = {
-                        identity = customIdentity,
+                        identity = providerIdentity,
                         label = label,
-                        sealed = custom,
-                        contract = custom.deriveInterface,
+                        sealed = provider,
+                        contract = provider.deriveInterface,
+                        internalName = provider.internalName,
+                        internalOperation = provider.internalOperation,
                         site = providerSites[label],
                     }
-                elseif name and not PROVIDERS[name] then
-                    c.diag("NUPP2801", at, ("unknown derive provider %q"):format(name))
-                elseif name and requested[name] then
-                    local remove = removeProviderFix(application, arg, name, true)
-                    c.diag(
-                        "NUPP2801",
-                        at,
-                        ("derive provider %q was requested twice"):format(name),
-                        remove and {remove} or nil
-                    )
-                elseif name then
-                    requested[name], origins[name] = true, at
-                    providerSites[name] = {application = application, arg = arg}
-                    order[#order + 1] = name
                 end
             end
         end
@@ -1088,7 +1188,12 @@ function derive.install(c: state.Checker): derive.Ops
             stat.compilerFeatureEffects[#stat.compilerFeatureEffects + 1] = "native.cjson"
         end
 
-        n.deriveProviders = requested
+        n.deriveOperations = {
+            ["debug.v1"] = requested.Debug and true or nil,
+            ["default.v1"] = requested.Default and true or nil,
+            ["from.v1"] = requested.From and true or nil,
+            ["json.v1"] = requested.JSON and true or nil,
+        }
         local moduleIdentity = c.result.moduleName or "<chunk>"
         local declarationIdentity = n.runtimePath or n.name
         local keyBase = moduleIdentity .. ":" .. declarationIdentity
@@ -1101,15 +1206,23 @@ function derive.install(c: state.Checker): derive.Ops
             origins = origins,
             order = order,
             providerSites = providerSites,
-            customProviders = customProviders,
+            providerLabels = providerLabels,
+            providers = providers,
             startedAt = os.clock(),
         }
-        table.sort(customProviders, function(left, right)
+        table.sort(providers, function(left, right)
             return left.identity < right.identity
         end)
         item.ownerDescriptor = reflection.describe(n, nil, true)
         item.ownerDescriptor.sources = nil
         pending[#pending + 1] = item
+
+        local writtenMembers = {}
+        for _, entry in ipairs(stat.entries or {}) do
+            if (entry.kind == "fieldDecl" or entry.kind == "inlineMethod") and entry.name then
+                writtenMembers[entry.name.text] = true
+            end
+        end
 
         if requested.Debug then
             if addDefinition(
@@ -1118,9 +1231,10 @@ function derive.install(c: state.Checker): derive.Ops
                 T.func({n}, {T.string}),
                 origin(item, "Debug"),
                 "method",
-                "Debug",
+                providerLabels.Debug,
                 false,
-                providerSites.Debug
+                providerSites.Debug,
+                not writtenMembers.debug
             ) then
                 addContract(n, "nupp.Debug")
             end
@@ -1132,7 +1246,7 @@ function derive.install(c: state.Checker): derive.Ops
                 T.func({}, {n}),
                 origin(item, "Default"),
                 "function",
-                "Default",
+                providerLabels.Default,
                 true,
                 providerSites.Default
             )
@@ -1146,7 +1260,7 @@ function derive.install(c: state.Checker): derive.Ops
                 T.func({source}, {n}),
                 origin(item, "From"),
                 "function",
-                "From",
+                providerLabels.From,
                 true,
                 providerSites.From
             )
@@ -1158,9 +1272,10 @@ function derive.install(c: state.Checker): derive.Ops
                 T.func({n}, {T.string}),
                 origin(item, "JSON"),
                 "method",
-                "JSON",
+                providerLabels.JSON,
                 false,
-                providerSites.JSON
+                providerSites.JSON,
+                not writtenMembers.toJSON
             ) then
                 addContract(n, "nupp.data.JSONEncodable")
             end
@@ -1170,7 +1285,7 @@ function derive.install(c: state.Checker): derive.Ops
                 T.func({T.string}, {T.union({n, T.nil_}), T.union({T.string, T.nil_})}),
                 origin(item, "JSON"),
                 "function",
-                "JSON",
+                providerLabels.JSON,
                 true,
                 providerSites.JSON
             )
@@ -1185,7 +1300,7 @@ function derive.install(c: state.Checker): derive.Ops
                 T.func({}, {codecType}),
                 origin(item, "JSON"),
                 "function",
-                "JSON",
+                providerLabels.JSON,
                 true,
                 providerSites.JSON
             )
@@ -1225,7 +1340,7 @@ function derive.install(c: state.Checker): derive.Ops
                 return debugSpec(member, at, active)
             end)}
         elseif t.tag == "nominal" and t.declKind == "record" then
-            if t.deriveProviders and t.deriveProviders.Debug and t.deriveKey then
+            if t.deriveOperations and t.deriveOperations["debug.v1"] and t.deriveKey then
                 return {kind = "record", typeKey = t.deriveKey}
             end
             if t.byname and t.byname.debug then
@@ -1281,12 +1396,9 @@ function derive.install(c: state.Checker): derive.Ops
             end)
             return fields and {kind = "shape", fields = fields} or nil
         end
-        if t.tag == "nominal"
-            and t.declKind == "record"
-            and t.deriveProviders
-            and t.deriveProviders.Default
-            and t.deriveKey
-        then
+        if t.tag == "nominal" and t.declKind == "record" and t.deriveOperations and t.deriveOperations[
+            "default.v1"
+        ] and t.deriveKey then
             return {kind = "record", typeKey = t.deriveKey}
         end
         c.diag(
@@ -1364,7 +1476,9 @@ function derive.install(c: state.Checker): derive.Ops
                         ] or nil
                         if not tagType or tagType.tag ~= "literal" or seen[
                             tagType.constant
-                        ] or not (member.deriveProviders and member.deriveProviders.JSON and member.deriveKey) then
+                        ] or not (
+                            member.deriveOperations and member.deriveOperations["json.v1"] and member.deriveKey
+                        ) then
                             valid = false
                             break
                         end
@@ -1393,12 +1507,9 @@ function derive.install(c: state.Checker): derive.Ops
                 currentItem.jsonFailed = true
             end
             return nil
-        elseif t.tag == "nominal"
-            and t.declKind == "record"
-            and t.deriveProviders
-            and t.deriveProviders.JSON
-            and t.deriveKey
-        then
+        elseif t.tag == "nominal" and t.declKind == "record" and t.deriveOperations and t.deriveOperations[
+            "json.v1"
+        ] and t.deriveKey then
             return {kind = "record", typeKey = t.deriveKey}
         end
         c.diag("NUPP2806", at, ("type %s is not supported by JSON"):format(T.tostring(t)))
@@ -1416,7 +1527,7 @@ function derive.install(c: state.Checker): derive.Ops
         end
         local byKey = {}
         local function serializationProbe(): boolean
-            return probe(planLimitAt)
+            return probe(recipeLimitAt)
         end
 
         for _, requested in ipairs(pending) do
@@ -1430,32 +1541,35 @@ function derive.install(c: state.Checker): derive.Ops
             end
             local stat, n = item.stat, item.nominal
             currentItem = item
-            planNodes, planLimitAt, planLimitReported = 0, origin(item, item.order[1]), false
+            recipeNodes, recipeLimitAt, recipeLimitReported = 0, origin(item, item.order[1]), false
             local nodes = fieldNodes(stat)
             item.fieldNodes = nodes
             local plan = {
                 key = n.deriveKey,
                 name = n.name,
-                providers = {},
                 providerABI = {},
                 helperABI = {},
                 fields = {},
+                members = {},
             }
+            if item.requested.Debug then
+                plan.members[#plan.members + 1] = {name = "debug", namespace = "instance", operation = "debug.v1"}
+            end
+            if item.requested.Default then
+                plan.members[#plan.members + 1] = {name = "default", namespace = "static", operation = "default.v1"}
+            end
+            if item.requested.JSON then
+                plan.members[#plan.members + 1] = {name = "toJSON", namespace = "instance", operation = "json.v1"}
+                plan.members[#plan.members + 1] = {name = "fromJSON", namespace = "static", operation = "json.v1"}
+                plan.members[#plan.members + 1] = {name = "fieldCodec", namespace = "static", operation = "json.v1"}
+            end
             if #(n.fieldOrder or {}) > maxFields then
                 c.diag(
                     "NUPP2808",
-                    planLimitAt,
+                    recipeLimitAt,
                     ("derive target has %d fields; the limit is %d"):format(#n.fieldOrder, maxFields)
                 )
             end
-            for _, provider in ipairs(item.order) do
-                if PROVIDERS[provider] then
-                    plan.providers[provider] = true
-                    plan.providerABI[provider] = PROVIDER_ABI[provider]
-                    plan.helperABI[provider:lower()] = HELPER_ABI[provider:lower()]
-                end
-            end
-
             if item.requested.From then
                 if #(n.fieldOrder or {}) ~= 1 or #(n.constructorEntries or {}) > 0 then
                     c.diag(
@@ -1473,6 +1587,9 @@ function derive.install(c: state.Checker): derive.Ops
                             "From does not infer an ownership transfer policy"
                         )
                         plan.fromField = nil
+                    end
+                    if plan.fromField then
+                        plan.members[#plan.members + 1] = {name = "from", namespace = "static", operation = "from.v1"}
                     end
                 end
             end
@@ -1592,7 +1709,7 @@ function derive.install(c: state.Checker): derive.Ops
                 end
             end
             if #(n.fieldOrder or {}) <= maxFields then
-                for _, provider in ipairs(item.customProviders or {}) do
+                for _, provider in ipairs(item.providers or {}) do
                     if not probe(provider.site.arg.expr or provider.site.arg) then
                         abortAll()
                         return
@@ -1600,7 +1717,7 @@ function derive.install(c: state.Checker): derive.Ops
                     evaluateProvider(item, provider, plan, nodes)
                 end
             end
-            local canonical, canonicalError = planCodec.canonicalRoot(
+            local canonical, canonicalError = recipeCodec.canonicalRoot(
                 plan,
                 {limit = maxCanonicalBytes, probe = serializationProbe,}
             )
@@ -1608,8 +1725,8 @@ function derive.install(c: state.Checker): derive.Ops
                 if canonicalError == "limit" then
                     c.diag(
                         "NUPP2808",
-                        planLimitAt,
-                        ("derive plan exceeds %d canonical bytes"):format(maxCanonicalBytes)
+                        recipeLimitAt,
+                        ("derive recipe exceeds %d canonical bytes"):format(maxCanonicalBytes)
                     )
                     aborted, abortReason = true, "limit"
                 end
@@ -1618,13 +1735,16 @@ function derive.install(c: state.Checker): derive.Ops
             end
             item.canonicalBytes = #canonical
             plan.fingerprint = hash.sha256("nupp.derive\0v2\0" .. canonical)
-            local rendered, renderError = planCodec.render(plan, {limit = maxOutputBytes, probe = serializationProbe,})
+            local rendered, renderError = recipeCodec.render(
+                plan,
+                {limit = maxOutputBytes, probe = serializationProbe,}
+            )
             if not rendered then
                 if renderError == "limit" then
                     c.diag(
                         "NUPP2808",
-                        planLimitAt,
-                        ("derive output plan exceeds %d rendered bytes"):format(maxOutputBytes)
+                        recipeLimitAt,
+                        ("derive output recipe exceeds %d rendered bytes"):format(maxOutputBytes)
                     )
                     aborted, abortReason = true, "limit"
                 end
@@ -1632,17 +1752,17 @@ function derive.install(c: state.Checker): derive.Ops
                 return
             end
             item.renderedBytes = #rendered
-            if c.env and c.env.internDerivePlan then
-                plan, item.planCached = c.env.internDerivePlan(c.env, plan)
+            if c.env and c.env.internDeriveRecipe then
+                plan, item.recipeCached = c.env.internDeriveRecipe(c.env, plan)
             end
-            stat.derivePlan = plan
-            n.derivePlan = plan
+            stat.deriveRecipe = plan
+            n.deriveRecipe = plan
             for _, definition in pairs(n.derivedDefinitions or {}) do
-                definition.generatedPlanFingerprint = plan.fingerprint
+                definition.generatedRecipeFingerprint = plan.fingerprint
                 definition.generatedContributingFields = nodes
             end
             for _, definition in pairs(n.derivedStaticDefinitions or {}) do
-                definition.generatedPlanFingerprint = plan.fingerprint
+                definition.generatedRecipeFingerprint = plan.fingerprint
                 definition.generatedContributingFields = nodes
             end
         end
@@ -1673,7 +1793,7 @@ function derive.install(c: state.Checker): derive.Ops
             visiting[key] = true
             path[#path + 1] = item.nominal.name
             local ok = true
-            for _, field in ipairs(item.nominal.derivePlan and item.nominal.derivePlan.fields or {}) do
+            for _, field in ipairs(item.nominal.deriveRecipe and item.nominal.deriveRecipe.fields or {}) do
                 local spec = field.default
                 if spec and spec.kind == "record" then
                     local dependency = byKey[spec.typeKey]
@@ -1737,7 +1857,7 @@ function derive.install(c: state.Checker): derive.Ops
                     return
                 end
                 item.dependencyFailures = item.dependencyFailures or {}
-                for _, field in ipairs(item.nominal.derivePlan and item.nominal.derivePlan.fields or {}) do
+                for _, field in ipairs(item.nominal.deriveRecipe and item.nominal.deriveRecipe.fields or {}) do
                     local node = item.fieldNodes and item.fieldNodes[field.name] or item.stat
                     if item.requested.Default and field.default and field.default.kind == "record" then
                         local dependency = byKey[field.default.typeKey]
@@ -1832,7 +1952,7 @@ function derive.install(c: state.Checker): derive.Ops
             end
             table.sort(contracts)
             local dependencies = {}
-            for _, field in ipairs(n.derivePlan and n.derivePlan.fields or {}) do
+            for _, field in ipairs(n.deriveRecipe and n.deriveRecipe.fields or {}) do
                 recordDependencies(field.default, dependencies)
                 recordDependencies(field.debugType, dependencies)
                 recordDependencies(field.jsonType, dependencies)
@@ -1842,12 +1962,12 @@ function derive.install(c: state.Checker): derive.Ops
                 #interface + 1
             ] = {
                 identity = n.deriveKey,
-                providers = n.derivePlan and n.derivePlan.providerABI or {},
-                helpers = n.derivePlan and n.derivePlan.helperABI or {},
+                providers = n.deriveRecipe and n.deriveRecipe.providerABI or {},
+                helpers = n.deriveRecipe and n.deriveRecipe.helperABI or {},
                 members = members,
                 contracts = contracts,
                 effects = item.requested.JSON and {"native.cjson", "stdlib.derives"} or {"stdlib.derives"},
-                behavior = n.derivePlan and n.derivePlan.fingerprint or nil,
+                behavior = n.deriveRecipe and n.deriveRecipe.fingerprint or nil,
                 dependencies = dependencies,
             }
         end
@@ -1855,7 +1975,7 @@ function derive.install(c: state.Checker): derive.Ops
             return a.identity < b.identity
         end)
         c.result.deriveInterface = interface
-        local interfaceBytes = planCodec.canonical(interface)
+        local interfaceBytes = recipeCodec.canonical(interface)
         c.moduleExports.deriveInterfaceFingerprint = #interface > 0 and hash.sha256(
             "nupp.derive.interface\0v1\0" .. assert(interfaceBytes)
         ) or nil
@@ -1890,12 +2010,12 @@ function derive.install(c: state.Checker): derive.Ops
                 end
                 observations[
                     #observations + 1
-                ] = {provider = provider, owner = item.nominal.name, semanticFingerprint = item.nominal.derivePlan and item.nominal.derivePlan.fingerprint or nil, generatedMembers = providerMembers, canonicalBytes = item.canonicalBytes or 0, renderedBytes = item.renderedBytes or 0, effects = provider == "JSON" and {
+                ] = {provider = provider, owner = item.nominal.name, semanticFingerprint = item.nominal.deriveRecipe and item.nominal.deriveRecipe.fingerprint or nil, generatedMembers = providerMembers, canonicalBytes = item.canonicalBytes or 0, renderedBytes = item.renderedBytes or 0, effects = provider == item.providerLabels.JSON and {
                     "native.cjson",
                     "stdlib.derives"
                 } or {
                     "stdlib.derives"
-                }, cached = item.planCached and true or false, durationMs = math.floor(
+                }, cached = item.recipeCached and true or false, durationMs = math.floor(
                     (os.clock() - item.startedAt) * 1000000 + 0.5
                 ) / 1000,
                     -- Closed recipes allocate exactly these maxima regardless of

@@ -1091,9 +1091,7 @@ return m
             "NUPP2813",
         },
         body = [=[
-`@derive` adds `Debug`, `Default`, `From`, `JSON`, or an exported `@comptime`
-provider. Providers map immutable `Info` to `Result<I>`, claim `I`, and forward
-methods to checked runtime helpers. They cannot generate declarations or syntax.
+`@derive` applies closed comptime recipes.
 ]=]
     ),
 

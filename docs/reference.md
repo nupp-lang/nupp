@@ -994,9 +994,7 @@ Reports: `NUPP2119`. `nupp explain <code>` says more.
 
 ### Declaration derives
 
-`@derive` adds `Debug`, `Default`, `From`, `JSON`, or an exported `@comptime`
-provider. Providers map immutable `Info` to `Result<I>`, claim `I`, and forward
-methods to checked runtime helpers. They cannot generate declarations or syntax.
+`@derive` applies closed comptime recipes.
 
 Reports: `NUPP2801`, `NUPP2802`, `NUPP2803`, `NUPP2804`, `NUPP2805`, `NUPP2806`,
 `NUPP2807`, `NUPP2808`, `NUPP2809`, `NUPP2810`, `NUPP2811`, `NUPP2812`,

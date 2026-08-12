@@ -496,7 +496,7 @@ function M.jsonBuildReportsColdAndWarmDeriveObservations()
    local dir = tempProject({
       ["nupp.lua"] = 'return {include = {"."}}\n',
       ["model.g.nupp"] = [[
-@derive(Debug, Default, JSON)
+@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.JSON)
 local record Model
     value: integer
 end
@@ -509,11 +509,14 @@ return Model.default()
    assert(first.ok and #first.derives == 3, "cold build reports all derives")
    local byProvider = {}
    for _, observation in ipairs(first.derives) do byProvider[observation.provider] = observation end
-   assert(byProvider.Debug and byProvider.Default and byProvider.JSON,
+   assert(byProvider["nupp.derive.Debug"]
+      and byProvider["nupp.derive.Default"]
+      and byProvider["nupp.derive.JSON"],
       "build observations name every provider")
-   assert(byProvider.JSON.generatedMembers == 3
-      and byProvider.JSON.canonicalBytes > 0
-      and byProvider.JSON.renderedBytes > 0,
+   local json = byProvider["nupp.derive.JSON"]
+   assert(json.generatedMembers == 3
+      and json.canonicalBytes > 0
+      and json.renderedBytes > 0,
       "build observations expose bounded generation facts")
    local coldBytes = read(dir .. "/model.lua")
 

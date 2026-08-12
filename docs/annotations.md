@@ -195,7 +195,7 @@ annotated directly.
 | `@override` | Implemented | None | function |
 | `@effects` | Implemented | Named effect members | function, c-function, local-binding |
 | `@relax` | Implemented | Observable guarantee names | function |
-| `@derive` | Implemented | Debug, Default, From, JSON | record |
+| `@derive` | Implemented | Qualified comptime providers | record |
 | `@default` | Implemented | One literal value | Field in a derived record |
 | `@json` | Implemented | JSON record or field options | record, field |
 | `@debug` | Implemented | skip or redact | Field in a derived record |
@@ -208,10 +208,12 @@ Variadic C calls and Lua callbacks passed to C report `NUPP2707` unless the
 relevant function is disabled with `jit.off`. `@comptime` marks a file-private
 helper that may only be called during compile-time evaluation.
 
-The derive annotations are compiler-owned names and cannot be redefined by a
-project. `@derive` adds checked members to its record without exposing source or
-AST macros. See [Declaration derives](derives.md) for the generated methods,
-default table, JSON policies, and failure rules.
+The derive configuration annotations are reserved semantic names and cannot be
+redefined by a project. They are visible through comptime provider `Info`.
+`@derive` accepts `nupp.derive.Debug`, `.Default`, `.From`, `.JSON`, or an
+exported comptime provider and adds checked members without exposing source or
+AST macros. See [Declaration derives](derives.md) for the recipe capabilities,
+generated methods, JSON policies, and failure rules.
 
 `@allow(LINT, ...)` suppresses the named [lints](lints.md) while its statement
 is checked, taking either a lint name or its code. Bare `@allow` and `@allow()`

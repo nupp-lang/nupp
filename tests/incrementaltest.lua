@@ -184,7 +184,7 @@ function M.countedPointerLogicalSignaturesCrossModuleSummaries()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
-function M.derivePlansMemoizeAndPublishBehaviorChanges()
+function M.deriveRecipesMemoizeAndPublishBehaviorChanges()
    local dir = os.tmpname()
    os.remove(dir)
    os.execute("mkdir -p '" .. dir .. "'")
@@ -197,7 +197,7 @@ function M.derivePlansMemoizeAndPublishBehaviorChanges()
    end
    local dep = table.concat({
       "local dep = {}",
-      "@derive(Debug, Default)",
+      "@derive(nupp.derive.Debug, nupp.derive.Default)",
       "record dep.Config",
       "   entries: {[string]: string}",
       "end",
@@ -216,7 +216,7 @@ function M.derivePlansMemoizeAndPublishBehaviorChanges()
    local inc = incremental.new(dir, {cache = false})
    local cold = inc.checkFile(mainPath)
    assertEq(#cold.diags, 0, "derived dependency checks cold")
-   assertEq(inc.deriveStats().executions, 1, "one cold derive plan query")
+   assertEq(inc.deriveStats().executions, 1, "one cold derive recipe query")
    local coldChecks = inc.q.stats.checkModule
    local coldFingerprint = inc.checkFile(depPath).exports.deriveInterfaceFingerprint
 
@@ -224,8 +224,8 @@ function M.derivePlansMemoizeAndPublishBehaviorChanges()
    assertEq(#inc.checkFile(mainPath).diags, 0, "body edit stays clean")
    local warm = inc.deriveStats()
    assertEq(warm.executions, 1,
-      "a body-only edit reuses the canonical plan query")
-   assert(warm.cacheHits >= 1, "the warm plan records a cache hit")
+      "a body-only edit reuses the canonical recipe query")
+   assert(warm.cacheHits >= 1, "the warm recipe records a cache hit")
    assertEq(inc.q.stats.checkModule, coldChecks + 1,
       "unchanged derive interface cuts off its consumer")
 
@@ -492,7 +492,13 @@ function M.reflectionDependsOnlyOnTheExportedTypeItReads()
    }, "\n"))
 
    local inc = incremental.new(dir, {cache = false})
-   assertEq(#inc.checkFile(mainPath).diags, 0, "reflected type checks")
+   local initial = inc.checkFile(mainPath)
+   local initialCodes = {}
+   for _, diagnostic in ipairs(initial.diags) do
+      initialCodes[#initialCodes + 1] = diagnostic.code .. ": " .. diagnostic.msg
+   end
+   assertEq(#initial.diags, 0,
+      "reflected type checks" .. (#initialCodes > 0 and "\n" .. table.concat(initialCodes, "\n") or ""))
    local coldChecks = inc.q.stats.checkModule
 
    inc.changeDocument(reflectedPath,

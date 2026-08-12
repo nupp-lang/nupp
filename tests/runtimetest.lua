@@ -167,7 +167,7 @@ function M.cliRunLoadsCrossModuleDeriveDependencies()
       ["nupp.lua"] = "return { include = { 'src' } }\n",
       ["main.nupp"] = [[
 local models = require("runtime_derive_models")
-@derive(Debug, Default, JSON)
+@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.JSON)
 local record Outer inner: models.Inner end
 local value = Outer.default()
 print(value:debug())
@@ -175,7 +175,7 @@ print(value:toJSON())
 ]],
       ["src/runtime_derive_models.nupp"] = [[
 local models = {}
-@derive(Debug, Default, JSON)
+@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.JSON)
 record models.Inner value: integer end
 return models
 ]],

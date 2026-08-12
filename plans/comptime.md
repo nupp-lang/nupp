@@ -127,7 +127,7 @@ fingerprints, and determinism guarantees this plan builds.
 The shape worth reserving room for:
 
 ```nupp
-@derive(Debug, Default, JSON)
+@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.JSON)
 local record User
     @json(name = "user_id")
     id: integer

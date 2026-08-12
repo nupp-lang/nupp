@@ -56,7 +56,8 @@ record extract.Member
     isType: boolean?
     members: {Member}?
 
-    --- What it was annotated with, as written: `@drop`, `@owned`, `@derive(JSON)`.
+    --- What it was annotated with, as written: `@drop`, `@owned`,
+    --- `@derive(nupp.derive.JSON)`.
     annotations: {string}?
 end
 
@@ -93,12 +94,17 @@ type extract.Module = {
 
 --- What a caller wants included beyond the public surface a module hands out.
 ---
---- `shapesAsModules` is for a file whose declarations are globals rather than a module's
---- exports: every shape-typed global comes back as a module of its own name, holding the
+--- `shapesAsModules` is for a file whose declarations are globals rather than a
+--- module's
+--- exports: every shape-typed global comes back as a module of its own name, holding
+--- the
 --- shape's fields, and the file's remaining declarations stay items of the file itself.
---- That is `string`, `table` and the rest of the LuaJIT standard library, which a reader
---- meets as `string.format` and never as a member of the file that declares it. A global
---- carrying `@namespace` is left out entirely under this option: it names modules of its
+--- That is `string`, `table` and the rest of the LuaJIT standard library, which a
+--- reader
+--- meets as `string.format` and never as a member of the file that declares it. A
+--- global
+--- carrying `@namespace` is left out entirely under this option: it names modules of
+--- its
 --- own, which an ordinary run documents already.
 type extract.Options = {
     includeAll: boolean?,
@@ -161,7 +167,8 @@ end
 
 -- A module whose name has an `internal` segment is private the same way a file below an
 -- `internal/` directory is. The rule is on the name rather than on the path so that a
--- namespace an `@namespace` declaration implies, which has no file behind it, answers it
+-- namespace an `@namespace` declaration implies, which has no file behind it, answers
+-- it
 -- too.
 local function internalModuleName(name: string?): boolean
     return ("." .. tostring(name or "") .. "."):find(".internal.", 1, true) ~= nil
@@ -169,7 +176,8 @@ end
 
 -- The entries of a record, interface, or struct that documentation leaves out: a name
 -- starting with `_`, and anything tagged `@internal`. A metamethod is exempt from the
--- name rule rather than an exception to it — a metamethod is named for the Lua operation
+-- name rule rather than an exception to it — a metamethod is named for the Lua
+-- operation
 -- it implements, so `__index` says which operator this is and never says private.
 local function hiddenEntry(entry, includePrivate)
     if includePrivate then
@@ -223,7 +231,8 @@ local function structureSignature(node, includePrivate)
     local parts: {string} = {}
     local dropped = hiddenNodes(node, includePrivate)
     -- Leading trivia belongs to whatever the declaration follows rather than to the
-    -- declaration, so a signature starts at its own first token. A file's header comment
+    -- declaration, so a signature starts at its own first token. A file's header
+    -- comment
     -- is the case that shows: it sits on the first token of the first statement, and a
     -- structure declared there would otherwise carry the whole header into its code
     -- block, where the page has already rendered it as the module's prose.
@@ -279,7 +288,8 @@ local function structureSignature(node, includePrivate)
 end
 
 -- One annotation as it was written. Built from the name and its arguments rather than
--- from the node's text, because a node carries its leading trivia and that trivia is the
+-- from the node's text, because a node carries its leading trivia and that trivia is
+-- the
 -- `---` run the annotation was written under.
 local function annotationText(node): string?
     local name = node and node.name and node.name.text
@@ -298,6 +308,7 @@ local function annotationText(node): string?
                 end
             end
         end
+
         walk(arg)
         args[#args + 1] = trim(table.concat(parts))
     end
@@ -310,7 +321,8 @@ end
 
 -- What a record entry or shape field was annotated with. `@drop` and `@owned` say who
 -- owes the cleanup, which is the one thing about a resource a reader cannot infer from
--- the signature, so documentation that drops them describes a different API than the one
+-- the signature, so documentation that drops them describes a different API than the
+-- one
 -- the checker enforces.
 local function annotationsOf(entry): {string}?
     local applied = entry and entry.annotations
@@ -427,10 +439,7 @@ local function functionDetails(stat, info)
     end
     local returns = stat.body and stat.body.rets or (stat.ret and {stat.ret} or {})
     for index, value in ipairs(returns or {}) do
-        details.returns[#details.returns + 1] = {
-            type = documentedResultType(value),
-            text = info.returns[index] or "",
-        }
+        details.returns[#details.returns + 1] = {type = documentedResultType(value), text = info.returns[index] or "",}
     end
 
     return details
@@ -504,7 +513,8 @@ local function fieldItem(field, childModuleName, includePrivate)
 end
 
 -- A named type this file also declares, for a field spelled by reference rather than
--- inline — `math: nupp.MathLibrary` beside `record nupp.MathLibrary ... end`. Documenting
+-- inline — `math: nupp.MathLibrary` beside `record nupp.MathLibrary ... end`.
+-- Documenting
 -- never resolves a type the way the checker does, so the only reference this can follow
 -- is one this same file answers itself.
 --
@@ -915,11 +925,13 @@ declarationItem = function(stat, moduleName, includeAll, declarationFile, includ
 end
 
 -- A method is written twice over: the record declares `send: function(Worker, any)` and
--- the implementation follows it as `function Worker:send(value)`. Both spell one method,
+-- the implementation follows it as `function Worker:send(value)`. Both spell one
+-- method,
 -- and a module's function listing is the functions a reader calls through the module,
 -- not the ones reached through a type it happens to declare. Folding the implementation
 -- into that type puts it where the reader looks for it and lets it supply what the
--- declaration left out. A method whose type this module does not document has nowhere to
+-- declaration left out. A method whose type this module does not document has nowhere
+-- to
 -- fold into and stays a listed function rather than disappearing.
 local function memberNamed(item: extract.Item, name: string): extract.Member?
     for _, member in ipairs(item.members) do
@@ -1072,14 +1084,7 @@ function extract.extract(
                 end
             elseif shape and opts.shapesAsModules and shapePublic then
                 for _, module in ipairs(
-                    globalModules(
-                        shapeName,
-                        shape,
-                        info.text,
-                        path,
-                        parsed.root.blocks,
-                        opts.includePrivate
-                    )
+                    globalModules(shapeName, shape, info.text, path, parsed.root.blocks, opts.includePrivate)
                 ) do
                     extraModules[#extraModules + 1] = module
                 end
@@ -1098,7 +1103,8 @@ function extract.extract(
 end
 
 -- Function-typed members document like the functions they are, with their own arguments
--- and results, and a nested type documents like a declaration in its own right, with its
+-- and results, and a nested type documents like a declaration in its own right, with
+-- its
 -- own members, so both are listed apart from the data fields rather than flattened into
 -- one table that has nowhere to put either.
 local function splitMembers(members: {extract.Member}?): {extract.Member}, {extract.Member}, {extract.Member}

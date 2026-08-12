@@ -661,7 +661,7 @@ __nuppDecodeValue=function(value,spec,entry,path)
 local kind=spec and spec.kind;if kind=="optional"then if value==entry.decoder.null then return true,nil,nil end;return __nuppDecodeValue(value,spec.value,entry,path)elseif value==entry.decoder.null then return false,nil,path..": null is not allowed"elseif kind=="union"then if type(value)~="table"then return false,nil,path..": expected discriminated object"end;local tag=rawget(value,spec.jsonTag);local selected=spec.choices[tag];if not selected then return false,nil,path.."."..spec.jsonTag..": unknown discriminant"end;return __nuppDecodeValue(value,selected,entry,path)elseif kind=="record"then local nested=__nuppDeriveTypes[spec.typeKey];if not nested then return false,nil,path..": derived JSON dependency is not loaded"end;return __nuppDecodeObject(value,nested,path)elseif kind=="string"then return type(value)=="string",value,type(value)=="string"and nil or path..": expected string"elseif kind=="boolean"then return type(value)=="boolean",value,type(value)=="boolean"and nil or path..": expected boolean"elseif kind=="literal"then return value==spec.value,value,value==spec.value and nil or path..": literal value does not match"elseif kind=="number"or kind=="float"or kind=="integer"then if type(value)~="number"or not __nuppFinite(value)then return false,nil,path..": expected finite number"end;if kind=="integer"and(value%1~=0 or spec.minimum and value<spec.minimum or spec.maximum and value>spec.maximum)then return false,nil,path..": expected integer in range"end;return true,value,nil end
 if type(value)~="table"then return false,nil,path..": expected table"end;if kind=="array"then local out={};local count=#value;for key in pairs(value)do if type(key)~="number"or key%1~=0 or key<1 or key>count then return false,nil,path..": expected dense array"end end;for i=1,count do local ok,result,err=__nuppDecodeValue(value[i],spec.value,entry,path.."["..i.."]");if not ok then return false,nil,err end;out[i]=result end;return true,out,nil elseif kind=="tuple"then if#value~=#spec.items then return false,nil,path..": tuple length does not match"end;local out={};for i,item in ipairs(spec.items)do local ok,result,err=__nuppDecodeValue(value[i],item,entry,path.."["..i.."]");if not ok then return false,nil,err end;out[i]=result end;return true,out,nil elseif kind=="map"then local out={};for key,item in pairs(value)do if type(key)~="string"then return false,nil,path..": expected string map key"end;local ok,result,err=__nuppDecodeValue(item,spec.value,entry,path.."."..key);if not ok then return false,nil,err end;out[key]=result end;return true,out,nil elseif kind=="shape"then local fake={schema={fields=spec.fields,unknown=spec.unknown or"reject"},mt=nil,decoder=entry.decoder};local ok,result,err=__nuppDecodeObject(value,fake,path);if ok then setmetatable(result,nil)end;return ok,result,err end;return false,nil,path..": unsupported JSON value"end
 function __nuppDerive.register(key,mt,schema)
-local entry={key=key,mt=mt,schema=schema};rawset(mt,"__nuppDeriveKey",key);if schema.providers.JSON then local decoder=__nuppData.newJSON();decoder.decodeArrayWithArrayMt(false);decoder.decodeMaxDepth(128);decoder.decodeInvalidNumbers(false);entry.decoder=decoder;local codec={fingerprint="derive-json-v1|emit=1|decode=cjson|arraymt=false|maxdepth=128|invalid=false|schema="..schema.fingerprint};function codec:encode(value)local out={};for _,field in ipairs(schema.fields)do if not field.omit then local item=rawget(value,field.name);local empty=item==nil or item==""or item==false or type(item)=="table"and next(item)==nil;if item~=nil and not(field.omitEmpty and empty)then out[field.jsonName or field.name]=item end end end;return out end;function codec:decode(value)local ok,result,err=__nuppDecodeObject(value,entry,"$");if ok then return result,nil end;return nil,err end;entry.codec=codec end;__nuppDeriveTypes[key]=entry;return entry end
+local entry={key=key,mt=mt,schema=schema};rawset(mt,"__nuppDeriveKey",key);if schema.operations and schema.operations["json.v1"]then local decoder=__nuppData.newJSON();decoder.decodeArrayWithArrayMt(false);decoder.decodeMaxDepth(128);decoder.decodeInvalidNumbers(false);entry.decoder=decoder;local codec={fingerprint="derive-json-v1|emit=1|decode=cjson|arraymt=false|maxdepth=128|invalid=false|schema="..schema.fingerprint};function codec:encode(value)local out={};for _,field in ipairs(schema.fields)do if not field.omit then local item=rawget(value,field.name);local empty=item==nil or item==""or item==false or type(item)=="table"and next(item)==nil;if item~=nil and not(field.omitEmpty and empty)then out[field.jsonName or field.name]=item end end end;return out end;function codec:decode(value)local ok,result,err=__nuppDecodeObject(value,entry,"$");if ok then return result,nil end;return nil,err end;entry.codec=codec end;__nuppDeriveTypes[key]=entry;return entry end
 function __nuppDerive.toJSON(value,entry)local buf=__nuppBufferNew();__nuppWriteObject(value,entry.schema.fields,entry.schema.unknown,buf,{active={},depth=0},"$");return buf:tostring()end
 function __nuppDerive.fromJSON(text,entry)local ok,value=pcall(entry.decoder.decodeJSON,text);if not ok then return nil,tostring(value)end;local valid,result,err=__nuppDecodeObject(value,entry,"$");if not valid then return nil,err end;return result,nil end
 ]=]
@@ -685,71 +685,83 @@ local NATIVE_BYTES_HELPER = "local function bytes(value,optional)if value==nil t
     .. "local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));"
     .. "C.nuppBytesDestroy(value);return out end;"
 local NATIVE_CDEFS = {
-    ["native.path"] = "typedef struct{const uint8_t*data;size_t length;}NuppStringView;"
-        .. "NuppBytes*nuppPathJoin(const NuppStringView*,size_t);"
-        .. "NuppBytes*nuppPathNormalize(const uint8_t*,size_t);"
-        .. "NuppBytes*nuppPathAbsolute(const uint8_t*,size_t);"
-        .. "NuppBytes*nuppPathCanonicalize(const uint8_t*,size_t);"
-        .. "NuppBytes*nuppPathRelative(const uint8_t*,size_t,const uint8_t*,size_t);"
-        .. "NuppBytes*nuppPathPart(const uint8_t*,size_t,uint32_t);"
-        .. "NuppBytes*nuppPathWith(const uint8_t*,size_t,const uint8_t*,size_t,bool);"
-        .. "bool nuppPathIsAbsolute(const uint8_t*,size_t);",
-    ["native.uri"] = "typedef struct NuppUri NuppUri;"
-        .. "NuppUri*nuppUriParse(const uint8_t*,size_t);"
-        .. "const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);"
-        .. "bool nuppUriPort(const NuppUri*,uint16_t*);"
-        .. "NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);"
-        .. "NuppUri*nuppUriWithPort(const NuppUri*,int32_t);"
-        .. "NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);"
-        .. "NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);"
-        .. "NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);"
-        .. "void nuppUriDestroy(NuppUri*);",
+    [
+        "native.path"
+    ] = "typedef struct{const uint8_t*data;size_t length;}NuppStringView;"
+    .. "NuppBytes*nuppPathJoin(const NuppStringView*,size_t);"
+    .. "NuppBytes*nuppPathNormalize(const uint8_t*,size_t);"
+    .. "NuppBytes*nuppPathAbsolute(const uint8_t*,size_t);"
+    .. "NuppBytes*nuppPathCanonicalize(const uint8_t*,size_t);"
+    .. "NuppBytes*nuppPathRelative(const uint8_t*,size_t,const uint8_t*,size_t);"
+    .. "NuppBytes*nuppPathPart(const uint8_t*,size_t,uint32_t);"
+    .. "NuppBytes*nuppPathWith(const uint8_t*,size_t,const uint8_t*,size_t,bool);"
+    .. "bool nuppPathIsAbsolute(const uint8_t*,size_t);",
+    [
+        "native.uri"
+    ] = "typedef struct NuppUri NuppUri;"
+    .. "NuppUri*nuppUriParse(const uint8_t*,size_t);"
+    .. "const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);"
+    .. "bool nuppUriPort(const NuppUri*,uint16_t*);"
+    .. "NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);"
+    .. "NuppUri*nuppUriWithPort(const NuppUri*,int32_t);"
+    .. "NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);"
+    .. "NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);"
+    .. "NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);"
+    .. "void nuppUriDestroy(NuppUri*);",
     ["native.uuid"] = "bool nuppUuid4(char*);bool nuppUuid7(char*);",
     ["native.sha256"] = "bool nuppSha256(const uint8_t*,size_t,char*);",
-    ["native.files"] = "typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;"
-        .. "bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);"
-        .. "NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);"
-        .. "bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);"
-        .. "bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);"
-        .. "bool nuppFilesCreateDirectory(const uint8_t*,size_t);"
-        .. "bool nuppFilesRemove(const uint8_t*,size_t,bool);"
-        .. "bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);"
-        .. "NuppBytes*nuppFilesList(const uint8_t*,size_t);"
-        .. "NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);"
-        .. "NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);"
-        .. "typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);"
-        .. "int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);"
-        .. "int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);"
-        .. "int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);"
-        .. "bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);"
-        .. "typedef struct NuppRequest NuppRequest;"
-        .. "NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);"
-        .. "NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);"
-        .. "NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);"
-        .. "int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);"
-        .. "size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);"
-        .. "bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);"
-        .. "size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);",
-    ["native.process"] = "typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;"
-        .. "typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);"
-        .. "bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);"
-        .. "bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);"
-        .. "bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);"
-        .. "bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);"
-        .. "bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);"
-        .. "NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);"
-        .. "intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);"
-        .. "intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);"
-        .. "uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);"
-        .. "int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);"
-        .. "bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);"
-        .. "void nuppProcessDestroy(NuppChild*);"
-        .. "int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);"
-        .. "size_t nuppProcessUncollectedTotal(void);",
+    [
+        "native.files"
+    ] = "typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;"
+    .. "bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);"
+    .. "NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);"
+    .. "bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);"
+    .. "bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);"
+    .. "bool nuppFilesCreateDirectory(const uint8_t*,size_t);"
+    .. "bool nuppFilesRemove(const uint8_t*,size_t,bool);"
+    .. "bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);"
+    .. "NuppBytes*nuppFilesList(const uint8_t*,size_t);"
+    .. "NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);"
+    .. "NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);"
+    .. "typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);"
+    .. "int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);"
+    .. "int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);"
+    .. "int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);"
+    .. "bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);"
+    .. "typedef struct NuppRequest NuppRequest;"
+    .. "NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);"
+    .. "NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);"
+    .. "NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);"
+    .. "int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);"
+    .. "size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);"
+    .. "bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);"
+    .. "size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);",
+    [
+        "native.process"
+    ] = "typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;"
+    .. "typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);"
+    .. "bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);"
+    .. "bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);"
+    .. "bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);"
+    .. "bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);"
+    .. "bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);"
+    .. "NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);"
+    .. "intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);"
+    .. "intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);"
+    .. "uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);"
+    .. "int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);"
+    .. "bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);"
+    .. "void nuppProcessDestroy(NuppChild*);"
+    .. "int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);"
+    .. "size_t nuppProcessUncollectedTotal(void);",
 }
 local NATIVE_CDEF_ORDER = {
-    "native.path", "native.uri", "native.uuid", "native.sha256",
-    "native.files", "native.process",
+    "native.path",
+    "native.uri",
+    "native.uuid",
+    "native.sha256",
+    "native.files",
+    "native.process",
 }
 
 local function nativeRuntime(effects: {[string]: any}): string
@@ -1057,8 +1069,10 @@ return backend end
 -- call through one reaches an empty function rather than a test.
 --
 -- `os.time` is NYI in LuaJIT and stitches the trace it stands on, so the second is read
--- through the FFI. `os.time` stays only to validate the symbol: some Windows CRTs inline
--- `time` to `_time64` or give it a 32-bit `time_t`, and a resolved-but-wrong-width symbol
+-- through the FFI. `os.time` stays only to validate the symbol: some Windows CRTs
+-- inline
+-- `time` to `_time64` or give it a 32-bit `time_t`, and a resolved-but-wrong-width
+-- symbol
 -- would answer nonsense rather than fail to resolve.
 local LOG = compact(
     [=[
@@ -1204,8 +1218,11 @@ function stdlib.bootstrap(effects: {[string]: any}?): string
     end
     local hasNative = effects[
         "native.path"
-    ] or effects["native.uri"] or effects["native.uuid"] or effects["native.sha256"]
-        or effects["native.files"] or effects["native.process"] or effects["native.http"]
+    ] or effects[
+        "native.uri"
+    ] or effects[
+        "native.uuid"
+    ] or effects["native.sha256"] or effects["native.files"] or effects["native.process"] or effects["native.http"]
     if hasNative then
         out[#out + 1] = nativeRuntime(effects)
     end
@@ -1232,6 +1249,7 @@ function stdlib.bootstrap(effects: {[string]: any}?): string
     end
 
     local code = table.concat(out, " ")
+
     return code:sub(-1) == ";" and code or code .. ";"
 end
 

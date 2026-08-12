@@ -2,9 +2,8 @@
 
 ## Status and decision
 
-This is the proposed successor design to the D6 user-defined-provider
-experiment. D6 was right not to publish its one-operation JSON prototype as an
-ABI. This design supplies the missing semantic boundary: a user-defined derive
+This design is implemented. It replaces the rejected D6 one-operation
+prototype with a semantic boundary: a user-defined derive
 is an exported `@comptime` function which inspects one written declaration and
 returns a closed, versioned recipe. The compiler validates and applies that
 recipe. Complicated runtime behavior stays in ordinary exported Nupp functions;
@@ -22,11 +21,11 @@ or a full macro system may be designed later as separate, explicitly powerful
 recipes. Adding one does not widen existing providers or expose the compiler's
 private AST and CST to recipes which do not request it.
 
-No public provider ABI lands solely because this document exists. DR0 must
-first prove runtime forwarding on an external workload whose result the four
-built-ins cannot express. The design fixes the intended boundary so that the
-experiment tests a candidate architecture rather than inventing one around the
-fixture.
+The four compiler-shipped providers use the same sealed comptime evaluation,
+immutable `Info`, result envelope, validation, caching and member recipe
+lowering as package providers. Their internal recipe operations cover the
+special static and schema behavior that the narrower public forwarding menu
+does not expose.
 
 ## The invariant
 
@@ -101,9 +100,7 @@ emission.
 - Treating a provider worker as a security sandbox. Installed provider code has
   the user's authority even though every returned byte remains untrusted.
 
-## Proposed surface
-
-The exact names may change during DR0. Their roles and boundaries may not.
+## Surface
 
 ### Provider and consumer
 
@@ -207,10 +204,10 @@ or use another internal representation. Those choices are not observable.
 
 ### `@derive` arguments
 
-Existing built-in names remain accepted:
+Compiler-shipped providers are ordinary resolved provider symbols:
 
 ```nupp
-@derive(Debug, Default)
+@derive(nupp.derive.Debug, nupp.derive.Default)
 ```
 
 A user-defined argument is a resolved exported `@comptime` provider symbol:
@@ -288,12 +285,11 @@ the DR0 success case.
 
 ### Input descriptor
 
-`nupp.derive.Info` is a new compiler-only projection. It is not the existing
+`nupp.derive.Info` is the compiler-only projection. It is not the existing
 global `TypeInfo`: reflection schema 2 is a plain index graph whose field types
-are integer edges, and compiler-owned derives currently read mutable nominal
-state directly. DR1 must build this projection and should reuse reflection's
-canonical graph interning and the existing `nupp.types` handle transport, not
-claim that the projection already exists.
+are integer edges, while derives receive immutable semantic handles directly.
+The projection reuses reflection's canonical graph interning and the existing
+`nupp.types` handle transport.
 
 The new view contains only semantic information:
 
@@ -373,7 +369,7 @@ These are explanatory shapes, not runtime records and not permission for a
 provider to construct arbitrary tables. `nupp.derive` builders create opaque
 blueprints. Finalization rejects forged tags, unknown keys, foreign handles,
 wrong parents, duplicate methods, cycles and over-limit graphs before an
-internal derive plan exists.
+internal derive recipe exists.
 
 ### First recipe algebra
 
@@ -417,15 +413,13 @@ A provider may still deliberately pass the receiver when the helper's checked
 signature accepts it. The compiler does not grant private access the written
 program would not have.
 
-The v1 result may fill bodyless callable instance requirements of its one
-declared interface. It cannot replace a written member or override an interface
+The v2 result may fill bodyless callable instance or static requirements of its
+one declared interface. It cannot replace a written member or override an interface
 default. An interface requirement represented by a callable intersection is
 rejected as overloaded in v1: a name alone cannot select a stable overload slot.
-Associated types must be written or inherited because v1 does not generate
-them. Constructors, static factories, properties, setters and
-metamethods require later named recipe versions after their receiver and
-conformance rules are proven. The four built-ins remain compiler-owned and do
-not force all of their current operations into public v1.
+Associated types must be written or inherited because recipes do not generate
+them. Constructors, properties, setters and metamethods require later named
+recipe versions after their receiver and conformance rules are proven.
 
 ### Interface-owned signatures
 
@@ -524,7 +518,7 @@ nupp.derive.forward {
 
 Changing the helper body is an ordinary runtime-module rebuild and does not
 change the owner's public interface. Changing the helper signature, effects,
-ownership or exported identity invalidates the derive plan. If cross-module
+ownership or exported identity invalidates the derive recipe. If cross-module
 optimization later consumes helper bodies, its private optimization cache must
 also depend on the body fingerprint; that does not make the body part of the
 language-level provider ABI.
@@ -584,7 +578,7 @@ The provider uses the existing persistent comptime worker, cancellation path
 and resource accounting. The derive layer reuses the existing derive ceilings
 rather than creating a second unrelated budget: input fields consume
 `derive.MAX_FIELDS`, every blueprint and argument node consumes
-`derive.MAX_PLAN_NODES`, and generated members consume
+`derive.MAX_RECIPE_NODES`, and generated members consume
 `derive.MAX_GENERATED_MEMBERS`. The worker's existing step, depth, memory,
 result-byte and protocol-byte limits still apply. DR1 may add named sublimits
 beneath those ceilings for:
@@ -784,7 +778,7 @@ expression language.
   interning and `nupp.types` transport, but do not mutate or rename global
   `TypeInfo` schema 2.
 - Add `RuntimeHelper`, argument blueprints and canonical `forward.v1` to the
-  internal derive plan.
+  internal derive recipe.
 - Run a compiler-owned test provider through the same validation and lowering
   path, while exposing no public annotation surface.
 - Check exact helper signatures, interface requirements, ownership, effects,

@@ -383,8 +383,8 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             if def.generatedHelper then
                 value = value .. "\n\nForwards to `" .. def.generatedHelper .. "`."
             end
-            if def.generatedPlanFingerprint then
-                value = value .. "\n\nPlan fingerprint: `" .. def.generatedPlanFingerprint .. "`."
+            if def.generatedRecipeFingerprint then
+                value = value .. "\n\nRecipe fingerprint: `" .. def.generatedRecipeFingerprint .. "`."
             end
         end
         local automatic = def and def.automaticCleanup
@@ -498,7 +498,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
                 generatedBy = def and def.generatedBy or nil,
                 generatedOwner = def and def.generatedOwner or nil,
                 generatedNamespace = def and def.generatedNamespace or nil,
-                generatedPlanFingerprint = def and def.generatedPlanFingerprint or nil,
+                generatedRecipeFingerprint = def and def.generatedRecipeFingerprint or nil,
             }
         )
     end

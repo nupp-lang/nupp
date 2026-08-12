@@ -40,7 +40,7 @@ record compile.Settings
     --- Public materialization observations collected while checking this command.
     materializations: {any}?
 
-    --- Public derive plan observations collected for JSON build output.
+    --- Public derive recipe observations collected for JSON build output.
     derives: {any}?
 
     --- Coverage is a separate generated artifact. It is intentionally absent from

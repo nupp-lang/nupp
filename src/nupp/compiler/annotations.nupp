@@ -325,16 +325,29 @@ function annotations.bindBuiltinDeclarations(
     globalTypeDefs: {[string]: any}
 ): nil
     local schemas = {
-        default = "nupp.__DefaultAnnotation",
-        json = "nupp.__JSONAnnotation",
-        debug = "nupp.__DebugAnnotation",
+        default = "nupp.derive.DefaultOptions",
+        json = "nupp.derive.JSONOptions",
+        debug = "nupp.derive.DebugOptions",
         deprecated = "nupp.__DeprecatedAnnotation",
     }
+    local function resolve(path)
+        local segments = {}
+        for segment in path:gmatch("[^.]+") do
+            segments[#segments + 1] = segment
+        end
+        local schema = globalTypes and globalTypes[segments[1] .. "." .. (segments[2] or "")]
+        for index = 3, #segments do
+            schema = schema and schema.nestedTypes and schema.nestedTypes[segments[index]]
+        end
+
+        return schema
+    end
+
     for annotationName, typeName in pairs(schemas) do
         local definition = registry:get(annotationName)
-        local schema = globalTypes and globalTypes[typeName]
+        local schema = resolve(typeName)
         if definition and schema then
-            definition.declaration = globalTypeDefs and globalTypeDefs[typeName] or nil
+            definition.declaration = schema.definition or globalTypeDefs and globalTypeDefs[typeName] or nil
             for name, member in pairs(definition.members or {}) do
                 member.definition = schema.fieldDefs and schema.fieldDefs[name] or nil
             end

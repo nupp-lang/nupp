@@ -179,17 +179,20 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
             local arguments: {T.ComptimeArgument} = {}
             for position, argument in ipairs(t.comptimeArguments or {}) do
                 if argument.kind == "type" then
-                    arguments[position] = {
-                        kind = "type", value = substWith(argument.value, map, unmapped),
-                    } as T.ComptimeTypeArgument
+                    arguments[
+                        position
+                    ] = {kind = "type", value = substWith(argument.value, map, unmapped),} as T.ComptimeTypeArgument
                 elseif argument.kind == "typepack" then
-                    arguments[position] = {
-                        kind = "typepack", value = substPackWith(argument.value, map, unmapped),
+                    arguments[
+                        position
+                    ] = {
+                        kind = "typepack",
+                        value = substPackWith(argument.value, map, unmapped),
                     } as T.ComptimePackArgument
                 else
-                    arguments[position] = {
-                        kind = "const", value = substConst(argument.value, map),
-                    } as T.ComptimeConstArgument
+                    arguments[
+                        position
+                    ] = {kind = "const", value = substConst(argument.value, map),} as T.ComptimeConstArgument
                 end
             end
             return T.comptimeCall(
@@ -609,13 +612,7 @@ local type ReductionBudget = {
 
 --- A fresh evaluation state.
 newBudget = function(control: generics.ReductionControl?): ReductionBudget
-    return {
-        visits = 0,
-        control = control,
-        active = {},
-        path = {},
-        gradual = {},
-    }
+    return {visits = 0, control = control, active = {}, path = {}, gradual = {},}
 end
 
 --- Whether an operand still blocks the operation over it.
@@ -929,11 +926,15 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
     elseif t.tag == "typeHandle" then
         local bound
         bound, err = normalize(t.bound, memo, budget)
-        if not err then out = T.typeHandle(bound) end
+        if not err then
+            out = T.typeHandle(bound)
+        end
     elseif t.tag == "packResult" then
         local pack
         pack, err = normalizeReductionPack(t.pack, memo, budget)
-        if not err then out = T.packResult(pack) end
+        if not err then
+            out = T.packResult(pack)
+        end
     elseif t.tag == "neutral" then
         if t.op == "comptimeCall" then
             local arguments, open = {}, false
@@ -941,13 +942,17 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
                 if argument.kind == "type" then
                     local reduced
                     reduced, err = normalize(argument.value, memo, budget)
-                    if err then break end
+                    if err then
+                        break
+                    end
                     arguments[position] = {kind = "type", value = reduced}
                     open = open or T.hasTypevar(reduced) or T.hasProjection(reduced) or reduced.tag == "neutral"
                 elseif argument.kind == "typepack" then
                     local reduced
                     reduced, err = normalizeReductionPack(argument.value, memo, budget)
-                    if err then break end
+                    if err then
+                        break
+                    end
                     arguments[position] = {kind = "typepack", value = reduced}
                     local wrapped = T.packResult(reduced)
                     open = open or T.hasTypevar(wrapped) or T.hasProjection(wrapped)
@@ -957,8 +962,12 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
                 else
                     local reduced
                     reduced, err = consteval.reduce(argument.value)
-                    if err then break end
-                    arguments[position] = {kind = "value", value = reduced.tag == "constLiteral" and reduced.value or reduced}
+                    if err then
+                        break
+                    end
+                    arguments[
+                        position
+                    ] = {kind = "value", value = reduced.tag == "constLiteral" and reduced.value or reduced}
                     open = open or reduced.tag ~= "constLiteral"
                 end
             end
@@ -1349,11 +1358,7 @@ end
 --- Instantiates a generic function as one monomorphic callable. This is used when a
 --- universally generic function value is assigned to a concrete function type; the
 --- target signature supplies the arguments that an ordinary call would have supplied.
-function generics.instantiateFunction(
-    t: T.Func,
-    map: Bindings,
-    control: generics.ReductionControl?
-): T.Func, string?
+function generics.instantiateFunction(t: T.Func, map: Bindings, control: generics.ReductionControl?): T.Func, string?
     local evaluated = generics.evaluate(substWith(t, map, MATERIALIZE), nil, control)
     local concrete = evaluated.type
     if evaluated.error then
@@ -1528,9 +1533,9 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     inst.writeFieldDefs = n.writeFieldDefs
     inst.staticFieldDefs = n.staticFieldDefs
     inst.staticWriteFieldDefs = n.staticWriteFieldDefs
-    inst.deriveProviders = n.deriveProviders
+    inst.deriveOperations = n.deriveOperations
     inst.deriveKey = n.deriveKey
-    inst.derivePlan = n.derivePlan
+    inst.deriveRecipe = n.deriveRecipe
     inst.derivedDefinitions = n.derivedDefinitions
     inst.derivedStaticDefinitions = n.derivedStaticDefinitions
     inst.derivedContracts = n.derivedContracts

@@ -1,11 +1,9 @@
 # Derives
 
-> **Status: implemented through D4, with D5 hardening ongoing.** The compiler-
-> owned implementation covers `Debug`, `Default`, single-field `From`, and
-> `JSON` on records, including static-factory projection and typed helper
-> annotations. Associated types were not a prerequisite. User-defined derive
-> providers remain deferred until the four built-ins prove the constrained
-> output model in broader acceptance workloads.
+> **Status: superseded and implemented by
+> [comptime-derive-recipes.md](comptime-derive-recipes.md).** `Debug`, `Default`,
+> single-field `From`, and `JSON` are compiler-shipped comptime providers using
+> the same sealed evaluation and closed result boundary as package providers.
 
 ## Decision
 
@@ -13,7 +11,7 @@ Nupp will have a declaration-augmentation phase reached by the built-in
 `@derive` annotation:
 
 ```nupp
-@derive(Debug, Default, JSON)
+@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.JSON)
 local record User
     @json(name = "user_id")
     id: integer
@@ -29,19 +27,19 @@ members and interface contracts to that declaration. It does not receive the
 CST, return source text, add imports, or introduce a separately nameable type
 or module.
 
-The phase is separate from comptime:
+The declaration mutation phase consumes comptime results:
 
 ```text
 source declaration
     -> ordinary name, field-type and annotation resolution
-    -> derive planning over immutable semantic TypeInfo
+    -> sealed comptime providers over immutable semantic Info
+    -> versioned closed derive recipes
     -> generated-member validation and interface conformance
     -> ordinary module interface and Lua lowering
 ```
 
-Comptime may be used inside a compiler-owned derive to calculate a blueprint,
-and closed materialization may turn that blueprint into one runtime value.
-The derive phase is still the only phase allowed to attach the resulting value
+Comptime calculates a closed recipe, but the derive phase is still the only
+phase allowed to attach the resulting value
 or forwarding member to a declaration. Widening `comptime` to return source or
 declarations remains excluded by [comptime.md](comptime.md), and widening a
 materializer to emit declarations remains excluded by
@@ -77,9 +75,8 @@ each generated member by the derive that owns it.
 - Point every failure at `@derive`, a contributing field, or one of its helper
   annotations rather than at synthetic source.
 - Prove the phase with `Debug`, `Default`, single-field `From`, and `JSON`.
-- Evaluate a restricted, versioned semantic provider interface after the
-  built-ins prove the result model, and expose it only if an external workload
-  justifies a stable contract.
+- Keep compiler-shipped and package providers on one restricted, versioned
+  semantic result contract.
 
 ## Non-goals
 
@@ -97,26 +94,25 @@ each generated member by the derive that owns it.
 
 ## Surface syntax
 
-`@derive` is a built-in annotation using the annotation registry's existing
-`arguments = "names"` policy. Bare derive names already parse and validate the
-same way as the names accepted by `@relax`; no grammar or annotation-argument
-special case is required:
+`@derive` resolves provider symbols; compiler-shipped providers live on
+`nupp.derive`:
 
 ```nupp
-@derive(Debug, Default, From, JSON)
+@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.From, nupp.derive.JSON)
 local record UserId
     @default(0)
     value: integer
 end
 ```
 
-The first version recognizes exactly `Debug`, `Default`, `From`, and `JSON`.
-Names are case-sensitive. A name may occur only once across all `@derive`
+The compiler ships exactly `nupp.derive.Debug`, `nupp.derive.Default`,
+`nupp.derive.From`, and `nupp.derive.JSON`. A provider identity may occur only
+once across all `@derive`
 applications attached to a declaration:
 
 ```nupp
-@derive(Debug)
-@derive(JSON)
+@derive(nupp.derive.Debug)
+@derive(nupp.derive.JSON)
 local record User
     id: integer
 end
@@ -127,8 +123,7 @@ display and diagnostics, but it does not affect semantics. Providers see the
 same written declaration for their own target and cannot consume members
 another derive generated there. Cross-declaration capabilities are resolved
 through the immutable request index described below. Dependencies between
-compiler-owned derives are declared in the compiler, not obtained from source
-order.
+provider dependencies are declared by their semantic recipes, not source order.
 
 `@derive` initially targets records. Applying it to an alias, interface,
 function, field, or statement is an error. Struct support is staged after the
@@ -301,7 +296,7 @@ order and `@derive` argument order cannot change an answer.
 For `Default`, a written nested route must contain exactly one callable static
 entry with signature `function(): FieldType`; a field named `default` with a
 different return, parameters, or an ambiguous zero-argument overload does not
-count. `@derive(Default)` on `FieldType` is the other route. Direct required
+count. `@derive(nupp.derive.Default)` on `FieldType` is the other route. Direct required
 cycles are illegal because no construction reaches a base case; an optional,
 explicit-literal, or other parameter-independent default breaks the edge.
 If the requested `Default` plan for `FieldType` fails, the dependent field
@@ -373,7 +368,7 @@ interface nupp.Debug
 end
 ```
 
-`@derive(Debug)` adds `nupp.Debug` to the declaration's contracts and adds the
+`@derive(nupp.derive.Debug)` adds `nupp.Debug` to the declaration's contracts and adds the
 method:
 
 ```nupp
@@ -461,7 +456,7 @@ interface nupp.data.JSONEncodable
 end
 ```
 
-`@derive(JSON)` adds this contract just as `@derive(Debug)` adds `nupp.Debug`.
+`@derive(nupp.derive.JSON)` adds this contract just as `@derive(nupp.derive.Debug)` adds `nupp.Debug`.
 Generic code over values uses `T is nupp.data.JSONEncodable`; generic code over
 declaration tables uses the projected `fieldCodec()` static factory after D1.
 The two paths serve different receivers and do not require a second codec type.
@@ -476,7 +471,7 @@ record nupp.fieldcodec.KeyedCodec<T>
 end
 ```
 
-`@derive(JSON)` materializes one private `KeyedCodec<User>` plus one private
+`@derive(nupp.derive.JSON)` materializes one private `KeyedCodec<User>` plus one private
 direct emitter and adds one instance and two static functions:
 
 ```nupp
@@ -503,7 +498,7 @@ third public JSON-ish codec type.
 ## `Debug`
 
 ```nupp
-@derive(Debug)
+@derive(nupp.derive.Debug)
 local record User
     id: integer
     name: string
@@ -535,7 +530,7 @@ through a field is already bounded by `nupp.Debug` or reaches the dynamic
 `any` fallback. A derive never adds a hidden generic bound:
 
 ```nupp
-@derive(Debug)
+@derive(nupp.derive.Debug)
 local record Box<T is nupp.Debug>
     value: T
 end
@@ -550,7 +545,7 @@ formatter. Their reserved form is `@debug(skip = true)` or
 ## `Default`
 
 ```nupp
-@derive(Default)
+@derive(nupp.derive.Default)
 local record Config
     @default("localhost")
     host: string
@@ -608,7 +603,7 @@ field capability and construction checks as written code.
 The first `From` derive is deliberately the newtype case:
 
 ```nupp
-@derive(From)
+@derive(nupp.derive.From)
 local record UserId
     value: integer
 end
@@ -641,7 +636,7 @@ for an implementor-specific `Error`, but no part of `From` depends on it.
 ## `JSON`
 
 ```nupp
-@derive(JSON)
+@derive(nupp.derive.JSON)
 @json(unknown = "reject")
 local record User
     @json(name = "user_id")
@@ -776,12 +771,12 @@ codec for every `Box<T>` instantiation. A later surface may derive a codec
 factory that accepts `nupp.fieldcodec.KeyedCodec<T>` explicitly; it will not
 smuggle runtime type arguments into ordinary generics.
 
-The compiler-owned JSON derive consumes the base `TypeInfo` and checked
+The compiler-shipped JSON provider consumes the immutable `Info` and checked
 `@json` annotations, asks the existing field-codec provider to finalize a
 canonical bidirectional blueprint, and lowers one
 `nupp.fieldcodec.KeyedCodec<User>` and one private JSON emitter through the
 closed materialization layer. This synthetic boundary is internal to
-`@derive(JSON)` and does not relax the ordinary rule that user-written opaque
+`@derive(nupp.derive.JSON)` and does not relax the ordinary rule that user-written opaque
 comptime results need an explicit materializable expected type. D4 extends the
 existing blueprint/provider family and runtime helpers; it does not register a
 sibling public JSON provider.
@@ -910,19 +905,19 @@ constructor derives add no helper when direct lowering suffices.
 ## Incremental queries and fingerprints
 
 This section describes the implemented D5b contract. Planning produces a
-canonical semantic envelope which is interned through the `planDerives` query
+canonical semantic envelope which is interned through the `materializeDerives` query
 by behavior fingerprint. Source provenance remains beside that envelope and
 does not participate in equality.
 
-Derive planning becomes a derived query:
+Derive materialization becomes a derived query:
 
 ```text
-planDerives(
+materializeDerives(
     provider ABI versions,
     base semantic type fingerprint,
     checked annotation fingerprint,
     target/runtime policy where relevant
-) -> canonical DerivePlan
+) -> canonical derive recipe
 ```
 
 The canonical hash input is an explicit projection of the plan root: it omits
@@ -1015,7 +1010,7 @@ NUPP2806: cannot derive JSON for Session
 
 ```text
 NUPP2802: Debug would generate member "debug", but User already declares it
-  help: remove @derive(Debug) or remove the written member
+  help: remove @derive(nupp.derive.Debug) or remove the written member
 ```
 
 Every code is added to `nupp explain`, the generated language reference, and
@@ -1029,7 +1024,7 @@ document symbols, whole derive/duplicate quick fixes and build observations
 are covered by D5a–D5c fixtures.
 
 - Completion and member inspection include generated signatures.
-- Hover labels a member `generated by @derive(Debug)` and summarizes the
+- Hover labels a member `generated by @derive(nupp.derive.Debug)` and summarizes the
   contributing fields or codec fingerprint.
 - Definition on a generated member navigates to its derive argument; related
   field links remain available in hover and diagnostics.
@@ -1129,13 +1124,13 @@ record its resolved identity and ABI in the module interface.
 - Split declaration checking into base, derive-merge and final-conformance
   stages without changing programs that use no derives.
 - Freeze a pre-merge projection of the landed `TypeInfo`/member view and add the
-  canonical `DerivePlan` envelope; do not add a second descriptor vocabulary.
+  canonical derive recipe envelope; do not add a second descriptor vocabulary.
 - Collect the module-wide request index and run an internal test provider that
   reports observations but generates no members. Public `@derive` remains
   reserved and reports NUPP2113 through this stage.
 - Add query counters, plan fingerprints and JSON build observations.
 
-Exit test: an unannotated compiler rebuild is byte-identical; derive planning
+Exit test: an unannotated compiler rebuild is byte-identical; derive materialization
 sees the landed ordered fields, annotations, static fields and associated-type
 metadata; built-in typed schemas drive validation, hover and definition;
 body-only edits do not recompute the plan; reserved applications and name
@@ -1264,7 +1259,7 @@ provider name.
 
 #### D5b: incremental query and published interface
 
-- Extract `planDerives` as a pure memoized query over provider and helper ABI
+- Extract `materializeDerives` as a pure memoized query over provider and helper ABI
   versions, the frozen written declaration, relevant checked annotations,
   reached semantic type dependencies and target/runtime policy. Diagnostic
   source locations travel beside the canonical result and do not participate

@@ -1,16 +1,17 @@
 local inspect = require("tests.fixtures.deriveinspect")
 
-@derive(inspect.derive)
+@derive(inspect.derive, nupp.derive.Debug)
 local record Credentials
     username: string
+    @debug(redact = true)
     password: string
 end
 
 local credentials = new Credentials(username = "michael", password = "secret")
-assert(credentials:inspect() == "{username=michael, password=secret}")
+assert(credentials:inspect() == "{username=michael, password=<redacted>}")
 assert(credentials:inspectKind() == "record")
-assert(credentials:prefixed("credentials=") == "credentials={username=michael, password=secret}")
-assert(credentials:decorated() == "[{username=michael, password=secret}]")
+assert(credentials:prefixed("credentials=") == "credentials={username=michael, password=<redacted>}")
+assert(credentials:decorated() == "[{username=michael, password=<redacted>}]")
 assert(credentials:firstField() == "username")
 
 @derive(inspect.derive)

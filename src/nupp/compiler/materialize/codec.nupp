@@ -1,5 +1,4 @@
--- Deterministic, bounded serialization for compiler-owned derive plans. The checker
--- hashes the canonical semantic envelope; the generator renders the same data as Lua.
+-- Deterministic, bounded serialization for materialized semantic recipes.
 
 local MAX_CANONICAL_BYTES = 1048576
 local MAX_OUTPUT_BYTES = 2097152
@@ -166,12 +165,12 @@ renderValue = function(value, opts, active): (string?, string?)
     return within(rendered, opts) and rendered or nil, within(rendered, opts) and nil or "limit"
 end
 
---- Lua expression for the closed data-only plan.
+--- Lua expression for the closed data-only recipe.
 local function render(value: any, opts: any?): string?, string?
     return renderValue(value, opts or {}, {})
 end
 
-local derivePlan = {
+local codec = {
     MAX_CANONICAL_BYTES = MAX_CANONICAL_BYTES,
     MAX_OUTPUT_BYTES = MAX_OUTPUT_BYTES,
     canonical = canonical,
@@ -179,4 +178,4 @@ local derivePlan = {
     render = render,
 }
 
-return derivePlan
+return codec

@@ -137,7 +137,7 @@ record incremental.Inc
     --- them from a stopwatch.
     headerStore: any
 
-    --- Derive planning executions, memo hits, equal cutoffs and module checks.
+    --- Derive recipe executions, memo hits, equal cutoffs and module checks.
     deriveStats: function(): any
 end
 
@@ -340,16 +340,16 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return self:get("projectModulePath", name) or envMod.findModulePath(env, name)
     end
 
-    -- Plans are immutable semantic envelopes keyed by their behavior fingerprint.
+    -- Recipes are immutable semantic envelopes keyed by their behavior fingerprint.
     -- The checker still supplies source provenance separately on each run; this query
     -- owns only the canonical result and therefore safely interns it across edits.
-    q:define("planDerives", function(_, fingerprint)
+    q:define("materializeDerives", function(_, fingerprint)
         return fingerprint
     end)
-    local function internDerivePlan(self, plan)
-        local executions = q.stats.planDerives or 0
-        q:get("planDerives", plan.fingerprint)
-        return plan, (q.stats.planDerives or 0) == executions
+    local function internDeriveRecipe(self, plan)
+        local executions = q.stats.materializeDerives or 0
+        q:get("materializeDerives", plan.fingerprint)
+        return plan, (q.stats.materializeDerives or 0) == executions
     end
 
     q:define("checkModule", function(self: any, path: any): incremental.CheckResult
@@ -381,7 +381,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             -- lazy store were attached to this short-lived proxy, `inc.persist()`
             -- would never see or save the results it accumulated.
             return envMod.typeFunctionStore(env)
-        end, internDerivePlan = internDerivePlan,}, {__index = env})
+        end, internDeriveRecipe = internDeriveRecipe,}, {__index = env})
         local external = envMod.isDependencyTypePath(env, path)
         local diags, moduleType, exports = check.check(result, path, qenv, {moduleName = envMod.moduleNameForPath(
             env,
@@ -638,9 +638,9 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
 
     function inc.deriveStats(): any
         return {
-            executions = q.stats.planDerives or 0,
-            cacheHits = q.hits.planDerives or 0,
-            equalCutoffs = q.cutoffs.planDerives or 0,
+            executions = q.stats.materializeDerives or 0,
+            cacheHits = q.hits.materializeDerives or 0,
+            equalCutoffs = q.cutoffs.materializeDerives or 0,
             downstreamChecks = q.stats.checkModule or 0,
         }
     end

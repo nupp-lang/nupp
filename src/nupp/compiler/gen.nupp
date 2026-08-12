@@ -193,14 +193,14 @@ function literal.quote(s)
     return '"' .. s .. '"'
 end
 
---- Renders the closed, data-only derive plan as one Lua expression. Keys are sorted so
---- equal semantic plans produce byte-identical output regardless of table iteration.
---- @raises when a compiler-owned plan contains a non-data value or a cycle
+--- Renders a closed, data-only derive recipe as one Lua expression. Keys are sorted so
+--- equal semantic recipes produce byte-identical output regardless of table iteration.
+--- @raises when a compiler-owned recipe contains a non-data value or a cycle
 function literal.derive(value: any): string
-    local derivePlan = require("nupp.compiler.derive_plan")
-    local rendered, why = derivePlan.render(value)
+    local recipeCodec = require("nupp.compiler.materialize.codec")
+    local rendered, why = recipeCodec.render(value)
     if not rendered then
-        error("invalid derive plan: " .. tostring(why))
+        error("invalid derive recipe: " .. tostring(why))
     end
 
     return rendered
@@ -717,6 +717,124 @@ function gen.generate(
         end
     end
 
+    local function emitDerivedMembers(x, runtimeName)
+        local recipe = x.deriveRecipe
+        if not recipe then
+            return
+        end
+        local recipeCodec = require("nupp.compiler.materialize.codec")
+        local renderedRecipe, renderError = recipeCodec.render(recipe, {limit = recipeCodec.MAX_OUTPUT_BYTES,})
+        if not renderedRecipe then
+            diag(
+                x.name,
+                "NUPP2808",
+                renderError == "limit" and (
+                    "derive output exceeds %d rendered bytes"
+                ):format(recipeCodec.MAX_OUTPUT_BYTES) or "derive output recipe is invalid",
+                "split the record or write the generated behavior explicitly"
+            )
+            return
+        end
+        needRuntimeEffect("stdlib.derives")
+        if recipe.operations and recipe.operations["json.v1"] then
+            needRuntimeEffect("native.cjson")
+        end
+        e(";do local __nuppDerived=" .. renderedRecipe)
+        e((";local __nuppDerivedEntry=_G.nupp.__derive.register(%q,%s,__nuppDerived)"):format(recipe.key, runtimeName))
+
+        local function forwardingArgument(argument, parameters)
+            if argument.kind == "receiver" then
+                return "self"
+            elseif argument.kind == "argument" then
+                return parameters[argument.name] or error("invalid derived member argument " .. tostring(argument.name))
+            elseif argument.kind == "field" then
+                return ("self[%q]"):format(argument.name)
+            elseif argument.kind == "constant" then
+                local rendered, why = recipeCodec.render(argument.value, {limit = recipeCodec.MAX_OUTPUT_BYTES,})
+                if not rendered then
+                    error("invalid derived constant: " .. tostring(why))
+                end
+                return rendered
+            elseif argument.kind == "array" then
+                local children = {}
+                for index, child in ipairs(argument.values or {}) do
+                    children[index] = forwardingArgument(child, parameters)
+                end
+                return "{" .. table.concat(children, ",") .. "}"
+            end
+            error("unknown derived forwarding argument " .. tostring(argument.kind))
+        end
+
+        for _, member in ipairs(recipe.members or {}) do
+            if member.operation == "debug.v1" then
+                e(
+                    (
+                        ";%s[%q]=function(self)return _G.nupp.__derive.debug(self,__nuppDerived)end"
+                    ):format(runtimeName, member.name)
+                )
+            elseif member.operation == "default.v1" then
+                e(
+                    (
+                        ";%s[%q]=function()return _G.nupp.__derive.default(__nuppDerivedEntry)end"
+                    ):format(runtimeName, member.name)
+                )
+            elseif member.operation == "from.v1" then
+                e(
+                    (
+                        ";%s[%q]=function(value)return _G.setmetatable({[%q]=value},%s)end"
+                    ):format(runtimeName, member.name, recipe.fromField, runtimeName)
+                )
+            elseif member.operation == "json.v1" and member.name == "toJSON" then
+                e(
+                    (
+                        ";%s[%q]=function(self)return _G.nupp.__derive.toJSON(self,__nuppDerivedEntry)end"
+                    ):format(runtimeName, member.name)
+                )
+            elseif member.operation == "json.v1" and member.name == "fromJSON" then
+                e(
+                    (
+                        ";%s[%q]=function(text)return _G.nupp.__derive.fromJSON(text,__nuppDerivedEntry)end"
+                    ):format(runtimeName, member.name)
+                )
+            elseif member.operation == "json.v1" and member.name == "fieldCodec" then
+                e((";%s[%q]=function()return __nuppDerivedEntry.codec end"):format(runtimeName, member.name))
+            elseif member.operation == "forward.v1" then
+                local names, parameters = {}, {}
+                local first = 1
+                if member.namespace == "instance" then
+                    names[1] = "self"
+                    first = 2
+                end
+                for index = first, #(member.paramNames or {}) do
+                    local declared = member.paramNames[index]
+                    local runtimeParameter = declared ~= "" and declared or ("argument" .. tostring(index - first + 1))
+                    names[#names + 1] = runtimeParameter
+                    if declared ~= "" then
+                        parameters[declared] = runtimeParameter
+                    end
+                end
+                local arguments = {}
+                for index, argument in ipairs(member.arguments or {}) do
+                    arguments[index] = forwardingArgument(argument, parameters)
+                end
+                local helper = member.helper.localPath or (
+                    "_G.require(" .. string.format(
+                        "%q",
+                        member.helper.module
+                    ) .. ")[" .. string.format("%q", member.helper.member) .. "]"
+                )
+                e(
+                    (
+                        ";%s[%q]=function(%s)return %s(%s)end"
+                    ):format(runtimeName, member.name, table.concat(names, ","), helper, table.concat(arguments, ","))
+                )
+            else
+                error("unknown derived member operation " .. tostring(member.operation))
+            end
+        end
+        e(" end")
+    end
+
     local emit
 
     local function sourceLine(node)
@@ -750,7 +868,7 @@ function gen.generate(
     -- it
     -- instruments the largest function in the compiler and the module then will not
     -- load.
-    local pluck = {plans = {}, statementActive = {}, helpers = helpers, declareHelper = declareHelper, loweredFunction = loweredFunction,
+    local pluck = {plans = {}, statementActive = {}, helpers = helpers, declareHelper = declareHelper, loweredFunction = loweredFunction, emitDerivedMembers = emitDerivedMembers,
         -- Why each lowering that still builds a function inside a loop cannot be
         -- declared once for the module instead. Every one is the same shape: the body
         -- writes a local belonging to its own site, and Lua gives no way to hand
@@ -1756,135 +1874,7 @@ function gen.generate(
                 end
             end
             emitInheritedDefaults(x, runtimeName)
-            if x.derivePlan then
-                local derivePlan = require("nupp.compiler.derive_plan")
-                local plan = x.derivePlan
-                local renderedPlan, renderError = derivePlan.render(plan, {limit = derivePlan.MAX_OUTPUT_BYTES,})
-                if not renderedPlan then
-                    diag(
-                        x.name,
-                        "NUPP2808",
-                        renderError == "limit" and (
-                            "derive output exceeds %d rendered bytes"
-                        ):format(derivePlan.MAX_OUTPUT_BYTES) or "derive output plan is invalid",
-                        "split the record or write the generated behavior explicitly"
-                    )
-                    return
-                end
-                needRuntimeEffect("stdlib.derives")
-                if plan.providers.JSON then
-                    needRuntimeEffect("native.cjson")
-                end
-                e(";do local __nuppDerived=" .. renderedPlan)
-                e(
-                    (
-                        ";local __nuppDerivedEntry=_G.nupp.__derive.register(%q,%s,__nuppDerived)"
-                    ):format(plan.key, runtimeName)
-                )
-                if plan.providers.Debug then
-                    e(
-                        (
-                            ";%s.debug=function(self)return _G.nupp.__derive.debug(self,__nuppDerived)end"
-                        ):format(runtimeName)
-                    )
-                end
-                if plan.providers.Default then
-                    e(
-                        (
-                            ";%s.default=function()return _G.nupp.__derive.default(__nuppDerivedEntry)end"
-                        ):format(runtimeName)
-                    )
-                end
-                if plan.providers.From and plan.fromField then
-                    e(
-                        (
-                            ";%s.from=function(value)return _G.setmetatable({[%q]=value},%s)end"
-                        ):format(runtimeName, plan.fromField, runtimeName)
-                    )
-                end
-                if plan.providers.JSON then
-                    e(
-                        (
-                            ";%s.toJSON=function(self)return _G.nupp.__derive.toJSON(self,__nuppDerivedEntry)end"
-                        ):format(runtimeName)
-                    )
-                    e(
-                        (
-                            ";%s.fromJSON=function(text)return _G.nupp.__derive.fromJSON(text,__nuppDerivedEntry)end"
-                        ):format(runtimeName)
-                    )
-                    e((";%s.fieldCodec=function()return __nuppDerivedEntry.codec end"):format(runtimeName))
-                end
-                if plan.forwarding then
-                    local function forwardingArgument(argument, parameters)
-                        if argument.kind == "receiver" then
-                            return "self"
-                        elseif argument.kind == "argument" then
-                            return parameters[
-                                argument.name
-                            ] or error("invalid derived method argument " .. tostring(argument.name))
-                        elseif argument.kind == "field" then
-                            return ("self[%q]"):format(argument.name)
-                        elseif argument.kind == "constant" then
-                            local rendered, why = derivePlan.render(
-                                argument.value,
-                                {limit = derivePlan.MAX_OUTPUT_BYTES,}
-                            )
-                            if not rendered then
-                                error("invalid derived constant: " .. tostring(why))
-                            end
-                            return rendered
-                        elseif argument.kind == "array" then
-                            local children = {}
-                            for index, child in ipairs(argument.values or {}) do
-                                children[index] = forwardingArgument(child, parameters)
-                            end
-                            return "{" .. table.concat(children, ",") .. "}"
-                        end
-                        error("unknown derived forwarding argument " .. tostring(argument.kind))
-                    end
-
-                    local methodNames = {}
-                    for methodName in pairs(plan.forwarding) do
-                        methodNames[#methodNames + 1] = methodName
-                    end
-                    table.sort(methodNames)
-                    for _, methodName in ipairs(methodNames) do
-                        local recipe = plan.forwarding[methodName]
-                        local names, parameters = {"self"}, {}
-                        for index = 2, #(recipe.paramNames or {}) do
-                            local declared = recipe.paramNames[index]
-                            local runtimeParameter = declared ~= "" and declared or ("argument" .. tostring(index - 1))
-                            names[#names + 1] = runtimeParameter
-                            if declared ~= "" then
-                                parameters[declared] = runtimeParameter
-                            end
-                        end
-                        local arguments = {}
-                        for index, argument in ipairs(recipe.arguments or {}) do
-                            arguments[index] = forwardingArgument(argument, parameters)
-                        end
-                        local helper = recipe.helper.localPath or (
-                            "_G.require(" .. string.format(
-                                "%q",
-                                recipe.helper.module
-                            ) .. ")[" .. string.format("%q", recipe.helper.member) .. "]"
-                        )
-                        e(
-                            (
-                                ";%s[%q]=function(%s)return %s(%s)end"
-                            ):format(
-                                runtimeName,
-                                methodName,
-                                table.concat(names, ","),
-                                helper,
-                                table.concat(arguments, ",")
-                            )
-                        )
-                    end
-                end
-                e(" end")
-            end
+            pluck.emitDerivedMembers(x, runtimeName)
             return
         end
 

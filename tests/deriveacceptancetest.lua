@@ -30,7 +30,7 @@ local M = {}
 
 function M.replacesCompilerConfigurationAndNewtypeBoilerplate()
    local result = run([[
-@derive(Debug, Default)
+@derive(nupp.derive.Debug, nupp.derive.Default)
 local record PlannerLimits
     @default(2048)
     fields: integer
@@ -42,7 +42,7 @@ local record PlannerLimits
     renderedBytes: integer
 end
 
-@derive(Debug, From)
+@derive(nupp.derive.Debug, nupp.derive.From)
 local record Fingerprint
     value: string
 end
@@ -78,7 +78,7 @@ end
 
 function M.matchesManifestAndBuildCacheJSONCorpora()
    local result = run([[
-@derive(JSON)
+@derive(nupp.derive.JSON)
 @json(unknown = "reject")
 local record ModuleCache
     sourceHash: string
@@ -136,7 +136,7 @@ function M.runsTheExternalTecsMCPRequestCorpus()
    local result = run([[
 -- Proving case adapted from tecs.io.mcp.transport.Request. Its private loader.CPtr
 -- handle is intentionally outside JSON; the constrained result model refuses it.
-@derive(Debug, JSON)
+@derive(nupp.derive.Debug, nupp.derive.JSON)
 @json(unknown = "reject")
 local record TecsMCPRequest
     name: string
