@@ -7,7 +7,7 @@ still a table; `(number, string)` is a sequence of two values.
 
 ## Syntax
 
-```nupp
+```nupp:static
 ()                  -- no values
 (number, string)    -- two fixed values
 (boolean, R...)     -- a fixed head and generic tail

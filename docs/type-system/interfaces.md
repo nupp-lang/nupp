@@ -38,7 +38,7 @@ sides, since each implementation names it for itself.
 
 ## `is` is a claim, not a proof
 
-```nupp
+```nupp:static
 local record Tagged is Named
     name: string
     weight: number
@@ -66,7 +66,7 @@ end
 
 An interface is the usual bound for a type parameter:
 
-```nupp
+```nupp:static
 local function start<T is Callable>(task: T): T
     return task()
 end

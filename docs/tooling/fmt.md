@@ -120,7 +120,7 @@ Two rewrites are exempted, each proven safe rather than merely whitespace. A
 single-value annotation loses its redundant `member =` where the checker has
 proved the two spellings equivalent:
 
-```nupp
+```nupp:static
 @documentation(text = "A user")   -- becomes
 @documentation("A user")
 ```

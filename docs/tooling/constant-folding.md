@@ -5,12 +5,18 @@ value a reader can work out is not one the program works out again on every
 run:
 
 ```nupp
-local const WIDTH: integer = 8
-local total = WIDTH * 4
-return total
+local m = {}
+
+const WIDTH: integer = 8
+
+function m.area(): integer
+    return WIDTH * 4
+end
+
+return m
 ```
 
-That lowers to `local total = 32`. What follows is each rewrite the pass makes,
+`m.area` lowers to `return 32`. What follows is each rewrite the pass makes,
 and the condition under which it declines.
 
 ## Exact primitives and local propagation
@@ -22,7 +28,7 @@ selection. Primitive `const` values propagate through later expressions.
 ```nupp [Original Nupp]
 const prefix = "nu"
 const answer = (2 + 3) * 4
-print((false or prefix) .. "pp", answer, "nupp" < "rust")
+print((true and prefix) .. "pp", answer, "nupp" < "rust")
 ```
 
 ```lua [Optimized Lua]
@@ -161,7 +167,7 @@ fixes one named slot; ordinary fields remain mutable. `const... M.field` is the
 auto-deep form for every named field in a fresh table graph.
 
 ::: code-group
-```nupp [Original Nupp]
+```nupp:static [Original Nupp]
 -- settings.nupp
 const M = {}
 const M.mixed = {

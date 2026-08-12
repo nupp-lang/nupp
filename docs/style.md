@@ -341,7 +341,7 @@ The vocabulary is fixed so a reader meets one word per idea:
 
 The rules above apply inside `---` blocks, compressed.
 
-```nupp
+```nupp:static
 --- Opens a session against the account service.
 ---
 --- The returned session is an owner: drop it early, transfer it, or bind it

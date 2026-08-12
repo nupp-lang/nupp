@@ -47,7 +47,7 @@ end -- worker:stop() runs here
 The entry obtains its own endpoints with `current` and can serve request/reply
 calls until its inbox closes:
 
-```nupp
+```nupp:static
 local data = require("nupp.data")
 local workers = require("nupp.workers")
 local self = workers.current()

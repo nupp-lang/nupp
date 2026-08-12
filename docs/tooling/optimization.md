@@ -49,7 +49,7 @@ path, the reads are unordered and Nupp can do the table-path sharing ordinary
 Lua leaves to hand-written locals or to the trace compiler.
 
 ::: code-group
-```nupp [Readable Nupp]
+```nupp:static [Readable Nupp]
 local record Vec2
     x: number
     y: number
@@ -82,7 +82,7 @@ not evaluated when the call is suppressed.
 The no-closure rule is deliberate. A call nested where Lua cannot host local
 bindings emits repeated direct projections instead:
 
-```nupp
+```nupp:static
 local moved = enabled and update(delta, (x, y) = entity.body.position)
 ```
 
@@ -247,7 +247,7 @@ Repeated statement-position calls through one immutable path share a local
 bound at the first call.
 
 ::: code-group
-```nupp [Original Nupp]
+```nupp:static [Original Nupp]
 const tecs = require("tecs")
 tecs.x.y()
 tecs.x.y()

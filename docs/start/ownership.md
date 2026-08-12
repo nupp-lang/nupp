@@ -73,7 +73,7 @@ There are three ways to end or transfer the obligation before that boundary.
 
 **Drop it** at the point you choose:
 
-```nupp
+```nupp:static
 local f = openFile()
 nupp.drop(f)
 ```
@@ -149,7 +149,7 @@ automatic cleanup exactly once.
 A record with `owned<T>` fields is itself a resource, and cleanup is
 synthesized in reverse field order:
 
-```nupp
+```nupp:static
 local record Bundle
     input: owned<Session>
     output: owned<Session>
@@ -162,7 +162,7 @@ nupp.drop(bundle)
 A custom `@drop` method has to discharge every affine field, and it does
 that by calling their drop operation directly:
 
-```nupp
+```nupp:static
 local record Pair
     first: owned<Session>
     second: owned<Session>

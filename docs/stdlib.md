@@ -3,7 +3,7 @@
 `nupp` is an ambient global. It is present in every generated module, so
 standard facilities do not need `require`:
 
-```nupp
+```nupp:static
 local buffer = nupp.io.newBuffer("hello")
 local digest = nupp.data.sha256(buffer:view())
 ```

@@ -28,7 +28,7 @@ end
 
 This defines these valid applications:
 
-```nupp
+```nupp:static
 @serializable(format = "json")
 local record User
     id: uint64
@@ -81,7 +81,7 @@ end
 
 The designated field may then be supplied positionally:
 
-```nupp
+```nupp:static
 @documentation("A user")
 local record User
     @documentation("The stable user ID")
@@ -132,7 +132,7 @@ fields are available through `nupp.reflect(T)` inside comptime. Applications
 retain source order, and arguments follow the annotation definition's member
 order:
 
-```nupp
+```nupp:static
 return comptime do
     local info = nupp.reflect(User)
     local recordMetadata = info.annotations

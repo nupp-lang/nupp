@@ -533,7 +533,7 @@ does.
 
 **1. Declare it** in the `lints.all` registry in `src/nupp/compiler/lints.nupp`:
 
-```nupp
+```nupp:static
 new lints.Lint(
     name = "missing-require", code = "NUPP2120",
     category = "correctness", level = "error",

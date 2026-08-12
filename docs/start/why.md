@@ -15,14 +15,16 @@ strictly: unknown variables are errors, and nothing untyped crosses a module
 boundary. Rename a `.lua` file to `.g.nupp` and the typed syntax becomes
 available with that floor still down, so annotations can go in one at a time:
 
-```nupp
+```nupp:static
 -- models.g.nupp: the typed syntax, no floor yet
 local function scale(p, k)
     return {x = p.x * k, y = p.y * k}
 end
 
--- models.nupp: the same file, once it is ready to hold the floor local function
-scale(p: Point, k: number): Point return new Point(x = p.x * k, y = p.y * k) end
+-- models.nupp: the same file, once it is ready to hold the floor
+local function scale(p: Point, k: number): Point
+    return new Point(x = p.x * k, y = p.y * k)
+end
 ```
 
 The marker is not part of the module's name, so `require("models")` finds it

@@ -159,7 +159,7 @@ does not change the C ABI and does not install `ffi.gc` finalizers.
 `nupp.borrowFrom`, and `nupp.pin` are compiler-provided operations on the
 always-available `nupp` global:
 
-```nupp
+```nupp:static
 local handle = openFile(path)
 nupp.drop(handle)
 ```
@@ -216,14 +216,14 @@ remain errors unless an explicit terminal consumes them.
 A bodyless API may attach the same producer contract directly to a
 function-valued record or interface field:
 
-```nupp
+```nupp:static
 local interface Files
     @owned(closeFile)
     open: function(path: string): File
 end
 ```
 
-```nupp
+```nupp:static
 local record Channel
     id: integer
 end
@@ -378,7 +378,7 @@ is correct.
 `takes` complements `borrows`: the first transfers the obligation; the second
 temporarily sees the value.
 
-```nupp
+```nupp:static
 local function inspect(borrows value: widget*): int32
     return value.value
 end
@@ -394,7 +394,7 @@ end
 Nupp is normally single-threaded, so mutation through a shared borrow is
 allowed when it does not invalidate the identity or lifetime of the resource:
 
-```nupp
+```nupp:static
 local function rename(borrows value: widget*, n: int32)
     value.value = n -- valid shared mutation
 end
@@ -403,7 +403,7 @@ end
 There is deliberately no `borrowMut` intrinsic and no `exclusive<T>` wrapper.
 Exclusive access is a call effect, so the one surface is `exclusive`:
 
-```nupp
+```nupp:static
 local function reset(exclusive value: widget*)
     value.value = 0
 end
@@ -426,7 +426,7 @@ For a Nupp body, the checker derives whether each resource-shaped
 parameter stays within the call. A read-only or stable-mutation helper needs no
 annotation:
 
-```nupp
+```nupp:static
 local function inspect(value: widget*): int32
     return value.value
 end
@@ -481,7 +481,7 @@ inferred.
 `nupp.borrow(owner)` is the explicit lexical form. It is useful when a named
 view must keep the owner immovable for part of a scope:
 
-```nupp
+```nupp:static
 local value = widget_new()
 do
     local view = nupp.borrow(value)
@@ -517,7 +517,7 @@ end
 
 Layered resources can be both owned and dependent:
 
-```nupp
+```nupp:static
 @owned(closeTls)
 local function openTls(borrows socket: Socket): TLS borrows(socket)
     return TLS.connect(socket)
@@ -527,7 +527,7 @@ end
 The TLS session must be dropped, and the socket cannot be dropped until that
 happens. A result may name several roots:
 
-```nupp
+```nupp:static
 @owned(closePair)
 local function pair(borrows left: Resource, borrows right: Resource): Pair borrows(left, right)
     return new Pair(left = left, right = right)
@@ -555,7 +555,7 @@ Payload type parameters do not erase the capability beside a value. A result
 relation names the input slot whose exact cleanup order, opacity, roots, pin,
 retention state, and affine identity move to the result:
 
-```nupp
+```nupp:static
 local id: function<T>(value: T): T preserves value
 
 local file = id(openFile("input"))
@@ -574,7 +574,7 @@ Raw pointers are allowed, but validity-dependent use requires `unsafe` unless
 the value is owned, borrowed, pinned, or passed through a declared lifetime
 effect. This is rejected:
 
-```nupp
+```nupp:static
 cdef struct header
     size: uint32
 end
@@ -645,7 +645,7 @@ end
 
 Both directions require `unsafe` because each discards a proof or asserts one:
 
-```nupp
+```nupp:static
 local value = widget_new()
 local raw: widget*
 
@@ -701,7 +701,7 @@ Lua return order. Every owned output needs an explicit `cleanup` name or list.
 
 A borrowed output must name the input that keeps it valid:
 
-```nupp
+```nupp:static
 @borrowed(out = view, from = store, success = zero)
 cdef function store_lookup(borrows store: Store*, key: cstring, out view: Item**): int32
 
@@ -738,7 +738,7 @@ that C stops retaining the pointer before the call returns.
 Callbacks are an opaque derivation and require a narrow unsafe construction,
 then a pin restores a checked lifetime:
 
-```nupp
+```nupp:static
 unsafe do
     local callback = function()
         print("called")
@@ -776,7 +776,7 @@ transitive effect summary.
 
 A record with `owned<T>` or `pinned<T>` fields is itself affine:
 
-```nupp
+```nupp:static
 local record Bundle
     input: owned<File>
     output: owned<File>
@@ -839,7 +839,7 @@ table storage remains rejected.
 
 `resources.Set` is the audited container for a runtime number of owners:
 
-```nupp
+```nupp:static
 local resources = require("nupp.resources")
 
 do
@@ -879,7 +879,7 @@ Raw coroutines may be abandoned forever, and LuaJIT has no general static join
 or cancellation guarantee. Suspending with a live owner, borrow, pin, or
 retained handle is therefore rejected:
 
-```nupp
+```nupp:static
 local function task()
     local file = openFile()
     coroutine.yield() -- NUPP2603: cleanup could be abandoned

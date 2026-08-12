@@ -93,7 +93,7 @@ end
 
 ## Constraints use `is`
 
-```nupp
+```nupp:static
 local function start<T is Callable>(task: T): T
     return task()
 end
@@ -207,7 +207,7 @@ local n = id < number > (1)
 Type arguments appear in *type* position, as in `Box<number>` and `a.b.Map<K,
 V>`, and at the six FFI intrinsics, which are special-cased in the grammar:
 
-```nupp
+```nupp:static
 local p = ffi.new<Point>()
 local q = ffi.cast<Point*>(address)
 local t = ffi.typeof<Point>()
@@ -257,7 +257,7 @@ than the declaring type. This is what makes an inherited
 A metamethod contract may carry its own type parameters, which lets a typed key
 determine the result of an index:
 
-```nupp
+```nupp:static
 local record Key<T>
 end
 

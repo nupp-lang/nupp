@@ -11,7 +11,7 @@ This is LuaJIT 3.0's dialect
 ([the syntax-extension umbrella
 issue](https://github.com/LuaJIT/LuaJIT/issues/1475)), in full:
 
-```nupp
+```nupp:static
 local mask = flags & 0xff -- bit operators: & | ~ << >> ~>>
 local ok = a && b || !c -- customary operators: ! && || !=
 local label = big ? "yes" : "no" -- ternary conditional
@@ -38,7 +38,7 @@ Nupp adds three things here and takes nothing away: interpolated strings
 
 ## Level 1: the typed layer
 
-```nupp
+```nupp:static
 local type Id = uint32 -- alias
 local type Shape = Circle | Square -- union
 local type Color = "red" | "green" -- closed set of strings

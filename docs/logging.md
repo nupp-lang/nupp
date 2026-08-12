@@ -74,7 +74,17 @@ slower. The module shows as `?`, and the arguments are evaluated:
 ```nupp
 nupp.log.level("debug") -- set, answers the previous one
 nupp.log.level() -- read
-nupp.log.level(os.getenv("LOG_LEVEL") or "warn")
+```
+
+The parameter is the literal union, so a string from outside the program has to
+be narrowed to one of the five before it can be passed. `os.getenv("LOG_LEVEL")
+or "warn"` is `string`, and `string` is not one of them:
+
+```nupp
+local wanted = os.getenv("LOG_LEVEL")
+if wanted == "debug" or wanted == "info" or wanted == "warn" then
+    nupp.log.level(wanted)
+end
 ```
 
 `"off" | "error" | "warn" | "info" | "debug"`, each admitting itself and
@@ -112,9 +122,12 @@ Passing anything file-like instead keeps the built-in rendering and only moves
 where it goes:
 
 ```nupp
-local file = io.open("game.log", "a")
+local file = assert(io.open("game.log", "a"))
 nupp.log.sink(file)
 ```
+
+`io.open` answers `LuaFile?`, and `sink` takes a target rather than a maybe, so
+the `assert` is what turns one into the other.
 
 A file-like target renders through the formatter, which is replaceable on its
 own:

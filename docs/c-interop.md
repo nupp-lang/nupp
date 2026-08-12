@@ -44,7 +44,7 @@ you need by hand.
 
 Use the generated module like any other:
 
-```nupp
+```nupp:static
 local miniApi = require("native.mini")
 
 local total = miniApi.mini_add(20, 22)
@@ -140,7 +140,7 @@ meaning.
 `cheader` reads a header at compile time and gives you its exports, with no
 generated file to keep in step:
 
-```nupp
+```nupp:static
 local mini = cheader("native/mini.h", "mini")
 
 print(mini.mini_add(20, 22))
@@ -158,7 +158,7 @@ its output is yours to edit.
 
 The six FFI operations take a type argument, which is what makes them checked:
 
-```nupp
+```nupp:static
 local p = ffi.new<nativePoint>()
 local q = ffi.cast<nativePoint*>(address)
 local t = ffi.typeof<nativePoint>()
@@ -175,7 +175,7 @@ yields `cdata`.
 
 `carray` allocates a zero-based C array:
 
-```nupp
+```nupp:static
 local points = carray(nativePoint, 16)
 points[0].x = 1.0
 ```
@@ -187,7 +187,7 @@ That is `carray<T>`, distinct from the one-based Lua array `{T}`.
 `layoutof(T)` answers how a reified `struct` sits in memory:
 
 ```nupp
-struct Vertex
+local struct Vertex
     x: float
     y: float
     z: float
@@ -221,7 +221,7 @@ application's.
 A fixed C array is a field like any other, laid out inline:
 
 ```nupp
-struct Vertex
+local struct Vertex
     pos: float[3]
     uv: float[2]
     id: int32

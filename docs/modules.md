@@ -52,7 +52,7 @@ means one thing here and another thing elsewhere.
 A member is reached through the module it was attached to, so every name in a
 file shows where it came from:
 
-```nupp
+```nupp:static
 local shapes = require("geom.shapes")
 
 local p: shapes.Point = new shapes.Point(x = 3, y = 4)
@@ -113,14 +113,14 @@ end
 member on the type side. Records and structs are values too, which is what lets
 a dependent construct one:
 
-```nupp
+```nupp:static
 local p = new shapes.Point(x = 1, y = 2) -->  setmetatable({x = 1, y = 2}, shapes.Point)
 ```
 
 Which local is the module is read off the `return` statement, so wrapping it
 still works:
 
-```nupp
+```nupp:static
 return setmetatable(shapes, {}) -- shapes is still the module
 ```
 
@@ -189,7 +189,7 @@ error, so the symptom is a diagnostic somewhere else — an argument that lost i
 ownership mode, a result inferred `any`. Declare the member and let the
 qualified function fill it in:
 
-```nupp
+```nupp:static
 record shapes.Path
     points: {shapes.Point}
 

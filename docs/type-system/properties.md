@@ -18,7 +18,7 @@ A `Snapshot` can read `value` but cannot assign it. An `Output` can assign the
 member but cannot observe its current value. The same syntax works in records
 and structural shapes:
 
-```nupp
+```nupp:static
 local record Cell
     readonly value: string
     writeonly value: string | integer

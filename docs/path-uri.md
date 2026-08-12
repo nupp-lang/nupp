@@ -100,7 +100,7 @@ service endpoint.
 
 A component record can be passed instead of text:
 
-```nupp
+```nupp:static
 local uri = assert(
     nupp.io.newURI({
         scheme = "https",

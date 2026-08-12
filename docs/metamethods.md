@@ -164,7 +164,7 @@ records are errors rather than being accepted unconditionally.
 Metamethod function types can have their own type parameters. This allows a
 typed key to determine the result of an indexed store:
 
-```nupp
+```nupp:static
 local record Key<T>
 end
 
@@ -217,7 +217,7 @@ satisfy an interface structurally, including its metamethod contracts.
 
 Multiple parents are allowed:
 
-```nupp
+```nupp:static
 local record Task is Named, Callable
 end
 ```
@@ -269,7 +269,7 @@ runtime implementation explicitly.
 `metatable<T>` is a compiler-known type that erases to an ordinary Lua table. It
 connects the standard metatable functions to their receiver:
 
-```nupp
+```nupp:static
 local record Task
 end
 local task: Task

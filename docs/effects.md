@@ -327,7 +327,7 @@ Unknown code is pessimistic by default. An unresolved call widens the inferred
 summary to `top`, meaning no finite `@effects(...)` contract can verify the
 visible body.
 
-```nupp
+```nupp:static
 @effects(external = true)
 local function run(callback: function())
     callback()

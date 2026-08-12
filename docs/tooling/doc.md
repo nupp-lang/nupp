@@ -52,7 +52,7 @@ Prose here is rendered as Markdown.
 
 **A run of `---` line comments** immediately above a declaration documents it:
 
-```nupp
+```nupp:static
 --- Opens a session against the account service.
 ---
 --- @param id the stable account identifier
