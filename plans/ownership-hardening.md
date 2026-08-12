@@ -1,7 +1,12 @@
 # Ownership hardening
 
-Status: implemented. The proof-closure kernels, safe boundary abstractions,
-diagnostics, audit surface, and regression gates below landed together. The
+Status: implemented, except that the resource `with` construct this plan was
+written around was removed. An ordinary owner is destroyed at its lexical scope
+boundary instead, so `do ... end` is the cleanup boundary everywhere `with`
+appears below. See [automatic-destruction.md](automatic-destruction.md).
+
+The proof-closure kernels, safe boundary abstractions, diagnostics, audit
+surface, and regression gates below landed together. The
 remaining refusals listed under Deliberate limits are part of the theorem, not
 unfinished implicit weakening.
 
@@ -9,7 +14,10 @@ The detailed records for existing features remain authoritative for their
 feature-specific shape; this plan adds the stronger cross-cutting completion
 criteria they must all satisfy:
 
-- [with.md](with.md) for deterministic resource scopes;
+- [with.md](with.md) for the resource-scope design this was written around,
+  which records a construct that was removed;
+- [automatic-destruction.md](automatic-destruction.md) for the lexical
+  boundary that replaced it;
 - [type-packs.md](type-packs.md) for affine value sequences and correlated
   results;
 - [intersections.md](intersections.md) for overload selection and effect
@@ -60,7 +68,8 @@ local function adopt(takes file: File)
 
 local function first(borrows pool: Pool): Item borrows pool
 
-with file = openFile(path) do
+do
+    local file = openFile(path)
     inspect(file)
 end
 ```
@@ -206,7 +215,7 @@ The following are implemented and are not redesigned here:
 - unique inherited `@drop` and explicit transfer-only owners;
 - `takes`, inferred/declared `borrows`, and call-duration `exclusive`;
 - lexical borrows, multi-root result provenance, and owners that also borrow;
-- `with` cleanup on all structured exits and cleanup-failure aggregation;
+- lexical cleanup on all structured exits and cleanup-failure aggregation;
 - affine nominal records and reverse field cleanup;
 - owned and borrowed C output parameters;
 - raw adoption/abandonment, provenance assertions, pins, and C
@@ -566,7 +575,8 @@ Provide one audited owning container rather than permitting arbitrary tables
 of owners. Its conceptual API is:
 
 ```nupp
-with resources = resources.Set("request") do
+do
+    local resources = resources.Set("request")
     local input = resources:adopt(openFile("in"))
     local output = resources:adopt(openFile("out"))
     copy(input, output)
@@ -577,13 +587,14 @@ end
 references in the set's runtime registration, and returns a borrow tied to the
 set. Dropping the set runs every registration in reverse order, attempts all
 cleanup steps, and uses the same primary/suppressed failure contract as
-`with`.
+lexical cleanup.
 
 An opaque transfer-only owner has no cleanup to reify. It enters the same set
 only with an explicit terminal consumer:
 
 ```nupp
-with obligations = resources.Set("requests") do
+do
+    local obligations = resources.Set("requests")
     local request = obligations:adopt(beginRequest(), submitRequest)
     prepare(request)
 end
@@ -676,7 +687,7 @@ already has a lexical `handle suspension` region; make it load-bearing.
 Required rules:
 
 1. A direct raw `coroutine.yield` remains rejected with any live owner, borrow,
-   pin, retained handle, resource set, or pending `with` cleanup.
+   pin, retained handle, resource set, or pending scope cleanup.
 2. Function summaries distinguish the checked `suspend` operation from a raw
    coroutine yield or an unknown yielding call. A single undifferentiated
    `yields` bit is sufficient for `nosuspend` but not for ownership.
@@ -699,7 +710,7 @@ Required rules:
 9. Bare `coroutine.create`, `resume`, and `wrap` do not become structured merely
    because their protocol packs are typed.
 10. `return`, loop control, and errors leaving the handler region reuse the
-    proven `with` control protocol so handler release and resource cleanup both
+    proven scope control protocol so handler release and resource cleanup both
     run.
 11. Every cleanup step and `@drop` operation is checked as non-suspending.
     Cleanup runs while another obligation is being discharged and, during
@@ -864,15 +875,15 @@ it mechanical:
 
 - destructuring or multi-name acquisition retains every affine result rather
   than applying Lua truncation accidentally;
-- an optional owner may enter `with` only after an explicit narrowing, with
+- an optional owner is bound as one only after an explicit narrowing, with
   capability-preserving `assert` providing the concise form;
 - annotations on function-valued declaration fields represent owning
   producers without a wrapper; and
 - no inline `using` or name-based `adopt` form invents ownership for an
   unannotated producer. Such adoption remains `fromRaw` in `unsafe`.
 
-Update `./bin/nupp reference language`, `docs/ownership.md`, `docs/with.md`,
-diagnostic explanations, and FFI examples from the same final doctrine. Remove
+Update `./bin/nupp reference language`, `docs/ownership.md`, diagnostic
+explanations, and FFI examples from the same final doctrine. Remove
 stale statements as each milestone lands; an implemented guarantee and a plan
 must not disagree about whether it exists.
 
@@ -913,7 +924,7 @@ Implement in this order:
 The early S3 slice does not need scalar preservation to fix the rootless cases
 accepted today; S2 later supplies and tests the missing scalar-generic carrier.
 Likewise, S8's abandonment proof does not depend on `resources.Set`: ordinary
-owners, borrows, pins, and `with` obligations are enough to close it. S6 adds
+owners, borrows, pins, and scope obligations are enough to close it. S6 adds
 its new aggregate obligation to that established matrix, and structured-child
 expressiveness finishes afterward. C-derived callable marking lands with the
 S9 boundary proof because S7 also consumes the same fact.
@@ -967,7 +978,8 @@ Run:
 Also compare clean and warm incremental diagnostics, generated line counts,
 interface hashes after each capability-only change, and optimized versus
 unoptimized output. Add targeted benchmarks for ordinary calls, generic
-forwarding, `with`, resource-set adoption, span indexing, and suspension.
+forwarding, scope cleanup, resource-set adoption, span indexing, and
+suspension.
 
 No common ownership operation may acquire a runtime side table or closure.
 Only explicitly dynamic abstractions such as `resources.Set` may pay for reified
