@@ -664,7 +664,27 @@ function gen.generate(
     -- Keep the emitter's plucking dependencies behind one upvalue. LuaJIT caps a
     -- function at 60 upvalues, and this generator deliberately sits close to that
     -- boundary because emit handles every syntax kind.
-    local pluck = {plans = {}, statementActive = {},}
+    -- `refinement` rides along here rather than in a local of its own, for the reason
+    -- this table exists at all: `emit` was already at exactly 60, so one more name
+    -- reached from it is one too many. A coverage build finds that first, because it
+    -- instruments the largest function in the compiler and the module then will not load.
+    --
+    -- What it holds: `is` against a `where` refinement reads the subject more than once
+    -- -- the table test, then every field step -- so a subject that is not a name has to
+    -- be bound to something first. Binding it in a function written at the site builds
+    -- that function on every evaluation, and LuaJIT does not record `FNEW` at all: a loop
+    -- containing one aborts recording and is blacklisted, so it never compiles. Hoisting
+    -- the subject to a statement instead would be wrong, because `is` appears under `and`
+    -- and `or`, where the subject is evaluated only if the branch is reached.
+    --
+    -- One function per distinct test, declared once as the module loads, is neither. Its
+    -- parameter does the binding, the call is one a trace inlines, and two types whose
+    -- tests render alike share one.
+    local pluck = {
+        plans = {},
+        statementActive = {},
+        refinement = {tests = {}, order = {}, param = "__nuppV", reserve = reservedName},
+    }
 
     local function dottedPathParts(node): string?, {string}?
         if not node or cst.isToken(node) then
@@ -1975,11 +1995,19 @@ function gen.generate(
                 else
                     -- Anything else is evaluated once and handed to the test, because a
                     -- refinement may read the subject more than once and the expression
-                    -- may not be free to run twice.
-                    local temp = nextTemp()
-                    e(("((function(%s) return %s end)("):format(temp, predicate.test(t.wherePredicate, temp)), line)
+                    -- may not be free to run twice. The test it is handed to is declared
+                    -- once for the module rather than built here; see `refinement`.
+                    local tests = pluck.refinement
+                    local body = predicate.test(t.wherePredicate, tests.param)
+                    local name = tests.tests[body]
+                    if not name then
+                        name = tests.reserve("__nuppIs" .. tostring(#tests.order + 1))
+                        tests.tests[body] = name
+                        tests.order[#tests.order + 1] = {name = name, body = body}
+                    end
+                    e(("%s("):format(name), line)
                     emit(x.expr)
-                    e("))")
+                    e(")")
                 end
             elseif t.recordName then
                 -- A record is nominal: the question is whether the value came from this
@@ -3611,6 +3639,17 @@ function gen.generate(
             .. "if type(mt) == \"table\" then setmetatable(out, mt) end "
             .. "return out end; "
             .. code
+    end
+    if #pluck.refinement.order > 0 then
+        -- One declaration per distinct refinement test, ahead of every use of it. They go
+        -- on the prologue line the rest of these share, so no source line moves.
+        local declarations = {}
+        for _, test in ipairs(pluck.refinement.order) do
+            declarations[#declarations + 1] = ("const %s = function(%s) return %s end; "):format(
+                test.name, pluck.refinement.param, test.body
+            )
+        end
+        code = table.concat(declarations) .. code
     end
     if needsClearTab then
         code = ("const %s = require(\"table.clear\"); "):format(clearTabName) .. code
