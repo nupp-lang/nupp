@@ -1056,9 +1056,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return exprs
     end
 
-    --- Whether the `(` at the cursor opens a pluck group, `(x, y) = *path`. An
+    --- Whether the `(` at the cursor opens a pluck group, `(x, y) = path`. An
     --- ordinary parenthesized argument starts the same way, so nothing can be
-    --- decided until the head, its close, and the `= *` behind it are all in view.
+    --- decided until the names, their close, and the `=` behind it are all in view.
     local function pluckGroupAhead(): boolean
         local j = i + 1
         if not tokens[j] or tokens[j].kind ~= "name" then
@@ -1074,7 +1074,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
         return tokens[j] ~= nil and tokens[j].kind == ")" and tokens[
             j + 1
-        ] ~= nil and tokens[j + 1].kind == "=" and tokens[j + 2] ~= nil and tokens[j + 2].kind == "*"
+        ] ~= nil and tokens[j + 1].kind == "="
     end
 
     --- A call's arguments: parenthesized, a string, or a table.
@@ -1090,26 +1090,16 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     if typeFirst and #n.exprs == 0 then
                         argument = parseType()
                         n.typeArg = argument
-                    elseif (cur().kind == "name" and tokens[i + 1] and tokens[
-                        i + 1
-                    ].kind == "=" and tokens[i + 2] and tokens[
-                        i + 2
-                    ].kind == "*") or (cur().kind == "(" and pluckGroupAhead()) then
+                    elseif cur().kind == "(" and pluckGroupAhead() then
                         local pluck = new cst.PluckArg(kind = "pluckArg", names = {})
-                        if cur().kind == "(" then
-                            pluck.grouped = true
+                        add(pluck, advance())
+                        pluck.names[1] = add(pluck, advance())
+                        while cur().kind == "," do
                             add(pluck, advance())
-                            pluck.names[1] = add(pluck, advance())
-                            while cur().kind == "," do
-                                add(pluck, advance())
-                                pluck.names[#pluck.names + 1] = add(pluck, advance())
-                            end
-                            add(pluck, expect(")", "to close a plucked parameter group"))
-                        else
-                            pluck.names[1] = add(pluck, advance())
+                            pluck.names[#pluck.names + 1] = add(pluck, advance())
                         end
+                        add(pluck, expect(")", "to close a plucked parameter group"))
                         add(pluck, advance()) -- '='
-                        add(pluck, advance()).pluck = true
                         -- The operand is parsed as an ordinary expression and held to
                         -- being a name or dotted path by the checker, which can say
                         -- what to do about a producing one instead of failing to parse.

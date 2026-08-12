@@ -148,8 +148,8 @@ Named arguments follow every positional argument and appear in parameter order.
 They erase to ordinary positional Lua arguments; an omitted optional slot before
 a later named argument is emitted as `nil`.
 
-`name = *value` fills that parameter from the field of `value` the parameter
-names: it means `name = value.name` and nothing more. `(a, b) = *value` fills
+`(name) = value` fills that parameter from the field of `value` the parameter
+names: it means `name = value.name` and nothing more. `(a, b) = value` fills
 several parameters from one operand. Nothing is declared on the operand's type,
 so a plucked name reaches any record with a field of that name, including one
 the caller does not own. A name that is not a field of the operand is
@@ -160,7 +160,7 @@ A group's names are a set rather than a sequence. Every read is a field of one
 path, so no order among them is observable and `(y, x)` binds exactly what
 `(x, y)` does. Ordering is enforced between arguments, not inside a group.
 
-A plucked operand is a name or dotted field path, such as `*entity.position`.
+A plucked operand is a name or dotted field path, such as `entity.position`.
 Bind calls, computed indexes, and other producing expressions to a local first;
 that restriction is what lets the reads be unordered and evaluated once. A
 statement-level call evaluates each dotted operand path and common prefix once,
@@ -192,9 +192,9 @@ end
 
 local position = new Vec3(x = 1, y = 2, z = 3)
 local entity = new Entity(position = position)
-draw(x = *position, y = *position, color = "blue")
-draw((x, y) = *entity.position, color = "blue")
-draw(10, y = *position)
+draw((x) = position, (y) = position, color = "blue")
+draw((x, y) = entity.position, color = "blue")
+draw(10, (y) = position)
 
 return position
 ```

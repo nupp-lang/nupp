@@ -82,7 +82,7 @@ Each entry is tagged with where its win lands:
   within a region containing no call, no assignment reaching the path,
   and no yield.
 - `core` **Plucked call projection.** Implemented as always-on lowering
-  rather than an `OPT-n` pass. A call's `name = *path` and `(a, b) = *path`
+  rather than an `OPT-n` pass. A call's `(name) = path` and `(a, b) = path`
   arguments make the intended field set and arity static. Statement-level calls bind reusable dotted
   prefixes once and leave one-use leaves in the flat positional call,
   replacing the locals a performance-conscious Lua author would otherwise

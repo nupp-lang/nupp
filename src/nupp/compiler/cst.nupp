@@ -1542,7 +1542,7 @@ record cst.NamedArg is cst.Hints
     value: cst.Node?
 end
 
---- `x = *value`, or `(x, y) = *value`, in a parenthesized call argument list.
+--- `(x) = value`, or `(x, y) = value`, in a parenthesized call argument list.
 --- Each name is filled from the field of `value` that the name itself selects.
 record cst.PluckArg is cst.Hints
     {cst.Node | lexer.Token}
@@ -1551,9 +1551,6 @@ record cst.PluckArg is cst.Hints
 
     --- The parameters filled, in source order. A group names more than one.
     names: {lexer.Token}
-
-    --- Whether the names were written as a parenthesized group.
-    grouped: boolean?
 
     --- The path the fields are read from.
     value: cst.Node?

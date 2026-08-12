@@ -393,10 +393,6 @@ local function sep(prev, tok)
     if prev.kind == "..." and tok.namedVararg then
         return ""
     end
-    -- A plucked argument's `*` hugs the path it reads: `x = *entity.position`.
-    if prev.pluck then
-        return ""
-    end
     -- Typed-layer refinements: annotation colons read "x: T"; postfix type markers and
     -- generic brackets are tight (T?, S*, List<T>).
     if prev.typeColon then

@@ -94,9 +94,6 @@ type lexer.Token = {
     --- The name of a named vararg parameter, `...rest`.
     namedVararg: boolean?,
 
-    --- The `*` of a plucked argument, kept tight to the path it reads.
-    pluck: boolean?,
-
     --- A contextual operator lexed as a name: the `as` of a cast, the `is` of a type
     --- test. It takes a type on its right, so it is not the callee its spelling makes
     --- it look like.

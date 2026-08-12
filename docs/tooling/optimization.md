@@ -44,8 +44,8 @@ Generated temporary names are illustrative.
 ### Always-on typed call projection
 
 Argument plucking is language lowering rather than an `OPT-n` pass, so it
-produces the same flat call at `-O0` and `-O1`. `name = *path` fills a parameter
-from the field of `path` that the parameter names, and `(a, b) = *path` fills
+produces the same flat call at `-O0` and `-O1`. `(name) = path` fills a parameter
+from the field of `path` that the parameter names, and `(a, b) = path` fills
 several from one operand. Because the operand is confined to a name or dotted
 path, the reads are unordered and Nupp can do the table-path sharing ordinary
 Lua leaves to hand-written locals or to the trace compiler.
@@ -59,8 +59,8 @@ end
 
 update(
     delta,
-    (x, y) = *entity.body.position,
-    (dx, dy) = *entity.body.velocity
+    (x, y) = entity.body.position,
+    (dx, dy) = entity.body.velocity
 )
 ```
 
@@ -89,7 +89,7 @@ The no-closure rule is deliberate. A call nested where Lua cannot host local
 bindings emits repeated direct projections instead:
 
 ```nupp
-local moved = enabled and update(delta, (x, y) = *entity.body.position)
+local moved = enabled and update(delta, (x, y) = entity.body.position)
 ```
 
 ```lua

@@ -16,11 +16,11 @@ end
 local function draw(x: number, y: number, color: string?): nil
 end
 
-draw((x, y) = *position, color = "red")
+draw((x, y) = position, color = "red")
 ```
 
-`name = *value` fills that parameter from the field of `value` the parameter
-names. It is sugar for `name = value.name` and nothing else. `(a, b) = *value`
+`(name) = value` fills that parameter from the field of `value` the parameter
+names. It is sugar for `name = value.name` and nothing else. `(a, b) = value`
 fills several parameters from one operand. The generated Lua calls
 `draw(position.x, position.y, "red")`.
 
@@ -69,8 +69,8 @@ Repeating a name within a group is an error, as is filling one parameter from
 both a group and a later named argument.
 
 An operand is required to be a stable value path: a local or other name followed
-by zero or more ordinary dotted field accesses. This covers both `*position` and
-flattened embedded values such as `*entity.transform.position`. Calls, safe
+by zero or more ordinary dotted field accesses. This covers both `position` and
+flattened embedded values such as `entity.transform.position`. Calls, safe
 navigation, computed indexing, and other producing expressions are rejected by
 the checker, which can say to bind them to a local first. That restriction is
 what makes the reads unordered and what lets lowering evaluate each path once.
@@ -92,8 +92,8 @@ Plucking is erased:
 ```nupp
 update(
     delta,
-    (x, y) = *entity.body.position,
-    (dx, dy) = *entity.body.velocity
+    (x, y) = entity.body.position,
+    (dx, dy) = entity.body.velocity
 )
 ```
 
@@ -119,7 +119,7 @@ A safe call keeps the same final positional signature but places plucked
 bindings inside its taken branch:
 
 ```nupp
-maybeDraw?.((x, y) = *entity.body.position)
+maybeDraw?.((x, y) = entity.body.position)
 ```
 
 conceptually generates:
@@ -139,9 +139,8 @@ laziness without allocating an immediately invoked closure. Safe receiver and
 safe method checks in statement lowering are staged separately, so a nil
 receiver prevents method lookup and either check prevents argument evaluation.
 
-Formatting keeps `*` tight against its path and puts spaces around `=`. The CST
-retains both constructs so LSP positions, diagnostics, and source round-tripping
-remain exact.
+Formatting puts spaces around `=`. The CST retains both constructs so LSP
+positions, diagnostics, and source round-tripping remain exact.
 
 ## Deliberate constraints
 
