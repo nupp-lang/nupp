@@ -269,7 +269,7 @@ help: write new Point(field = value, ...) to name the fields
 
 ### `loop-invariant-closure`
 
-A loop should not allocate the same non-capturing function on every iteration.
+A loop should not build the same non-capturing function on every iteration.
 
 ::: code-group
 ```nupp [src/loop-invariant-closure.nupp]
@@ -281,12 +281,31 @@ end
 ```
 
 ```text [nupp check output]
-src/loop-invariant-closure.nupp:2:28: warning: NUPP2505 loop-invariant-closure: this function is built once per iteration but does not use the iteration, so every one of them is the same function
+src/loop-invariant-closure.nupp:2:28: warning: NUPP2505 loop-invariant-closure: this function is built once per iteration but does not use the iteration, so every one of them is the same function, and building one is what keeps the loop from compiling
  2 |     register(item, function(event) return event.kind == "click" end)
    |                            ^
 help: declare it once above the loop and pass the name
 ```
 :::
+
+The wasted allocation is the smaller half. LuaJIT has no recording for the
+bytecode that builds a function, so a loop containing one aborts recording every
+time it is tried, and after enough attempts the loop is blacklisted and never
+compiled again. The cost is not a closure per iteration; it is the whole
+enclosing loop running interpreted, however hot it gets and whatever else is in
+it.
+
+That is why this reads a function *built* in a loop rather than one that outlives
+it, and why it is worth heeding where the allocation alone would look too small
+to bother with.
+
+It reports only what it can prove pointless: a function reading nothing from the
+iteration, which therefore lifts out with no change in meaning. One that does
+read the iteration is not reported, because moving it is not a mechanical edit
+and may not be possible at all — but the trace dies just the same. Where a hot
+loop has to build a closure, the way out is usually to change what varies rather
+than where the function sits: hand the varying part to one function declared
+outside the loop, so the loop calls instead of builds.
 
 ### `undocumented-raise`
 

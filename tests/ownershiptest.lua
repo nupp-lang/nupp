@@ -418,8 +418,12 @@ function M.resourceSetsReifyCleanupOwnersAtOneAuditedBoundary()
    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
    local code, genDiags = gen.generate(result, "ownership-test")
    assertEq(#genDiags, 0)
-   assert(code:find(":adopt%([^,]+,function%(__p%)"),
+   -- The witness is declared once for the module rather than built per adoption, so what
+   -- `adopt` receives is its name.
+   assert(code:find(":adopt%([^,]+,__nuppAdopt%d+%)"),
       "adoption must receive the resolved discharge witness:\n" .. code)
+   assert(code:find("const __nuppAdopt%d+ = function%(__nuppV%) local __first"),
+      "the witness is declared once for the module:\n" .. code)
 end
 
 function M.resourceSetsRequireAWitnessForOpaqueOwners()
@@ -1668,11 +1672,67 @@ function M.multipleOwnedOutputsPreserveCAndLuaOrder()
    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
    local code, genDiags = gen.generate(result, "ownership-test")
    assertEq(#genDiags, 0)
-   assert(code:find("make_pair%s*%(%s*__nupp")
-      and code:find(",%s*1%s*,%s*__nupp"),
+   -- The call is made inside the declared sequence, so the C order is read there: the two
+   -- cells sit at the positions the declaration gave them, with the seed between them.
+   assert(code:find("__nuppFn(__nuppH1,__nuppA1,__nuppH2)", 1, true),
       "holders remain in their declared C parameter positions\n" .. code)
+   assert(code:find("__nuppOut%d+%(%s*make_pair%s*,%s*1%s*%)"),
+      "the callee and its ordinary arguments are handed to that sequence\n" .. code)
    assert(code:find("==7 and", 1, true),
       "literal success predicates guard outputs")
+end
+
+-- LuaJIT does not record `FNEW`. A loop containing one aborts recording, is blacklisted
+-- after enough attempts, and then never compiles -- so a function built where it is used
+-- costs the whole enclosing loop its trace. These lowerings all sat inside loops and all
+-- built one, and none of them had to: what an out parameter needs depends only on the C
+-- signature, what a `drop` runs depends only on its argument, and the mark a move leaves
+-- is a statement at statement root.
+--
+-- The cleanup region's own `xpcall` wrapper is the one that remains. It closes over the
+-- region's per-iteration locals, so it is not this kind of problem.
+function M.hotLoweringsBuildNoFunctionWhereTheyAreUsed()
+   local outParameter = table.concat({
+      "@borrowed(out = rest, from = text, success = nonzero)",
+      "cdef function strtol(borrows text: cstring, out rest: voidptr*, base: int32): int64",
+      "local text = '123abc'",
+      "local total = 0",
+      "for i = 1, 10 do",
+      "   local n, rest = strtol(text, 10)",
+      "   total = total + n",
+      "end",
+   }, "\n")
+   local result, diags = checked(outParameter)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-test")
+   assertEq(#genDiags, 0)
+   local loop = assert(code:match("for i = 1(.-)\nend"), "generated loop\n" .. code)
+   assert(not loop:find("function", 1, true),
+      "the out-parameter sequence is built in the loop:\n" .. loop)
+   assert(code:find("const __nuppOut%d+ = function%(__nuppFn"),
+      "the sequence is declared once for the module:\n" .. code)
+
+   local dropped = table.concat({
+      "cdef function free(takes value: voidptr)",
+      "@owned(free)",
+      "cdef function malloc(size: uint64): voidptr",
+      "local n = 0",
+      "for i = 1, 10 do",
+      "   local value = malloc(8)",
+      "   n = n + 1",
+      "   drop(value)",
+      "end",
+   }, "\n")
+   result, diags = checked(dropped)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   code, genDiags = gen.generate(result, "ownership-test")
+   assertEq(#genDiags, 0)
+   assert(not code:find("(function() __nupp", 1, true),
+      "the move is marked by a function built round the value:\n" .. code)
+   assert(code:find("=false; __nuppDrop%d+%("),
+      "the move is marked by a statement ahead of the drop:\n" .. code)
+   assert(code:find("const __nuppDrop%d+ = function%(__nuppV%)"),
+      "the cleanups a drop runs are declared once for the module:\n" .. code)
 end
 
 function M.cdefBorrowedOutputsTrackTheirInputOwner()

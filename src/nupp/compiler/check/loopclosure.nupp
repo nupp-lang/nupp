@@ -146,7 +146,8 @@ function loopclosure.install(c: state.Checker): loopclosure.Ops
             "NUPP2505",
             at,
             "this function is built once per iteration but does not use the "
-            .. "iteration, so every one of them is the same function",
+            .. "iteration, so every one of them is the same function, and "
+            .. "building one is what keeps the loop from compiling",
             nil,
             {help = "declare it once above the loop and pass the name"}
         )

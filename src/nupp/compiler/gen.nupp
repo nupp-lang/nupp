@@ -468,6 +468,34 @@ function gen.generate(
         return nextTemp()
     end
 
+    local helpers = {byBody = {}, order = {}}
+
+    -- A function the generated module declares once, for work that would otherwise be
+    -- written as a function where it is used.
+    --
+    -- LuaJIT does not record `FNEW`. A loop containing one aborts recording, is
+    -- blacklisted after enough attempts, and then never compiles at all -- so a function
+    -- built per evaluation costs the whole enclosing loop its trace, not only its own
+    -- allocation. Declared once, it is a call instead, which a trace inlines.
+    --
+    -- Only for a body that depends on nothing but its parameters. A site that assigns to
+    -- one of its own locals -- the ownership lowering's `active` flags do -- cannot share
+    -- one, because Lua gives no way to hand another function's local over to be written.
+    --
+    -- Bodies that render alike share a declaration, which is what makes this cheap to
+    -- reach for: two sites doing the same thing cost one function between them.
+    local function declareHelper(prefix: string, params: string, body: string): string
+        local key = params .. "|" .. body
+        local name = helpers.byBody[key]
+        if not name then
+            name = reservedName(prefix .. tostring(#helpers.order + 1))
+            helpers.byBody[key] = name
+            helpers.order[#helpers.order + 1] = {name = name, params = params, body = body}
+        end
+
+        return name
+    end
+
     -- A module projected through a builtin namespace is required once per generated
     -- module. Reserved rather than assumed, so a user local with the preferred name
     -- does not collide with it. OPT-5 reaches string.buffer through the same registry.
@@ -572,7 +600,13 @@ function gen.generate(
         if cleanup.kind == "function" then
             return pcallName .. "(" .. cleanupFunctionName(cleanup) .. "," .. value .. ")"
         elseif cleanup.kind == "method" then
-            return pcallName .. "(function() " .. value .. ":" .. cleanup.name .. "() end)"
+            -- `pcall(v.m, v)` would read the subject twice, and a field path is one of the
+            -- spellings that reaches here. One declared function keeps it to once without
+            -- building a function per cleanup.
+            local caller = declareHelper(
+                "__nuppCleanup", "__nuppV", ("return __nuppV:%s()"):format(cleanup.name)
+            )
+            return pcallName .. "(" .. caller .. "," .. value .. ")"
         elseif cleanup.kind == "field" then
             return protectedCleanupCall(cleanup.cleanup, value .. "." .. cleanup.field, pcallName)
         end
@@ -664,26 +698,15 @@ function gen.generate(
     -- Keep the emitter's plucking dependencies behind one upvalue. LuaJIT caps a
     -- function at 60 upvalues, and this generator deliberately sits close to that
     -- boundary because emit handles every syntax kind.
-    -- `refinement` rides along here rather than in a local of its own, for the reason
-    -- this table exists at all: `emit` was already at exactly 60, so one more name
-    -- reached from it is one too many. A coverage build finds that first, because it
+    -- `declareHelper` rides along here rather than being reached by name, for the reason
+    -- this table exists at all: `emit` was already at exactly 60 upvalues, so one more
+    -- name reached from it is one too many. A coverage build finds that first, because it
     -- instruments the largest function in the compiler and the module then will not load.
-    --
-    -- What it holds: `is` against a `where` refinement reads the subject more than once
-    -- -- the table test, then every field step -- so a subject that is not a name has to
-    -- be bound to something first. Binding it in a function written at the site builds
-    -- that function on every evaluation, and LuaJIT does not record `FNEW` at all: a loop
-    -- containing one aborts recording and is blacklisted, so it never compiles. Hoisting
-    -- the subject to a statement instead would be wrong, because `is` appears under `and`
-    -- and `or`, where the subject is evaluated only if the branch is reached.
-    --
-    -- One function per distinct test, declared once as the module loads, is neither. Its
-    -- parameter does the binding, the call is one a trace inlines, and two types whose
-    -- tests render alike share one.
     local pluck = {
         plans = {},
         statementActive = {},
-        refinement = {tests = {}, order = {}, param = "__nuppV", reserve = reservedName},
+        helpers = helpers,
+        declareHelper = declareHelper,
     }
 
     local function dottedPathParts(node): string?, {string}?
@@ -1997,14 +2020,9 @@ function gen.generate(
                     -- refinement may read the subject more than once and the expression
                     -- may not be free to run twice. The test it is handed to is declared
                     -- once for the module rather than built here; see `refinement`.
-                    local tests = pluck.refinement
-                    local body = predicate.test(t.wherePredicate, tests.param)
-                    local name = tests.tests[body]
-                    if not name then
-                        name = tests.reserve("__nuppIs" .. tostring(#tests.order + 1))
-                        tests.tests[body] = name
-                        tests.order[#tests.order + 1] = {name = name, body = body}
-                    end
+                    local name = pluck.declareHelper(
+                        "__nuppIs", "__nuppV", "return " .. predicate.test(t.wherePredicate, "__nuppV")
+                    )
                     e(("%s("):format(name), line)
                     emit(x.expr)
                     e(")")
@@ -2293,8 +2311,21 @@ function gen.generate(
             return
 
         elseif kind == "callStmt" and x.expr and x.expr.ownershipIntrinsic == "drop" then
+            -- `drop` yields nothing, so the block is all the statement needs. It is also
+            -- what lets the move be marked without a wrapper: this is statement root, so
+            -- the clear is a statement ahead of the value rather than a function built
+            -- round it, in the same order.
+            local inner = x.expr
+            local innerArgs = inner.args and inner.args.exprs or {}
+            local innerMove = innerArgs[1] and innerArgs[1].automaticOwnerMove or nil
+            local innerActive = innerMove and activeWith(innerMove) or nil
             e("do", sourceLine(x))
-            emit(x.expr)
+            if innerActive then
+                e(("%s=false;"):format(innerActive))
+                inner.ownershipMoveCleared = true
+            end
+            emit(inner)
+            inner.ownershipMoveCleared = nil
             e("end")
             return
 
@@ -2305,8 +2336,24 @@ function gen.generate(
             -- leaves an expression where Lua wants a statement, and a file that checks
             -- and builds but will not load. Binding the value keeps whatever computing
             -- it does and lets the block discard it.
-            e("do local " .. nextTemp() .. "=", sourceLine(x))
-            emit(x.expr)
+            --
+            -- The block is also what lets the move be marked without a wrapper: this is
+            -- statement root, so the clear is a statement ahead of the value rather than a
+            -- function built round it. The order it needs is the same one.
+            local inner = x.expr
+            local innerArgs = inner.args and inner.args.exprs or {}
+            local innerMove = innerArgs[1] and innerArgs[1].automaticOwnerMove or nil
+            local innerActive = innerMove and activeWith(innerMove) or nil
+            e("do ", sourceLine(x))
+            if innerActive and (
+                inner.ownershipIntrinsic == "drop" or inner.ownershipIntrinsic == "intoRaw"
+            ) then
+                e(("%s=false; "):format(innerActive))
+                inner.ownershipMoveCleared = true
+            end
+            e("local " .. nextTemp() .. "=")
+            emit(inner)
+            inner.ownershipMoveCleared = nil
             e(" end")
             return
 
@@ -2322,66 +2369,81 @@ function gen.generate(
             return
 
         elseif kind == "call" and x.ffiOutContracts then
+            -- An out parameter is a cell the callee writes and the caller reads back, so
+            -- the lowering allocates one, passes it, and unpacks it. None of that depends
+            -- on anything but the C signature: the same declaration lowers to the same
+            -- sequence every time, and the callee and the ordinary arguments are the only
+            -- things that vary. So the sequence is declared once and they are handed to
+            -- it, rather than a function being built around them per call.
+            --
+            -- This is the shape that most wanted it. Calling out with an out parameter in
+            -- a loop is what the FFI support is for, and a function built per call meant
+            -- that loop never compiled.
             needsFfi = true
             local line = sourceLine(x)
-            local holders = {}
-            e("(function() ", line)
-            for _, output in ipairs(x.ffiOutContracts) do
-                local holder = nextTemp()
-                holders[#holders + 1] = holder
-                local spelling = cdefCType(output.typeNode) or "void **"
-                spelling = spelling:gsub("%s*%*$", "") .. "[1]"
-                e(("const %s=__nuppFfi.new(%q); "):format(holder, spelling))
-            end
-            local hasStatus = x.ffiOutContracts[1].hasStatus
-            local status = hasStatus and nextTemp() or nil
-            if status then
-                e("const " .. status .. "=")
-            end
-            emit(x.obj)
-            e("(")
             local loweredArgs = x.args and x.args.loweredArgs or nil
             local args = loweredArgs or (x.args and x.args.exprs or {})
-            local outputAt = {}
+            local status = x.ffiOutContracts[1].hasStatus and "__nuppS" or nil
+
+            local holders, outputAt, body = {}, {}, {}
             for j, output in ipairs(x.ffiOutContracts) do
+                holders[j] = "__nuppH" .. tostring(j)
                 outputAt[output.cIndex] = holders[j]
+                local spelling = cdefCType(output.typeNode) or "void **"
+                spelling = spelling:gsub("%s*%*$", "") .. "[1]"
+                body[#body + 1] = ("const %s=__nuppFfi.new(%q); "):format(holders[j], spelling)
             end
-            local argumentIndex = 1
+
+            -- The C positions the caller fills become parameters; the rest are the cells.
+            local params, callArguments, inputs = {"__nuppFn"}, {}, 0
             for cIndex = 1, #args + #holders do
-                if cIndex > 1 then
-                    e(",")
-                end
                 if outputAt[cIndex] then
-                    e(outputAt[cIndex])
+                    callArguments[#callArguments + 1] = outputAt[cIndex]
                 else
-                    if loweredArgs then
-                        pluck.emitArgument(args[argumentIndex], x.args)
-                    else
-                        emit(args[argumentIndex])
-                    end
-                    argumentIndex = argumentIndex + 1
+                    inputs = inputs + 1
+                    params[#params + 1] = "__nuppA" .. tostring(inputs)
+                    callArguments[#callArguments + 1] = params[#params]
                 end
             end
-            e("); return ")
+            body[#body + 1] = (status and ("const %s="):format(status) or "")
+                .. ("__nuppFn(%s); return "):format(table.concat(callArguments, ","))
+
+            local results = {}
             if status then
-                e(status)
+                results[#results + 1] = status
             end
             for j, output in ipairs(x.ffiOutContracts) do
-                if status or j > 1 then
-                    e(",")
-                end
                 if output.success == "zero" then
-                    e(("(%s==0 and %s[0] or nil)"):format(status, holders[j]))
+                    results[#results + 1] = ("(%s==0 and %s[0] or nil)"):format(status, holders[j])
                 elseif output.success == "nonzero" then
-                    e(("(%s~=0 and %s[0] or nil)"):format(status, holders[j]))
+                    results[#results + 1] = ("(%s~=0 and %s[0] or nil)"):format(status, holders[j])
                 elseif output.success:match("^equals:") then
                     local literal = output.success:sub(#"equals:" + 1)
-                    e(("(%s==%s and %s[0] or nil)"):format(status, literal, holders[j]))
+                    results[#results + 1] = ("(%s==%s and %s[0] or nil)"):format(
+                        status, literal, holders[j]
+                    )
                 else
-                    e(holders[j] .. "[0]")
+                    results[#results + 1] = holders[j] .. "[0]"
                 end
             end
-            e(" end)()")
+            body[#body + 1] = table.concat(results, ",")
+
+            e(
+                pluck.declareHelper(
+                    "__nuppOut", table.concat(params, ","), table.concat(body)
+                ) .. "(",
+                line
+            )
+            emit(x.obj)
+            for j = 1, inputs do
+                e(",")
+                if loweredArgs then
+                    pluck.emitArgument(args[j], x.args)
+                else
+                    emit(args[j])
+                end
+            end
+            e(")")
             return
 
         elseif kind == "call" and x.ownershipIntrinsic then
@@ -2389,7 +2451,15 @@ function gen.generate(
             local line = sourceLine(x)
             local move = args[1] and args[1].automaticOwnerMove or nil
             local movedActive = move and activeWith(move) or nil
-            if movedActive and (x.ownershipIntrinsic == "drop" or x.ownershipIntrinsic == "intoRaw") then
+            -- The move has to be marked before the value is produced: if producing it
+            -- raises, the region must already know the owner left, or unwinding frees it a
+            -- second time. A statement can say that, and at statement root the caller
+            -- already has; here, in the middle of an expression, only a wrapper can, and
+            -- that wrapper is a function built every time this runs.
+            local wrapsMove = movedActive ~= nil
+                and not x.ownershipMoveCleared
+                and (x.ownershipIntrinsic == "drop" or x.ownershipIntrinsic == "intoRaw")
+            if wrapsMove then
                 e(("(function() %s=false; return "):format(movedActive), line)
             end
             if x.ownershipIntrinsic == "borrow" then
@@ -2447,14 +2517,19 @@ function gen.generate(
                     e("nil")
                 end
             else -- drop
-                e("(function(__p) if __p == nil then return end ", line)
+                -- The body reads its parameter and nothing else, so the cleanups a `drop`
+                -- runs are the same function every time it runs them.
+                local statements = {"if __nuppV == nil then return end "}
                 for _, cleanup in ipairs(x.ownerCleanups or {}) do
-                    local call = cleanupCall(cleanup, "__p")
+                    local call = cleanupCall(cleanup, "__nuppV")
                     if call then
-                        e(call .. "; ")
+                        statements[#statements + 1] = call .. "; "
                     end
                 end
-                e("end)(")
+                e(
+                    pluck.declareHelper("__nuppDrop", "__nuppV", table.concat(statements)) .. "(",
+                    line
+                )
                 if args[1] then
                     emit(args[1])
                 else
@@ -2462,7 +2537,7 @@ function gen.generate(
                 end
                 e(")")
             end
-            if movedActive and (x.ownershipIntrinsic == "drop" or x.ownershipIntrinsic == "intoRaw") then
+            if wrapsMove then
                 e(" end)()")
             end
             return
@@ -2611,23 +2686,26 @@ function gen.generate(
             for _, activeName in ipairs(activeNames) do
                 e(("%s=false; "):format(activeName))
             end
-            e(("return %s:adopt(%s,function(__p) local __first,__suppressed=nil,0; "):format(object, value))
+            -- The cleanup this hands to `adopt` reads its parameter and nothing else, so
+            -- it is one function for the module rather than one per adoption. The wrapper
+            -- around it stays where it is: that one clears this site's own `active` flags,
+            -- which no shared function could reach.
+            local body = {"local __first,__suppressed=nil,0; "}
             for _, cleanup in ipairs(x.resourceAdoptCleanups) do
-                local call = protectedCleanupCall(cleanup, "__p", "pcall")
+                local call = protectedCleanupCall(cleanup, "__nuppV", "pcall")
                 if call then
-                    e(
-                        "do local __ok,__reason="
+                    body[#body + 1] = "do local __ok,__reason="
                         .. call
                         .. "; if not __ok then if __first==nil then __first=__reason "
                         .. "else __suppressed=__suppressed+1 end end end; "
-                    )
                 end
             end
-            e(
-                "if __first~=nil then if __suppressed>0 then "
+            body[#body + 1] = "if __first~=nil then if __suppressed>0 then "
                 .. "error(tostring(__first)..\" (suppressed \"..tostring(__suppressed)"
-                .. "..\" cleanup failure(s))\",0) else error(__first,0) end end end)"
-            )
+                .. "..\" cleanup failure(s))\",0) else error(__first,0) end end"
+            e(("return %s:adopt(%s,%s)"):format(
+                object, value, pluck.declareHelper("__nuppAdopt", "__nuppV", table.concat(body))
+            ))
             e(" end)(")
             emit(x.obj)
             e(",")
@@ -2954,12 +3032,14 @@ function gen.generate(
                 e(("%s="):format(owners[1]), sourceLine(binding.expr))
                 local move = binding.expr and binding.expr.automaticOwnerMove or nil
                 local movedActive = move and activeWith(move) or nil
-                if movedActive then
-                    e(("(function(__p) %s=false; return __p end)("):format(movedActive))
-                end
                 emit(binding.expr)
                 if movedActive then
-                    e(")")
+                    -- Marked after the binding rather than around it. This is already a
+                    -- statement, so the clear can be one too, and nothing runs between the
+                    -- two that could tell the difference -- where wrapping it meant a
+                    -- function built on every acquisition, which is one a loop cannot
+                    -- record.
+                    e(("; %s=false"):format(movedActive))
                 end
                 e(
                     (
@@ -3013,16 +3093,16 @@ function gen.generate(
                     ):format(ok, tag, payload, cleanupGlobals.xpcall, variadic and "..." or "")
                 )
                 cleanupStack[#cleanupStack + 1] = ctx
-                local function emitAcquired(binding, expr)
-                    local move = expr and expr.automaticOwnerMove or nil
-                    local movedActive = move and activeWith(move) or nil
-                    if movedActive then
-                        e(("(function(__p) %s=false; return __p end)("):format(movedActive))
-                    end
+                -- Emits the acquisition and hands back the flag its move clears, if it has
+                -- one. Every caller is finishing a statement, so the clear can be one too:
+                -- nothing runs between the acquisition and it that could tell the
+                -- difference, where wrapping it meant a function built per acquisition,
+                -- which is one a loop cannot record.
+                local function emitAcquired(binding, expr): string?
                     emit(expr)
-                    if movedActive then
-                        e(")")
-                    end
+                    local move = expr and expr.automaticOwnerMove or nil
+
+                    return move and activeWith(move) or nil
                 end
 
                 local function activateValue(j, binding, value)
@@ -3062,8 +3142,11 @@ function gen.generate(
                 local function activate(j, binding, deferName)
                     local value = nextTemp()
                     e(("const %s="):format(value), sourceLine(binding.expr))
-                    emitAcquired(binding, binding.expr)
+                    local cleared = emitAcquired(binding, binding.expr)
                     e(";")
+                    if cleared then
+                        e((" %s=false;"):format(cleared))
+                    end
                     activateValue(j, binding, value)
                     if not deferName then
                         e((" %s %s=%s;"):format(binding.isConst and "const" or "local", binding.name.text, owners[j]))
@@ -3089,16 +3172,22 @@ function gen.generate(
                                 if exprIndex == #exprs and #names > #exprs then
                                     local packed = nextTemp()
                                     e(("const %s=%s("):format(packed, cleanupPackName), sourceLine(expr))
-                                    emitAcquired(bySlot[exprIndex], expr)
+                                    local cleared = emitAcquired(bySlot[exprIndex], expr)
                                     e(");")
+                                    if cleared then
+                                        e((" %s=false;"):format(cleared))
+                                    end
                                     for nameIndex = exprIndex, #names do
                                         staged[nameIndex] = ("%s[%d]"):format(packed, nameIndex - exprIndex + 1)
                                     end
                                 else
                                     local value = nextTemp()
                                     e(("const %s="):format(value), sourceLine(expr))
-                                    emitAcquired(bySlot[exprIndex], expr)
+                                    local cleared = emitAcquired(bySlot[exprIndex], expr)
                                     e(";")
+                                    if cleared then
+                                        e((" %s=false;"):format(cleared))
+                                    end
                                     staged[exprIndex] = value
                                 end
                                 if exprIndex < #exprs then
@@ -3495,6 +3584,21 @@ function gen.generate(
     raw("\n")
 
     local code = table.concat(out)
+    -- Declared first here so they end up last in the prologue: every block below prepends
+    -- ahead of this one, which leaves these sitting directly on top of the module body
+    -- with the whole prologue already in scope. A helper that calls a cleanup resolver
+    -- needs exactly that -- resolvers are `local`, so a declaration written above them
+    -- reads the name as a global and finds nil. They still share the prologue's one line,
+    -- so no source line moves.
+    if #pluck.helpers.order > 0 then
+        local declarations = {}
+        for _, helper in ipairs(pluck.helpers.order) do
+            declarations[#declarations + 1] = ("const %s = function(%s) %s end; "):format(
+                helper.name, helper.params, helper.body
+            )
+        end
+        code = table.concat(declarations) .. code
+    end
     if needsCleanupRegistry then
         local linked = {
             ("local %s=_G.__nuppCleanupRegistry;"):format(cleanupRegistryName),
@@ -3639,17 +3743,6 @@ function gen.generate(
             .. "if type(mt) == \"table\" then setmetatable(out, mt) end "
             .. "return out end; "
             .. code
-    end
-    if #pluck.refinement.order > 0 then
-        -- One declaration per distinct refinement test, ahead of every use of it. They go
-        -- on the prologue line the rest of these share, so no source line moves.
-        local declarations = {}
-        for _, test in ipairs(pluck.refinement.order) do
-            declarations[#declarations + 1] = ("const %s = function(%s) return %s end; "):format(
-                test.name, pluck.refinement.param, test.body
-            )
-        end
-        code = table.concat(declarations) .. code
     end
     if needsClearTab then
         code = ("const %s = require(\"table.clear\"); "):format(clearTabName) .. code
