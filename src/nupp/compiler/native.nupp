@@ -78,7 +78,6 @@ local FEATURES: {
 ] = {
     name = "peg_compile",
     globals = {"nupp.peg.compile"},
-    emittedOnly = true,
 }, [
     "stdlib.fieldcodec"
 ] = {

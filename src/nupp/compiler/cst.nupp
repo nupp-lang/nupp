@@ -102,6 +102,15 @@ interface cst.Hints
     --- as a private require binding once per generated module.
     compilerModule: string?
 
+    --- A runtime feature required if this node reaches generated Lua. The checker
+    --- records source-level effects separately for diagnostics and packaging; codegen
+    --- consumes this hint only after deciding that it will emit the node.
+    compilerFeatureEffect: string?
+
+    --- Runtime features required by one synthetic construct, such as a derive plan or
+    --- suspension handler, rather than by an indexed expression inside it.
+    compilerFeatureEffects: {string}?
+
     --- A `layoutof(T)` call, carrying the declaration's name, the field-to-C-type spec,
     --- and the nested struct ctypes the spec's `$` placeholders consume.
     layoutOf: any

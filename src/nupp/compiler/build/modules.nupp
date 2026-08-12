@@ -657,17 +657,26 @@ local function buildModules(
                     relaxed = config._relaxedGuarantees
                 }
             )
-            result.result.effects = optimize.liveEffects(result.result)
-            for effect in pairs(result.result.effects) do
-                effectNames[#effectNames + 1] = effect
-            end
-            table.sort(effectNames)
             if config._remarks then
                 for _, note in ipairs(remarks) do
                     mine[#mine + 1] = note
                 end
             end
-            code, genDiags, coverage = gen.generate(result.result, path, config._coverage and {path = path} or nil)
+            local emittedEffects
+            code, genDiags, coverage, emittedEffects = gen.generate(
+                result.result,
+                path,
+                config._coverage and {path = path} or nil
+            )
+            -- Generation is the last word on runtime reachability: it has now seen
+            -- which checked nodes survived folding, comptime erasure, materialization,
+            -- and lowering. Persist the same set that selected the generated prologue
+            -- so packaging cannot retain a provider the Lua does not use.
+            result.result.effects = emittedEffects
+            for effect in pairs(emittedEffects) do
+                effectNames[#effectNames + 1] = effect
+            end
+            table.sort(effectNames)
             stats.generatedModules = stats.generatedModules + 1
             for _, diag in ipairs(genDiags or {}) do
                 mine[#mine + 1] = diag

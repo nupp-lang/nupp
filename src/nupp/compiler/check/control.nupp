@@ -632,6 +632,7 @@ function control.install(c: state.Checker): state.StatHandlers
         if c.recordEffect then
             c.recordEffect("runtime.suspension")
         end
+        stat.compilerFeatureEffects = {"runtime.suspension"}
         c.handledDepth = c.handledDepth + 1
         c.pushScope()
         c.checkBlock(stat.body as cst.Node, true)

@@ -36,7 +36,11 @@ two levels of omission: an unused facility contributes no generated adapter and
 no native artifact; a selected but unvisited lazy member does not initialize its
 provider. At `-O1` and above, feature effects are recomputed after constant
 folding, so a facility used only in a branch or loop eliminated by DCE does not
-retain its adapter or provider.
+retain its adapter or provider. Code generation makes the final selection from
+the constructs it actually writes, so comptime erasure, materialization, and
+other lowering cannot leave a source-only facility in the generated first-line
+bootstrap. Native FFI declarations are split by that same set; selecting UUID,
+for example, does not declare the path, files, process, or SHA-256 ABI.
 
 The public surface does not expose `cjson`, `lua-utf8`, Rust handles, or FFI
 pointers. Those are implementation details. Application code can therefore keep

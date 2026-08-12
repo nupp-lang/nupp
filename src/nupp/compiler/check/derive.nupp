@@ -272,6 +272,10 @@ function derive.install(c: state.Checker): derive.Ops
 
         c.recordEffect("stdlib.derives")
         if requested.JSON then c.recordEffect("native.cjson") end
+        stat.compilerFeatureEffects = {"stdlib.derives"}
+        if requested.JSON then
+            stat.compilerFeatureEffects[#stat.compilerFeatureEffects + 1] = "native.cjson"
+        end
 
         n.deriveProviders = requested
         local filename = c.filename and fs.normalize(c.filename) or "<source>"

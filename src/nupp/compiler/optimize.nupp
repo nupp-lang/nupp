@@ -1312,9 +1312,6 @@ function optimize.liveEffects(result: optimize.Checked): {[string]: boolean}
         if not node or isToken(node) then
             return
         end
-        if node.compilerFeatureEffect then
-            effects[node.compilerFeatureEffect] = true
-        end
         if node.constantLoopNone then
             return
         end
@@ -1323,6 +1320,23 @@ function optimize.liveEffects(result: optimize.Checked): {[string]: boolean}
                 visit(node.constantBranch)
             end
             return
+        end
+        if node.materializedIR then
+            for _, effect in ipairs(
+                node.materializationObservation and node.materializationObservation.runtimeFeatures or {}
+            ) do
+                effects[effect] = true
+            end
+            return
+        end
+        if node.comptimeValue or node.folded then
+            return
+        end
+        if node.compilerFeatureEffect then
+            effects[node.compilerFeatureEffect] = true
+        end
+        for _, effect in ipairs(node.compilerFeatureEffects or {}) do
+            effects[effect] = true
         end
         for _, child in ipairs(node) do
             visit(child)

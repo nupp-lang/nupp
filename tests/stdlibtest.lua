@@ -4,6 +4,7 @@ local envMod = require("nupp.compiler.env")
 local native = require("nupp.compiler.native")
 local stdlib = require("nupp.compiler.stdlib")
 local optimize = require("nupp.compiler.optimize")
+local gen = require("nupp.compiler.gen")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 
@@ -294,6 +295,31 @@ function M.optimizedDeadCodeDropsItsNativeFeatures()
    assert(live["native.uuid"], "the selected branch retains its provider")
 end
 
+function M.generatedBootstrapFollowsWhatCodegenEmits()
+   local source = table.concat({
+      "if false then",
+      "    print(nupp.data.sha256('unreachable'))",
+      "else",
+      "    print(nupp.data.uuid4())",
+      "end",
+   }, "\n")
+   local result = parser.parse(source, "generated-runtime-features")
+   assertEq(#result.errors, 0, "generated-runtime-features source parses")
+   check.check(result, "generated-runtime-features", sharedEnv)
+   assert(result.effects["native.sha256"] and result.effects["native.uuid"],
+      "checking retains the complete source-level feature inventory")
+   optimize.run(result, {level = 1})
+
+   local code, diagnostics, _, emitted = gen.generate(result, "generated-runtime-features")
+   assertEq(#diagnostics, 0, "the optimized feature fragment generates")
+   assert(not emitted["native.sha256"] and emitted["native.uuid"],
+      "generation reports only features whose consumers it wrote")
+   assert(not code:find("nuppSha256", 1, true),
+      "the first line omits the dead SHA-256 installer")
+   assert(code:find("nuppUuid4", 1, true),
+      "the first line retains the live UUID installer")
+end
+
 function M.compilerProvidedPureLibraries()
    local bootstrap = stdlib.bootstrap({
       ["stdlib.io"] = true,
@@ -472,6 +498,45 @@ function M.nativeGlobalMembersLoadOnFirstAccess()
       "reading newPath dispatches its registered lazy loader")
    package.loaded.ffi = loadedFFI
    _G.nupp = previous
+end
+
+function M.nativeBootstrapDeclaresOnlyTheSelectedAbi()
+   local uuid = stdlib.bootstrap({["native.uuid"] = true})
+   assert(uuid:find("nuppUuid4", 1, true), "UUID declares its own ABI")
+   for _, absent in ipairs({
+      "nuppSha256", "nuppPathJoin", "nuppUriParse", "NuppFileInfo",
+      "nuppProcessSpawnBegin", "nuppBytesData",
+   }) do
+      assert(not uuid:find(absent, 1, true),
+         "UUID omits unrelated native declaration " .. absent)
+   end
+
+   local files = stdlib.bootstrap({["native.files"] = true})
+   assert(files:find("NuppFileInfo", 1, true), "files declares its own ABI")
+   assert(files:find("nuppBytesData", 1, true),
+      "files retains the byte-return dependency it uses")
+   assert(not files:find("nuppProcessSpawnBegin", 1, true),
+      "files omits the process ABI")
+   assert(not files:find("nuppPathJoin", 1, true),
+      "files omits the path ABI")
+
+   local process = stdlib.bootstrap({["native.process"] = true})
+   assert(process:find("nuppProcessSpawnBegin", 1, true),
+      "process declares its own ABI")
+   assert(not process:find("nuppBytesData", 1, true),
+      "process omits the unused byte-return ABI and helper")
+   assert(not process:find("NuppFileInfo", 1, true),
+      "process omits the files ABI")
+
+   local http = stdlib.bootstrap({["native.http"] = true})
+   assert(http:find("typedef struct NuppUri NuppUri", 1, true),
+      "HTTP retains the opaque URI dependency in its request ABI")
+   assert(http:find("nuppHttpClientCreate", 1, true),
+      "HTTP declares its own ABI")
+   assert(not http:find("nuppUriParse", 1, true),
+      "HTTP omits the URI implementation ABI")
+   assert(not http:find("nuppProcessSpawnBegin", 1, true),
+      "HTTP omits the process ABI")
 end
 
 function M.pureAndNativeRuntimeFeaturesComposeAsLua()

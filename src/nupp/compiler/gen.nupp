@@ -35,7 +35,6 @@ represented.
 
 local cst = require("nupp.compiler.cst")
 local predicate = require("nupp.compiler.predicate")
-local native = require("nupp.compiler.native")
 local stdlib = require("nupp.compiler.stdlib")
 
 local gen = {}
@@ -292,17 +291,27 @@ type gen.Coverage = {
 ---
 --- `coverage` is an internal build setting: absent on ordinary compiles, so the normal
 --- emission path remains byte-for-byte what it was before coverage existed. In coverage
---- mode the third return is the source-site manifest.
+--- mode the third return is the source-site manifest. The fourth return is the exact
+--- runtime-feature set observed while writing the generated body.
 function gen.generate(
     result: gen.Checked,
     filename: string?,
     coverage: (boolean | gen.CoverageRequest)?
-): string, {any}, gen.Coverage?
+): string, {any}, gen.Coverage?, {[string]: boolean}
     local out = {}
     local curLine = 1
     local atLineStart = true
     local diags = {}
-    local emittedFeatureEffects = {}
+    -- Runtime features follow generated code, not the checker's source-level
+    -- inventory. `emit` may erase a comptime block, a folded branch, or another
+    -- checked construct before any of its children reach the output. Recording a
+    -- feature at the point its consumer is written keeps the prologue equal to what
+    -- the generated body actually needs.
+    local emittedFeatureEffects: {[string]: boolean} = {}
+    local function needRuntimeEffect(effect: string): nil
+        emittedFeatureEffects[effect] = true
+    end
+
     local tempCounter = 0
     local usedNames = {}
     for _, tok in ipairs(result.tokens or {}) do
@@ -506,6 +515,12 @@ function gen.generate(
     -- does not collide with it. OPT-5 reaches string.buffer through the same registry.
 
     local function compilerModuleName(moduleName: string): string
+        if moduleName == "nupp.log" then
+            -- Intrinsic logging lowering may consume the original field access before
+            -- it reaches ordinary node emission. Requesting the generated module view
+            -- is the surviving operation that needs the ambient logging installer.
+            needRuntimeEffect("stdlib.log")
+        end
         local name = compilerModules[moduleName]
         if not name then
             local preferred = moduleName == "string.buffer" and "__nuppBuffer" or "__nuppModule"
@@ -532,6 +547,7 @@ function gen.generate(
     -- nothing.
     local function suspensionModule()
         needsSuspension = true
+        needRuntimeEffect("runtime.suspension")
         suspensionName = suspensionName or reservedName("__nuppSuspension")
 
         return suspensionName
@@ -1428,7 +1444,7 @@ function gen.generate(
             e(rendered, sourceLine(x))
             local observation = x.materializationObservation
             for _, effect in ipairs(observation and observation.runtimeFeatures or {}) do
-                emittedFeatureEffects[effect] = "materialized"
+                needRuntimeEffect(effect)
             end
             return
         end
@@ -1437,9 +1453,10 @@ function gen.generate(
             return
         end
         if x.compilerFeatureEffect then
-            if not emittedFeatureEffects[x.compilerFeatureEffect] then
-                emittedFeatureEffects[x.compilerFeatureEffect] = "emitted"
-            end
+            needRuntimeEffect(x.compilerFeatureEffect)
+        end
+        for _, effect in ipairs(x.compilerFeatureEffects or {}) do
+            needRuntimeEffect(effect)
         end
         if kind == "dotIndex" and x.overloadMember then
             emit(x.obj)
@@ -1580,6 +1597,10 @@ function gen.generate(
             emitInheritedDefaults(x, runtimeName)
             if x.derivePlan then
                 local plan = x.derivePlan
+                needRuntimeEffect("stdlib.derives")
+                if plan.providers.JSON then
+                    needRuntimeEffect("native.cjson")
+                end
                 e(";do local __nuppDerived=" .. literal.derive(plan))
                 e((";local __nuppDerivedEntry=_G.nupp.__derive.register(%q,%s,__nuppDerived)"):format(plan.key, runtimeName))
                 if plan.providers.Debug then
@@ -3341,18 +3362,7 @@ function gen.generate(
     end
     -- `nupp` is an ambient namespace, not a module the application must require. A
     -- feature only adds its bootstrap in modules that resolved it.
-    local runtimeEffects = {}
-    for effect, value in pairs(result.effects or {}) do
-        local feature = native.feature(effect)
-        if not feature or not feature.emittedOnly or emittedFeatureEffects[effect] then
-            runtimeEffects[effect] = value
-        end
-    end
-    for effect, state in pairs(emittedFeatureEffects) do
-        if state == "materialized" then
-            runtimeEffects[effect] = true
-        end
-    end
+    local runtimeEffects = emittedFeatureEffects
     -- Bound here rather than with the required modules below, because those are
     -- independent of the bootstrap and this one is not: it reads the table the
     -- installer publishes, so it has to land after it rather than before.
@@ -3559,7 +3569,7 @@ function gen.generate(
     end
     local metadata = coverageOn and {path = coveragePath, sites = (coverageSites or {}) as {any}} or nil
 
-    return code, diags, metadata
+    return code, diags, metadata, emittedFeatureEffects
 end
 
 return gen
