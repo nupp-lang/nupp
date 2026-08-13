@@ -161,12 +161,41 @@ function ownership.install(c: state.Checker): ownership.Ops
         registrations[#registrations + 1] = {cleanup = cleanup, after = after}
     end
 
+    -- One key per cleanup declaration, and the same key every run. It names the
+    -- function in the generated registry, and it reaches the interned identity of
+    -- every owned type discharged by it -- so a key that moved when unrelated text
+    -- above the declaration moved would make a type built this run compare unequal
+    -- to the same type read from the cache.
+    --
+    -- The first declaration of a name in a module is the bare name; a second one is
+    -- numbered after it. Two locals may share a name in sibling scopes, and giving
+    -- them one key would register one cleanup over the other and discharge owners
+    -- through the wrong function.
+    local cleanupOrdinals: {[string]: integer} = {}
+    local cleanupKeys: {[any]: string} = {}
+
+    local function cleanupKey(origin: string, name: string, definition: any): string
+        local base = ("%s#%s"):format(origin, name)
+        if not definition then
+            return base
+        end
+        local known = cleanupKeys[definition]
+        if known then
+            return known
+        end
+        local seen = cleanupOrdinals[base] or 0
+        cleanupOrdinals[base] = seen + 1
+        local key = seen == 0 and base or ("%s#%d"):format(base, seen)
+        cleanupKeys[definition] = key
+
+        return key
+    end
+
     local function resolvedFunctionCleanup(name, at, registrationNode, after, knownType)
         local entry = c.lookupEntry(name)
         local definition = entry and entry.definition or nil
-        local token = definition and definition.token or cst.firstToken(at)
         local origin = c.result.moduleName or c.filename or "<module>"
-        local key = ("%s#%s@%d"):format(origin, name, token and token.offset or 0)
+        local key = cleanupKey(origin, name, definition)
         local cleanup = T.functionCleanup(key, name, knownType or entry and entry.t or nil)
         addRegistration(registrationNode, cleanup, after == true)
 

@@ -2865,4 +2865,38 @@ function M.theOwnedAnnotationStillDeclaresAnOwningResult()
    }, "\n"))
 end
 
+-- A cleanup key names the function in the generated registry and reaches the
+-- interned identity of every owned type discharged by it. Deriving it from a byte
+-- offset moved it whenever unrelated text above the declaration moved, so a type
+-- built after an edit stopped matching the same type read from the cache.
+function M.aCleanupKeyDoesNotMoveWithTextAboveIt()
+   local body = table.concat({
+      "local function use(): integer",
+      "   do",
+      "      local value = resource_new()",
+      "      return value.value",
+      "   end",
+      "end",
+      "return use",
+   }, "\n")
+   local function keysOf(source)
+      local result, diags = checked(source)
+      assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+      local code, genDiags = gen.generate(result, "ownership-test")
+      assertEq(#genDiags, 0)
+      local found = {}
+      for key in code:gmatch('"([%w%-%._]+#[%w_#]+)"') do
+         found[#found + 1] = key
+      end
+      table.sort(found)
+      assert(#found > 0, "no cleanup key was emitted: " .. code)
+      return table.concat(found, ",")
+   end
+
+   local plain = keysOf(RESOURCE .. "\n" .. body)
+   local shifted = keysOf("-- a comment that shifts every offset below it\n"
+      .. "-- and a second line of it\n" .. RESOURCE .. "\n" .. body)
+   assertEq(shifted, plain, "the cleanup key moved with text above the declaration")
+end
+
 return M
