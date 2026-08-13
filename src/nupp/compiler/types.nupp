@@ -970,16 +970,15 @@ local function canonicalOrder(a: types.Type, b: types.Type): boolean
     return a.id < b.id
 end
 
---- Returns the type interned under `key`, building it on first use.
+--- Records `made` under `key` and gives it an id, unless the key is already taken.
 ---
 --- @param key the canonical key; identical structure gives identical keys
---- @param build makes the type when it is not there yet
-local function intern(key: string, build: function(): types.Type): types.Type
+--- @param made the type to keep when the key is not there yet
+local function intern(key: string, made: types.Type): types.Type
     local found = arena[key]
     if found then
         return found
     end
-    local made = build()
     made.id = inheritedMarks(key) .. serial("t")
     arena[key] = made
 
@@ -988,24 +987,29 @@ end
 
 --- The type already interned under `key`, if there is one.
 ---
---- Every constructor asks this before building the closure it would hand to `intern`.
---- The closure captures everything the type is made of, so LuaJIT allocates one per
---- call, and almost every call is a hit that never runs it: checking one 791-line
---- module interned 1,335,624 times and hit 1,317,356 of those, so 98.6% of the closures
---- were built to be thrown away.
+--- Every constructor asks this first and returns early, so the type it would build is
+--- built only on a miss. Almost every call is a hit: checking one 791-line module
+--- interned 1,335,624 times and hit 1,317,356 of those.
 ---
---- Spelled `interned(key) or intern(key, function() ... end)` at each constructor,
---- which
---- leaves the closure an argument that a hit never gets as far as evaluating.
+--- The early return is what the shape is for, and it is not only about the wasted
+--- work. `intern` took a closure once, and a constructor that mentions one anywhere in
+--- its body is a constructor LuaJIT will not record: building it is `FNEW` and leaving
+--- its scope is `UCLO`, both NYI, and the abort throws away the whole trace whether or
+--- not the branch that builds the closure was taken. Type construction is on every hot
+--- path in the checker, so those aborts were 27% of the ones a cold self-build
+--- recorded. Keep this file's constructors closure-free.
 local function interned(key: string): types.Type?
     return arena[key]
 end
 
 --- A primitive type, interned under its own tag.
 local function prim(tag: types.PrimTag): types.Type
-    return interned(tag) or intern(tag, function()
-        return new types.Prim(tag = tag)
-    end)
+    local existing = interned(tag)
+    if existing then
+        return existing
+    end
+
+    return intern(tag, new types.Prim(tag = tag))
 end
 
 types.any = prim("any")
@@ -1097,9 +1101,12 @@ types.builtins = builtins
 function types.array(elem: types.Type): types.Type
     local internKey = "{" .. elem.id .. "}"
 
-    return interned(internKey) or intern(internKey, function()
-        return new types.Array(tag = "array", elem = elem)
-    end)
+    local existing = interned(internKey)
+    if existing then
+        return existing
+    end
+
+    return intern(internKey, new types.Array(tag = "array", elem = elem))
 end
 
 --- A table from `key` to `value`. Reading one yields an optional, since an absent key
@@ -1123,16 +1130,19 @@ function types.indexer(
         readValue and readValue.id or "-"
     ) .. "," .. (writeKey and writeKey.id or "-") .. ":" .. (writeValue and writeValue.id or "-") .. ")"
 
-    return interned(id) or intern(id, function()
-        return new types.Map(
-            tag = "map",
-            key = key,
-            value = value,
-            readable = readValue ~= nil,
-            writeKey = writeKey,
-            writeValue = writeValue
-        )
-    end)
+    local existing = interned(id)
+    if existing then
+        return existing
+    end
+
+    return intern(id, new types.Map(
+        tag = "map",
+        key = key,
+        value = value,
+        readable = readValue ~= nil,
+        writeKey = writeKey,
+        writeValue = writeValue
+    ))
 end
 
 --- A fixed sequence of types, one per position.
@@ -1144,9 +1154,12 @@ function types.tuple(elems: {types.Type}): types.Type
 
     local internKey = "tuple(" .. table.concat(ids, ",") .. ")"
 
-    return interned(internKey) or intern(internKey, function()
-        return new types.Tuple(tag = "tuple", elems = elems)
-    end)
+    local existing = interned(internKey)
+    if existing then
+        return existing
+    end
+
+    return intern(internKey, new types.Tuple(tag = "tuple", elems = elems))
 end
 
 --- A structural shape: a table known by the fields it has.
@@ -1197,19 +1210,84 @@ function types.shape(fields: {types.Field}, indexer: types.Indexer?, fresh: bool
     ) .. ":" .. (irv and irv.id or "-") .. ":w=" .. (iwk and iwk.id or "-") .. ":" .. (iwv and iwv.id or "-") .. "]"
     local key = "shape(" .. table.concat(parts, ",") .. ")" .. (fresh and "!fresh" or "")
 
-    return interned(key) or intern(key, function()
-        return new types.Shape(
-            tag = "shape",
-            fields = sorted,
-            byname = byname,
-            writeByname = writeByname,
-            indexReadKey = irk,
-            indexReadValue = irv,
-            indexWriteKey = iwk,
-            indexWriteValue = iwv,
-            fresh = fresh or nil
-        )
-    end)
+    local existing = interned(key)
+    if existing then
+        return existing
+    end
+
+    return intern(key, new types.Shape(
+        tag = "shape",
+        fields = sorted,
+        byname = byname,
+        writeByname = writeByname,
+        indexReadKey = irk,
+        indexReadValue = irv,
+        indexWriteKey = iwk,
+        indexWriteValue = iwv,
+        fresh = fresh or nil
+    ))
+end
+
+--- Adds `t` to a union under construction, flattening nested unions and merging two
+--- functions that differ only in their labels.
+---
+--- The three tables it works on are arguments rather than upvalues, and this sits beside
+--- `types.union` rather than inside it, because a closure in a constructor costs the
+--- whole trace through it. See `interned`.
+local function pushUnionMember(
+    t: types.Type,
+    seen: {[types.Type]: boolean},
+    flat: {types.Type},
+    functionByContract: {[string]: integer}
+)
+    if t.tag == "union" then
+        for _, m in ipairs(t.members) do
+            pushUnionMember(m, seen, flat, functionByContract)
+        end
+    elseif t.tag == "func" and functionByContract[t.unlabeledId] then
+        local at = functionByContract[t.unlabeledId] as integer
+        local prior = flat[at] as types.Func
+        if prior ~= t then
+            -- A value selected from differently labeled functions can still be
+            -- called positionally, but no label is guaranteed by both branches.
+            local merged = types.func(
+                prior.params,
+                prior.rets,
+                prior.vararg,
+                prior.paramModes,
+                prior.predicate,
+                prior.typeParams,
+                prior.typeBounds,
+                prior.borrowsParam,
+                prior.borrowsSelf,
+                prior.borrowsParams,
+                prior.ffiOut,
+                prior.varargType,
+                prior.noreturn,
+                prior.paramPack,
+                prior.retPack,
+                prior.packParams,
+                prior.yieldPack,
+                prior.resumePack,
+                prior.noYield,
+                nil,
+                prior.preservesResults,
+                prior.foreign,
+                prior.constParams,
+                prior.paramKinds,
+                prior.partitionResults
+            )
+            seen[prior] = nil
+            seen[merged] = true
+            flat[at] = merged
+        end
+    elseif not seen[t] then
+        seen[t] = true
+        flat[#flat + 1] = t
+        if t.tag == "func" then
+            functionByContract[t.unlabeledId] = #flat
+        end
+    end
 end
 
 --- A union of types.
@@ -1222,59 +1300,9 @@ function types.union(members: {types.Type}): types.Type
     local seen: {[types.Type]: boolean} = {}
     local flat: {types.Type} = {}
     local functionByContract: {[string]: integer} = {}
-    local function push(t: types.Type)
-        if t.tag == "union" then
-            for _, m in ipairs(t.members) do
-                push(m)
-            end
-        elseif t.tag == "func" and functionByContract[t.unlabeledId] then
-            local at = functionByContract[t.unlabeledId] as integer
-            local prior = flat[at] as types.Func
-            if prior ~= t then
-                -- A value selected from differently labeled functions can still be
-                -- called positionally, but no label is guaranteed by both branches.
-                local merged = types.func(
-                    prior.params,
-                    prior.rets,
-                    prior.vararg,
-                    prior.paramModes,
-                    prior.predicate,
-                    prior.typeParams,
-                    prior.typeBounds,
-                    prior.borrowsParam,
-                    prior.borrowsSelf,
-                    prior.borrowsParams,
-                    prior.ffiOut,
-                    prior.varargType,
-                    prior.noreturn,
-                    prior.paramPack,
-                    prior.retPack,
-                    prior.packParams,
-                    prior.yieldPack,
-                    prior.resumePack,
-                    prior.noYield,
-                    nil,
-                    prior.preservesResults,
-                    prior.foreign,
-                    prior.constParams,
-                    prior.paramKinds,
-                    prior.partitionResults
-                )
-                seen[prior] = nil
-                seen[merged] = true
-                flat[at] = merged
-            end
-        elseif not seen[t] then
-            seen[t] = true
-            flat[#flat + 1] = t
-            if t.tag == "func" then
-                functionByContract[t.unlabeledId] = #flat
-            end
-        end
-    end
 
     for _, m in ipairs(members) do
-        push(m)
+        pushUnionMember(m, seen, flat, functionByContract)
     end
     if #flat == 1 then
         return flat[1]
@@ -1316,16 +1344,48 @@ function types.union(members: {types.Type}): types.Type
 
     local internKey = "union(" .. table.concat(ids, "|") .. ")"
 
-    return interned(internKey) or intern(internKey, function()
-        local hasNil = false
-        for _, m in ipairs(flat) do
-            if m == types.nil_ then
-                hasNil = true
-            end
-        end
+    local existing = interned(internKey)
+    if existing then
+        return existing
+    end
 
-        return new types.Union(tag = "union", members = flat, hasNil = hasNil)
-    end)
+    local hasNil = false
+    for _, m in ipairs(flat) do
+        if m == types.nil_ then
+            hasNil = true
+        end
+    end
+
+    return intern(internKey, new types.Union(tag = "union", members = flat, hasNil = hasNil))
+end
+
+--- Adds `t` to an intersection under construction, flattening nested intersections.
+---
+--- `never` annihilates what came before, and does it by emptying the two tables rather
+--- than replacing them: they are arguments here, for the reason `pushUnionMember` gives,
+--- so the caller keeps whichever tables it passed.
+local function pushIntersectionMember(
+    t: types.Type,
+    seen: {[types.Type]: boolean},
+    flat: {types.Type}
+)
+    if t == types.never then
+        for index = #flat, 1, -1 do
+            flat[index] = nil
+        end
+        for member in pairs(seen) do
+            seen[member] = nil
+        end
+        flat[1] = types.never
+        seen[types.never] = true
+    elseif t.tag == "intersection" then
+        for _, m in ipairs(t.members) do
+            pushIntersectionMember(m, seen, flat)
+        end
+    elseif t ~= types.unknown and t ~= types.any and not seen[t] and not seen[types.never] then
+        seen[t] = true
+        flat[#flat + 1] = t
+    end
 end
 
 --- An intersection of types.
@@ -1335,22 +1395,9 @@ end
 function types.intersection(members: {types.Type}): types.Type
     local seen: {[types.Type]: boolean} = {}
     local flat: {types.Type} = {}
-    local function push(t: types.Type)
-        if t == types.never then
-            flat = {types.never}
-            seen = {[types.never] = true}
-        elseif t.tag == "intersection" then
-            for _, m in ipairs(t.members) do
-                push(m)
-            end
-        elseif t ~= types.unknown and t ~= types.any and not seen[t] and not seen[types.never] then
-            seen[t] = true
-            flat[#flat + 1] = t
-        end
-    end
 
     for _, m in ipairs(members) do
-        push(m)
+        pushIntersectionMember(m, seen, flat)
     end
     if #flat == 0 then
         return types.unknown
@@ -1366,9 +1413,12 @@ function types.intersection(members: {types.Type}): types.Type
 
     local internKey = "intersection(" .. table.concat(ids, "&") .. ")"
 
-    return interned(internKey) or intern(internKey, function()
-        return new types.Intersection(tag = "intersection", members = flat)
-    end)
+    local existing = interned(internKey)
+    if existing then
+        return existing
+    end
+
+    return intern(internKey, new types.Intersection(tag = "intersection", members = flat))
 end
 
 --- `t` or nil: what an annotation writes `T?`.
@@ -1380,9 +1430,12 @@ end
 function types.ptr(t: types.Type): types.Type
     local internKey = t.id .. "*"
 
-    return interned(internKey) or intern(internKey, function()
-        return new types.Ptr(tag = "ptr", elem = t)
-    end)
+    local existing = interned(internKey)
+    if existing then
+        return existing
+    end
+
+    return intern(internKey, new types.Ptr(tag = "ptr", elem = t))
 end
 
 --- A free cleanup binding resolved in its declaring module.
@@ -1432,17 +1485,23 @@ function types.owned(t: types.Type, cleanups: {types.Cleanup}?, opaque: boolean?
 
     local internKey = "owned(" .. table.concat(ids, ",") .. ":" .. t.id .. (opaque and ":opaque" or "") .. ")"
 
-    return interned(internKey) or intern(internKey, function()
-        return new types.Owned(tag = "owned", inner = t, cleanups = list, opaque = opaque == true)
-    end)
+    local existing = interned(internKey)
+    if existing then
+        return existing
+    end
+
+    return intern(internKey, new types.Owned(tag = "owned", inner = t, cleanups = list, opaque = opaque == true))
 end
 
 function types.borrowed(t: types.Type): types.Type
     local internKey = "borrowed(" .. t.id .. ")"
 
-    return interned(internKey) or intern(internKey, function()
-        return new types.Borrowed(tag = "borrowed", inner = t)
-    end)
+    local existing = interned(internKey)
+    if existing then
+        return existing
+    end
+
+    return intern(internKey, new types.Borrowed(tag = "borrowed", inner = t))
 end
 
 -- A pinned pointer is paired with a strong Lua anchor at runtime. It may be handed to C
@@ -1451,9 +1510,12 @@ end
 function types.pinned(t: types.Type): types.Type
     local internKey = "pinned(" .. t.id .. ")"
 
-    return interned(internKey) or intern(internKey, function()
-        return new types.Pinned(tag = "pinned", inner = t)
-    end)
+    local existing = interned(internKey)
+    if existing then
+        return existing
+    end
+
+    return intern(internKey, new types.Pinned(tag = "pinned", inner = t))
 end
 
 --- The value type inside an ownership qualifier, or `t` itself.
@@ -1720,15 +1782,18 @@ function types.protocolThread(
     returnPack: types.Pack
 ): types.Type
     local key = "thread<" .. startPack.id .. "," .. resumePack.id .. "," .. yieldPack.id .. "," .. returnPack.id .. ">"
-    return interned(key) or intern(key, function()
-        return new types.ProtocolThread(
-            tag = "protocolThread",
-            startPack = startPack,
-            resumePack = resumePack,
-            yieldPack = yieldPack,
-            returnPack = returnPack
-        )
-    end)
+    local existing = interned(key)
+    if existing then
+        return existing
+    end
+
+    return intern(key, new types.ProtocolThread(
+        tag = "protocolThread",
+        startPack = startPack,
+        resumePack = resumePack,
+        yieldPack = yieldPack,
+        returnPack = returnPack
+    ))
 end
 
 function types.genericAlias(
@@ -1752,18 +1817,21 @@ function types.genericAlias(
     end
     local key = table.concat(parts, "|") .. ")"
 
-    return interned(key) or intern(key, function()
-        return new types.GenericAlias(
-            tag = "genericAlias",
-            name = name,
-            body = body,
-            typeParams = typeParams or {},
-            typeBounds = typeBounds or {},
-            packParams = packParams or {},
-            constParams = constParams or {},
-            paramKinds = paramKinds or {}
-        )
-    end)
+    local existing = interned(key)
+    if existing then
+        return existing
+    end
+
+    return intern(key, new types.GenericAlias(
+        tag = "genericAlias",
+        name = name,
+        body = body,
+        typeParams = typeParams or {},
+        typeBounds = typeBounds or {},
+        packParams = packParams or {},
+        constParams = constParams or {},
+        paramKinds = paramKinds or {}
+    ))
 end
 
 function types.tostringPack(pack: types.Pack): string
@@ -1947,37 +2015,40 @@ function types.func(
         key = key .. "|names(" .. table.concat(names, ",") .. ")"
     end
 
-    return interned(key) or intern(key, function()
-        return new types.Func(
-            tag = "func",
-            params = params,
-            rets = rets,
-            vararg = vararg or false,
-            varargType = vararg and varargType or nil,
-            paramModes = modes,
-            paramNames = names,
-            unlabeledId = unlabeledId,
-            predicate = predicate,
-            typeParams = typeParams,
-            typeBounds = typeBounds,
-            borrowsParam = borrowsParam,
-            borrowsSelf = borrowsSelf,
-            borrowsParams = borrowsParams,
-            preservesResults = preservesResults,
-            partitionResults = partitionResults,
-            foreign = foreign or nil,
-            ffiOut = ffiOut,
-            noreturn = noreturn or nil,
-            noYield = noYield or nil,
-            paramPack = paramPack,
-            retPack = retPack,
-            packParams = packParams,
-            constParams = constParams,
-            paramKinds = paramKinds,
-            yieldPack = yieldPack,
-            resumePack = resumePack
-        )
-    end)
+    local existing = interned(key)
+    if existing then
+        return existing
+    end
+
+    return intern(key, new types.Func(
+        tag = "func",
+        params = params,
+        rets = rets,
+        vararg = vararg or false,
+        varargType = vararg and varargType or nil,
+        paramModes = modes,
+        paramNames = names,
+        unlabeledId = unlabeledId,
+        predicate = predicate,
+        typeParams = typeParams,
+        typeBounds = typeBounds,
+        borrowsParam = borrowsParam,
+        borrowsSelf = borrowsSelf,
+        borrowsParams = borrowsParams,
+        preservesResults = preservesResults,
+        partitionResults = partitionResults,
+        foreign = foreign or nil,
+        ffiOut = ffiOut,
+        noreturn = noreturn or nil,
+        noYield = noYield or nil,
+        paramPack = paramPack,
+        retPack = retPack,
+        packParams = packParams,
+        constParams = constParams,
+        paramKinds = paramKinds,
+        yieldPack = yieldPack,
+        resumePack = resumePack
+    ))
 end
 
 --- The same function, with its suspension guarantee set.
@@ -2156,9 +2227,12 @@ function types.literal(value: string | number | boolean, base: types.Type?): typ
     local of = base or types.string
     local internKey = "lit(" .. of.tag .. ":" .. tostring(value) .. ")"
 
-    return interned(internKey) or intern(internKey, function()
-        return new types.Literal(tag = "literal", constant = value, base = of)
-    end)
+    local existing = interned(internKey)
+    if existing then
+        return existing
+    end
+
+    return intern(internKey, new types.Literal(tag = "literal", constant = value, base = of))
 end
 
 -- A contiguous FFI array of `elem`: the layout that makes a struct worth reifying.
@@ -2169,9 +2243,12 @@ function types.carray(elem: types.Type, count: integer?, countTerm: types.ConstT
     local term = countTerm or (count and types.constLiteral("integer", count) or nil)
     local internKey = "carray(" .. elem.id .. "," .. (term and term.id or "?") .. ")"
 
-    return interned(internKey) or intern(internKey, function()
-        return new types.CArray(tag = "carray", elem = elem, count = count, countTerm = term)
-    end)
+    local existing = interned(internKey)
+    if existing then
+        return existing
+    end
+
+    return intern(internKey, new types.CArray(tag = "carray", elem = elem, count = count, countTerm = term))
 end
 
 -- A read-only view of T. Const is carried so an imported signature keeps what the
@@ -2182,18 +2259,24 @@ function types.constOf(t: types.Type): types.Type
     end
     local internKey = "const(" .. t.id .. ")"
 
-    return interned(internKey) or intern(internKey, function()
-        return new types.Const(tag = "const", inner = t)
-    end)
+    local existing = interned(internKey)
+    if existing then
+        return existing
+    end
+
+    return intern(internKey, new types.Const(tag = "const", inner = t))
 end
 
 -- The runtime ctype object standing for T, as ffi.typeof returns.
 function types.ctype(t: types.Type): types.Type
     local internKey = "ctype(" .. t.id .. ")"
 
-    return interned(internKey) or intern(internKey, function()
-        return new types.CType(tag = "ctype", of = t)
-    end)
+    local existing = interned(internKey)
+    if existing then
+        return existing
+    end
+
+    return intern(internKey, new types.CType(tag = "ctype", of = t))
 end
 
 -- Generic type parameters. A declaration-derived identity keeps shadowed T binders
@@ -2204,23 +2287,32 @@ function types.typevar(name: string, identity: string?): types.Type
     -- from this one inherits it in turn. See `inheritedMarks`.
     local internKey = "!ttv(" .. (identity or name) .. ")"
 
-    return interned(internKey) or intern(internKey, function()
-        return new types.TypeVar(tag = "typevar", name = name)
-    end)
+    local existing = interned(internKey)
+    if existing then
+        return existing
+    end
+
+    return intern(internKey, new types.TypeVar(tag = "typevar", name = name))
 end
 
 function types.typeHandle(bound: types.Type): types.Type
     local key = "type<" .. bound.id .. ">"
-    return interned(key) or intern(key, function()
-        return new types.TypeHandle(tag = "typeHandle", bound = bound)
-    end)
+    local existing = interned(key)
+    if existing then
+        return existing
+    end
+
+    return intern(key, new types.TypeHandle(tag = "typeHandle", bound = bound))
 end
 
 function types.packResult(pack: types.Pack): types.Type
     local key = "packResult(" .. pack.id .. ")"
-    return interned(key) or intern(key, function()
-        return new types.PackResult(tag = "packResult", pack = pack)
-    end)
+    local existing = interned(key)
+    if existing then
+        return existing
+    end
+
+    return intern(key, new types.PackResult(tag = "packResult", pack = pack))
 end
 
 --- Interns one blocked type-level operation.  The reducer decides whether a
@@ -2267,21 +2359,24 @@ function types.neutral(
         remap and remap.id or "-"
     ) .. ":" .. (constTerm and constTerm.id or "-") .. ":" .. table.concat(templateIds, ",") .. ")"
 
-    return interned(id) or intern(id, function()
-        return new types.Neutral(
-            tag = "neutral",
-            op = op,
-            capability = capability,
-            subject = subject,
-            key = key,
-            binder = binder,
-            keys = keys,
-            value = value,
-            remap = remap,
-            constTerm = constTerm,
-            templateParts = templateParts
-        )
-    end)
+    local existing = interned(id)
+    if existing then
+        return existing
+    end
+
+    return intern(id, new types.Neutral(
+        tag = "neutral",
+        op = op,
+        capability = capability,
+        subject = subject,
+        key = key,
+        binder = binder,
+        keys = keys,
+        value = value,
+        remap = remap,
+        constTerm = constTerm,
+        templateParts = templateParts
+    ))
 end
 
 --- Interns one deferred comptime type-function application. The helper descriptor is
@@ -2306,34 +2401,43 @@ function types.comptimeCall(
     end
     local id = "neutral(comptime:" .. table.concat(ids, ",") .. ")"
 
-    return interned(id) or intern(id, function()
-        return new types.Neutral(
-            tag = "neutral",
-            op = "comptimeCall",
-            comptimeIdentity = identity,
-            comptimeHelper = helper,
-            comptimeArguments = arguments,
-            comptimeBound = bound or types.unknown,
-            comptimeResultPack = resultPack
-        )
-    end)
+    local existing = interned(id)
+    if existing then
+        return existing
+    end
+
+    return intern(id, new types.Neutral(
+        tag = "neutral",
+        op = "comptimeCall",
+        comptimeIdentity = identity,
+        comptimeHelper = helper,
+        comptimeArguments = arguments,
+        comptimeBound = bound or types.unknown,
+        comptimeResultPack = resultPack
+    ))
 end
 
 function types.metatable(t: types.Type): types.Type
     local internKey = "metatable(" .. t.id .. ")"
 
-    return interned(internKey) or intern(internKey, function()
-        return new types.Metatable(tag = "metatable", of = t)
-    end)
+    local existing = interned(internKey)
+    if existing then
+        return existing
+    end
+
+    return intern(internKey, new types.Metatable(tag = "metatable", of = t))
 end
 
 --- `of.name`, built and interned. It reduces nowhere: see `generics.normalize`.
 function types.projection(of: types.Type, name: string): types.Type
     local internKey = "!jproj(" .. of.id .. "," .. name .. ")"
 
-    return interned(internKey) or intern(internKey, function()
-        return new types.Projection(tag = "projection", of = of, name = name)
-    end)
+    local existing = interned(internKey)
+    if existing then
+        return existing
+    end
+
+    return intern(internKey, new types.Projection(tag = "projection", of = of, name = name))
 end
 
 --- Whether `t` has a projection anywhere inside it. Read off the id's marks, as
