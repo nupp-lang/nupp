@@ -1521,6 +1521,7 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     end
     inst.paramKinds = n.paramKinds
     inst.fieldOrder = n.fieldOrder
+    inst.fieldDefaults = n.fieldDefaults
     inst.privateFields = n.privateFields
     inst.moduleName = n.moduleName
     inst.sealedModule = n.sealedModule

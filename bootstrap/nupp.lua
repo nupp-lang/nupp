@@ -1538,7 +1538,6 @@ local BUILTINS = {
 { name = "effects" , arguments = "effects" , targets = { "function" , "c-function" , "local-binding" } , } ,
 { name = "relax" , arguments = "names" , targets = { "function" } , } ,
 { name = "derive" , arguments = "names" , targets = { "record" } , builtin = true , } ,
-{ name = "default" , arguments = "typed" , targets = { "field" } , builtin = true , } ,
 { name = "json" , arguments = "typed" , targets = { "record" , "field" } , builtin = true , } ,
 { name = "debug" , arguments = "typed" , targets = { "field" } , builtin = true , } ,
 { name = "deprecated" , arguments = "typed" , targets = { "declaration" , "field" , "c-declaration" } , builtin = true , } ,
@@ -1588,11 +1587,6 @@ end
 local function member ( name , t , isOptional )
 return { name = name , type = t , optional = isOptional == true }
 end
-
-local default = registry : get ( "default" )
-default . members = { value = member ( "value" , typesApi . any , false ) }
-default . memberOrder = { "value" }
-default . singleValue = "value"
 
 local json = registry : get ( "json" )
 json . members = {
@@ -1668,7 +1662,6 @@ globalTypes ,
 globalTypeDefs
 )
 local schemas = {
-default = "nupp.derive.DefaultOptions" ,
 json = "nupp.derive.JSONOptions" ,
 debug = "nupp.derive.DebugOptions" ,
 deprecated = "nupp.__DeprecatedAnnotation" ,
@@ -9262,6 +9255,12 @@ end
 
 record ( "byname" , nominal . byname or { } , true )
 record ( "staticByname" , nominal . staticByname or { } , false )
+for _ , name in ipairs ( nominal . fieldOrder or { } ) do
+local default = nominal . fieldDefaults and nominal . fieldDefaults [ name ] or nil
+if default then
+parts [ # parts + 1 ] = path .. ":default:" .. name .. "=" .. stable ( default . value )
+end
+end
 local nested = { }
 for name in pairs ( nominal . nestedTypes or { } ) do
 nested [ # nested + 1 ] = name
@@ -14675,7 +14674,17 @@ nil ,
 { help = ( "write new %s(field = value, ...) to name the fields" ) : format ( declared ) }
 )
 end
-node . recordFields = isRecord and bindings or nil
+for _ , field in ipairs ( order ) do
+local default = calleeT . fieldDefaults and calleeT . fieldDefaults [ field ] or nil
+if not bound [ field ] and default then
+bindings [ # bindings + 1 ] = { name = field , defaultValue = default . value , isDefault = true }
+bound [ field ] = true
+end
+end
+node . recordFields = bindings
+if not isRecord then
+node . structConstruct = declared
+end
 if genericMap then
 
 ops . validateTypeBounds ( calleeT . typeParams , calleeT . typeBounds , genericMap , node )
@@ -17153,6 +17162,62 @@ local substType = generics . rebind
 local addSelf = generics . addSelf
 local dropSelf = generics . dropSelf
 
+
+
+local function defaultValue ( node )
+if not node then return nil , false end
+local kind = node . kind
+if kind == "nilExpr" then
+return nil , true
+elseif kind == "trueExpr" or kind == "falseExpr" then
+return kind == "trueExpr" , true
+elseif kind == "number" or kind == "string" then
+local text = node . token and node . token . text or ( kind == "number" and "0" or '""' )
+if kind == "number" then
+text = text : gsub ( "_" , "" )
+elseif text : sub ( 1 , 1 ) == "`" then
+local body = text : sub ( 2 , - 2 ) : gsub ( "\\([`$])" , "%1" ) : gsub ( '"' , '\\"' ) : gsub ( "\n" , "\\n" )
+text = '"' .. body .. '"'
+end
+local chunk = loadstring ( "return " .. text )
+if chunk then
+local ok , value = pcall ( chunk )
+if ok and ( type ( value ) == "number" or type ( value ) == "string" ) then
+return value , true
+end
+end
+return nil , false
+elseif kind == "paren" then
+return defaultValue ( node . expr )
+elseif kind == "unop" and node . op and ( node . op . kind == "-" or node . op . kind == "+" ) then
+local value , ok = defaultValue ( node . operand )
+if ok and type ( value ) == "number" then
+return node . op . kind == "-" and - value or value , true
+end
+return nil , false
+elseif kind == "tableExpr" then
+local value , nextIndex = { } , 1
+for _ , field in ipairs ( node . fields or { } ) do
+local child , ok = defaultValue ( field . value )
+if not ok then return nil , false end
+if field . kind == "fieldItem" then
+value [ nextIndex ] = child
+nextIndex = nextIndex + 1
+elseif field . kind == "fieldNamed" and field . name and not field . isConst then
+value [ field . name . text ] = child
+elseif field . kind == "fieldBracket" then
+local key , keyOk = defaultValue ( field . key )
+if not keyOk or key == nil or type ( key ) == "table" then return nil , false end
+value [ key ] = child
+else
+return nil , false
+end
+end
+return value , true
+end
+return nil , false
+end
+
 local function hasReceiver ( body , declKind )
 
 
@@ -18034,7 +18099,8 @@ end
 local missing = { }
 for _ , name in ipairs ( order ) do
 local ft2 = n . byname [ name ]
-if ft2 and ft2 . tag ~= "func" and ft2 . tag ~= "nominal" and not assigned [ name ] and not isA ( T . nil_ , ft2 ) then
+if ft2 and ft2 . tag ~= "func" and ft2 . tag ~= "nominal" and not assigned [ name ]
+and not ( n . fieldDefaults and n . fieldDefaults [ name ] ) and not isA ( T . nil_ , ft2 ) then
 missing [ # missing + 1 ] = name
 end
 end
@@ -18252,6 +18318,7 @@ n . constParams , n . paramKinds = nil , nil
 n . paramDefaults = nil
 end
 n . fieldOrder = { }
+n . fieldDefaults = { }
 n . fieldDefs = { }
 n . writeFieldDefs = { }
 n . staticFieldDefs = { }
@@ -18526,6 +18593,38 @@ partitionApplication = application
 end
 end
 local ft = c . resolveType ( e . type )
+if e . defaultValue then
+if stat . declKind == "interface" or stat . isAnnotationDefinition then
+c . diag (
+"NUPP2202" ,
+e . defaultValue ,
+"only stored record and struct fields have construction defaults"
+)
+else
+local value , constant = defaultValue ( e . defaultValue )
+if not constant then
+c . diag (
+"NUPP2202" ,
+e . defaultValue ,
+"a field default must be a constant scalar or table value"
+)
+end
+local actual = c . infer ( e . defaultValue )
+if constant then
+local ok , why = isA ( actual , ft )
+if not ok then
+c . diag (
+"NUPP2202" ,
+e . defaultValue ,
+"field default does not fit "
+.. T . tostring ( ft ) .. ( why and ( ": " .. why ) or "" )
+)
+else
+n . fieldDefaults [ e . name . text ] = { value = value }
+end
+end
+end
+end
 if partitionApplication then
 local names , seen = { } , { }
 for _ , argument in ipairs ( partitionApplication . annotationArgs or { } ) do
@@ -19584,6 +19683,8 @@ readable = fieldType ~= nil ,
 writable = n . writeByname [ fieldName ] ~= nil ,
 readType = transportedType ( fieldType ) ,
 writeType = transportedType ( n . writeByname [ fieldName ] ) ,
+hasDefault = descriptorFields [ index ] and descriptorFields [ index ] . hasDefault or false ,
+defaultValue = descriptorFields [ index ] and descriptorFields [ index ] . defaultValue ,
 annotations = descriptorFields [ index ] and descriptorFields [ index ] . annotations or { } ,
 claims = claims ,
 reference = "field:" .. tostring ( index ) ,
@@ -19626,6 +19727,8 @@ readable = field . readable ,
 writable = field . writable ,
 read = field . readType and field . readType . descriptor . fingerprint or nil ,
 write = field . writeType and field . writeType . descriptor . fingerprint or nil ,
+hasDefault = field . hasDefault ,
+defaultValue = field . defaultValue ,
 annotations = field . annotations ,
 claims = { } ,
 }
@@ -39482,6 +39585,9 @@ local cst = { }
 
 
 
+
+
+
 cst.Chunk = {} cst.Chunk.__index = cst.Chunk
 
 
@@ -40094,6 +40200,9 @@ cst.WhereClause = {} cst.WhereClause.__index = cst.WhereClause
 
 
 cst.FieldDecl = {} cst.FieldDecl.__index = cst.FieldDecl
+
+
+
 
 
 
@@ -50247,29 +50356,21 @@ summary = "A field cannot participate in derived Debug" ,
 rule = "Every visible Debug field needs a supported scalar or container type, "
 .. "another Debug record, an exact nupp.Debug contract, or the dynamic any "
 .. "fallback. A field cannot be both skipped and redacted." ,
-related = { "NUPP2802" , "NUPP2807" } ,
+related = { "NUPP2802" } ,
 docs = "docs/derives.md#debug" ,
-} , {
-code = "NUPP2804" ,
-summary = "A record field has no valid derived default" ,
-rule = "Default needs one terminating default for every stored field. Supply a "
-.. "literal @default, make the field optional, use a canonically defaultable "
-.. "type, or derive Default for the nested record." ,
-related = { "NUPP2807" , "NUPP2001" } ,
-docs = "docs/derives.md#default" ,
 } , {
 code = "NUPP2806" ,
 summary = "A record does not describe a supported JSON schema" ,
 rule = "Derived JSON needs a closed supported field graph and consistent JSON "
 .. "options. Rename duplicate keys, default omitted fields, avoid erased generic "
 .. "records and unsupported values, and do not use int64 or uint64 as JSON numbers." ,
-related = { "NUPP2804" , "NUPP2807" } ,
+related = { "NUPP2001" } ,
 docs = "docs/derives.md#json" ,
 } , {
 code = "NUPP2807" ,
 summary = "A derive dependency cycle has no valid lowering" ,
-rule = "Recursive Debug and JSON graphs are supported, but a required Default " .. "cycle never reaches a value. Make an edge optional or provide an explicit " .. "terminating literal default." ,
-related = { "NUPP2803" , "NUPP2804" , "NUPP2806" } ,
+rule = "Recursive Debug and JSON graphs are supported. A package provider " .. "dependency cycle must still reduce to a closed recipe rather than require " .. "another unfinished provider result." ,
+related = { "NUPP2803" , "NUPP2806" , "NUPP2810" } ,
 docs = "docs/derives.md" ,
 } , { code = "NUPP2808" , summary = "A derive exceeds a compiler generation limit" , rule = "Generated recipes, expressions, locals, upvalues, and emitted output are " .. "bounded compiler resources. Reduce the derived declaration or split the " .. "schema rather than depending on an unbounded generated function." , related = { "NUPP2807" } , docs = "docs/derives.md" , } , { code = "NUPP2809" , summary = "A comptime derive provider declaration or reference is invalid" , rule = "A public derive provider is an exported, nongeneric @comptime function " .. "with the exact shape function(nupp.derive.Info): nupp.derive.Result<I>, where " .. "I is one existing interface. @derive must name that resolved export." , related = { "NUPP2411" , "NUPP2801" } , docs = "docs/derives.md#comptime-providers" , } , { code = "NUPP2810" , summary = "A comptime derive provider failed or returned an invalid blueprint" , rule = "Providers execute in the bounded comptime worker and must return only " .. "nupp.derive.implement or nupp.derive.error. Closed builders reject foreign, " .. "cyclic, malformed, stale, and over-limit recipe graphs." , related = { "NUPP2412" , "NUPP2808" } , docs = "docs/derives.md#comptime-providers" , } , { code = "NUPP2811" , summary = "A derive recipe declares an invalid generated member" , rule = "A bare forward fills a bodyless callable requirement of Result<I>. A member " .. "recipe may instead provide a bounded function signature. Neither form may " .. "replace written members or interface defaults." , related = { "NUPP2118" , "NUPP2802" } , docs = "docs/derives.md#closed-forwarding-recipes" , } , { code = "NUPP2812" , summary = "A forwarding argument does not exist on the generated method" , rule = "A forwarding recipe may pass its receiver, a named method parameter, a " .. "readable stored field, a bounded frozen constant, or a fresh array of those. " .. "Every name is resolved against the written owner and interface requirement." , related = { "NUPP2004" , "NUPP2811" } , docs = "docs/derives.md#closed-forwarding-recipes" , } , { code = "NUPP2813" , summary = "A runtime forwarding helper does not satisfy the generated call" , rule = "The helper must be an ordinary exported Nupp function. Forwarded argument " .. "types must fit its parameters, its result pack must satisfy the interface " .. "requirement, and it may not suspend where the requirement cannot." , related = { "NUPP2001" , "NUPP2701" , "NUPP2812" } , docs = "docs/derives.md#runtime-helpers" , } , { code = "NUPP2701" , summary = "A non-suspending region can reach suspension" , rule = "A `nosuspend` region and every cleanup contract must finish without " .. "parking the current coroutine. Remove the yielding call, move it before " .. "the protected region, or call an operation whose type or visible body " .. "proves that it cannot suspend." , wrong = "local function wait(): nil\n    coroutine.yield()\nend\n\n" .. "nosuspend do\n    wait()\nend\n" , right = "local function finish(): nil\nend\n\n" .. "nosuspend do\n    finish()\nend\n" , related = { "NUPP2602" , "NUPP2603" } , docs = "docs/reference.md#suspension-regions" , } , { code = "NUPP2702" , summary = "A non-yieldable C callback can reach suspension" , rule = "LuaJIT cannot yield through every C frame. Make the callback and every " .. "call it reaches non-suspending, or invoke it from a yieldable Lua boundary." , wrong = "table.sort({2, 1}, function(a, b): boolean\n" .. "    coroutine.yield()\n    return a < b\nend)\n" , right = "table.sort({2, 1}, function(a, b): boolean\n" .. "    return a < b\nend)\n" , related = { "NUPP2701" } , docs = "docs/reference.md#suspension-regions" , } , { code = "NUPP2706" , summary = "Control cannot jump into a handled suspension region" , rule = "Entering a `handle suspension` body from outside would bypass handler " .. "installation and its cleanup obligation. Move the label outside the region " .. "or move the jump inside it. Structured exits from the region are allowed." , wrong = "goto inside\nhandle suspension with handler do\n" .. "    ::inside::\nend\n" , right = "handle suspension with handler do\nend\n::outside::\n" , related = { "NUPP2701" , "NUPP2702" } , docs = "docs/reference.md#suspension-regions" , } , { code = "NUPP2206" , summary = "Only a record or a struct can be constructed" , rule = "`new` names a type and builds a value of it, so the operand " .. "has to be a declaration with something to build. An interface " .. "declares a contract and has no runtime table to stamp; an enum " .. "value is one of its declared strings, written directly. The " .. "operand is answered as a type rather than through whatever " .. "value stands under the name, because an interface binds none." , wrong = "local interface Named\n    name: string\nend\n\n" .. "local n = new Named(name = \"ada\")\n\nreturn n\n" , right = "local interface Named\n    name: string\nend\n\n" .. "local record User is Named\n    name: string\nend\n\n" .. "local n = new User(name = \"ada\")\n\nreturn n\n" , related = { "NUPP2202" } , docs = "docs/reference.md#records" , } , { code = "NUPP2207" , summary = "A binding is read before it holds a value" , rule = "`local v: Vec2` used to construct one where it was declared, " .. "which was a construction the source did not say. It no longer " .. "does, so the binding holds nil until something assigns to it, " .. "and reading it before that indexes nil at run time rather than " .. "yielding a value of the declared type. Assign it first, or " .. "declare it optional if it is meant to start empty. A " .. "declaration file states what exists elsewhere and assigns " .. "nothing, so it is exempt." , wrong = "local record Point\n    x: integer\nend\n\n" .. "local p: Point\n\nreturn p.x\n" , right = "local record Point\n    x: integer\nend\n\n" .. "local p: Point = new Point(x = 0)\n\nreturn p.x\n" , related = { "NUPP2202" , "NUPP2206" } , docs = "docs/reference.md#records" , } , { code = "NUPP2512" , summary = "A record is built by field order rather than by naming its fields" , rule = "A record without a declared constructor may be built either way, " .. "and both build the same table. Naming the fields says at the call " .. "site which value lands where; leaving it to the order says it in " .. "the declaration, so a reader has to go there, and adding a field " .. "silently changes what an existing call means. A struct is exempt: " .. "it is its C layout, and that order is the layout's rather than the " .. "program's to name. Turn it off by name or by its `style` category, " .. "or write `@allow(\"positional-record-construction\")`." , wrong = "local record Point\n    x: integer\n    y: integer\nend\n\n" .. "local p = new Point(1, 2)\n\nreturn p\n" , right = "local record Point\n    x: integer\n    y: integer\nend\n\n" .. "local p = new Point(x = 1, y = 2)\n\nreturn p\n" , related = { "NUPP2202" , "NUPP2208" } , docs = "docs/lints.md" , } , { code = "NUPP2513" , summary = "An API marked deprecated is used" , rule = "`@deprecated` keeps an API available while telling callers to move " .. "away from it. The optional reason explains why and the replacement names " .. "what to use instead. The annotation changes tooling only: it reports this " .. "suppressible lint at use sites and emits no runtime behavior." , wrong = "local function current(): integer return 1 end\n\n" .. "@deprecated(replacement = \"current\")\n" .. "local function legacy(): integer return current() end\n\nreturn legacy()\n" , right = "local function current(): integer return 1 end\n\n" .. "@deprecated(replacement = \"current\")\n" .. "local function legacy(): integer return current() end\n\nreturn current()\n" , related = { "NUPP2115" } , docs = "docs/lints.md" , } , { code = "NUPP2208" , summary = "A constructor does not hold up its declaration" , rule = "A `constructor(self, ...)` body is what `new T(...)` runs. The " .. "instance is made before it and returned after it, so its whole " .. "job is to fill the fields in — and every field that cannot hold " .. "nil has to be filled, or the value handed back does not match " .. "the declaration it claims. That guarantee is the reason to " .. "prefer a constructor over a literal, so declaring one closes " .. "the literal form for that declaration. An interface builds " .. "nothing and cannot carry one, and there is one constructor per " .. "declaration until overloads arrive with intersection types." , wrong = "local record Account\n    name: string\n    balance: number\n" .. "\n    constructor(self, name: string)\n        self.name = name\n" .. "    end\nend\n\nreturn Account\n" , right = "local record Account\n    name: string\n    balance: number\n" .. "\n    constructor(self, name: string)\n        self.name = name\n" .. "        self.balance = 0\n    end\nend\n\nreturn Account\n" , related = { "NUPP2202" , "NUPP2207" } , docs = "docs/reference.md#records" , } , { code = "NUPP3005" , summary = "Generated code that a Lua VM will not load" , rule = "The generator writes Lua and this is that Lua refusing to parse. Almost always it is one limit: a function may capture at most sixty names from around it, and one that reaches past that cannot be loaded at all. A function reading that many things from its scope is usually reading a record it could take as one argument instead — pass what varies, or gather what it reads into one value and capture that.\n\nAny other spelling of this is a bug in the compiler rather than in the program, and `nupp bc FILE` shows the code it wrote. It is reported where the file is built rather than where the module is first required, because the line a VM would name belongs to generated text and the line here is the one that was written." , related = { "NUPP3004" } , docs = "docs/diagnostics.md#code-families" , } , { code = "NUPP3001" , summary = "`is` has nothing to test against this type" , rule = "A record is identified by the metatable it stamps and a struct " .. "by its ctype, so both answer `is` exactly. An interface has " .. "neither, by design — it is conformance rather than provenance — " .. "so something has to stand in for one.\n\n" .. "Three things can. A literal-typed field is a tag, and the test " .. "is read off it with nothing written. A `satisfies` declaration " .. "says the test outright, for a shape no tag describes. And a subject " .. "whose own type declares the interface needs no test at all: the " .. "declaration already answered, so the `is` compiles to `true`. " .. "An alias has none of these and never will." , wrong = "local interface Drawable\n    width: number\nend\n\n" .. "local record Sprite is Drawable\n    width: number\nend\n\n" .. "local unknown: any = new Sprite(width = 1)\n\n" .. "return unknown is Drawable\n" , right = "local interface Drawable\n    kind: \"drawable\"\n" .. "    width: number\nend\n\n" .. "local record Sprite is Drawable\n    kind: \"drawable\"\n" .. "    width: number\nend\n\n" .. "local unknown: any = new Sprite(kind = \"drawable\", width = 1)\n\n" .. "return unknown is Drawable\n" , related = { "NUPP2122" } , docs = "docs/type-system/interfaces.md" , } , }
 
@@ -52783,11 +52884,11 @@ end
 
 
 
-function literal . derive ( value )
+function literal . renderData ( value )
 local recipeCodec = require ( "nupp.compiler.materialize.codec" )
 local rendered , why = recipeCodec . render ( value )
 if not rendered then
-error ( "invalid derive recipe: " .. tostring ( why ) )
+error ( "invalid closed compiler data: " .. tostring ( why ) )
 end
 
 return rendered
@@ -53426,6 +53527,7 @@ end
 
 
 local pluck = { plans = { } , statementActive = { } , helpers = helpers , declareHelper = declareHelper , loweredFunction = loweredFunction , emitDerivedMembers = emitDerivedMembers ,
+quote = literal . quote , renderData = literal . renderData ,
 
 
 
@@ -54178,7 +54280,7 @@ end
 local text = x . text
 if x . kind == "string" and text : sub ( 1 , 1 ) == "`" then
 
-text = literal . quote ( text : sub ( 2 , - 2 ) )
+text = pluck . quote ( text : sub ( 2 , - 2 ) )
 end
 e ( text , x . line )
 return
@@ -54899,7 +55001,7 @@ if chunk and # chunk > 0 then
 if piecesOpen then
 e ( ".." )
 end
-e ( literal . quote ( chunk ) , child . line )
+e ( pluck . quote ( chunk ) , child . line )
 piecesOpen = true
 end
 else
@@ -55519,6 +55621,21 @@ emit ( x . args )
 end
 return
 
+elseif ( kind == "call" or kind == "safeCall" ) and x . structConstruct then
+local first = x [ 1 ]
+local line = first and cst . isToken ( first ) and first . line or nil
+e ( x . structConstruct .. "(" , line )
+for index , binding in ipairs ( x . recordFields or { } ) do
+if index > 1 then e ( ", " ) end
+if binding . isDefault then
+e ( pluck . renderData ( binding . defaultValue ) )
+else
+emit ( binding . node )
+end
+end
+e ( ")" )
+return
+
 elseif ( kind == "call" or kind == "safeCall" ) and x . recordConstruct then
 
 
@@ -55535,7 +55652,11 @@ if index > 1 then
 e ( ", " )
 end
 e ( cst . identifier ( binding . name ) and ( binding . name .. " = " ) or ( "[%q] = " ) : format ( binding . name ) )
+if binding . isDefault then
+e ( pluck . renderData ( binding . defaultValue ) )
+else
 emit ( binding . node )
+end
 end
 e ( "}, " .. x . recordConstruct .. ")" )
 return
@@ -55565,10 +55686,25 @@ names [ # names + 1 ] = "..."
 end
 end
 local owner = x . inlineRuntimeOwner
+local seeded = { }
+local nominal = x . ownerNominal
+for _ , field in ipairs ( nominal and nominal . fieldOrder or { } ) do
+local default = nominal . fieldDefaults and nominal . fieldDefaults [ field ] or nil
+if default then
+seeded [ # seeded + 1 ] = ( cst . identifier ( field ) and ( field .. " = " ) or ( "[%q] = " ) : format ( field ) )
+.. pluck . renderData ( default . value )
+end
+end
 e (
 (
-"function %s.%s(%s) local self = setmetatable({}, %s)"
-) : format ( owner , constructorMember ( x . constructorIndex ) , table . concat ( names , ", " ) , owner ) ,
+"function %s.%s(%s) local self = setmetatable({%s}, %s)"
+) : format (
+owner ,
+constructorMember ( x . constructorIndex ) ,
+table . concat ( names , ", " ) ,
+table . concat ( seeded , ", " ) ,
+owner
+) ,
 line
 )
 if body . varargParam then
@@ -58199,6 +58335,7 @@ inst . constArgs [ j ] = map [ cv ] or cv
 end
 inst . paramKinds = n . paramKinds
 inst . fieldOrder = n . fieldOrder
+inst . fieldDefaults = n . fieldDefaults
 inst . privateFields = n . privateFields
 inst . moduleName = n . moduleName
 inst . sealedModule = n . sealedModule
@@ -66614,6 +66751,8 @@ index = index ,
 name = field . name ,
 readable = field . readable ,
 writable = field . writable ,
+hasDefault = field . hasDefault and true or false ,
+defaultValue = view ( field . defaultValue ) ,
 readType = field . readType ,
 writeType = field . writeType ,
 annotationsHandle = view ( field . annotations or { } ) ,
@@ -66675,7 +66814,14 @@ if key == "reference" then
 return payload . referenceHandle
 elseif key == "annotations" then
 return payload . annotationsHandle
-elseif key == "readType" or key == "writeType" or key == "name" or key == "readable" or key == "writable" then
+elseif key == "readType"
+or key == "writeType"
+or key == "name"
+or key == "readable"
+or key == "writable"
+or key == "hasDefault"
+or key == "defaultValue"
+then
 return payload [ key ]
 end
 elseif entry . family == "View" then
@@ -66741,7 +66887,11 @@ local kind = type ( value )
 if kind == "nil" or kind == "boolean" or kind == "number" or kind == "string" then
 return value
 end
-if kind ~= "table" or active [ value ] or state . opaque [ value ] then
+local opaqueEntry = kind == "table" and state . opaque [ value ] or nil
+if opaqueEntry and opaqueEntry . provider == "derive" and opaqueEntry . family == "View" then
+return copyConstant ( opaqueEntry . payload . value , active , count , state )
+end
+if kind ~= "table" or active [ value ] or opaqueEntry then
 return nil , "constant is cyclic, opaque, or not quotable"
 end
 active [ value ] = true
@@ -71179,6 +71329,8 @@ read = field . read and import ( field . read ) or nil ,
 write = field . write and import ( field . write ) or nil ,
 readable = field . readable ,
 writable = field . writable ,
+hasDefault = field . hasDefault or false ,
+defaultValue = field . defaultValue ,
 annotations = field . annotations or { } ,
 }
 end
@@ -72351,7 +72503,7 @@ globals = { "nupp.fieldcodec.compile" } ,
 "stdlib.derives"
 ] = {
 name = "derives" ,
-globals = { "nupp.default" } ,
+globals = { } ,
 } , [
 "stdlib.io"
 ] = {
@@ -76120,6 +76272,10 @@ if cur ( ) . kind == ":" then
 add ( e , advance ( ) )
 e . bitWidth = add ( e , expect ( "number" , "as C bitfield width" ) )
 end
+if cur ( ) . kind == "=" then
+add ( e , advance ( ) )
+e . defaultValue = add ( e , parseExp ( ) )
+end
 else
 errAt ( cur ( ) , "field or nested declaration expected" )
 e = setmetatable({ kind =  "errorStmt" }, cst.ErrorStmt)
@@ -78108,8 +78264,8 @@ which is what leaves `__call` and `__new` to the program. Calling a record that
 declares no `__call` contract is **NUPP2202**, and `new` on anything that is not
 a record or a struct is **NUPP2206**.
 
-The word is contextual, since a name has to follow it on the same line, so a
-variable named `new` still means what it did.
+`new` is contextual: without a name after it on the same line, it remains an
+ordinary variable.
 
 A construction's values are its arguments: `new Point(x = 1, y = 2)`. The table
 is the compiler's to build, so the instance is the only allocation and an
@@ -78123,26 +78279,22 @@ struct has no such choice: it is its C layout, so `new Vec2(1.0, 2.0)` lowers to
 `local p: Point` declares storage and constructs nothing, so it holds nil until
 something assigns to it and reading it before that is **NUPP2207**.
 
-A declaration may state how it is built. A `constructor(self, ...)` body is what
-`new T(...)` runs: the instance is made before it and returned after it, so the
-body fills the fields in. It names that instance where a method names its
-receiver, and no more passes it than a method does. It takes either spelling a
-function takes anywhere else, so `constructor |self, at| -> do ... end` is the
-same declaration; the expression form is refused, because what a constructor
-hands back is settled before its body runs. Several constructors may declare
-distinguishable parameter packs; the call selects exactly one and invokes it
-directly. Every field that cannot hold nil has to be filled, and that guarantee
-is the reason to prefer one, and it is why declaring a constructor closes the
-direct form. A duplicate parameter pack, a missing receiver, or a body that
-breaks either guarantee is **NUPP2208**. `constructor` is contextual, so a field
-may still be called one.
+A `constructor(self, ...)` body is what `new T(...)` runs. The instance exists
+before the body and is returned after it; `self` names that instance rather than
+becoming a call argument. Distinct parameter packs may be overloaded. Declaring
+one closes direct construction, and every required field must be assigned or
+defaulted. Invalid constructor declarations are **NUPP2208**.
 
-The name is a value too: the runtime table `new` stamps on the instances it
-builds. That table is their metatable, so it holds `metatable<Point>` rather
-than `Point`, and the two do not stand for each other. The table may be passed
-to `setmetatable` or have a metamethod contract installed on it, an instance may
-not, and `Point is Point` is false without running. A function that wants a
-declaration rather than one of its values takes `metatable<P>`.
+A stored field may spell `name: T = value`, where the value is a closed scalar
+or table constant fitting `T`. Omitted construction fields and constructor
+instances receive the default; mutable tables are fresh each time. Defaults
+satisfy constructor completeness. Types have no implicit zero default, and
+interfaces reject field defaults.
+
+The declaration name is also the runtime table stamped as each instance's
+metatable, so it holds `metatable<Point>` rather than `Point`. It may be passed
+to `setmetatable` or receive a metamethod; an instance may not. A function that
+wants a declaration rather than an instance takes `metatable<P>`.
 
 One explicit type per field: grouped names are rejected.
 ]=] ,  example =
@@ -78689,7 +78841,6 @@ return m
 "NUPP2801" ,
 "NUPP2802" ,
 "NUPP2803" ,
-"NUPP2804" ,
 "NUPP2806" ,
 "NUPP2807" ,
 "NUPP2808" ,
@@ -79596,7 +79747,7 @@ const reflection = {} reflection.__index = reflection
 
 
 
-reflection . SCHEMA = 2
+reflection . SCHEMA = 3
 
 local function sortedNames ( values )
 local names = { }
@@ -79669,6 +79820,9 @@ read = intern ( read ) ,
 write = intern ( write ) ,
 readable = read ~= nil ,
 writable = write ~= nil ,
+hasDefault = t . fieldDefaults and t . fieldDefaults [ field . name ] ~= nil or false ,
+defaultValue = t . fieldDefaults and t . fieldDefaults [ field . name ]
+and t . fieldDefaults [ field . name ] . value ,
 annotations = reflectedAnnotations ( field . annotations ) ,
 }
 end
@@ -79938,6 +80092,8 @@ typeName = fieldType . name ,
 type = field . read or field . write ,
 readable = field . readable ,
 writable = field . writable ,
+hasDefault = field . hasDefault or false ,
+defaultValue = field . defaultValue ,
 annotations = field . annotations or { } ,
 }
 end
@@ -82255,11 +82411,9 @@ local __nuppDerive=rawget(__nupp,"__derive")or{};rawset(__nupp,"__derive",__nupp
 local __nuppDeriveTypes=__nuppDerive.types or{};__nuppDerive.types=__nuppDeriveTypes
 local __nuppBufferModule
 local function __nuppBufferNew()if not __nuppBufferModule then __nuppBufferModule=require("string.buffer")end;return __nuppBufferModule.new()end
-local function __nuppCopy(value,seen)if type(value)~="table"then return value end;seen=seen or{};if seen[value]then error("nupp: cyclic derived default",3)end;seen[value]=true;local out={};for k,v in pairs(value)do out[__nuppCopy(k,seen)]=__nuppCopy(v,seen)end;seen[value]=nil;return out end
+local function __nuppCopy(value,seen)if type(value)~="table"then return value end;seen=seen or{};if seen[value]then error("nupp: cyclic field default",3)end;seen[value]=true;local out={};for k,v in pairs(value)do out[__nuppCopy(k,seen)]=__nuppCopy(v,seen)end;seen[value]=nil;return out end
 local function __nuppDefaultValue(spec)
-if not spec or spec.kind=="nil"then return nil elseif spec.kind=="literal"then return __nuppCopy(spec.value)elseif spec.kind=="table"then return{}elseif spec.kind=="tuple"then local out={};for i,item in ipairs(spec.items)do out[i]=__nuppDefaultValue(item)end;return out elseif spec.kind=="shape"then local out={};for _,field in ipairs(spec.fields)do local value=__nuppDefaultValue(field.type);if value~=nil then out[field.name]=value end end;return out elseif spec.kind=="record"then local nested=__nuppDeriveTypes[spec.typeKey];if not nested then error("nupp: derived default dependency is not loaded",3)end;return __nuppDerive.default(nested)end;error("nupp: unsupported derived default",3)end
-function __nuppDerive.default(entry,schema)schema=schema or entry.schema.data.default;local out={};for _,field in ipairs(schema.fields)do if field.default then local value=__nuppDefaultValue(field.default);if value~=nil then out[field.name]=value end end end;return setmetatable(out,entry.mt)end
-function __nupp.default(factory)return factory.default()end
+if spec and spec.kind=="literal"then return __nuppCopy(spec.value)end;error("nupp: unsupported field default",3)end
 local function __nuppSortedKeys(value)local keys={};for key in pairs(value)do keys[#keys+1]=key end;table.sort(keys,function(a,b)return tostring(a)<tostring(b)end);return keys end
 local function __nuppDebugAny(value,state)
 local kind=type(value);if kind=="nil"or kind=="boolean"or kind=="number"then return tostring(value)elseif kind=="string"then return string.format("%q",value)elseif kind~="table"then return"<"..kind..">"end
@@ -82293,7 +82447,6 @@ function __nuppDerive.fromJSON(text,entry)local ok,value=pcall(entry.decoder.dec
 function __nuppDerive.fieldCodec(entry)return entry.codec end
 local __nuppDeriveModule={
 debug=function(value,entry)return __nuppDerive.debug(value,entry.schema.data.debug)end,
-default=function(entry)return __nuppDerive.default(entry,entry.schema.data.default)end,
 toJSON=function(value,entry)return __nuppDerive.toJSON(value,entry)end,
 fromJSON=function(text,entry)return __nuppDerive.fromJSON(text,entry)end,
 fieldCodec=function(entry)return entry.codec end,
@@ -84041,6 +84194,10 @@ types.AssociatedLookup = {} types.AssociatedLookup.__index = types.AssociatedLoo
 
 
 types.Nominal = {} types.Nominal.__index = types.Nominal
+
+
+
+
 
 
 
@@ -86199,58 +86356,7 @@ local derive = { }
 
 
 
-
-
-
 derive.Entry = {} derive.Entry.__index = derive.Entry
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -86428,10 +86534,6 @@ function derive . debug ( value , entry )
 return _G . nupp . __derive . debug ( value , entry . schema . data . debug )
 end
 
-function derive . default ( entry )
-return _G . nupp . __derive . default ( entry , entry . schema . data . default )
-end
-
 function derive . toJSON ( value , entry )
 return _G . nupp . __derive . toJSON ( value , entry )
 end
@@ -86443,38 +86545,6 @@ end
 function derive . fieldCodec ( entry )
 return entry . codec
 end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -93221,11 +93291,6 @@ local nupp: {
     --- Byte offset of one field under the build target's declared C ABI.
     offsetof: function(typeName: any, fieldName: string): integer,
 
-    --- Calls the static factory generated by `@derive(nupp.derive.Default)`.
-    default: function<T>(factory: {
-        readonly default: function(): T
-    }): T,
-
     --- Compiler-internal materialization conformance surface.
     --- @internal
     __materializationTest: nupp.__MaterializationTestAPI
@@ -93275,21 +93340,20 @@ end
 --- nameable types, and it observes no tokens, source positions, comments, or another
 --- provider's output.
 ---
---- Three providers ship with the compiler and cross the same boundary a package
---- provider does: `Debug`, `Default`, and `JSON`.
+--- Two providers ship with the compiler and cross the same boundary a package
+--- provider does: `Debug` and `JSON`.
 ---
 --- #### Derive the shipped providers
 ---
 --- ```nupp
---- @derive(nupp.derive.Debug, nupp.derive.Default)
+--- @derive(nupp.derive.Debug, nupp.derive.JSON)
 --- local record Settings
----     @default("localhost")
----     host: string
----     port: integer
+---     host: string = "localhost"
+---     port: integer = 8080
 --- end
 ---
---- local settings = nupp.default(Settings)
---- assert(settings:debug() == 'Settings { host = "localhost", port = 0 }')
+--- local settings = new Settings()
+--- assert(settings:debug() == 'Settings { host = "localhost", port = 8080 }')
 --- ```
 ---
 --- #### Write a package provider
@@ -93359,7 +93423,7 @@ end
 record nupp.derive
     --- A comptime-only provider symbol accepted by `@derive`.
     ---
-    --- A shipped provider is one of the four values below; a package provider is the
+    --- A shipped provider is one of the three values below; a package provider is the
     --- `@comptime` function a module exports. Neither survives into the program.
     record Provider
     end
@@ -93382,15 +93446,6 @@ record nupp.derive
     --- assert(credentials:debug() == 'Credentials { user = "ada", password = <redacted> }')
     --- ```
     Debug: Provider
-
-    --- Generates a static `default(): T`, which `nupp.default(T)` also reaches.
-    ---
-    --- Every field answers for itself: optionals give nil, booleans false, numerics
-    --- zero, strings the empty string, and tables a fresh one each call. `@default`
-    --- supplies a compile-time literal instead, and a nominal field uses its own
-    --- `default`, so one call fills a whole graph. A required recursive field is
-    --- refused, having no bottom to build from.
-    Default: Provider
 
     --- Generates `toJSON`, a static `fromJSON(text): T?, string?`, a `fieldCodec`, and
     --- `nupp.data.json.JSONEncodable` conformance.
@@ -93420,11 +93475,6 @@ record nupp.derive
     --- Each of these is the checked shape of one field annotation. A provider reads
     --- what was written from `Field.annotations` or `Info.annotations`; the shipped
     --- providers read the same projection rather than consulting a second planner.
-    interface DefaultOptions
-        --- The compile-time literal `default` stores in this field.
-        value: any
-    end
-
     --- The checked shape of `@json`, written on a record or on one of its fields.
     interface JSONOptions
         --- What decoding does with a key the record does not declare. Written on the
@@ -93479,6 +93529,12 @@ record nupp.derive
 
         --- A transported handle for the write type, or nil for a read-only field.
         readonly writeType: any?
+
+        --- Whether omission during construction supplies a declaration-owned default.
+        readonly hasDefault: boolean
+
+        --- The source-free constant default value. Read only when `hasDefault` is true.
+        readonly defaultValue: any
 
         --- The field's typed annotations in source order, `@json` and `@debug` among
         --- them.
@@ -94037,6 +94093,8 @@ record TypeInfoField
     readonly type: integer?
     readonly readable: boolean
     readonly writable: boolean
+    readonly hasDefault: boolean
+    readonly defaultValue: any
     readonly annotations: {TypeInfoAnnotation}
 end
 
@@ -94048,6 +94106,8 @@ record TypeInfoEntry
     readonly write: integer?
     readonly readable: boolean?
     readonly writable: boolean?
+    readonly hasDefault: boolean?
+    readonly defaultValue: any
     readonly mode: string?
     readonly bound: integer?
     readonly answer: integer?
@@ -97291,9 +97351,6 @@ return native
 
 local derive = {}
 
-interface derive.DefaultContract
-end
-
 interface derive.JSONContract is nupp.data.json.JSONEncodable
 end
 
@@ -97314,14 +97371,6 @@ local function option(items, annotationName: string, name: string): any
         end
     end
     return nil
-end
-
-@comptime
-local function hasAnnotation(items, name: string): boolean
-    for _, item in ipairs(items) do
-        if item.name == name then return true end
-    end
-    return false
 end
 
 @comptime
@@ -97380,46 +97429,6 @@ local function debugSpec(T: type, contract: type): any
         elseif nupp.derive.claims(T, contract) then
             return {kind = "customDebug"}
         end
-    end
-    return nil
-end
-
-@comptime
-local function defaultSpec(T: type, contract: type): any
-    local inner = optional(T)
-    if inner ~= nil then return {kind = "nil"} end
-    local value = detail(T)
-    if value.kind == "literal" then return {kind = "literal", value = value.value} end
-    if value.kind == "primitive" then
-        if value.name == "boolean" then return {kind = "literal", value = false} end
-        if value.name == "string" then return {kind = "literal", value = ""} end
-        if value.name == "number" or value.name == "integer" or value.name == "float"
-            or value.name:find("int", 1, true) or value.name:find("uint", 1, true) then
-            return {kind = "literal", value = 0}
-        end
-    elseif value.kind == "array" or value.kind == "map" then
-        return {kind = "table"}
-    elseif value.kind == "tuple" then
-        local items = {}
-        for index, member in ipairs(value.members or {}) do
-            local item = defaultSpec(member, contract)
-            if not item then return nil end
-            items[index] = item
-        end
-        return {kind = "tuple", items = items}
-    elseif value.kind == "shape" then
-        local fields = {}
-        for index, field in ipairs(value.fields or {}) do
-            local fieldType = field.read
-            if fieldType == nil then fieldType = field.write end
-            local item = defaultSpec(fieldType, contract)
-            if not item then return nil end
-            fields[index] = {name = field.name, type = item}
-        end
-        return {kind = "shape", fields = fields}
-    elseif value.kind == "reference" and value.nominal and value.nominal.deriveKey
-        and nupp.derive.claims(T, contract) then
-        return {kind = "record", typeKey = value.nominal.deriveKey}
     end
     return nil
 end
@@ -97523,10 +97532,6 @@ function derive.debug<T>(value: T, entry: derive.Entry): string
     return _G.nupp.__derive.debug(value, entry.schema.data.debug)
 end
 
-function derive.default<T>(entry: derive.Entry): T
-    return _G.nupp.__derive.default(entry, entry.schema.data.default)
-end
-
 function derive.toJSON<T>(value: T, entry: derive.Entry): string
     return _G.nupp.__derive.toJSON(value, entry)
 end
@@ -97574,41 +97579,6 @@ function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.Debug>
 end
 
 @comptime
-function derive.Default(info: nupp.derive.Info): nupp.derive.Result<derive.DefaultContract>
-    if info.kind ~= "record" or info.hasConstructor then
-        return nupp.derive.error("Default cannot bypass a written constructor", info.reference, "NUPP2804")
-    end
-    local fields = {}
-    for index, field in ipairs(info.fields) do
-        local supplied = option(field.annotations, "default", "value")
-        if supplied == nil and hasAnnotation(field.annotations, "default") then
-            return nupp.derive.error("@default needs a compile-time constant", field.reference, "NUPP2804")
-        end
-        local spec = supplied ~= nil and {kind = "literal", value = supplied}
-            or defaultSpec(field.readType, info.interfaceType)
-        if not spec then return nupp.derive.error("field type has no default", field.reference, "NUPP2804") end
-        if spec.kind == "record" and spec.typeKey == info.ownerIdentity then
-            return nupp.derive.error(
-                "Default has a required recursive cycle through " .. info.name,
-                field.reference,
-                "NUPP2807"
-            )
-        end
-        fields[index] = {name = field.name, default = spec}
-    end
-    return nupp.derive.implement{
-        statics = {default = nupp.derive.member{
-            signature = nupp.types.function_(nupp.types.pack({}), nupp.types.pack({info.ownerType})),
-            forward = nupp.derive.forward{
-                helper = nupp.derive.helper(derive, "default"),
-                arguments = {nupp.derive.entry()},
-            },
-        }},
-        data = {default = {fields = fields}},
-    }
-end
-
-@comptime
 function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<nupp.data.json.JSONEncodable>
     if info.kind ~= "record" then
         return nupp.derive.error("JSON can be derived only for records", info.reference, "NUPP2806")
@@ -97620,20 +97590,23 @@ function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<nupp.data.json.
             return nupp.derive.error("JSON field name " .. name .. " is duplicated", field.reference, "NUPP2806")
         end
         seen[name] = true
+        local defaultField = field as any
         local omit = option(field.annotations, "json", "omit") == true
+        if omit and not defaultField.hasDefault then
+            return nupp.derive.error(
+                "an omitted JSON field needs an explicit declaration default",
+                field.reference,
+                "NUPP2806"
+            )
+        end
         local spec = not omit and jsonSpec(field.readType, info.interfaceType) or nil
         if not omit and not spec then
             return nupp.derive.error("type is not supported by JSON", field.reference, "NUPP2806")
         end
-        local supplied = option(field.annotations, "default", "value")
-        if supplied == nil and hasAnnotation(field.annotations, "default") then
-            return nupp.derive.error("@default needs a compile-time constant", field.reference, "NUPP2806")
-        end
         fields[index] = {
             name = field.name, jsonName = name, omit = omit,
             omitEmpty = option(field.annotations, "json", "omitEmpty") == true, jsonType = spec,
-            default = supplied ~= nil and {kind = "literal", value = supplied}
-                or defaultSpec(field.readType, info.interfaceType),
+            default = defaultField.hasDefault and {kind = "literal", value = defaultField.defaultValue} or nil,
         }
     end
     local text = nupp.types.string

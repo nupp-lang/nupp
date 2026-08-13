@@ -197,7 +197,6 @@ annotated directly.
 | `@effects` | Implemented | Named effect members | function, c-function, local-binding |
 | `@relax` | Implemented | Observable guarantee names | function |
 | `@derive` | Implemented | Qualified comptime providers | record |
-| `@default` | Implemented | One literal value | Field in a derived record |
 | `@json` | Implemented | JSON record or field options | record, field |
 | `@debug` | Implemented | skip or redact | Field in a derived record |
 | `@deprecated` | Implemented | Optional reason and replacement | declaration, field |
@@ -217,7 +216,7 @@ is a long string; other names remain available to tools that understand them.
 
 The derive configuration annotations are reserved semantic names and cannot be
 redefined by a project. They are visible through comptime provider `Info`.
-`@derive` accepts `nupp.derive.Debug`, `.Default`, `.JSON`, or an
+`@derive` accepts `nupp.derive.Debug`, `.JSON`, or an
 exported comptime provider and adds checked members without exposing source or
 AST macros. See [Declaration derives](derives.md) for the recipe capabilities,
 generated methods, JSON policies, and failure rules.

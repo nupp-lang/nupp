@@ -311,7 +311,8 @@ arraypart      = "{" type "}"                  ; the record is also a
 annotatedentry = *annotation (fielddecl / metamethoddecl / inlinemethod
                               / constructordecl / matchesdecl)
                                                 ; metadata attaches to one entry
-fielddecl      = [propertycap] Name ":" type   ; one explicit type per field;
+fielddecl      = [propertycap] Name ":" type ["=" exp]
+                                                ; one explicit type per field;
                                                 ; grouped names are rejected
                                                 ; with a targeted error
 indexerdecl    = [propertycap] "[" type "]" ":" type

@@ -745,6 +745,10 @@ record types.Nominal
     --- construction fills them.
     fieldOrder: {string}?
 
+    --- Explicit construction defaults, indexed by stored field name. Each entry wraps
+    --- its value so `nil` remains distinguishable from no default.
+    fieldDefaults: {[string]: any}?
+
     --- The C name a cdef gave it.
     cdefName: string?
 

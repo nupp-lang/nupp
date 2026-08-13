@@ -6,25 +6,23 @@ top-level declarations, modules, records, interfaces, or independently
 nameable types.
 
 ```nupp
-@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.JSON)
+@derive(nupp.derive.Debug, nupp.derive.JSON)
 local record User
     @json(name = "user_id")
     id: integer
 
-    @default("anonymous")
-    name: string
+    name: string = "anonymous"
 
-    tags: {string}
+    tags: {string} = {}
 end
 
-local user = nupp.default(User)
+local user = new User()
 print(user:debug(), user:toJSON())
 ```
 
-The three bundled comptime providers are:
+The two bundled comptime providers are:
 
 - `nupp.derive.Debug`: `debug(self): string` and `nupp.Debug` conformance.
-- `nupp.derive.Default`: static `default(): T` and `nupp.default(T)` support.
 - `nupp.derive.JSON`: `toJSON`, static `fromJSON`, `fieldCodec`, and
   `nupp.data.json.JSONEncodable` conformance.
 
@@ -35,10 +33,10 @@ requested twice.
 
 They are ordinary exported `@comptime` functions implemented in
 `src/nupp/derive.nupp`; the compiler has no provider-name or operation switch
-for them. All four travel through the same sealed comptime worker, immutable
+for them. Both travel through the same sealed comptime worker, immutable
 `Info`, versioned result envelope, cache and recipe lowering used by package
 providers.
-Their schema configuration (`@debug`, `@default`, and `@json`) is included in
+Their schema configuration (`@debug` and `@json`) is included in
 the semantic annotations visible through `Info`; it is not a second planner.
 
 ## Package providers
@@ -219,63 +217,6 @@ print(c:debug())
 Credentials { user = "ada", password = <redacted> }
 ```
 
-## Default
-
-`Default` generates a static `default(): T`, which `nupp.default(T)` also
-reaches. Every field answers for itself: optionals give nil, booleans false,
-numerics zero, strings the empty string, and arrays and maps a fresh table each
-call.
-
-```nupp
-@derive(nupp.derive.Debug, nupp.derive.Default)
-local record Settings
-    name: string
-    retries: integer
-    verbose: boolean
-    timeout: number?
-    tags: {string}
-end
-
-print(nupp.default(Settings):debug())
-```
-
-```text
-Settings { name = "", retries = 0, verbose = false, timeout = nil, tags = {} }
-```
-
-`@default(value)` supplies a compile-time literal instead, and a nominal field
-uses its own derived `default()`, so one call fills a whole graph.
-
-```nupp
-@derive(nupp.derive.Debug, nupp.derive.Default)
-local record Settings
-    name: string
-    retries: integer
-end
-
-@derive(nupp.derive.Debug, nupp.derive.Default)
-local record Server
-    @default("localhost")
-    host: string
-    @default(8080)
-    port: integer
-    settings: Settings
-end
-
-print(Server.default():debug())
-```
-
-```text
-Server { host = "localhost", port = 8080, settings = Settings { name = "", retries = 0 } }
-```
-
-A mutable literal table is copied for every call, so two defaults never share
-one. Tuples and finite shapes default member by member.
-
-A required recursive graph is rejected, because it has no bottom: a `Node` whose
-`next: Node` is not optional would have to build forever. Make the recursive
-edge optional, or give it an explicit terminating default.
-
 ## JSON
 
 `JSON` generates `toJSON`, a static `fromJSON`, a `fieldCodec`, and
@@ -365,7 +306,13 @@ print(select(2, User.fromJSON(user:toJSON())))
 $.tags: required field is absent
 ```
 
-Use `omit` with a default when a field should disappear from both directions.
+Use `omit` with an explicit field default when a field should disappear from
+both directions:
+
+```nupp
+@json(omit = true)
+secret: string = "redacted"
+```
 
 ### Schemas
 
@@ -388,11 +335,12 @@ another JSON instance cannot alter a derived codec.
 
 Comptime evaluates closed value-producing programs after normal type checking.
 Derives run as part of declaration checking and may attach only validated
-member recipes. The bundled Debug, Default, and JSON providers use that
+member recipes. The bundled Debug and JSON providers use that
 same public mechanism; neither derives nor comptime become arbitrary source
 generation.
 
 ## Next
 
+- [records.md](type-system/records.md): declaration-owned construction defaults.
 - [annotations.md](annotations.md): the field annotations each provider reads.
 - [reflection.md](concepts/reflection.md): the descriptor a generator reads instead.

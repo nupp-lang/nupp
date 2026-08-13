@@ -108,7 +108,7 @@ end
 end
 return comptime do return summarize(nupp.reflect(Pair)) end
 ]]
-   assertEq(run(src), "2:record:2:left:string,right:integer",
+   assertEq(run(src), "3:record:2:left:string,right:integer",
       "user comptime code reads the versioned descriptor graph")
 end
 

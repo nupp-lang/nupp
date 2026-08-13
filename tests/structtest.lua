@@ -98,6 +98,19 @@ local v = new Vec2(0.1, 0)
 return v.x == 0.1]]), false) -- 0.1 is not representable in float32
 end
 
+function M.structConstructionUsesTrailingFieldDefaults()
+   local src = table.concat({
+      "local struct Vec2",
+      "   x: float = 3",
+      "   y: float = 4",
+      "end",
+      "local origin = new Vec2()",
+      "local moved = new Vec2(10)",
+      "return origin.x + origin.y + moved.x + moved.y",
+   }, "\n")
+   assertEq(run(src), 21)
+end
+
 function M.generatedStructBindingsAreConst()
    local code, diags, genDiags = compile(VEC .. "return Vec2")
    assertEq(#diags, 0, "check diagnostics")

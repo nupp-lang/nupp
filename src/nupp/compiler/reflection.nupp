@@ -9,7 +9,7 @@ local record reflection
     describe: function(any, string?, boolean?): any
 end
 
-reflection.SCHEMA = 2
+reflection.SCHEMA = 3
 
 local function sortedNames(values)
     local names = {}
@@ -82,6 +82,9 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
                         write = intern(write),
                         readable = read ~= nil,
                         writable = write ~= nil,
+                        hasDefault = t.fieldDefaults and t.fieldDefaults[field.name] ~= nil or false,
+                        defaultValue = t.fieldDefaults and t.fieldDefaults[field.name]
+                            and t.fieldDefaults[field.name].value,
                         annotations = reflectedAnnotations(field.annotations),
                     }
                 end
@@ -351,6 +354,8 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
             type = field.read or field.write,
             readable = field.readable,
             writable = field.writable,
+            hasDefault = field.hasDefault or false,
+            defaultValue = field.defaultValue,
             annotations = field.annotations or {},
         }
     end

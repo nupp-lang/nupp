@@ -341,6 +341,9 @@ interface cst.Hints
     --- Set on a call that constructs a record.
     recordConstruct: string?
 
+    --- Direct struct construction rewritten with omitted field defaults filled.
+    structConstruct: string?
+
     --- The fields that construction binds, in the order they were written, so the
     --- table the generator builds evaluates its values where the source put them.
     --- Each entry carries the field's name and the expression filling it.
@@ -1111,6 +1114,9 @@ record cst.FieldDecl is cst.Hints
 
     --- The integer width after a C bitfield's second colon.
     bitWidth: lexer.Token?
+
+    --- The constant value used when construction omits this field.
+    defaultValue: cst.Node?
 
     --- Annotations attached to it.
     annotations: {cst.Node}?

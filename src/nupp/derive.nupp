@@ -4,9 +4,6 @@
 
 local derive = {}
 
-interface derive.DefaultContract
-end
-
 interface derive.JSONContract is nupp.data.json.JSONEncodable
 end
 
@@ -27,14 +24,6 @@ local function option(items, annotationName: string, name: string): any
         end
     end
     return nil
-end
-
-@comptime
-local function hasAnnotation(items, name: string): boolean
-    for _, item in ipairs(items) do
-        if item.name == name then return true end
-    end
-    return false
 end
 
 @comptime
@@ -93,46 +82,6 @@ local function debugSpec(T: type, contract: type): any
         elseif nupp.derive.claims(T, contract) then
             return {kind = "customDebug"}
         end
-    end
-    return nil
-end
-
-@comptime
-local function defaultSpec(T: type, contract: type): any
-    local inner = optional(T)
-    if inner ~= nil then return {kind = "nil"} end
-    local value = detail(T)
-    if value.kind == "literal" then return {kind = "literal", value = value.value} end
-    if value.kind == "primitive" then
-        if value.name == "boolean" then return {kind = "literal", value = false} end
-        if value.name == "string" then return {kind = "literal", value = ""} end
-        if value.name == "number" or value.name == "integer" or value.name == "float"
-            or value.name:find("int", 1, true) or value.name:find("uint", 1, true) then
-            return {kind = "literal", value = 0}
-        end
-    elseif value.kind == "array" or value.kind == "map" then
-        return {kind = "table"}
-    elseif value.kind == "tuple" then
-        local items = {}
-        for index, member in ipairs(value.members or {}) do
-            local item = defaultSpec(member, contract)
-            if not item then return nil end
-            items[index] = item
-        end
-        return {kind = "tuple", items = items}
-    elseif value.kind == "shape" then
-        local fields = {}
-        for index, field in ipairs(value.fields or {}) do
-            local fieldType = field.read
-            if fieldType == nil then fieldType = field.write end
-            local item = defaultSpec(fieldType, contract)
-            if not item then return nil end
-            fields[index] = {name = field.name, type = item}
-        end
-        return {kind = "shape", fields = fields}
-    elseif value.kind == "reference" and value.nominal and value.nominal.deriveKey
-        and nupp.derive.claims(T, contract) then
-        return {kind = "record", typeKey = value.nominal.deriveKey}
     end
     return nil
 end
@@ -236,10 +185,6 @@ function derive.debug<T>(value: T, entry: derive.Entry): string
     return _G.nupp.__derive.debug(value, entry.schema.data.debug)
 end
 
-function derive.default<T>(entry: derive.Entry): T
-    return _G.nupp.__derive.default(entry, entry.schema.data.default)
-end
-
 function derive.toJSON<T>(value: T, entry: derive.Entry): string
     return _G.nupp.__derive.toJSON(value, entry)
 end
@@ -287,41 +232,6 @@ function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.Debug>
 end
 
 @comptime
-function derive.Default(info: nupp.derive.Info): nupp.derive.Result<derive.DefaultContract>
-    if info.kind ~= "record" or info.hasConstructor then
-        return nupp.derive.error("Default cannot bypass a written constructor", info.reference, "NUPP2804")
-    end
-    local fields = {}
-    for index, field in ipairs(info.fields) do
-        local supplied = option(field.annotations, "default", "value")
-        if supplied == nil and hasAnnotation(field.annotations, "default") then
-            return nupp.derive.error("@default needs a compile-time constant", field.reference, "NUPP2804")
-        end
-        local spec = supplied ~= nil and {kind = "literal", value = supplied}
-            or defaultSpec(field.readType, info.interfaceType)
-        if not spec then return nupp.derive.error("field type has no default", field.reference, "NUPP2804") end
-        if spec.kind == "record" and spec.typeKey == info.ownerIdentity then
-            return nupp.derive.error(
-                "Default has a required recursive cycle through " .. info.name,
-                field.reference,
-                "NUPP2807"
-            )
-        end
-        fields[index] = {name = field.name, default = spec}
-    end
-    return nupp.derive.implement{
-        statics = {default = nupp.derive.member{
-            signature = nupp.types.function_(nupp.types.pack({}), nupp.types.pack({info.ownerType})),
-            forward = nupp.derive.forward{
-                helper = nupp.derive.helper(derive, "default"),
-                arguments = {nupp.derive.entry()},
-            },
-        }},
-        data = {default = {fields = fields}},
-    }
-end
-
-@comptime
 function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<nupp.data.json.JSONEncodable>
     if info.kind ~= "record" then
         return nupp.derive.error("JSON can be derived only for records", info.reference, "NUPP2806")
@@ -333,20 +243,23 @@ function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<nupp.data.json.
             return nupp.derive.error("JSON field name " .. name .. " is duplicated", field.reference, "NUPP2806")
         end
         seen[name] = true
+        local defaultField = field as any
         local omit = option(field.annotations, "json", "omit") == true
+        if omit and not defaultField.hasDefault then
+            return nupp.derive.error(
+                "an omitted JSON field needs an explicit declaration default",
+                field.reference,
+                "NUPP2806"
+            )
+        end
         local spec = not omit and jsonSpec(field.readType, info.interfaceType) or nil
         if not omit and not spec then
             return nupp.derive.error("type is not supported by JSON", field.reference, "NUPP2806")
         end
-        local supplied = option(field.annotations, "default", "value")
-        if supplied == nil and hasAnnotation(field.annotations, "default") then
-            return nupp.derive.error("@default needs a compile-time constant", field.reference, "NUPP2806")
-        end
         fields[index] = {
             name = field.name, jsonName = name, omit = omit,
             omitEmpty = option(field.annotations, "json", "omitEmpty") == true, jsonType = spec,
-            default = supplied ~= nil and {kind = "literal", value = supplied}
-                or defaultSpec(field.readType, info.interfaceType),
+            default = defaultField.hasDefault and {kind = "literal", value = defaultField.defaultValue} or nil,
         }
     end
     local text = nupp.types.string

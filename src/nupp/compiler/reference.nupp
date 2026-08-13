@@ -509,8 +509,8 @@ which is what leaves `__call` and `__new` to the program. Calling a record that
 declares no `__call` contract is **NUPP2202**, and `new` on anything that is not
 a record or a struct is **NUPP2206**.
 
-The word is contextual, since a name has to follow it on the same line, so a
-variable named `new` still means what it did.
+`new` is contextual: without a name after it on the same line, it remains an
+ordinary variable.
 
 A construction's values are its arguments: `new Point(x = 1, y = 2)`. The table
 is the compiler's to build, so the instance is the only allocation and an
@@ -524,26 +524,22 @@ struct has no such choice: it is its C layout, so `new Vec2(1.0, 2.0)` lowers to
 `local p: Point` declares storage and constructs nothing, so it holds nil until
 something assigns to it and reading it before that is **NUPP2207**.
 
-A declaration may state how it is built. A `constructor(self, ...)` body is what
-`new T(...)` runs: the instance is made before it and returned after it, so the
-body fills the fields in. It names that instance where a method names its
-receiver, and no more passes it than a method does. It takes either spelling a
-function takes anywhere else, so `constructor |self, at| -> do ... end` is the
-same declaration; the expression form is refused, because what a constructor
-hands back is settled before its body runs. Several constructors may declare
-distinguishable parameter packs; the call selects exactly one and invokes it
-directly. Every field that cannot hold nil has to be filled, and that guarantee
-is the reason to prefer one, and it is why declaring a constructor closes the
-direct form. A duplicate parameter pack, a missing receiver, or a body that
-breaks either guarantee is **NUPP2208**. `constructor` is contextual, so a field
-may still be called one.
+A `constructor(self, ...)` body is what `new T(...)` runs. The instance exists
+before the body and is returned after it; `self` names that instance rather than
+becoming a call argument. Distinct parameter packs may be overloaded. Declaring
+one closes direct construction, and every required field must be assigned or
+defaulted. Invalid constructor declarations are **NUPP2208**.
 
-The name is a value too: the runtime table `new` stamps on the instances it
-builds. That table is their metatable, so it holds `metatable<Point>` rather
-than `Point`, and the two do not stand for each other. The table may be passed
-to `setmetatable` or have a metamethod contract installed on it, an instance may
-not, and `Point is Point` is false without running. A function that wants a
-declaration rather than one of its values takes `metatable<P>`.
+A stored field may spell `name: T = value`, where the value is a closed scalar
+or table constant fitting `T`. Omitted construction fields and constructor
+instances receive the default; mutable tables are fresh each time. Defaults
+satisfy constructor completeness. Types have no implicit zero default, and
+interfaces reject field defaults.
+
+The declaration name is also the runtime table stamped as each instance's
+metatable, so it holds `metatable<Point>` rather than `Point`. It may be passed
+to `setmetatable` or receive a metamethod; an instance may not. A function that
+wants a declaration rather than an instance takes `metatable<P>`.
 
 One explicit type per field: grouped names are rejected.
 ]=],
@@ -1090,7 +1086,6 @@ return m
             "NUPP2801",
             "NUPP2802",
             "NUPP2803",
-            "NUPP2804",
             "NUPP2806",
             "NUPP2807",
             "NUPP2808",

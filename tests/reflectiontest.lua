@@ -22,7 +22,7 @@ local M = {}
 
 function M.serializesRecursiveTypesAsAcyclicIndexedGraphs()
    local descriptor = reflection.describe(recursiveNode(T.string), "Node")
-   assertEq(descriptor.schema, 2, "reflection schema")
+   assertEq(descriptor.schema, 3, "reflection schema")
    assertEq(descriptor.root, 1, "root index")
    assertEq(descriptor.fields[1].name, "value", "declaration order begins with value")
    assertEq(descriptor.fields[2].name, "next", "declaration order retains next")
@@ -35,6 +35,25 @@ function M.serializesRecursiveTypesAsAcyclicIndexedGraphs()
       end
    end
    assert(reachesRoot, "the recursive edge refers back to the root index")
+end
+
+function M.reflectsFieldDefaultsAndFingerprintsTheirValues()
+   local first = recursiveNode(T.string)
+   first.fieldDefaults = {value = {value = "first"}}
+   local same = recursiveNode(T.string)
+   same.fieldDefaults = {value = {value = "first"}}
+   local changed = recursiveNode(T.string)
+   changed.fieldDefaults = {value = {value = "second"}}
+   local absent = recursiveNode(T.string)
+   local firstDescriptor = reflection.describe(first, "Node")
+   assertEq(firstDescriptor.fields[1].hasDefault, true, "default presence")
+   assertEq(firstDescriptor.fields[1].defaultValue, "first", "default value")
+   assertEq(reflection.describe(absent, "Node").fields[1].hasDefault, false,
+      "missing default")
+   assertEq(firstDescriptor.fingerprint, reflection.describe(same, "Node").fingerprint,
+      "equal defaults fingerprint equally")
+   assert(firstDescriptor.fingerprint ~= reflection.describe(changed, "Node").fingerprint,
+      "changing a default changes the fingerprint")
 end
 
 function M.omitsPrivateFieldsFromSemanticReflection()

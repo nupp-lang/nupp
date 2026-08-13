@@ -309,6 +309,8 @@ function derive.install(c: state.Checker): derive.Ops
                 writable = n.writeByname[fieldName] ~= nil,
                 readType = transportedType(fieldType),
                 writeType = transportedType(n.writeByname[fieldName]),
+                hasDefault = descriptorFields[index] and descriptorFields[index].hasDefault or false,
+                defaultValue = descriptorFields[index] and descriptorFields[index].defaultValue,
                 annotations = descriptorFields[index] and descriptorFields[index].annotations or {},
                 claims = claims,
                 reference = "field:" .. tostring(index),
@@ -351,6 +353,8 @@ function derive.install(c: state.Checker): derive.Ops
                 writable = field.writable,
                 read = field.readType and field.readType.descriptor.fingerprint or nil,
                 write = field.writeType and field.writeType.descriptor.fingerprint or nil,
+                hasDefault = field.hasDefault,
+                defaultValue = field.defaultValue,
                 annotations = field.annotations,
                 claims = {},
             }

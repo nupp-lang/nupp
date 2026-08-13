@@ -1078,7 +1078,17 @@ function calls.install(c: state.Checker): calls.Ops
                     {help = ("write new %s(field = value, ...) to name the fields"):format(declared)}
                 )
             end
-            node.recordFields = isRecord and bindings or nil
+            for _, field in ipairs(order) do
+                local default = calleeT.fieldDefaults and calleeT.fieldDefaults[field] or nil
+                if not bound[field] and default then
+                    bindings[#bindings + 1] = {name = field, defaultValue = default.value, isDefault = true}
+                    bound[field] = true
+                end
+            end
+            node.recordFields = bindings
+            if not isRecord then
+                node.structConstruct = declared
+            end
             if genericMap then
                 -- the type arguments follow from the values supplied
                 ops.validateTypeBounds(calleeT.typeParams, calleeT.typeBounds, genericMap, node)

@@ -465,9 +465,9 @@ local function finalizeNominalEffects(c: state.Checker)
     end
 
     -- The nominals above keep stable identity across rechecks, so comparing their
-    -- tables cannot reveal a body-only effect change: the old interface observes the
-    -- same mutated object. Snapshot the callable effect surface as immutable text for
-    -- the incremental cutoff and persistent build interface hash.
+    -- tables cannot reveal a body-only effect or construction-default change: the old
+    -- interface observes the same mutated object. Snapshot both semantic surfaces as
+    -- immutable text for the incremental cutoff and persistent build interface hash.
     local parts, seen = {}, {}
     local function effect(t, method: boolean): string?
         if not t then
@@ -518,6 +518,12 @@ local function finalizeNominalEffects(c: state.Checker)
 
         record("byname", nominal.byname or {}, true)
         record("staticByname", nominal.staticByname or {}, false)
+        for _, name in ipairs(nominal.fieldOrder or {}) do
+            local default = nominal.fieldDefaults and nominal.fieldDefaults[name] or nil
+            if default then
+                parts[#parts + 1] = path .. ":default:" .. name .. "=" .. stable(default.value)
+            end
+        end
         local nested = {}
         for name in pairs(nominal.nestedTypes or {}) do
             nested[#nested + 1] = name

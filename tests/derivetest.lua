@@ -1,5 +1,5 @@
 -- Compiler-owned declaration derives: semantic members, factory projection, and
--- the closed runtime recipes for Debug, Default, and JSON.
+-- the closed runtime recipes for Debug and JSON.
 local parser = require("nupp.compiler.parser")
 local gen = require("nupp.compiler.gen")
 local check = require("fragment")
@@ -66,18 +66,17 @@ end
 
 local M = {}
 
-function M.derivesTheBuiltinsAndInfersFactoryResults()
+function M.derivesTheTwoBuiltinsAndInfersFactoryResults()
    local result, code = run([[
-@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.JSON)
+@derive(nupp.derive.Debug, nupp.derive.JSON)
 local record User
     @json(name = "user_name")
-    @default("anonymous")
-    name: string
-    scores: {integer}
-    active: boolean
+    name: string = "anonymous"
+    scores: {integer} = {}
+    active: boolean = false
 end
 
-local user: User = nupp.default(User)
+local user: User = new User()
 local printable: nupp.Debug = user
 local encodable: nupp.data.json.JSONEncodable = user
 local text = encodable:toJSON()
@@ -102,14 +101,13 @@ end
 
 function M.constructsFreshMutableDefaults()
    local result = run([[
-@derive(nupp.derive.Default)
 local record Options
-    tags: {string}
-    values: {[string]: integer}
-    point: {x: integer, label: string}
+    tags: {string} = {}
+    values: {[string]: integer} = {}
+    point: {x: integer, label: string} = {x = 0, label = ""}
 end
-local left = Options.default()
-local right = Options.default()
+local left = new Options()
+local right = new Options()
 left.tags[1] = "changed"
 left.values.changed = 1
 left.point.x = 9
@@ -132,12 +130,13 @@ function M.appliesJSONPoliciesAndKeepsDecoderConfigurationPrivate()
 @derive(nupp.derive.JSON)
 @json(unknown = "ignore")
 local record Payload
-    @default("missing")
-    name: string
+    name: string = "missing"
     @json(omit = true)
-    secret: string
+    secret: string = "hidden"
     @json(omitEmpty = true)
     labels: {string}
+    @json(omitEmpty = true)
+    active: boolean = false
 end
 
 -- A process-visible setting must not alter the private derived decoder.
@@ -153,6 +152,7 @@ return {
     name = decoded and decoded.name,
     secret = decoded and decoded.secret,
     labels = decoded and #decoded.labels,
+    active = decoded and decoded.active,
     arrayMt = decoded and getmetatable(decoded.labels),
     error = err,
     checked = checked and checked.name,
@@ -165,8 +165,9 @@ return {
 }
 ]])
    assertEq(result.name, "missing")
-   assertEq(result.secret, "")
+   assertEq(result.secret, "hidden")
    assertEq(result.labels, 0)
+   assertEq(result.active, false)
    assertEq(result.arrayMt, nil)
    assertEq(result.error, nil)
    assertEq(result.checked, "ok")
@@ -218,14 +219,14 @@ local record Box<T is nupp.Debug>
 end
 
 local record Namespace
-    @derive(nupp.derive.Debug, nupp.derive.Default)
+    @derive(nupp.derive.Debug)
     record Inner
-        count: integer
+        count: integer = 0
     end
 end
 
 local boxed: Box<Item> = new Box(value = new Item(label = "ok"))
-local inner: Namespace.Inner = Namespace.Inner.default()
+local inner: Namespace.Inner = new Namespace.Inner()
 return {box = boxed:debug(), inner = inner:debug()}
 ]])
    assertEq(result.box, 'Box { value = Item { label = "ok" } }')
@@ -275,24 +276,10 @@ local record Bad
     debug: function(self): string
 end
 ]]},
-      {"NUPP2804", [[
-local fallback = "runtime"
-@derive(nupp.derive.Default)
-local record Bad
-    @default(fallback)
-    value: string
-end
-]]},
       {"NUPP2806", [[
 @derive(nupp.derive.JSON)
 local record Bad
     value: uint64
-end
-]]},
-      {"NUPP2807", [[
-@derive(nupp.derive.Default)
-local record Bad
-    next: Bad
 end
 ]]},
    }
@@ -347,11 +334,11 @@ end
 
 function M.recheckingADerivedDeclarationIsIdempotent()
    local source = [[
-@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.JSON)
+@derive(nupp.derive.Debug, nupp.derive.JSON)
 local record Stable
-    value: integer
+    value: integer = 0
 end
-return Stable.default()
+return new Stable()
 ]]
    local parsed = parser.parse(source, "derive_recheck.g.nupp")
    assertEq(#parsed.errors, 0, "syntax errors")
@@ -388,7 +375,7 @@ end
 
 function M.givesEveryGeneratedMemberADistinctSemanticIdentity()
    local _, diagnostics, parsed = compile([[
-@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.JSON)
+@derive(nupp.derive.Debug, nupp.derive.JSON)
 local record Identified
     value: integer
 end
@@ -397,7 +384,6 @@ end
    local nominal = assert(firstDeclaration(parsed).hoistedType)
    local defs = {
       nominal.derivedDefinitions.debug,
-      nominal.derivedStaticDefinitions.default,
       nominal.derivedDefinitions.toJSON,
       nominal.derivedStaticDefinitions.fromJSON,
       nominal.derivedStaticDefinitions.fieldCodec,
@@ -410,7 +396,7 @@ end
          "generated members share a semantic identity")
       identities[definition.generatedIdentity] = true
    end
-   assert(defs[3].token == defs[4].token and defs[4].token == defs[5].token,
+   assert(defs[2].token == defs[3].token and defs[3].token == defs[4].token,
       "the three JSON members keep one written navigation origin")
 end
 
@@ -492,7 +478,7 @@ end
 
 function M.cancelsWithoutPublishingAPartialRecipeAndRecovers()
    local source = [[
-@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.JSON)
+@derive(nupp.derive.Debug, nupp.derive.JSON)
 local record Recoverable
     names: {{{string}}}
     values: {[string]: {integer}}
@@ -535,7 +521,7 @@ end
 
 function M.boundsRenderedRecipesAndReportsColdAndWarmObservations()
    local source = [[
-@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.JSON)
+@derive(nupp.derive.Debug, nupp.derive.JSON)
 local record ObservedClosure
     value: integer
 end
@@ -544,11 +530,10 @@ end
    assertEq(#coldDiagnostics, 0, "cold observation diagnostics")
    local _, warmDiagnostics, warm = compileAt(source, "observed.g.nupp")
    assertEq(#warmDiagnostics, 0, "warm observation diagnostics")
-   assertEq(#cold.deriveObservations, 3, "one observation per provider")
-   assertEq(#warm.deriveObservations, 3, "warm observation count")
+   assertEq(#cold.deriveObservations, 2, "one observation per provider")
+   assertEq(#warm.deriveObservations, 2, "warm observation count")
    local expected = {
       ["nupp.derive.Debug"] = 1,
-      ["nupp.derive.Default"] = 1,
       ["nupp.derive.JSON"] = 3,
    }
    for index, observation in ipairs(cold.deriveObservations) do
@@ -592,7 +577,7 @@ end
 
 function M.recordsTheExactRuntimeFeatureManifest()
    local _, debugDiagnostics, debug = compile([[
-@derive(nupp.derive.Debug, nupp.derive.Default)
+@derive(nupp.derive.Debug)
 local record Pure value: integer end
 ]])
    assertEq(#debugDiagnostics, 0, "pure derive feature diagnostics")

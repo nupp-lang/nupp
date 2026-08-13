@@ -66,7 +66,7 @@ local FEATURES: {
     "stdlib.derives"
 ] = {
     name = "derives",
-    globals = {"nupp.default"},
+    globals = {},
 }, [
     "stdlib.io"
 ] = {

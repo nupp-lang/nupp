@@ -247,14 +247,14 @@ local function dedentLongString(text)
     return body
 end
 
---- Renders a closed, data-only derive recipe as one Lua expression. Keys are sorted so
---- equal semantic recipes produce byte-identical output regardless of table iteration.
---- @raises when a compiler-owned recipe contains a non-data value or a cycle
-function literal.derive(value: any): string
+--- Renders closed compiler-owned data as one Lua expression. Keys are sorted so equal
+--- values produce byte-identical output regardless of table iteration.
+--- @raises when the value contains a non-data value or a cycle
+function literal.renderData(value: any): string
     local recipeCodec = require("nupp.compiler.materialize.codec")
     local rendered, why = recipeCodec.render(value)
     if not rendered then
-        error("invalid derive recipe: " .. tostring(why))
+        error("invalid closed compiler data: " .. tostring(why))
     end
 
     return rendered
@@ -893,6 +893,7 @@ function gen.generate(
     -- instruments the largest function in the compiler and the module then will not
     -- load.
     local pluck = {plans = {}, statementActive = {}, helpers = helpers, declareHelper = declareHelper, loweredFunction = loweredFunction, emitDerivedMembers = emitDerivedMembers,
+        quote = literal.quote, renderData = literal.renderData,
         -- Why each lowering that still builds a function inside a loop cannot be
         -- declared once for the module instead. Every one is the same shape: the body
         -- writes a local belonging to its own site, and Lua gives no way to hand
@@ -1659,7 +1660,7 @@ function gen.generate(
             local text = x.text
             if x.kind == "string" and text:sub(1, 1) == "`" then
                 -- backtick string without interpolation -> quoted string
-                text = literal.quote(text:sub(2, -2))
+                text = pluck.quote(text:sub(2, -2))
             end
             e(text, x.line)
             return
@@ -2393,7 +2394,7 @@ function gen.generate(
                         if piecesOpen then
                             e("..")
                         end
-                        e(literal.quote(chunk), child.line)
+                        e(pluck.quote(chunk), child.line)
                         piecesOpen = true
                     end
                 else
@@ -3017,6 +3018,21 @@ function gen.generate(
             end
             return
 
+        elseif (kind == "call" or kind == "safeCall") and x.structConstruct then
+            local first = x[1]
+            local line = first and cst.isToken(first) and first.line or nil
+            e(x.structConstruct .. "(", line)
+            for index, binding in ipairs(x.recordFields or {}) do
+                if index > 1 then e(", ") end
+                if binding.isDefault then
+                    e(pluck.renderData(binding.defaultValue))
+                else
+                    emit(binding.node)
+                end
+            end
+            e(")")
+            return
+
         elseif (kind == "call" or kind == "safeCall") and x.recordConstruct then
             -- `new R(...)` builds an ordinary table carrying R as its metatable. The
             -- table is written here rather than taken from the call, so a construction
@@ -3033,7 +3049,11 @@ function gen.generate(
                     e(", ")
                 end
                 e(cst.identifier(binding.name) and (binding.name .. " = ") or ("[%q] = "):format(binding.name))
-                emit(binding.node)
+                if binding.isDefault then
+                    e(pluck.renderData(binding.defaultValue))
+                else
+                    emit(binding.node)
+                end
             end
             e("}, " .. x.recordConstruct .. ")")
             return
@@ -3063,10 +3083,25 @@ function gen.generate(
                 end
             end
             local owner = x.inlineRuntimeOwner
+            local seeded = {}
+            local nominal = x.ownerNominal
+            for _, field in ipairs(nominal and nominal.fieldOrder or {}) do
+                local default = nominal.fieldDefaults and nominal.fieldDefaults[field] or nil
+                if default then
+                    seeded[#seeded + 1] = (cst.identifier(field) and (field .. " = ") or ("[%q] = "):format(field))
+                        .. pluck.renderData(default.value)
+                end
+            end
             e(
                 (
-                    "function %s.%s(%s) local self = setmetatable({}, %s)"
-                ):format(owner, constructorMember(x.constructorIndex), table.concat(names, ", "), owner),
+                    "function %s.%s(%s) local self = setmetatable({%s}, %s)"
+                ):format(
+                    owner,
+                    constructorMember(x.constructorIndex),
+                    table.concat(names, ", "),
+                    table.concat(seeded, ", "),
+                    owner
+                ),
                 line
             )
             if body.varargParam then

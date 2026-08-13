@@ -197,9 +197,9 @@ function M.deriveRecipesMemoizeAndPublishBehaviorChanges()
    end
    local dep = table.concat({
       "local dep = {}",
-      "@derive(nupp.derive.Debug, nupp.derive.Default)",
+      "@derive(nupp.derive.Debug)",
       "record dep.Config",
-      "   entries: {[string]: string}",
+      "   entries: {[string]: string} = {}",
       "end",
       "local function body(): integer",
       "   return 1",
@@ -209,7 +209,7 @@ function M.deriveRecipesMemoizeAndPublishBehaviorChanges()
    write(depPath, dep)
    write(mainPath, table.concat({
       "local dep = require('dep')",
-      "local config = dep.Config.default()",
+      "local config = new dep.Config()",
       "return config:debug()",
    }, "\n"))
 
@@ -241,6 +241,41 @@ function M.deriveRecipesMemoizeAndPublishBehaviorChanges()
       "the module publishes an explicit derive interface")
    assert(changed.exports.deriveInterfaceFingerprint ~= coldFingerprint,
       "the checked result publishes the changed behavior envelope")
+
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.fieldDefaultChangesInvalidateModuleConsumers()
+   local dir = os.tmpname()
+   os.remove(dir)
+   os.execute("mkdir -p '" .. dir .. "'")
+   local depPath = dir .. "/dep.nupp"
+   local mainPath = dir .. "/main.nupp"
+   local function write(path, source)
+      local file = assert(io.open(path, "wb"))
+      file:write(source)
+      file:close()
+   end
+   local dep = table.concat({
+      "local dep = {}",
+      "record dep.Config",
+      "   value: integer = 1",
+      "end",
+      "return dep",
+   }, "\n")
+   write(depPath, dep)
+   write(mainPath, table.concat({
+      "local dep = require('dep')",
+      "return new dep.Config()",
+   }, "\n"))
+
+   local inc = incremental.new(dir, {cache = false})
+   assertEq(#inc.checkFile(mainPath).diags, 0, "defaulted dependency checks cold")
+   local coldChecks = inc.q.stats.checkModule
+   inc.changeDocument(depPath, dep:gsub("= 1", "= 2"))
+   assertEq(#inc.checkFile(mainPath).diags, 0, "changed default stays clean")
+   assertEq(inc.q.stats.checkModule, coldChecks + 2,
+      "a changed construction default rechecks its consumer")
 
    os.execute("rm -rf '" .. dir .. "'")
 end

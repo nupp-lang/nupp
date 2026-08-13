@@ -882,6 +882,48 @@ function M.aConstructorClosesTheLiteralForm()
    }, "\n"))
 end
 
+function M.fieldDefaultsSeedDirectConstructionAndConstructors()
+   local result = run(table.concat({
+      "local record Flags",
+      "    active: boolean = false",
+      "    retries: integer = 3",
+      "end",
+      "local flags = new Flags(retries = 9)",
+      "local record Settings",
+      "    port: integer = 8080",
+      "    tags: {string} = {}",
+      "    constructor(self, offset: integer)",
+      "        self.port = self.port + offset",
+      "    end",
+      "end",
+      "local left = new Settings(1)",
+      "local right = new Settings(2)",
+      "left.tags[1] = 'changed'",
+      "return {flags.active, flags.retries, left.port, right.port, #right.tags, left.tags ~= right.tags}",
+   }, "\n"))
+   assertEq(result[1], false)
+   assertEq(result[2], 9)
+   assertEq(result[3], 8081)
+   assertEq(result[4], 8082)
+   assertEq(result[5], 0)
+   assertEq(result[6], true)
+end
+
+function M.fieldDefaultsMustBeClosedAndFitTheirFields()
+   assertEq(diagsOf(table.concat({
+      "local seed = 3",
+      "local record Bad",
+      "    dynamic: integer = seed",
+      "    wrong: integer = 'three'",
+      "end",
+   }, "\n")), "NUPP2202:3 NUPP2202:4")
+   assertEq(diagsOf(table.concat({
+      "local interface Bad",
+      "    value: integer = 1",
+      "end",
+   }, "\n")), "NUPP2202:2")
+end
+
 -- A metamethod declaration is a contract, and a metatable literal is where the
 -- value fulfilling it is written. Until it is checked there the contract is
 -- rendered and never read.

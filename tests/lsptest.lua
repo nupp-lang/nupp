@@ -2693,11 +2693,11 @@ end
 
 function M.generatedMembersHaveEditorIdentityAndProvenance()
    local projectDir = tempProject()
-   local source = [[@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.JSON)
+   local source = [[@derive(nupp.derive.Debug, nupp.derive.JSON)
 local record Model
-    value: integer
+    value: integer = 0
 end
-local model = Model.default()
+local model = new Model()
 local json = model:toJSON()
 local restored, why = Model.fromJSON(json)
 local codec = Model.fieldCodec()
@@ -2731,7 +2731,7 @@ return restored, why, codec, shown
          textDocument = { uri = uri }, position = at("fromJSON(json)", 1),
          context = { includeDeclaration = true } } },
       { jsonrpc = "2.0", id = 16, method = "textDocument/completion", params = {
-         textDocument = { uri = uri }, position = at("Model.default", #"Model.") } },
+         textDocument = { uri = uri }, position = at("Model.fromJSON", #"Model.") } },
       { jsonrpc = "2.0", id = 17, method = "textDocument/completion", params = {
          textDocument = { uri = uri }, position = at("model:toJSON", #"model:") } },
       { jsonrpc = "2.0", id = 18, method = "textDocument/documentSymbol", params = {
@@ -2771,7 +2771,7 @@ return restored, why, codec, shown
    local static, instance = {}, {}
    for _, item in ipairs(responseWithId(out, 16).result) do static[item.label] = item end
    for _, item in ipairs(responseWithId(out, 17).result) do instance[item.label] = item end
-   assert(static.default and static.fromJSON and static.fieldCodec,
+   assert(static.fromJSON and static.fieldCodec and not static.default,
       "record completion offers generated static members")
    assert(instance.debug and instance.toJSON,
       "instance completion offers generated instance members")
@@ -2786,7 +2786,6 @@ return restored, why, codec, shown
    local children = {}
    for _, child in ipairs(model.children or {}) do children[child.name] = true end
    assert(children["debug (generated)"] and children["toJSON (generated)"]
-      and children["default (generated, static)"]
       and children["fromJSON (generated, static)"]
       and children["fieldCodec (generated, static)"],
       "document symbols expose generated members without source ranges")

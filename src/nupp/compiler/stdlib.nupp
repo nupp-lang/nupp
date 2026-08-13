@@ -627,11 +627,9 @@ local __nuppDerive=rawget(__nupp,"__derive")or{};rawset(__nupp,"__derive",__nupp
 local __nuppDeriveTypes=__nuppDerive.types or{};__nuppDerive.types=__nuppDeriveTypes
 local __nuppBufferModule
 local function __nuppBufferNew()if not __nuppBufferModule then __nuppBufferModule=require("string.buffer")end;return __nuppBufferModule.new()end
-local function __nuppCopy(value,seen)if type(value)~="table"then return value end;seen=seen or{};if seen[value]then error("nupp: cyclic derived default",3)end;seen[value]=true;local out={};for k,v in pairs(value)do out[__nuppCopy(k,seen)]=__nuppCopy(v,seen)end;seen[value]=nil;return out end
+local function __nuppCopy(value,seen)if type(value)~="table"then return value end;seen=seen or{};if seen[value]then error("nupp: cyclic field default",3)end;seen[value]=true;local out={};for k,v in pairs(value)do out[__nuppCopy(k,seen)]=__nuppCopy(v,seen)end;seen[value]=nil;return out end
 local function __nuppDefaultValue(spec)
-if not spec or spec.kind=="nil"then return nil elseif spec.kind=="literal"then return __nuppCopy(spec.value)elseif spec.kind=="table"then return{}elseif spec.kind=="tuple"then local out={};for i,item in ipairs(spec.items)do out[i]=__nuppDefaultValue(item)end;return out elseif spec.kind=="shape"then local out={};for _,field in ipairs(spec.fields)do local value=__nuppDefaultValue(field.type);if value~=nil then out[field.name]=value end end;return out elseif spec.kind=="record"then local nested=__nuppDeriveTypes[spec.typeKey];if not nested then error("nupp: derived default dependency is not loaded",3)end;return __nuppDerive.default(nested)end;error("nupp: unsupported derived default",3)end
-function __nuppDerive.default(entry,schema)schema=schema or entry.schema.data.default;local out={};for _,field in ipairs(schema.fields)do if field.default then local value=__nuppDefaultValue(field.default);if value~=nil then out[field.name]=value end end end;return setmetatable(out,entry.mt)end
-function __nupp.default(factory)return factory.default()end
+if spec and spec.kind=="literal"then return __nuppCopy(spec.value)end;error("nupp: unsupported field default",3)end
 local function __nuppSortedKeys(value)local keys={};for key in pairs(value)do keys[#keys+1]=key end;table.sort(keys,function(a,b)return tostring(a)<tostring(b)end);return keys end
 local function __nuppDebugAny(value,state)
 local kind=type(value);if kind=="nil"or kind=="boolean"or kind=="number"then return tostring(value)elseif kind=="string"then return string.format("%q",value)elseif kind~="table"then return"<"..kind..">"end
@@ -665,7 +663,6 @@ function __nuppDerive.fromJSON(text,entry)local ok,value=pcall(entry.decoder.dec
 function __nuppDerive.fieldCodec(entry)return entry.codec end
 local __nuppDeriveModule={
 debug=function(value,entry)return __nuppDerive.debug(value,entry.schema.data.debug)end,
-default=function(entry)return __nuppDerive.default(entry,entry.schema.data.default)end,
 toJSON=function(value,entry)return __nuppDerive.toJSON(value,entry)end,
 fromJSON=function(text,entry)return __nuppDerive.fromJSON(text,entry)end,
 fieldCodec=function(entry)return entry.codec end,

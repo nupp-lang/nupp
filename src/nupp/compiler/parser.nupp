@@ -2012,6 +2012,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     add(e, advance())
                     e.bitWidth = add(e, expect("number", "as C bitfield width"))
                 end
+                if cur().kind == "=" then
+                    add(e, advance())
+                    e.defaultValue = add(e, parseExp())
+                end
             else
                 errAt(cur(), "field or nested declaration expected")
                 e = new cst.ErrorStmt(kind = "errorStmt")

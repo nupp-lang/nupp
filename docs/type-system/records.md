@@ -84,6 +84,32 @@ local function register<P is Shape>(shape: metatable<P>)
 Construction is by name. A record has no positional form, because field order
 in a table is not meaningful.
 
+### Field defaults
+
+A stored record or struct field may declare a constant construction default:
+
+```nupp
+local record Settings
+    host: string = "localhost"
+    port: integer = 8080
+    tags: {string} = {}
+end
+
+local settings = new Settings(port = 9000)
+```
+
+Omitted fields use their declarations; written arguments still win. Defaults
+are explicit—types do not acquire universal zero values. A default is a closed
+scalar or table literal that fits the field type, so it is stable across module
+and comptime boundaries. Each construction evaluates it freshly; mutable table
+defaults are never shared.
+
+A constructor begins with the same defaults already installed, then its body
+runs. The body can read, refine, or replace them, and a defaulted required field
+does not need another assignment merely to satisfy constructor completeness.
+Interfaces describe contracts rather than stored values and therefore cannot
+declare field defaults.
+
 Record fields may expose independent read and write views, including distinct
 types for the two operations. See [property capabilities](properties.md).
 

@@ -292,6 +292,8 @@ function deriveProvider.materializeInfo(state: any, input: any, opaque: any, pro
                 name = field.name,
                 readable = field.readable,
                 writable = field.writable,
+                hasDefault = field.hasDefault and true or false,
+                defaultValue = view(field.defaultValue),
                 readType = field.readType,
                 writeType = field.writeType,
                 annotationsHandle = view(field.annotations or {}),
@@ -353,7 +355,14 @@ function deriveProvider.index(state: any, entry: any, key: any): any, any
             return payload.referenceHandle
         elseif key == "annotations" then
             return payload.annotationsHandle
-        elseif key == "readType" or key == "writeType" or key == "name" or key == "readable" or key == "writable" then
+        elseif key == "readType"
+            or key == "writeType"
+            or key == "name"
+            or key == "readable"
+            or key == "writable"
+            or key == "hasDefault"
+            or key == "defaultValue"
+        then
             return payload[key]
         end
     elseif entry.family == "View" then
@@ -419,7 +428,11 @@ local function copyConstant(value, active, count, state)
     if kind == "nil" or kind == "boolean" or kind == "number" or kind == "string" then
         return value
     end
-    if kind ~= "table" or active[value] or state.opaque[value] then
+    local opaqueEntry = kind == "table" and state.opaque[value] or nil
+    if opaqueEntry and opaqueEntry.provider == "derive" and opaqueEntry.family == "View" then
+        return copyConstant(opaqueEntry.payload.value, active, count, state)
+    end
+    if kind ~= "table" or active[value] or opaqueEntry then
         return nil, "constant is cyclic, opaque, or not quotable"
     end
     active[value] = true

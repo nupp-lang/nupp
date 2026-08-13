@@ -597,6 +597,8 @@ function typeprovider.importDescriptor(
                     write = field.write and import(field.write) or nil,
                     readable = field.readable,
                     writable = field.writable,
+                    hasDefault = field.hasDefault or false,
+                    defaultValue = field.defaultValue,
                     annotations = field.annotations or {},
                 }
             end

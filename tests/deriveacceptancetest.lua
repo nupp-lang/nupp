@@ -28,21 +28,17 @@ end
 
 local M = {}
 
-function M.replacesCompilerConfigurationAndNewtypeBoilerplate()
+function M.replacesCompilerConfigurationBoilerplate()
    local result = run([[
-@derive(nupp.derive.Debug, nupp.derive.Default)
+@derive(nupp.derive.Debug)
 local record PlannerLimits
-    @default(2048)
-    fields: integer
-    @default(16384)
-    semanticNodes: integer
-    @default(1048576)
-    canonicalBytes: integer
-    @default(2097152)
-    renderedBytes: integer
+    fields: integer = 2048
+    semanticNodes: integer = 16384
+    canonicalBytes: integer = 1048576
+    renderedBytes: integer = 2097152
 end
 
-local derived = PlannerLimits.default()
+local derived = new PlannerLimits()
 local written = new PlannerLimits(
     fields = 2048,
     semanticNodes = 16384,
@@ -70,8 +66,7 @@ local record ModuleCache
     interfaceHash: string
     dependencies: {string}
     effects: {string}
-    @default(false)
-    external: boolean
+    external: boolean = false
 end
 
 local corpora = {

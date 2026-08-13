@@ -496,21 +496,20 @@ function M.jsonBuildReportsColdAndWarmDeriveObservations()
    local dir = tempProject({
       ["nupp.lua"] = 'return {include = {"."}}\n',
       ["model.g.nupp"] = [[
-@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.JSON)
+@derive(nupp.derive.Debug, nupp.derive.JSON)
 local record Model
-    value: integer
+    value: integer = 0
 end
-return Model.default()
+return new Model()
 ]],
    })
    local first = require("cjson").decode(capture(
       ("cd '%s' && '%s' build model.g.nupp --json"):format(dir, NUPP)
    ))
-   assert(first.ok and #first.derives == 3, "cold build reports all derives")
+   assert(first.ok and #first.derives == 2, "cold build reports all derives")
    local byProvider = {}
    for _, observation in ipairs(first.derives) do byProvider[observation.provider] = observation end
    assert(byProvider["nupp.derive.Debug"]
-      and byProvider["nupp.derive.Default"]
       and byProvider["nupp.derive.JSON"],
       "build observations name every provider")
    local json = byProvider["nupp.derive.JSON"]
@@ -523,7 +522,7 @@ return Model.default()
    local second = require("cjson").decode(capture(
       ("cd '%s' && '%s' build model.g.nupp --json"):format(dir, NUPP)
    ))
-   assert(second.ok and #second.derives == 3,
+   assert(second.ok and #second.derives == 2,
       "cached build preserves derive observations")
    for index, observation in ipairs(first.derives) do
       assertEq(second.derives[index].semanticFingerprint,

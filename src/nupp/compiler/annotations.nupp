@@ -202,7 +202,6 @@ local BUILTINS = {
     {name = "effects", arguments = "effects", targets = {"function", "c-function", "local-binding"},},
     {name = "relax", arguments = "names", targets = {"function"},},
     {name = "derive", arguments = "names", targets = {"record"}, builtin = true,},
-    {name = "default", arguments = "typed", targets = {"field"}, builtin = true,},
     {name = "json", arguments = "typed", targets = {"record", "field"}, builtin = true,},
     {name = "debug", arguments = "typed", targets = {"field"}, builtin = true,},
     {name = "deprecated", arguments = "typed", targets = {"declaration", "field", "c-declaration"}, builtin = true,},
@@ -252,11 +251,6 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
     local function member(name, t, isOptional)
         return {name = name, type = t, optional = isOptional == true}
     end
-
-    local default = registry:get("default")
-    default.members = {value = member("value", typesApi.any, false)}
-    default.memberOrder = {"value"}
-    default.singleValue = "value"
 
     local json = registry:get("json")
     json.members = {
@@ -332,7 +326,6 @@ function annotations.bindBuiltinDeclarations(
     globalTypeDefs: {[string]: any}
 ): nil
     local schemas = {
-        default = "nupp.derive.DefaultOptions",
         json = "nupp.derive.JSONOptions",
         debug = "nupp.derive.DebugOptions",
         deprecated = "nupp.__DeprecatedAnnotation",
