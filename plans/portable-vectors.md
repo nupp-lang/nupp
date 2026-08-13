@@ -1,12 +1,12 @@
 # Portable SIMD vectors
 
-Status: competing design for `@kernel`, not selected
+Status: competing scope for `@native`, not selected
 
 ## Decision to make
 
 Decide whether Nupp should expose ordinary portable vector values and compile
-the functions that use them, instead of adding a separate `@kernel` language
-region.
+the functions that use them transparently, or initially confine unboxed vector
+values to the explicit [`@native`](native-functions.md) function boundary.
 
 The proposal is deliberately stronger than a vector-shaped library over FFI.
 A vector operation has a complete scalar meaning in ordinary generated Lua,
@@ -22,12 +22,13 @@ Nupp source
     `-- vector lowering ----> checked vector IR --> native code
 ```
 
-The competing `@kernel` design starts from a restricted native function and
-permits vector operations inside it. This design starts from first-class
-vector values and discovers the largest native unit that preserves their
-ordinary semantics. The two designs may eventually share a native IR and
-emitter, but they make different language promises and should not both become
-public before the comparison in this plan has been measured.
+The explicit `@native` design starts from a required whole-function native
+boundary and may permit vector operations inside it. This design starts from
+first-class vector values and discovers the largest native unit that preserves
+their ordinary semantics. They share native IR and emitters, but make different
+promises about fallback, boxing, and whether the boundary is written or
+inferred. Those promises should not both become public before the comparison in
+this plan has been measured.
 
 ## Goal
 
@@ -93,28 +94,28 @@ through the Lua fallback.
 - Do not use one FFI call per vector operation. That is a correct fallback
   experiment, not an acceptable optimized implementation.
 
-## Why this competes with `@kernel`
+## Why this competes with an explicit-only native boundary
 
 Both designs need checked memory boundaries, a portable numeric IR, target
 lowering, CPU dispatch, executable-memory policy, and performance gates. Their
 difference is where the language draws the native boundary:
 
-| Question | Portable vectors | `@kernel` |
+| Question | Portable vectors | Explicit `@native` |
 | --- | --- | --- |
-| What is public? | vector and mask values | a restricted native function |
-| What changes semantics? | nothing; native lowering is optional | entering the kernel subset |
-| What happens when lowering fails? | execute the scalar fallback | report that the kernel cannot compile |
+| What is public? | vector and mask values | a required whole-function contract |
+| What changes semantics? | nothing; native lowering is optional | nothing; the annotation adds a compilation requirement |
+| What happens when lowering fails? | execute the scalar fallback | report that the native function cannot compile |
 | May a vector escape? | yes, boxed at a boundary | normally no |
 | May ordinary Lua work surround it? | yes, with outlining or fallback | no, unless outside the call |
 | Where is the native boundary? | inferred function or region | written function boundary |
 | Main advantage | Java-like ordinary language model | simple, explicit performance boundary |
-| Main cost | boxing, outlining, and fallback complexity | a second restricted language inside Nupp |
+| Main cost | boxing, outlining, and fallback complexity | an annotation and smaller admitted subset |
 
-`@kernel` makes performance failures easier to diagnose because the user chose
-one all-native unit. Portable vectors make the semantic model smaller: there is
-one ordinary language, and native compilation is an implementation strategy.
+`@native` makes performance failures easier to diagnose because the user chose
+one all-native unit. Portable vectors make the annotation optional: there is
+one ordinary language, and native compilation can be an implementation strategy.
 
-The vector design wins only if it can retain the kernel design's essential
+The transparent vector design wins only if it can retain `@native`'s essential
 performance property: one native transition around a useful amount of work,
 with intermediate vectors never materialized. If a common expression becomes
 four FFI calls and three cdata temporaries, the design has failed even though
@@ -381,7 +382,7 @@ The first compiler declines functions reaching:
 - an operation the selected target cannot scalarize correctly.
 
 Declining is not a type error. The Lua version runs and tooling records the
-reason. This differs intentionally from `@kernel`.
+reason. This differs intentionally from explicit `@native`.
 
 After full-function compilation works, region outlining may admit a Lua prefix
 and suffix around one eligible loop. It must preserve evaluation order, error
@@ -550,7 +551,7 @@ error. Likely losing cases include:
   scalarization.
 
 The preferred shape is still one ordinary function containing a complete bulk
-operation. The difference from `@kernel` is that the compiler discovers and
+operation. The difference from `@native` is that the compiler discovers and
 reports that unit rather than making it part of the program's validity.
 
 Performance diagnostics must be factual. Report an observed box, fallback,
@@ -760,7 +761,7 @@ The fallback is not expected to beat a scalar LuaJIT loop. Its gate is
 correctness and bounded allocation. Tooling must prevent its accidental use
 from masquerading as successful SIMD.
 
-## Decision gate against `@kernel`
+## Decision gate against explicit-only `@native`
 
 Run one implementation spike, one public-API review, and the performance matrix
 before selecting a language direction. Prefer portable vectors when all of the
@@ -778,7 +779,7 @@ following hold:
 - implementation cost is concentrated in reusable IR/backend work rather than
   a growing imitation of LuaJIT.
 
-Prefer `@kernel` when any of these instead proves true:
+Prefer explicit-only `@native` when any of these instead proves true:
 
 - reliable performance needs restrictions that are surprising in an ordinary
   function but clear at an annotated boundary;
@@ -788,20 +789,19 @@ Prefer `@kernel` when any of these instead proves true:
   deoptimization machinery comparable to changing LuaJIT;
 - the scalar fallback is too allocation-heavy to be an honest general API;
 - species-erased values make diagnostics, generics, or cross-module calls
-  materially worse than fixed kernel-local vectors;
-- explicit kernels fuse work or control code size substantially better.
+  materially worse than fixed native-local vectors;
+- explicit native functions fuse work or control code size substantially better.
 
 Do not decide from the existing NEON result alone. It proves that one generated
-kernel can match Clang, not that transparent native-region discovery, boxing,
-fallback, and portable species can carry the Java-like language model.
+native loop can match Clang, not that transparent native-region discovery,
+boxing, fallback, and portable species can carry the Java-like language model.
 
-If portable vectors win, replace the `@kernel` TODO with this staged work. A
-later `@native` or `@vectorized` annotation may be added only as a checked
-performance contract: it requires compilation and turns a decline into a
-diagnostic, but it does not enable syntax, change results, grant relaxed
+If portable vectors win, `@native` remains a checked performance contract: it
+requires compilation and turns a transparent-lowering decline into a
+diagnostic, but does not enable syntax, change results, grant relaxed
 arithmetic, or create another sublanguage.
 
-If `@kernel` wins, retain the scalar vector model only if it is independently
-useful; otherwise keep vector values kernel-local and say so plainly. Do not
-ship two almost-identical APIs whose difference is whether an optimizer happened
-to see them.
+If explicit-only `@native` wins, retain the scalar vector model only if it is
+independently useful; otherwise keep vector values native-local and say so
+plainly. Do not ship two almost-identical APIs whose difference is whether an
+optimizer happened to see them.

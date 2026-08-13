@@ -41,18 +41,17 @@ work makes sense in.
   - [ ] cross-target stub selection and shipped per-platform stubs; a binary
         target still has no target list or cross-build selection
 - [ ] Hot-reload typing; the `nupp-cargo` Rust helper.
-- [ ] **Investigate `@kernel` compilation for Nupp-authored tight loops.** This
+- [ ] **Investigate `@native` compilation for Nupp-authored tight loops.** This
       is a separate project from checked external kernels and
-      `countedBy(count)`. Define a restricted kernel subset over ordinary Nupp
-      structs, `Span<T>`, and `WriteSpan<T>`; lower it through a checked kernel
-      IR; and compare an invisible AOT C/Clang backend with direct machine-code
-      generation. The user-facing model must require no `cdef`, duplicated C
-      struct, or handwritten C. Specify layout validation, alias assumptions,
-      CPU dispatch, caching, diagnostics for rejected operations, and
-      performance gates before choosing a backend. Compare that explicit
-      boundary with the ordinary-value and transparent-lowering design in
-      [portable-vectors.md](portable-vectors.md) before choosing either public
-      model.
+      `countedBy(count)`. Define the restricted whole-function contract over
+      ordinary Nupp structs, `Span<T>`, and `WriteSpan<T>`; lower it through a
+      checked native IR; and compare an invisible AOT C/Clang backend with
+      direct machine-code generation. The user-facing model must require no
+      `cdef`, duplicated C struct, or handwritten C. Specify layout validation,
+      alias assumptions, CPU dispatch, caching, diagnostics for rejected
+      operations, and performance gates before choosing a backend. The full
+      design and its comparison with portable vectors are in
+      [native-functions.md](native-functions.md).
 
 ## Dialect interop (`import-tl`)
 
