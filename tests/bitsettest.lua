@@ -8,7 +8,7 @@
 
 local check = require("assert")
 local bit = require("bit")
-local bitset = require("nupp.bitsetimpl")
+local bitset = require("nupp._bitset")
 
 local FAR = bit.lshift(1, 20)
 

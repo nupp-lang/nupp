@@ -1214,10 +1214,11 @@ end
 
 -- The implementation is an ordinary checked Nupp module, so this installs a
 -- loader rather than a second copy of it. It exists so the only spelling a
--- program needs is the ambient one.
+-- program needs is the ambient one, which is why the module it loads is private:
+-- a name a program is never meant to write is not one documentation should show.
 local BITSET = compact(
     [=[
-__nuppLazy(__nuppData,"bitset",function()return require("nupp.bitsetimpl")end)
+__nuppLazy(__nuppData,"bitset",function()return require("nupp._bitset")end)
 ]=]
 )
 

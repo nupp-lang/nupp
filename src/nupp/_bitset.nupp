@@ -14,8 +14,11 @@ maintained through set algebra: union, intersection and difference are word
 loops whose per-word popcount would otherwise cost more than the operation.
 
 Reached as `nupp.data.bitset`, which the prelude declares and the stdlib
-installer loads. This file is named for the implementation rather than for that
-namespace because a module at the same path would shadow it.
+installer loads. That is the only spelling a program has: the leading underscore
+makes this a private module, so it is absent from generated documentation and
+nothing outside this tree should require it by name. It cannot be written at
+`nupp/data/bitset.nupp` either, because a module at the namespace's own path
+would shadow it.
 ]]
 
 local bitset = {}
