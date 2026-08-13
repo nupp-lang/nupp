@@ -1054,22 +1054,21 @@ Reports: `NUPP1007`, `NUPP2506`. `nupp explain <code>` says more.
 
 ### Modules
 
-Modules are Lua's: a file returns a value and `require` gets it. That value is
-the module's type; runtime declarations attach to its table, and another file
-reaches them through the module. A module path may name a type directly, as in
-`models.user.User`.
+A module is a Lua file: `require` gets the value it returns. Runtime
+declarations attach to a returned table and determine its type; paths such as
+`models.user.User` may also name types.
 
-An annotated `function M.name(...)` on the returned table is visible to sibling
-function bodies regardless of source order. Assignments and `local function`
-remain flow-sensitive, and runtime writes remain in source order.
+An annotated `function M.name(...)` signature is visible to sibling bodies in
+either source order. Assignments, local functions and runtime writes remain
+source-ordered.
 
-The returned local identifies the module; there is no `module` keyword.
-`const M.field = value` makes one export immutable. A fresh table may instead
-use `const name = value`, or `const... M.field = {...}` for every named slot.
-These guarantees preserve exact primitive literals in consumers.
+The returned local names the module; there is no `module` keyword. `const
+M.field = value` makes one export immutable; on a fresh table, `const` marks one
+named slot and `const...` marks them all. Primitive literal types survive in
+consumers.
 
-A `.d.nupp` declaration file is the exception: it describes an interface it does
-not own and returns no table, so a bare declaration there is that interface.
+A `.d.nupp` file returns no table; its bare declarations describe an external
+interface.
 
 `models.nupp`:
 
@@ -1547,6 +1546,7 @@ says more.
  else-if                         NUPP2510  style        warning
  positional-record-construction  NUPP2512  style        warning
  deprecated                      NUPP2513  suspicious   warning
+ owned-annotation                NUPP2515  migration    off
  jit-boundary                    NUPP2514  suspicious   warning
 ```
 
