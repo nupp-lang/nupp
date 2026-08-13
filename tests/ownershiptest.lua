@@ -775,6 +775,13 @@ function M.writeSpanPartitionsKeepCountsOffsetsAndBoundsAtRuntime()
       "   local values = heap.allocate(ffi.typeof<int32>(), 4)",
       "   local leftCount: integer = -1 as integer",
       "   local rightCount: integer = -1 as integer",
+      -- heap.allocate does not promise zeroed memory, and the assertions below read an
+      -- element no split ever writes, so without this they see whatever was there.
+      "   do",
+      "      local zeroing = values:write()",
+      "      for i = 1, zeroing.count do zeroing:set(i, 0 as int32) end",
+      "      zeroing:commit()",
+      "   end",
       "   do",
       "      local writable = values:write()",
       "      do",
