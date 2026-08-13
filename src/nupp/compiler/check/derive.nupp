@@ -744,8 +744,8 @@ function derive.install(c: state.Checker): derive.Ops
                             local definitions = isStatic and n.derivedStaticDefinitions or n.derivedDefinitions
                             local definition = definitions and definitions[methodName]
                             if definition then
-                                definition.generatedInterface = contract.name
-                                definition.generatedInterfaceDefinition = contract.definition
+                                definition.generatedInterface = contract and contract.name or nil
+                                definition.generatedInterfaceDefinition = contract and contract.definition or nil
                                 definition.generatedHelper = recipe.helper.module .. "." .. recipe.helper.member
                                 definition.generatedHelperDefinition = runtimeHelperDefinition(recipe.helper)
                             end
@@ -760,7 +760,7 @@ function derive.install(c: state.Checker): derive.Ops
         if #c.diags > diagnosticCount then
             for _, added in ipairs(addedMembers) do
                 local methodName, isStatic = added.name, added.static
-                local requirements = isStatic and contract.staticByname or contract.byname
+                local requirements = contract and (isStatic and contract.staticByname or contract.byname) or nil
                 local inherited = requirements and requirements[methodName] or nil
                 inherited = inherited and generics.specializeSelf(contract, inherited, n) or nil
                 local reads = isStatic and n.staticByname or n.byname

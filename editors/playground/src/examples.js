@@ -25,6 +25,7 @@ import OWNERSHIP from "./examples/ownership.nupp";
 import SYNTAX from "./examples/syntax.nupp";
 import OPTIMIZER from "./examples/optimizer.nupp";
 import COMPTIME from "./examples/comptime.nupp";
+import CUSTOM_DERIVE from "./examples/custom-derive.nupp";
 import TYPE_LEVEL_DSL from "./examples/type-level-dsl.nupp";
 import PEG from "./examples/peg.nupp";
 
@@ -40,6 +41,7 @@ export const EXAMPLES = [
   { id: "syntax", label: "LuaJIT 3.0 syntax", source: SYNTAX },
   { id: "optimizer", label: "Optimizing compiler", source: OPTIMIZER },
   { id: "comptime", label: "Compile-time evaluation", source: COMPTIME },
+  { id: "custom-derive", label: "Defining a custom derive", source: CUSTOM_DERIVE },
   {
     id: "type-level-dsl",
     label: "Binary type DSL",

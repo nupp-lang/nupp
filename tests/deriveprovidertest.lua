@@ -34,4 +34,13 @@ function M.runsThePublicComptimeForwardingRecipeEndToEnd()
     assert(mutation:find("cannot be assigned through", 1, true), mutation)
 end
 
+function M.runsAProviderThatDeclaresItsOwnMember()
+    local example = HERE .. "/../editors/playground/src/examples/custom-derive.nupp"
+    local checked, checkOutput = process.capture({NUPP, "check", "--strict", example})
+    assert(checked == 0, checkOutput)
+    local ran, runOutput = process.capture({NUPP, "run", example})
+    assert(ran == 0, runOutput)
+    assert(runOutput == "<User>\n", runOutput)
+end
+
 return M
