@@ -7,7 +7,7 @@ still a table; `(number, string)` is a sequence of two values.
 
 ## Syntax
 
-```nupp:static
+```nupp
 ()                  -- no values
 (number, string)    -- two fixed values
 (boolean, R...)     -- a fixed head and generic tail
@@ -18,7 +18,7 @@ A...                -- a heterogeneous generic pack
 Pack binders follow ordinary type binders and are available on functions,
 function types, and aliases:
 
-```nupp
+```nupp:playground
 local function apply<A..., R...>(callback: function(A...): R..., ...: A...): R...
     return callback(...)
 end

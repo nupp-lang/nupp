@@ -76,7 +76,7 @@ A project module must be required before its name is in scope. This project
 also contains `src/mathutil.nupp`.
 
 ::: code-group
-```nupp:static [src/missing-require.nupp]
+```nupp [src/missing-require.nupp]
 local doubled: number = mathutil.double(21)
 ```
 
@@ -558,7 +558,7 @@ Resolution runs registry default → category setting → name setting → the
 
 ## Local suppressions
 
-```nupp:static
+```nupp
 @allow("missing-require")
 local doubled = mathutil.double(21)
 ```
@@ -577,7 +577,7 @@ does.
 
 **1. Declare it** in the `lints.all` registry in `src/nupp/compiler/lints.nupp`:
 
-```nupp:static
+```nupp
 new lints.Lint(
     name = "missing-require", code = "NUPP2120",
     category = "correctness", level = "error",
@@ -605,7 +605,7 @@ deleted.
 
 **2. Raise it** wherever the checker already knows enough to say so:
 
-```nupp:static
+```nupp
 diag("missing-require", node, advice)
 ```
 

@@ -1727,8 +1727,16 @@ function M.siteMatchesTheNuppdocPageModel()
          "local answer = 42 -- highlighted Lua",
          "```",
          "",
-         "```nupp:static",
+         "```nupp",
          "local point: Point",
+         "```",
+         "",
+         "```nupp:playground",
+         "local record Resource end",
+         "do",
+         "   local resource = openResource()",
+         "   inspect(resource)",
+         "end",
          "```",
          "",
          "```lua:line-numbers",
@@ -1861,7 +1869,12 @@ function M.siteMatchesTheNuppdocPageModel()
       guide)
    assert(guide:find(">Nupp</label>", 1, true), guide)
    assert(guide:find(">Generated Lua</label>", 1, true), guide)
+   -- the one fence that asked for an editor got one, and the plain Nupp fences
+   -- around it -- including the tab inside the code group -- stayed text
    assert(guide:find('class="nuppdoc-playground"', 1, true), guide)
+   assert(select(2, guide:gsub("<nupp%-playground", "")) == 1, guide)
+   assert(guide:find('<div class="nuppdoc-code-block" data-lang="nupp"><pre>', 1, true),
+      guide)
    assert(guide:find("<nupp-playground", 1, true), guide)
    assert(not guide:find("<iframe", 1, true), guide)
    assert(guide:find('data-source="local%20record%20Resource%20end', 1, true), guide)
@@ -2136,12 +2149,12 @@ function M.fencedBlocksKeepTheirOptions()
    assert(group:find("<p>after</p>", 1, true), group)
 end
 
--- Nupp examples are working editors by default, while the two cases whose source
--- positions matter remain highlighted text.
-function M.nuppFencesUseInlinePlaygrounds()
+-- A Nupp example is highlighted text until it asks for an editor, and a request to
+-- number an excerpt's lines outranks that ask.
+function M.nuppFencesBecomeInlinePlaygroundsOnRequest()
    local html = require("nupp.compiler.doc.html")
    local editable = html.markdownHtml(
-      "```nupp\nlocal answer: integer = 42\n```", {})
+      "```nupp:playground\nlocal answer: integer = 42\n```", {})
    assert(editable:find('class="nuppdoc-playground"', 1, true), editable)
    assert(editable:find("<nupp-playground", 1, true), editable)
    assert(not editable:find("<iframe", 1, true), editable)
@@ -2154,14 +2167,14 @@ function M.nuppFencesUseInlinePlaygrounds()
    assert(editable:find(
       '<code class="language-nupp">local answer: integer = 42</code>',
       1, true), editable)
-   local static = html.markdownHtml(
-      "```nupp:static\nlocal answer: integer\n```", {})
-   assert(static:find('class="nuppdoc-code-block"', 1, true), static)
-   assert(static:find('class="language-nupp"', 1, true), static)
-   assert(not static:find('nuppdoc-playground', 1, true), static)
+   local plain = html.markdownHtml(
+      "```nupp\nlocal answer: integer\n```", {})
+   assert(plain:find('class="nuppdoc-code-block"', 1, true), plain)
+   assert(plain:find('class="language-nupp"', 1, true), plain)
+   assert(not plain:find('nuppdoc-playground', 1, true), plain)
 
    local numbered = html.markdownHtml(
-      "```nupp:line-numbers=41\nlocal answer = 42\n```", {})
+      "```nupp:playground:line-numbers=41\nlocal answer = 42\n```", {})
    assert(numbered:find('class="nuppdoc-code-block has-line-numbers"',
       1, true), numbered)
    assert(numbered:find("<span>41</span>", 1, true), numbered)
@@ -2246,10 +2259,10 @@ function M.diagnosticSectionsShowBothProgramsAsText()
 
    local at = assert(page.markdown:find("### NUPP2107\n", 1, true))
    local body = page.markdown:sub(at, (page.markdown:find("\n### ", at + 5, true)))
-   local reported = assert(body:find("```nupp:static [Reported]", 1, true))
-   local accepted = assert(body:find("```nupp:static [Accepted]", 1, true))
+   local reported = assert(body:find("```nupp [Reported]", 1, true))
+   local accepted = assert(body:find("```nupp [Accepted]", 1, true))
    assert(reported < accepted)
-   assert(not body:find("```nupp\n", 1, true), "an index section embedded an editor")
+   assert(not body:find(":playground", 1, true), "an index section embedded an editor")
    assert(body:find("`exhaustiveness` lint", 1, true), body)
    assert(body:find("](docs/lints.md)", 1, true), body)
    assert(body:find("/playground/#source=", 1, true), body)
@@ -2304,8 +2317,8 @@ function M.stdlibIndexIsStaticThroughout()
    local stdlib = require("nupp.compiler.doc.stdlib")
    local page = assert(stdlib.page({path = "luajit"}))
 
-   assert(page.markdown:find("```nupp:static\n", 1, true), "no static fence at all")
-   assert(not page.markdown:find("```nupp\n", 1, true), "a fence would open as a playground")
+   assert(page.markdown:find("```nupp\n", 1, true), "no Nupp fence at all")
+   assert(not page.markdown:find(":playground", 1, true), "a fence would open as an editor")
 end
 
 -- Reflection is reached by asking about a type rather than by calling a library, so

@@ -25,7 +25,7 @@ statements at all. Annotating the return is what starts checking them.
 This is the rule people trip over. A mutable binding with no annotation
 deliberately loosens, so that ordinary Lua keeps working:
 
-```nupp
+```nupp:playground
 local i = 1
 i = i / 2 -- fine: integer widened to number
 

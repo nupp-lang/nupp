@@ -17,7 +17,7 @@ the complete model.
 `@drop` marks the operation that consumes the resource; `@owned` marks the
 function that produces one:
 
-```nupp
+```nupp:playground
 local record File
     closed: boolean
 
@@ -63,7 +63,7 @@ A drop operation must `takes` its resource. That is what makes it consuming.
 Once you bind an owner, its exact cleanup runs automatically at the binding's
 lexical boundary:
 
-```nupp:static
+```nupp
 local f = openFile()
 print(f.closed)
 -- close runs here, including when code above raises
@@ -73,7 +73,7 @@ There are three ways to end or transfer the obligation before that boundary.
 
 **Drop it** at the point you choose:
 
-```nupp:static
+```nupp
 local f = openFile()
 nupp.drop(f)
 ```
@@ -102,7 +102,7 @@ NUPP2602 and names the fix.
 A `borrows` parameter gets access for the duration of the call without taking
 responsibility:
 
-```nupp:static
+```nupp
 local function inspect(borrows session: Session)
     print(session.id)
 end
@@ -132,7 +132,7 @@ Cleanup runs on fallthrough, `return`, `break`, `continue`, a `goto` leaving
 the block, and an error raised anywhere inside. Several resources are acquired
 left to right and released right to left.
 
-```nupp:static
+```nupp
 do
     local input = openFile()
     local output = openFile()
@@ -149,7 +149,7 @@ automatic cleanup exactly once.
 A record with `Owned<T>` fields is itself a resource, and cleanup is
 synthesized in reverse field order:
 
-```nupp:static
+```nupp
 local record Bundle
     input: Owned<Session>
     output: Owned<Session>
@@ -162,7 +162,7 @@ nupp.drop(bundle)
 A custom `@drop` method has to discharge every affine field, and it does
 that by calling their drop operation directly:
 
-```nupp:static
+```nupp
 local record Pair
     first: Owned<Session>
     second: Owned<Session>

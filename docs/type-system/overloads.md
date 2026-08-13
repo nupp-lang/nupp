@@ -13,7 +13,7 @@ create overloads automatically, so there is no `@overload` annotation.
 
 An intersection containing only function types is an overload contract:
 
-```nupp
+```nupp:playground
 local record Token
     kind: string
 end

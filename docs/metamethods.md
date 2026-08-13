@@ -14,7 +14,7 @@ a generic registrar installs `__call` on the record's runtime type table.
 Declare a metamethod inside a record or interface with `metamethod`, its Lua
 name, and a function type:
 
-```nupp
+```nupp:playground
 local interface Component
     componentName: string
     metamethod __call: function(self, ...: any): self
@@ -163,7 +163,7 @@ records are errors rather than being accepted unconditionally.
 Metamethod function types can have their own type parameters. This allows a
 typed key to determine the result of an indexed store:
 
-```nupp:static
+```nupp
 local record Key<T>
 end
 
@@ -216,7 +216,7 @@ satisfy an interface structurally, including its metamethod contracts.
 
 Multiple parents are allowed:
 
-```nupp:static
+```nupp
 local record Task is Named, Callable
 end
 ```
@@ -268,7 +268,7 @@ runtime implementation explicitly.
 `metatable<T>` is a compiler-known type that erases to an ordinary Lua table. It
 connects the standard metatable functions to their receiver:
 
-```nupp:static
+```nupp
 local record Task
 end
 local task: Task

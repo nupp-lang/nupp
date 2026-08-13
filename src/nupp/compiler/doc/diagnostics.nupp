@@ -59,7 +59,7 @@ local function lintFor(code: string): any
 end
 
 local function fence(caption: string, source: string): string
-    return "```nupp:static [" .. caption .. "]\n" .. source:gsub("%s+$", "") .. "\n```"
+    return "```nupp [" .. caption .. "]\n" .. source:gsub("%s+$", "") .. "\n```"
 end
 
 local function section(

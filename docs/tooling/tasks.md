@@ -58,7 +58,7 @@ nupp: tasks.release has no key "descrption"; did you mean "description"?
 A task's argv is any command, so a maintenance tool written in Nupp is a build
 target plus a task that runs what the target produced. Write the tool:
 
-```nupp
+```nupp:playground
 local channel = os.getenv("RELEASE_CHANNEL") or "dev"
 print("stamping " .. channel .. " release")
 for index = 1, select("#", ...) do

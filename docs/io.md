@@ -11,7 +11,7 @@ streams remain separate future layers.
 `newBuffer()` creates an empty growable buffer. A string supplies initial bytes;
 an integer reserves capacity without changing the length.
 
-```nupp
+```nupp:playground
 local bytes = nupp.io.newBuffer("hello")
 bytes:setString("!", bytes:length())
 assert(bytes:getString() == "hello!")

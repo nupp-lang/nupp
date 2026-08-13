@@ -35,7 +35,7 @@ A file, a socket, a C allocation, or any other value produced by an `@owned`
 function carries a cleanup obligation that the checker will not let you drop.
 An ordinary local discharges it at its scope boundary:
 
-```nupp:static
+```nupp
 local function slurp(path: string): string
     local file = files.open(path)
     return file:read("*a")
@@ -209,11 +209,14 @@ the prose around it:
   `-- file is Borrowed<LuaFile> here`.
 - Show the error too. A page that teaches a rule shows one program that breaks
   it and the code that reports it.
-- A `nupp` fence is editable and checked in the browser. Keep each example a
-  small, self-contained program so its diagnostics teach the intended rule.
-- Use `:static` on a Nupp fence only for a declaration fragment or excerpt that
-  is useful to read but cannot sensibly be checked on its own. A line-numbered
-  Nupp fence is static as well.
+- A `nupp` fence is highlighted text. Add `:playground` to make one editable and
+  checked in the reader's browser, and keep that example a small, self-contained
+  program so its diagnostics teach the intended rule.
+- One playground per page is the usual number: the example a reader would try
+  first, near the top, before the page starts building on itself. A fragment, a
+  step in a sequence, the same program shown again, an example inside a code
+  group or admonition — none of those earns an editor, and a line-numbered fence
+  stays text whatever else it asks for.
 - Use ` ```playground ` explicitly for an empty playground that should open on
   the example menu rather than a particular program.
 
@@ -353,7 +356,7 @@ The vocabulary is fixed so a reader meets one word per idea:
 
 The rules above apply inside `---` blocks, compressed.
 
-```nupp:static
+```nupp
 --- Opens a session against the account service.
 ---
 --- The returned session is an owner: drop it early, transfer it, or bind it

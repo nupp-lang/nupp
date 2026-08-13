@@ -5,7 +5,7 @@ already a valid Nupp program. What a file is named says how strictly it is
 checked, which puts that decision where the file is rather than in a setting
 that governs everything at once.
 
-```nupp
+```nupp:playground
 local m = {}
 
 local record Point

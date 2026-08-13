@@ -21,7 +21,7 @@ Both handles satisfy `profile.Session`. Its associated `Report` preserves which
 channel produced the handle, so shared lifecycle helpers retain the concrete
 report:
 
-```nupp
+```nupp:playground
 local profile = require("nupp.profile")
 
 local function finish<S is profile.Session>(session: S): S.Report
@@ -78,7 +78,7 @@ from rendering is two different problems.
 
 `nupp.zone` is a stack of names that the profiler reads:
 
-```nupp:static
+```nupp
 local zone = require("nupp.zone")
 
 local function frame()
@@ -159,7 +159,7 @@ The flags are a thin wrapper over `nupp.profile`, which is worth using directly
 when the interesting window is not the whole run: a single frame, one request,
 or the part after warm-up.
 
-```nupp:static
+```nupp
 local profile = require("nupp.profile")
 
 local session = profile.sample({intervalMs = 2, zone = "frame/render"})
@@ -180,7 +180,7 @@ session starts.
 
 The trace channel works the same way:
 
-```nupp:static
+```nupp
 local session = profile.trace()
 runTheWorkload()
 local report = session:stop()

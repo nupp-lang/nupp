@@ -4,7 +4,7 @@ Properties and indexers declared `readonly` or `writeonly` grant read and write
 access independently. This lets a type describe the authority an API actually
 needs instead of turning every member into a read-write slot.
 
-```nupp
+```nupp:playground
 local interface Snapshot
     readonly value: string
 end
@@ -18,7 +18,7 @@ A `Snapshot` can read `value` but cannot assign it. An `Output` can assign the
 member but cannot observe its current value. The same syntax works in records
 and structural shapes:
 
-```nupp:static
+```nupp
 local record Cell
     readonly value: string
     writeonly value: string | integer

@@ -34,7 +34,7 @@ return {
 `spawn` returns an owned worker. Its drop operation closes the inbox, joins the
 thread, and releases the queues on every structured exit:
 
-```nupp:static
+```nupp
 local workers = require("nupp.workers")
 
 do
@@ -47,7 +47,7 @@ end -- worker:stop() runs here
 The entry obtains its own endpoints with `current` and can serve request/reply
 calls until its inbox closes:
 
-```nupp:static
+```nupp
 local data = require("nupp.data")
 local workers = require("nupp.workers")
 local self = workers.current()
@@ -60,7 +60,7 @@ end)
 A handler error becomes a failed reply for that call; the serve loop continues.
 An uncaught entry error is instead recorded by `join`:
 
-```nupp:static
+```nupp
 local exit = worker:join()
 if not exit.succeeded then
     io.stderr:write(exit.error or "worker failed", "\n")

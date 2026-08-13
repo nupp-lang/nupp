@@ -61,7 +61,7 @@ Prose here is rendered as Markdown.
 
 **A run of `---` line comments** immediately above a declaration documents it:
 
-```nupp:static
+```nupp
 --- Opens a session against the account service.
 ---
 --- @param id the stable account identifier
@@ -166,9 +166,8 @@ there is not privacy. Its bindings are the interface it describes. Mark one
 ## Markdown pages
 
 A docs target can carry handwritten pages alongside the generated API. Beyond
-ordinary Markdown, five things are available in a fenced block. Every ordinary
-`nupp` fence becomes an editable playground; the other languages stay
-highlighted, static code.
+ordinary Markdown, five things are available in a fenced block. Every fence is
+highlighted, static code until one asks to be an editor.
 
 **A caption**, which also becomes a tab label:
 
@@ -217,24 +216,34 @@ The supported kinds are `note`, `info`, `tip`, `warning`, and `danger`. Omit
 the title to use the capitalized kind. Containers may nest, and a fenced code
 block containing `:::` does not close its admonition.
 
-**A playground**, which is also the editor rather than a picture of one. Spell
-it explicitly when an empty block should open on the playground's example menu:
+**A playground**, which is also the editor rather than a picture of one. A Nupp
+fence asks for one with `:playground`:
 
 ````
-```playground
+```nupp:playground
 local type Priority = "low" | "high"
 local p: Priority = "urgent"
 ```
 ````
 
-An ordinary `nupp` fence supplies its program the same way. The program is
-checked in the reader's browser, as they type, by the real compiler. See
+The program is checked in the reader's browser, as they type, by the real
+compiler. See
 [`editors/playground`](https://github.com/nupp-lang/nupp/tree/main/editors/playground)
-for how that works and what it cannot do. An empty fence opens on the editor's
-own example menu instead of a program; a caption becomes the editor's accessible
-label. Add `:static` to a `nupp` fence when it is deliberately an incomplete
-fragment. `:line-numbers` also keeps a Nupp fence static so its requested
-starting line is preserved.
+for how that works and what it cannot do. A caption becomes the editor's
+accessible label, and `:line-numbers` outranks the ask, so a numbered excerpt
+keeps the starting line it requested and stays text.
+
+Asking is how a page gets an editor because most examples on it should not be
+one: a fragment, one step of a sequence, or a program the page has already
+shown checks as an error the prose has already explained. The usual number is
+one, the example a reader would try first. ` ```playground ` remains the
+explicit spelling, and an empty block of it opens on the playground's own
+example menu instead of a program:
+
+````
+```playground
+```
+````
 
 The block is an inline `<nupp-playground>` custom element, not an iframe. A site
 using it serves the playground's `dist/` at `/playground/`, the way `nupp task
@@ -257,11 +266,11 @@ The language is guessed from the extension. This page's
 [grammar reference](../grammar.md) is written this way, so it cannot drift from
 the file it documents.
 
-Use `nupp` as the language for Nupp source. The embedded editor checks it with
-the compiler once the reader engages with the frame. A `:static` Nupp excerpt
-is highlighted by the compiler's own parser and lexer, which agree about tokens
-and contextual syntax and can turn a name into a link into the API reference.
-Every other language goes to Scintillua.
+Use `nupp` as the language for Nupp source. It is highlighted by the compiler's
+own parser and lexer, which agree about tokens and contextual syntax and can
+turn a name into a link into the API reference. A `:playground` fence is checked
+instead, by the compiler itself, once the reader engages with the frame. Every
+other language goes to Scintillua.
 
 Links between pages are written as ordinary relative Markdown paths to the
 source file, as in `[ownership](ownership.md)`, and are rewritten to the page's
@@ -322,9 +331,9 @@ A lint's section also says its name, category, and default level. Sections are
 grouped by family, and a code links to its related codes by anchor.
 
 One page rather than one per code, because an index is searched: the browser's
-find reaches every code, rule and program at once. That is also why the programs
-are `:static` rather than editors, since text inside an editor frame is not
-findable. Each reported program carries a link that opens it in the playground.
+find reaches every code, rule and program at once. That is also why no program
+there asks for an editor, since text inside an editor frame is not findable.
+Each reported program carries a link that opens it in the playground.
 
 A code gets a section when the compiler knows it specifically: it has an example
 pair of its own, or it is a lint. A code that resolves only through its family
@@ -397,9 +406,9 @@ A target that reads as a URL, has a slash, or carries a fragment is left alone,
 so ordinary links are never captured. A name nothing documents is left alone
 too, except that empty link text still renders the name, so a reference to
 something that has moved reads as the name it used to have rather than as an
-invisible link. References inside a code block are code. A `nupp:static` block
-can link names into the API reference; an editable Nupp block treats them only
-as program text.
+invisible link. References inside a code block are code. A highlighted Nupp
+block can link names into the API reference; a `:playground` block treats them
+only as program text.
 
 In `markdown` output the same references resolve to anchors within the
 document. A module's own `llms.txt` holds one module, so a reference to a

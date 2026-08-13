@@ -44,7 +44,7 @@ you need by hand.
 
 Use the generated module like any other:
 
-```nupp:static
+```nupp
 local miniApi = require("native.mini")
 
 local total = miniApi.mini_add(20, 22)
@@ -61,7 +61,7 @@ the foreign symbol.
 For a tiny API, a direct declaration can be clearer than importing a large
 header:
 
-```nupp
+```nupp:playground
 cdef struct nativePoint
     x: number
     y: number
@@ -140,7 +140,7 @@ meaning.
 `cheader` reads a header at compile time and gives you its exports, with no
 generated file to keep in step:
 
-```nupp:static
+```nupp
 local mini = cheader("native/mini.h", "mini")
 
 print(mini.mini_add(20, 22))
@@ -158,7 +158,7 @@ its output is yours to edit.
 
 The six FFI operations take a type argument, which is what makes them checked:
 
-```nupp:static
+```nupp
 local p = ffi.new<nativePoint>()
 local q = ffi.cast<nativePoint*>(address)
 local t = ffi.typeof<nativePoint>()
@@ -175,7 +175,7 @@ yields `cdata`.
 
 `carray` allocates a zero-based C array:
 
-```nupp:static
+```nupp
 local points = carray(nativePoint, 16)
 points[0].x = 1.0
 ```

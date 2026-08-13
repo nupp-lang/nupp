@@ -49,7 +49,7 @@ path, the reads are unordered and Nupp can do the table-path sharing ordinary
 Lua leaves to hand-written locals or to the trace compiler.
 
 ::: code-group
-```nupp:static [Readable Nupp]
+```nupp [Readable Nupp]
 local record Vec2
     x: number
     y: number
@@ -82,7 +82,7 @@ not evaluated when the call is suppressed.
 The no-closure rule is deliberate. A call nested where Lua cannot host local
 bindings emits repeated direct projections instead:
 
-```nupp:static
+```nupp
 local moved = enabled and update(delta, (x, y) = entity.body.position)
 ```
 
@@ -206,7 +206,7 @@ prove that its binding and shape cannot change, Nupp emits a numeric loop over
 that binding directly.
 
 ::: code-group
-```nupp:static [Original Nupp]
+```nupp [Original Nupp]
 local xs: {integer} = {10, 20, 30}
 for index, value in ipairs(xs) do
     use(index, value)
@@ -247,7 +247,7 @@ Repeated statement-position calls through one immutable path share a local
 bound at the first call.
 
 ::: code-group
-```nupp:static [Original Nupp]
+```nupp [Original Nupp]
 const service = require("service")
 service.x.y()
 service.x.y()
@@ -277,7 +277,7 @@ A string appended to round a loop is built in a `string.buffer` and read back
 once, instead of being rebuilt on every pass.
 
 ::: code-group
-```nupp:static [Original Nupp]
+```nupp [Original Nupp]
 local out = ""
 for _, item in ipairs(items) do
     out = out .. item .. ","
@@ -393,7 +393,7 @@ Nupp does not cache a closure created inside a loop: that changes function
 identity. The `loop-invariant-closure` lint instead suggests lifting a closure
 that does not depend on the iteration.
 
-```nupp:static
+```nupp
 local isClick = |event| -> event.kind == "click"
 for _, item in ipairs(items) do
     register(item, isClick)

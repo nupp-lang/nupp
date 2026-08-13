@@ -10,7 +10,7 @@ interface defaults, `@override`, and constructors, see
 
 `&` binds more tightly than `|`:
 
-```nupp:static
+```nupp
 local type Readable = {
     readonly value: string
 }
@@ -34,7 +34,7 @@ writable property accepts the union of the types its constituent views accept.
 Read-only and write-only views remain independent. Member completion likewise
 contains the union of the available names.
 
-```nupp
+```nupp:playground
 local type Identified = {
     readonly id: integer
 }

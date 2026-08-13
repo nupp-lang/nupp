@@ -5,7 +5,7 @@ Inside a parenthesized call, `name = value` fills that parameter by name, and
 Both erase to ordinary positional Lua arguments, so neither costs anything at
 run time.
 
-```nupp
+```nupp:playground
 local m = {}
 
 local record Vec3

@@ -158,17 +158,6 @@ local function withoutRedeclaredBindings(items: {extractMod.Item}): {extractMod.
     end)
 end
 
--- The page is an index, and an index is searched: the browser's own find has to reach
--- every signature at once, and text inside an editor frame is not findable. A Nupp fence
--- would otherwise open as a playground, so the whole page is static, the same way the
--- diagnostic index is. A signature is a declaration rather than a program besides, so
--- there is nothing here for an editor to check.
-local function staticFences(markdown: string): string
-    local marked = ("\n" .. markdown):gsub("\n```nupp(\r?\n)", "\n```nupp:static%1")
-
-    return marked:sub(2)
-end
-
 local function section(out: {string}, title: string, text: string?, items: {extractMod.Item}?)
     if items and #items == 0 then
         return
@@ -240,7 +229,11 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
     return {
         path = settings.path or "luajit",
         title = title,
-        markdown = staticFences(table.concat(out, "\n"))
+        -- No fence here asks for an editor. The page is an index, and an index is
+        -- searched: the browser's own find has to reach every signature at once, and
+        -- text inside an editor frame is not findable. A signature is a declaration
+        -- rather than a program besides, so there would be nothing to check.
+        markdown = table.concat(out, "\n")
     }
 end
 

@@ -18,7 +18,7 @@ compiler directives rather than user-defined annotation traits.
 Apply the built-in `@annotation` annotation to a record or struct. Its
 `targets` value is a non-empty array of semantic target names:
 
-```nupp
+```nupp:playground
 @annotation(targets = {"record", "struct"})
 record serializable
     format: string
@@ -28,7 +28,7 @@ end
 
 This defines these valid applications:
 
-```nupp:static
+```nupp
 @serializable(format = "json")
 local record User
     id: uint64
@@ -81,7 +81,7 @@ end
 
 The designated field may then be supplied positionally:
 
-```nupp:static
+```nupp
 @documentation("A user")
 local record User
     @documentation("The stable user ID")
@@ -132,7 +132,7 @@ fields are available through `nupp.reflect(T)` inside comptime. Applications
 retain source order, and arguments follow the annotation definition's member
 order:
 
-```nupp:static
+```nupp
 return comptime do
     local info = nupp.reflect(User)
     local recordMetadata = info.annotations

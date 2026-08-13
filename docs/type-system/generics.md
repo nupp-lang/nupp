@@ -1,6 +1,6 @@
 # Generics
 
-```nupp
+```nupp:playground
 local function firstOr<T>(items: {T}, fallback: T): T
     if #items > 0 then
         return items[1]
@@ -94,7 +94,7 @@ end
 
 ## Constraints use `is`
 
-```nupp:static
+```nupp
 local function start<T is Callable>(task: T): T
     return task()
 end
@@ -171,7 +171,7 @@ is a value the checker calls a `Shape` and `is` calls otherwise.
 
 Type arguments come from the arguments:
 
-```nupp:static
+```nupp
 print(firstOr({1, 2, 3}, 0)) -- T = integer
 ```
 
@@ -190,7 +190,7 @@ Three behaviors are worth knowing:
 A `T?` parameter subtracts the concrete members from the argument, so the
 residue binds. That is how `assert` is typed:
 
-```nupp:static
+```nupp
 -- assert: function<T>(v: T?, msg: any?): T
 local name: string? = maybeName()
 local sure = assert(name) -- sure is string
@@ -208,7 +208,7 @@ local n = id < number > (1)
 Type arguments appear in *type* position, as in `Box<number>` and `a.b.Map<K,
 V>`, and at the six FFI intrinsics, which are special-cased in the grammar:
 
-```nupp:static
+```nupp
 local p = ffi.new<Point>()
 local q = ffi.cast<Point*>(address)
 local t = ffi.typeof<Point>()
@@ -258,7 +258,7 @@ than the declaring type. This is what makes an inherited
 A metamethod contract may carry its own type parameters, which lets a typed key
 determine the result of an index:
 
-```nupp:static
+```nupp
 local record Key<T>
 end
 

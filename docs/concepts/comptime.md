@@ -4,7 +4,7 @@
 compiled and written into the generated Lua as a literal. The block is ordinary
 Nupp, and nothing of the work survives into the program.
 
-```nupp
+```nupp:playground
 local m = {}
 
 @comptime

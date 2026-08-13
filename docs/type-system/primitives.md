@@ -54,7 +54,7 @@ field, calling it, and comparing it against a typed value all need it narrowed
 or cast first, the same as any other concrete type that is not what the
 operation wants:
 
-```nupp:static
+```nupp
 local record Status
     ok: boolean
 end
@@ -156,7 +156,7 @@ noExtras(1, "oops") -- NUPP2006: argument 2: string is not a never
 Because it fits anywhere, a `never`-returning call also satisfies a literal
 type, the same as any other declared return:
 
-```nupp:static
+```nupp
 local function pick(ok: boolean): "yes" | "no"
     if ok then
         return "yes"
@@ -178,7 +178,7 @@ local y: integer = x -- NUPP2001: number is not a integer
 The sized C integers behave differently. Any numeric source is accepted into a
 `float` or a sized-integer slot, as in C:
 
-```nupp:static
+```nupp
 local z: int32 = x -- accepted
 ```
 
@@ -193,7 +193,7 @@ are `number`, `1LL` is `int64`, `1ULL` is `uint64`, `0xff` is `integer`.
 
 ## Unions and optionals
 
-```nupp:static
+```nupp
 local type Shape = Circle | Square
 local name: string?
 ```
@@ -250,7 +250,7 @@ not say which pointers may be NULL.
 
 ## `const`
 
-```nupp:static
+```nupp
 local function render(buffer: const Buffer)
 end
 ```
@@ -279,7 +279,7 @@ is the closed set other languages spell `enum`. See [unions](unions.md).
 
 ## Type aliases
 
-```nupp:static
+```nupp
 local type Id = uint32
 local type Handler = function(event: Event): boolean
 ```

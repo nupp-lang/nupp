@@ -11,7 +11,7 @@ This is LuaJIT 3.0's dialect
 ([the syntax-extension umbrella
 issue](https://github.com/LuaJIT/LuaJIT/issues/1475)), in full:
 
-```nupp:static
+```nupp
 local mask = flags & 0xff -- bit operators: & | ~ << >> ~>>
 local ok = a && b || !c -- customary operators: ! && || !=
 local label = big ? "yes" : "no" -- ternary conditional
@@ -42,7 +42,7 @@ closing delimiter uses the common indentation of its content. Ordinary
 
 ## Level 1: the typed layer
 
-```nupp:static
+```nupp
 local type Id = uint32 -- alias
 local type Shape = Circle | Square -- union
 local type Color = "red" | "green" -- closed set of strings

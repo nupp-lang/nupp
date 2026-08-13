@@ -16,7 +16,7 @@ neither makes it global.
 
 ## Module forms
 
-```nupp
+```nupp:playground
 local models = {}
 
 -- Private to this file. Nothing outside can name it.
@@ -52,7 +52,7 @@ means one thing here and another thing elsewhere.
 A member is reached through the module it was attached to, so every name in a
 file shows where it came from:
 
-```nupp:static
+```nupp
 local shapes = require("geom.shapes")
 
 local p: shapes.Point = new shapes.Point(x = 3, y = 4)
@@ -60,14 +60,14 @@ local p: shapes.Point = new shapes.Point(x = 3, y = 4)
 
 A module path also names a type directly, without a runtime `require`:
 
-```nupp:static
+```nupp
 local p: geom.shapes.Point
 ```
 
 The module itself is a value like any other, so it has to be required before its
 name means anything. A file's basename is not in scope elsewhere:
 
-```nupp:static
+```nupp
 local doubled = mathutil.double(21) -- `mathutil` is just an unknown name
 local mathutil = require("mathutil") -- this is what puts it in scope
 ```
@@ -113,14 +113,14 @@ end
 member on the type side. Records and structs are values too, which is what lets
 a dependent construct one:
 
-```nupp:static
+```nupp
 local p = new shapes.Point(x = 1, y = 2) -->  setmetatable({x = 1, y = 2}, shapes.Point)
 ```
 
 Which local is the module is read off the `return` statement, so wrapping it
 still works:
 
-```nupp:static
+```nupp
 return setmetatable(shapes, {}) -- shapes is still the module
 ```
 
@@ -161,7 +161,7 @@ return shapes
 Inside its own body a declaration answers to its simple name, so a recursive
 field does not repeat the table it sits on:
 
-```nupp:static
+```nupp
 record shapes.Path
     points: {shapes.Point}
     cutFrom: Path? -- Path, not shapes.Path
@@ -189,7 +189,7 @@ error, so the symptom is a diagnostic somewhere else — an argument that lost i
 ownership mode, a result inferred `any`. Declare the member and let the
 qualified function fill it in:
 
-```nupp:static
+```nupp
 record shapes.Path
     points: {shapes.Point}
 
@@ -297,7 +297,7 @@ other, because a global needs no module to reach it.
 
 ::: code-group
 
-```nupp:static [order.nupp]
+```nupp [order.nupp]
 local order = {}
 
 global record Order
@@ -308,7 +308,7 @@ end
 return order
 ```
 
-```nupp:static [customer.nupp]
+```nupp [customer.nupp]
 local customer = {}
 
 global record Customer
@@ -326,7 +326,7 @@ A module member is different, because reaching `order.Order` means requiring
 **NUPP2101**, since neither module's exports are settled while the other is
 being resolved:
 
-```nupp:static [customer.nupp]
+```nupp [customer.nupp]
 local order = require("order")
 
 local customer = {}

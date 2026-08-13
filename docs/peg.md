@@ -4,7 +4,7 @@
 matchers. The same grammar language works inside `comptime` and at runtime, and
 neither path requires LPeg to be installed.
 
-```nupp
+```nupp:playground
 const Identifier = comptime do
     return nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.")
 end
@@ -67,7 +67,7 @@ local word: string? = match(Word, "hello")
 
 A matcher can be called directly or through `match`:
 
-```nupp:static
+```nupp
 local result = Word("hello")
 local same = Word:match("hello")
 ```

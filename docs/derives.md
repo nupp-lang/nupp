@@ -5,7 +5,7 @@ declaration-augmentation phase, not a text macro: it cannot add imports,
 top-level declarations, modules, records, interfaces, or independently
 nameable types.
 
-```nupp
+```nupp:playground
 @derive(nupp.derive.Debug, nupp.derive.JSON)
 local record User
     @json(name = "user_id")

@@ -53,7 +53,7 @@ A chain of method calls is a sequence of steps, so an over-long chain breaks
 between them rather than inside the first call's arguments. The receiver keeps
 the call that heads the chain and every later step lines up under it:
 
-```nupp:static
+```nupp
 local production = endpoint:withUserInfo(nil):withHost("api.example.com"):withPort(nil):withQuery(nil):withFragment(nil)
 ```
 
@@ -66,7 +66,7 @@ join whole types, so they are looser than any bracket on the line: an
 overloaded signature breaks between its overloads, and a union too long to fit
 reads as one member per line.
 
-```nupp:static
+```nupp:playground
 local pcall: function<A..., R...>(scoped f: function(A...): R..., A...): ((true, R...) | (false, any))
     & function<A..., R...>(takes f: function(A...): R..., A...): ((true, R...) | (false, any))
 ```
@@ -94,7 +94,7 @@ It must be the file's first annotation and has no region form.
 
 A method call left in its sugar form gets its parentheses back:
 
-```nupp:static
+```nupp
 obj:configure({retries = 3}) -- becomes
 obj:configure({retries = 3})
 
@@ -135,7 +135,7 @@ Two rewrites are exempted, each proven safe rather than merely whitespace. A
 single-value annotation loses its redundant `member =` where the checker has
 proved the two spellings equivalent:
 
-```nupp:static
+```nupp
 @documentation(text = "A user")   -- becomes
 @documentation("A user")
 ```

@@ -4,7 +4,7 @@ An interface may carry a `satisfies` declaration naming the runtime test that
 decides whether a value is one of these. `x is T` compiles to that test, so an
 interface can answer `is` for a value this program never built.
 
-```nupp
+```nupp:playground
 local m = {}
 
 interface m.Shape

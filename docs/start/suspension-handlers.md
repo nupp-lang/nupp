@@ -5,7 +5,7 @@ A suspension handler connects
 event loop. A root task function installs the host's handler, then ordinary
 functions beneath it can park without accepting a scheduler parameter:
 
-```nupp:static [main.nupp]
+```nupp [main.nupp]
 local frame = require("scheduler")
 local process = require("nupp.io.process")
 
@@ -69,7 +69,7 @@ A handler is dynamically scoped per coroutine, not process-wide. A host often
 wraps its root application task, which makes that handler application-wide in
 practice:
 
-```nupp:static
+```nupp
 local frame = require("scheduler")
 local suspension = require("nupp.suspension")
 
@@ -192,7 +192,7 @@ Structured exits leave the region only after its installation has been
 released. `return` preserves all values, `break` and `continue` reach the loop
 that owns them, and `goto` may reach a label outside:
 
-```nupp:static
+```nupp
 local frame = require("scheduler")
 
 local function choose(): integer

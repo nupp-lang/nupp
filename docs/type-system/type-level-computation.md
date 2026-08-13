@@ -6,7 +6,7 @@ Nupp has one general compile-time programming language: ordinary Nupp inside
 function in type position executes it while the program is checked and emits no
 runtime function or data.
 
-```nupp
+```nupp:playground
 @comptime
 local function Optional(T: type): type
     return nupp.types.optional(T)

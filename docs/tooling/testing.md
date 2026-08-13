@@ -150,7 +150,7 @@ it when it loads it and keeps the project's runtime loader installed while its
 cases run, so it can require project modules the same way the code under test
 does:
 
-```nupp:static
+```nupp:playground
 local M = {}
 local fixture = require("tests.nuppfixture")
 

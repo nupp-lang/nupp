@@ -11,7 +11,7 @@ Every valid LuaJIT program is a valid Nupp program. Rename a `.lua` file to
 diagnostics. The compiler's test suite pins that against a large body of
 real-world Lua.
 
-```nupp
+```nupp:playground
 local function greet(name)
     return "Hello, " .. name .. "!"
 end
@@ -204,7 +204,7 @@ end
 `@drop` marks the operation that consumes the resource; `@owned` marks the
 function that produces one. An ordinary local is destroyed automatically:
 
-```nupp:static
+```nupp
 do
     local session = openSession()
     print(session.closed)

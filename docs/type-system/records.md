@@ -21,7 +21,7 @@ layout. Choosing between them is choosing a representation.
 
 ## Records
 
-```nupp
+```nupp:playground
 local record Point
     x: number
     y: number
@@ -61,7 +61,7 @@ table all answer `false`.
 `Point` is a type and also a value: the runtime table above. That table is the
 metatable its instances carry, so the value has the type of one.
 
-```nupp:static
+```nupp
 local mt: metatable<Point> = Point
 local p: Point = new Point(x = 3, y = 4)
 ```
@@ -77,7 +77,7 @@ Reaching a member through the table reaches the record's, so `Point.length`,
 `Point.make(...)` and a nested `Point.Inner` all resolve as they always did. A
 function that takes a declaration's table rather than an instance says so:
 
-```nupp:static
+```nupp
 local function register<P is Shape>(shape: metatable<P>)
 ```
 
@@ -177,7 +177,7 @@ Inline methods are not metamethod definitions, even when their names begin with
 
 Inside its own body a declaration answers to its simple name:
 
-```nupp:static
+```nupp
 local record Path
     points: {Point}
     cutFrom: Path?
@@ -221,7 +221,7 @@ Real memory, real widths. A `float` field truncates the way a C `float` does.
 
 Three construction forms:
 
-```nupp:static
+```nupp
 local a = new Vec2(1.0, 2.0) -- named
 local b = Vec2(1.0, 2.0) -- positional, in field order
 local c: Vec2 -- zero-initialized

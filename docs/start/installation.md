@@ -136,7 +136,7 @@ hello/
 
 `src/app/main.nupp`:
 
-```nupp
+```nupp:playground
 local function greetingFor(name: string): string
     return "Hello, " .. name .. "!"
 end

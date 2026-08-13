@@ -11,7 +11,7 @@ with only the required Cargo features.
 A path is platform-native UTF-8 text. Constructing joins components using the
 current platform's rules:
 
-```nupp
+```nupp:playground
 local source = nupp.io.Path.new("src", "app", "..", "main.nupp"):normalize()
 assert(source:toString() == "src" .. nupp.io.Path.separator() .. "main.nupp")
 local name, stem, extension = source:fileName(), source:stem(), source:extension()
@@ -74,7 +74,7 @@ The accessors are `scheme`, `authority`, `username`, `password`, `userInfo`,
 
 Every `with...` method returns a new URI and leaves the original unchanged:
 
-```nupp:static
+```nupp
 local production = endpoint:withUserInfo(nil):withHost("api.example.com"):withPort(nil):withQuery(nil):withFragment(nil)
 local users = production:concatPath("users")
 local avatar, resolveReason = users:resolve("../images/avatar.png")
@@ -97,7 +97,7 @@ service endpoint.
 
 A component record can be passed instead of text:
 
-```nupp:static
+```nupp
 local uri = assert(
     nupp.io.URI.new({
         scheme = "https",

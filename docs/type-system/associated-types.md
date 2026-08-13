@@ -3,7 +3,7 @@
 An interface may state a type it does not name. Whatever takes the contract
 names it, and the name is reached through the value that answered it.
 
-```nupp
+```nupp:playground
 local interface Reader
     associated type Item
 
@@ -20,7 +20,7 @@ end
 `Lines.Item` is `string`. A function generic over readers reads it back through
 the type parameter:
 
-```nupp:static
+```nupp
 local function collect<T is Reader>(source: T): {T.Item}
 ```
 
@@ -47,7 +47,7 @@ A default is a fallback. An implementor may answer otherwise, so a value known
 only as the interface **cannot** be said to answer it, so the projection stays
 opaque there:
 
-```nupp:static
+```nupp
 local interface Holds
     associated type Value = string
 end
@@ -92,7 +92,7 @@ a value typed only as the interface.
 
 ## Answering a requirement
 
-```nupp:static
+```nupp
 local record JSON is Codec
     associated type Encoded = string
     associated type Decoded = any
@@ -151,7 +151,7 @@ declaration was ever inherited.
 Through a concrete declaration by path, through a type parameter, or through the
 receiver:
 
-```nupp:static
+```nupp
 local text: Lines.Item = "a line"
 local function collect<T is Reader>(source: T): {T.Item}
 ```
@@ -201,7 +201,7 @@ An interface carrying associated requirements is nominal at that part. Members
 can still be satisfied by shape, but an answer is a type, nothing registers one
 later, and a structural value has nowhere to put it:
 
-```nupp:static
+```nupp
 local interface Holder
     count: integer
     associated type Item
@@ -244,7 +244,7 @@ the feature declining to say anything rather than saying the call is right. That
 is reported by the `gradual-projection` lint (**NUPP2511**), once per call and
 member, where the erasure happened:
 
-```nupp:static
+```nupp
 local erased = collect(nil as any) -- warning: gradual-projection
 ```
 

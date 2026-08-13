@@ -9,7 +9,7 @@ and Rust providers remain hidden.
 `nupp.data.json` holds the whole JSON surface. `encodeJSON` and `decodeJSON` use
 the mature cjson implementation without exposing its module name:
 
-```nupp
+```nupp:playground
 local encoded = nupp.data.json.encodeJSON({name = "Nupp", ready = true})
 local decoded = nupp.data.json.decodeJSON(encoded)
 assert(decoded.name == "Nupp")
@@ -102,7 +102,7 @@ expose a native UUID object.
 Each function accepts a string or immutable
 [`nupp.io.ByteView`](io.md#byte-views).
 
-```nupp:static
+```nupp
 assert(nupp.data.fnv1a64("hello") == "a430d84680aabd0b")
 assert(nupp.data.sha256("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
 

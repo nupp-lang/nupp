@@ -9,7 +9,7 @@ at one. `wrapAngle(radians)` returns the equivalent angle in `[-π, π)`.
 `deltaAngle(from, to)` returns the shortest signed rotation from one angle to
 another.
 
-```nupp
+```nupp:playground
 assert(nupp.math.lerp(10, 20, 0.25) == 12.5)
 local turn = nupp.math.deltaAngle(math.rad(350), math.rad(10))
 assert(math.abs(math.deg(turn) - 20) < 0.000001)

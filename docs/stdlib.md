@@ -3,7 +3,7 @@
 `nupp` is an ambient global. It is present in every generated module, so
 standard facilities do not need `require`:
 
-```nupp:static
+```nupp
 local buffer = nupp.io.newBuffer("hello")
 local digest = nupp.data.sha256(buffer:view())
 ```
@@ -26,7 +26,7 @@ The `nupp`, `nupp.data`, `nupp.io` and `nupp.math` tables always exist. A
 member's implementation is emitted only when checked source resolves that
 member. Aliases remain precise:
 
-```nupp
+```nupp:playground
 local data = nupp.data
 print(data.sha256("payload")) -- selects SHA-256, but not UUID or JSON
 ```

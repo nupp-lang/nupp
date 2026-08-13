@@ -4,7 +4,7 @@ A suspension-aware function waits without changing its call syntax or return
 type. The same call blocks in a command-line program and parks its coroutine
 when a host installs a [suspension handler](suspension-handlers.md):
 
-```nupp
+```nupp:playground
 local process = require("nupp.io.process")
 
 local child = assert(process.new({args = {"cc", "--version"}}))

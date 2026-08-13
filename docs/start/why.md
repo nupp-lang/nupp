@@ -15,7 +15,7 @@ strictly: unknown variables are errors, and nothing untyped crosses a module
 boundary. Rename a `.lua` file to `.g.nupp` and the typed syntax becomes
 available with that floor still down, so annotations can go in one at a time:
 
-```nupp:static
+```nupp
 -- models.g.nupp: the typed syntax, no floor yet
 local function scale(p, k)
     return {x = p.x * k, y = p.y * k}
@@ -43,7 +43,7 @@ worth keeping.
 
 A `struct` becomes FFI cdata: fixed layout, real C widths, no hash part.
 
-```nupp
+```nupp:playground
 local struct Vec2
     x: float
     y: float
@@ -82,7 +82,7 @@ one C is holding, and one already freed. The convention lives in a comment.
 
 Nupp puts the obligation in the type:
 
-```nupp:static
+```nupp
 local file = resources.openFile("in.txt", "r")
 print(file:read("*a"))
 -- file is destroyed automatically here, including when read raises
@@ -91,7 +91,7 @@ print(file:read("*a"))
 Drop early, transfer it to a `takes` parameter, or return it from an
 `@owned` function when automatic lexical destruction is not the desired end:
 
-```nupp:static
+```nupp
 local file = resources.openFile("in.txt", "r")
 submit(file) -- takes file; automatic destruction is deactivated
 ```

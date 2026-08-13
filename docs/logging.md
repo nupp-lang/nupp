@@ -2,7 +2,7 @@
 
 Leveled logging whose disabled path is the path it is designed around.
 
-```nupp:static
+```nupp
 nupp.log.error("cannot open %s: %s", path, reason)
 nupp.log.warn("retrying in %dms", delay)
 nupp.log.info("loaded %d entities", count)
@@ -34,7 +34,7 @@ value. Named loggers perform the same check in their already-lazy writer.
 A severity call in statement position whose format is a literal is lowered
 rather than called:
 
-```nupp:static
+```nupp
 nupp.log.error("id %d", id)
 ```
 
@@ -101,7 +101,7 @@ literal and an ordinary raise where it is not.
 `nupp.log.enabled(level)` answers whether a level would emit. Use it to guard
 preparation spanning more than one call, which no single lowered site can elide:
 
-```nupp:static
+```nupp
 if nupp.log.enabled("debug") then
     local report = summarize(world)
     nupp.log.debug("world: %s", report)
@@ -114,7 +114,7 @@ A host that logs through its own facility installs a sink function and takes
 over completely. It receives the parts, not a rendered line, and pays for no
 formatting it would discard:
 
-```nupp:static
+```nupp
 nupp.log.sink(function(level: integer, module: string, line: integer, message: string): nil
     sdl.logMessage(CATEGORY, PRIORITY[level], ("%s:%d %s"):format(module, line, message))
 end)
@@ -166,7 +166,7 @@ startup to validate the symbol, because some Windows CRTs inline `time` to
 
 ## Named loggers
 
-```nupp:static
+```nupp
 local physics = nupp.log.named("physics")
 physics:warn("step %d took %.2fms", step, elapsed)
 ```

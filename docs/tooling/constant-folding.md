@@ -4,7 +4,7 @@
 value a reader can work out is not one the program works out again on every
 run:
 
-```nupp
+```nupp:playground
 local m = {}
 
 const WIDTH: integer = 8
@@ -98,7 +98,7 @@ A loop whose constant bounds admit no first iteration is not emitted. An empty
 `do` holds its opening and closing lines, and LuaJIT compiles that to nothing.
 
 ::: code-group
-```nupp:static [Original Nupp]
+```nupp [Original Nupp]
 while false do
     unreachable()
 end
@@ -167,7 +167,7 @@ fixes one named slot; ordinary fields remain mutable. `const... M.field` is the
 auto-deep form for every named field in a fresh table graph.
 
 ::: code-group
-```nupp:static [Original Nupp]
+```nupp [Original Nupp]
 -- settings.nupp
 const M = {}
 const M.mixed = {

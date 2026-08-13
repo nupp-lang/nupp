@@ -2,7 +2,7 @@
 
 Narrowing is how a union becomes one of its members inside a branch.
 
-```nupp
+```nupp:playground
 local function widthOf(s: string?): integer
     if s then
         return #s -- s is string here
@@ -62,7 +62,7 @@ it says so with `@allow("exhaustiveness")`.
 **`assert(x)` as a statement does not narrow `x`.** It narrows through its
 *return value*, because its signature subtracts `nil`:
 
-```nupp:static
+```nupp
 assert(s)
 local a: string = s -- still an error
 
@@ -82,7 +82,7 @@ every member of a union leaves the union alone, since there is no bottom type.
 A narrowed fact dies with the scope that proved it, and assigning to a name
 clears the facts for that name and everything beneath it:
 
-```nupp:static
+```nupp
 local function f(s: string?)
     if s then
         s = maybeName() -- facts for s are cleared here
@@ -95,7 +95,7 @@ end
 When narrowing cannot see what you know, write a predicate. The return type
 `v is T` names a parameter and a type:
 
-```nupp:static
+```nupp
 local function isPoint(v: any): v is Point
     return v ~= nil and v.x ~= nil and v.y ~= nil
 end

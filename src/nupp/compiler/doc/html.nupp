@@ -9,10 +9,14 @@ What is not lunamark's is the fenced blocks and `:::` containers. A fence here
 carries more than a language — an optional `[caption]`, `:line-numbers` with an
 optional start — and a `::: code-group` gathers several fences into one tabbed
 widget. Note, info, tip, warning, and danger containers become admonitions whose
-bodies are still rendered by lunamark. A `nupp` fence embeds the editor, so the
-block checks once the reader engages with it; `playground` remains the explicit
-spelling for an empty editor or example picker. `:static` keeps a Nupp excerpt
-as highlighted text when editing would not make sense. Rather than teach a
+bodies are still rendered by lunamark. A Nupp fence is highlighted text like
+every other language until it asks for an editor: `:playground` embeds one, so
+that block checks as the reader types, and `playground` remains the explicit
+spelling for an empty editor or example picker. Editing is what a fence opts
+into rather than what it gets, because most examples on a page are a fragment,
+one step of a sequence, or a program shown again — an editor around any of
+those is a check that fails for a reason the prose already gave. Rather than
+teach a
 markdown grammar about any of that, every custom region is lifted out before
 lunamark sees the document and an HTML comment is left in its place; markdown
 does not touch a comment, so the rendered block goes back exactly where it came
@@ -147,11 +151,18 @@ local function playgroundHtml(source: string, caption: string?): string
     ) .. ">" .. fallback .. "</nupp-playground>"
 end
 
-local function renderedCodeBlockHtml(block, links)
+-- `:line-numbers` outranks `:playground` rather than conflicting with it: the editor
+-- brings its own gutter starting at one, so a fence that asked to start at line 41
+-- keeps the numbering it asked for and stays text.
+local function isPlayground(block): boolean
     if block.language == "playground" then
-        return playgroundHtml(block.source, block.caption)
+        return true
     end
-    if block.language == "nupp" and not block.static and not block.firstLine then
+    return block.language == "nupp" and block.playground == true and not block.firstLine
+end
+
+local function renderedCodeBlockHtml(block, links)
+    if isPlayground(block) then
         return playgroundHtml(block.source, block.caption)
     end
     return codeBlockHtml(block.source, block.language, links, block.firstLine)
@@ -231,7 +242,7 @@ local function readFence(lines, index)
         language = language ~= "" and language or "text",
         caption = options:match("%[([^%]]+)%]"),
         firstLine = lineNumberStart(options),
-        static = options:find(":static", 1, true) ~= nil,
+        playground = options:find(":playground", 1, true) ~= nil,
         source = table.concat(code, "\n"),
     }, index + 1
 end
@@ -307,10 +318,7 @@ local function extractBlocks(text, links, rendered)
         elseif lines[index]:match("^```") then
             local block, after = readFence(lines, index)
             index = after - 1
-            local interactive = block.language == "playground" or (
-                block.language == "nupp" and not block.static and not block.firstLine
-            )
-            if interactive then
+            if isPlayground(block) then
                 placeholder(renderedCodeBlockHtml(block, links))
             else
                 local markup = renderedCodeBlockHtml(block, links)

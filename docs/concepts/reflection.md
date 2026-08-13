@@ -5,7 +5,7 @@ what it means. Code generated from that descriptor is written once and stays
 correct as the declaration changes, because it is derived from the declaration
 rather than maintained beside it.
 
-```nupp
+```nupp:playground
 local m = {}
 
 local record Position

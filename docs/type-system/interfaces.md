@@ -3,7 +3,7 @@
 An interface names a set of members. It has no runtime value at all, because the
 declaration emits nothing.
 
-```nupp
+```nupp:playground
 local interface Named
     name: string
 end
@@ -18,7 +18,7 @@ This controls both access and variance; see
 A type satisfies an interface by carrying its members. No declaration is
 required:
 
-```nupp:static
+```nupp
 local record Circle
     name: string
     radius: number
@@ -29,7 +29,7 @@ local n: Named = new Circle(name = "c", radius = 1) -- fine
 
 A plain table shape works too:
 
-```nupp:static
+```nupp
 local n: Named = {name = "anonymous"}
 ```
 
@@ -61,7 +61,7 @@ sides, since each implementation names it for itself.
 
 ## `is` is a claim, not a proof
 
-```nupp:static
+```nupp
 local record Tagged is Named
     name: string
     weight: number
@@ -89,7 +89,7 @@ end
 
 An interface is the usual bound for a type parameter:
 
-```nupp:static
+```nupp
 local function start<T is Callable>(task: T): T
     return task()
 end
@@ -103,7 +103,7 @@ generic is instantiated, not inside the subtyping relation.
 
 The `is` operator tests a value's type:
 
-```nupp:static
+```nupp
 if shape is Circle then
     print(shape.radius)
 end
