@@ -681,10 +681,7 @@ function checkMod.check(
                     if node.nominal then
                         permitted[
                             "argument" .. tostring(position) .. ":" .. tostring(index)
-                        ] = {
-                            source = descriptor.sources[index],
-                            fingerprint = node.referenceFingerprint,
-                        }
+                        ] = {source = descriptor.sources[index], fingerprint = node.referenceFingerprint,}
                     end
                 end
                 descriptor.sources = nil
@@ -696,7 +693,9 @@ function checkMod.check(
         end
         local key = hash.sha256(table.concat(keyParts, "\0"))
         local cached = memo[key]
-        if cached then return cached.result, cached.failure end
+        if cached then
+            return cached.result, cached.failure
+        end
         local persistent = c.env and c.env.openTypeFunctionStore and c.env.openTypeFunctionStore(c.env) or nil
         local persisted = persistent and persistent.get(key) or nil
         if persisted then
@@ -707,9 +706,9 @@ function checkMod.check(
             end
         end
         local root = os.getenv("NUPP_COMPILER_ROOT")
-        local executable = root and root .. "/bin/nupp"
-            or type(arg) == "table" and type(arg[0]) == "string" and arg[0]
-            or nil
+        local executable = root and root .. "/bin/nupp" or type(
+            arg
+        ) == "table" and type(arg[0]) == "string" and arg[0] or nil
         local envelope, evaluationFailure
         if executable and not os.getenv("NUPP_COMPTIME_WORKER_CHILD") then
             local worker = require("nupp.compiler.comptime_worker") as {
@@ -729,15 +728,16 @@ function checkMod.check(
             return nil, evaluationFailure
         end
         local resultType, validationFailure = typeblueprint.validate(envelope, permitted)
-        if resultType and persistent then persistent.put(key, envelope) end
+        if resultType and persistent then
+            persistent.put(key, envelope)
+        end
         memo[key] = {result = resultType, failure = validationFailure}
+
         return resultType, validationFailure
     end
-    c.reductionControl = {
-        evaluateTypeFunction = function(helper, arguments)
-            return c.typeFunctionEvaluator(helper, arguments, c.comptimeFunctions)
-        end
-    }
+    c.reductionControl = {evaluateTypeFunction = function(helper, arguments)
+        return c.typeFunctionEvaluator(helper, arguments, c.comptimeFunctions)
+    end}
     resolve.install(c)
     local ownershipKind = own.ownershipKind
 
@@ -1226,19 +1226,17 @@ function checkMod.check(
                     )
                 end
                 domain = domain or "string"
-                local cv = predeclared
-                    and predeclared.constParams
-                    and predeclared.constParams[#constParams + 1]
-                    or c.constvarAt(nameTok, domain, role)
+                local cv = predeclared and predeclared.constParams and predeclared.constParams[
+                    #constParams + 1
+                ] or c.constvarAt(nameTok, domain, role)
                 constParams[#constParams + 1] = cv
                 paramKinds[j] = "const"
                 c.bindType(nameTok.text, consteval.singleton(cv), nameTok)
             elseif isPack then
                 sawPack = true
-                local pv = predeclared
-                    and predeclared.packParams
-                    and predeclared.packParams[#packParams + 1]
-                    or c.packvarAt(nameTok, role)
+                local pv = predeclared and predeclared.packParams and predeclared.packParams[
+                    #packParams + 1
+                ] or c.packvarAt(nameTok, role)
                 packParams[#packParams + 1] = pv
                 paramKinds[j] = "pack"
                 c.bindPack(nameTok.text, pv, nameTok)
@@ -1246,10 +1244,9 @@ function checkMod.check(
                 if sawPack then
                     c.diag("NUPP2121", nameTok, "an ordinary type parameter cannot follow a pack parameter")
                 end
-                local tv = predeclared
-                    and predeclared.typeParams
-                    and predeclared.typeParams[#params + 1]
-                    or c.typevarAt(nameTok, role)
+                local tv = predeclared and predeclared.typeParams and predeclared.typeParams[
+                    #params + 1
+                ] or c.typevarAt(nameTok, role)
                 params[#params + 1] = tv
                 paramKinds[j] = "type"
                 c.bindType(nameTok.text, tv, nameTok)
@@ -1779,9 +1776,7 @@ function checkMod.check(
                         local isConst = decl.generics.consts and decl.generics.consts[position]
                         if isConst then
                             local domainToken = decl.generics.domains and decl.generics.domains[position]
-                            constParams[
-                                #constParams + 1
-                            ] = c.constvarAt(nameTok, c.constDomain(domainToken), "nominal")
+                            constParams[#constParams + 1] = c.constvarAt(nameTok, c.constDomain(domainToken), "nominal")
                             paramKinds[position] = "const"
                         elseif isPack then
                             packParams[#packParams + 1] = c.packvarAt(nameTok, "nominal")
@@ -1802,10 +1797,76 @@ function checkMod.check(
                 c.scope.pending[c.declKey(decl)] = waiting
             end
         end
-        -- Methods, once the types they name are bound: publishing each signature now is
-        -- what lets two methods call each other.
+        -- Every record's `@drop` members, once every nominal in the block exists and
+        -- before any of their fields resolve. A field of one record may say
+        -- `Owned<Other>`, so registering as each record is hoisted would make the
+        -- terminal it inherits depend on which was written first. A member terminal is
+        -- named rather than resolved, so this is a scan of the entries and nothing
+        -- more; the declaration pass registers it again, idempotently.
+        for _, stat in ipairs(block.stats or {}) do
+            local decl = stat
+            while decl and decl.kind == "pragmaStmt" do
+                decl = decl.stat
+            end
+            if decl and decl.kind == "recordDecl" and decl.hoistedType then
+                for _, e in ipairs(decl.entries or {}) do
+                    local named = e.name and e.name.text
+                    for _, application in ipairs(named and e.annotations or {}) do
+                        if application.name and application.name.text == "drop" then
+                            c.own.addDefaultDropOperation(decl.hoistedType, T.methodCleanup(named))
+                        end
+                    end
+                end
+            end
+        end
+
         local wasHoisting = c.hoisting
         c.hoisting = true
+        -- `@drop` contracts first, before any signature below resolves. A result
+        -- written `Owned<T>` inherits the terminal `T` declared, and it has to inherit the same
+        -- one whether the terminal is written above the result or below it -- so the
+        -- terminal has to exist before the first consumer annotation is read. Static
+        -- registration only: the runtime write still goes out where the function is.
+        for _, stat in ipairs(block.stats or {}) do
+            local decl, dropTok = stat, nil
+            while decl and decl.kind == "pragmaStmt" do
+                if decl.name and decl.name.text == "drop" then
+                    dropTok = decl.name
+                end
+                decl = decl.stat
+            end
+            local functionDecl = decl and (decl.kind == "localFuncStmt" or decl.kind == "funcStmt")
+            if dropTok and functionDecl and decl.body and not decl.body.dropCleanup then
+                local named = decl.name
+                local ownerKey, memberTok = nil, nil
+                if named and named.kind == "funcname" then
+                    ownerKey, memberTok = c.funcOwner(named)
+                end
+                local owner = ownerKey and c.lookupType(ownerKey) or nil
+                -- A colon method's receiver is implicit in the body node, so asking
+                -- `signatureOf` for the body as a free function sees no taking first
+                -- parameter and registers nothing. The ordinary declaration path
+                -- records the method cleanup directly; do the same here. A dotted
+                -- function has an explicit first parameter and follows the free
+                -- function path below, just as ordinary checking does.
+                if owner and owner.tag == "nominal" and named.method and memberTok then
+                    c.own.addDefaultDropOperation(owner, T.methodCleanup(memberTok.text))
+                else
+                    local path = nil
+                    if decl.kind == "localFuncStmt" and named then
+                        path = named.text
+                    elseif named and named.kind == "funcname" and not named.method then
+                        path = c.declKey(decl)
+                    end
+                    if path then
+                        c.own.registerDefaultDropOperation(c.signatureOf(decl.body, nil), path, dropTok, nil, decl.body)
+                    end
+                end
+            end
+        end
+
+        -- Methods, once the types they name are bound: publishing each signature now is
+        -- what lets two methods call each other.
         for _, stat in ipairs(block.stats or {}) do
             local decl = stat
             while decl and decl.kind == "pragmaStmt" do
@@ -1910,12 +1971,13 @@ function checkMod.check(
     for _, hazard in ipairs(c.jitHazards) do
         local body = hazard.body
         local definition = body and body.jitDefinition or nil
-        if not hazard.suppressed
-            and not (body and body.jitDisabled)
-            and not (definition and definition.jitDisabled)
-            and not (hazard.disabledBody and hazard.disabledBody.jitDisabled)
-            and not (hazard.disabledDefinition and hazard.disabledDefinition.jitDisabled)
-        then
+        if not hazard.suppressed and not (
+            body and body.jitDisabled
+        ) and not (
+            definition and definition.jitDisabled
+        ) and not (
+            hazard.disabledBody and hazard.disabledBody.jitDisabled
+        ) and not (hazard.disabledDefinition and hazard.disabledDefinition.jitDisabled) then
             c.diag(
                 body and body.jitRequired and "NUPP2707" or hazard.code,
                 hazard.at,
@@ -1997,11 +2059,14 @@ function checkMod.check(
     c.discard.sweep(analysis.queries(facts))
     c.nosuspend.sweep(analysis.queries(facts))
     local comptimeNames, comptimeIdentities = {}, {}
-    for name in pairs(c.moduleExports.comptimeFunctions or {}) do comptimeNames[#comptimeNames + 1] = name end
+    for name in pairs(c.moduleExports.comptimeFunctions or {}) do
+        comptimeNames[#comptimeNames + 1] = name
+    end
     table.sort(comptimeNames)
     for _, name in ipairs(comptimeNames) do
-        comptimeIdentities[#comptimeIdentities + 1] = name .. "="
-            .. tostring(c.moduleExports.comptimeFunctions[name].identity)
+        comptimeIdentities[
+            #comptimeIdentities + 1
+        ] = name .. "=" .. tostring(c.moduleExports.comptimeFunctions[name].identity)
     end
     c.moduleExports.comptimeFunctionFingerprint = table.concat(comptimeIdentities, "\0")
     table.sort(c.diags, function(a, b)

@@ -22,11 +22,7 @@ local state = require("nupp.compiler.check.state")
 local resolve = {}
 
 --- The ownership type constructors, by the name each is written with.
-local ownershipConstructors: {[string]: string} = {
-    Owned = "owned",
-    Borrowed = "borrowed",
-    Pinned = "pinned",
-}
+local ownershipConstructors: {[string]: string} = {Owned = "owned", Borrowed = "borrowed", Pinned = "pinned",}
 
 local instantiateNominal = generics.instantiate
 
@@ -118,11 +114,7 @@ function resolve.install(c: state.Checker): nil
         if parameter.domain == "function" then
             local named = arg.kind == "tname" and not arg.typeArgs and arg.base and arg.base.text or nil
             if not named then
-                c.diag(
-                    "NUPP2131",
-                    arg,
-                    ("argument for const parameter %s must name a function"):format(parameter.name)
-                )
+                c.diag("NUPP2131", arg, ("argument for const parameter %s must name a function"):format(parameter.name))
                 return nil
             end
             local key, entry = c.own.cleanupKeyFor(named)
@@ -366,7 +358,9 @@ function resolve.install(c: state.Checker): nil
                 local moduleName = table.concat(calleeParts, ".")
                 if #calleeParts == 1 then
                     local holder = c.lookupEntry(calleeParts[1])
-                    if holder and holder.requiredModule then moduleName = holder.requiredModule end
+                    if holder and holder.requiredModule then
+                        moduleName = holder.requiredModule
+                    end
                 end
                 local exports = c.env.resolveModuleExports(c.env, moduleName)
                 helper = exports and exports.comptimeFunctions and exports.comptimeFunctions[member] or nil
@@ -391,12 +385,9 @@ function resolve.install(c: state.Checker): nil
                 c.diag(
                     "NUPP2421",
                     node,
-                    ("type function %q expects %d argument%s, got %d"):format(
-                        name,
-                        parameterCount,
-                        parameterCount == 1 and "" or "s",
-                        #(node.arguments or {})
-                    )
+                    (
+                        "type function %q expects %d argument%s, got %d"
+                    ):format(name, parameterCount, parameterCount == 1 and "" or "s", #(node.arguments or {}))
                 )
                 return T.any
             end
@@ -411,26 +402,27 @@ function resolve.install(c: state.Checker): nil
                     if expected.tag == "typeHandle" then
                         local fits, why = relations.isA(supplied, expected.bound)
                         if not fits then
-                            c.diag("NUPP2421", argumentNode, "type-function type argument violates its bound: " .. (why or "not satisfied"))
+                            c.diag(
+                                "NUPP2421",
+                                argumentNode,
+                                "type-function type argument violates its bound: " .. (why or "not satisfied")
+                            )
                             return T.any
                         end
                     end
                     arguments[position] = {kind = "type", value = supplied}
-                    deferredArguments[position] = {
-                        kind = "type", value = supplied,
-                    } as T.ComptimeTypeArgument
+                    deferredArguments[position] = {kind = "type", value = supplied,} as T.ComptimeTypeArgument
                     open = open or T.hasTypevar(supplied) or T.hasProjection(supplied) or supplied.tag == "neutral"
                 elseif expected == T.typepack then
                     local packNode = argumentNode
-                    while packNode.kind == "tparen" and packNode.inner
-                        and (packNode.inner.kind == "tpack" or packNode.inner.kind == "tpackUnion") do
+                    while packNode.kind == "tparen" and packNode.inner and (
+                        packNode.inner.kind == "tpack" or packNode.inner.kind == "tpackUnion"
+                    ) do
                         packNode = packNode.inner
                     end
                     local suppliedPack = c.resolvePack(packNode)
                     arguments[position] = {kind = "typepack", value = suppliedPack}
-                    deferredArguments[position] = {
-                        kind = "typepack", value = suppliedPack,
-                    } as T.ComptimePackArgument
+                    deferredArguments[position] = {kind = "typepack", value = suppliedPack,} as T.ComptimePackArgument
                     local wrapped = T.packResult(suppliedPack)
                     open = open or T.hasTypevar(wrapped) or T.hasProjection(wrapped)
                     for _, member in ipairs(suppliedPack.head or {}) do
@@ -440,11 +432,18 @@ function resolve.install(c: state.Checker): nil
                     local supplied = c.resolveType(argumentNode)
                     local term = consteval.fromType(supplied)
                     local reduced, constFailure = nil, nil
-                    if term then reduced, constFailure = consteval.reduce(term) end
-                    local domain = reduced and (reduced.tag == "constLiteral" or reduced.tag == "constVar")
-                        and reduced.domain or nil
+                    if term then
+                        reduced, constFailure = consteval.reduce(term)
+                    end
+                    local domain = reduced and (
+                        reduced.tag == "constLiteral" or reduced.tag == "constVar"
+                    ) and reduced.domain or nil
                     if constFailure or not reduced or domain ~= expected.tag then
-                        c.diag("NUPP2421", argumentNode, "a scalar type-function argument must be a literal or const binder in its declared domain")
+                        c.diag(
+                            "NUPP2421",
+                            argumentNode,
+                            "a scalar type-function argument must be a literal or const binder in its declared domain"
+                        )
                         return T.any
                     end
                     if reduced.tag == "constLiteral" then
@@ -452,22 +451,29 @@ function resolve.install(c: state.Checker): nil
                     else
                         open = true
                     end
-                    deferredArguments[position] = {
-                        kind = "const", value = reduced,
-                    } as T.ComptimeConstArgument
+                    deferredArguments[position] = {kind = "const", value = reduced,} as T.ComptimeConstArgument
                 else
-                    c.diag("NUPP2421", parameter and (parameter.type or parameter) or node, "type-function parameters must be type, typepack, string, boolean, or integer")
+                    c.diag(
+                        "NUPP2421",
+                        parameter and (parameter.type or parameter) or node,
+                        "type-function parameters must be type, typepack, string, boolean, or integer"
+                    )
                     return T.any
                 end
             end
             local declared = helperType.rets[1] or T.any
             if declared ~= T.type_ and declared ~= T.typepack and declared.tag ~= "typeHandle" then
-                c.diag("NUPP2421", body and body.rets and body.rets[1] or body or node, "a type-position @comptime function must return type or typepack")
+                c.diag(
+                    "NUPP2421",
+                    body and body.rets and body.rets[1] or body or node,
+                    "a type-position @comptime function must return type or typepack"
+                )
                 return T.any
             end
             if open then
-                local identity = require("nupp.compiler.comptime")
-                    .typeFunctionProgram(helper, c.comptimeFunctions).identity
+                local identity = require(
+                    "nupp.compiler.comptime"
+                ).typeFunctionProgram(helper, c.comptimeFunctions).identity
                 local term = T.comptimeCall(
                     identity,
                     helper,
@@ -502,7 +508,11 @@ function resolve.install(c: state.Checker): nil
             if declared.tag == "typeHandle" then
                 local fits, why = relations.isA(result, declared.bound)
                 if not fits then
-                    c.diag("NUPP2421", node, "generated type violates its declared result bound: " .. (why or "not satisfied"))
+                    c.diag(
+                        "NUPP2421",
+                        node,
+                        "generated type violates its declared result bound: " .. (why or "not satisfied")
+                    )
                     return T.any
                 end
             end
@@ -733,11 +743,7 @@ function resolve.install(c: state.Checker): nil
                         -- function parameter. Resolve it through the same path as a
                         -- declared generic so its identity and runtime-linker key are
                         -- exactly the ones every other function const argument gets.
-                        local term = constArgument(
-                            cleanupArg,
-                            {name = "cleanup", domain = "function"},
-                            node
-                        )
+                        local term = constArgument(cleanupArg, {name = "cleanup", domain = "function"}, node)
                         local named = cleanupArg.kind == "tname"
                             and not cleanupArg.typeArgs
                             and cleanupArg.base
@@ -770,8 +776,9 @@ function resolve.install(c: state.Checker): nil
             c.markToken(base, def, t, def and def.kind or "type")
             t = applyTypeArgs(t, node)
             if t then
-                if (t == T.type_ or t == T.typepack or t.tag == "typeHandle") and (c.comptimeDepth or 0) == 0
-                    and (c.comptimeFunctionDepth or 0) == 0 then
+                if (
+                    t == T.type_ or t == T.typepack or t.tag == "typeHandle"
+                ) and (c.comptimeDepth or 0) == 0 and (c.comptimeFunctionDepth or 0) == 0 then
                     c.diag(
                         "NUPP2421",
                         node,
@@ -1180,6 +1187,11 @@ function resolve.install(c: state.Checker): nil
                 paramModes
             )
             local retPack = node.returnPack and c.resolvePack(node.returnPack) or T.pack({})
+            -- A callable field and a bodyless declaration say what they produce here,
+            -- so
+            -- a result written `Owned<T>` inherits the terminal `T` declared exactly as
+            -- a function statement's result does.
+            retPack = c.own.normalizeOwnedResults(retPack, node.returnPack, node)
             -- Packs are interned. A result relation adjusts the callable's view of a
             -- slot, so never write through the canonical pack's `head` array: doing
             -- that would change every unrelated signature that shares the same pack.

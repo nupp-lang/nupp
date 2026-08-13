@@ -62,10 +62,14 @@ type ownership.Ops = {
     cleanupKeyFor: function(name: string): (string?, any),
 
     --- Records a `@drop` operation as the default cleanup of what it takes.
-    registerDefaultDropOperation: function(ft: Type?, path: string, at: any, registrationNode: any?),
+    registerDefaultDropOperation: function(ft: Type?, path: string, at: any, registrationNode: any?, declaration: any?),
 
     --- Adds a resolved default cleanup to a nominal, idempotently across rechecks.
     addDefaultDropOperation: function(resourceT: Type?, cleanup: T.Cleanup),
+
+    --- A return pack with each result written bare `Owned<T>` given the terminal `T`
+    --- declared. Written nodes decide; unions and computed tails are left alone.
+    normalizeOwnedResults: function(pack: any, writtenPack: any, at: any): any,
 
     --- Reports bare producers whose result never acquired one default drop operation.
     finalizeDefaultCleanups: function(),
@@ -332,13 +336,13 @@ function ownership.install(c: state.Checker): ownership.Ops
         local defaults = base.tag == "nominal" and base.defaultDropOperations or nil
         if not defaults or #defaults == 0 then
             if base.tag ~= "nominal" then
-            c.diag(
-                "NUPP2602",
-                at,
-                "bare @owned needs exactly one inherited @drop operation; "
-                .. "use @owned(cleanup) or @owned(opaque = true)"
-            )
-            return {}
+                c.diag(
+                    "NUPP2602",
+                    at,
+                    "bare @owned needs exactly one inherited @drop operation; "
+                    .. "use @owned(cleanup) or @owned(opaque = true)"
+                )
+                return {}
             end
             defaults = defaults or {}
             base.defaultDropOperations = defaults
@@ -393,12 +397,84 @@ function ownership.install(c: state.Checker): ownership.Ops
         defaults[#defaults + 1] = cleanup
     end
 
-    function own.registerDefaultDropOperation(ft, path, at, registrationNode)
+    function own.registerDefaultDropOperation(ft, path, at, registrationNode, declaration)
         if not ft or ft.tag ~= "func" or not ft.params[1] or ft.paramModes[1] ~= "takes" then
             c.diag("NUPP2602", at, "@drop requires a function whose first parameter takes " .. "the resource")
             return
         end
-        own.addDefaultDropOperation(ft.params[1], resolvedFunctionCleanup(path, at, registrationNode, true, ft))
+        -- One descriptor per decorated declaration, kept on it. A `@drop` is registered
+        -- twice -- once statically, so a result written `Owned<T>` can inherit it
+        -- wherever in the file the terminal was declared, and once while the
+        -- declaration is checked, which is what emits the runtime write. Both have to
+        -- name the same cleanup: two descriptors would be two identities, and an owned
+        -- type interns on the identities of the cleanups it carries.
+        local cleanup = declaration and declaration.dropCleanup
+        if not cleanup then
+            cleanup = resolvedFunctionCleanup(path, at, registrationNode, true, ft)
+            if declaration then
+                declaration.dropCleanup = cleanup
+            end
+        else
+            addRegistration(registrationNode, cleanup, true)
+        end
+        own.addDefaultDropOperation(ft.params[1], cleanup)
+    end
+
+    -- A result written bare `Owned<T>` takes the terminal `T` declared. One helper for
+    -- every path that builds a signature, so a callable field, a bodyless declaration
+    -- and a function statement all say the same thing by saying it once.
+    --
+    -- Written nodes decide, not resolved shapes: a type can be owned for reasons the
+    -- signature never spelled -- an affine closure is -- and inheriting for one of
+    -- those would demand a `@drop` its author never claimed to have. `Owned<T, f>`
+    -- already named its terminal and is left alone, and so is anything that is not a
+    -- nominal, because a closure carries its own terminal and a C pointer has none.
+    function own.normalizeOwnedResults(pack, writtenPack, at)
+        -- Narrowed once here rather than at each caller: a `returnPack` is an ordinary
+        -- node until its kind says otherwise, and a pack union has arms rather than
+        -- result slots for a written node to map onto.
+        local writtenTypes = writtenPack ~= nil and writtenPack.kind == "tpack" and (
+            writtenPack as cst.Tpack
+        ).types or nil
+        -- A union has arms rather than result slots, so there is nothing to map a
+        -- written node onto. A tail is computed and equally unmapped; its fixed head
+        -- still is.
+        if not pack or pack.alternatives or not writtenTypes or #pack.head == 0 then
+            return pack
+        end
+        local head, changed = nil, false
+        for j, resolved in ipairs(pack.head) do
+            local written = writtenTypes[j]
+            local bare = written ~= nil
+                and written.kind == "tname"
+                and written.base ~= nil
+                and written.base.text == "Owned"
+                and not (
+                written.typeArgs and written.typeArgs[2]
+            )
+            if bare and resolved.tag == "owned" and #(resolved.cleanups or {}) == 0 then
+                local resource = rawType(resolved)
+                if resource.tag == "nominal" then
+                    local cleanups = own.resolvedOwnedCleanups(resource, nil, false, written or at, nil)
+                    if #cleanups > 0 then
+                        head = head or {}
+                        if not changed then
+                            for k, slot in ipairs(pack.head) do
+                                head[k] = slot
+                            end
+                            changed = true
+                        end
+                        head[j] = T.owned(resource, cleanups)
+                        own.validateCleanups(head[j], cleanups, written or at, "NUPP2615")
+                    end
+                end
+            end
+        end
+        if not changed then
+            return pack
+        end
+
+        return T.pack(head, pack.tail, pack.modes)
     end
 
     function own.ownershipEntry(expr)
@@ -450,6 +526,7 @@ function ownership.install(c: state.Checker): ownership.Ops
         end
 
         local owner = own.provenanceOwner(expr)
+
         return owner, owner and "" or nil
     end
 
@@ -597,7 +674,8 @@ function ownership.install(c: state.Checker): ownership.Ops
             entry.borrowOwner.activeBorrows = math.max(0, (entry.borrowOwner.activeBorrows or 1) - 1)
             if entry.exclusiveBorrow then
                 entry.borrowOwner.activeExclusiveBorrows = math.max(
-                    0, (entry.borrowOwner.activeExclusiveBorrows or 1) - 1
+                    0,
+                    (entry.borrowOwner.activeExclusiveBorrows or 1) - 1
                 )
             end
             entry.borrowOwner = nil

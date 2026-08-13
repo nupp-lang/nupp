@@ -2821,6 +2821,106 @@ function M.anOwnedResultInheritsTheTypesDropOperation()
    }, "\n"))
 end
 
+function M.anOwnedResultInheritsALaterQualifiedTypesDropOperation()
+   local source = table.concat({
+      "local m = {}",
+      "record m.Pool",
+      "   open: function(): Owned<m.Session>",
+      "end",
+      "record m.Session",
+      "   id: integer",
+      "end",
+      "record m.Factory",
+      "end",
+      "function m.Factory:open(): Owned<m.Session>",
+      "   return new m.Session(id = 1)",
+      "end",
+      "@drop",
+      "function m.Session:close(): nil",
+      "end",
+      "do",
+      "   local factory = new m.Factory()",
+      "   local session = factory:open()",
+      "   print(session.id)",
+      "end",
+      "return m",
+   }, "\n")
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+   local path = dir .. "/src/main.nupp"
+   local file = assert(io.open(path, "wb"))
+   file:write(source)
+   file:close()
+   local project = envMod.new(dir, {config = {include = {"src"}}})
+   local result = parser.parse(source, path)
+   local diags = check.check(result, path, project)
+   os.execute("rm -rf '" .. dir .. "'")
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-qualified-order-test")
+   assertEq(#genDiags, 0)
+   local chunk, loadErr = loadstring(code, "@ownership-qualified-order")
+   assert(chunk, tostring(loadErr) .. "\n" .. code)
+   assert(chunk())
+end
+
+function M.anOwnedResultInheritsALaterQualifiedFreeDropOperation()
+   assertClean(table.concat({
+      "local m = {}",
+      "record m.Pool",
+      "   open: function(): Owned<m.Session>",
+      "end",
+      "record m.Session",
+      "   id: integer",
+      "end",
+      "@drop",
+      "function m.closeSession(takes session: m.Session): nil",
+      "   unsafe do",
+      "      nupp.intoRaw(session)",
+      "   end",
+      "end",
+      "return m",
+   }, "\n"))
+end
+
+function M.aPlainOwnedFieldDoesNotInheritItsValuesDropOperation()
+   assertClean(table.concat({
+      "local record Session",
+      "   @drop",
+      "   function close(self: Session): nil",
+      "   end",
+      "end",
+      "local record Box",
+      "   value: Owned<Session>",
+      "end",
+      "local function open(): Owned<Session>",
+      "   return new Session()",
+      "end",
+      "local function box(takes value: Session): nil",
+      "   local stored = new Box(value = value)",
+      "   unsafe do",
+      "      nupp.intoRaw(stored)",
+      "   end",
+      "end",
+      "box(open())",
+   }, "\n"))
+end
+
+function M.anOwnedFunctionResultRejectsSeveralDropOperations()
+   local source = table.concat({
+      "local record Session",
+      "   @drop",
+      "   function close(self: Session): nil",
+      "   end",
+      "   @drop",
+      "   function release(self: Session): nil",
+      "   end",
+      "end",
+      "local producer: function(): Owned<Session>",
+   }, "\n")
+   assertEq(codes(source), "NUPP2602")
+end
+
 -- What `@owned` cannot say: it names the first result and only the first, so a
 -- function owning its second had no spelling before the constructor.
 function M.aNonFirstResultMayBeOwned()

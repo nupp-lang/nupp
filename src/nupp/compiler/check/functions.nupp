@@ -480,11 +480,11 @@ function functions.install(c: state.Checker): state.StatHandlers
         local inferredModes, declaredModes = inferredParameterModes(body)
         if explicitSelf then
             local mode = inferredModes[1] or "borrows"
-            if not declaredModes[1]
-                and mode ~= "takes"
-                and not pointerShaped(selfType)
-                and not (selfType.tag == "nominal" and selfType.affineResource)
-            then
+            if not declaredModes[
+                1
+            ] and mode ~= "takes" and not pointerShaped(
+                selfType
+            ) and not (selfType.tag == "nominal" and selfType.affineResource) then
                 mode = "plain"
             end
             body.receiverMode = mode
@@ -651,39 +651,31 @@ function functions.install(c: state.Checker): state.StatHandlers
         -- it is about rather than above the signature. Every position is resolved, so a
         -- function may own any result and not only its first, and a terminal comes from
         -- the type's own `@drop` instead of being restated at each producer. The loop
-        -- also reaches what the branch above just built, so both spellings arrive at one
+        -- also reaches what the branch above just built, so both spellings arrive at
+        -- one
         -- contract and the readers below cannot tell which was written.
         local ownedReturns = {}
         local ownsAResult = false
-        for j, ret in ipairs(annotated or {}) do
+        local writtenResults = body.rets
+        -- The same normalization every other signature path uses, so a declaration says
+        -- one thing whether it was read here, published while hoisting, or written as a
+        -- function type. `@owned` has already settled the first result when it was
+        -- given, and the helper leaves a slot that carries cleanups alone.
+        local normalized = c.own.normalizeOwnedResults(T.pack(annotated or {}, nil), body.returnPack, body)
+        for j, ret in ipairs(normalized.head or {}) do
+            annotated[j], rets[j] = ret, ret
             if ret.tag == "owned" then
-                -- Read from what was written, not from the shape resolution arrived at.
-                -- A type can be owned for reasons the signature never spelled -- an
-                -- affine closure is -- and resolving a terminal for one of those would
-                -- demand a `@drop` the author never claimed to have.
-                local written = body.rets and body.rets[j]
-                local wroteName = written ~= nil and written.kind == "tname" and written.base ~= nil and written.base.text or nil
-                local wroteOwned = wroteName == "Owned"
-                local inner = rawType(ret)
-                -- Only a type that declared a terminal supplies one. A closure carries
-                -- its own, and a C pointer never has a `@drop` to inherit -- there is
-                -- nowhere on it to write one -- so both keep the contract the value
-                -- arrives with, which is what says how they are discharged.
-                local inheritsTerminal = inner.tag == "nominal" and #(inner.defaultDropOperations or {}) > 0
-                if wroteOwned and inheritsTerminal and #(
-                    ret.cleanups or {}
-                ) == 0 and not (j == 1 and annotationOwnedFirst) then
-                    local cleanups = resolvedOwnedCleanups(inner, nil, false, written, nil)
-                    annotated[j] = T.owned(inner, cleanups)
-                    rets[j] = annotated[j]
-                    validateCleanups(annotated[j], cleanups, written, "NUPP2615")
-                    if j == 1 then
-                        body.ownCleanups = cleanups
-                    end
+                local written = writtenResults and writtenResults[j]
+                local wroteOwned = written ~= nil
+                    and written.kind == "tname"
+                    and written.base ~= nil
+                    and written.base.text == "Owned"
+                if wroteOwned and j == 1 and not annotationOwnedFirst then
+                    body.ownCleanups = ret.cleanups
                 end
                 if wroteOwned or (j == 1 and annotationOwnedFirst) then
                     ownsAResult = true
-                    ownedReturns[j] = rawType(annotated[j])
+                    ownedReturns[j] = rawType(ret)
                 end
             end
         end
@@ -990,11 +982,11 @@ function functions.install(c: state.Checker): state.StatHandlers
             local mode = "plain"
             if explicitSelf then
                 mode = inferredModes[1] or "borrows"
-                if not declaredModes[1]
-                    and mode ~= "takes"
-                    and not pointerShaped(selfType)
-                    and not (selfType.tag == "nominal" and selfType.affineResource)
-                then
+                if not declaredModes[
+                    1
+                ] and mode ~= "takes" and not pointerShaped(
+                    selfType
+                ) and not (selfType.tag == "nominal" and selfType.affineResource) then
                     mode = "plain"
                 end
                 body.receiverMode = mode
@@ -1045,6 +1037,11 @@ function functions.install(c: state.Checker): state.StatHandlers
         local retPack = body and body.returnPack and c.resolvePack(
             body.returnPack
         ) or T.pack({}, {kind = "unknown", type = T.any})
+        -- A hoisted method publishes this signature before its body is checked, so the
+        -- terminal a result inherits has to be settled here too. Otherwise a caller
+        -- reached through the published signature and one reached after the body was
+        -- checked would disagree about the same declaration.
+        retPack = c.own.normalizeOwnedResults(retPack, body and body.returnPack, body)
         local rets = body and body.returnPack and retPack.head or {T.any}
         local yieldPack = body and body.yieldPack and c.resolvePack(body.yieldPack) or nil
         local resumePack = body and body.resumePack and c.resolvePack(body.resumePack) or nil
