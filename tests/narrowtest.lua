@@ -32,6 +32,13 @@ function M.subtractingAnExhaustiveUnionLeavesNever()
    assertEq(narrowing.subtract(values, values), T.never)
 end
 
+function M.narrowingRetainsExplicitOpaqueOwnership()
+   local source = T.owned(T.optional(T.string), nil, true)
+   local narrowed = narrowing.subtract(source, T.nil_)
+   assertEq(narrowed.opaque, true, "narrowing erased explicit opaque ownership")
+   assertEq(T.tostring(narrowed), "Owned<string, opaque>")
+end
+
 function M.nilCheckNarrowing()
    assertClean(table.concat({
       "local s: string?",

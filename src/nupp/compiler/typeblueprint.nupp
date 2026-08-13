@@ -228,7 +228,7 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
                 elseif node.kind == "pinned" then
                     value = T.pinned(inner)
                 else
-                    value = T.owned(inner)
+                    value = T.owned(inner, nil, node.opaque == true)
                 end
             end
         elseif node.kind == "tuple" then

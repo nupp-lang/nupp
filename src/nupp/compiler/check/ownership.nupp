@@ -71,6 +71,9 @@ type ownership.Ops = {
     --- declared. Written nodes decide; unions and computed tails are left alone.
     normalizeOwnedResults: function(pack: any, writtenPack: any, at: any): any,
 
+    --- The terminals a nominal has registered, without resolving or reporting.
+    inheritedTerminals: function(resourceT: any): {T.Cleanup},
+
     --- Reports bare producers whose result never acquired one default drop operation.
     finalizeDefaultCleanups: function(),
 
@@ -429,6 +432,15 @@ function ownership.install(c: state.Checker): ownership.Ops
     -- those would demand a `@drop` its author never claimed to have. `Owned<T, f>`
     -- already named its terminal and is left alone, and so is anything that is not a
     -- nominal, because a closure carries its own terminal and a C pointer has none.
+    -- Reads what is registered and says nothing. Every path normalizes, but only one
+    -- of them speaks for the declaration, and the others must not resolve their way
+    -- into a diagnostic on the way past.
+    function own.inheritedTerminals(resourceT)
+        return resourceT and resourceT.tag == "nominal" and resourceT.defaultDropOperations or {}
+    end
+
+    local reportedResults: {[any]: boolean} = {}
+
     function own.normalizeOwnedResults(pack, writtenPack, at)
         -- Narrowed once here rather than at each caller: a `returnPack` is an ordinary
         -- node until its kind says otherwise, and a pack union has arms rather than
@@ -452,21 +464,63 @@ function ownership.install(c: state.Checker): ownership.Ops
                 and not (
                 written.typeArgs and written.typeArgs[2]
             )
-            if bare and resolved.tag == "owned" and #(resolved.cleanups or {}) == 0 then
+            if bare and resolved.tag == "owned" and not resolved.opaque and #(resolved.cleanups or {}) == 0 then
+                -- A producer says what discharges what it hands over. Bare `Owned<T>`
+                -- means the one terminal `T` declared, so no terminal and several are
+                -- both unanswerable here -- and answering silently is the hole this
+                -- closes: it is what made a result carrying no cleanup mean either
+                -- "transfer-only on purpose" or "nothing was found".
+                --
+                -- Results only. A field written bare `Owned<T>` stays a cleanup-erased
+                -- shape, because a field is written from a `takes` parameter whose type
+                -- carries no contract to match against.
                 local resource = rawType(resolved)
-                if resource.tag == "nominal" then
-                    local cleanups = own.resolvedOwnedCleanups(resource, nil, false, written or at, nil)
-                    if #cleanups > 0 then
-                        head = head or {}
-                        if not changed then
-                            for k, slot in ipairs(pack.head) do
-                                head[k] = slot
-                            end
-                            changed = true
-                        end
-                        head[j] = T.owned(resource, cleanups)
-                        own.validateCleanups(head[j], cleanups, written or at, "NUPP2615")
+                -- Once per written result, not once per pass. The same signature is
+                -- normalized where it is read as a function type, again when it is
+                -- published while hoisting, and again when the declaration is checked.
+                -- The mistake is in the source, so the report belongs to the node.
+                local function reportOnce(message, help)
+                    local site = written or at
+                    if not site or reportedResults[site] then
+                        return
                     end
+                    reportedResults[site] = true
+                    c.diag("NUPP2602", site, message, nil, {help = help})
+                end
+
+                local terminals = own.inheritedTerminals(resource)
+                if resource.tag == "func" then
+                -- A closure carries its own terminal, discharged through the capture
+                -- it took. There is no `@drop` for it to be missing.
+                elseif resource.tag ~= "nominal" or #terminals == 0 then
+                    -- The case the rule exists for. A result carrying no cleanup used
+                    -- to
+                    -- mean either "transfer-only on purpose" or "nothing was found",
+                    -- and
+                    -- nothing in the source said which.
+                    reportOnce(
+                        "an owning result needs a terminal",
+                        "give the type a `@drop`, name one with `Owned<T, cleanup>`, "
+                        .. "or say `Owned<T, opaque>` for a transfer-only owner"
+                    )
+                elseif #terminals > 1 then
+                    reportOnce(
+                        (
+                            "an owning result of %s has %d terminals to choose from"
+                        ):format(T.tostring(resource), #terminals),
+                        "name the one this result means with `Owned<T, cleanup>`"
+                    )
+                else
+                    local cleanups = own.resolvedOwnedCleanups(resource, nil, false, written or at, nil)
+                    head = head or {}
+                    if not changed then
+                        for k, slot in ipairs(pack.head) do
+                            head[k] = slot
+                        end
+                        changed = true
+                    end
+                    head[j] = T.owned(resource, cleanups)
+                    own.validateCleanups(head[j], cleanups, written or at, "NUPP2615")
                 end
             end
         end

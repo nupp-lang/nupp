@@ -906,11 +906,17 @@ function typeprovider.importDescriptor(
         elseif kind == "ptr" or kind == "const" or kind == "borrowed" or kind == "pinned" or kind == "owned" then
             local inner = import(node.element)
             if inner then
+                local intentionalOpaque = kind == "owned" and node.opaque == true
                 made = make(
                     state,
                     opaque,
                     "Type",
-                    {kind = kind, inner = inner, key = kind .. ":" .. keyOf(state, inner)},
+                    {
+                        kind = kind,
+                        inner = inner,
+                        opaque = intentionalOpaque,
+                        key = kind .. (intentionalOpaque and ":opaque" or "") .. ":" .. keyOf(state, inner),
+                    },
                     nil
                 )
             end
@@ -1056,6 +1062,9 @@ local function finalizeGraph(state, root)
             or payload.kind == "owned"
         then
             node.inner = intern(payload.inner)
+            if payload.kind == "owned" then
+                node.opaque = payload.opaque == true
+            end
         elseif payload.kind == "tuple" or payload.kind == "union" or payload.kind == "intersection" then
             node.members = {}
             for position, member in ipairs(payload.members or {}) do

@@ -256,7 +256,7 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
     elseif tag == "ctype" then
         return T.ctype(substWith(t.of, map, unmapped))
     elseif tag == "owned" then
-        return T.owned(substWith(t.inner, map, unmapped), t.cleanups)
+        return T.owned(substWith(t.inner, map, unmapped), t.cleanups, t.opaque)
     elseif tag == "borrowed" then
         return T.borrowed(substWith(t.inner, map, unmapped))
     elseif tag == "pinned" then
@@ -1107,7 +1107,7 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
         inner, err = normalize(t.inner, memo, budget)
         if not err then
             if t.tag == "owned" then
-                out = T.owned(inner, t.cleanups)
+                out = T.owned(inner, t.cleanups, t.opaque)
             elseif t.tag == "borrowed" then
                 out = T.borrowed(inner)
             else
@@ -2000,7 +2000,9 @@ function generics.dropSelf(ft: Type): Type
             and borrowsParams
             or nil, ft.ffiOut, ft.varargType, ft.noreturn, paramPack, ft.retPack, ft.packParams, ft.yieldPack, ft.resumePack,
             -- Adjusting the receiver rewrites a parameter list, not an effect.
-            ft.noYield, names, next(preserves) and preserves or nil, ft.foreign, ft.constParams, ft.paramKinds, ft.partitionResults)
+            ft.noYield, names, next(
+            preserves
+        ) and preserves or nil, ft.foreign, ft.constParams, ft.paramKinds, ft.partitionResults)
     end
 
     return ft

@@ -37,6 +37,13 @@ function M.serializesRecursiveTypesAsAcyclicIndexedGraphs()
    assert(reachesRoot, "the recursive edge refers back to the root index")
 end
 
+function M.reflectsExplicitOpaqueOwnership()
+   local descriptor = reflection.describe(T.owned(T.string, nil, true), "OpaqueString")
+   local root = descriptor.types[descriptor.root]
+   assertEq(root.kind, "owned")
+   assertEq(root.opaque, true, "reflection erased explicit opaque ownership")
+end
+
 function M.reflectsFieldDefaultsAndFingerprintsTheirValues()
    local first = recursiveNode(T.string)
    first.fieldDefaults = {value = {value = "first"}}

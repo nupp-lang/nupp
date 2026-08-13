@@ -346,7 +346,7 @@ function M.affinePackResultsCannotBeSilentlyDiscarded()
       "@owned(cleanup = release)",
       "cdef function acquire(): voidptr",
       "cdef function release(takes value: voidptr)",
-      "local function make(): (number, Owned<voidptr>)",
+      "local function make(): (number, Owned<voidptr, opaque>)",
       "   return 1, acquire()",
       "end",
    }, "\n")

@@ -579,7 +579,7 @@ function expr.install(c: state.Checker): nil
                 return target
             end
             if source.tag == "owned" then
-                return T.owned(target, source.cleanups)
+                return T.owned(target, source.cleanups, source.opaque)
             elseif c.ownershipKind(source) == "borrowed" then
                 return T.borrowed(target)
             elseif c.ownershipKind(source) == "pinned" then

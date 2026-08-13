@@ -57,6 +57,18 @@ function M.reductionReachesInsideEveryStructure()
    assertEq(T.tostringPack(generics.normalizePack(pack).pack), "(string)")
 end
 
+function M.explicitOpaqueOwnershipSurvivesGenericTypeTransforms()
+   local binder = T.typevar("T", "normalize-test:owned-opaque")
+   local source = T.owned(binder, nil, true)
+   local rebound = generics.rebind(source, {[binder] = T.optional(T.string)})
+   assertEq(rebound.opaque, true, "rebinding erased explicit opaque ownership")
+   assertEq(T.tostring(rebound), "Owned<string?, opaque>")
+
+   local normalized = generics.normalize(rebound).type
+   assertEq(normalized.opaque, true, "normalization erased explicit opaque ownership")
+   assertEq(T.tostring(normalized), "Owned<string?, opaque>")
+end
+
 -- Substituting the head is what makes a projection reducible; the two stay
 -- separate operations, and rebinding alone must not reduce.
 function M.rebindingTheHeadThenNormalizingReduces()

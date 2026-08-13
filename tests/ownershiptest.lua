@@ -2921,6 +2921,24 @@ function M.aPlainOwnedFieldDoesNotInheritItsValuesDropOperation()
    }, "\n"))
 end
 
+function M.anOwnedResultNeedsOneTerminalOrExplicitOpaqueOwnership()
+   assertEq(codes(table.concat({
+      "local function allocate(): Owned<voidptr>",
+      "   return nil as any",
+      "end",
+   }, "\n")), "NUPP2602", "a missing terminal is reported once")
+
+   assertClean(table.concat({
+      "local function allocate(): Owned<voidptr, opaque>",
+      "   return nil as any",
+      "end",
+      "local value = allocate()",
+      "unsafe do",
+      "   nupp.intoRaw(value)",
+      "end",
+   }, "\n"))
+end
+
 function M.anOwnedFunctionResultRejectsSeveralDropOperations()
    local source = table.concat({
       "local record Session",

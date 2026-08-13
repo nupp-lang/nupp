@@ -218,6 +218,9 @@ record types.Owned
     tag: 'owned'
     inner: types.Type
     cleanups: {types.Cleanup}
+
+    --- Whether carrying no cleanup was asked for rather than arrived at.
+    opaque: boolean?
 end
 
 --- A borrowed value, which may not escape its lexical owner.
@@ -1412,8 +1415,11 @@ end
 
 --- Ownership qualifiers exist only in the static model. Both erase to the wrapped
 --- value, but owned values are affine and borrowed values may not escape their lexical
---- owner. An empty cleanup list is an opaque, transfer-only owner.
-function types.owned(t: types.Type, cleanups: {types.Cleanup}?): types.Type
+--- owner. An empty cleanup list carries no cleanup, and `opaque` says that is what the
+--- author asked for rather than what resolution was left with -- a distinction a
+--- producer's result is held to, and one the interning key has to carry or the two
+--- would be one type.
+function types.owned(t: types.Type, cleanups: {types.Cleanup}?, opaque: boolean?): types.Type
     local list: {types.Cleanup} = {}
     local ids = {}
     for j, cleanup in ipairs(cleanups or {}) do
@@ -1421,10 +1427,10 @@ function types.owned(t: types.Type, cleanups: {types.Cleanup}?): types.Type
         ids[j] = cleanup.id
     end
 
-    local internKey = "owned(" .. table.concat(ids, ",") .. ":" .. t.id .. ")"
+    local internKey = "owned(" .. table.concat(ids, ",") .. ":" .. t.id .. (opaque and ":opaque" or "") .. ")"
 
     return interned(internKey) or intern(internKey, function()
-        return new types.Owned(tag = "owned", inner = t, cleanups = list)
+        return new types.Owned(tag = "owned", inner = t, cleanups = list, opaque = opaque == true)
     end)
 end
 
@@ -2382,30 +2388,42 @@ function types.hasTypevar(t: types.Type): boolean
     elseif tag == "typeHandle" then
         return types.hasTypevar(t.bound)
     elseif tag == "map" then
-        return (t.key and types.hasTypevar(t.key))
-            or (t.value and types.hasTypevar(t.value))
-            or (t.writeKey and types.hasTypevar(t.writeKey))
-            or (t.writeValue and types.hasTypevar(t.writeValue))
-            or false
+        return (
+            t.key and types.hasTypevar(t.key)
+        ) or (
+            t.value and types.hasTypevar(t.value)
+        ) or (t.writeKey and types.hasTypevar(t.writeKey)) or (t.writeValue and types.hasTypevar(t.writeValue)) or false
     elseif tag == "tuple" then
         for _, member in ipairs(t.elems) do
-            if types.hasTypevar(member) then return true end
+            if types.hasTypevar(member) then
+                return true
+            end
         end
     elseif tag == "shape" then
         for _, field in ipairs(t.fields) do
-            if field.read and types.hasTypevar(field.read) then return true end
-            if field.write and types.hasTypevar(field.write) then return true end
+            if field.read and types.hasTypevar(field.read) then
+                return true
+            end
+            if field.write and types.hasTypevar(field.write) then
+                return true
+            end
         end
     elseif tag == "union" or tag == "intersection" then
         for _, member in ipairs(t.members) do
-            if types.hasTypevar(member) then return true end
+            if types.hasTypevar(member) then
+                return true
+            end
         end
     elseif tag == "func" then
         for _, member in ipairs(t.params) do
-            if types.hasTypevar(member) then return true end
+            if types.hasTypevar(member) then
+                return true
+            end
         end
         for _, member in ipairs(t.rets) do
-            if types.hasTypevar(member) then return true end
+            if types.hasTypevar(member) then
+                return true
+            end
         end
     end
 
@@ -2556,7 +2574,7 @@ function types.tostring(t: types.Type): string
         end
         return elem .. "*"
     elseif tag == "owned" then
-        return "Owned<" .. types.tostring(t.inner) .. ">"
+        return "Owned<" .. types.tostring(t.inner) .. (t.opaque and ", opaque" or "") .. ">"
     elseif tag == "borrowed" then
         return "Borrowed<" .. types.tostring(t.inner) .. ">"
     elseif tag == "pinned" then

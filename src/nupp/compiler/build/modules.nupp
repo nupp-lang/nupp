@@ -272,7 +272,10 @@ typeFingerprint = function(
             ","
         ) .. (
             t.vararg and ",..." or ""
-        ) .. ")->(" .. table.concat(returns, ",") .. ")" .. (
+        ) .. ")->(" .. table.concat(
+            returns,
+            ","
+        ) .. ")" .. (
             #partitions > 0 and "!partition(" .. table.concat(partitions, ",") .. ")" or ""
         ) .. (t.noYield and "!noyield" or "")
     elseif tag == "array" or tag == "ptr" then
@@ -288,7 +291,10 @@ typeFingerprint = function(
         for j, cleanup in ipairs(t.cleanups or {}) do
             cleanupIds[j] = cleanup.id
         end
-        value = tag .. "(" .. table.concat(cleanupIds, ",") .. "," .. typeFingerprint(t.inner, active, binders) .. ")"
+        value = tag .. "(" .. table.concat(
+            cleanupIds,
+            ","
+        ) .. (t.opaque and ":opaque" or "") .. "," .. typeFingerprint(t.inner, active, binders) .. ")"
     elseif tag == "borrowed" or tag == "pinned" then
         value = tag .. "(" .. typeFingerprint(t.inner, active, binders) .. ")"
     elseif tag == "map" then

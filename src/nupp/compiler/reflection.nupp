@@ -83,8 +83,9 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
                         readable = read ~= nil,
                         writable = write ~= nil,
                         hasDefault = t.fieldDefaults and t.fieldDefaults[field.name] ~= nil or false,
-                        defaultValue = t.fieldDefaults and t.fieldDefaults[field.name]
-                            and t.fieldDefaults[field.name].value,
+                        defaultValue = t.fieldDefaults and t.fieldDefaults[
+                            field.name
+                        ] and t.fieldDefaults[field.name].value,
                         annotations = reflectedAnnotations(field.annotations),
                     }
                 end
@@ -268,10 +269,9 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
                 elseif argument.kind == "typepack" then
                     out.arguments[position] = {kind = "typepack", pack = intern(argument.value)}
                 else
-                    out.arguments[position] = {
-                        kind = "const", value = argument.value.value,
-                        domain = argument.value.domain,
-                    }
+                    out.arguments[
+                        position
+                    ] = {kind = "const", value = argument.value.value, domain = argument.value.domain,}
                 end
             end
             out.bound = intern(t.comptimeBound)
@@ -312,6 +312,7 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
         then
             out.element = intern(t.elem or t.inner)
             if tag == "owned" then
+                out.opaque = t.opaque == true
                 out.cleanups = {}
                 for position, cleanup in ipairs(t.cleanups or {}) do
                     out.cleanups[
