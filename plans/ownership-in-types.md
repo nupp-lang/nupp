@@ -1,8 +1,10 @@
 # Ownership in the type, not above the signature
 
-> **Status: partly implemented.** `Owned<T>` resolves in a function statement's
-> result and inherits that type's `@drop`. The declaration and field positions,
-> the cdef contract, and the removal of `@owned` are not done.
+> **Status: partly implemented.** A result written `Owned<T>` inherits that type's
+> `@drop` wherever a signature is built, `Owned<T, cleanup>` names a terminal, and
+> `Owned<T, opaque>` says an owner is deliberately transfer-only. What remains is
+> the migration of the remaining `@owned` sites, the cdef contract, and removing
+> the annotation.
 
 ## Decision
 
@@ -79,10 +81,18 @@ resolution inverts a layer, since a type can resolve before the function it
 names is declared. A string-named cleanup would stay inside the existing domain
 if the C case ever needs one.
 
-**Ordered cleanup lists**, `@owned(first, second)`. A single `@drop` that calls
-both in order says the same thing more plainly, and nothing outside tests and
-docs uses the form. What is lost is attempting every cleanup and aggregating
-failures, which `resources.Set.close` shows is ordinary code.
+**Ordered cleanup lists**, `@owned(first, second)` -- the syntax, not the
+semantics. A wrapper that calls both in order is *not* equivalent: it stops where
+the first raises, turning one failed cleanup into skipped obligations and leaking
+whatever the later steps release. It would also make a composed terminal behave
+unlike automatic destruction and unlike a resource set, both of which attempt
+everything.
+
+So the list goes and the behaviour stays, under `nupp.cleanup.attemptAll`:
+operations run in declaration order, every one is attempted after a failure, the
+first failure is the primary and later ones are reported as suppressed, and
+`takes` is permitted only on the final operation -- which is today's rule. The
+migration writes an ordinary terminal that calls it.
 
 ## Open
 
