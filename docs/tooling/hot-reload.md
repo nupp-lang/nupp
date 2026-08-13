@@ -16,10 +16,50 @@ while running do
 end
 ```
 
-For tecs, call `poll` at fresh ingress, when no logical update is stalled and
-no batch is open. Nupp does not import tecs or own its scheduler. The world,
-entities, queries, resources, registered callback values and module tables stay
+Call `poll` between units of work, when no update or request is partially
+applied. Application state, registered callback values and module tables stay
 in place; only future calls through named function slots enter new bodies.
+
+## Start, edit, reload
+
+Save this as `app.nupp`. It prints once, waits for Enter, then polls and prints
+again:
+
+```nupp
+local function message(): string
+    return "version one"
+end
+
+while true do
+    nupp.hotReload.poll()
+    print(message())
+    io.read("*l")
+end
+```
+
+Start it in one terminal:
+
+```console
+$ ./bin/nupp run --watch app.nupp
+version one
+```
+
+While it is still running, change only the function body:
+
+```diff
+ local function message(): string
+-    return "version one"
++    return "version two"
+ end
+```
+
+Press Enter in the running terminal. The next poll commits the edit, and the
+same process calls the new body:
+
+```console
+nupp: committed hot generation 2
+version two
+```
 
 The first poll also acknowledges a long-running entry module as initialized.
 Lazily required modules join the running generation only after their top level
@@ -52,11 +92,11 @@ Anonymous escaping closures are not yet patch identities. Give long-lived
 callbacks a name:
 
 ```nupp
-local function movement(world: World, dt: number): nil
+local function receive(message: string): nil
     -- body may be reloaded
 end
 
-world:addSystem({run = movement})
+server:onMessage(receive)
 ```
 
 Code that never reaches `poll` cannot reload. A call already executing finishes

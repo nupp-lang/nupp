@@ -248,21 +248,21 @@ bound at the first call.
 
 ::: code-group
 ```nupp:static [Original Nupp]
-const tecs = require("tecs")
-tecs.x.y()
-tecs.x.y()
+const service = require("service")
+service.x.y()
+service.x.y()
 ```
 
 ```lua [Optimized Lua]
-const tecs = require("tecs")
-const __nupp_call_1 = tecs.x.y; __nupp_call_1()
+const service = require("service")
+const __nupp_call_1 = service.x.y; __nupp_call_1()
 __nupp_call_1()
 ```
 
 ```lua [Unoptimized Lua]
-const tecs = require("tecs")
-tecs.x.y()
-tecs.x.y()
+const service = require("service")
+service.x.y()
+service.x.y()
 ```
 :::
 

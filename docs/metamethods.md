@@ -6,9 +6,8 @@ it tells the checker how an operation behaves, while ordinary Lua code remains
 responsible for installing the function with `setmetatable`, a registration
 function, or a foreign runtime.
 
-This division supports APIs such as tecs, where component and event records
-declare their callable surface before a generic registrar installs `__call` on
-the record's runtime type table.
+This division supports APIs where records declare their callable surface before
+a generic registrar installs `__call` on the record's runtime type table.
 
 ## Declaring a contract
 
@@ -38,8 +37,8 @@ declaration file or an FFI signature.
 
 ## Runtime fulfillment
 
-Runtime setup is ordinary Lua. A tecs-shaped event registrar can attach a
-callable metatable after the record has been declared:
+Runtime setup is ordinary Lua. An event registrar can attach a callable
+metatable after the record has been declared:
 
 ```nupp
 local interface Event
@@ -347,8 +346,8 @@ through the generated `ffi.metatype` method namespace.
 
 Macro-generated protocol declarations are an `import-tl` concern. Comptime is
 deliberately data-only and does not generate declarations, so a translated
-macroexp-defined `__len`, such as tecs's `DoubleArray` contract, must be ejected
-as an explicit declaration or a visible translation residue.
+macroexp-defined `__len` contract must be ejected as an explicit declaration or
+a visible translation residue.
 
 ## Diagnostics
 
