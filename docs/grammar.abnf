@@ -372,7 +372,12 @@ genericparam   = Name ["..."] ["is" type] ["=" type]
                / %s"const" Name ":" constdomain ["=" type]
                                                 ; a const default is written where
                                                 ; its argument would be
-constdomain    = %s"string" / %s"boolean" / %s"integer"
+constdomain    = %s"string" / %s"boolean" / %s"integer" / "function"
+                                                ; `function` binds a named
+                                                ; declaration, not a value: its
+                                                ; argument is read in the value
+                                                ; namespace because the parameter
+                                                ; at that position says so
 
 coroutineprotocol = %s"yields" typepack %s"resumes" typepack
 

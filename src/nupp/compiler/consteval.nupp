@@ -36,7 +36,10 @@ function consteval.fromType(t: T.Type): T.ConstTerm?
 end
 
 function consteval.singleton(term: T.ConstTerm): T.Type
-    if term.tag == "constLiteral" then
+    -- A function term has no literal type to stand for it. Its value is the key of a
+    -- declaration rather than a string anyone wrote, and giving it a string literal
+    -- type would let it be compared against one. It stays a neutral singleton.
+    if term.tag == "constLiteral" and term.domain ~= "function" then
         local base = term.domain == "string" and T.string or term.domain == "boolean" and T.boolean or T.integer
         return T.literal(term.value, base)
     end

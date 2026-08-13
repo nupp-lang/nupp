@@ -1629,6 +1629,15 @@ end
 
 function types.tostringConst(term: types.ConstTerm): string
     if term.tag == "constLiteral" then
+        -- A function term carries the key its cleanup is registered under, and that
+        -- names the declaring module first. A reader wants the name they wrote, so
+        -- the module is dropped and any disambiguating suffix is kept.
+        if term.domain == "function" then
+            local value = term.value as string
+
+            return value:match("#(.*)$") or value
+        end
+
         return term.domain == "string" and string.format("%q", term.value) or tostring(term.value)
     elseif term.tag == "constVar" then
         return term.name

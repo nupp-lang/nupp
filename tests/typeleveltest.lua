@@ -788,4 +788,68 @@ function M.aGenericPackParameterCannotHaveADefault()
    }, "\n")), "NUPP2121")
 end
 
+-- A `function` const parameter names a declaration rather than carrying a value.
+-- It is what lets a terminal travel in the type that carries it instead of being
+-- restated at every producer of one.
+local FUNCTION_CONST = table.concat({
+   "cdef function free_a(takes value: voidptr)",
+   "cdef function free_b(takes value: voidptr)",
+   "local record Handle<T, const cleanup: function>",
+   "   value: T",
+   "end",
+}, "\n")
+
+function M.aConstFunctionParameterNamesADeclaration()
+   clean(FUNCTION_CONST .. table.concat({
+      "",
+      "local function same(h: Handle<integer, free_a>): Handle<integer, free_a>",
+      "   return h",
+      "end",
+      "print(same)",
+   }, "\n"))
+end
+
+-- The whole point of putting it in the type: two applications naming different
+-- functions are different types, so a terminal cannot be swapped silently.
+function M.constFunctionArgumentsDistinguishTypes()
+   assertEq(codes(FUNCTION_CONST .. table.concat({
+      "",
+      "local function mismatch(h: Handle<integer, free_a>): Handle<integer, free_b>",
+      "   return h",
+      "end",
+   }, "\n")), "NUPP2002")
+end
+
+function M.aConstFunctionArgumentMustNameAFunction()
+   assertEq(codes(FUNCTION_CONST .. table.concat({
+      "",
+      "local notAFunction = 7",
+      "local function bad(h: Handle<integer, notAFunction>): integer",
+      "   return h.value",
+      "end",
+   }, "\n")), "NUPP2131")
+end
+
+function M.aConstFunctionArgumentMustBeDeclared()
+   assertEq(codes(FUNCTION_CONST .. table.concat({
+      "",
+      "local function missing(h: Handle<integer, nosuchthing>): integer",
+      "   return h.value",
+      "end",
+   }, "\n")), "NUPP2131")
+end
+
+-- Hoisting builds the binder and binding reuses that same object, so a domain only
+-- one of them knew was silently replaced by whatever the other settled on.
+function M.aConstFunctionDomainSurvivesHoisting()
+   clean(table.concat({
+      "cdef function free(takes value: voidptr)",
+      "local record Later<T, const cleanup: function>",
+      "   value: T",
+      "end",
+      "local held: Later<integer, free> = nil as any",
+      "print(held)",
+   }, "\n"))
+end
+
 return M

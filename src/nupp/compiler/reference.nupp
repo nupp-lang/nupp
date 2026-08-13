@@ -280,8 +280,10 @@ return position
 Type parameters go in angle brackets after the name. `T is Bound` constrains
 one, and the bound is an ordinary type, usually an interface. A `const Name:
 string|boolean|integer` binder carries a compile-time-known value through a type
-and erases from runtime code. `T = Default` lets an application leave a trailing
-parameter out; one without a default cannot follow one with it.
+and erases from runtime code. `const Name: function` instead binds a named
+function declaration, so two applications naming different functions are
+different types. `T = Default` lets an application leave a trailing parameter
+out; one without a default cannot follow one with it.
 ]=],
         example = [=[
 local m = {}

@@ -448,7 +448,15 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 g.names[at] = add(g, advance())
                 g.consts[at] = true
                 annotationColon(g, "after const generic parameter")
-                g.domains[at] = add(g, expectName("as const parameter domain"))
+                -- `function` is a keyword everywhere else, so it arrives as one rather
+                -- than as a name. It is taken here anyway: a domain is a closed set of
+                -- words, and spelling this one differently to dodge the token kind
+                -- would name the same thing twice.
+                if cur().kind == "function" then
+                    g.domains[at] = add(g, advance())
+                else
+                    g.domains[at] = add(g, expectName("as const parameter domain"))
+                end
             else
                 g.names[at] = add(g, expectName("in generic parameter list"))
             end

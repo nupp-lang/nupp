@@ -491,6 +491,9 @@ record state.Checker
     --- A fresh type parameter for one binder.
     typevarAt: function(tok: any, role: string): Type
 
+    --- The domain a const binder was written with, or nil for a word that is not one.
+    constDomain: function(domainToken: any): string?
+
     constvarAt: function(tok: any, domain: string, role: string): T.ConstVar
 
     packvarAt: function(tok: any, role: string): any

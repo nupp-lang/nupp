@@ -110,6 +110,33 @@ function resolve.install(c: state.Checker): nil
             c.diag("NUPP2131", at, ("const parameter %s is unbound"):format(parameter.name))
             return nil
         end
+        -- A function argument is a name in the value namespace, read there because the
+        -- parameter at this position says so -- the same way a numeral is read as a
+        -- value where an integer parameter sits. It reduces to the key that cleanup is
+        -- registered under, so naming one in a type and naming it in an annotation
+        -- arrive at the same term and compare equal.
+        if parameter.domain == "function" then
+            local named = arg.kind == "tname" and not arg.typeArgs and arg.base and arg.base.text or nil
+            if not named then
+                c.diag(
+                    "NUPP2131",
+                    arg,
+                    ("argument for const parameter %s must name a function"):format(parameter.name)
+                )
+                return nil
+            end
+            local key, entry = c.own.cleanupKeyFor(named)
+            local bound = entry and entry.t or nil
+            if not key then
+                c.diag("NUPP2131", arg, ("%q is not a declared function"):format(named))
+                return nil
+            elseif bound and bound.tag ~= "func" then
+                c.diag("NUPP2131", arg, ("%q is not a function"):format(named))
+                return nil
+            end
+
+            return T.constLiteral("function", key)
+        end
         local term = consteval.fromType(c.resolveType(arg))
         if not term then
             c.diag(

@@ -1180,6 +1180,24 @@ function checkMod.check(
             (filename as string) .. ":" .. tostring(tok.offset) .. ":" .. (role or "generic-pack")
         )
     end
+    -- The domain a const binder was written with, or nil for a word that is not one.
+    -- Hoisting and binding both read it and have to agree: hoisting builds the binder
+    -- and binding reuses that same object, so a domain only one of them knows is
+    -- silently replaced by whatever the other settled on.
+    --
+    -- `function` names a declaration rather than carrying a value of its own. It is a
+    -- domain because what it binds is settled at compile time and erases the same way,
+    -- and because a terminal belongs in the type that carries it rather than restated
+    -- at each producer of one.
+    c.constDomain = function(domainToken)
+        local written = domainToken and domainToken.text or nil
+        if written == "string" or written == "boolean" or written == "integer" or written == "function" then
+            return written
+        end
+
+        return nil
+    end
+
     c.constvarAt = function(tok, domain, role)
         return T.constvar(
             tok.text,
@@ -1199,15 +1217,15 @@ function checkMod.check(
             local isConst = generics.consts and generics.consts[j]
             if isConst then
                 local domainToken = generics.domains and generics.domains[j]
-                local domain = domainToken and domainToken.text or "unknown"
-                if domain ~= "string" and domain ~= "boolean" and domain ~= "integer" then
+                local domain = c.constDomain(domainToken)
+                if not domain then
                     c.diag(
                         "NUPP2131",
                         domainToken or nameTok,
-                        "const parameter domain must be string, boolean, or integer"
+                        "const parameter domain must be string, boolean, integer, or function"
                     )
-                    domain = "string"
                 end
+                domain = domain or "string"
                 local cv = predeclared
                     and predeclared.constParams
                     and predeclared.constParams[#constParams + 1]
@@ -1761,11 +1779,9 @@ function checkMod.check(
                         local isConst = decl.generics.consts and decl.generics.consts[position]
                         if isConst then
                             local domainToken = decl.generics.domains and decl.generics.domains[position]
-                            local domain = domainToken and domainToken.text or "unknown"
-                            if domain ~= "string" and domain ~= "boolean" and domain ~= "integer" then
-                                domain = "string"
-                            end
-                            constParams[#constParams + 1] = c.constvarAt(nameTok, domain, "nominal")
+                            constParams[
+                                #constParams + 1
+                            ] = c.constvarAt(nameTok, c.constDomain(domainToken), "nominal")
                             paramKinds[position] = "const"
                         elseif isPack then
                             packParams[#packParams + 1] = c.packvarAt(nameTok, "nominal")
