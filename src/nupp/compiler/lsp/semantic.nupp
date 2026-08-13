@@ -193,7 +193,9 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
             mark(node.name, "method")
         elseif kind == "castExpr" or kind == "isExpr" then
             for _, child in ipairs(node) do
-                if cst.isToken(child) and (child.text == "as" or child.text == "is") then
+                if cst.isToken(child) and child.text == "as" then
+                    mark(child, "keyword")
+                elseif cst.isToken(child) and child.text == "is" then
                     mark(child, "operator")
                 end
             end
@@ -223,12 +225,17 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
                     mark(child, "keyword")
                 end
             end
+            if kind == "tfunc" and node.noSuspend then
+                mark(node[1], "keyword")
+            end
         elseif kind == "pragmaStmt" or kind == "annotationApply" then
             mark(node.name, "decorator")
         elseif kind == "dedentString" then
             mark(node.keyword, "keyword")
         elseif kind == "unsafeStmt" then
             mark(node.unsafeTok, "keyword")
+        elseif kind == "noSuspendStmt" then
+            mark(node.keywordTok, "keyword")
         elseif (kind == "localStmt" or kind == "localFuncStmt") and node.isConst then
             mark(node[1], "keyword")
         elseif kind == "continueStmt" then

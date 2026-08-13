@@ -826,6 +826,42 @@ function M.contractSyntaxSemanticTokens()
    assert(at["6:22"] == "keyword", "resumes is keyword")
 end
 
+function M.unsafeAndNosuspendAreSemanticKeywords()
+   local uri = "file:///tmp/safety-keywords.nupp"
+   local source = table.concat({
+      "unsafe do end",
+      "nosuspend do end",
+      "local callback: nosuspend function(): nil = function() end",
+      "local value: string = nil as any",
+   }, "\n")
+   local out = runSession({
+      { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
+      { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = { uri = uri, languageId = "nupp", version = 1,
+            text = source } } },
+      { jsonrpc = "2.0", id = 10,
+        method = "textDocument/semanticTokens/full",
+        params = { textDocument = { uri = uri } } },
+      { jsonrpc = "2.0", id = 2, method = "shutdown" },
+      { jsonrpc = "2.0", method = "exit" },
+   })
+   local types = responseWithId(out, 1).result.capabilities
+      .semanticTokensProvider.legend.tokenTypes
+   local data = responseWithId(out, 10).result.data
+   local line, character = 0, 0
+   local at = {}
+   for index = 1, #data, 5 do
+      line = line + data[index]
+      character = data[index] == 0
+         and character + data[index + 1] or data[index + 1]
+      at[line .. ":" .. character] = types[data[index + 3] + 1]
+   end
+   assert(at["0:0"] == "keyword", "unsafe is a keyword")
+   assert(at["1:0"] == "keyword", "nosuspend block is a keyword")
+   assert(at["2:16"] == "keyword", "nosuspend function type is a keyword")
+   assert(at["3:26"] == "keyword", "as cast is a keyword")
+end
+
 function M.embeddedStringSyntaxLeavesTheLiteralToTheTextMateGrammar()
    local uri = "file:///tmp/embedded-string.nupp"
    local source = table.concat({

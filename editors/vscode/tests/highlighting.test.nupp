@@ -313,9 +313,9 @@ local type Events<T> = {
 -- ^^^^^^^^ keyword.other.property.nupp
 --             ^^ keyword.control.nupp
 --                ^^^^^ keyword.operator.nupp
---                        ^^ keyword.operator.word.nupp
+--                        ^^ keyword.control.nupp
 --                           ^ string.quoted.other.interpolated.nupp
---                                           ^^^^^^^^^ storage.modifier.directive.nupp
+--                                           ^^^^^^^^^ keyword.control.nupp
 --                                                     ^^^^^^^^ storage.type.function.nupp
 }
 
@@ -346,7 +346,7 @@ local compiled = comptime do
 end
 
 nosuspend do
--- <- storage.modifier.directive.nupp
+-- <- keyword.control.nupp
    local safe = 1
 end
 

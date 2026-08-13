@@ -400,9 +400,13 @@
           }
         },
         {
-          "comment": "comptime/nosuspend change when code runs rather than what it does, so they get their own colour instead of blending into ordinary control keywords.",
+          "comment": "comptime changes when code runs, so it gets its own colour.",
           "name": "storage.modifier.directive.nupp",
-          "match": "\\b(?:comptime|nosuspend)\\b(?=[ \\t]+(?:do|function)\\b)"
+          "match": "\\bcomptime\\b(?=[ \\t]+(?:do|function)\\b)"
+        },
+        {
+          "name": "keyword.control.nupp",
+          "match": "\\bnosuspend\\b(?=[ \\t]+(?:do|function)\\b)"
         },
         {
           "name": "keyword.control.nupp",
@@ -485,8 +489,12 @@
           }
         },
         {
+          "name": "keyword.control.nupp",
+          "match": "\\bas\\b"
+        },
+        {
           "name": "keyword.operator.word.nupp",
-          "match": "\\b(?:and|as|is|not|or)\\b"
+          "match": "\\b(?:and|is|not|or)\\b"
         },
         {
           "name": "constant.language.nupp",
