@@ -1211,6 +1211,7 @@ function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
       "local compiled = comptime do return {answer = 42} end",
       "nosuspend do end",
       "handle suspension with cancel do cancel() end",
+      "local sealed interface Token end",
       "interface Matcher",
       "    associated type Result = R",
       "end",
@@ -1218,7 +1219,7 @@ function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
    assert(html:find("nuppdoc-token-meta", 1, true), html)
    for _, keyword in ipairs({
       "handle", "keyof", "preserves", "scoped", "suspension", "unpackof", "with",
-      "writekeyof", "writeof",
+      "writekeyof", "writeof", "sealed",
    }) do
       assert(html:find("keyword-" .. keyword, 1, true), html)
    end

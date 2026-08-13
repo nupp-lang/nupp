@@ -27,9 +27,17 @@ local interface Callable<T>
 end
 
 local sealed interface Token
+-- <- storage.modifier.local.nupp
 --    ^^^^^^ keyword.control.nupp
 --           ^^^^^^^^^ storage.type.declaration.nupp
 --                     ^^^^^ entity.name.type.nupp
+end
+
+global sealed interface Exported
+-- <- storage.modifier.global.nupp
+--     ^^^^^^ keyword.control.nupp
+--            ^^^^^^^^^ storage.type.declaration.nupp
+--                      ^^^^^^^^ entity.name.type.nupp
 end
 
 local interface Factory<P...>

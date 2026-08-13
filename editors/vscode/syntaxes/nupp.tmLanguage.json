@@ -179,9 +179,18 @@
           }
         },
         {
-          "match": "\\b(local|global)([ \\t]+)(sealed)([ \\t]+)(interface)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(local)([ \\t]+)(sealed)([ \\t]+)(interface)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
-            "1": { "name": "storage.modifier.nupp" },
+            "1": { "name": "storage.modifier.local.nupp" },
+            "3": { "name": "keyword.control.nupp" },
+            "5": { "name": "storage.type.declaration.nupp" },
+            "7": { "name": "entity.name.type.nupp" }
+          }
+        },
+        {
+          "match": "\\b(global)([ \\t]+)(sealed)([ \\t]+)(interface)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.modifier.global.nupp" },
             "3": { "name": "keyword.control.nupp" },
             "5": { "name": "storage.type.declaration.nupp" },
             "7": { "name": "entity.name.type.nupp" }

@@ -10,7 +10,7 @@ local lex = lexer.new(..., {inherit = lexer.load("lua")})
 -- forms are one semantic token rather than an operator followed by a variable.
 local annotation = lex:tag(lexer.ANNOTATION, P("@") * P("!")^-1 * lexer.word)
 local builtinType = lex:tag(lexer.TYPE, lex:word_match(lexer.TYPE))
-local keyword = lex:tag(lexer.KEYWORD, lex:word_match({"sealed"}) + lex:word_match(lexer.KEYWORD))
+local keyword = lex:tag(lexer.KEYWORD, lex:word_match(lexer.KEYWORD))
 
 -- `comptime` and `nosuspend` change when code runs rather than what it does,
 -- so they get a preprocessor-style colour instead of blending into ordinary
@@ -60,7 +60,7 @@ lex:set_word_list(lexer.KEYWORD, {
    "for", "from", "function", "global", "goto", "handle", "if", "in",
    "interface", "is", "keyof", "local", "matches", "metamethod", "new", "nil",
    "not", "or", "out", "preserves", "readonly", "record", "releases",
-   "repeat", "resumes", "retains", "return", "scoped", "struct", "suspension", "takes",
+   "repeat", "resumes", "retains", "return", "scoped", "sealed", "struct", "suspension", "takes",
    "then", "true", "unpackof", "unsafe", "until", "where", "while",
    "with", "writekeyof", "writeof", "writeonly", "yields",
 })
