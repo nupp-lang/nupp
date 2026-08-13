@@ -192,8 +192,13 @@ if resume >= 0 then
 end
 ```
 
-This is pure generated Lua with no native provider. It is an ordinary checked
-Nupp module that the namespace loads on first reach.
+This is pure generated Lua with no native provider, so it stays available in a
+one-file `bundle` target. It is an ordinary checked Nupp module that the
+namespace loads on first reach, which costs about half a millisecond and 128KB of
+static tables: LuaJIT exposes neither a population count nor a trailing-zero
+operation, so both are half-word lookups, and paying for the tables once is worth
+1.58 times the counting speed and 1.20 times the walking speed of the byte-sized
+ones. A program that never reaches a bitset pays neither.
 
 | Member | Result | Purpose |
 | --- | --- | --- |

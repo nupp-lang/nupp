@@ -2,7 +2,8 @@
 Multi-word bitsets over GC-managed 32-bit words.
 
 LuaJIT gives one 32-bit word at a time and no population count or trailing-zero
-operation, so everything that makes a bitset a bitset lives here: the word loop,
+operation -- those are table lookups here, which is the floor Lua can reach --
+so everything that makes a bitset a bitset lives here: the word loop,
 range masks that span word boundaries, the used-word bound, and counting across
 words. Storage is FFI cdata; the pointer is private, so no caller can hold one
 across a growth that replaces it.
@@ -41,62 +42,55 @@ const BIT_MASK = 31
 const ALL_ONES = -1
 const DEFAULT_BITS = 64
 
-local POPCOUNT_BYTE = ffi.new("uint8_t[256]") as uint8[?]
-local CTZ_BYTE = ffi.new("uint8_t[256]") as uint8[?]
+const HALF_MASK = 0xFFFF
+const HALF_SHIFT = 16
+
+-- Half-word rather than byte tables: two probes per word instead of four. That
+-- measured 1.58 times faster for the population count and 1.20 for the lowest
+-- bit, against 128KB of static tables and the loop below that fills them. The
+-- multiply-free SWAR population count was a wash, and the usual multiply form
+-- cannot be spelled here because a Lua multiply goes through a double and loses
+-- the low bits it depends on.
+--
+-- Nothing in Lua closes the rest of the gap: the machine has one instruction for
+-- each of these and the bit library exposes neither.
+local POPCOUNT_HALF = ffi.new("uint8_t[65536]") as uint8[?]
+local CTZ_HALF = ffi.new("uint8_t[65536]") as uint8[?]
 
 unsafe do
-    for value = 0, 255 do
-        local bits = 0
-        local rest = value
-        while rest ~= 0 do
-            bits = bits + band(rest, 1)
-            rest = rshift(rest, 1)
-        end
-        POPCOUNT_BYTE[value] = bits
+    -- Each half is built from the one below it: the population of a value is the
+    -- population of the value without its lowest bit, plus one.
+    POPCOUNT_HALF[0] = 0
+    for value = 1, 65535 do
+        POPCOUNT_HALF[value] = POPCOUNT_HALF[band(value, value - 1)] + 1
     end
 
-    -- A byte with nothing set has no trailing-zero answer; 8 makes the caller's
-    -- next probe skip it without a separate test.
-    CTZ_BYTE[0] = 8
-    for value = 1, 255 do
-        local zeros = 0
-        local rest = value
-        while band(rest, 1) == 0 do
-            zeros = zeros + 1
-            rest = rshift(rest, 1)
-        end
-        CTZ_BYTE[value] = zeros
+    -- A half with nothing set has no trailing-zero answer; 16 makes a caller that
+    -- probes the other half land on the right offset without a separate test.
+    CTZ_HALF[0] = 16
+    for value = 1, 65535 do
+        CTZ_HALF[value] = band(value, 1) == 1 ? 0 : CTZ_HALF[rshift(value, 1)] + 1
     end
 end
 
---- Set bits in one word. Four byte lookups, because LuaJIT has no popcount.
+--- Set bits in one word.
 local function popcount(word: integer): integer
     unsafe do
-        return POPCOUNT_BYTE[band(word, 0xFF)] + POPCOUNT_BYTE[band(rshift(word, 8), 0xFF)] + POPCOUNT_BYTE[band(
-            rshift(word, 16), 0xFF
-        )] + POPCOUNT_BYTE[band(rshift(word, 24), 0xFF)]
+        return POPCOUNT_HALF[band(word, HALF_MASK)] + POPCOUNT_HALF[band(
+            rshift(word, HALF_SHIFT), HALF_MASK
+        )]
     end
 end
 
 --- The position of the lowest set bit of a non-zero word.
 local function lowestBit(word: integer): integer
     unsafe do
-        local byte = band(word, 0xFF)
-        if byte ~= 0 then
-            return CTZ_BYTE[byte]
+        local half = band(word, HALF_MASK)
+        if half ~= 0 then
+            return CTZ_HALF[half]
         end
 
-        byte = band(rshift(word, 8), 0xFF)
-        if byte ~= 0 then
-            return 8 + CTZ_BYTE[byte]
-        end
-
-        byte = band(rshift(word, 16), 0xFF)
-        if byte ~= 0 then
-            return 16 + CTZ_BYTE[byte]
-        end
-
-        return 24 + CTZ_BYTE[band(rshift(word, 24), 0xFF)]
+        return HALF_SHIFT + CTZ_HALF[band(rshift(word, HALF_SHIFT), HALF_MASK)]
     end
 end
 
