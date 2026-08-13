@@ -1150,24 +1150,19 @@ return m
         title = "Modules",
         codes = {"NUPP2120", "NUPP2101"},
         body = [=[
-Modules are Lua's: a file returns a value and `require` gets it. A module's type
-is whatever the file returned, and a declaration with a runtime value puts
-itself on that table, so nothing is merged in behind your back. Another file
-reaches a member through the module it was attached to, and a module path also
-names a type directly, as in `models.user.User`.
+Modules are Lua's: a file returns a value and `require` gets it. That value is
+the module's type; runtime declarations attach to its table, and another file
+reaches them through the module. A module path may name a type directly, as in
+`models.user.User`.
 
-A direct `function M.name(...)` declaration on the table the file returns
-publishes its annotated signature before the other function bodies in that block
-are checked, so module functions may call one another in either source order. A
-field assignment and a `local function` remain flow-sensitive. Runtime writes
-still happen in source order.
+An annotated `function M.name(...)` on the returned table is visible to sibling
+function bodies regardless of source order. Assignments and `local function`
+remain flow-sensitive, and runtime writes remain in source order.
 
-The returned local already identifies the module table; there is no `module`
-keyword. Use `const M.field = value` to make an export slot immutable. A fresh
-table can mark individual named slots with `const name = value`, or use
-`const... M.field = {...}` to mark all of its named slots recursively. These
-guarantees are checked in Nupp and preserve exact primitive literals for
-constant propagation in consumers.
+The returned local identifies the module; there is no `module` keyword.
+`const M.field = value` makes one export immutable. A fresh table may instead
+use `const name = value`, or `const... M.field = {...}` for every named slot.
+These guarantees preserve exact primitive literals in consumers.
 
 A `.d.nupp` declaration file is the exception: it describes an interface it does
 not own and returns no table, so a bare declaration there is that interface.

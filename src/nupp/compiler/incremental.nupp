@@ -110,6 +110,9 @@ record incremental.Inc
     --- The text one file's parse saw: its open overlay, or disk.
     fileText: function(path: string): string?
 
+    --- Bytes of a non-module filesystem input observed by a checker query.
+    externalFile: function(path: string): string?
+
     --- The exported declaration header for one file.
     projectHeader: function(path: string): incremental.Header?
 
@@ -192,6 +195,17 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     updateProjectFiles()
 
     q:define("fileText", function(_, path)
+        local f = io.open(path, "rb")
+        if not f then
+            return nil
+        end
+        local s = f:read("*a")
+        f:close()
+
+        return s
+    end)
+
+    q:define("externalFile", function(_, path)
         local f = io.open(path, "rb")
         if not f then
             return nil
@@ -364,6 +378,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             return {diags = result.errors, moduleType = nil, syntax = true, result = result}
         end
         -- route require() through the query graph so dependencies record
+        result.externalInputs = {}
         local qenv = setmetatable({resolveModule = function(_, name)
             local interface = self:get("moduleInterface", name)
             return interface and interface.type or nil
@@ -379,6 +394,13 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             return self:get("projectModuleBasenames", short)
         end, projectAnnotations = function(_, name)
             return self:get("projectAnnotations", name)
+        end, externalFile = function(_, externalPath)
+            return self:get("externalFile", externalPath)
+        end, observeExternalInput = function(_, input)
+            for _, externalPath in ipairs(input.paths or {}) do
+                self:get("externalFile", externalPath)
+            end
+            result.externalInputs[#result.externalInputs + 1] = input
         end, openTypeFunctionStore = function()
             -- Query-local environment overlays must share the session's store. If the
             -- lazy store were attached to this short-lived proxy, `inc.persist()`
@@ -533,6 +555,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         if not openPaths[path] then
             q:clearInput("fileText", path)
         end
+        q:clearInput("externalFile", path)
         if existed ~= (diskPaths[path] and true or false) then
             updateProjectFiles()
         end
@@ -557,6 +580,10 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     -- shift every offset it computes.
     function inc.fileText(path: string): string?
         return q:get("fileText", path)
+    end
+
+    function inc.externalFile(path: string): string?
+        return q:get("externalFile", path)
     end
 
     function inc.projectHeader(path: string): incremental.Header?
@@ -613,6 +640,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
                 paths[#paths + 1] = path
             end
         end
+
         if name == "projectModulePath" then
             add(value)
         elseif name == "projectPathEntries" then

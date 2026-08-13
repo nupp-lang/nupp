@@ -223,8 +223,10 @@ local function dedentLongString(text)
                 else
                     local length = math.min(#margin, #indent)
                     local shared = 0
-                    while shared < length and margin:sub(shared + 1, shared + 1)
-                        == indent:sub(shared + 1, shared + 1) do
+                    while shared < length and margin:sub(
+                        shared + 1,
+                        shared + 1
+                    ) == indent:sub(shared + 1, shared + 1) do
                         shared = shared + 1
                     end
                     margin = margin:sub(1, shared)
@@ -239,11 +241,13 @@ local function dedentLongString(text)
             end
             return line
         end
+
         local first = body:match("^[^\n]*") or ""
         body = strip(first) .. body:sub(#first + 1):gsub("\n([^\n]+)", function(line)
             return "\n" .. strip(line)
         end)
     end
+
     return body
 end
 
@@ -310,7 +314,8 @@ type gen.HotRequest = {
     mode: 'initial' | 'patch',
     module: string?,
     baseGeneration: integer?,
-    only: {[string]: boolean}?
+    only: {[string]: boolean}?,
+    libraries: {[string]: string}?
 }
 
 type gen.HotMetadata = {
@@ -547,6 +552,7 @@ function gen.generate(
         captures = {},
         only = hot.only,
         structure = {},
+        libraries = hot.libraries or {},
     } or nil
 
     local function reservedName(preferred)
@@ -609,6 +615,7 @@ function gen.generate(
                 walk(nested)
             end
         end
+
         walk(node.body and node.body.body)
 
         return found
@@ -628,11 +635,9 @@ function gen.generate(
             if child.kind == "name" and child.token and child.token.definition then
                 local definition = child.token.definition
                 local token = definition.token
-                if definition ~= own
-                    and token
-                    and token.line ~= 0
-                    and (token.offset < firstOffset or token.offset > lastOffset)
-                then
+                if definition ~= own and token and token.line ~= 0 and (
+                    token.offset < firstOffset or token.offset > lastOffset
+                ) then
                     captures[token.text] = true
                 end
             end
@@ -640,6 +645,7 @@ function gen.generate(
                 walk(nested)
             end
         end
+
         walk(node.body)
         local names = {}
         for name in pairs(captures) do
@@ -658,16 +664,19 @@ function gen.generate(
         if not name then
             return
         end
-        local implicitSelf = node.kind == "funcStmt" and node.name and node.name.method ~= nil
-            or node.kind == "inlineMethod" and not node.inlineStatic
+        local implicitSelf = node.kind == "funcStmt"
+            and node.name
+            and node.name.method ~= nil
+            or node.kind == "inlineMethod"
+            and not node.inlineStatic
         local slot = #hotState.functions + 1
-        local kind = node.kind == "localFuncStmt" and "local"
-            or node.kind == "inlineMethod" and "inline" or "field"
+        local kind = node.kind == "localFuncStmt" and "local" or node.kind == "inlineMethod" and "inline" or "field"
         local id = table.concat({hotState.module, owner or "module", kind, name}, "/")
         local captures = hotOuterCaptures(node)
         local affine = node.affineInitializer ~= nil or node.body and #(node.body.takenCaptures or {}) > 0
-        local affineCapture = affine and node.body and node.body.takenCaptures
-            and node.body.takenCaptures[1] and node.body.takenCaptures[1].name or nil
+        local affineCapture = affine and node.body and node.body.takenCaptures and node.body.takenCaptures[
+            1
+        ] and node.body.takenCaptures[1].name or nil
         local planned = {
             node = node,
             slot = slot,
@@ -703,8 +712,9 @@ function gen.generate(
             end
             if node and (node.kind == "localFuncStmt" or node.kind == "funcStmt") then
                 if node.kind == "funcStmt" and node.structOwner and node.memberName then
-                    node.hotRuntimeName = "__nuppMt_" .. node.structOwner .. ".__index"
-                        .. (node.name and node.name.method and ":" or ".") .. node.memberName
+                    node.hotRuntimeName = "__nuppMt_" .. node.structOwner .. ".__index" .. (
+                        node.name and node.name.method and ":" or "."
+                    ) .. node.memberName
                 end
                 planHotFunction(node, "module")
             elseif node and node.kind == "recordDecl" then
@@ -715,13 +725,13 @@ function gen.generate(
                 for _, entry in ipairs(node.entries or {}) do
                     if entry.kind == "inlineMethod" then
                         local member = entry.overloadMember or entry.name.text
-                        entry.hotRuntimeName = runtimeOwner
-                            .. (entry.inlineStatic and "." or ":") .. member
+                        entry.hotRuntimeName = runtimeOwner .. (entry.inlineStatic and "." or ":") .. member
                         planHotFunction(entry, "record:" .. tostring(runtimeOwner))
                     end
                 end
             end
         end
+
         for _, node in ipairs(result.root) do
             if not cst.isToken(node) then
                 if node.kind == "block" then
@@ -749,8 +759,12 @@ function gen.generate(
                             local first, last = cst.firstToken(statement), cst.lastToken(statement)
                             for _, nested in ipairs(hotState.functions) do
                                 local nestedFirst, nestedLast = cst.firstToken(nested.node), cst.lastToken(nested.node)
-                                if first and last and nestedFirst and nestedLast
-                                    and nestedFirst.offset >= first.offset and nestedLast.offset <= last.offset
+                                if first
+                                    and last
+                                    and nestedFirst
+                                    and nestedLast
+                                    and nestedFirst.offset >= first.offset
+                                    and nestedLast.offset <= last.offset
                                     and nested.implementation ~= ""
                                 then
                                     local pattern = nested.implementation:gsub("([^%w])", "%%%1")
@@ -1134,8 +1148,7 @@ function gen.generate(
     -- it
     -- instruments the largest function in the compiler and the module then will not
     -- load.
-    local pluck = {plans = {}, statementActive = {}, helpers = helpers, declareHelper = declareHelper, loweredFunction = loweredFunction, emitDerivedMembers = emitDerivedMembers,
-        quote = literal.quote, renderData = literal.renderData,
+    local pluck = {plans = {}, statementActive = {}, helpers = helpers, declareHelper = declareHelper, loweredFunction = loweredFunction, emitDerivedMembers = emitDerivedMembers, quote = literal.quote, renderData = literal.renderData, hotLibraries = hot and hot.libraries or {},
         -- Why each lowering that still builds a function inside a loop cannot be
         -- declared once for the module instead. Every one is the same shape: the body
         -- writes a local belonging to its own site, and Lua gives no way to hand
@@ -1548,7 +1561,9 @@ function gen.generate(
     end
 
     local function hotDefinePrefix(planned): string
-        return ("_G.__nuppHotReload.define(%s,%d,%q,%q,%s,"):format(
+        return (
+            "_G.__nuppHotReload.define(%s,%d,%q,%q,%s,"
+        ):format(
             hotState.slotsExpr,
             planned.slot,
             planned.id,
@@ -1568,13 +1583,7 @@ function gen.generate(
             hotEmitImplementation(planned)
             e(")")
             if hotState.mode == "initial" then
-                e(
-                    (";%s=function(...) return %s[%d](...) end"):format(
-                        planned.name,
-                        hotState.slotsExpr,
-                        planned.slot
-                    )
-                )
+                e((";%s=function(...) return %s[%d](...) end"):format(planned.name, hotState.slotsExpr, planned.slot))
             end
         else
             e(hotDefinePrefix(planned), line)
@@ -1582,12 +1591,11 @@ function gen.generate(
             e(")")
             if hotState.mode == "initial" then
                 local forwarded = planned.implicitSelf and "self,..." or "..."
-                e((";function %s(...) return %s[%d](%s) end"):format(
-                    planned.name,
-                    hotState.slotsExpr,
-                    planned.slot,
-                    forwarded
-                ))
+                e(
+                    (
+                        ";function %s(...) return %s[%d](%s) end"
+                    ):format(planned.name, hotState.slotsExpr, planned.slot, forwarded)
+                )
             end
         end
     end
@@ -2144,6 +2152,17 @@ function gen.generate(
             e(")")
             return
         end
+        if kind == "call" and x.ffiLoadLib and pluck.hotLibraries[x.ffiLoadLib] then
+            emit(x.obj)
+            e("(" .. ("%q"):format(pluck.hotLibraries[x.ffiLoadLib]))
+            local arguments = x.args and x.args.exprs or {}
+            for index = 2, #arguments do
+                e(",")
+                emit(arguments[index])
+            end
+            e(")")
+            return
+        end
         if kind == "call" and x.staticCallee then
             e(x.staticCallee, sourceLine(x))
             if x.args then
@@ -2480,7 +2499,9 @@ function gen.generate(
             local ns = "__nuppFfi.C"
             if x.fromLib then
                 needsLibs = true
-                ns = ("__nuppLib(%s)"):format(x.fromLib.text)
+                local authored = x.fromLib.text:match('^"(.*)"$') or x.fromLib.text:match("^'(.*)'$")
+                local mapped = authored and pluck.hotLibraries[authored] or nil
+                ns = mapped and ("__nuppLib(%q)"):format(mapped) or ("__nuppLib(%s)"):format(x.fromLib.text)
             end
             if x.countedAbi then
                 local rawName = nextTemp()
@@ -3209,7 +3230,8 @@ function gen.generate(
             needsFfi = true
             local first = x[1]
             local line = first and cst.isToken(first) and first.line or nil
-            local ns = x.cheaderLib and ("__nuppFfi.load(%q)"):format(x.cheaderLib) or "__nuppFfi.C"
+            local library = x.cheaderLib and (pluck.hotLibraries[x.cheaderLib] or x.cheaderLib) or nil
+            local ns = library and ("__nuppFfi.load(%q)"):format(library) or "__nuppFfi.C"
             -- pcall: a header may be declared twice in one process, and redeclaring a
             -- type is an error rather than a no-op
             pluck.loweredFunction(
@@ -3366,7 +3388,9 @@ function gen.generate(
             local line = first and cst.isToken(first) and first.line or nil
             e(x.structConstruct .. "(", line)
             for index, binding in ipairs(x.recordFields or {}) do
-                if index > 1 then e(", ") end
+                if index > 1 then
+                    e(", ")
+                end
                 if binding.isDefault then
                     e(pluck.renderData(binding.defaultValue))
                 else
@@ -3431,8 +3455,11 @@ function gen.generate(
             for _, field in ipairs(nominal and nominal.fieldOrder or {}) do
                 local default = nominal.fieldDefaults and nominal.fieldDefaults[field] or nil
                 if default then
-                    seeded[#seeded + 1] = (cst.identifier(field) and (field .. " = ") or ("[%q] = "):format(field))
-                        .. pluck.renderData(default.value)
+                    seeded[
+                        #seeded + 1
+                    ] = (
+                        cst.identifier(field) and (field .. " = ") or ("[%q] = "):format(field)
+                    ) .. pluck.renderData(default.value)
                 end
             end
             e(
@@ -4137,10 +4164,7 @@ function gen.generate(
             end
             for _, registration in ipairs(x.name and x.name.cleanupRegistrations or {}) do
                 local cleanup = registration.cleanup
-                e(
-                    (";%s[%q]=%s"):format(cleanupRegistry(), cleanup.key, cleanup.name),
-                    sourceLine(x)
-                )
+                e((";%s[%q]=%s"):format(cleanupRegistry(), cleanup.key, cleanup.name), sourceLine(x))
             end
 
         elseif kind == "funcStmt" then
@@ -4154,10 +4178,7 @@ function gen.generate(
             local name = x.name and x.name.base or nil
             for _, registration in ipairs(name and name.cleanupRegistrations or {}) do
                 local cleanup = registration.cleanup
-                e(
-                    (";%s[%q]=%s"):format(cleanupRegistry(), cleanup.key, cleanup.name),
-                    sourceLine(x)
-                )
+                e((";%s[%q]=%s"):format(cleanupRegistry(), cleanup.key, cleanup.name), sourceLine(x))
             end
 
         elseif kind == "pragmaStmt" then
@@ -4566,17 +4587,16 @@ function gen.generate(
         ) .. code
     end
     if hotState then
-        code = ("local %s=_G.__nuppHotReload.module(%q); "):format(
-            hotState.slotsExpr,
-            hotState.module
-        ) .. code
+        code = ("local %s=_G.__nuppHotReload.module(%q); "):format(hotState.slotsExpr, hotState.module) .. code
     end
     local metadata = coverageOn and {path = coveragePath, sites = (coverageSites or {}) as {any}} or nil
     local hotMetadata = nil
     if hotState then
         local functions = {}
         for _, planned in ipairs(hotState.functions) do
-            functions[#functions + 1] = {
+            functions[
+                #functions + 1
+            ] = {
                 slot = planned.slot,
                 id = planned.id,
                 name = planned.name,

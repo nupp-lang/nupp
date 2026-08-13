@@ -51,6 +51,49 @@ local function basename(path: string): string
     return normalize(path):match("([^/]+)$") or path
 end
 
+--- An absolute, lexically normalized spelling. Unlike `canonical`, this also
+--- answers for a path that does not exist yet, which is required when a watcher
+--- retains a deleted input.
+local function absolute(path: string): string
+    path = normalize(path)
+    if path:sub(1, 1) ~= "/" and not path:match("^[A-Za-z]:/") then
+        local cwd = nupp.io.files.currentDirectory()
+        path = join(cwd or ".", path)
+    end
+    local prefix = path:match("^([A-Za-z]:)/") or (path:sub(1, 1) == "/" and "/" or "")
+    local rest = prefix == "/" and path:sub(2) or path:gsub("^[A-Za-z]:/", "")
+    local parts = {}
+    for part in rest:gmatch("[^/]+") do
+        if part == ".." then
+            if #parts > 0 then
+                table.remove(parts)
+            end
+        elseif part ~= "." and part ~= "" then
+            parts[#parts + 1] = part
+        end
+    end
+    local separator = prefix == "/" and "" or (#parts > 0 and "/" or "")
+
+    return prefix .. separator .. table.concat(parts, "/")
+end
+
+--- The filesystem identity of an existing path, following symbolic links. A
+--- missing path keeps its absolute spelling so it remains observable.
+local function canonical(path: string): string
+    local fallback = absolute(path)
+    if package.config:sub(1, 1) ~= "\\" then
+        local code, output = require("nupp.compiler.build.process").capture({"realpath", fallback})
+        if code == 0 then
+            local resolved = output:match("([^\r\n]+)")
+            if resolved then
+                return normalize(resolved)
+            end
+        end
+    end
+
+    return fallback
+end
+
 local function readFile(path: string): string?, string?
     local f, err = io.open(path, "rb")
     if not f then
@@ -198,6 +241,8 @@ fs.normalize = normalize
 fs.join = join
 fs.dirname = dirname
 fs.basename = basename
+fs.absolute = absolute
+fs.canonical = canonical
 fs.readFile = readFile
 fs.exists = exists
 fs.mkdir = mkdir

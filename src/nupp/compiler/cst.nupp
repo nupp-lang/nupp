@@ -338,6 +338,12 @@ interface cst.Hints
     --- The library those declarations bind to.
     cheaderLib: any
 
+    --- Statically known and dynamically computed ffi.load calls, for watch-only
+    --- native artifact identity.
+    ffiLoadLib: string?
+
+    ffiLoadDynamic: boolean?
+
     --- Set on a call that constructs a record.
     recordConstruct: string?
 

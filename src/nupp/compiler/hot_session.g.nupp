@@ -14,6 +14,8 @@ local cache = require("nupp.compiler.build.cache")
 local cst = require("nupp.compiler.cst")
 local envMod = require("nupp.compiler.env")
 local gen = require("nupp.compiler.gen")
+local fs = require("nupp.compiler.fs")
+local cheader = require("nupp.compiler.cheader")
 
 local hotSession = {}
 local Session = {}
@@ -59,6 +61,7 @@ local function copyManifest(metadata, path, abi)
         structure = metadata.structure,
         functions = functions,
         abi = abi,
+        unverifiedLibraries = abi.unverifiedLibraries or {},
     }
 end
 
@@ -85,20 +88,16 @@ local function indexed(manifest)
 end
 
 local function restart(path, message, reason)
+    local help = "restart the program to apply this structural change"
+    if reason and reason.kind == "native-artifact" then
+        help = "restart the process; loaded cdata, callbacks, function pointers, and native state cannot be rebound"
+    end
+
     return {
         kind = "restart-required",
         reason = reason,
         diagnostics = {
-            {
-                filename = path,
-                line = 1,
-                col = 1,
-                offset = 0,
-                length = 0,
-                code = "NUPP5001",
-                msg = message,
-                help = "restart the program to apply this structural change",
-            }
+            {filename = path, line = 1, col = 1, offset = 0, length = 0, code = "NUPP5001", msg = message, help = help,}
         },
     }
 end
@@ -147,11 +146,6 @@ local function cdefFingerprint(parsed)
                 parts[#parts + 1] = tostring(node.kind) .. ":" .. tostring(node.text)
             end
             return
-        end
-        if node.cheaderCdef then
-            parts[
-                #parts + 1
-            ] = "cheader:" .. tostring(node.cheaderCdef) .. ":library=" .. tostring(node.cheaderLib or "")
         end
         local begins = node.kind == "cdefStruct" or node.kind == "cdefFunc" or (
             node.kind == "pragmaStmt" and wrapsCdef(node)
@@ -202,6 +196,22 @@ local function snapshotChanged(previous, candidate, consumer)
     end
 
     local moduleKeys = keys(previous.modules)
+    for _, identity in ipairs(keys(previous.inputs)) do
+        local old = previous.inputs[identity]
+        local current = candidate.inputs[identity]
+        if not current or current.fingerprint ~= old.fingerprint then
+            return {
+                kind = old.binary and "native-artifact" or "header-abi",
+                dependencyKind = old.kind,
+                dependency = old.display,
+                identity = identity,
+                path = old.paths and old.paths[1] or nil,
+                paths = old.paths,
+                consumer = old.consumer,
+                binary = old.binary,
+            }
+        end
+    end
     for _, identity in ipairs(moduleKeys) do
         local old = previous.modules[identity]
         local current = candidate.modules[identity]
@@ -265,6 +275,10 @@ local function dependencyChangeMessage(change, consumer, consumerPath)
     local subject
     if change.kind == "c-declaration" then
         subject = "C declarations in module " .. change.dependency
+    elseif change.kind == "header-abi" then
+        subject = "header " .. change.dependency
+    elseif change.kind == "native-artifact" then
+        subject = "native artifact for " .. change.dependency
     elseif change.kind == "module-interface" then
         subject = "module interface " .. change.dependency
     else
@@ -294,8 +308,71 @@ function hotSession.new(root, opts)
     self.generation = 1
     self.running = {}
     self.prepared = {}
+    self.noticedLibraries = {}
+    self.observedInputs = {}
+    self.libraryPaths = {}
+    self.libraryConfiguredPaths = {}
+    local configured = self.inc.env.config and self.inc.env.config.hotReload
+    if configured ~= nil and type(configured) ~= "table" then
+        error("hotReload must be a table", 2)
+    end
+    local libraries = configured and configured.libraries or nil
+    if libraries ~= nil and type(libraries) ~= "table" then
+        error("hotReload.libraries must be a table of loader names to paths", 2)
+    end
+    for name, path in pairs(libraries or {}) do
+        if type(name) ~= "string" or name == "" or type(path) ~= "string" or path == "" then
+            error("hotReload.libraries must map non-empty string names to non-empty paths", 2)
+        end
+        local configuredPath = fs.absolute(fs.join(self.inc.env.rootDir, path))
+        self.libraryConfiguredPaths[name] = configuredPath
+        self.libraryPaths[name] = fs.canonical(configuredPath)
+    end
 
     return self
+end
+
+local function stringLiteral(text)
+    if type(text) ~= "string" then
+        return nil
+    end
+    return text:match('^"(.*)"$') or text:match("^'(.*)'$") or text:match("^%[=+%[(.*)%]=+%]$")
+end
+
+local function nativeUses(parsed)
+    local uses = {}
+    local function add(name, dynamic, node)
+        local first = node and node[1]
+        local line = first and cst.isToken(first) and first.line or 1
+        uses[#uses + 1] = {name = name, dynamic = dynamic, line = line}
+    end
+
+    local function visit(node)
+        if type(node) ~= "table" or cst.isToken(node) then
+            return
+        end
+        if (node.kind == "cdefFunc" or node.kind == "cdefStruct") and node.fromLib then
+            add(stringLiteral(node.fromLib.text), false, node)
+        elseif node.cheaderLib then
+            add(node.cheaderLib, false, node)
+        elseif node.ffiLoadLib then
+            add(node.ffiLoadLib, false, node)
+        elseif node.ffiLoadDynamic then
+            add(nil, true, node)
+        end
+        for _, child in ipairs(node) do
+            visit(child)
+        end
+    end
+
+    visit(parsed and parsed.root)
+
+    return uses
+end
+
+local function addInput(snapshot, input, module)
+    local identity = input.identity .. "\0consumer=" .. module .. "\0" .. tostring(input.consumer or "")
+    snapshot.inputs[identity] = input
 end
 
 function Session:diskChanged(path, changeType)
@@ -306,7 +383,7 @@ end
 --- dependencies and dependencies removed by a body edit do not invalidate the
 --- generation; a retained dependency changing its meaning does.
 function Session:semanticSnapshot(path, checked, module)
-    local snapshot = {modules = {}, declarations = {}}
+    local snapshot = {modules = {}, declarations = {}, inputs = {}, unverifiedLibraries = {}}
     local visited = {}
 
     local function visit(currentPath, currentChecked, currentModule)
@@ -328,6 +405,60 @@ function Session:semanticSnapshot(path, checked, module)
             path = currentPath,
             cFingerprint = cFingerprint,
         }
+        for _, input in ipairs(result.result and result.result.externalInputs or {}) do
+            addInput(snapshot, input, currentModule)
+        end
+        for _, use in ipairs(nativeUses(result.result)) do
+            local name = use.name
+            local mapped = name and self.libraryPaths[name] or nil
+            if mapped then
+                local configuredPath = self.libraryConfiguredPaths[name]
+                local resolved = fs.canonical(configuredPath)
+                local bytes = self.inc.externalFile(configuredPath)
+                if resolved ~= configuredPath then
+                    self.inc.externalFile(resolved)
+                end
+                if mapped ~= configuredPath and mapped ~= resolved then
+                    self.inc.externalFile(mapped)
+                end
+                local paths = {configuredPath}
+                if resolved ~= configuredPath then
+                    paths[#paths + 1] = resolved
+                end
+                if mapped ~= configuredPath and mapped ~= resolved then
+                    paths[#paths + 1] = mapped
+                end
+                addInput(
+                    snapshot,
+                    {
+                        identity = "native-artifact\0" .. name,
+                        kind = "native-artifact",
+                        display = name,
+                        paths = paths,
+                        fingerprint = hash.digest(
+                            table.concat(
+                                {
+                                    "native-artifact-v1",
+                                    configuredPath,
+                                    mapped,
+                                    resolved,
+                                    jit.os,
+                                    jit.arch,
+                                    bytes and ("present\0" .. bytes) or "missing",
+                                },
+                                "\0"
+                            )
+                        ),
+                        consumer = currentModule .. ":" .. tostring(use.line),
+                        binary = true,
+                    },
+                    currentModule
+                )
+            else
+                local label = use.dynamic and "<dynamic ffi.load>" or tostring(name)
+                snapshot.unverifiedLibraries[label] = true
+            end
+        end
         for _, dependency in ipairs(self.inc.projectDependencies(currentPath)) do
             local identity = dependency.name .. "\0" .. tostring(dependency.key)
             snapshot.declarations[
@@ -351,10 +482,7 @@ function Session:semanticSnapshot(path, checked, module)
                 if bundled then
                     snapshot.modules[
                         dependency
-                    ] = {
-                        fingerprint = interfaceFingerprint(bundled.type, bundled.exports),
-                        label = dependency,
-                    }
+                    ] = {fingerprint = interfaceFingerprint(bundled.type, bundled.exports), label = dependency,}
                 end
             end
         end
@@ -365,6 +493,10 @@ function Session:semanticSnapshot(path, checked, module)
     local ok, failure = visit(path, checked, module)
     if not ok then
         return nil, failure
+    end
+
+    for identity, input in pairs(snapshot.inputs) do
+        self.observedInputs[identity] = input
     end
 
     return snapshot
@@ -383,7 +515,13 @@ function Session:compile(path, mode, module, only)
         checked.result,
         path,
         nil,
-        {mode = mode, module = module, baseGeneration = mode == "patch" and self.generation or nil, only = only,}
+        {
+            mode = mode,
+            module = module,
+            baseGeneration = mode == "patch" and self.generation or nil,
+            only = only,
+            libraries = self.libraryPaths,
+        }
     )
     if fatalIn(generated) then
         return nil, diagnosticsFailure(generated)
@@ -417,9 +555,62 @@ function Session:loaded(module, generation, manifest)
         error("hot reload loaded acknowledgement has a mismatched manifest", 2)
     end
     self.running[module] = manifest
+    self.observedInputs = {}
+
+    return self:unverifiedNotices({[module] = manifest})
+end
+
+function Session:unverifiedNotices(manifests)
+    local notices = {}
+    for _, manifest in pairs(manifests or {}) do
+        for name in pairs(manifest.unverifiedLibraries or {}) do
+            if not self.noticedLibraries[name] then
+                self.noticedLibraries[name] = true
+                notices[#notices + 1] = name
+            end
+        end
+    end
+    table.sort(notices)
+
+    return {unverifiedLibraries = notices}
+end
+
+function Session:watchedInputs()
+    local byPath = {}
+    for _, path in ipairs(envMod.listProjectFiles(self.inc.env)) do
+        byPath[path] = {path = path, kind = "source"}
+    end
+    for _, manifest in pairs(self.running) do
+        for _, input in pairs(manifest.abi and manifest.abi.inputs or {}) do
+            for _, path in ipairs(input.paths or {}) do
+                local prior = byPath[path]
+                if not prior or input.binary then
+                    byPath[path] = {path = path, kind = input.kind}
+                end
+            end
+        end
+    end
+    for _, input in pairs(self.observedInputs) do
+        for _, path in ipairs(input.paths or {}) do
+            local prior = byPath[path]
+            if not prior or input.binary then
+                byPath[path] = {path = path, kind = input.kind}
+            end
+        end
+    end
+    local out = {}
+    for _, input in pairs(byPath) do
+        out[#out + 1] = input
+    end
+    table.sort(out, function(left, right)
+        return left.path < right.path
+    end)
+
+    return out
 end
 
 function Session:prepare(paths)
+    self.observedInputs = {}
     local patches, candidate = {}, {}
     for module, manifest in pairs(self.running) do
         candidate[module] = manifest
@@ -431,6 +622,29 @@ function Session:prepare(paths)
         loaded[#loaded + 1] = module
     end
     table.sort(loaded)
+    -- A changed declaration cannot safely be fed back into LuaJIT's process-global C
+    -- registry merely to discover that it differs. Fingerprint retained headers first;
+    -- comments fall through to the checker, while ABI drift stops before redeclaration.
+    for _, module in ipairs(loaded) do
+        local live = self.running[module]
+        for _, input in pairs(live.abi and live.abi.inputs or {}) do
+            if input.kind == "header" then
+                local observed = cheader.provenance(input.sourcePath or input.paths[1], {preprocess = input.preprocess})
+                if observed and observed.semanticFingerprint ~= input.fingerprint then
+                    local change = {
+                        kind = "header-abi",
+                        dependencyKind = "header",
+                        dependency = input.display,
+                        identity = input.identity,
+                        path = input.paths[1],
+                        paths = input.paths,
+                        consumer = input.consumer or module,
+                    }
+                    return restart(live.path, dependencyChangeMessage(change, module, live.path), change)
+                end
+            end
+        end
+    end
     for _, module in ipairs(loaded) do
         local live = self.running[module]
         local checked = self.inc.checkFile(live.path)
@@ -445,12 +659,15 @@ function Session:prepare(paths)
         if change then
             change.consumer = module
             change.consumerPath = live.path
-            return restart(
-                change.path or live.path,
-                dependencyChangeMessage(change, module, live.path),
-                change
-            )
+            return restart(live.path, dependencyChangeMessage(change, module, live.path), change)
         end
+        local refreshed = {}
+        for key, value in pairs(live) do
+            refreshed[key] = value
+        end
+        refreshed.abi = abi
+        refreshed.unverifiedLibraries = abi.unverifiedLibraries or {}
+        candidate[module] = refreshed
     end
     local changedCount = 0
     for _, path in ipairs(paths or {}) do
@@ -534,6 +751,8 @@ function Session:prepare(paths)
         end
     end
     if changedCount == 0 then
+        self.running = candidate
+        self.observedInputs = {}
         return {kind = "no-change", generation = self.generation}
     end
     local generation = self.generation + 1
@@ -556,6 +775,9 @@ function Session:committed(generation)
     self.generation = generation
     self.running = pending.manifests
     self.prepared = {}
+    self.observedInputs = {}
+
+    return self:unverifiedNotices(self.running)
 end
 
 function Session:persist()

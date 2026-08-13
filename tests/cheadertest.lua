@@ -115,6 +115,59 @@ function M.namedLibraryBindsThroughFfiLoad()
    local code = gen.generate(result, HERE .. "/p2.nupp")
    assert(code:find('__nuppFfi.load("z")', 1, true),
       "resolves through the named library:\n" .. code)
+   local watched = gen.generate(result, HERE .. "/p2.nupp", nil, {
+      mode = "initial",
+      module = "cheader-mapped",
+      libraries = {z = "/tmp/exact-z-library"},
+   })
+   assert(watched:find('__nuppFfi.load("/tmp/exact-z-library")', 1, true),
+      "watch generation resolves the mapped artifact exactly:\n" .. watched)
+end
+
+function M.headerProvenanceNamesTheDirectInput()
+   local path = HERE .. "/fixtures/sink.h"
+   local result = assert(cheaderMod.load(path))
+   assertEq(result.sourcePath, require("nupp.compiler.fs").canonical(path))
+   assertEq(#result.dependencies, 1)
+   assertEq(result.dependencies[1], result.sourcePath)
+   assert(type(result.semanticFingerprint) == "string" and
+      #result.semanticFingerprint > 0, "semantic header fingerprint")
+end
+
+function M.preprocessorProvenanceIncludesNestedHeaders()
+   if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
+      return require("assert").skip("cc is unavailable")
+   end
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "'"))
+   local nested = assert(io.open(dir .. "/nested.h", "wb"))
+   nested:write("typedef int nested_value;\n")
+   nested:close()
+   local root = assert(io.open(dir .. "/root.h", "wb"))
+   root:write('#include "nested.h"\nnested_value read_nested(void);\n')
+   root:close()
+   local result, problem = cheaderMod.load(dir .. "/root.h", {preprocess = true})
+   assert(result, problem)
+   local found = {}
+   for _, path in ipairs(result.dependencies) do found[path] = true end
+   local fs = require("nupp.compiler.fs")
+   assert(found[fs.canonical(dir .. "/root.h")], "primary header is observed")
+   assert(found[fs.canonical(dir .. "/nested.h")], "nested header is observed")
+end
+
+function M.preprocessorFingerprintIncludesCompilerArguments()
+   if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
+      return require("assert").skip("cc is unavailable")
+   end
+   local path = HERE .. "/fixtures/sink.h"
+   local plain = assert(cheaderMod.provenance(path, {preprocess = true}))
+   local configured = assert(cheaderMod.provenance(path, {
+      preprocess = true,
+      ccArgs = {"-DNUPP_UNUSED_TOOLCHAIN_MARKER=1"},
+   }))
+   assert(plain.semanticFingerprint ~= configured.semanticFingerprint,
+      "compiler arguments participate even when declarations are unchanged")
 end
 
 return M

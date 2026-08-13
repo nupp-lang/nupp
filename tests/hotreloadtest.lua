@@ -599,4 +599,242 @@ function M.sessionIgnoresUnrelatedDeclarationChanges()
    assertEq(result.kind, "no-change", "unobserved declarations stop at the query boundary")
 end
 
+function M.sessionObservesHeaderSemanticsAndIgnoresComments()
+   local dir = temporaryProject({
+      ["api.h"] = "int hot_header_value(void);\n",
+      ["main.nupp"] = table.concat({
+         "local api = cheader('api.h')",
+         "local function value(): integer return api.hot_header_value() end",
+         "return value",
+      }, "\n"),
+   })
+   local sourcePath = dir .. "/main.nupp"
+   local headerPath = dir .. "/api.h"
+   local session = loadedCompilerSession(dir, sourcePath)
+   local watched = {}
+   for _, input in ipairs(session:watchedInputs()) do watched[input.path] = input.kind end
+   local absoluteHeader = require("nupp.compiler.fs").canonical(headerPath)
+   assertEq(watched[absoluteHeader], "header", "direct header joins the watch set")
+
+   write(headerPath, "/* spelling only */\nint hot_header_value(void);\n")
+   session:diskChanged(absoluteHeader, 2)
+   assertEq(session:prepare({absoluteHeader}).kind, "no-change",
+      "comment-only header edit has the same declarations")
+
+   write(headerPath, "long hot_header_value(void);\n")
+   session:diskChanged(absoluteHeader, 2)
+   local changed = session:prepare({absoluteHeader})
+   assertEq(changed.kind, "restart-required")
+   assertEq(changed.reason.kind, "header-abi")
+   assertEq(changed.reason.path, absoluteHeader)
+   assert(changed.diagnostics[1].msg:find("api.h", 1, true),
+      changed.diagnostics[1].msg)
+end
+
+function M.sessionTracksPreprocessedHeaderClosure()
+   if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
+      return require("assert").skip("cc is unavailable")
+   end
+   local dir = temporaryProject({
+      ["nested.h"] = "typedef int hot_nested_value;\n",
+      ["api.h"] = '#include "nested.h"\nhot_nested_value hot_nested(void);\n',
+      ["main.nupp"] = table.concat({
+         "local api = cheader('api.h', nil, 'preprocess')",
+         "local function value(): integer return api.hot_nested() end",
+         "return value",
+      }, "\n"),
+   })
+   local sourcePath = dir .. "/main.nupp"
+   local nestedPath = require("nupp.compiler.fs").canonical(dir .. "/nested.h")
+   local session = loadedCompilerSession(dir, sourcePath)
+   local found = false
+   for _, input in ipairs(session:watchedInputs()) do
+      if input.path == nestedPath then found = true end
+   end
+   assert(found, "nested preprocessor input joins the watch set")
+   write(nestedPath, "typedef long hot_nested_value;\n")
+   session:diskChanged(nestedPath, 2)
+   local result = session:prepare({nestedPath})
+   assertEq(result.kind, "restart-required")
+   assertEq(result.reason.kind, "header-abi")
+end
+
+function M.sessionPinsAndObservesMappedNativeArtifacts()
+   local dir = temporaryProject({
+      ["libmini.bin"] = "generation one",
+      ["nupp.lua"] = "return { hotReload = { libraries = { mini = 'libmini.bin' } } }\n",
+      ["main.nupp"] = table.concat({
+         "cdef function hot_mini_value(): int32 from 'mini'",
+         "local function value(): number return hot_mini_value() end",
+         "return value",
+      }, "\n"),
+   })
+   local sourcePath = dir .. "/main.nupp"
+   local artifactPath = require("nupp.compiler.fs").absolute(dir .. "/libmini.bin")
+   local session = hotSession.new(dir, {cache = false})
+   local built = session:initial({sourcePath})
+   assertEq(built.kind, "initial")
+   assert(built.entryCode:find(artifactPath, 1, true),
+      "watch generation loads the configured artifact exactly")
+   session:loaded(built.entryManifest.module, 1, built.entryManifest)
+   local found = false
+   for _, input in ipairs(session:watchedInputs()) do
+      if input.path == artifactPath and input.kind == "native-artifact" then found = true end
+   end
+   assert(found, "mapped artifact joins the watch set")
+   write(artifactPath, "generation two")
+   session:diskChanged(artifactPath, 2)
+   local result = session:prepare({artifactPath})
+   assertEq(result.kind, "restart-required")
+   assertEq(result.reason.kind, "native-artifact")
+   assertEq(result.reason.path, artifactPath)
+   assert(os.remove(artifactPath))
+   session:diskChanged(artifactPath, 3)
+   local missing = session:prepare({artifactPath})
+   assertEq(missing.kind, "restart-required")
+   assertEq(missing.reason.kind, "native-artifact")
+end
+
+function M.sessionReportsUnmappedNativeIdentityOnce()
+   local dir = temporaryProject({
+      ["main.nupp"] = "cdef function hot_unverified(): int32 from 'bare'\nreturn hot_unverified\n",
+   })
+   local path = dir .. "/main.nupp"
+   local session = hotSession.new(dir, {cache = false})
+   local built = session:initial({path})
+   local first = session:loaded(built.entryManifest.module, 1, built.entryManifest)
+   assertEq(first.unverifiedLibraries[1], "bare")
+end
+
+function M.headerWatchPathsCollapseDuplicateSpellingsButKeepConsumers()
+   local dir = temporaryProject({
+      ["api.h"] = "int hot_duplicate(void);\n",
+      ["main.nupp"] = table.concat({
+         "local first = cheader('api.h')",
+         "local second = cheader('./api.h')",
+         "local function value(): integer return first.hot_duplicate() + second.hot_duplicate() end",
+         "return value",
+      }, "\n"),
+   })
+   local session = loadedCompilerSession(dir, dir .. "/main.nupp")
+   local headerPath = require("nupp.compiler.fs").canonical(dir .. "/api.h")
+   local watchedCount = 0
+   for _, input in ipairs(session:watchedInputs()) do
+      if input.path == headerPath then watchedCount = watchedCount + 1 end
+   end
+   assertEq(watchedCount, 1, "canonical header path is polled once")
+   local manifest = session.running.main
+   local consumers = 0
+   for _, input in pairs(manifest.abi.inputs) do
+      if input.kind == "header" and input.sourcePath == headerPath then consumers = consumers + 1 end
+   end
+   assertEq(consumers, 2, "each cheader site retains its consumer record")
+end
+
+function M.deletedHeaderRejectsWithoutLosingTheRunningManifest()
+   local dir = temporaryProject({
+      ["api.h"] = "int hot_deleted(void);\n",
+      ["main.nupp"] = "local api = cheader('api.h')\nreturn api.hot_deleted\n",
+   })
+   local path = dir .. "/main.nupp"
+   local headerPath = require("nupp.compiler.fs").canonical(dir .. "/api.h")
+   local session = loadedCompilerSession(dir, path)
+   assert(os.remove(headerPath))
+   session:diskChanged(headerPath, 3)
+   local result = session:prepare({headerPath})
+   assertEq(result.kind, "diagnostics")
+   assertEq(result.diagnostics[1].code, "NUPP2302")
+   local retained = false
+   for _, input in ipairs(session:watchedInputs()) do
+      if input.path == headerPath then retained = true end
+   end
+   assert(retained, "the missing retained input remains watched")
+end
+
+function M.unloadedModuleDoesNotObserveItsHeader()
+   local dir = temporaryProject({
+      ["later.h"] = "int hot_later(void);\n",
+      ["later.nupp"] = "local api = cheader('later.h')\nreturn api.hot_later\n",
+      ["main.nupp"] = "local function main(): integer return 1 end\nreturn main\n",
+   })
+   local session = loadedCompilerSession(dir, dir .. "/main.nupp")
+   local headerPath = require("nupp.compiler.fs").canonical(dir .. "/later.h")
+   for _, input in ipairs(session:watchedInputs()) do
+      assert(input.path ~= headerPath, "an unloaded module must not contribute external inputs")
+   end
+end
+
+function M.mappedFfiLoadChangesOnlyWatchGeneration()
+   local source = "local ffi = require('ffi')\nreturn ffi.load('mini')\n"
+   local result = checked(source)
+   local ordinary = assert(gen.generate(result, "ffi-load.g.nupp"))
+   local mapped = "/tmp/nupp-exact-mini-library"
+   local watched = assert(gen.generate(result, "ffi-load.g.nupp", nil, {
+      mode = "initial",
+      module = "ffi-load",
+      libraries = {mini = mapped},
+   }))
+   assert(ordinary:find("'mini'", 1, true), ordinary)
+   assert(not ordinary:find(mapped, 1, true), ordinary)
+   assert(watched:find(mapped, 1, true), watched)
+end
+
+function M.mappedNativeSymlinkRetargetRequiresRestart()
+   if package.config:sub(1, 1) == "\\" then
+      return require("assert").skip("symbolic-link fixture is POSIX-only")
+   end
+   local dir = temporaryProject({
+      ["one.bin"] = "identical bytes",
+      ["two.bin"] = "identical bytes",
+      ["nupp.lua"] = "return { hotReload = { libraries = { mini = 'current.bin' } } }\n",
+      ["main.nupp"] = "cdef function hot_symlink(): int32 from 'mini'\nreturn hot_symlink\n",
+   })
+   assertEq(os.execute(("ln -s '%s/one.bin' '%s/current.bin'"):format(dir, dir)), 0)
+   local session = hotSession.new(dir, {cache = false})
+   local built = session:initial({dir .. "/main.nupp"})
+   local firstTarget = require("nupp.compiler.fs").absolute(dir .. "/one.bin")
+   assert(built.entryCode:find(firstTarget, 1, true),
+      "watch generation pins the resolved target")
+   session:loaded(built.entryManifest.module, 1, built.entryManifest)
+   assert(os.remove(dir .. "/current.bin"))
+   assertEq(os.execute(("ln -s '%s/two.bin' '%s/current.bin'"):format(dir, dir)), 0)
+   local link = require("nupp.compiler.fs").absolute(dir .. "/current.bin")
+   session:diskChanged(link, 2)
+   local result = session:prepare({link})
+   assertEq(result.kind, "restart-required")
+   assertEq(result.reason.kind, "native-artifact")
+end
+
+function M.headerDependencyClosureGrowsAndShrinksAfterNoChange()
+   if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
+      return require("assert").skip("cc is unavailable")
+   end
+   local withInclude = '#include "nested.h"\nint hot_closure(void);\n'
+   local dir = temporaryProject({
+      ["nested.h"] = "/* contributes no declarations */\n",
+      ["api.h"] = withInclude,
+      ["main.nupp"] = "local api = cheader('api.h', nil, 'preprocess')\nreturn api.hot_closure\n",
+   })
+   local sourcePath = dir .. "/main.nupp"
+   local fs = require("nupp.compiler.fs")
+   local apiPath = fs.canonical(dir .. "/api.h")
+   local nestedPath = fs.canonical(dir .. "/nested.h")
+   local session = loadedCompilerSession(dir, sourcePath)
+   local function isWatched(path)
+      for _, input in ipairs(session:watchedInputs()) do
+         if input.path == path then return true end
+      end
+      return false
+   end
+   assert(isWatched(nestedPath), "initial include is watched")
+   write(apiPath, "int hot_closure(void);\n")
+   session:diskChanged(apiPath, 2)
+   assertEq(session:prepare({apiPath}).kind, "no-change")
+   assert(not isWatched(nestedPath), "removed include leaves the dynamic watch set")
+   write(apiPath, withInclude)
+   session:diskChanged(apiPath, 2)
+   assertEq(session:prepare({apiPath}).kind, "no-change")
+   assert(isWatched(nestedPath), "new include joins the dynamic watch set")
+end
+
 return M

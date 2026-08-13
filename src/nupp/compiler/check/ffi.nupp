@@ -336,11 +336,38 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             end
             local cheaderMod = require("nupp.compiler.cheader")
             local loaded, err
+            local externalReader = c.env and c.env.externalFile and function(externalPath)
+                return c.env.externalFile(c.env, externalPath)
+            end or nil
             for _, candidate in ipairs(candidates) do
-                loaded, err = cheaderMod.load(candidate, {preprocess = literal(args[3]) == "preprocess",})
+                loaded, err = cheaderMod.load(
+                    candidate,
+                    {preprocess = literal(args[3]) == "preprocess", read = externalReader,}
+                )
                 if loaded then
                     node.cheaderCdef = loaded.cdef
                     node.cheaderLib = lib
+                    local firstArg = args[1]
+                    local consumerLine = firstArg
+                        and firstArg.kind == "string"
+                        and firstArg.token
+                        and firstArg.token.line
+                        or 1
+                    local input = {
+                        identity = "header\0" .. loaded.sourcePath,
+                        kind = "header",
+                        display = headerPath,
+                        paths = loaded.dependencies,
+                        sourcePath = loaded.sourcePath,
+                        fingerprint = loaded.semanticFingerprint,
+                        consumer = tostring(c.filename or "<module>") .. ":" .. tostring(consumerLine),
+                        binary = false,
+                        library = lib,
+                        preprocess = literal(args[3]) == "preprocess",
+                    }
+                    if c.env and c.env.observeExternalInput then
+                        c.env.observeExternalInput(c.env, input)
+                    end
                     break
                 end
             end
@@ -420,6 +447,12 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
         -- the same namespace ffi.C is, so both are typed from the declarations rather
         -- than handed back as any.
         if baseName == "ffi" and memberName == "load" then
+            local first = argExprs[1]
+            if first and first.kind == "string" and first.token then
+                node.ffiLoadLib = cdefBody(first.token.text)
+            else
+                node.ffiLoadDynamic = true
+            end
             for _, e in ipairs(argExprs) do
                 c.infer(e)
             end

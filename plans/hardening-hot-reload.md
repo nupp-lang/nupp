@@ -1,6 +1,6 @@
 # Hardening hot-reload
 
-Status: proposed follow-up to [hot-reload.md](hot-reload.md). The current
+Status: R1-R3 implemented; R4-R6 remain. The current
 implementation safely patches compatible named function bodies, rechecks loaded
 Nupp modules, and conservatively treats changed C declarations as restart-only.
 This plan closes the remaining gaps between that implementation and the public

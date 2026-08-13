@@ -27,10 +27,7 @@ local command = spec.command{
     options = optionsMod.join(
         optionsMod.strict,
         optionsMod.optimize(),
-        {
-            name = "--watch",
-            help = "Keep named function identities patchable at cooperative poll points"
-        },
+        {name = "--watch", help = "Keep named function identities patchable at cooperative poll points"},
         {
             name = "--profile",
             value = "MS",
@@ -66,7 +63,7 @@ a summary line on stderr.
 
 --watch is development-only and always uses -O0. A long-running program calls
 nupp.hotReload.poll() at a safe loop or request boundary.
-The poll scans project sources, stages a valid changed-body patch, commits it,
+The poll scans inputs, stages a valid changed-body patch, commits it,
 and leaves the last good generation running after diagnostics or a required
 restart. Programs that never return to such a boundary cannot reload
 cooperatively.]],
@@ -164,15 +161,22 @@ local function run(parsed: any): integer
     local runtime = require("nupp.compiler.runtime")
     local compileLoaded
     local loaded
+    local reportWatchNotices = function(_: any): nil
+    end
+    local resetWatchInputs = function(): nil
+    end
     if watching then
         compileLoaded = function(modulePath: string, env: any): string?, string?
-            local module = require("nupp.compiler.env").moduleNameForPath(watchSession.inc.env, modulePath) or modulePath
+            local module = require(
+                "nupp.compiler.env"
+            ).moduleNameForPath(watchSession.inc.env, modulePath) or modulePath
             local built, failure = watchSession:compile(modulePath, "initial", module)
             if not built then
                 require("nupp.compiler.diagnostics").report(failure.diagnostics or {})
                 return nil, failure.kind
             end
             pendingManifests[module] = built.manifest
+
             return built.code
         end
         loaded = function(module: string, modulePath: string, ok: boolean): nil
@@ -180,7 +184,8 @@ local function run(parsed: any): integer
             pendingManifests[module] = nil
             if ok then
                 hotRuntime.seal(module)
-                watchSession:loaded(module, watchSession.generation, manifest)
+                reportWatchNotices(watchSession:loaded(module, watchSession.generation, manifest))
+                resetWatchInputs()
             else
                 hotRuntime.abort(module)
             end
@@ -188,9 +193,32 @@ local function run(parsed: any): integer
 
         local seen = {}
         local watchFs = require("nupp.compiler.fs")
-        local watchEnv = require("nupp.compiler.env")
-        for _, sourcePath in ipairs(watchEnv.listProjectFiles(watchSession.inc.env)) do
-            seen[sourcePath] = watchFs.readFile(sourcePath)
+        local function watchFingerprint(input)
+            local bytes = watchFs.readFile(input.path)
+            local content = bytes and ("present\0" .. bytes) or "missing"
+            if input.kind == "native-artifact" then
+                return watchFs.canonical(input.path) .. "\0" .. content
+            end
+
+            return content
+        end
+
+        reportWatchNotices = function(ack): nil
+            for _, name in ipairs(ack and ack.unverifiedLibraries or {}) do
+                if name == "<dynamic ffi.load>" then
+                    io.stderr:write("nupp: dynamic ffi.load is not tracked in watch mode\n")
+                else
+                    io.stderr:write(
+                        ("nupp: C declarations for %q are checked; its binary identity is unverified\n"):format(name)
+                    )
+                end
+            end
+        end
+        resetWatchInputs = function(): nil
+            seen = {}
+            for _, input in ipairs(watchSession:watchedInputs()) do
+                seen[input.path] = {kind = input.kind, fingerprint = watchFingerprint(input)}
+            end
         end
         _G.nupp = _G.nupp or {}
         local function ensureEntryLoaded(): nil
@@ -198,57 +226,59 @@ local function run(parsed: any): integer
                 return
             end
             hotRuntime.seal(entryManifest.module)
-            watchSession:loaded(entryManifest.module, watchSession.generation, entryManifest)
+            reportWatchNotices(watchSession:loaded(entryManifest.module, watchSession.generation, entryManifest))
             entryAcknowledged = true
+            resetWatchInputs()
         end
-        _G.nupp.hotReload = {
-            generation = function(): integer
-                return hotRuntime.generation()
-            end,
-            poll = function(): any
-                -- The entry may own a loop and never return from its chunk. Its first
-                -- cooperative boundary proves initialization reached a safe point.
-                ensureEntryLoaded()
-                local changed = {}
-                local current = {}
-                for _, sourcePath in ipairs(watchEnv.listProjectFiles(watchSession.inc.env)) do
-                    current[sourcePath] = true
-                    local text = watchFs.readFile(sourcePath)
-                    if seen[sourcePath] ~= text then
-                        seen[sourcePath] = text
-                        watchSession:diskChanged(sourcePath, text == nil and 3 or 2)
-                        changed[#changed + 1] = sourcePath
-                    end
+
+        _G.nupp.hotReload = {generation = function(): integer
+            return hotRuntime.generation()
+        end, poll = function(): any
+            -- The entry may own a loop and never return from its chunk. Its first
+            -- cooperative boundary proves initialization reached a safe point.
+            ensureEntryLoaded()
+            local changed = {}
+            local current = {}
+            for _, input in ipairs(watchSession:watchedInputs()) do
+                current[input.path] = true
+                local fingerprint = watchFingerprint(input)
+                local prior = seen[input.path]
+                if not prior or prior.kind ~= input.kind or prior.fingerprint ~= fingerprint then
+                    seen[input.path] = {kind = input.kind, fingerprint = fingerprint}
+                    watchSession:diskChanged(input.path, watchFs.readFile(input.path) == nil and 3 or 2)
+                    changed[#changed + 1] = input.path
                 end
-                for sourcePath in pairs(seen) do
-                    if not current[sourcePath] then
-                        seen[sourcePath] = nil
-                        watchSession:diskChanged(sourcePath, 3)
-                        changed[#changed + 1] = sourcePath
-                    end
+            end
+            for watchedPath in pairs(seen) do
+                if not current[watchedPath] then
+                    seen[watchedPath] = nil
+                    watchSession:diskChanged(watchedPath, 3)
+                    changed[#changed + 1] = watchedPath
                 end
-                if #changed == 0 then
-                    return {kind = "no-change", generation = watchSession.generation}
+            end
+            if #changed == 0 then
+                return {kind = "no-change", generation = watchSession.generation}
+            end
+            local result = watchSession:prepare(changed)
+            if result.kind == "prepared" then
+                local prepared, reason = hotRuntime.stage(result.patch, result.baseGeneration)
+                if not prepared then
+                    return {kind = "diagnostics", diagnostics = {{msg = reason}}}
                 end
-                local result = watchSession:prepare(changed)
-                if result.kind == "prepared" then
-                    local prepared, reason = hotRuntime.stage(result.patch, result.baseGeneration)
-                    if not prepared then
-                        return {kind = "diagnostics", diagnostics = {{msg = reason}}}
-                    end
-                    local generation, commitError = hotRuntime.commit(prepared)
-                    if not generation then
-                        return {kind = "diagnostics", diagnostics = {{msg = commitError}}}
-                    end
-                    watchSession:committed(generation)
-                    io.stderr:write(("nupp: committed hot generation %d\n"):format(generation))
-                elseif result.diagnostics then
-                    require("nupp.compiler.diagnostics").report(result.diagnostics)
-                    io.stderr:write(("nupp: generation %d remains running\n"):format(watchSession.generation))
+                local generation, commitError = hotRuntime.commit(prepared)
+                if not generation then
+                    return {kind = "diagnostics", diagnostics = {{msg = commitError}}}
                 end
-                return result
-            end,
-        }
+                reportWatchNotices(watchSession:committed(generation))
+                io.stderr:write(("nupp: committed hot generation %d\n"):format(generation))
+            elseif result.diagnostics then
+                require("nupp.compiler.diagnostics").report(result.diagnostics)
+                io.stderr:write(("nupp: generation %d remains running\n"):format(watchSession.generation))
+            end
+            resetWatchInputs()
+
+            return result
+        end,}
     else
         compileLoaded = function(modulePath: string, env: any): string?, string?
             return compile.module(modulePath, env, settings)
@@ -261,7 +291,7 @@ local function run(parsed: any): integer
         if ok then
             if not entryAcknowledged then
                 hotRuntime.seal(entryManifest.module)
-                watchSession:loaded(entryManifest.module, watchSession.generation, entryManifest)
+                reportWatchNotices(watchSession:loaded(entryManifest.module, watchSession.generation, entryManifest))
             end
         else
             hotRuntime.abort(entryManifest.module)

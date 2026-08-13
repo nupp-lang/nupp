@@ -4,6 +4,7 @@
 -- case without replacing its coverage.
 
 local suites = {
+   cheadertest = require("cheadertest"),
    hotreloadtest = require("hotreloadtest"),
    runtimetest = require("runtimetest"),
 }
@@ -61,6 +62,28 @@ local guarantees = {
          {"hotreloadtest", "sessionNamesTheImportedModuleWhoseInterfaceChanged"},
          {"hotreloadtest", "sessionIgnoresUnrelatedDeclarationChanges"},
       },
+   },
+   {
+      claim = "direct and preprocessed header inputs are observed semantically",
+      cases = {
+         {"cheadertest", "headerProvenanceNamesTheDirectInput"},
+         {"cheadertest", "preprocessorProvenanceIncludesNestedHeaders"},
+         {"hotreloadtest", "sessionObservesHeaderSemanticsAndIgnoresComments"},
+         {"hotreloadtest", "sessionTracksPreprocessedHeaderClosure"},
+         {"runtimetest", "cliWatchObservesHeaderOnlyEdits"},
+      },
+   },
+   {
+      claim = "mapped native artifacts load exactly and require restart when replaced",
+      cases = {
+         {"hotreloadtest", "sessionPinsAndObservesMappedNativeArtifacts"},
+         {"hotreloadtest", "mappedFfiLoadChangesOnlyWatchGeneration"},
+         {"runtimetest", "cliWatchRequiresRestartForMappedNativeReplacement"},
+      },
+   },
+   {
+      claim = "unmapped native loader names are reported as unverified",
+      cases = { {"hotreloadtest", "sessionReportsUnmappedNativeIdentityOnce"} },
    },
    {
       claim = "structural, C, capture, and affine changes name why restart is required",

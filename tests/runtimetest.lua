@@ -262,4 +262,79 @@ function M.cliWatchRejectsOptimizedGeneration()
    end)
 end
 
+function M.cliWatchObservesHeaderOnlyEdits()
+   withProject({
+      ["api.h"] = "int hot_watch_header(void);\n",
+      ["writer.lua"] = [[
+return function(path, text)
+   local file = assert(io.open(path, "wb"))
+   file:write(text)
+   file:close()
+end
+]],
+      ["main.g.nupp"] = table.concat({
+         "local api = cheader('api.h')",
+         "local write = require('writer')",
+         "nupp.hotReload.poll()",
+         "write('api.h', '/* comment */\\nint hot_watch_header(void);\\n')",
+         "print(nupp.hotReload.poll().kind)",
+         "write('api.h', 'long hot_watch_header(void);\\n')",
+         "print(nupp.hotReload.poll().kind)",
+         "return api",
+         "",
+      }, "\n"),
+   }, function(dir)
+      local output = dir .. "/output.txt"
+      local errors = dir .. "/errors.txt"
+      local command = ("cd '%s' && '%s/bin/nupp' run --watch main.g.nupp "
+         .. "> '%s' 2> '%s'"):format(dir, ROOT, output, errors)
+      local status = os.execute(command)
+      local stderr = readFile(errors)
+      assertEq(status, 0, "header watch exit status: " .. stderr)
+      assertEq(readFile(output), "no-change\nrestart-required\n")
+      assert(stderr:find("header api.h at", 1, true), stderr)
+   end)
+end
+
+function M.cliWatchRequiresRestartForMappedNativeReplacement()
+   local ffi = require("ffi")
+   if ffi.os == "Windows" or os.execute("cc --version >/dev/null 2>&1") ~= 0 then
+      return require("assert").skip("a POSIX C compiler is unavailable")
+   end
+   withProject({
+      ["first.c"] = "int hot_native_value(void) { return 1; }\n",
+      ["second.c"] = "int hot_native_value(void) { return 2; }\n",
+      ["replace.lua"] = "return function(from, to) assert(os.rename(from, to)) end\n",
+   }, function(dir)
+      local extension = ffi.os == "OSX" and ".dylib" or ".so"
+      local current = "libmini" .. extension
+      local replacement = "libmini-next" .. extension
+      local flags = ffi.os == "OSX" and "-dynamiclib" or "-shared -fPIC"
+      assertEq(os.execute(("cc %s -o '%s/%s' '%s/first.c'"):format(
+         flags, dir, current, dir)), 0, "compile first library")
+      assertEq(os.execute(("cc %s -o '%s/%s' '%s/second.c'"):format(
+         flags, dir, replacement, dir)), 0, "compile replacement library")
+      writeFile(dir .. "/nupp.lua", ("return { hotReload = { libraries = { mini = %q } } }\n")
+         :format(current))
+      writeFile(dir .. "/main.g.nupp", table.concat({
+         "cdef function hot_native_value(): int32 from 'mini'",
+         "local replace = require('replace')",
+         "nupp.hotReload.poll()",
+         "print(hot_native_value())",
+         ("replace(%q, %q)"):format(replacement, current),
+         "print(nupp.hotReload.poll().kind)",
+         "",
+      }, "\n"))
+      local output = dir .. "/output.txt"
+      local errors = dir .. "/errors.txt"
+      local command = ("cd '%s' && '%s/bin/nupp' run --watch main.g.nupp "
+         .. "> '%s' 2> '%s'"):format(dir, ROOT, output, errors)
+      local status = os.execute(command)
+      local stderr = readFile(errors)
+      assertEq(status, 0, "native watch exit status: " .. stderr)
+      assertEq(readFile(output), "1\nrestart-required\n")
+      assert(stderr:find("native artifact for mini at", 1, true), stderr)
+   end)
+end
+
 return M
