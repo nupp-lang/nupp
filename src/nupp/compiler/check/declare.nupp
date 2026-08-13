@@ -1117,16 +1117,15 @@ function declare.install(
                 c.bindType(stat.name.text, n, nil)
             end
             if stat.generics then
-                local nominalTypes, nominalBounds, nominalPacks, nominalConsts, nominalKinds = c.bindGenerics(
-                    stat.generics,
-                    "nominal",
-                    n
-                )
+                local nominalTypes, nominalBounds, nominalPacks, nominalConsts, nominalKinds, nominalDefaults =
+                    c.bindGenerics(stat.generics, "nominal", n)
                 n.typeParams, n.typeBounds, n.packParams = nominalTypes, nominalBounds, nominalPacks
                 n.constParams, n.paramKinds = nominalConsts, nominalKinds
+                n.paramDefaults = nominalDefaults
             else
                 n.typeParams, n.typeBounds, n.packParams = nil, nil, nil
                 n.constParams, n.paramKinds = nil, nil
+                n.paramDefaults = nil
             end
             n.fieldOrder = {}
             n.fieldDefs = {}

@@ -1238,6 +1238,10 @@ record cst.Generics is cst.Hints
 
     --- Its aligned const domain token (`string`, `boolean`, or `integer`).
     domains: {lexer.Token}
+
+    --- Defaults, indexed to match `names`. An absent slot has none, and an
+    --- application may leave out every parameter that has one.
+    defaults: {cst.Node}
 end
 
 --- One parameter of a function body, a short function, or a cdef.

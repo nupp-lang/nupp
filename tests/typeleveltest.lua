@@ -691,4 +691,63 @@ function M.comptimeCallsInAnnotationPositionEraseFromGeneratedLua()
    assertEq(chunk(), "ok")
 end
 
+-- A parameter with a default may be left out of an application, and the
+-- declaration is what says what it then means.
+function M.aDefaultedTypeParameterMayBeLeftOut()
+   clean(table.concat({
+      "local record Pair<A, B = string>",
+      "   left: A",
+      "   right: B",
+      "end",
+      "local function same(p: Pair<integer>): Pair<integer, string>",
+      "   return p",
+      "end",
+      "print(same)",
+   }, "\n"))
+end
+
+function M.aDefaultedConstParameterMayBeLeftOut()
+   clean(table.concat({
+      "local record Box<T, const N: integer = 0>",
+      "   value: T",
+      "end",
+      "local function same(b: Box<integer>): Box<integer, 0>",
+      "   return b",
+      "end",
+      "print(same)",
+   }, "\n"))
+end
+
+-- A written argument still decides the position, so a default changes nothing
+-- about an application that supplies one.
+function M.aWrittenArgumentOverridesTheDefault()
+   assertEq(codes(table.concat({
+      "local record Box<T, const N: integer = 0>",
+      "   value: T",
+      "end",
+      "local function seven(b: Box<integer, 7>): Box<integer, 0>",
+      "   return b",
+      "end",
+   }, "\n")), "NUPP2002")
+end
+
+-- Leaving an argument out has to mean the last position, or it would say
+-- nothing about which one was left out.
+function M.aParameterWithoutADefaultCannotFollowOneWithIt()
+   assertEq(codes(table.concat({
+      "local record Bad<A = string, B>",
+      "   left: A",
+      "   right: B",
+      "end",
+   }, "\n")), "NUPP2121")
+end
+
+function M.aGenericPackParameterCannotHaveADefault()
+   assertEq(codes(table.concat({
+      "local record Bad<A... = string>",
+      "   value: integer",
+      "end",
+   }, "\n")), "NUPP2121")
+end
+
 return M

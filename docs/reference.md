@@ -209,7 +209,8 @@ Reports: `NUPP2004`, `NUPP2006`, `NUPP2125`. `nupp explain <code>` says more.
 Type parameters go in angle brackets after the name. `T is Bound` constrains
 one, and the bound is an ordinary type, usually an interface. A `const Name:
 string|boolean|integer` binder carries a compile-time-known value through a type
-and erases from runtime code.
+and erases from runtime code. `T = Default` lets an application leave a trailing
+parameter out; one without a default cannot follow one with it.
 
 ```nupp
 local m = {}

@@ -1186,6 +1186,7 @@ function checkMod.check(
     -- after each binder is visible.
     c.bindGenerics = function(generics, role, predeclared)
         local params, bounds, packParams, constParams, paramKinds = {}, {}, {}, {}, {}
+        local paramDefaults = {}
         local sawPack = false
         for j, nameTok in ipairs(generics and generics.names or {}) do
             local isPack = generics.packs and generics.packs[j]
@@ -1238,9 +1239,35 @@ function checkMod.check(
                     params[#params].bound = bounds[#params]
                 end
             end
+            -- Kept as written. A const default has to travel the const evaluation path
+            -- and a type default the ordinary one, and only the application site knows
+            -- which position it is filling, so the node is what is stored. A pack has
+            -- no default: leaving one out already means the empty pack.
+            local defaultNode = generics.defaults and generics.defaults[j]
+            if defaultNode then
+                if isPack then
+                    c.diag("NUPP2121", defaultNode, "a generic pack parameter cannot have a default")
+                else
+                    paramDefaults[j] = defaultNode
+                end
+            end
+        end
+        -- A parameter without a default cannot follow one with it, or leaving an
+        -- argument out would say nothing about which position was left out.
+        local defaulted = nil
+        for j = 1, #paramKinds do
+            if paramDefaults[j] then
+                defaulted = defaulted or j
+            elseif defaulted and paramKinds[j] ~= "pack" then
+                c.diag(
+                    "NUPP2121",
+                    generics.names[j],
+                    "a generic parameter without a default cannot follow one with a default"
+                )
+            end
         end
 
-        return params, bounds, packParams, constParams, paramKinds
+        return params, bounds, packParams, constParams, paramKinds, paramDefaults
     end
 
     ---------------------------------------------------------------------

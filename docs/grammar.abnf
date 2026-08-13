@@ -360,8 +360,17 @@ predicate      = Name %s"is" type               ; [CS-16] the function answers
                                                 ; the type; the value returned
                                                 ; is a boolean
 generics       = "<" genericparam *("," genericparam) ">"
-genericparam   = Name ["..."] ["is" type]      ; `...` declares a pack [CS-21]
-               / %s"const" Name ":" constdomain
+genericparam   = Name ["..."] ["is" type] ["=" type]
+                                                ; `...` declares a pack [CS-21].
+                                                ; `= type` defaults the parameter,
+                                                ; and an application may leave out
+                                                ; every trailing parameter that has
+                                                ; one. A pack takes no default:
+                                                ; leaving it out already means the
+                                                ; empty pack
+               / %s"const" Name ":" constdomain ["=" type]
+                                                ; a const default is written where
+                                                ; its argument would be
 constdomain    = %s"string" / %s"boolean" / %s"integer"
 
 coroutineprotocol = %s"yields" typepack %s"resumes" typepack

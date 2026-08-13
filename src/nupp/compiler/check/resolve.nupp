@@ -209,8 +209,12 @@ function resolve.install(c: state.Checker): nil
         end
         local map = {}
         local typeAt, packAt, constAt = 1, 1, 1
+        local defaults = t.paramDefaults or {}
         for position, kind in ipairs(t.paramKinds or {}) do
-            local arg = node.typeArgs[position]
+            -- A position left out falls back to what the declaration defaulted it to,
+            -- before it falls back to `any`. A written position is unaffected, so a
+            -- declaration with no defaults answers exactly as it did.
+            local arg = node.typeArgs[position] or defaults[position]
             if kind == "const" then
                 local cv = t.constParams and t.constParams[constAt]
                 if cv then

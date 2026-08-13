@@ -437,6 +437,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         local g = new cst.Generics(kind = "generics")
         add(g, advance()).generic = true
         g.names, g.bounds, g.packs, g.consts, g.domains = {}, {}, {}, {}, {}
+        g.defaults = {}
         repeat
             local at = #g.names + 1
             local isConst = cur().kind == "name" and cur().text == "const" and tokens[
@@ -458,6 +459,13 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             if not isConst and cur().kind == "name" and cur().text == "is" then
                 add(g, advance())
                 g.bounds[at] = add(g, parseType())
+            end
+            -- A default, which an application may then leave out. One spelling for
+            -- both kinds: a const argument is already written where a type would go,
+            -- so the value a const parameter falls back to is read the same way.
+            if cur().kind == "=" then
+                add(g, advance())
+                g.defaults[at] = add(g, parseType())
             end
             if cur().kind ~= "," then
                 break

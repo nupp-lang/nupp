@@ -764,6 +764,11 @@ record types.Nominal
 
     paramKinds: {string}?
 
+    --- Declared defaults as written, indexed by parameter position. An application
+    --- that leaves a position out reads the node here in place of the argument, so a
+    --- const default reaches const evaluation and a type default the type path.
+    paramDefaults: {any}?
+
     --- The declaration-scoped binder used by the `self` type.
     selfType: types.Type?
 
