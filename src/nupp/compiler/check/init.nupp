@@ -1823,7 +1823,8 @@ function checkMod.check(
         local wasHoisting = c.hoisting
         c.hoisting = true
         -- `@drop` contracts first, before any signature below resolves. A result
-        -- written `Owned<T>` inherits the terminal `T` declared, and it has to inherit the same
+        -- written `Owned<T>` inherits the terminal `T` declared, and it has to inherit
+        -- the same
         -- one whether the terminal is written above the result or below it -- so the
         -- terminal has to exist before the first consumer annotation is read. Static
         -- registration only: the runtime write still goes out where the function is.
@@ -1856,7 +1857,15 @@ function checkMod.check(
                     if decl.kind == "localFuncStmt" and named then
                         path = named.text
                     elseif named and named.kind == "funcname" and not named.method then
-                        path = c.declKey(decl)
+                        -- Function declarations keep their qualifier inside the
+                        -- `funcname`; unlike nominal declarations, the statement has
+                        -- no `qualifiers` array for `declKey` to read. Reconstruct the
+                        -- same path `funcOwner` split so both `function close` and
+                        -- `function m.close` register before result annotations are
+                        -- resolved.
+                        path = ownerKey and memberTok and (
+                            ownerKey .. "." .. memberTok.text
+                        ) or named.base and named.base.text or nil
                     end
                     if path then
                         c.own.registerDefaultDropOperation(c.signatureOf(decl.body, nil), path, dropTok, nil, decl.body)

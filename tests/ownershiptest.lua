@@ -2865,8 +2865,9 @@ function M.anOwnedResultInheritsALaterQualifiedTypesDropOperation()
 end
 
 function M.anOwnedResultInheritsALaterQualifiedFreeDropOperation()
-   assertClean(table.concat({
+   local source = table.concat({
       "local m = {}",
+      "local closed = 0",
       "record m.Pool",
       "   open: function(): Owned<m.Session>",
       "end",
@@ -2875,12 +2876,26 @@ function M.anOwnedResultInheritsALaterQualifiedFreeDropOperation()
       "end",
       "@drop",
       "function m.closeSession(takes session: m.Session): nil",
+      "   closed = closed + 1",
       "   unsafe do",
       "      nupp.intoRaw(session)",
       "   end",
       "end",
-      "return m",
-   }, "\n"))
+      "local pool = new m.Pool(",
+      "   open = function(): Owned<m.Session>",
+      "      return new m.Session(id = 1)",
+      "   end",
+      ")",
+      "drop(pool.open())",
+      "return closed == 1 and m ~= nil",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-qualified-free-drop-test")
+   assertEq(#genDiags, 0)
+   local chunk, loadErr = loadstring(code, "@ownership-qualified-free-drop")
+   assert(chunk, tostring(loadErr) .. "\n" .. code)
+   assert(chunk(), "the inherited qualified terminal is registered and runs")
 end
 
 function M.aPlainOwnedFieldDoesNotInheritItsValuesDropOperation()

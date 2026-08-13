@@ -1129,7 +1129,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         c.unused.declared(nameTok, c.scope.vars[nameTok.text], "function")
         c.raises.check(stat, body)
         if body.dropContract then
-            registerDefaultDropOperation(ft, nameTok.text, body.dropTok or stat, body.cleanupRegistrationNode)
+            registerDefaultDropOperation(ft, nameTok.text, body.dropTok or stat, body.cleanupRegistrationNode, body)
         end
     end
 
@@ -1195,12 +1195,10 @@ function functions.install(c: state.Checker): state.StatHandlers
             c.applyFacts({[ownerKey .. "." .. memberTok.text] = ft})
         end
         if body.dropContract and not owner then
-            registerDefaultDropOperation(
-                ft,
-                fname.base and fname.base.text or "<drop>",
-                body.dropTok or stat,
-                body.cleanupRegistrationNode
-            )
+            local path = ownerKey and memberTok and (
+                ownerKey .. "." .. memberTok.text
+            ) or fname.base and fname.base.text or "<drop>"
+            registerDefaultDropOperation(ft, path, body.dropTok or stat, body.cleanupRegistrationNode, body)
         end
         if owner and owner.declKind == "struct" then
             -- reified receivers get their members through ffi.metatype
@@ -1296,7 +1294,8 @@ function functions.install(c: state.Checker): state.StatHandlers
                         ft,
                         (owner.runtimePath or ownerKey) .. "." .. member,
                         body.dropTok or stat,
-                        body.cleanupRegistrationNode
+                        body.cleanupRegistrationNode,
+                        body
                     )
                 end
             end
