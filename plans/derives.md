@@ -1,8 +1,8 @@
 # Derives
 
 > **Status: superseded and implemented by
-> [comptime-derive-recipes.md](comptime-derive-recipes.md).** `Debug`, `Default`,
-> single-field `From`, and `JSON` are compiler-shipped comptime providers using
+> [comptime-derive-recipes.md](comptime-derive-recipes.md).** `Debug`,
+> `Default`, and `JSON` are compiler-shipped comptime providers using
 > the same sealed evaluation and closed result boundary as package providers.
 
 ## Decision
@@ -74,7 +74,7 @@ each generated member by the derive that owns it.
   help, conformance, generic instantiation, and downstream modules.
 - Point every failure at `@derive`, a contributing field, or one of its helper
   annotations rather than at synthetic source.
-- Prove the phase with `Debug`, `Default`, single-field `From`, and `JSON`.
+- Prove the phase with `Debug`, `Default`, and `JSON`.
 - Keep compiler-shipped and package providers on one restricted, versioned
   semantic result contract.
 
@@ -88,7 +88,6 @@ each generated member by the derive that owns it.
 - User-defined materializers or access to the private runtime-expression IR.
 - Implicit monomorphization or specialization at every call site.
 - Runtime reflection or an ambient derive registry loaded with `require`.
-- Inferring fallible conversion policy. `TryFrom` is deliberately deferred.
 - Builder generation in the first version: a builder requires a new nominal
   type and therefore crosses the initial one-declaration boundary.
 
@@ -98,15 +97,15 @@ each generated member by the derive that owns it.
 `nupp.derive`:
 
 ```nupp
-@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.From, nupp.derive.JSON)
+@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.JSON)
 local record UserId
     @default(0)
     value: integer
 end
 ```
 
-The compiler ships exactly `nupp.derive.Debug`, `nupp.derive.Default`,
-`nupp.derive.From`, and `nupp.derive.JSON`. A provider identity may occur only
+The compiler ships exactly `nupp.derive.Debug`, `nupp.derive.Default`, and
+`nupp.derive.JSON`. A provider identity may occur only
 once across all `@derive`
 applications attached to a declaration:
 
@@ -127,7 +126,7 @@ provider dependencies are declared by their semantic recipes, not source order.
 
 `@derive` initially targets records. Applying it to an alias, interface,
 function, field, or statement is an error. Struct support is staged after the
-record semantics are proven: `Debug`, `Default`, and `From` have plausible
+record semantics are proven: `Debug` and `Default` have plausible
 struct meanings, while JSON must first define cdata numeric and pointer rules.
 
 The derive identifiers are reserved even before their individual providers
@@ -316,8 +315,7 @@ dependency failure attached as `related`.
 
 `Debug` likewise accepts an exact written `nupp.Debug` implementation or a
 `Debug` request on the dependency. Recursive declaration graphs are legal;
-runtime value cycles are handled by the formatter's visited set. `From` has no
-cross-declaration provider dependency.
+runtime value cycles are handled by the formatter's visited set.
 
 NUPP2807 is therefore reserved for a cycle the named provider forbids, not for
 all recursive types. The provider's section states which strongly connected
@@ -386,16 +384,8 @@ local type DefaultFactory<T> = {
     readonly default: function(): T,
 }
 
-local type FromFactory<T, U> = {
-    readonly from: function(value: T): U,
-}
-
 function nupp.default<T>(factory: DefaultFactory<T>): T
     return factory.default()
-end
-
-function nupp.into<T, U>(value: T, factory: FromFactory<T, U>): U
-    return factory.from(value)
 end
 ```
 
@@ -403,7 +393,6 @@ This supports:
 
 ```nupp
 local config = nupp.default(Config)
-local id = nupp.into(42, UserId)
 ```
 
 That does **not** type-check in the compiler today. The relation admits a shape
@@ -417,9 +406,6 @@ language change before either helper is declared:
 - check `metatable<R> -> shape` assignability field by field through that
   projection, without exposing instance methods, constructors, metamethod
   contracts, nested types, or associated types as ordinary keys;
-- teach generic unification to compare a shape parameter with that same
-  projection, so `U` in `FromFactory<T, U>` binds from the generated
-  `function(T): R` signature;
 - retain the existing prohibition on treating a record instance as its
   declaration table.
 
@@ -429,9 +415,8 @@ a separate semantic category: a structural shape asking for `Config.Inner`
 does not match `metatable<Config>`. A future submodule projection, if useful,
 is designed separately rather than leaking type namespaces into this relation.
 
-Regression tests first establish that both helpers fail before the relation
-change, then that `nupp.default(Config)` infers `Config` and
-`nupp.into(42, UserId)` infers `UserId` afterward. This is a real structural
+Regression tests first establish that the helper fails before the relation
+change, then that `nupp.default(Config)` infers `Config` afterward. This is a real structural
 relation and inference extension, not a prelude-only convenience.
 
 If nominal static contracts later earn a language surface, these structural
@@ -598,41 +583,6 @@ Config.default: function(): Config
 
 It constructs with `new Config {...}` and therefore passes through the same
 field capability and construction checks as written code.
-
-## `From`
-
-The first `From` derive is deliberately the newtype case:
-
-```nupp
-@derive(nupp.derive.From)
-local record UserId
-    value: integer
-end
-
-local id = UserId.from(42)
-local same = nupp.into(42, UserId)
-```
-
-The target must have exactly one stored instance field and no required
-constructor-only input. The generated function is:
-
-```nupp
-UserId.from: function(value: integer): UserId
-```
-
-It constructs `new UserId {value = value}` directly. Readonly fields are valid
-because construction initializes them; computed, writeonly, method, static and
-metamethod entries do not count as stored fields. An ownership-qualified
-stored field is rejected initially; deciding whether `from` consumes, borrows,
-or transfers it belongs to the later derived-effect design.
-
-`From` does not infer structural record-to-record conversion. Matching fields
-by name would silently choose policy for validation, ownership, defaults,
-renames and omitted fields. Multi-field conversions remain written functions.
-
-`From` is infallible. Range checks, parsing and validation belong to a future
-`TryFrom`. That future protocol may use the in-flight associated-type feature
-for an implementor-specific `Error`, but no part of `From` depends on it.
 
 ## `JSON`
 
@@ -806,13 +756,12 @@ The derive phase does not block on [associated-types.md](associated-types.md).
 
 - `Debug` has a fixed `string` result.
 - `Default` has the concrete owning record as its result.
-- `From` names its source type directly from the one stored field.
 - JSON uses the concrete owning record and a fixed `string` error initially.
 
 The in-flight associated-type implementation may land before, during or after
 this work. Derive merging must preserve any associated metadata already on the
-nominal type, but none of the four providers projects or generates an
-associated type. `TryFrom`, iterator derives, and codec protocols with
+nominal type, but none of the providers projects or generates an
+associated type. Iterator derives and codec protocols with
 provider-specific error types are later consumers.
 
 The two efforts do share declaration staging, generic substitution and final
@@ -825,8 +774,8 @@ merge order retains both surfaces. This is coordination, not a prerequisite.
 A derive is installed once on a generic declaration, not rerun as arbitrary
 runtime specialization. Generated signatures retain the declaration's binders
 and are substituted by the existing nominal-instantiation path. This supports
-`Debug` through an instance-method bound and `From` through a polymorphic
-constructor recipe. `Default` is limited to parameter-independent recipes, and
+`Debug` through an instance-method bound. `Default` is limited to
+parameter-independent recipes, and
 `JSON` rejects generic owners as specified above.
 
 Each provider states the capabilities required of a reached type parameter.
@@ -855,9 +804,6 @@ The providers deliberately differ where their contracts differ:
 - `Debug` accepts an `any` field and uses its bounded dynamic fallback.
 - `Default` gives `any` no implicit default; the field needs an explicit
   assignable `@default(...)` value.
-- `From` accepts a sole `any` field and generates
-  `function(value: any): Owner`, because that is the source type the record
-  actually declared.
 - JSON rejects `any`: decoding cannot prove that an unchecked value is the
   requested runtime type.
 
@@ -959,7 +905,6 @@ Reserve **NUPP2801–NUPP2808** for derives:
 | NUPP2802 | generated member or interface conflict |
 | NUPP2803 | a field or generic bound cannot satisfy `Debug` |
 | NUPP2804 | `Default` has a missing, conflicting, or ill-typed field default |
-| NUPP2805 | `From` is not an unambiguous single-field conversion |
 | NUPP2806 | unsupported or contradictory JSON schema |
 | NUPP2807 | unsupported derive recursion or dependency cycle |
 | NUPP2808 | generated plan, expression, local, upvalue, or output limit |
@@ -1171,19 +1116,7 @@ direct required recursion is rejected and optional recursion terminates.
 `nupp.default(Config)` type-checks through D1's declaration-table projection
 and infers `Config`.
 
-### D3: `From`
-
-- Identify the one stored field through the canonical member view.
-- Generate the exact static `from` signature and direct construction recipe.
-- Add structural `FromFactory<T, U>` and `nupp.into` declarations.
-- Reject computed, ambiguous and multi-field targets with NUPP2805.
-
-Exit test: `UserId.from(42)` and `nupp.into(42, UserId)` infer `UserId`; a
-wrong source type fails at the call; multi-field and constructor-dependent
-records fail at the derive; the `U` result is inferred through D1's projected
-static `from` signature rather than from an `any` fallback.
-
-### D4: typed JSON from shared field blueprints
+### D3: typed JSON from shared field blueprints
 
 - Activate the reserved typed `@json` annotation schemas and contradiction
   checking.
@@ -1226,7 +1159,7 @@ generated reference and ejected skill output; generated members have distinct
 editor identities and provenance; canonical fingerprints retain nested map
 keys and exclude source spelling; plans are interned by a memoized query;
 bounded cancellation and recovery publish no partial state; internal plus
-external acceptance corpora exercise all four providers; and the cross-surface
+external acceptance corpora exercise all three providers; and the cross-surface
 closure gates plus post-adoption fixpoint pass.
 
 #### D5a: generated-member semantic and editor model
@@ -1327,8 +1260,6 @@ observations describe the same semantic product.
 - Derive `Debug` and `Default` on compiler-owned configuration or diagnostic
   records whose handwritten behavior can be compared byte-for-byte or
   value-for-value before duplication is removed.
-- Replace one handwritten scalar/newtype constructor with `From` and exercise
-  it through `nupp.into` in generic code.
 - Put derived JSON beside the existing manifest/build-cache codecs, run their
   real corpora and compare bytes, accepted values and failure paths before
   deleting any reference validation.
@@ -1336,7 +1267,7 @@ observations describe the same semantic product.
   complete consumer corpus. Record every operation the constrained result
   model needed and every requested operation it deliberately refused.
 
-Exit test: all four providers replace real boilerplate without compatibility
+Exit test: all three providers replace real boilerplate without compatibility
 regressions; the internal and external differential corpora pass; the proving
 case leaves enough evidence to evaluate D6 without designing from examples
 invented for the provider API.
@@ -1414,8 +1345,6 @@ Provider suites add:
 - `Default`: every default category, fresh tables, annotation assignability,
   nested defaults, dependent-plan failure propagation, and direct/optional
   recursion;
-- `From`: exact source inference, readonly stored fields, wrong source types,
-  multi-field ambiguity and generic newtypes;
 - `JSON`: supported schema products, renamed/omitted/empty fields, unknown-key
   policy and strict-walk behavior, direct-emitter golden bytes, string escaping
   and UTF-8 rejection, stable map keys, no input mutation, private decode
@@ -1426,13 +1355,11 @@ Provider suites add:
 
 ## Acceptance workloads
 
-The feature is not complete merely because four fixtures compile.
+The feature is not complete merely because three fixtures compile.
 
 - Derive `Debug` and `Default` on compiler-owned configuration and diagnostic
   records, deleting handwritten boilerplate where the generated output is
   identical.
-- Replace at least one handwritten scalar/newtype constructor with `From` and
-  use it through `nupp.into` in generic code.
 - Implement JSON codecs for the manifest/build-cache records currently passing
   through `cjson`, then compare behavior and failure paths against the existing
   validation code before deleting duplication.
@@ -1448,8 +1375,6 @@ has covered the acceptance corpus.
 - Struct support and the JSON meaning of cdata numeric, pointer and array
   fields.
 - `Eq`, `Hash`, cloning, ECS/component and schema derives.
-- `TryFrom` and whether its error is an associated type or an explicit generic
-  parameter.
 - Builder and visitor generation, which may require separately nameable nested
   declarations.
 - Whether derived methods may opt into ownership or effect annotations.

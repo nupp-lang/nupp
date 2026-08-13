@@ -142,13 +142,13 @@ expression evaluation, reached at a different point, and producing a different
 kind of output — which is precisely why it should not be reached by making the
 evaluator able to return declarations.
 
-The first ones are compiler-owned: `Debug`, `Default`, single-field `From`, and
-`JSON`. If user-defined derives later earn their place, the interface is a
+The first ones are compiler-owned: `Debug`, `Default`, and `JSON`. If
+user-defined derives later earn their place, the interface is a
 restricted semantic provider that accepts immutable `TypeInfo` and produces
 constrained declaration IR — structural generation under a checked contract,
 not source text and not an AST. `@soa` belongs in the same category.
 
-The compiler-owned phase and its first `Debug`, `Default`, `From`, and `JSON`
+The compiler-owned phase and its first `Debug`, `Default`, and `JSON`
 providers are specified in [derives.md](derives.md). What this plan owes that
 phase is the semantic reflection model in §Semantic reflection, which is why
 that section is written to be consumed by something other than a comptime

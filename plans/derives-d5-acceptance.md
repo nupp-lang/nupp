@@ -7,7 +7,6 @@ the constrained built-in result model rather than proposing a provider API.
 
 - Compiler planner limits use `Debug` and `Default`; their values and debug bytes
   are compared with a written construction before the derived result is accepted.
-- A scalar fingerprint newtype uses `From` through generic `nupp.into` code.
 - A manifest/build-cache-shaped record runs a pinned JSON corpus. Encoding bytes,
   decoded values, unknown-key rejection and failure paths are compared.
 

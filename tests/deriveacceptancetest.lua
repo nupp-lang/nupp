@@ -1,5 +1,5 @@
 -- Acceptance workloads for the closed derive result model. These are deliberately
--- larger than unit recipes: compiler configuration, generic From use, manifest-cache
+-- larger than unit recipes: compiler configuration, manifest-cache
 -- JSON corpora, and the external Tecs MCP request shape.
 
 local parser = require("nupp.compiler.parser")
@@ -42,17 +42,6 @@ local record PlannerLimits
     renderedBytes: integer
 end
 
-@derive(nupp.derive.Debug, nupp.derive.From)
-local record Fingerprint
-    value: string
-end
-
-local function convert<T, U>(value: T, factory: {
-    readonly from: function(value: T): U
-}): U
-    return nupp.into(value, factory)
-end
-
 local derived = PlannerLimits.default()
 local written = new PlannerLimits(
     fields = 2048,
@@ -60,20 +49,16 @@ local written = new PlannerLimits(
     canonicalBytes = 1048576,
     renderedBytes = 2097152
 )
-local fingerprint: Fingerprint = convert("abc123", Fingerprint)
 return {
     defaultsEqual = derived.fields == written.fields
         and derived.semanticNodes == written.semanticNodes
         and derived.canonicalBytes == written.canonicalBytes
         and derived.renderedBytes == written.renderedBytes,
     debugEqual = derived:debug() == written:debug(),
-    fingerprint = fingerprint.value,
 }
 ]])
    assert(result.defaultsEqual and result.debugEqual,
       "derived compiler limits differ from the handwritten baseline")
-   assert(result.fingerprint == "abc123",
-      "generic nupp.into changed the scalar newtype")
 end
 
 function M.matchesManifestAndBuildCacheJSONCorpora()

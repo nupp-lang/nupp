@@ -1007,7 +1007,7 @@ Reports: `NUPP2119`. `nupp explain <code>` says more.
 
 `@derive` applies closed comptime recipes.
 
-Reports: `NUPP2801`, `NUPP2802`, `NUPP2803`, `NUPP2804`, `NUPP2805`, `NUPP2806`,
+Reports: `NUPP2801`, `NUPP2802`, `NUPP2803`, `NUPP2804`, `NUPP2806`,
 `NUPP2807`, `NUPP2808`, `NUPP2809`, `NUPP2810`, `NUPP2811`, `NUPP2812`,
 `NUPP2813`. `nupp explain <code>` says more.
 
@@ -1611,7 +1611,6 @@ says more.
 - **NUPP2802**: A generated derive member conflicts with the declaration.
 - **NUPP2803**: A field cannot participate in derived Debug.
 - **NUPP2804**: A record field has no valid derived default.
-- **NUPP2805**: A record is not an unambiguous From conversion.
 - **NUPP2806**: A record does not describe a supported JSON schema.
 - **NUPP2807**: A derive dependency cycle has no valid lowering.
 - **NUPP2808**: A derive exceeds a compiler generation limit.

@@ -4,9 +4,6 @@
 
 local derive = {}
 
-interface derive.FromContract
-end
-
 interface derive.DefaultContract
 end
 
@@ -235,10 +232,6 @@ local function jsonSpec(T: type, contract: type): any
     return nil
 end
 
-function derive.from<T>(value: T, entry: derive.Entry): T
-    return _G.nupp.__derive.from(value, entry)
-end
-
 function derive.debug<T>(value: T, entry: derive.Entry): string
     return _G.nupp.__derive.debug(value, entry.schema.data.debug)
 end
@@ -257,34 +250,6 @@ end
 
 function derive.fieldCodec(entry: derive.Entry): nupp.fieldcodec.KeyedCodec<any>
     return entry.codec
-end
-
-@comptime
-function derive.From(info: nupp.derive.Info): nupp.derive.Result<derive.FromContract>
-    if info.kind ~= "record" or #info.fields ~= 1 or info.hasConstructor then
-        return nupp.derive.error("From requires exactly one stored field and no constructor", info.reference, "NUPP2805")
-    end
-    local field = info.fields[1]
-    local detail = nupp.types.describe(field.readType)
-    if detail.kind == "owned" or detail.kind == "borrowed" or detail.kind == "pinned" then
-        return nupp.derive.error("From does not infer an ownership transfer policy", field.reference, "NUPP2805")
-    end
-    return nupp.derive.implement{
-        statics = {
-            from = nupp.derive.member{
-                signature = nupp.types.function_(
-                    nupp.types.pack({field.readType}),
-                    nupp.types.pack({info.ownerType})
-                ),
-                parameters = {"value"},
-                forward = nupp.derive.forward{
-                    helper = nupp.derive.helper(derive, "from"),
-                    arguments = {nupp.derive.argument("value"), nupp.derive.entry()},
-                },
-            },
-        },
-        data = {from = {field = field.name}},
-    }
 end
 
 @comptime

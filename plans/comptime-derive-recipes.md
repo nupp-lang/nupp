@@ -920,7 +920,7 @@ The first public comptime derive surface is complete only when:
 ## Open questions for DR0
 
 - Which external workload first proves behavior beyond `Debug`, `Default`,
-  `From` and `JSON`?
+  and `JSON`?
 - Must v1 accept only methods whose first argument is the owner, or every
   callable instance field an interface can state?
 - May a forwarding helper consume the receiver when the interface explicitly

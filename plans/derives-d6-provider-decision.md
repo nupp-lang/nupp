@@ -49,7 +49,7 @@ adds no semantic capability. Making the Tecs example non-redundant would require
 an operation such as a safe request summary: call a package-owned helper that
 parses the encoded arguments and returns a bounded, redacted correlation value.
 That is an arbitrary forwarding-helper operation, not one of the constrained
-results proven by `Debug`, `Default`, `From`, and `JSON`.
+results proven by `Debug`, `Default`, and `JSON`.
 
 The prototype rejects that helper request. Accepting it would require a separate
 design for helper identity, type and effect checking, ownership, suspension,

@@ -680,14 +680,6 @@ local ENTRIES: {
     related = {"NUPP2807", "NUPP2001"},
     docs = "docs/derives.md#default",
 }, {
-    code = "NUPP2805",
-    summary = "A record is not an unambiguous From conversion",
-    rule = "The bundled From provider is the newtype case: exactly one stored field "
-    .. "and no written constructor. Multi-field and fallible conversions remain "
-    .. "written functions.",
-    related = {"NUPP2802"},
-    docs = "docs/derives.md#from",
-}, {
     code = "NUPP2806",
     summary = "A record does not describe a supported JSON schema",
     rule = "Derived JSON needs a closed supported field graph and consistent JSON "

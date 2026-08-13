@@ -17,21 +17,14 @@ local record User
     tags: {string}
 end
 
-@derive(nupp.derive.From)
-local record UserId
-    value: integer
-end
-
 local user = nupp.default(User)
-local id = nupp.into(42, UserId)
-print(user:debug(), id.value, user:toJSON())
+print(user:debug(), user:toJSON())
 ```
 
-The four bundled comptime providers are:
+The three bundled comptime providers are:
 
 - `nupp.derive.Debug`: `debug(self): string` and `nupp.Debug` conformance.
 - `nupp.derive.Default`: static `default(): T` and `nupp.default(T)` support.
-- `nupp.derive.From`: static `from(value): T` and `nupp.into(value, T)` support.
 - `nupp.derive.JSON`: `toJSON`, static `fromJSON`, `fieldCodec`, and
   `nupp.data.json.JSONEncodable` conformance.
 
@@ -283,51 +276,6 @@ A required recursive graph is rejected, because it has no bottom: a `Node` whose
 `next: Node` is not optional would have to build forever. Make the recursive
 edge optional, or give it an explicit terminating default.
 
-## From
-
-`From` is the unambiguous newtype conversion: a static `from(value): T`, which
-`nupp.into(value, T)` also reaches. Its record must have exactly one stored
-field and no written constructor, so there is never a question of which field a
-value lands in.
-
-```nupp
-@derive(nupp.derive.Debug, nupp.derive.From)
-local record UserId
-    value: integer
-end
-
-@derive(nupp.derive.Debug, nupp.derive.From)
-local record Email
-    value: string
-end
-
-local id = nupp.into(42, UserId)
-local mail = Email.from("ada@example.com")
-print(id:debug(), mail:debug())
-```
-
-```text
-UserId { value = 42 }	Email { value = "ada@example.com" }
-```
-
-What that buys is a parameter that cannot be filled by the wrong integer:
-
-```nupp
-@derive(nupp.derive.From)
-local record UserId
-    value: integer
-end
-
-local function findUser(id: UserId): string
-    return "user " .. tostring(id.value)
-end
-
-return findUser(nupp.into(7, UserId))
-```
-
-It does not perform structural record conversion, and it does not validate.
-A conversion that can fail stays an ordinary function returning `T?, string?`.
-
 ## JSON
 
 `JSON` generates `toJSON`, a static `fromJSON`, a `fieldCodec`, and
@@ -440,7 +388,7 @@ another JSON instance cannot alter a derived codec.
 
 Comptime evaluates closed value-producing programs after normal type checking.
 Derives run as part of declaration checking and may attach only validated
-member recipes. The bundled Debug, Default, From, and JSON providers use that
+member recipes. The bundled Debug, Default, and JSON providers use that
 same public mechanism; neither derives nor comptime become arbitrary source
 generation.
 

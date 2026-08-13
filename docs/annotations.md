@@ -217,7 +217,7 @@ is a long string; other names remain available to tools that understand them.
 
 The derive configuration annotations are reserved semantic names and cannot be
 redefined by a project. They are visible through comptime provider `Info`.
-`@derive` accepts `nupp.derive.Debug`, `.Default`, `.From`, `.JSON`, or an
+`@derive` accepts `nupp.derive.Debug`, `.Default`, `.JSON`, or an
 exported comptime provider and adds checked members without exposing source or
 AST macros. See [Declaration derives](derives.md) for the recipe capabilities,
 generated methods, JSON policies, and failure rules.

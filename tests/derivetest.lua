@@ -1,5 +1,5 @@
 -- Compiler-owned declaration derives: semantic members, factory projection, and
--- the closed runtime recipes for Debug, Default, From, and JSON.
+-- the closed runtime recipes for Debug, Default, and JSON.
 local parser = require("nupp.compiler.parser")
 local gen = require("nupp.compiler.gen")
 local check = require("fragment")
@@ -66,7 +66,7 @@ end
 
 local M = {}
 
-function M.derivesTheFourBuiltinsAndInfersFactoryResults()
+function M.derivesTheBuiltinsAndInfersFactoryResults()
    local result, code = run([[
 @derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.JSON)
 local record User
@@ -77,13 +77,7 @@ local record User
     active: boolean
 end
 
-@derive(nupp.derive.Debug, nupp.derive.From)
-local record UserId
-    value: integer
-end
-
 local user: User = nupp.default(User)
-local id: UserId = nupp.into(42, UserId)
 local printable: nupp.Debug = user
 local encodable: nupp.data.json.JSONEncodable = user
 local text = encodable:toJSON()
@@ -92,7 +86,6 @@ assert(decoded and not err)
 local restored = decoded as User
 return {
     debug = printable:debug(),
-    id = id:debug(),
     text = text,
     name = restored.name,
     scores = #restored.scores,
@@ -100,7 +93,6 @@ return {
 }
 ]])
    assertEq(result.debug, 'User { name = "anonymous", scores = {}, active = false }')
-   assertEq(result.id, "UserId { value = 42 }")
    assertEq(result.text, '{"user_name":"anonymous","scores":[],"active":false}')
    assertEq(result.name, "anonymous")
    assertEq(result.scores, 0)
@@ -289,13 +281,6 @@ local fallback = "runtime"
 local record Bad
     @default(fallback)
     value: string
-end
-]]},
-      {"NUPP2805", [[
-@derive(nupp.derive.From)
-local record Bad
-    left: integer
-    right: integer
 end
 ]]},
       {"NUPP2806", [[
@@ -492,7 +477,7 @@ function M.boundsFieldsAndSemanticRecipeNodesAtTheirExactLimits()
    end
    assert(nodeLimited, "the semantic-node boundary has no direct NUPP2808 fixture")
 
-   local fields = {"@derive(nupp.derive.From)", "local record TooMany"}
+   local fields = {"@derive(nupp.derive.Debug)", "local record TooMany"}
    for index = 1, 9 do fields[#fields + 1] = "    f" .. index .. ": integer" end
    fields[#fields + 1] = "end"
    local _, beyondFields = compileAt(table.concat(fields, "\n"),
@@ -550,7 +535,7 @@ end
 
 function M.boundsRenderedRecipesAndReportsColdAndWarmObservations()
    local source = [[
-@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.From, nupp.derive.JSON)
+@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.JSON)
 local record ObservedClosure
     value: integer
 end
@@ -559,12 +544,11 @@ end
    assertEq(#coldDiagnostics, 0, "cold observation diagnostics")
    local _, warmDiagnostics, warm = compileAt(source, "observed.g.nupp")
    assertEq(#warmDiagnostics, 0, "warm observation diagnostics")
-   assertEq(#cold.deriveObservations, 4, "one observation per provider")
-   assertEq(#warm.deriveObservations, 4, "warm observation count")
+   assertEq(#cold.deriveObservations, 3, "one observation per provider")
+   assertEq(#warm.deriveObservations, 3, "warm observation count")
    local expected = {
       ["nupp.derive.Debug"] = 1,
       ["nupp.derive.Default"] = 1,
-      ["nupp.derive.From"] = 1,
       ["nupp.derive.JSON"] = 3,
    }
    for index, observation in ipairs(cold.deriveObservations) do
@@ -608,7 +592,7 @@ end
 
 function M.recordsTheExactRuntimeFeatureManifest()
    local _, debugDiagnostics, debug = compile([[
-@derive(nupp.derive.Debug, nupp.derive.Default, nupp.derive.From)
+@derive(nupp.derive.Debug, nupp.derive.Default)
 local record Pure value: integer end
 ]])
    assertEq(#debugDiagnostics, 0, "pure derive feature diagnostics")
