@@ -228,10 +228,14 @@
     grid-template-columns: 1fr;
   }
 
-  .nuppdoc-showcase-visual,
   .nuppdoc-showcase-copy {
     grid-column: auto;
-    grid-row: auto;
+    grid-row: 1;
+  }
+
+  .nuppdoc-showcase-visual {
+    grid-column: auto;
+    grid-row: 2;
   }
 }
 
