@@ -178,7 +178,20 @@ return {
                   },
                   features = {
                      {
-                        title = "Bring existing Lua forward",
+                        title = "Strict typing for LuaJIT",
+                        details = "Generics, interfaces, unions, overloads, and control-flow "
+                           .. "narrowing make contracts useful without making Lua feel heavy.",
+                        code = [[local function first<V>(items: {V}): V?
+    return items[1]
+end
+
+local function label(value: string | number): string
+    if value is string then return value:upper() end
+    return string.format("%.2f", value)
+end]],
+                     },
+                     {
+                        title = "Gradual typing for existing code",
                         details = "Every valid LuaJIT program is already valid Nupp. Add type "
                            .. "syntax under gradual checks, then rename a file when it is ready "
                            .. "for a strict boundary—without changing how other modules load it.",
@@ -193,35 +206,7 @@ local function scale(point: Point, factor: number): Point
 end]],
                      },
                      {
-                        title = "Model real data precisely",
-                        details = "Records stay flexible Lua tables. Structs become compact "
-                           .. "FFI cdata with a fixed C layout. Use the representation your "
-                           .. "data actually needs.",
-                        code = [[local record User
-    name: string
-    online: boolean
-end
-
-local struct Vec2
-    x: float
-    y: float
-end]],
-                     },
-                     {
-                        title = "Write expressive, checked APIs",
-                        details = "Generics, interfaces, unions, overloads, and control-flow "
-                           .. "narrowing make contracts useful without making Lua feel heavy.",
-                        code = [[local function first<V>(items: {V}): V?
-    return items[1]
-end
-
-local function label(value: string | number): string
-    if value is string then return value:upper() end
-    return string.format("%.2f", value)
-end]],
-                     },
-                     {
-                        title = "Compute types with ordinary code",
+                        title = "Comptime types",
                         details = "A comptime function can inspect and construct types with "
                            .. "normal branches, loops, and recursion. Its result participates in "
                            .. "inference and narrowing, then the whole function erases.",
@@ -234,21 +219,18 @@ local value: Optional(string) = nil
 value = "ready"]],
                      },
                      {
-                        title = "Derive checked behavior from declarations",
-                        details = "Bundled and project-defined comptime providers can add Debug, "
-                           .. "Default, JSON, or a project contract. Generated members use "
-                           .. "normal lookup, inference, interfaces, and editor navigation.",
-                        code = [[@derive(nupp.derive.Debug, nupp.derive.JSON)
-local record User
-    id: integer
-    name: string
-end
-
-local user = new User(id = 42, name = "Ada")
-print(user:debug(), user:toJSON())]],
+                        title = "Borrow checker and ownership",
+                        details = "Ownership, borrowing, pinning, and deterministic cleanup make "
+                           .. "the important rules at a C boundary explicit—and make leaks and "
+                           .. "use-after-move errors reportable.",
+                        code = [[do
+    local file = resources.openFile("report.txt", "r")
+    local contents = file:read("*a")
+    send(borrows contents)
+end -- the file is closed on every structured exit]],
                      },
                      {
-                        title = "Check C boundaries end to end",
+                        title = "C and FFI in the type systems",
                         details = "Import a header or write declarations with the real ABI, then "
                            .. "state what each call borrows, consumes, and returns. Nupp checks "
                            .. "the contract while LuaJIT FFI still makes the call.",
@@ -268,15 +250,33 @@ cdef function buffer_read(
 ): int32]],
                      },
                      {
-                        title = "Give resources a lifetime the checker can see",
-                        details = "Ownership, borrowing, pinning, and deterministic cleanup make "
-                           .. "the important rules at a C boundary explicit—and make leaks and "
-                           .. "use-after-move errors reportable.",
-                        code = [[do
-    local file = resources.openFile("report.txt", "r")
-    local contents = file:read("*a")
-    send(borrows contents)
-end -- the file is closed on every structured exit]],
+                        title = "Model real data precisely",
+                        details = "Records stay flexible Lua tables. Structs become compact "
+                           .. "FFI cdata with a fixed C layout. Use the representation your "
+                           .. "data actually needs.",
+                        code = [[local record User
+    name: string
+    online: boolean
+end
+
+local struct Vec2
+    x: float
+    y: float
+end]],
+                     },
+                     {
+                        title = "Derive checked behavior from declarations",
+                        details = "Bundled and project-defined comptime providers can add Debug, "
+                           .. "Default, JSON, or a project contract. Generated members use "
+                           .. "normal lookup, inference, interfaces, and editor navigation.",
+                        code = [[@derive(nupp.derive.Debug, nupp.derive.JSON)
+local record User
+    id: integer
+    name: string
+end
+
+local user = new User(id = 42, name = "Ada")
+print(user:debug(), user:toJSON())]],
                      },
                      {
                         title = "Suspend without coloring the call graph",
@@ -391,7 +391,7 @@ end
 -- The generated Lua holds the table, not the loop that built it.]],
                      },
                      {
-                        title = "See why a hot loop stays interpreted",
+                        title = "Built for performance",
                         details = "Read bytecode beside the Nupp line that produced it. The check "
                            .. "mode also finds work inside a loop that makes LuaJIT abort trace "
                            .. "recording and run that hot loop interpreted.",
