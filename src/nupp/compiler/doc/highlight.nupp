@@ -146,7 +146,15 @@ local function tokenStyle(tokens, index, syntaxKinds)
     local previous = tokens[index - 1]
     local following = tokens[index + 1]
     if token.kind == "name" then
-        local syntaxStyle = SYNTAX_STYLES[syntaxKinds[token]]
+        local syntaxKind = syntaxKinds[token]
+        -- The semantic layer calls a directive a keyword, which it is; the colour says
+        -- which kind of one, so the directive answers before that. It answers after the
+        -- other semantic kinds, so a binding that merely spells one of these names is
+        -- still coloured as the binding it is.
+        if syntaxKind == "keyword" and DIRECTIVE_KEYWORDS[token.text] then
+            return "meta"
+        end
+        local syntaxStyle = SYNTAX_STYLES[syntaxKind]
         if syntaxStyle then
             return syntaxStyle
         end
