@@ -8,6 +8,10 @@ baseline lazily after their initial chunk has completed successfully.
 
 local incremental = require("nupp.compiler.incremental")
 local diagnostics = require("nupp.compiler.diagnostics")
+local buildModules = require("nupp.compiler.build.modules")
+local hash = require("nupp.compiler.build.hash")
+local cache = require("nupp.compiler.build.cache")
+local cst = require("nupp.compiler.cst")
 local envMod = require("nupp.compiler.env")
 local gen = require("nupp.compiler.gen")
 
@@ -21,17 +25,20 @@ local function fatalIn(values)
             return true
         end
     end
+
     return false
 end
 
-local function copyManifest(metadata, path)
+local function copyManifest(metadata, path, abi)
     local functions = {}
     for _, fn in ipairs(metadata.functions or {}) do
         local captures = {}
         for index, capture in ipairs(fn.captures or {}) do
             captures[index] = capture
         end
-        functions[#functions + 1] = {
+        functions[
+            #functions + 1
+        ] = {
             id = fn.id,
             slot = fn.slot,
             name = fn.name,
@@ -43,6 +50,7 @@ local function copyManifest(metadata, path)
             affineCapture = fn.affineCapture,
         }
     end
+
     return {
         schema = 1,
         module = metadata.module,
@@ -50,6 +58,7 @@ local function copyManifest(metadata, path)
         optimization = 0,
         structure = metadata.structure,
         functions = functions,
+        abi = abi,
     }
 end
 
@@ -62,6 +71,7 @@ local function sameCaptures(left, right)
             return false
         end
     end
+
     return true
 end
 
@@ -70,23 +80,130 @@ local function indexed(manifest)
     for _, fn in ipairs(manifest.functions or {}) do
         byID[fn.id] = fn
     end
+
     return byID
 end
 
 local function restart(path, message)
     return {
         kind = "restart-required",
-        diagnostics = {{
-            filename = path,
-            line = 1,
-            col = 1,
-            offset = 0,
-            length = 0,
-            code = "NUPP5001",
-            msg = message,
-            help = "restart the program to apply this structural change",
-        }},
+        diagnostics = {
+            {
+                filename = path,
+                line = 1,
+                col = 1,
+                offset = 0,
+                length = 0,
+                code = "NUPP5001",
+                msg = message,
+                help = "restart the program to apply this structural change",
+            }
+        },
     }
+end
+
+local function diagnosticsFailure(values)
+    return {kind = "diagnostics", diagnostics = values}
+end
+
+local function exportDeprecationsFingerprint(exports)
+    local items = {}
+    for _, field in ipairs({"typeDefs", "valueDefs"}) do
+        for name, definition in pairs(exports and exports[field] or {}) do
+            local deprecated = definition.deprecated
+            if deprecated then
+                items[
+                    #items + 1
+                ] = field .. ":" .. name .. ":" .. cache.stable(
+                    deprecated.reason
+                ) .. ":" .. cache.stable(deprecated.replacement)
+            end
+        end
+    end
+    table.sort(items)
+
+    return table.concat(items, "\0")
+end
+
+--- C declarations are runtime ABI, including layout, symbol spelling and library.
+--- Fingerprint their token stream rather than the whole file so an ordinary body edit
+--- remains patchable while every declaration change is conservatively restart-only.
+local function cdefFingerprint(parsed)
+    local parts = {}
+    local function wrapsCdef(node)
+        while type(node) == "table" and node.kind == "pragmaStmt" do
+            node = node.stat
+        end
+        return type(node) == "table" and (node.kind == "cdefStruct" or node.kind == "cdefFunc")
+    end
+
+    local function visit(node, inside)
+        if type(node) ~= "table" then
+            return
+        end
+        if cst.isToken(node) then
+            if inside then
+                parts[#parts + 1] = tostring(node.kind) .. ":" .. tostring(node.text)
+            end
+            return
+        end
+        if node.cheaderCdef then
+            parts[
+                #parts + 1
+            ] = "cheader:" .. tostring(node.cheaderCdef) .. ":library=" .. tostring(node.cheaderLib or "")
+        end
+        local begins = node.kind == "cdefStruct" or node.kind == "cdefFunc" or (
+            node.kind == "pragmaStmt" and wrapsCdef(node)
+        )
+        local active = inside or begins
+        if begins then
+            parts[#parts + 1] = "begin:" .. node.kind
+        end
+        for _, child in ipairs(node) do
+            visit(child, active)
+        end
+        if begins then
+            parts[#parts + 1] = "end:" .. node.kind
+        end
+    end
+
+    visit(parsed and parsed.root, false)
+
+    return table.concat(parts, "\0")
+end
+
+local function interfaceFingerprint(moduleType, exports, cdefFingerprint)
+    exports = exports or {}
+    return hash.digest(
+        buildModules.typeFingerprint(
+            moduleType
+        ) .. "\0deprecated\0" .. exportDeprecationsFingerprint(
+            exports
+        ) .. "\0nominal-callables:" .. (
+            exports.nominalEffectFingerprint or ""
+        ) .. "\0derives:" .. (
+            exports.deriveInterfaceFingerprint or ""
+        ) .. "\0comptime-functions:" .. (
+            exports.comptimeFunctionFingerprint or ""
+        ) .. "\0cdef:" .. (cdefFingerprint or "")
+    )
+end
+
+local function snapshotChanged(previous, candidate)
+    for identity, old in pairs(previous.modules or {}) do
+        local current = candidate.modules[identity]
+        if current and current.fingerprint ~= old.fingerprint then
+            return "module interface changed: " .. old.label
+        end
+    end
+    for identity, old in pairs(previous.declarations or {}) do
+        local current = candidate.declarations[identity]
+        if current and current.fingerprint ~= old.fingerprint then
+            return "declaration changed: " .. old.label
+        end
+    end
+
+    return nil
 end
 
 function hotSession.new(root, opts)
@@ -95,6 +212,7 @@ function hotSession.new(root, opts)
     self.generation = 1
     self.running = {}
     self.prepared = {}
+
     return self
 end
 
@@ -102,21 +220,81 @@ function Session:diskChanged(path, changeType)
     self.inc.diskChanged(path, changeType)
 end
 
+--- Capture every semantic boundary the loaded module was checked against. New
+--- dependencies and dependencies removed by a body edit do not invalidate the
+--- generation; a retained dependency changing its meaning does.
+function Session:semanticSnapshot(path, checked, module)
+    local snapshot = {modules = {}, declarations = {}}
+    local visited = {}
+
+    local function visit(currentPath, currentChecked, currentModule)
+        if visited[currentPath] then
+            return true
+        end
+        visited[currentPath] = true
+
+        local result = currentChecked or self.inc.checkFile(currentPath)
+        if fatalIn(result.diags) then
+            return nil, diagnosticsFailure(result.diags)
+        end
+        snapshot.modules[
+            currentModule
+        ] = {
+            fingerprint = interfaceFingerprint(result.moduleType, result.exports, cdefFingerprint(result.result)),
+            label = currentModule,
+        }
+        for _, dependency in ipairs(self.inc.projectDependencies(currentPath)) do
+            local identity = dependency.name .. "\0" .. tostring(dependency.key)
+            snapshot.declarations[identity] = {fingerprint = dependency.fingerprint, label = tostring(dependency.key),}
+        end
+        for _, dependency in ipairs(self.inc.moduleDependencies(currentPath)) do
+            local dependencyPath = self.inc.modulePath(dependency)
+            if dependencyPath then
+                local ok, failure = visit(dependencyPath, nil, dependency)
+                if not ok then
+                    return nil, failure
+                end
+            else
+                local bundled = self.inc.env.bundled and self.inc.env.bundled[dependency]
+                if bundled then
+                    snapshot.modules[
+                        dependency
+                    ] = {fingerprint = interfaceFingerprint(bundled.type, bundled.exports), label = dependency,}
+                end
+            end
+        end
+
+        return true
+    end
+
+    local ok, failure = visit(path, checked, module)
+    if not ok then
+        return nil, failure
+    end
+
+    return snapshot
+end
+
 function Session:compile(path, mode, module, only)
     local checked = self.inc.checkFile(path)
     if fatalIn(checked.diags) then
-        return nil, {kind = "diagnostics", diagnostics = checked.diags}
+        return nil, diagnosticsFailure(checked.diags)
     end
-    local code, generated, _, _, metadata = gen.generate(checked.result, path, nil, {
-        mode = mode,
-        module = module,
-        baseGeneration = mode == "patch" and self.generation or nil,
-        only = only,
-    })
+    local abi, abiFailure = self:semanticSnapshot(path, checked, module)
+    if not abi then
+        return nil, abiFailure
+    end
+    local code, generated, _, _, metadata = gen.generate(
+        checked.result,
+        path,
+        nil,
+        {mode = mode, module = module, baseGeneration = mode == "patch" and self.generation or nil, only = only,}
+    )
     if fatalIn(generated) then
-        return nil, {kind = "diagnostics", diagnostics = generated}
+        return nil, diagnosticsFailure(generated)
     end
-    return {code = code, manifest = copyManifest(metadata, path)}
+
+    return {code = code, manifest = copyManifest(metadata, path, abi)}
 end
 
 function Session:initial(entries)
@@ -129,12 +307,8 @@ function Session:initial(entries)
     if not built then
         return failure
     end
-    return {
-        kind = "initial",
-        generation = self.generation,
-        entryCode = built.code,
-        entryManifest = built.manifest,
-    }
+
+    return {kind = "initial", generation = self.generation, entryCode = built.code, entryManifest = built.manifest,}
 end
 
 function Session:loaded(module, generation, manifest)
@@ -154,6 +328,28 @@ function Session:prepare(paths)
     local patches, candidate = {}, {}
     for module, manifest in pairs(self.running) do
         candidate[module] = manifest
+    end
+    -- Revalidate every loaded root. Query validation follows cached dependency edges;
+    -- only invalidated dependants run their type checks again.
+    local loaded = {}
+    for module in pairs(self.running) do
+        loaded[#loaded + 1] = module
+    end
+    table.sort(loaded)
+    for _, module in ipairs(loaded) do
+        local live = self.running[module]
+        local checked = self.inc.checkFile(live.path)
+        if fatalIn(checked.diags) then
+            return diagnosticsFailure(checked.diags)
+        end
+        local abi, failure = self:semanticSnapshot(live.path, checked, module)
+        if not abi then
+            return failure
+        end
+        local change = snapshotChanged(live.abi or {}, abi)
+        if change then
+            return restart(live.path, change .. " (required by " .. module .. ")")
+        end
     end
     local changedCount = 0
     for _, path in ipairs(paths or {}) do
@@ -183,8 +379,12 @@ function Session:prepare(paths)
                 end
                 if nextFn.implementation ~= old.implementation then
                     if not old.patchable then
-                        return restart(path, "capture " .. tostring(old.affineCapture)
-                            .. " owns a cleanup, so replacing " .. old.id .. " requires restart")
+                        return restart(
+                            path,
+                            "capture " .. tostring(
+                                old.affineCapture
+                            ) .. " owns a cleanup, so replacing " .. old.id .. " requires restart"
+                        )
                     end
                     only[id] = true
                     changedCount = changedCount + 1
@@ -216,6 +416,7 @@ function Session:prepare(paths)
         generation = generation,
     }
     self.prepared[generation] = {result = result, manifests = candidate}
+
     return result
 end
 

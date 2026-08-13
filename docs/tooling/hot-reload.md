@@ -79,14 +79,22 @@ A syntax or type error rejects the candidate and leaves the last good
 generation running. A compatible multi-function patch is staged completely
 before any slot changes, and commit flushes LuaJIT traces.
 
+Before staging, Nupp rechecks every loaded module through the incremental
+semantic dependency graph. A changed global declaration, imported module
+interface, C declaration, or imported header is therefore observed even when
+the source spelling of a function signature did not change. Unrelated
+declarations stop at their dependency boundary and do not force a restart.
+
 ## Changes that require restart
 
 Restart after changing any top-level executable statement or initializer,
 adding, removing, renaming or moving a named declaration, changing a callable
 signature or capture set, or changing a record, struct, native or component
-layout. A function that takes ownership of a cleanup-bearing capture is also
-not patchable; the diagnostic names the capture that selected the affine
-lowering.
+layout. Changes to C declarations and imported header declarations also require
+a restart: the old FFI declarations and any values created from them already
+exist in the VM. A function that takes ownership of a cleanup-bearing capture
+is also not patchable; the diagnostic names the capture that selected the
+affine lowering.
 
 Anonymous escaping closures are not yet patch identities. Give long-lived
 callbacks a name:

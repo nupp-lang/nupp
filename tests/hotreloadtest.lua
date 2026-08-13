@@ -66,6 +66,20 @@ local function write(path, source)
    handle:close()
 end
 
+local function loadedCompilerSession(dir, path)
+   local session = hotSession.new(dir, {cache = false})
+   local initialBuild = session:initial({path})
+   if initialBuild.kind ~= "initial" then
+      local messages = {}
+      for _, diagnostic in ipairs(initialBuild.diagnostics or {}) do
+         messages[#messages + 1] = diagnostic.code .. ": " .. diagnostic.msg
+      end
+      error("initial hot build failed: " .. table.concat(messages, "; "), 2)
+   end
+   session:loaded(initialBuild.entryManifest.module, 1, initialBuild.entryManifest)
+   return session
+end
+
 function M.normalGenerationRemainsByteIdentical()
    local result = checked("local function f(n: integer): integer return n + 1 end\nreturn f")
    local ordinary = assert(gen.generate(result, "ordinary.g.nupp"))
@@ -396,6 +410,99 @@ function M.sessionReportsStructuralChangesAsRestartRequired()
    local result = session:prepare({path})
    assertEq(result.kind, "restart-required")
    assertEq(result.diagnostics[1].code, "NUPP5001")
+end
+
+function M.sessionRechecksLoadedModulesAfterDeclarationChanges()
+   local dir = temporaryProject({
+      ["globals.nupp"] = "global type Watched = number\n",
+      ["main.nupp"] = table.concat({
+         "local function add(value: Watched): number",
+         "   return value + 1",
+         "end",
+         "return add",
+      }, "\n"),
+   })
+   local mainPath = dir .. "/main.nupp"
+   local globalsPath = dir .. "/globals.nupp"
+   local session = loadedCompilerSession(dir, mainPath)
+
+   write(globalsPath, "global type Watched = string\n")
+   session:diskChanged(globalsPath, 2)
+   local result = session:prepare({globalsPath})
+   assertEq(result.kind, "diagnostics", "dependent is type-checked before patching")
+   assert(result.diagnostics[1].code:match("^NUPP[123]"), "expected a fatal type diagnostic")
+end
+
+function M.sessionRejectsSemanticSignatureChangesWithTheSameSpelling()
+   local dir = temporaryProject({
+      ["globals.nupp"] = "global type Watched = int32\n",
+      ["main.nupp"] = table.concat({
+         "local function identity(value: Watched): Watched",
+         "   return value",
+         "end",
+         "return identity",
+      }, "\n"),
+   })
+   local mainPath = dir .. "/main.nupp"
+   local globalsPath = dir .. "/globals.nupp"
+   local session = loadedCompilerSession(dir, mainPath)
+
+   write(globalsPath, "global type Watched = int64\n")
+   session:diskChanged(globalsPath, 2)
+   local result = session:prepare({globalsPath})
+   assertEq(result.kind, "restart-required")
+   assertEq(result.diagnostics[1].code, "NUPP5001")
+   assert(result.diagnostics[1].msg:find("changed", 1, true), result.diagnostics[1].msg)
+end
+
+function M.sessionRejectsChangedCLayoutsBeforePatching()
+   local dir = temporaryProject({
+      ["native.nupp"] = table.concat({
+         "cdef struct hot_point",
+         "   value: int32",
+         "end",
+         "return {hot_point = hot_point}",
+      }, "\n"),
+      ["main.nupp"] = table.concat({
+         "local native = require('native')",
+         "return native.hot_point",
+      }, "\n"),
+   })
+   local mainPath = dir .. "/main.nupp"
+   local nativePath = dir .. "/native.nupp"
+   local session = loadedCompilerSession(dir, mainPath)
+
+   write(nativePath, table.concat({
+      "cdef struct hot_point",
+      "   value: int64",
+      "end",
+      "return {hot_point = hot_point}",
+   }, "\n"))
+   session:diskChanged(nativePath, 2)
+   local result = session:prepare({nativePath})
+   assertEq(result.kind, "restart-required")
+   assertEq(result.diagnostics[1].code, "NUPP5001")
+end
+
+function M.sessionIgnoresUnrelatedDeclarationChanges()
+   local dir = temporaryProject({
+      ["globals.nupp"] = table.concat({
+         "global type Watched = number",
+         "global type Unused = number",
+      }, "\n"),
+      ["main.nupp"] = "local value: Watched = 1\nreturn value\n",
+   })
+   local mainPath = dir .. "/main.nupp"
+   local globalsPath = dir .. "/globals.nupp"
+   local session = loadedCompilerSession(dir, mainPath)
+
+   write(globalsPath, table.concat({
+      "global type Watched = number",
+      "global type Unused = string",
+   }, "\n"))
+   session:diskChanged(globalsPath, 2)
+   local result = session:prepare({globalsPath})
+   assertEq(result.kind, "no-change", "unobserved declarations stop at the query boundary")
 end
 
 return M
