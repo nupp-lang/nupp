@@ -58,7 +58,7 @@ jobs:
       - name: Run the compiler suite
         if: runner.os != 'Windows'
         shell: bash
-        run: ./bin/nupp test
+        run: ./bin/nupp test --jobs=1
 
       - name: Run the compiler suite
         if: runner.os == 'Windows'

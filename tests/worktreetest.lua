@@ -32,6 +32,15 @@ local function temporary()
    return path
 end
 
+-- A Windows drive-letter path (`C:/...`) and the MSYS spelling Git Bash's own
+-- utilities normalize it to (`/c/...`) name the same real location; comparing them
+-- literally would fail on a difference in spelling rather than in substance.
+local function posixDrive(path)
+   return (path:gsub("^([A-Za-z]):/", function(drive)
+      return "/" .. drive:lower() .. "/"
+   end))
+end
+
 function M.helperSeedsOnlyReusableWorktreeState()
    local parent = temporary()
    local origin, task, dirtyTask = parent .. "/origin", parent .. "/task",
@@ -52,8 +61,12 @@ function M.helperSeedsOnlyReusableWorktreeState()
    write(origin .. "/build/lib/native", "library\n")
    write(origin .. "/build/.nupp-state.json", "{}\n")
    write(origin .. "/.rocks/sentinel", "rocks\n")
+   -- `.exe`, matching what Cargo actually names a Windows build script: Git Bash's
+   -- `test -x` there answers from the extension, not from a permission bit its own
+   -- `chmod` cannot reliably set on an NTFS mount, so an extension-less fixture was
+   -- never going to observe the migration succeeding on that platform.
    local cargoExecutable = origin
-      .. "/build/native/nupp_native/release/build/example/build_script_build-example"
+      .. "/build/native/nupp_native/release/build/example/build_script_build-example.exe"
    write(cargoExecutable, "native-cache\n")
    assert(os.execute("chmod +x " .. quote(cargoExecutable)) == 0)
    assert(os.execute(("git -C %s init -q && git -C %s config user.name Test "
@@ -78,7 +91,7 @@ function M.helperSeedsOnlyReusableWorktreeState()
       "the copied completion stamp remained older than a fresh checkout")
    local shared = origin
       .. "/.nupp-cache/native-dev-files-process-http-uri/release/build/example/"
-      .. "build_script_build-example"
+      .. "build_script_build-example.exe"
    assert(read(shared) == "native-cache\n", "the native target was not migrated")
    assert(os.execute("test -x " .. quote(shared)) == 0,
       "native build executables lost their mode while migrating")
@@ -137,14 +150,15 @@ mkdir -p "$target/release"
    local environment = ("PATH=%s:$PATH NUPP_TEST_COMMON=%s NUPP_TEST_RECORD=%s ")
       :format(quote(fake), quote(common), quote(record))
    assert(os.execute(environment .. quote(root .. "/bin/nupp") .. " clean") == 0)
-   assert(read(record):match("^%s*(.-)%s*$")
-      == root .. "/.nupp-cache/native-dev-files-process-http-uri",
+   assert(posixDrive(read(record):match("^%s*(.-)%s*$"))
+      == posixDrive(root .. "/.nupp-cache/native-dev-files-process-http-uri"),
       "the launcher did not select the repository-common Cargo target")
 
    os.remove(root .. "/build/lib/libnupp_native_dev.dylib")
    assert(os.execute(environment .. "NUPP_NATIVE_TARGET_DIR=relative-target "
       .. quote(root .. "/bin/nupp") .. " clean") == 0)
-   assert(read(record):match("^%s*(.-)%s*$") == root .. "/relative-target",
+   assert(posixDrive(read(record):match("^%s*(.-)%s*$"))
+      == posixDrive(root .. "/relative-target"),
       "a relative native target override was not rooted at the checkout")
    os.execute("rm -rf " .. quote(root))
 end

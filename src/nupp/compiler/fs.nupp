@@ -54,14 +54,19 @@ end
 local function readFile(path: string): string?, string?
     local f, err = io.open(path, "rb")
     if not f then
+        -- A directory fails to open outright on Windows, with an OS message that
+        -- says nothing about why; POSIX opens it and then reads as nothing instead.
+        -- Either way, say what happened rather than the raw OS error: a caller that
+        -- reports it printed a permissions complaint where the path belonged, saying
+        -- neither what it tried to read nor the actual reason.
+        if nupp.io.files.isDirectory(path) then
+            return nil, path .. " is a directory"
+        end
+
         return nil, err
     end
     local text = f:read("*a")
     f:close()
-    -- A directory opens on POSIX and then reads as nothing, and Lua's `read` has no
-    -- reason to hand back when it fails. Say what happened rather than returning nil
-    -- twice: a caller that reports the second result printed the word "nil" where the
-    -- path belonged, saying neither what it tried to read nor why it could not.
     if not text then
         if nupp.io.files.isDirectory(path) then
             return nil, path .. " is a directory"
