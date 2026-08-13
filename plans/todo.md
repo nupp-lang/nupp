@@ -49,7 +49,10 @@ work makes sense in.
       generation. The user-facing model must require no `cdef`, duplicated C
       struct, or handwritten C. Specify layout validation, alias assumptions,
       CPU dispatch, caching, diagnostics for rejected operations, and
-      performance gates before choosing a backend.
+      performance gates before choosing a backend. Compare that explicit
+      boundary with the ordinary-value and transparent-lowering design in
+      [portable-vectors.md](portable-vectors.md) before choosing either public
+      model.
 
 ## Dialect interop (`import-tl`)
 
