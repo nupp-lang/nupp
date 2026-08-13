@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
   <title id="title">Nupp programming language icon</title>
-  <desc id="desc">A nuppeppo yokai rendered as a flat silhouette inside a sage green circle,
-    with drooping closed eyes and a small mouth, standing in brown grass under a full moon.</desc>
+  <desc id="desc">A nuppeppo yokai rendered as a flat silhouette inside a circle,
+    with drooping closed eyes and a small mouth, standing in brown grass before a
+    stand of pines, under a full moon in a dark blue night sky.</desc>
 
   <defs>
     <!-- Two small, close-set feet. -->
@@ -23,8 +24,13 @@
     <path id="arm-l" d="M37 55c-8 8-14 18-19 28-4 8-1 16 6 18 4 1 7-2 7-6 1 5 6 6 9 2 2 4 7 2 8-2 2-8-3-28-11-40Z"/>
     <path id="arm-r" d="M92 54c9 8 15 18 19 29 3 9 0 17-7 19-4 1-7-2-6-6-2 5-7 5-10 1-3 4-8 2-9-2-2-9 5-29 13-41Z"/>
 
+    <!-- A three-tiered fir on a short trunk, rooted at the origin and forty
+         tall, so a scale is a height in the viewBox's own units. -->
+    <path id="pine" d="M0 -40 L4.5 -29 L2 -29 L8 -18 L4 -18 L11 -5 L1.6 -5 L1.6 0
+             L-1.6 0 L-1.6 -5 L-11 -5 L-4 -18 L-8 -18 L-2 -29 L-4.5 -29 Z"/>
+
     <!-- One grass blade, rooted at the origin and leaning left, and the tuft of
-         five it grows in; mirror a tuft with scale(-1,1) to turn the fan round. -->
+         six it grows in; mirror a tuft with scale(-1,1) to turn the fan round. -->
     <path id="blade" d="M0 0 C0.6 -6 0.4 -11 -3.4 -18 C1 -12 2.5 -6 2.7 0 Z"/>
     <g id="tuft">
       <use href="#blade" transform="rotate(-40) scale(0.7)"/>
@@ -39,13 +45,36 @@
     <clipPath id="disc"><circle cx="64" cy="64" r="62"/></clipPath>
   </defs>
 
-  <!-- Theme accent sage disc behind the figure. -->
-  <circle cx="64" cy="64" r="62" fill="#55745b"/>
+  <!-- Night sky behind the whole scene. -->
+  <circle cx="64" cy="64" r="62" fill="#163b5c"/>
 
   <g clip-path="url(#disc)">
 
     <!-- Full moon, clear of the figure in the upper right. -->
     <circle cx="97" cy="27" r="10.5" fill="#e2d5aa"/>
+
+    <!-- Two ranks of pines: a paler distant treeline, then a darker near one
+         whose tallest fir crosses the moon. -->
+    <g fill="#1d4440">
+      <use href="#pine" transform="translate(6,114) scale(1.45)"/>
+      <use href="#pine" transform="translate(23,115) scale(1.15)"/>
+      <use href="#pine" transform="translate(40,114) scale(1.15)"/>
+      <use href="#pine" transform="translate(58,115) scale(0.95)"/>
+      <use href="#pine" transform="translate(76,114) scale(1.2)"/>
+      <use href="#pine" transform="translate(94,115) scale(1.05)"/>
+      <use href="#pine" transform="translate(112,114) scale(1.3)"/>
+    </g>
+
+    <g fill="#0d2027">
+      <use href="#pine" transform="translate(0,119) scale(1.6)"/>
+      <use href="#pine" transform="translate(17,120) scale(1.5)"/>
+      <use href="#pine" transform="translate(34,119) scale(1.6)"/>
+      <use href="#pine" transform="translate(52,120) scale(1.3)"/>
+      <use href="#pine" transform="translate(70,119) scale(1.55)"/>
+      <use href="#pine" transform="translate(90,120) scale(1.35)"/>
+      <use href="#pine" transform="translate(110,119) scale(1.9)"/>
+      <use href="#pine" transform="translate(126,120) scale(1.4)"/>
+    </g>
 
     <g transform="translate(58,70) scale(0.7) translate(-65.5,-63.5)"
        stroke-linejoin="round" stroke-linecap="round">
