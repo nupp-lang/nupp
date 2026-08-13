@@ -370,8 +370,8 @@ end
 local function stepper(rounds: integer): integer
     local total: integer = 0
     for i = 1, rounds do
-        local step = coroutine.wrap(function() coroutine.yield(i) end)
-        total = total + (step() as integer)
+        local function step(): integer return i end
+        total = total + step()
     end
     return total
 end
@@ -445,7 +445,7 @@ function M.cliJitAbortsWritesCsv()
 
    local rows = lines(readFile(dir .. "/jit-aborts.csv"))
    assertEq(rows[1], "severity,count,reason,location,zone", "the header")
-   assert(#rows > 1, "the coroutine workload aborts, so there is a row")
+   assert(#rows > 1, "the closure workload aborts, so there is a row")
    assertMatch(rows[2], "^warn,%d+,NYI", "and it says what was refused")
    os.execute("rm -rf '" .. dir .. "'")
 end
