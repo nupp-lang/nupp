@@ -451,7 +451,7 @@ record http.Response
     status: integer
     version: http.Version
     url: nupp.io.URI
-    body: owned<http.Body>
+    body: Owned<http.Body>
     _packed: string
     _values: {[string]: {string}}?
     _headers: {string: string}?

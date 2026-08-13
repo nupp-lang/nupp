@@ -21,14 +21,11 @@ local state = require("nupp.compiler.check.state")
 
 local resolve = {}
 
---- The ownership type constructors, by every spelling that still resolves.
+--- The ownership type constructors, by the name each is written with.
 local ownershipConstructors: {[string]: string} = {
     Owned = "owned",
     Borrowed = "borrowed",
     Pinned = "pinned",
-    owned = "owned",
-    borrowed = "borrowed",
-    pinned = "pinned",
 }
 
 local instantiateNominal = generics.instantiate

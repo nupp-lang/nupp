@@ -663,7 +663,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                 -- demand a `@drop` the author never claimed to have.
                 local written = body.rets and body.rets[j]
                 local wroteName = written ~= nil and written.kind == "tname" and written.base ~= nil and written.base.text or nil
-                local wroteOwned = wroteName == "Owned" or wroteName == "owned"
+                local wroteOwned = wroteName == "Owned"
                 local inner = rawType(ret)
                 -- Only a type that declared a terminal supplies one. A closure carries
                 -- its own, and a C pointer never has a `@drop` to inherit -- there is
