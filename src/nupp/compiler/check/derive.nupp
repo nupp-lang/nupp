@@ -455,6 +455,14 @@ function derive.install(c: state.Checker): derive.Ops
         local descriptorFields = item.ownerDescriptor.fields or {}
         for index, fieldName in ipairs(n.fieldOrder or {}) do
             local fieldType = n.byname[fieldName]
+            -- What a field's type claims is fingerprint input rather than a member of
+            -- the projection, and `record Field` is right not to declare it. A provider
+            -- asks `nupp.derive.claims` one interface at a time, which keeps the world
+            -- closed; handing it the supertype list would let a recipe enumerate
+            -- contracts nobody named to it. It still has to reach the fingerprint,
+            -- because a memoized answer stays right only while the interfaces behind it
+            -- do. The accessor in nupp.compiler.materialize.derive is what enforces the
+            -- first half, and the loop below feeds the second.
             local claimSource = fieldType and fieldType.tag == "nominal" and (fieldType.origin or fieldType) or nil
             local claims = {}
             for claimIndex, claim in ipairs(claimSource and claimSource.supertypes or {}) do

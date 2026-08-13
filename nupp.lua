@@ -582,6 +582,11 @@ nupp lsp            # start the language server]],
                   source = "docs/data.md",
                },
                {
+                  path = "modules/nupp/derive",
+                  title = "Module: nupp.derive",
+                  source = "docs/derives.md",
+               },
+               {
                   path = "modules/nupp/io",
                   title = "Module: nupp.io",
                   source = "docs/io.md",
