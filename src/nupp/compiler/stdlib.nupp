@@ -1212,6 +1212,15 @@ end
 ]=]
 )
 
+-- The implementation is an ordinary checked Nupp module, so this installs a
+-- loader rather than a second copy of it. It exists so the only spelling a
+-- program needs is the ambient one.
+local BITSET = compact(
+    [=[
+__nuppLazy(__nuppData,"bitset",function()return require("nupp.bitsetimpl")end)
+]=]
+)
+
 local SHA256 = compact(
     [=[
 __nuppLazy(__nuppData,"sha256",function()local native=__nuppNative();return function(value)local bytes=type(value)=="string"and value or value:getString();local output=native.ffi.new("char[65]");if not native.C.nuppSha256(bytes,#bytes,output)then error("nupp: SHA-256 input is invalid",2)end;return native.ffi.string(output)end end)
@@ -1256,6 +1265,9 @@ function stdlib.bootstrap(effects: {[string]: any}?, watch: boolean?): string
     end
     if effects["stdlib.derives"] then
         out[#out + 1] = DERIVES
+    end
+    if effects["stdlib.bitset"] then
+        out[#out + 1] = BITSET
     end
     local hasNative = effects[
         "native.path"

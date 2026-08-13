@@ -78,6 +78,13 @@ local FEATURES: {
     name = "math",
     globals = {"nupp.math"},
 }, [
+    "stdlib.bitset"
+] = {
+    name = "bitset",
+    globals = {"nupp.data.bitset"},
+    -- Checked Nupp reached through the ambient namespace. The installer loads the
+    -- module, so there is no native host feature and no shared module name.
+}, [
     "stdlib.log"
 ] = {
     name = "log",

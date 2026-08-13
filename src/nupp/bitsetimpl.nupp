@@ -1,0 +1,589 @@
+--[[
+Multi-word bitsets over GC-managed 32-bit words.
+
+LuaJIT gives one 32-bit word at a time and no population count or trailing-zero
+operation, so everything that makes a bitset a bitset lives here: the word loop,
+range masks that span word boundaries, the used-word bound, and counting across
+words. Storage is FFI cdata; the pointer is private, so no caller can hold one
+across a growth that replaces it.
+
+Bit indexes count from 0, because bit `i` lives in word `i / WORD_BITS` and
+fighting that costs correctness. `count` is resolved on demand rather than
+maintained through set algebra: union, intersection and difference are word
+loops whose per-word popcount would otherwise cost more than the operation.
+
+Reached as `nupp.data.bitset`, which the prelude declares and the stdlib
+installer loads. This file is named for the implementation rather than for that
+namespace because a module at the same path would shadow it.
+]]
+
+local bitset = {}
+local ffi = require("ffi")
+
+const band = bit.band
+const bnot = bit.bnot
+const bor = bit.bor
+const bxor = bit.bxor
+const lshift = bit.lshift
+const rshift = bit.rshift
+const tobit = bit.tobit
+
+--- How many bits one stored word holds. Derive word arithmetic from this rather
+--- than assuming a width.
+--- @export
+const bitset.WORD_BITS = 32
+
+-- 5 and 31 are WORD_BITS as a shift and a mask. They are spelled as literals
+-- because LuaJIT folds a literal shift and would not fold a table read.
+const WORD_SHIFT = 5
+const BIT_MASK = 31
+const ALL_ONES = -1
+const DEFAULT_BITS = 64
+
+local POPCOUNT_BYTE = ffi.new("uint8_t[256]") as uint8[?]
+local CTZ_BYTE = ffi.new("uint8_t[256]") as uint8[?]
+
+unsafe do
+    for value = 0, 255 do
+        local bits = 0
+        local rest = value
+        while rest ~= 0 do
+            bits = bits + band(rest, 1)
+            rest = rshift(rest, 1)
+        end
+        POPCOUNT_BYTE[value] = bits
+    end
+
+    -- A byte with nothing set has no trailing-zero answer; 8 makes the caller's
+    -- next probe skip it without a separate test.
+    CTZ_BYTE[0] = 8
+    for value = 1, 255 do
+        local zeros = 0
+        local rest = value
+        while band(rest, 1) == 0 do
+            zeros = zeros + 1
+            rest = rshift(rest, 1)
+        end
+        CTZ_BYTE[value] = zeros
+    end
+end
+
+--- Set bits in one word. Four byte lookups, because LuaJIT has no popcount.
+local function popcount(word: integer): integer
+    unsafe do
+        return POPCOUNT_BYTE[band(word, 0xFF)] + POPCOUNT_BYTE[band(rshift(word, 8), 0xFF)] + POPCOUNT_BYTE[band(
+            rshift(word, 16), 0xFF
+        )] + POPCOUNT_BYTE[band(rshift(word, 24), 0xFF)]
+    end
+end
+
+--- The position of the lowest set bit of a non-zero word.
+local function lowestBit(word: integer): integer
+    unsafe do
+        local byte = band(word, 0xFF)
+        if byte ~= 0 then
+            return CTZ_BYTE[byte]
+        end
+
+        byte = band(rshift(word, 8), 0xFF)
+        if byte ~= 0 then
+            return 8 + CTZ_BYTE[byte]
+        end
+
+        byte = band(rshift(word, 16), 0xFF)
+        if byte ~= 0 then
+            return 16 + CTZ_BYTE[byte]
+        end
+
+        return 24 + CTZ_BYTE[band(rshift(word, 24), 0xFF)]
+    end
+end
+
+--- The number of words needed to hold `bits` bits, at least one.
+local function wordsFor(bits: integer): integer
+    local words = rshift(bits + BIT_MASK, WORD_SHIFT)
+    return words < 1 ? 1 : words
+end
+
+--- A growable set of bit positions counting from 0.
+---
+--- Reading, clearing and testing a position past the end are defined and cheap.
+--- Setting one grows, which reallocates private storage; nothing observable
+--- survives that, because the storage is never handed out.
+--- The prelude declares the same shape as `nupp.data.bitset.Bitset`. This does not
+--- state conformance to it: stage-0 builds this file with the previous prelude, so a
+--- compiler source cannot depend on a declaration added in the same commit. The
+--- ambient surface is held to this one by `stdlibtest`, which runs the installed
+--- namespace against this module.
+--- @export
+record bitset.Bitset
+    --- Zero-based words, lowest bit first. Every word from `used` up to
+    --- `capacity` is zero, which is the invariant every word loop relies on.
+    private words: uint32[?]
+
+    --- Words allocated.
+    private capacity: integer
+
+    --- An upper bound on the words that may hold a set bit: every word at or
+    --- above it is zero. Deliberately not the exact high-water mark, because
+    --- keeping that exact costs a backwards scan on every clear and every
+    --- intersection.
+    private used: integer
+
+    --- The last resolved population, meaningful only when `stale` is false.
+    private population: integer
+
+    --- Whether `population` needs recomputing. Set algebra marks it rather than
+    --- paying two popcounts per word to keep a number most callers never read.
+    private stale: boolean
+
+    --- Grows storage so at least `bits` bits fit. Only grows, and never returns
+    --- storage. A growth at least doubles, so repeated small growths stay
+    --- amortised.
+    --- @param bits how many bits must fit
+    function reserve(self, bits: integer): nil
+        local needed = wordsFor(bits)
+        if needed <= self.capacity then
+            return
+        end
+
+        local doubled = self.capacity * 2
+        local grown = needed > doubled ? needed : doubled
+        local fresh = ffi.new("uint32_t[?]", grown) as uint32[?]
+        ffi.copy(fresh as any, self.words as any, self.capacity * 4)
+        self.words = fresh
+        self.capacity = grown
+    end
+
+    --- Adds a bit, growing when it is past the end.
+    --- @param index the bit position, counting from 0
+    --- @raises when index is negative
+    function set(self, index: integer): nil
+        -- `rshift` is unsigned, so a negative index names a word near 2^27 and
+        -- the store below would land far outside the array. `get` and `clear`
+        -- read such an index as past the end and answer with nothing; a write
+        -- has no such reading, so it is refused here.
+        if index < 0 then
+            error("bitset index cannot be negative", 2)
+        end
+
+        local word = rshift(index, WORD_SHIFT)
+        if word >= self.capacity then
+            self:reserve(index + 1)
+        end
+
+        unsafe do
+            local previous = tobit(self.words[word])
+            local mask = lshift(1, band(index, BIT_MASK))
+            if band(previous, mask) == 0 then
+                self.words[word] = bor(previous, mask)
+                if not self.stale then
+                    self.population = self.population + 1
+                end
+                if word >= self.used then
+                    self.used = word + 1
+                end
+            end
+        end
+    end
+
+    --- Removes a bit. Never allocates, and never narrows the used-word bound,
+    --- so it stays constant-time whichever bit it was.
+    --- @param index the bit position, counting from 0. One past the end, a
+    ---     negative one included, does nothing.
+    function clear(self, index: integer): nil
+        local word = rshift(index, WORD_SHIFT)
+        if word >= self.used then
+            return
+        end
+
+        unsafe do
+            local previous = tobit(self.words[word])
+            local mask = lshift(1, band(index, BIT_MASK))
+            if band(previous, mask) ~= 0 then
+                self.words[word] = band(previous, bnot(mask))
+                if not self.stale then
+                    self.population = self.population - 1
+                end
+            end
+        end
+    end
+
+    --- Whether a bit is set.
+    --- @param index the bit position, counting from 0
+    --- @return false for any position past the end, so no bound check is needed
+    ---     at the call site
+    function get(self, index: integer): boolean
+        local word = rshift(index, WORD_SHIFT)
+        if word >= self.used then
+            return false
+        end
+
+        unsafe do
+            return band(tobit(self.words[word]), lshift(1, band(index, BIT_MASK))) ~= 0
+        end
+    end
+
+    --- Adds every bit in the inclusive range, one word-mask write per word
+    --- rather than one operation per bit.
+    --- @param low the first position added, counting from 0
+    --- @param high the last position added. Below `low` adds nothing, so an
+    ---     empty range needs no guard at the call site.
+    --- @raises when low is negative
+    function setRange(self, low: integer, high: integer): nil
+        if high < low then
+            return
+        end
+        if low < 0 then
+            error("bitset range cannot start below zero", 2)
+        end
+
+        self:reserve(high + 1)
+
+        local firstWord = rshift(low, WORD_SHIFT)
+        local lastWord = rshift(high, WORD_SHIFT)
+        local lowBit = band(low, BIT_MASK)
+        local highBit = band(high, BIT_MASK)
+        local head = bnot(lshift(1, lowBit) - 1)
+        local tail = highBit == BIT_MASK ? ALL_ONES : lshift(1, highBit + 1) - 1
+
+        -- Whole words are written at a time, so the population moves by the
+        -- difference across the touched words rather than by one per bit. Words
+        -- above `used` are zero, so they need no reading before the write.
+        local exact = not self.stale
+        local before = 0
+        -- Hoisted after `reserve`, which is the only thing here that can replace
+        -- the array. Every loop below is then one field read shorter per word.
+        local words = self.words
+        unsafe do
+            if exact then
+                for word = firstWord, lastWord do
+                    before = before + popcount(tobit(words[word]))
+                end
+            end
+
+            if firstWord == lastWord then
+                words[firstWord] = bor(tobit(words[firstWord]), band(head, tail))
+            else
+                words[firstWord] = bor(tobit(words[firstWord]), head)
+                for word = firstWord + 1, lastWord - 1 do
+                    words[word] = ALL_ONES
+                end
+                words[lastWord] = bor(tobit(words[lastWord]), tail)
+            end
+
+            if exact then
+                local after = 0
+                for word = firstWord, lastWord do
+                    after = after + popcount(tobit(words[word]))
+                end
+                self.population = (self.population + after - before) as integer
+            end
+        end
+
+        if lastWord >= self.used then
+            self.used = lastWord + 1
+        end
+    end
+
+    --- How many bits are set. Resolves a pending recount, so a caller that
+    --- reads it every frame pays for the set algebra it skipped; one that never
+    --- reads it never pays.
+    --- @return the number of set bits
+    function count(self): integer
+        if not self.stale then
+            return self.population
+        end
+
+        -- Hoisted: nothing here grows, so the field read is loop-invariant and
+        -- the loop should not repeat it per word.
+        local words = self.words
+        local total = 0
+        unsafe do
+            for word = 0, self.used - 1 do
+                total = total + popcount(tobit(words[word]))
+            end
+        end
+        local resolved = total as integer
+        self.population = resolved
+        self.stale = false
+
+        return resolved
+    end
+
+    --- Whether nothing is set. Says nothing about capacity.
+    --- @return true when no bit is set
+    function isEmpty(self): boolean
+        return self:count() == 0
+    end
+
+    --- Removes every bit, keeping capacity so a set reused each frame stops
+    --- allocating once it has reached its peak.
+    function clearAll(self): nil
+        if self.used > 0 then
+            ffi.fill(self.words as any, self.used * 4, 0)
+            self.used = 0
+        end
+        self.population = 0
+        self.stale = false
+    end
+
+    --- Removes every bit, then adds exactly one.
+    --- @param index the one position left set, counting from 0
+    --- @raises when index is negative
+    function setOnly(self, index: integer): nil
+        self:clearAll()
+        self:set(index)
+    end
+
+    --- An upper bound on the words that may hold a set bit. Every word at or
+    --- above it is zero, and it is not narrowed by `clear` or by intersection,
+    --- so it may exceed the exact high-water mark.
+    --- @return the number of words a word-at-a-time walk must visit
+    function wordCount(self): integer
+        return self.used
+    end
+
+    --- One stored word. Word `w` holds positions `w * WORD_BITS` through
+    --- `w * WORD_BITS + WORD_BITS - 1`, lowest position first.
+    --- @param index a word index counting from 0, bounded by `wordCount`
+    --- @return the word as a signed value, so one with its top bit set reads
+    ---     negative, and 0 for any index outside the bound
+    function wordAt(self, index: integer): integer
+        if index < 0 or index >= self.used then
+            return 0
+        end
+
+        unsafe do
+            return tobit(self.words[index])
+        end
+    end
+
+    --- The lowest set position at or after `from`.
+    ---
+    --- Stateless, so nested walks do not interfere and a mutation between calls
+    --- cannot invalidate a walk in progress.
+    --- @param from the lowest position that may be returned, counting from 0
+    --- @return that position, or -1 when there is none
+    function nextSetBit(self, from: integer): integer
+        local start = from < 0 ? 0 : from
+        local word = rshift(start, WORD_SHIFT)
+        local used = self.used
+        if word >= used then
+            return -1
+        end
+
+        local words = self.words
+        unsafe do
+            local remaining = tobit(words[word])
+            local offset = band(start, BIT_MASK)
+            if offset ~= 0 then
+                remaining = band(remaining, bnot(lshift(1, offset) - 1))
+            end
+
+            while true do
+                if remaining ~= 0 then
+                    return lshift(word, WORD_SHIFT) + lowestBit(remaining)
+                end
+                word = word + 1
+                if word >= used then
+                    return -1
+                end
+                remaining = tobit(words[word])
+            end
+        end
+    end
+
+    --- Whether every bit set in `other` is also set here.
+    --- @param other read and not modified
+    --- @return true when `other` is a subset. An empty `other` is contained by
+    ---     anything.
+    function containsAll(self, other: Bitset): boolean
+        local otherUsed = other.used
+        if otherUsed == 0 then
+            return true
+        end
+        if self.used < otherUsed then
+            return false
+        end
+
+        local words, theirWords = self.words, other.words
+        unsafe do
+            for word = 0, otherUsed - 1 do
+                local theirs = tobit(theirWords[word])
+                if band(tobit(words[word]), theirs) ~= theirs then
+                    return false
+                end
+            end
+        end
+
+        return true
+    end
+
+    --- Whether at least one bit is set in both. Early-exiting, and deliberately
+    --- not an intersection followed by a count.
+    --- @param other read and not modified, as is the receiver
+    --- @return true when the two share a set bit
+    function overlaps(self, other: Bitset): boolean
+        local limit = self.used < other.used ? self.used : other.used
+
+        local words, theirWords = self.words, other.words
+        unsafe do
+            for word = 0, limit - 1 do
+                if band(tobit(words[word]), tobit(theirWords[word])) ~= 0 then
+                    return true
+                end
+            end
+        end
+
+        return false
+    end
+
+    --- Whether the two share no set bit.
+    --- @param other read and not modified, as is the receiver
+    --- @return the negation of `overlaps`
+    function disjoint(self, other: Bitset): boolean
+        return not self:overlaps(other)
+    end
+
+    --- Replaces these bits with a copy of `other`'s. The two are independent
+    --- afterwards, and this keeps its own capacity when that is the larger.
+    --- @param other read and not modified
+    function copyFrom(self, other: Bitset): nil
+        local otherUsed = other.used
+        if otherUsed > self.capacity then
+            self:reserve(lshift(otherUsed, WORD_SHIFT))
+        end
+
+        if otherUsed > 0 then
+            ffi.copy(self.words as any, other.words as any, otherUsed * 4)
+        end
+        local words = self.words
+        unsafe do
+            for word = otherUsed, self.used - 1 do
+                words[word] = 0
+            end
+        end
+
+        self.used = otherUsed
+        self.population = other.population
+        self.stale = other.stale
+    end
+
+    --- Adds every bit set in `other`.
+    ---
+    --- One bitwise operation per word: the population is marked for recount
+    --- rather than tracked, and there is no per-word test for whether the word
+    --- changed, because that branch costs more than the write it saves.
+    --- @param other read and not modified
+    function orWith(self, other: Bitset): nil
+        local otherUsed = other.used
+        if otherUsed == 0 then
+            return
+        end
+        if otherUsed > self.capacity then
+            self:reserve(lshift(otherUsed, WORD_SHIFT))
+        end
+
+        -- Hoisted after `reserve`, the only call above that can replace the array.
+        local words, theirWords = self.words, other.words
+        unsafe do
+            for word = 0, otherUsed - 1 do
+                words[word] = bor(tobit(words[word]), tobit(theirWords[word]))
+            end
+        end
+
+        if otherUsed > self.used then
+            self.used = otherUsed
+        end
+        self.stale = true
+    end
+
+    --- Keeps only the bits also set in `other`.
+    --- @param other read and not modified. Words beyond the ones it uses are
+    ---     cleared, so an empty `other` empties the receiver.
+    function andWith(self, other: Bitset): nil
+        local used = self.used
+        if used == 0 then
+            return
+        end
+
+        local shared = used < other.used ? used : other.used
+        local words, theirWords = self.words, other.words
+        unsafe do
+            for word = 0, shared - 1 do
+                words[word] = band(tobit(words[word]), tobit(theirWords[word]))
+            end
+            for word = shared, used - 1 do
+                words[word] = 0
+            end
+        end
+
+        -- Words at or above `shared` are now zero, so the bound narrows here for
+        -- free. It is not otherwise scanned back.
+        self.used = shared
+        self.stale = true
+    end
+
+    --- Removes every bit set in `other`.
+    --- @param other read and not modified. Words beyond the ones it uses keep
+    ---     their bits, so an empty `other` changes nothing.
+    function andNotWith(self, other: Bitset): nil
+        local limit = self.used < other.used ? self.used : other.used
+        if limit == 0 then
+            return
+        end
+
+        local words, theirWords = self.words, other.words
+        unsafe do
+            for word = 0, limit - 1 do
+                words[word] = band(tobit(words[word]), bnot(tobit(theirWords[word])))
+            end
+        end
+
+        self.stale = true
+    end
+
+    --- Keeps only the bits set in exactly one of the two.
+    --- @param other read and not modified
+    function xorWith(self, other: Bitset): nil
+        local otherUsed = other.used
+        if otherUsed == 0 then
+            return
+        end
+        if otherUsed > self.capacity then
+            self:reserve(lshift(otherUsed, WORD_SHIFT))
+        end
+
+        local words, theirWords = self.words, other.words
+        unsafe do
+            for word = 0, otherUsed - 1 do
+                words[word] = bxor(tobit(words[word]), tobit(theirWords[word]))
+            end
+        end
+
+        if otherUsed > self.used then
+            self.used = otherUsed
+        end
+        self.stale = true
+    end
+end
+
+--- Creates an empty set.
+--- @param capacityBits how many bits to allocate for. A starting size only:
+---     setting a position past it grows rather than failing.
+--- @return a set with nothing in it, whatever capacity was asked for
+--- @export
+function bitset.create(capacityBits: integer?): bitset.Bitset
+    local words = wordsFor(capacityBits ?? DEFAULT_BITS)
+
+    return new bitset.Bitset(
+        words = ffi.new("uint32_t[?]", words) as uint32[?],
+        capacity = words,
+        used = 0,
+        population = 0,
+        stale = false
+    )
+end
+
+return bitset

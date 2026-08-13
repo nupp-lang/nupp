@@ -204,6 +204,7 @@ function M.nativeFeaturesAreResolvedEffects()
       ["nupp.io.URI.new('https://example.com')"] = "native.uri",
       ["nupp.data.uuid7()"] = "native.uuid",
       ["nupp.data.sha256('hello')"] = "native.sha256",
+      ["nupp.data.bitset.create(64)"] = "stdlib.bitset",
    }
    for source, effect in pairs(expected) do
       local found = effectsOf(source)
@@ -350,6 +351,35 @@ function M.compilerProvidedPureLibraries()
       assert(nupp.data.fnv1a64("hello") == "a430d84680aabd0b")
       assert(nupp.data.crc32("123456789") == 3421780262)
       assert(not pcall(nupp.data.crc32, "bytes", 4294967296))
+   ]]))
+   local ok, problem = pcall(chunk)
+   _G.nupp = previous
+   assert(ok, problem)
+end
+
+function M.bitsetsReachTheCheckedModuleThroughTheNamespace()
+   -- The installer loads an ordinary checked Nupp module rather than carrying a
+   -- second implementation, so this is the only place the two meet.
+   local bootstrap = stdlib.bootstrap({["stdlib.bitset"] = true})
+   local previous = rawget(_G, "nupp")
+   _G.nupp = nil
+   local chunk = assert(loadstring(bootstrap .. [[
+      local set = nupp.data.bitset.create(64)
+      assert(set:count() == 0)
+      set:set(5)
+      set:setRange(40, 70)
+      assert(set:count() == 32)
+      assert(set:get(5) and set:get(70) and not set:get(71))
+
+      local other = nupp.data.bitset.create(64)
+      other:setRange(0, 50)
+      set:andWith(other)
+      assert(set:count() == 12)
+      assert(set:nextSetBit(0) == 5)
+
+      assert(nupp.data.bitset.WORD_BITS == 32)
+      assert(set:wordAt(0) == 32)
+      assert(nupp.data.bitset.create(8) ~= nupp.data.bitset.create(8))
    ]]))
    local ok, problem = pcall(chunk)
    _G.nupp = previous
