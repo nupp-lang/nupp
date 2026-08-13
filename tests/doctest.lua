@@ -81,6 +81,35 @@ function M.extractsStructuredDocsFromTheParserCST()
    assert(point.members[1].text == "Horizontal coordinate.")
 end
 
+-- An example is the one place a doc comment writes a line that looks like a tag and
+-- is not one, so a fence has to suspend tag parsing rather than eat the annotation
+-- the example exists to show.
+function M.aFencedExampleKeepsAnAnnotationRatherThanReadingItAsATag()
+   local source = table.concat({
+      "--- Renders a value.",
+      "---",
+      "--- ```nupp",
+      "--- @derive(nupp.derive.Debug)",
+      "--- local record Point",
+      "---     x: integer",
+      "--- end",
+      "--- ```",
+      "---",
+      "--- @return the rendering",
+      "function render(): string",
+      "   return \"\"",
+      "end",
+   }, "\n") .. "\n"
+   local module = assert(doc.extract(source, "src/render.nupp", "render"))
+   local render = module.items[1]
+   assert(render and render.name == "render", "declaration missing")
+   assert(render.doc.text:find("@derive(nupp.derive.Debug)", 1, true),
+      "the annotation stays in the example: " .. render.doc.text)
+   assert(render.doc.tags.derive == nil, "and never became a tag")
+   assert(render.returns[1] and render.returns[1].text == "the rendering",
+      "a tag written after the fence is still read")
+end
+
 local DECLARATIONS = table.concat({
    "--[[",
    "# Numbers",
