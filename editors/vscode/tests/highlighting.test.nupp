@@ -26,6 +26,12 @@ local interface Callable<T>
 --          ^^^^^^^^ entity.name.function.nupp
 end
 
+local sealed interface Token
+--    ^^^^^^ keyword.control.nupp
+--           ^^^^^^^^^ storage.type.declaration.nupp
+--                     ^^^^^ entity.name.type.nupp
+end
+
 local interface Factory<P...>
    constructor(...: P...)
 -- ^^^^^^^^^^^ storage.type.function.nupp

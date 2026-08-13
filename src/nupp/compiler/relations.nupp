@@ -194,6 +194,30 @@ local cachedAt = 0
 
 local isA: function(a: Type, b: Type): (boolean, string?)
 
+--- Whether a nominal explicitly takes a contract, directly or through another
+--- declared contract. Sealed interfaces use this instead of structural matching:
+--- their owning module audited the implementation edge, not merely its public shape.
+local function declaresContract(a: Type, b: Type, seen: {[Type]: boolean}?): boolean
+    if a == b then
+        return true
+    end
+    if a.tag ~= "nominal" then
+        return false
+    end
+    seen = seen or {}
+    if seen[a] then
+        return false
+    end
+    seen[a] = true
+    for _, parent in ipairs((a as T.Nominal).supertypes or {}) do
+        if parent == b or declaresContract(parent, b, seen) then
+            return true
+        end
+    end
+
+    return false
+end
+
 --- Whether `a` answers every associated type `b` is owed.
 ---
 --- Members can be satisfied structurally, and a declared `is` edge is trusted to fill
@@ -785,6 +809,11 @@ local function check(a: Type, b: Type): boolean, string?
     -- member function's receiver is not compared, since each implementation names
     -- itself there.
     if btag == "nominal" and b.declKind == "interface" and b.byname then
+        if b.sealedModule and not declaresContract(a, b) then
+            return false, (
+                "%s is not a %s (the interface is sealed by module %q)"
+            ):format(T.tostring(a), T.tostring(b), b.sealedModule)
+        end
         local answersFit, answersWhy = associatedAnswersFit(a, b)
         if not answersFit then
             return false, answersWhy

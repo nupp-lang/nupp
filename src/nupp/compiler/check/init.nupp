@@ -1709,6 +1709,9 @@ function checkMod.check(
                 n.writeByname = n.writeByname or {}
                 n.staticByname = n.staticByname or {}
                 n.staticWriteByname = n.staticWriteByname or {}
+                if decl.declKind == "interface" and decl.sealedTok then
+                    n.sealedModule = c.result.moduleName or c.filename
+                end
                 local key = c.declKey(decl)
                 if c.qualifierOf(decl) then
                     n.runtimePath = key

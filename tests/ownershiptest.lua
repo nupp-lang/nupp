@@ -537,13 +537,50 @@ function M.spansExportANameableGenericWithoutTheirRepresentation()
       "local storage = ffi.new<int32[4]>()",
       "local view = spans.fromCarray(storage, 4)",
       "print(view.pointer)",
-   }, "\n")), "NUPP2209", "an instantiated span keeps its field private")
+   }, "\n")), "NUPP2004", "the span interface does not expose its representation")
 
    assertEq(codes(table.concat({
       "local spans = require('nupp.span')",
       "local made = new spans.Span()",
       "print(made)",
-   }, "\n")), "NUPP2209", "a private representation closes direct construction")
+   }, "\n")), "NUPP2004", "the interface has no public representation to construct")
+end
+
+function M.fixedSpansRefineDynamicSpansWithoutLengthChecks()
+   assertClean(table.concat({
+      "local spans = require('nupp.span')",
+      "local function exact(borrows view: spans.FixedSpan<int32, 4>): integer",
+      "   return view.count as integer",
+      "end",
+      "local function dynamic(borrows view: spans.Span<int32>): integer",
+      "   return view.count",
+      "end",
+      "local storage = ffi.new<int32[4]>()",
+      "do",
+      "   local view = spans.fromFixedCarray(storage, 4)",
+      "   print(exact(view), dynamic(view), view:get(1))",
+      "end",
+      "local writable = spans.writeFixedCarray(storage, 4)",
+      "do",
+      "   local shared = writable:shared()",
+      "   print(exact(shared))",
+      "end",
+      "writable:set(1, 42 as int32)",
+      "spans.commit(writable)",
+   }, "\n"))
+
+   assertEq(codes(table.concat({
+      "local spans = require('nupp.span')",
+      "local storage = ffi.new<int32[4]>()",
+      "local view = spans.fromFixedCarray(storage, 3)",
+      "print(view.count)",
+   }, "\n")), "NUPP2006", "the literal count must match the fixed C array")
+
+   assertEq(codes(table.concat({
+      "local spans = require('nupp.span')",
+      "local record Forged is spans.Span<int32>",
+      "end",
+   }, "\n")), "NUPP2136", "callers cannot implement the sealed span contract")
 end
 
 function M.spanRefsExposeOnlyTheCapabilityTheirViewOwns()

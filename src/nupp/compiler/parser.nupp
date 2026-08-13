@@ -383,6 +383,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- what keeps `local record = 5` ordinary Lua.
     local function startsTypedecl(at: integer): boolean
         local kw = tokens[at]
+        if kw and kw.kind == "sealed" then
+            at = at + 1
+            kw = tokens[at]
+        end
         if not kw or kw.kind ~= "name" or not TYPEDECL_KW[kw.text] then
             return false
         end
@@ -2021,8 +2025,15 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
     --- A `type`, `record`, `interface` or `struct` declaration.
     parseTypedecl = function(modifierTok: Token?, visibility: string?): Node
+        local sealedTok = nil
+        if cur().kind == "sealed" then
+            sealedTok = advance()
+        end
         local kw = advance() -- the contextual keyword (a name token)
         local which = kw.text
+        if sealedTok and which ~= "interface" then
+            errAt(sealedTok, "'sealed' may modify only an interface", "NUPP1002")
+        end
         -- Records where the declaration begins in source. A visibility fix writes
         -- `local`/`global` before the introducer or deletes a modifier that is already
         -- there, and neither is findable from the name alone.
@@ -2032,6 +2043,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.modifier = modifierTok
             if modifierTok then
                 add(n, modifierTok)
+            end
+            if sealedTok then
+                add(n, sealedTok)
             end
             add(n, kw)
 
@@ -2048,6 +2062,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         else -- record / interface / struct
             local n = introduce(new cst.RecordDecl(kind = "recordDecl"))
             n.declKind = which
+            n.sealedTok = sealedTok
             parseDeclName(n, "after '" .. which .. "'")
             parseGenerics(n)
             n.supertypes = {}

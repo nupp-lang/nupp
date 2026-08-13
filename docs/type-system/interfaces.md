@@ -33,6 +33,29 @@ A plain table shape works too:
 local n: Named = {name = "anonymous"}
 ```
 
+## Sealed interfaces
+
+`sealed` closes structural satisfaction when an interface is a trust boundary:
+
+```nupp
+sealed interface span.Span<T>
+    readonly count: integer
+    get: function(self: Span<T>, index: integer): T
+end
+```
+
+Only a record, struct, or child interface declared with `is span.Span<T>` in
+the same module may satisfy that contract. A type in another module is rejected
+even when it has the same fields, and it cannot add the `is` claim itself. The
+owning module can therefore keep the representation private and export only
+constructors returning the interface.
+
+Sealing is entirely static. It emits no tag, wrapper, virtual dispatch, or
+runtime test. It is appropriate when the visible methods rely on facts that
+mere field shape cannot prove, such as a pointer agreeing with a count. An
+`any` value remains gradual and can cross the boundary only with the usual loss
+of static guarantees.
+
 When comparing member functions, the receiver parameter is skipped on both
 sides, since each implementation names it for itself.
 
@@ -252,6 +275,7 @@ fulfillment, `metatable<T>`, and the full set of exclusions.
 - **NUPP2117**: `is` names something that is not an interface.
 - **NUPP2118**: an invalid, duplicate, or unsupported metamethod contract, or
   an interface method given a body.
+- **NUPP2136**: a sealed interface is implemented outside its owning module.
 - **NUPP3001**: `is` used against a type with no runtime identity.
 
 ## Next

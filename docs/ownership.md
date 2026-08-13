@@ -864,8 +864,9 @@ matching terminal consumer as the second argument.
 
 ### Checked spans
 
-`nupp.span` provides generic `Span<T>` and affine `WriteSpan<T>` views, with
-`ByteSpan` and `ByteWriteSpan` retained as byte-specialized compatibility names.
+`nupp.span` provides sealed `Span<T>` and affine `WriteSpan<T>` interfaces over
+private implementations, with `ByteSpan` and `ByteWriteSpan` retained as
+byte-specialized compatibility names.
 They retain a root, carry a runtime element count, bounds-check every index and slice, and
 keep an invalidation barrier live for a write span until its required consuming
 `span.commit(writable)`.
@@ -874,6 +875,12 @@ rejected even when its lifetime is rooted. A fixed C array rejects a literal
 index that is statically out of range and inserts a runtime check for every
 non-literal index. Conversion, unchecked indexing, and unknown pointer
 arithmetic remain inside the smallest possible `unsafe` block.
+
+`FixedSpan<T, N>` extends `Span<T>`, and `FixedWriteSpan<T, N>` extends
+`WriteSpan<T>`, with `count: N`. `fromFixedCarray(source, N)` and
+`writeFixedCarray(source, N)` accept only `T[N]`; the literal is stored directly
+and a mismatch is a type error. They perform no runtime length validation and
+there is deliberately no checked dynamic-span-to-fixed-span conversion.
 
 `nupp.heap.allocate(ffi.typeof<T>(), count)` returns an affine malloc-backed
 `heap.Array<T>` for arrays too large for LuaJIT's GC allocation. Its immutable

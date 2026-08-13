@@ -193,6 +193,7 @@ annotated directly.
 | `@borrowed` | Implemented | Foreign output and source      c-funct | n |
 | `@drop` | Implemented | None | function, c-function, field |
 | `@override` | Implemented | None | function |
+| `@partition` | Implemented | Two result field names | sealed interface field |
 | `@effects` | Implemented | Named effect members | function, c-function, local-binding |
 | `@relax` | Implemented | Observable guarantee names | function |
 | `@derive` | Implemented | Qualified comptime providers | record |
@@ -267,6 +268,13 @@ overrides](type-system/overloads.md#default-implementations-and-override) for
 per-entry replacement, and
 [interfaces](type-system/interfaces.md#default-implementations) for interface
 default behavior generally.
+
+`@partition(left, right)` is an audited ownership assertion on a method of a
+sealed interface. It states that the two named fields of the method's first
+result carry sibling-disjoint regions, preserving a private implementation's
+`nupp.partition` proof through the public interface signature. It may not be
+attached to an unsealed or externally implementable contract, and `nupp
+ownership-audit` lists every use.
 
 ## Effect contracts
 

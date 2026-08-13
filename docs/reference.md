@@ -511,6 +511,10 @@ Reports: `NUPP2004`, `NUPP2118`, `NUPP2202`, `NUPP2206`, `NUPP2207`, `NUPP2208`.
 An interface declares a shape without a body. `record X is Y` states that X
 includes Y, and the checker holds it to that.
 
+`sealed interface` instead requires an explicit `is` declaration in its owning
+module. The modifier follows visibility: `local sealed interface Token`. It adds
+no wrapper, dispatch, or runtime check.
+
 ```nupp
 local m = {}
 
@@ -526,7 +530,7 @@ end
 return m
 ```
 
-Reports: `NUPP2001`. `nupp explain <code>` says more.
+Reports: `NUPP2001`, `NUPP2136`. `nupp explain <code>` says more.
 
 ### Default implementations
 
@@ -859,10 +863,12 @@ captures cannot escape. `@owned(cleanup)` on a callable field declares a fresh
 owning result.
 
 Affine nominal fields have path-sensitive state. `nupp.resources.Set` holds
-dynamic owners. `nupp.span` gives rooted `Span<T>` and affine `WriteSpan<T>`
-views; `nupp.heap.allocate` gives `Array<T>` whose immutable count moves with its
-private pointer. Raw or unknown suspension cannot cross an obligation; handled
-suspension requires its cancellation contract.
+dynamic owners. `nupp.span` gives sealed, private-implementation `Span<T>` and
+affine `WriteSpan<T>` views. `FixedSpan<T, N>` and `FixedWriteSpan<T, N>` refine
+those contracts without a runtime length check. `nupp.heap.allocate` gives
+`Array<T>` whose immutable count moves with its private pointer. Raw or unknown
+suspension cannot cross an obligation; handled suspension requires its
+cancellation contract.
 
 `WriteSpan.splitAt(mid)` produces disjoint sibling regions. `countedBy(count)`
 maps borrowed cdef pointer/count parameters to checked spans. The wrapper checks
@@ -1571,6 +1577,7 @@ says more.
 - **NUPP2133**: A recursive type alias is not supported.
 - **NUPP2134**: A projection names something that cannot be projected.
 - **NUPP2135**: An associated type answers through itself.
+- **NUPP2136**: A sealed interface is implemented outside its owning module.
 - **NUPP2202**: A declaration is built with 'new'.
 - **NUPP2203**: A C declaration uses a type C cannot represent.
 - **NUPP2206**: Only a record or a struct can be constructed.

@@ -198,6 +198,7 @@ local BUILTINS = {
     {name = "borrowed", arguments = "owned", targets = {"c-function"},},
     {name = "drop", arguments = "none", targets = {"function", "c-function", "field"},},
     {name = "override", arguments = "none", targets = {"function"},},
+    {name = "partition", arguments = "names", targets = {"field"}, builtin = true,},
     {name = "effects", arguments = "effects", targets = {"function", "c-function", "local-binding"},},
     {name = "relax", arguments = "names", targets = {"function"},},
     {name = "derive", arguments = "names", targets = {"record"}, builtin = true,},

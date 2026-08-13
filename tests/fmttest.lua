@@ -52,6 +52,11 @@ function M.propertyCapabilities()
       "local interface Cell\n    readonly value: string\n    writeonly value: integer\nend\n")
 end
 
+function M.sealedInterfaceModifier()
+   assertEq(fmt1("local sealed interface Token\nreadonly value:integer\nend"),
+      "local sealed interface Token\n    readonly value: integer\nend\n")
+end
+
 -- A construction is spelled as call sugar and is not one: the fields belong to
 -- the type rather than being an argument to it, so the brace stands off it while
 -- an ordinary `f{...}` keeps hugging its callee.

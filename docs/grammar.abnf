@@ -291,12 +291,13 @@ bindname       = Name [":" type]
 
 typedeclstat   = ["local" / "global"] typedecl
 typedecl       = "type" declname [generics] "=" type
-               / recordkw declname [generics] [contracts] [refinement]
+               / ["sealed"] "interface" declname [generics] [contracts]
+                 [refinement] recordbody "end"
+               / ("record" / "struct") declname [generics] [contracts] [refinement]
                  recordbody "end"
 declname       = Name *("." Name)               ; a qualified name assigns the
                                                 ; declaration to that table,
                                                 ; the way "function M.f" does
-recordkw       = "record" / "interface" / "struct"
 recordbody     = *(arraypart / annotatedentry / indexerdecl / typedecl)
                                                 ; nested decls allowed
 contracts      = "is" type *("," type)
@@ -482,6 +483,9 @@ packunion      = typepack 1*("|" typepack)
 ;   adjacent statements `local type` and `Alias = value`, while level 1 reads
 ;   it as an alias. Put a newline or semicolon after `type` to select the Lua
 ;   meaning explicitly. Every bare declaration form is invalid Lua.
+;   `sealed` is a reserved level-1 keyword rather than a contextual name. It may
+;   appear only immediately before `interface`, after an optional visibility
+;   modifier: `local sealed interface Token`.
 ;   LuaJIT's `const` is likewise a soft keyword: at statement position it
 ;   introduces a block-scoped immutable local when followed by a Name or
 ;   `function`, or an immutable named field when followed by a dotted field

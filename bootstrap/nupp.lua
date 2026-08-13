@@ -1384,6 +1384,7 @@ local BUILTINS = {
 { name = "borrowed" , arguments = "owned" , targets = { "c-function" } , } ,
 { name = "drop" , arguments = "none" , targets = { "function" , "c-function" , "field" } , } ,
 { name = "override" , arguments = "none" , targets = { "function" } , } ,
+{ name = "partition" , arguments = "names" , targets = { "field" } , builtin = true , } ,
 { name = "effects" , arguments = "effects" , targets = { "function" , "c-function" , "local-binding" } , } ,
 { name = "relax" , arguments = "names" , targets = { "function" } , } ,
 { name = "derive" , arguments = "names" , targets = { "record" } , builtin = true , } ,
@@ -10296,6 +10297,9 @@ n . byname = n . byname or { }
 n . writeByname = n . writeByname or { }
 n . staticByname = n . staticByname or { }
 n . staticWriteByname = n . staticWriteByname or { }
+if decl . declKind == "interface" and decl . sealedTok then
+n . sealedModule = c . result . moduleName or c . filename
+end
 local key = c . declKey ( decl )
 if c . qualifierOf ( decl ) then
 n . runtimePath = key
@@ -11870,6 +11874,9 @@ local state = require ( "nupp.compiler.check.state" )
 local pegTyping = require ( "nupp.compiler.materialize.peg" )
 
 
+local luaPattern = require ( "nupp.compiler.lua_pattern" )
+
+
 
 local isA = relations . isA
 local packIsA = relations . packIsA
@@ -12085,6 +12092,10 @@ local token = expr and expr . kind == "string" and expr . token or nil
 return literalToken ( token )
 end
 
+local function literalStringType ( t )
+return t and t . tag == "literal" and type ( t . constant ) == "string" and t . constant or nil
+end
+
 local function readableField ( t , name )
 if not t then
 return nil
@@ -12135,6 +12146,72 @@ local matcher = pegTypes and pegTypes . nestedTypes and pegTypes . nestedTypes .
 local binder = matcher and matcher . packParams and matcher . packParams [ 1 ]
 
 return matcher and binder and generics . instantiate ( matcher , { [ binder ] = result } ) or nil
+end
+
+local function preludeStringMember ( callee )
+if not callee or callee . kind ~= "dotIndex" or not callee . name then
+return nil
+end
+local base = callee . obj
+local token = base and base . kind == "name" and base . token or nil
+local global = c . env and c . env . globals and c . env . globals . string
+local resolved = token and c . lookupEntry ( token . text ) or nil
+if token and token . text == "string" and global and resolved and resolved . definition == global . definition then
+return callee . name . text
+end
+return nil
+end
+
+local function patternResults ( source , operation )
+local kinds , why = luaPattern . captureKinds ( source )
+if not kinds then
+return nil , why
+end
+local results = { }
+if operation == "find" then
+results [ 1 ] , results [ 2 ] = T . optional ( T . integer ) , T . optional ( T . integer )
+end
+if # kinds == 0 then
+if operation ~= "find" then
+results [ # results + 1 ] = operation == "gmatch" and T . string or T . optional ( T . string )
+end
+else
+for index , kind in ipairs ( kinds ) do
+local capture = kind == "position" and T . integer or T . string
+results [ # results + 1 ] = operation == "match" and index == 1 and T . optional ( capture ) or capture
+end
+end
+return T . pack ( results )
+end
+
+local function applyPatternResults (
+node ,
+operation ,
+source ,
+at ,
+first ,
+rets ,
+pack
+)
+if not source then
+return first , rets , pack
+end
+local results , why = patternResults ( source , operation )
+if not results then
+c . diag ( "NUPP2006" , at or node , "invalid Lua pattern: " .. ( why or "malformed pattern" ) )
+return first , rets , pack
+end
+if operation == "gsub" then
+return first , rets , pack
+elseif operation == "gmatch" then
+local iterator = T . func ( { } , results . head , false , nil , nil , nil , nil , nil , nil , nil , nil , nil , nil , T . pack ( { } ) , results )
+return iterator , { iterator } , T . pack ( { iterator } )
+end
+return T . packAt ( results , 1 ) or T . nil_ , results . head , results
+end
+
+local function isLiteralTrue ( t )
+return t ~= nil and t . tag == "literal" and t . constant == true
 end
 
 
@@ -13131,6 +13208,25 @@ first , rets , pack = matcher , { matcher } , T . pack ( { matcher } )
 end
 end
 end
+local stringMember = preludeStringMember ( callee )
+if node . kind == "call" and (
+stringMember == "find" or stringMember == "gmatch" or stringMember == "gsub" or stringMember == "match"
+) then
+local pattern = literalString ( argExprs [ 2 ] )
+or literalStringType ( node . argumentPack and T . packAt ( node . argumentPack , 2 ) or nil )
+if stringMember == "find" and isLiteralTrue ( node . argumentPack and T . packAt ( node . argumentPack , 4 ) or nil ) then
+pattern = nil
+end
+first , rets , pack = applyPatternResults (
+node ,
+stringMember ,
+pattern ,
+argExprs [ 2 ] ,
+first ,
+rets ,
+pack
+)
+end
 if node . kind == "safeCall" then
 local calledPack = pack or ( rets and T . pack ( rets ) or T . pack ( { } , { kind = "unknown" , type = T . any } ) )
 pack = T . packUnion ( { calledPack , T . pack ( { T . nil_ } ) } )
@@ -13361,6 +13457,23 @@ node . regionRoot = regionRoot
 node . regionPath = regionPath
 node . returnRegionPaths = { [ 1 ] = regionPath }
 end
+end
+if ( member . text == "find" or member . text == "gmatch" or member . text == "gsub" or member . text == "match" ) and isA ( ot , T . string ) then
+local actualArgs = node . args and node . args . kind == "args" and node . args . exprs or { }
+local pattern = literalString ( actualArgs [ 1 ] )
+or literalStringType ( node . argumentPack and T . packAt ( node . argumentPack , 1 ) or nil )
+if member . text == "find" and isLiteralTrue ( node . argumentPack and T . packAt ( node . argumentPack , 3 ) or nil ) then
+pattern = nil
+end
+first , rets , pack = applyPatternResults (
+node ,
+member . text ,
+pattern ,
+actualArgs [ 1 ] ,
+first ,
+rets ,
+pack
+)
 end
 if optional then
 local calledPack = pack or ( rets and T . pack ( rets ) or T . pack ( { } , { kind = "unknown" , type = T . any } ) )
@@ -17907,7 +18020,11 @@ fixes [
 1
 ] = fix (
 ( "drop `%s`" ) : format ( stat . visibility ) ,
-{ offset = stat . modifier . offset , length = stat . keyword . offset - stat . modifier . offset , newText = "" }
+{
+offset = stat . modifier . offset ,
+length = ( stat . sealedTok or stat . keyword ) . offset - stat . modifier . offset ,
+newText = ""
+}
 )
 end
 c . diag (
@@ -17934,8 +18051,9 @@ fixes [
 # fixes + 1
 ] = fix ( ( "attach it to %s" ) : format ( c . moduleLocal ) , insertBefore ( stat . name , c . moduleLocal .. "." ) )
 end
-fixes [ # fixes + 1 ] = fix ( "mark it local" , insertBefore ( stat . keyword , "local " ) )
-fixes [ # fixes + 1 ] = fix ( "mark it global" , insertBefore ( stat . keyword , "global " ) )
+local firstKeyword = stat . sealedTok or stat . keyword
+fixes [ # fixes + 1 ] = fix ( "mark it local" , insertBefore ( firstKeyword , "local " ) )
+fixes [ # fixes + 1 ] = fix ( "mark it global" , insertBefore ( firstKeyword , "global " ) )
 end
 c . diag ( "NUPP2119" , stat . name , ( "declaration %q has no visibility; %s" ) : format ( name , suggestion ) , fixes )
 end
@@ -18062,6 +18180,9 @@ n . staticFieldDefs = { }
 n . staticWriteFieldDefs = { }
 stat . resolvedType = n
 n . moduleName = c . result . moduleName
+if n . declKind == "interface" and stat . sealedTok then
+n . sealedModule = n . moduleName or c . filename
+end
 if c . result . moduleName == "nupp.resources" and n . name == "Set" then
 n . resourceSet = true
 end
@@ -18104,6 +18225,19 @@ superNode ,
 ( "%s may inherit contracts only from interfaces" ) : format ( stat . declKind )
 )
 else
+if super . sealedModule and super . sealedModule ~= ( c . result . moduleName or c . filename ) then
+c . diag (
+"NUPP2136" ,
+superNode ,
+(
+"sealed interface %s may be implemented only in module %q"
+) : format ( T . tostring ( super ) , super . sealedModule ) ,
+nil ,
+{
+help = "use a value produced by the interface's module instead of declaring a new implementation"
+}
+)
+end
 n . supertypes [ # n . supertypes + 1 ] = super
 
 
@@ -18302,15 +18436,54 @@ c . raises . checkParams ( e , ( e . type ) . params or { } )
 end
 local isDropOperation = false
 local ownedApplication = nil
+local partitionApplication = nil
 for _ , application in ipairs ( e . annotations or { } ) do
 local definition2 , valid = validateAnnotation ( application , e , stat )
 if definition2 and valid and application . name . text == "drop" then
 isDropOperation = true
 elseif definition2 and valid and application . name . text == "owned" then
 ownedApplication = application
+elseif definition2 and valid and application . name . text == "partition" then
+partitionApplication = application
 end
 end
 local ft = c . resolveType ( e . type )
+if partitionApplication then
+local names , seen = { } , { }
+for _ , argument in ipairs ( partitionApplication . annotationArgs or { } ) do
+local expr = argument . expr
+local name = expr and expr . kind == "name" and expr . token . text or nil
+if name and not seen [ name ] then
+seen [ name ] = true
+names [ # names + 1 ] = name
+end
+end
+local result = ft . tag == "func" and ft . rets [ 1 ] or nil
+result = result and T . unwrapOwnership ( result ) or nil
+if stat . declKind ~= "interface" or not n . sealedModule then
+c . diag (
+"NUPP2602" ,
+partitionApplication ,
+"@partition is available only on a sealed interface method"
+)
+elseif # names ~= 2 then
+c . diag (
+"NUPP2602" ,
+partitionApplication ,
+"@partition names exactly two sibling result fields"
+)
+elseif not result or result . tag ~= "nominal" or not result . byname [
+names [ 1 ]
+] or not result . byname [ names [ 2 ] ] then
+c . diag (
+"NUPP2602" ,
+partitionApplication ,
+"@partition names must be readable fields of the first result"
+)
+else
+ft = T . withPartitionResults ( ft , { [ 1 ] = { [ names [ 1 ] ] = "L" , [ names [ 2 ] ] = "R" } } )
+end
+end
 if ownedApplication then
 local ownedMembers = ft . tag == "intersection" and ft . members or { ft }
 local fixedResults = true
@@ -19528,12 +19701,12 @@ end
 end
 input . fingerprint = hash . sha256 ( assert ( recipeCodec . canonical ( fingerprintInput ) ) )
 local helperKeys , helperFingerprints = { } , { }
-for key in pairs ( provider . sealed . runtimeHelpers or { } ) do
+for key in pairs ( provider . sealedProgram . runtimeHelpers or { } ) do
 helperKeys [ # helperKeys + 1 ] = key
 end
 table . sort ( helperKeys )
 for _ , key in ipairs ( helperKeys ) do
-local descriptor = provider . sealed . runtimeHelpers [ key ]
+local descriptor = provider . sealedProgram . runtimeHelpers [ key ]
 local helperType = runtimeHelperType ( descriptor )
 helperFingerprints [
 # helperFingerprints + 1
@@ -19574,21 +19747,21 @@ local worker = require ( "nupp.compiler.comptime_worker" )
 
 
 envelope , evaluationFailure = worker . evaluateDeriveProvider (
-provider . sealed ,
+provider . sealedProgram ,
 input ,
-provider . sealed . runtimeHelpers or { } ,
-provider . sealed . providerModule ,
+provider . sealedProgram . runtimeHelpers or { } ,
+provider . sealedProgram . providerModule ,
 executable ,
 c . env and c . env . comptimeHost or nil ,
 provider . internalOperation
 )
 else
 envelope , evaluationFailure = comptime . evaluateDeriveProviderDirect (
-provider . sealed ,
+provider . sealedProgram ,
 input ,
 c . comptimeFunctions ,
-provider . sealed . runtimeHelpers or { } ,
-provider . sealed . providerModule ,
+provider . sealedProgram . runtimeHelpers or { } ,
+provider . sealedProgram . providerModule ,
 provider . internalOperation
 )
 end
@@ -20190,7 +20363,7 @@ providers [
 ] = {
 identity = providerIdentity ,
 label = label ,
-sealed = provider ,
+sealedProgram = provider ,
 contract = provider . deriveInterface ,
 internalName = provider . internalName ,
 internalOperation = provider . internalOperation ,
@@ -27729,7 +27902,7 @@ c . comptimeFunctionDepth = c . comptimeFunctionDepth + 1
 c . checkStat ( helper )
 c . comptimeFunctionDepth = c . comptimeFunctionDepth - 1
 if target . kind == "funcStmt" and owner == c . moduleLocal and helper . comptimeSignature then
-local sealed = require (
+local sealedProgram = require (
 "nupp.compiler.comptime"
 ) . sealTypeFunction ( helper , c . comptimeFunctions , helper . comptimeSignature , helper . comptimeDefinition )
 local deriveNamespace = c . env and c . env . globalTypes and c . env . globalTypes [ "nupp.derive" ]
@@ -27760,31 +27933,31 @@ nil ,
 { help = "I must be one existing interface" }
 )
 else
-sealed . bodyFingerprint = sealed . identity
-sealed . identity = hash . sha256 (
+sealedProgram . bodyFingerprint = sealedProgram . identity
+sealedProgram . identity = hash . sha256 (
 table . concat (
 {
 "nupp.derive.provider.v1" ,
 c . result . moduleName or "<chunk>" ,
 markedName . text ,
-sealed . bodyFingerprint ,
+sealedProgram . bodyFingerprint ,
 } ,
 "\0"
 )
 )
-sealed . deriveProvider = true
-sealed . deriveInterface = contract
-sealed . deriveInterfaceIdentity = contract . id
-sealed . providerModule = c . result . moduleName
-sealed . providerModuleLocal = c . moduleLocal
-sealed . runtimeHelpers = { }
+sealedProgram . deriveProvider = true
+sealedProgram . deriveInterface = contract
+sealedProgram . deriveInterfaceIdentity = contract . id
+sealedProgram . providerModule = c . result . moduleName
+sealedProgram . providerModuleLocal = c . moduleLocal
+sealedProgram . runtimeHelpers = { }
 for runtimeName , runtimeType in pairs ( c . moduleFields or { } ) do
 if runtimeType and runtimeType . tag == "func" then
 local moduleName = c . result . moduleName or c . moduleLocal or "<chunk>"
 local descriptor = { module = moduleName , member = runtimeName , }
-sealed . runtimeHelpers [ moduleName .. "." .. runtimeName ] = descriptor
+sealedProgram . runtimeHelpers [ moduleName .. "." .. runtimeName ] = descriptor
 if c . moduleLocal then
-sealed . runtimeHelpers [ c . moduleLocal .. "." .. runtimeName ] = descriptor
+sealedProgram . runtimeHelpers [ c . moduleLocal .. "." .. runtimeName ] = descriptor
 end
 end
 end
@@ -27830,8 +28003,8 @@ and helperType
 and helperType . tag == "func"
 then
 local descriptor = { module = moduleName , member = memberName }
-sealed . runtimeHelpers [ modulePath .. "." .. memberName ] = descriptor
-sealed . runtimeHelpers [ moduleName .. "." .. memberName ] = descriptor
+sealedProgram . runtimeHelpers [ modulePath .. "." .. memberName ] = descriptor
+sealedProgram . runtimeHelpers [ moduleName .. "." .. memberName ] = descriptor
 else
 c . diag (
 "NUPP2809" ,
@@ -27848,7 +28021,7 @@ end
 scanRuntimeHelpers ( helper . body )
 end
 end
-c . moduleExports . comptimeFunctions [ markedName . text ] = sealed
+c . moduleExports . comptimeFunctions [ markedName . text ] = sealedProgram
 end
 elseif stat . stat then
 c . checkStat ( stat . stat )
@@ -34349,6 +34522,20 @@ entry . zeroCount = "calls once; foreign implementation must not dereference"
 end
 foreign [ # foreign + 1 ] = entry
 end
+elseif node . kind == "fieldDecl" then
+for _ , application in ipairs ( node . annotations or { } ) do
+if application . name and application . name . text == "partition" then
+local token = firstToken ( application )
+unsafeSites [
+# unsafeSites + 1
+] = {
+file = file ,
+line = token and token . line or 0 ,
+column = token and token . col or 0 ,
+kind = "ownership contract: partitioned result fields" ,
+}
+end
+end
 elseif node . kind == "unsafeStmt" then
 local token = firstToken ( node )
 unsafeSites [
@@ -40470,6 +40657,9 @@ cst.RecordDecl = {} cst.RecordDecl.__index = cst.RecordDecl
 
 
 
+
+
+
 cst.WhereClause = {} cst.WhereClause.__index = cst.WhereClause
 
 
@@ -45666,6 +45856,7 @@ preserves = true ,
 record = true ,
 metamethod = true ,
 scoped = true ,
+[ "sealed" ] = true ,
 suspension = true ,
 unpackof = true ,
 where = true ,
@@ -50047,8 +50238,8 @@ summary = "A private record field is used outside its module" ,
 rule = "A private field is representation available only while checking the "
 .. "canonical module that declares its record. Expose a public method when "
 .. "another module needs an operation without revealing that representation." ,
-wrong = "local m = require('nupp.span')\nlocal s = m.fromString('x')\nreturn s.pointer\n" ,
-right = "local m = require('nupp.span')\nlocal s = m.fromString('x')\nreturn s:get(1)\n" ,
+wrong = "local h = require('nupp.heap')\nlocal a = h.allocate(ffi.typeof<int32>(), 1)\nreturn a.pointer\n" ,
+right = "local h = require('nupp.heap')\nlocal a = h.allocate(ffi.typeof<int32>(), 1)\nreturn a:read():get(1)\n" ,
 related = { "NUPP2004" , "NUPP2202" } ,
 docs = "docs/type-system/records.md#private-fields" ,
 } , {
@@ -50457,6 +50648,20 @@ right = "local interface Holds\n    associated type Value\nend\n\n"
 .. "end\n\nreturn Direct\n" ,
 related = { "NUPP2127" } ,
 docs = "docs/type-system/associated-types.md" ,
+} , {
+code = "NUPP2136" ,
+summary = "A sealed interface is implemented outside its owning module" ,
+rule = "A sealed interface carries hidden invariants that its public shape cannot "
+.. "prove. Only a declaration in the interface's own module may explicitly name "
+.. "it after `is`; structural lookalikes do not satisfy it. Obtain the value from "
+.. "that module's constructors instead of declaring another implementation." ,
+wrong = "local spans = require(\"nupp.span\")\n\n"
+.. "local record Forged is spans.Span<int32>\nend\n\nreturn Forged\n" ,
+right = "local spans = require(\"nupp.span\")\n\n"
+.. "local storage = ffi.new<int32[4]>()\n"
+.. "local view = spans.fromFixedCarray(storage, 4)\n\nreturn view.count\n" ,
+related = { "NUPP2001" , "NUPP2117" } ,
+docs = "docs/type-system/interfaces.md#sealed-interfaces" ,
 } , {
 code = "NUPP2511" ,
 summary = "An associated type was erased because inference did not reach its head" ,
@@ -58512,6 +58717,7 @@ inst . paramKinds = n . paramKinds
 inst . fieldOrder = n . fieldOrder
 inst . privateFields = n . privateFields
 inst . moduleName = n . moduleName
+inst . sealedModule = n . sealedModule
 inst . defaultDropOperations = n . defaultDropOperations
 inst . affineResource = n . affineResource
 inst . affineFields = n . affineFields
@@ -60461,7 +60667,7 @@ local lexer = { }
 local KEYWORDS = { }
 for word in (
 "and break do else elseif end false for function goto if in local "
-.. "nil not or repeat return then true until while"
+.. "nil not or repeat return sealed then true until while"
 ) : gmatch ( "%S+" ) do
 KEYWORDS [ word ] = true
 end
@@ -66408,6 +66614,89 @@ return setmetatable ( items , json . array_mt )
 end
 
 return wire
+
+end
+package.preload["nupp.compiler.lua_pattern"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+
+
+
+
+
+local stdlib = require ( "nupp.compiler.stdlib" )
+
+const luaPattern = {} luaPattern.__index = luaPattern
+
+
+
+local matcher
+
+local function parser ( )
+if matcher then
+return matcher
+end
+
+local sandbox = { }
+sandbox . _G = sandbox
+setmetatable ( sandbox , { __index = _G } )
+local source = stdlib . bootstrap ( { [ "stdlib.peg.compile" ] = true } )
+local chunk , why = loadstring ( source , "=nupp compiler Lua-pattern PEG" )
+assert ( chunk , why )
+setfenv ( chunk , sandbox )
+chunk ( )
+matcher = sandbox . nupp . peg . compile ( [[
+        start <- {| (position / opening / closing / balanced / frontier / escaped / class / ordinary)* |} !.
+        position <- '()' -> 'position'
+        opening <- '(' -> 'string'
+        closing <- ')' -> 'close'
+        balanced <- '%' 'b' . .
+        frontier <- '%' 'f' class
+        escaped <- '%' .
+        class <- '[' '^'? ']'? classByte* ']'
+        classByte <- '%' . / !']' .
+        ordinary <- !'%' !'[' .
+    ]] , { backend = "vm" } )
+
+return matcher
+end
+
+function luaPattern . captureKinds ( source )
+local ok , tokens = pcall ( function ( )
+return parser ( ) : match ( source )
+end )
+if not ok or not tokens then
+return nil , "malformed pattern"
+end
+
+local depth = 0
+local captures = { }
+for _ , token in ipairs ( tokens ) do
+if token == "close" then
+if depth == 0 then
+return nil , "unexpected ')'"
+end
+depth = depth - 1
+else
+captures [ # captures + 1 ] = token
+if token == "string" then
+depth = depth + 1
+if depth > 32 then
+return nil , "too many captures"
+end
+end
+end
+end
+if depth ~= 0 then
+return nil , "unfinished capture"
+end
+
+return captures
+end
+
+return luaPattern
 
 end
 package.preload["nupp.compiler.materialize.codec"] = function(...)
@@ -74653,6 +74942,10 @@ end
 
 local function startsTypedecl ( at )
 local kw = tokens [ at ]
+if kw and kw . kind == "sealed" then
+at = at + 1
+kw = tokens [ at ]
+end
 if not kw or kw . kind ~= "name" or not TYPEDECL_KW [ kw . text ] then
 return false
 end
@@ -76291,8 +76584,15 @@ end
 
 
 parseTypedecl = function ( modifierTok , visibility )
+local sealedTok = nil
+if cur ( ) . kind == "sealed" then
+sealedTok = advance ( )
+end
 local kw = advance ( )
 local which = kw . text
+if sealedTok and which ~= "interface" then
+errAt ( sealedTok , "'sealed' may modify only an interface" , "NUPP1002" )
+end
 
 
 
@@ -76302,6 +76602,9 @@ n . keyword = kw
 n . modifier = modifierTok
 if modifierTok then
 add ( n , modifierTok )
+end
+if sealedTok then
+add ( n , sealedTok )
 end
 add ( n , kw )
 
@@ -76318,6 +76621,7 @@ return n
 else
 local n = introduce ( setmetatable({ kind =  "recordDecl" }, cst.RecordDecl) )
 n . declKind = which
+n . sealedTok = sealedTok
 parseDeclName ( n , "after '" .. which .. "'" )
 parseGenerics ( n )
 n . supertypes = { }
@@ -78313,10 +78617,14 @@ return m
 
 
 "Interfaces" ,  codes =
-{ "NUPP2001" } ,  body =
+{ "NUPP2001" , "NUPP2136" } ,  body =
 [=[
 An interface declares a shape without a body. `record X is Y` states that X
 includes Y, and the checker holds it to that.
+
+`sealed interface` instead requires an explicit `is` declaration in its owning
+module. The modifier follows visibility: `local sealed interface Token`. It adds
+no wrapper, dispatch, or runtime check.
 ]=] ,  example =
 [=[
 local m = {}
@@ -78672,10 +78980,12 @@ captures cannot escape. `@owned(cleanup)` on a callable field declares a fresh
 owning result.
 
 Affine nominal fields have path-sensitive state. `nupp.resources.Set` holds
-dynamic owners. `nupp.span` gives rooted `Span<T>` and affine `WriteSpan<T>`
-views; `nupp.heap.allocate` gives `Array<T>` whose immutable count moves with its
-private pointer. Raw or unknown suspension cannot cross an obligation; handled
-suspension requires its cancellation contract.
+dynamic owners. `nupp.span` gives sealed, private-implementation `Span<T>` and
+affine `WriteSpan<T>` views. `FixedSpan<T, N>` and `FixedWriteSpan<T, N>` refine
+those contracts without a runtime length check. `nupp.heap.allocate` gives
+`Array<T>` whose immutable count moves with its private pointer. Raw or unknown
+suspension cannot cross an obligation; handled suspension requires its
+cancellation contract.
 
 `WriteSpan.splitAt(mid)` produces disjoint sibling regions. `countedBy(count)`
 maps borrowed cdef pointer/count parameters to checked spans. The wrapper checks
@@ -80282,6 +80592,30 @@ local isA
 
 
 
+local function declaresContract ( a , b , seen )
+if a == b then
+return true
+end
+if a . tag ~= "nominal" then
+return false
+end
+seen = seen or { }
+if seen [ a ] then
+return false
+end
+seen [ a ] = true
+for _ , parent in ipairs ( ( a ) . supertypes or { } ) do
+if parent == b or declaresContract ( parent , b , seen ) then
+return true
+end
+end
+
+return false
+end
+
+
+
+
 
 
 
@@ -80870,6 +81204,11 @@ end
 
 
 if btag == "nominal" and b . declKind == "interface" and b . byname then
+if b . sealedModule and not declaresContract ( a , b ) then
+return false , (
+"%s is not a %s (the interface is sealed by module %q)"
+) : format ( T . tostring ( a ) , T . tostring ( b ) , b . sealedModule )
+end
 local answersFit , answersWhy = associatedAnswersFit ( a , b )
 if not answersFit then
 return false , answersWhy
@@ -84351,6 +84690,10 @@ types.Nominal = {} types.Nominal.__index = types.Nominal
 
 
 
+
+
+
+
 local arena = { }
 
 local packArena = { }
@@ -85584,6 +85927,44 @@ fn . foreign ,
 fn . constParams ,
 fn . paramKinds ,
 fn . partitionResults
+)
+end
+
+
+
+
+function types . withPartitionResults ( ft , partitionResults )
+if ft . tag ~= "func" then
+return ft
+end
+local fn = ft
+
+return types . func (
+fn . params ,
+fn . rets ,
+fn . vararg ,
+fn . paramModes ,
+fn . predicate ,
+fn . typeParams ,
+fn . typeBounds ,
+fn . borrowsParam ,
+fn . borrowsSelf ,
+fn . borrowsParams ,
+fn . ffiOut ,
+fn . varargType ,
+fn . noreturn ,
+fn . paramPack ,
+fn . retPack ,
+fn . packParams ,
+fn . yieldPack ,
+fn . resumePack ,
+fn . noYield ,
+fn . paramNames ,
+fn . preservesResults ,
+fn . foreign ,
+fn . constParams ,
+fn . paramKinds ,
+partitionResults
 )
 end
 
@@ -89875,11 +90256,11 @@ const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp loca
 
 
 
+
 local span = { }
 
 
 
-span.Span = {} span.Span.__index = span.Span
 
 
 
@@ -89887,7 +90268,17 @@ span.Span = {} span.Span.__index = span.Span
 
 
 
-function span.Span:get(index)
+
+
+const SpanImpl = {} SpanImpl.__index = SpanImpl
+
+
+
+
+
+
+
+function SpanImpl:get(index)
 if index < 1 or index > self . count then
 error ( "span index out of bounds" , 2 )
 end
@@ -89898,23 +90289,67 @@ end
 
 
 
-function span.Span:slice(first, last)
-
-
+function SpanImpl:slice(first, last)
 local finish = last or self . count
 if first < 1 or finish < first - 1 or finish > self . count then
 error ( "span slice out of bounds" , 2 )
 end
+
 return setmetatable({ anchor =
 self ,  pointer =
 self . pointer ,  offset =
 self . offset + first - 1 ,  count =
-finish - first + 1 }, span.Span)
+finish - first + 1 }, SpanImpl)
 
 end
 
 
-function span.Span:ref()
+function SpanImpl:ref()
+do
+local pointer = ( self . pointer ) + self . offset
+return pointer , self . count
+end
+end
+
+
+
+
+
+span.FixedSpan = {}
+
+
+
+
+const FixedSpanImpl = {} FixedSpanImpl.__index = FixedSpanImpl
+
+
+
+
+
+function FixedSpanImpl:get(index)
+if index < 1 or index > ( self . count ) then
+error ( "span index out of bounds" , 2 )
+end
+do
+return self . pointer [ self . offset + index - 1 ]
+end
+end
+
+function FixedSpanImpl:slice(first, last)
+local finish = last or ( self . count )
+if first < 1 or finish < first - 1 or finish > ( self . count ) then
+error ( "span slice out of bounds" , 2 )
+end
+
+return setmetatable({ anchor =
+self ,  pointer =
+self . pointer ,  offset =
+self . offset + first - 1 ,  count =
+finish - first + 1 }, SpanImpl)
+
+end
+
+function FixedSpanImpl:ref()
 do
 local pointer = ( self . pointer ) + self . offset
 return pointer , self . count
@@ -89935,7 +90370,6 @@ span.WriteSplit = {} span.WriteSplit.__index = span.WriteSplit
 
 
 
-span.WriteSpan = {} span.WriteSpan.__index = span.WriteSpan
 
 
 
@@ -89945,7 +90379,29 @@ span.WriteSpan = {} span.WriteSpan.__index = span.WriteSpan
 
 
 
-function span.WriteSpan:set(index, value)
+
+
+
+
+
+span.FixedWriteSpan = {}
+
+
+
+
+
+const WriteSpanImpl = {} WriteSpanImpl.__index = WriteSpanImpl
+
+
+
+
+
+
+
+
+
+
+function WriteSpanImpl:set(index, value)
 if index < 1 or index > self . count then
 error ( "write span index out of bounds" , 2 )
 end
@@ -89955,7 +90411,7 @@ end
 end
 
 
-function span.WriteSpan:ref()
+function WriteSpanImpl:ref()
 do
 local pointer = ( self . pointer ) + self . offset
 return pointer , self . count
@@ -89963,20 +90419,18 @@ end
 end
 
 
-function span.WriteSpan:shared()
+function WriteSpanImpl:shared()
 return setmetatable({ anchor =
 self ,  pointer =
 self . pointer ,  offset =
 self . offset ,  count =
-self . count }, span.Span)
+self . count }, SpanImpl)
 
 end
 
 
 
-function span.WriteSpan:splitAt(mid)
-
-
+function WriteSpanImpl:splitAt(mid)
 if mid < 0 or mid > self . count then
 error ( "write span split point out of bounds" , 2 )
 end
@@ -89987,13 +90441,13 @@ local left , right = (function() return  setmetatable({ anchor =
 self ,  pointer =
 self . pointer ,  offset =
 self . offset ,  count =
-mid }, span.WriteSpan) , setmetatable({ anchor =
+mid }, WriteSpanImpl) , setmetatable({ anchor =
 
 
 self ,  pointer =
 self . pointer ,  offset =
 self . offset + mid ,  count =
-self . count - mid }, span.WriteSpan)  end)()
+self . count - mid }, WriteSpanImpl)  end)()
 
 
 return setmetatable({ anchor =  self ,  left =  left ,  right =  right }, span.WriteSplit)
@@ -90002,7 +90456,75 @@ end
 
 
 
-function span . WriteSpan . commit ( self )
+
+const FixedWriteSpanImpl = {} FixedWriteSpanImpl.__index = FixedWriteSpanImpl
+
+
+
+
+
+
+
+
+function FixedWriteSpanImpl:set(index, value)
+if index < 1 or index > ( self . count ) then
+error ( "write span index out of bounds" , 2 )
+end
+do
+self . pointer [ self . offset + index - 1 ] = value
+end
+end
+
+function FixedWriteSpanImpl:ref()
+do
+local pointer = ( self . pointer ) + self . offset
+return pointer , self . count
+end
+end
+
+function FixedWriteSpanImpl:shared()
+return setmetatable({ anchor =
+self ,  pointer =
+self . pointer ,  offset =
+self . offset ,  count =
+self . count }, FixedSpanImpl)
+
+end
+
+function FixedWriteSpanImpl:splitAt(mid)
+if mid < 0 or mid > ( self . count ) then
+error ( "write span split point out of bounds" , 2 )
+end
+do
+local left , right = (function() return  setmetatable({ anchor =
+
+
+self ,  pointer =
+self . pointer ,  offset =
+self . offset ,  count =
+mid }, WriteSpanImpl) , setmetatable({ anchor =
+
+
+self ,  pointer =
+self . pointer ,  offset =
+self . offset + mid ,  count =
+( self . count ) - mid }, WriteSpanImpl)  end)()
+
+
+return setmetatable({ anchor =  self ,  left =  left ,  right =  right }, span.WriteSplit)
+end
+end
+
+
+function WriteSpanImpl . commit ( self )
+do
+do
+local _raw = self
+end
+end
+end
+
+function FixedWriteSpanImpl . commit ( self )
 do
 do
 local _raw = self
@@ -90024,24 +90546,28 @@ end
 
 
 
+
 function span . fromString ( source )
 local pointer = __nuppFfi.cast("const uint8_t *" , source )
-return ( setmetatable({ anchor =
-source ,  pointer =  pointer ,  offset =  0 ,  count =  # source }, span.Span)
-)
+return ( setmetatable({ anchor =  source ,  pointer =  pointer ,  offset =  0 ,  count =  # source }, SpanImpl) )
 end
 
 
 
 
-function span . fromCarray (
-source , count
-)
+function span . fromCarray ( source , count )
 if count < 0 then
 error ( "span count cannot be negative" , 2 )
 end
+return ( setmetatable({ anchor =  source ,  pointer =  source ,  offset =  0 ,  count =  count }, SpanImpl) )
+end
+
+
+
+
+function span . fromFixedCarray ( source , count )
 return ( setmetatable({ anchor =
-source ,  pointer =  source ,  offset =  0 ,  count =  count }, span.Span)
+source ,  pointer =  source ,  offset =  0 ,  count =  count }, FixedSpanImpl)
 )
 end
 
@@ -90051,14 +90577,23 @@ end
 
 
 
-function span . writeCarray (
-source , count
-)
+function span . writeCarray ( source , count )
 if count < 0 then
 error ( "write span count cannot be negative" , 2 )
 end
+return ( setmetatable({ anchor =  source ,  pointer =  source ,  offset =  0 ,  count =  count }, WriteSpanImpl) )
+end
+
+
+
+
+
+function span . writeFixedCarray (
+source ,
+count
+)
 return ( setmetatable({ anchor =
-source ,  pointer =  source ,  offset =  0 ,  count =  count }, span.WriteSpan)
+source ,  pointer =  source ,  offset =  0 ,  count =  count }, FixedWriteSpanImpl)
 )
 end
 
@@ -99999,24 +100534,34 @@ return resources
 --[[
 Bounds-carrying borrowed pointer views.
 
-`Span<T>` keeps a runtime element count beside a rooted pointer. Indexing and slicing
-check that count before the only unsafe pointer operations in this module. Public code
-never has to dereference or offset a raw pointer.
+`Span<T>` is a sealed public contract over a private runtime implementation that keeps
+an element count beside a rooted pointer. Indexing and slicing check that count before
+the only unsafe pointer operations in this module. Public code cannot forge the
+contract or dereference or offset its raw pointer.
 ]]
 
 local span = {}
 
---- A checked, shared view over contiguous elements.
+--- A checked, shared view over contiguous elements. Only this module can declare an
+--- implementation, so the contract is proof that `ref()` and `count` agree.
 --- @export
-record span.Span<T>
+sealed interface span.Span<T>
+    readonly count: integer
+    get: function(self: Span<T>, index: integer): T
+    slice: function(self: Span<T>, first: integer, last: integer?): Span<T> borrows(self)
+    ref: function(self: Span<T>): (const T[?] borrows(self), integer)
+end
+
+--- The sole runtime representation of a dynamic shared span.
+local record SpanImpl<T> is span.Span<T>
     private readonly anchor: any
-    private readonly pointer: const T[?] borrows (anchor)
+    private readonly pointer: const T[?] borrows(anchor)
     private readonly offset: integer
     readonly count: integer
 
     --- Returns one element after checking the one-based index.
     --- @raises when index is outside 1 through count
-    function get(self: Span<T>, index: integer): T
+    function get(self: SpanImpl<T>, index: integer): T
         if index < 1 or index > self.count then
             error("span index out of bounds", 2)
         end
@@ -100027,26 +100572,70 @@ record span.Span<T>
 
     --- Returns a checked subspan, inclusive at both ends.
     --- @raises when the requested range is outside this span
-    function slice(
-        self: Span<T>, first: integer, last: integer?
-    ): Span<T> borrows (self)
+    function slice(self: SpanImpl<T>, first: integer, last: integer?): span.Span<T> borrows(self)
         local finish = last or self.count
         if first < 1 or finish < first - 1 or finish > self.count then
             error("span slice out of bounds", 2)
         end
-        return new span.Span(
+
+        return new SpanImpl(
             anchor = self,
             pointer = self.pointer as any,
             offset = self.offset + first - 1,
             count = finish - first + 1
-        ) as Span<T>
+        ) as span.Span<T>
     end
 
     --- Exposes the checked range as a const pointer/count pair for a native call.
-    function ref(self: Span<T>): (const T[?] borrows (self), integer)
+    function ref(self: SpanImpl<T>): (const T[?] borrows(self), integer)
         unsafe do
             local pointer = (self.pointer as const T*) + self.offset
             return borrowFrom(pointer as const T[?], self), self.count
+        end
+    end
+end
+
+--- A shared span whose exact element count is part of its static type. It refines the
+--- dynamic contract, so APIs accepting `Span<T>` also accept a fixed span.
+--- @export
+sealed interface span.FixedSpan<T, const N: integer> is span.Span<T>
+    readonly count: N
+end
+
+--- The sole runtime representation of a fixed shared span.
+local record FixedSpanImpl<T, const N: integer> is span.FixedSpan<T, N>
+    private readonly anchor: any
+    private readonly pointer: const T[?] borrows(anchor)
+    private readonly offset: integer
+    readonly count: N
+
+    function get(self: FixedSpanImpl<T, N>, index: integer): T
+        if index < 1 or index > (self.count as integer) then
+            error("span index out of bounds", 2)
+        end
+        unsafe do
+            return self.pointer[self.offset + index - 1]
+        end
+    end
+
+    function slice(self: FixedSpanImpl<T, N>, first: integer, last: integer?): span.Span<T> borrows(self)
+        local finish = last or (self.count as integer)
+        if first < 1 or finish < first - 1 or finish > (self.count as integer) then
+            error("span slice out of bounds", 2)
+        end
+
+        return new SpanImpl(
+            anchor = self,
+            pointer = self.pointer as any,
+            offset = self.offset + first - 1,
+            count = finish - first + 1
+        ) as span.Span<T>
+    end
+
+    function ref(self: FixedSpanImpl<T, N>): (const T[?] borrows(self), integer)
+        unsafe do
+            local pointer = (self.pointer as const T*) + self.offset
+            return borrowFrom(pointer as const T[?], self), self.count as integer
         end
     end
 end
@@ -100057,24 +100646,45 @@ end
 --- @export
 record span.WriteSplit<T>
     private readonly anchor: any
-    readonly left: span.WriteSpan<T> borrows (anchor)
-    readonly right: span.WriteSpan<T> borrows (anchor)
+    readonly left: span.WriteSpan<T> borrows(anchor)
+    readonly right: span.WriteSpan<T> borrows(anchor)
 end
 
 --- An affine checked write range. Its live token keeps the source under an
---- incompatible-borrow barrier until `span.commit` or scope exit consumes it.
+--- incompatible-borrow barrier until `span.commit` or scope exit consumes it. Only
+--- this module can declare an implementation.
 --- @export
-record span.WriteSpan<T>
+sealed interface span.WriteSpan<T>
+    readonly count: integer
+    @drop
+    commit: nosuspend function(takes self: WriteSpan<T>): nil
+    set: function(exclusive self: WriteSpan<T>, index: integer, value: T): nil
+    ref: function(exclusive self: WriteSpan<T>): (T[?] borrows(self), integer)
+    shared: function(borrows self: WriteSpan<T>): span.Span<T> borrows(self)
+    @partition(left, right)
+    splitAt: function(exclusive self: WriteSpan<T>, mid: integer): span.WriteSplit<T> borrows(self)
+end
+
+--- A writable span whose exact element count is part of its static type.
+--- @export
+sealed interface span.FixedWriteSpan<T, const N: integer> is span.WriteSpan<T>
+    readonly count: N
+    shared: function(borrows self: FixedWriteSpan<T, N>): span.FixedSpan<T, N> borrows(self)
+end
+
+--- The sole runtime representation of a dynamic writable span.
+local record WriteSpanImpl<T> is span.WriteSpan<T>
     private readonly anchor: any
-    private readonly pointer: T[?] borrows (anchor)
+    private readonly pointer: T[?] borrows(anchor)
     private readonly offset: integer
     readonly count: integer
 
     --- Ends this affine write range. It is also the automatic scope-exit drop.
     @drop
-    commit: nosuspend function(takes self: WriteSpan<T>): nil
 
-    function set(exclusive self: WriteSpan<T>, index: integer, value: T): nil
+    commit: nosuspend function(takes self: WriteSpanImpl<T>): nil
+
+    function set(exclusive self: WriteSpanImpl<T>, index: integer, value: T): nil
         if index < 1 or index > self.count then
             error("write span index out of bounds", 2)
         end
@@ -100084,7 +100694,7 @@ record span.WriteSpan<T>
     end
 
     --- Exposes the checked range as a mutable pointer/count pair for a native call.
-    function ref(exclusive self: WriteSpan<T>): (T[?] borrows (self), integer)
+    function ref(exclusive self: WriteSpanImpl<T>): (T[?] borrows(self), integer)
         unsafe do
             local pointer = (self.pointer as T*) + self.offset
             return borrowFrom(pointer as T[?], self), self.count
@@ -100092,8 +100702,8 @@ record span.WriteSpan<T>
     end
 
     --- Downgrades this writer to a shared view for the lifetime of the result.
-    function shared(borrows self: WriteSpan<T>): span.Span<T> borrows (self)
-        return new span.Span(
+    function shared(borrows self: WriteSpanImpl<T>): span.Span<T> borrows(self)
+        return new SpanImpl(
             anchor = self,
             pointer = self.pointer as any,
             offset = self.offset,
@@ -100103,22 +100713,20 @@ record span.WriteSpan<T>
 
     --- Partitions this range at a zero-based boundary count.
     --- @raises when mid is negative or greater than count
-    function splitAt(
-        exclusive self: WriteSpan<T>, mid: integer
-    ): span.WriteSplit<T> borrows (self)
+    function splitAt(exclusive self: WriteSpanImpl<T>, mid: integer): span.WriteSplit<T> borrows(self)
         if mid < 0 or mid > self.count then
             error("write span split point out of bounds", 2)
         end
         unsafe do
             local left, right = nupp.partition(
                 self,
-                new span.WriteSpan(
+                new WriteSpanImpl(
                     anchor = self,
                     pointer = self.pointer as any,
                     offset = self.offset,
                     count = mid
                 ) as span.WriteSpan<T>,
-                new span.WriteSpan(
+                new WriteSpanImpl(
                     anchor = self,
                     pointer = self.pointer as any,
                     offset = self.offset + mid,
@@ -100131,7 +100739,75 @@ record span.WriteSpan<T>
 
 end
 
-function span.WriteSpan.commit<T>(takes self: span.WriteSpan<T>): nil
+--- The sole runtime representation of a fixed writable span.
+local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N>
+    private readonly anchor: any
+    private readonly pointer: T[?] borrows(anchor)
+    private readonly offset: integer
+    readonly count: N
+
+    @drop
+    commit: nosuspend function(takes self: FixedWriteSpanImpl<T, N>): nil
+
+    function set(exclusive self: FixedWriteSpanImpl<T, N>, index: integer, value: T): nil
+        if index < 1 or index > (self.count as integer) then
+            error("write span index out of bounds", 2)
+        end
+        unsafe do
+            self.pointer[self.offset + index - 1] = value
+        end
+    end
+
+    function ref(exclusive self: FixedWriteSpanImpl<T, N>): (T[?] borrows(self), integer)
+        unsafe do
+            local pointer = (self.pointer as T*) + self.offset
+            return borrowFrom(pointer as T[?], self), self.count as integer
+        end
+    end
+
+    function shared(borrows self: FixedWriteSpanImpl<T, N>): span.FixedSpan<T, N> borrows(self)
+        return new FixedSpanImpl(
+            anchor = self,
+            pointer = self.pointer as any,
+            offset = self.offset,
+            count = self.count
+        ) as span.FixedSpan<T, N>
+    end
+
+    function splitAt(exclusive self: FixedWriteSpanImpl<T, N>, mid: integer): span.WriteSplit<T> borrows(self)
+        if mid < 0 or mid > (self.count as integer) then
+            error("write span split point out of bounds", 2)
+        end
+        unsafe do
+            local left, right = nupp.partition(
+                self,
+                new WriteSpanImpl(
+                    anchor = self,
+                    pointer = self.pointer as any,
+                    offset = self.offset,
+                    count = mid
+                ) as span.WriteSpan<T>,
+                new WriteSpanImpl(
+                    anchor = self,
+                    pointer = self.pointer as any,
+                    offset = self.offset + mid,
+                    count = (self.count as integer) - mid
+                ) as span.WriteSpan<T>
+            )
+            return new span.WriteSplit(anchor = self, left = left, right = right) as span.WriteSplit<T>
+        end
+    end
+end
+
+function WriteSpanImpl.commit<T>(takes self: WriteSpanImpl<T>): nil
+    nosuspend do
+        unsafe do
+            local _raw = intoRaw(self)
+        end
+    end
+end
+
+function FixedWriteSpanImpl.commit<T, const N: integer>(takes self: FixedWriteSpanImpl<T, N>): nil
     nosuspend do
         unsafe do
             local _raw = intoRaw(self)
@@ -100148,30 +100824,34 @@ end
 --- Backwards-compatible names for the byte-specialized views.
 --- @export
 type span.ByteSpan = span.Span<uint8>
+
 --- @export
 type span.ByteWriteSpan = span.WriteSpan<uint8>
 
 --- Creates a byte span over a Lua string and keeps that string rooted.
 --- @export
-function span.fromString(borrows source: string): span.ByteSpan borrows (source)
+function span.fromString(borrows source: string): span.ByteSpan borrows(source)
     local pointer = ffi.cast<const uint8[?]>(source)
-    return (new span.Span(
-        anchor = source, pointer = pointer as any, offset = 0, count = #source
-    )) as span.ByteSpan
+    return (new SpanImpl(anchor = source, pointer = pointer as any, offset = 0, count = #source)) as span.ByteSpan
 end
 
 --- Creates a checked shared span over a C array and an explicit logical count.
 --- @export
 --- @raises when count is negative
-function span.fromCarray<T>(
-    borrows source: T[?], count: integer
-): span.Span<T> borrows (source)
+function span.fromCarray<T>(borrows source: T[?], count: integer): span.Span<T> borrows(source)
     if count < 0 then
         error("span count cannot be negative", 2)
     end
-    return (new span.Span(
-        anchor = source, pointer = source as any, offset = 0, count = count
-    )) as span.Span<T>
+    return (new SpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)) as span.Span<T>
+end
+
+--- Creates a fixed shared span without a runtime length check. The literal count is
+--- both the stored count and the proof that the source has exactly `N` elements.
+--- @export
+function span.fromFixedCarray<T, const N: integer>(borrows source: T[N], count: N): span.FixedSpan<T, N> borrows(source)
+    return (
+        new FixedSpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)
+    ) as span.FixedSpan<T, N>
 end
 
 --- Creates an affine write span. The source is exclusive during construction and the
@@ -100180,15 +100860,24 @@ end
 --- @export
 --- @raises when count is negative
 @owned
-function span.writeCarray<T>(
-    exclusive source: T[?], count: integer
-): span.WriteSpan<T> borrows (source)
+function span.writeCarray<T>(exclusive source: T[?], count: integer): span.WriteSpan<T> borrows(source)
     if count < 0 then
         error("write span count cannot be negative", 2)
     end
-    return (new span.WriteSpan(
-        anchor = source, pointer = source as any, offset = 0, count = count
-    )) as span.WriteSpan<T>
+    return (new WriteSpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)) as span.WriteSpan<T>
+end
+
+--- Creates a fixed affine write span without a runtime length check. The source array
+--- type and literal count must name the same `N`.
+--- @export
+@owned
+function span.writeFixedCarray<T, const N: integer>(
+    exclusive source: T[N],
+    count: N
+): span.FixedWriteSpan<T, N> borrows(source)
+    return (
+        new FixedWriteSpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)
+    ) as span.FixedWriteSpan<T, N>
 end
 
 return span

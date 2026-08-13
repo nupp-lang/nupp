@@ -1041,6 +1041,9 @@ record cst.RecordDecl is cst.Hints
     --- The `local` or `global` before it, when one was written.
     modifier: lexer.Token?
 
+    --- The `sealed` modifier on this interface, when one was written.
+    sealedTok: lexer.Token?
+
     --- Which form: "record", "interface" or "struct".
     declKind: string?
 

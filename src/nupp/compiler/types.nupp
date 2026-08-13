@@ -702,6 +702,10 @@ record types.Nominal
     --- Canonical module that may access private fields.
     moduleName: string?
 
+    --- Canonical module allowed to declare implementations of this interface.
+    --- A sealed interface is nominal at conformance sites rather than structural.
+    sealedModule: string?
+
     --- The audited dynamic discharge container shipped by the standard library.
     resourceSet: boolean?
 
@@ -2077,6 +2081,44 @@ function types.withFirstResult(ft: types.Type, first: types.Type): types.Type
         fn.constParams,
         fn.paramKinds,
         fn.partitionResults
+    )
+end
+
+--- Adds trusted sibling-region metadata to a callable result without changing any
+--- other part of its contract. Sealed interface methods use this to publish the same
+--- partition fact an implementation body derives from `nupp.partition`.
+function types.withPartitionResults(ft: types.Type, partitionResults: {[integer]: {[string]: string}}): types.Type
+    if ft.tag ~= "func" then
+        return ft
+    end
+    local fn = ft as types.Func
+
+    return types.func(
+        fn.params,
+        fn.rets,
+        fn.vararg,
+        fn.paramModes,
+        fn.predicate,
+        fn.typeParams,
+        fn.typeBounds,
+        fn.borrowsParam,
+        fn.borrowsSelf,
+        fn.borrowsParams,
+        fn.ffiOut,
+        fn.varargType,
+        fn.noreturn,
+        fn.paramPack,
+        fn.retPack,
+        fn.packParams,
+        fn.yieldPack,
+        fn.resumePack,
+        fn.noYield,
+        fn.paramNames,
+        fn.preservesResults,
+        fn.foreign,
+        fn.constParams,
+        fn.paramKinds,
+        partitionResults
     )
 end
 

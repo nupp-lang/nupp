@@ -975,7 +975,11 @@ function declare.install(
                     1
                 ] = fix(
                     ("drop `%s`"):format(stat.visibility),
-                    {offset = stat.modifier.offset, length = stat.keyword.offset - stat.modifier.offset, newText = ""}
+                    {
+                        offset = stat.modifier.offset,
+                        length = (stat.sealedTok or stat.keyword).offset - stat.modifier.offset,
+                        newText = ""
+                    }
                 )
             end
             c.diag(
@@ -1002,8 +1006,9 @@ function declare.install(
                         #fixes + 1
                     ] = fix(("attach it to %s"):format(c.moduleLocal), insertBefore(stat.name, c.moduleLocal .. "."))
                 end
-                fixes[#fixes + 1] = fix("mark it local", insertBefore(stat.keyword, "local "))
-                fixes[#fixes + 1] = fix("mark it global", insertBefore(stat.keyword, "global "))
+                local firstKeyword = stat.sealedTok or stat.keyword
+                fixes[#fixes + 1] = fix("mark it local", insertBefore(firstKeyword, "local "))
+                fixes[#fixes + 1] = fix("mark it global", insertBefore(firstKeyword, "global "))
             end
             c.diag("NUPP2119", stat.name, ("declaration %q has no visibility; %s"):format(name, suggestion), fixes)
         end
@@ -1130,6 +1135,9 @@ function declare.install(
             n.staticWriteFieldDefs = {}
             stat.resolvedType = n
             n.moduleName = c.result.moduleName
+            if n.declKind == "interface" and stat.sealedTok then
+                n.sealedModule = n.moduleName or c.filename
+            end
             if c.result.moduleName == "nupp.resources" and n.name == "Set" then
                 n.resourceSet = true
             end
@@ -1172,6 +1180,19 @@ function declare.install(
                         ("%s may inherit contracts only from interfaces"):format(stat.declKind)
                     )
                 else
+                    if super.sealedModule and super.sealedModule ~= (c.result.moduleName or c.filename) then
+                        c.diag(
+                            "NUPP2136",
+                            superNode,
+                            (
+                                "sealed interface %s may be implemented only in module %q"
+                            ):format(T.tostring(super), super.sealedModule),
+                            nil,
+                            {
+                                help = "use a value produced by the interface's module instead of declaring a new implementation"
+                            }
+                        )
+                    end
                     n.supertypes[#n.supertypes + 1] = super
                     -- Which node named it, so the runtime spelling the resolver worked
                     -- out can be found again from the nominal.
@@ -1370,15 +1391,54 @@ function declare.install(
                     end
                     local isDropOperation = false
                     local ownedApplication = nil
+                    local partitionApplication = nil
                     for _, application in ipairs(e.annotations or {}) do
                         local definition2, valid = validateAnnotation(application, e, stat)
                         if definition2 and valid and application.name.text == "drop" then
                             isDropOperation = true
                         elseif definition2 and valid and application.name.text == "owned" then
                             ownedApplication = application
+                        elseif definition2 and valid and application.name.text == "partition" then
+                            partitionApplication = application
                         end
                     end
                     local ft = c.resolveType(e.type)
+                    if partitionApplication then
+                        local names, seen = {}, {}
+                        for _, argument in ipairs(partitionApplication.annotationArgs or {}) do
+                            local expr = argument.expr
+                            local name = expr and expr.kind == "name" and expr.token.text or nil
+                            if name and not seen[name] then
+                                seen[name] = true
+                                names[#names + 1] = name
+                            end
+                        end
+                        local result = ft.tag == "func" and ft.rets[1] or nil
+                        result = result and T.unwrapOwnership(result) or nil
+                        if stat.declKind ~= "interface" or not n.sealedModule then
+                            c.diag(
+                                "NUPP2602",
+                                partitionApplication,
+                                "@partition is available only on a sealed interface method"
+                            )
+                        elseif #names ~= 2 then
+                            c.diag(
+                                "NUPP2602",
+                                partitionApplication,
+                                "@partition names exactly two sibling result fields"
+                            )
+                        elseif not result or result.tag ~= "nominal" or not result.byname[
+                            names[1]
+                        ] or not result.byname[names[2]] then
+                            c.diag(
+                                "NUPP2602",
+                                partitionApplication,
+                                "@partition names must be readable fields of the first result"
+                            )
+                        else
+                            ft = T.withPartitionResults(ft, {[1] = {[names[1]] = "L", [names[2]] = "R"}})
+                        end
+                    end
                     if ownedApplication then
                         local ownedMembers = ft.tag == "intersection" and ft.members or {ft}
                         local fixedResults = true

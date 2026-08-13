@@ -212,7 +212,7 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 c.checkStat(helper)
                 c.comptimeFunctionDepth = c.comptimeFunctionDepth - 1
                 if target.kind == "funcStmt" and owner == c.moduleLocal and helper.comptimeSignature then
-                    local sealed = require(
+                    local sealedProgram = require(
                         "nupp.compiler.comptime"
                     ).sealTypeFunction(helper, c.comptimeFunctions, helper.comptimeSignature, helper.comptimeDefinition)
                     local deriveNamespace = c.env and c.env.globalTypes and c.env.globalTypes["nupp.derive"]
@@ -243,31 +243,31 @@ function pragma.install(c: state.Checker): state.StatHandlers
                                 {help = "I must be one existing interface"}
                             )
                         else
-                            sealed.bodyFingerprint = sealed.identity
-                            sealed.identity = hash.sha256(
+                            sealedProgram.bodyFingerprint = sealedProgram.identity
+                            sealedProgram.identity = hash.sha256(
                                 table.concat(
                                     {
                                         "nupp.derive.provider.v1",
                                         c.result.moduleName or "<chunk>",
                                         markedName.text,
-                                        sealed.bodyFingerprint,
+                                        sealedProgram.bodyFingerprint,
                                     },
                                     "\0"
                                 )
                             )
-                            sealed.deriveProvider = true
-                            sealed.deriveInterface = contract
-                            sealed.deriveInterfaceIdentity = contract.id
-                            sealed.providerModule = c.result.moduleName
-                            sealed.providerModuleLocal = c.moduleLocal
-                            sealed.runtimeHelpers = {}
+                            sealedProgram.deriveProvider = true
+                            sealedProgram.deriveInterface = contract
+                            sealedProgram.deriveInterfaceIdentity = contract.id
+                            sealedProgram.providerModule = c.result.moduleName
+                            sealedProgram.providerModuleLocal = c.moduleLocal
+                            sealedProgram.runtimeHelpers = {}
                             for runtimeName, runtimeType in pairs(c.moduleFields or {}) do
                                 if runtimeType and runtimeType.tag == "func" then
                                     local moduleName = c.result.moduleName or c.moduleLocal or "<chunk>"
                                     local descriptor = {module = moduleName, member = runtimeName,}
-                                    sealed.runtimeHelpers[moduleName .. "." .. runtimeName] = descriptor
+                                    sealedProgram.runtimeHelpers[moduleName .. "." .. runtimeName] = descriptor
                                     if c.moduleLocal then
-                                        sealed.runtimeHelpers[c.moduleLocal .. "." .. runtimeName] = descriptor
+                                        sealedProgram.runtimeHelpers[c.moduleLocal .. "." .. runtimeName] = descriptor
                                     end
                                 end
                             end
@@ -313,8 +313,8 @@ function pragma.install(c: state.Checker): state.StatHandlers
                                         and helperType.tag == "func"
                                     then
                                         local descriptor = {module = moduleName, member = memberName}
-                                        sealed.runtimeHelpers[modulePath .. "." .. memberName] = descriptor
-                                        sealed.runtimeHelpers[moduleName .. "." .. memberName] = descriptor
+                                        sealedProgram.runtimeHelpers[modulePath .. "." .. memberName] = descriptor
+                                        sealedProgram.runtimeHelpers[moduleName .. "." .. memberName] = descriptor
                                     else
                                         c.diag(
                                             "NUPP2809",
@@ -331,7 +331,7 @@ function pragma.install(c: state.Checker): state.StatHandlers
                             scanRuntimeHelpers(helper.body)
                         end
                     end
-                    c.moduleExports.comptimeFunctions[markedName.text] = sealed
+                    c.moduleExports.comptimeFunctions[markedName.text] = sealedProgram
                 end
             elseif stat.stat then
                 c.checkStat(stat.stat)

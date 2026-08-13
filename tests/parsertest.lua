@@ -33,6 +33,30 @@ end
 
 local M = {}
 
+function M.sealedInterfaceModifier()
+   local source = table.concat({
+      "sealed interface exported.Token end",
+      "local sealed interface LocalToken end",
+      "global sealed interface GlobalToken end",
+      "local interface Outer",
+      "   sealed interface NestedToken end",
+      "end",
+   }, "\n")
+   local result = assertRoundtrip(source)
+   assertEq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
+   local stats = result.root.blocks[1].stats
+   assertEq(stats[1].sealedTok.text, "sealed")
+   assertEq(stats[2].visibility, "local")
+   assertEq(stats[2].sealedTok.text, "sealed")
+   assertEq(stats[3].visibility, "global")
+   assertEq(stats[3].sealedTok.text, "sealed")
+   assertEq(stats[4].entries[1].sealedTok.text, "sealed")
+
+   local invalid = parser.parse("local sealed record Token end")
+   assertEq(#invalid.errors, 1, "sealed record error")
+   assertEq(invalid.errors[1].code, "NUPP1002")
+end
+
 function M.cdefUnionAndBitfieldRoundtrip()
    local source = "cdef union Value\n   flags: uint32 : 3\n   number: number\nend\n"
    local result = assertRoundtrip(source)

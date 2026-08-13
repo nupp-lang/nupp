@@ -75,6 +75,7 @@ local CONTEXTUAL_KEYWORDS = {
     record = true,
     metamethod = true,
     scoped = true,
+    ["sealed"] = true,
     suspension = true,
     unpackof = true,
     where = true,

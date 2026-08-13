@@ -310,6 +310,11 @@ function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
       "   local bytes = ffi.cast<const uint8[?]>(text)",
       "   print(bytes[0])",
       "end",
+      "local record Split left: integer right: integer end",
+      "local sealed interface Splitter",
+      "   @partition(left, right)",
+      "   split: function(self: Splitter): Split",
+      "end",
       "local record Resource name: string end",
       "local function close_resource(value: Resource) end",
       "@owned(close_resource)",
@@ -338,10 +343,12 @@ function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
       "counted pointer relationships survive checking")
    assert(report.foreign[2].zeroCount:find("calls once", 1, true),
       "the audit reports the foreign zero-count promise")
-   assert(#report.unsafe == 2 and report.unsafe[1].line == 3,
-      "the explicit unsafe boundary and operation are enumerable")
+   assert(#report.unsafe == 3 and report.unsafe[1].line == 3,
+      "the explicit unsafe boundary, operation, and contract are enumerable")
    assert(report.unsafe[2].kind == "unchecked C memory indexing",
       "the report names the trusted raw operation")
+   assert(report.unsafe[3].kind == "ownership contract: partitioned result fields",
+      "the report names a trusted partition contract")
    assert(report.regions == nil, "automatic regions remain opt-in")
 
    local regions = json.decode(capture((

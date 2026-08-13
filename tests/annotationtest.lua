@@ -40,6 +40,64 @@ local function checked(src)
     return table.concat(codes, " "), result, diags
 end
 
+function M.sealedInterfacesRequireDeclaredConformance()
+    assertEq(checked(table.concat({
+        "local sealed interface Token",
+        "    readonly value: integer",
+        "end",
+        "local record Genuine is Token",
+        "    readonly value: integer",
+        "end",
+        "local token: Token = new Genuine(value = 1)",
+        "print(token.value)",
+    }, "\n")), "")
+
+    assertEq(checked(table.concat({
+        "local sealed interface Token",
+        "    readonly value: integer",
+        "end",
+        "local record Shaped",
+        "    readonly value: integer",
+        "end",
+        "local token: Token = new Shaped(value = 1)",
+        "print(token.value)",
+    }, "\n")), "NUPP2001")
+
+    assertEq(checked(table.concat({
+        "local record Shaped",
+        "    readonly value: integer",
+        "end",
+        "local token: Token = new Shaped(value = 1)",
+        "local sealed interface Token",
+        "    readonly value: integer",
+        "end",
+        "print(token.value)",
+    }, "\n")), "NUPP2001", "sealing applies to forward references")
+end
+
+function M.sealedIsAKeywordNotAnAnnotation()
+    local result = parser.parse("@sealed\nlocal interface Token end", "test.g.nupp")
+    assert(#result.errors > 0, "@sealed must be rejected as syntax")
+end
+
+function M.partitionContractsRequireASealedInterfaceAndRealFields()
+    assertEq(checked(table.concat({
+        "local record Pair left: integer right: integer end",
+        "local interface Splitter",
+        "    @partition(left, right)",
+        "    split: function(self: Splitter): Pair",
+        "end",
+    }, "\n")), "NUPP2602")
+
+    assertEq(checked(table.concat({
+        "local record Pair left: integer right: integer end",
+        "local sealed interface Splitter",
+        "    @partition(left, missing)",
+        "    split: function(self: Splitter): Pair",
+        "end",
+    }, "\n")), "NUPP2602")
+end
+
 function M.effectContractsAreNormalizedAndVerified()
     local source = table.concat({
         '@effects(reads = {"value"}, returns = {"1=value"})',

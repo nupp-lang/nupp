@@ -180,6 +180,20 @@ local function run(parsed: any): integer
                 end
                 foreign[#foreign + 1] = entry
             end
+        elseif node.kind == "fieldDecl" then
+            for _, application in ipairs(node.annotations or {}) do
+                if application.name and application.name.text == "partition" then
+                    local token = firstToken(application)
+                    unsafeSites[
+                        #unsafeSites + 1
+                    ] = {
+                        file = file,
+                        line = token and token.line or 0,
+                        column = token and token.col or 0,
+                        kind = "ownership contract: partitioned result fields",
+                    }
+                end
+            end
         elseif node.kind == "unsafeStmt" then
             local token = firstToken(node)
             unsafeSites[

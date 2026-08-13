@@ -179,6 +179,32 @@
           }
         },
         {
+          "match": "\\b(local|global)([ \\t]+)(sealed)([ \\t]+)(interface)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.modifier.nupp" },
+            "3": { "name": "keyword.control.nupp" },
+            "5": { "name": "storage.type.declaration.nupp" },
+            "7": { "name": "entity.name.type.nupp" }
+          }
+        },
+        {
+          "match": "\\b(sealed)([ \\t]+)(interface)([ \\t]+)((?:[A-Za-z_][A-Za-z0-9_]*\\.)+)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.control.nupp" },
+            "3": { "name": "storage.type.declaration.nupp" },
+            "5": { "name": "entity.name.namespace.nupp" },
+            "6": { "name": "entity.name.type.nupp" }
+          }
+        },
+        {
+          "match": "\\b(sealed)([ \\t]+)(interface)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.control.nupp" },
+            "3": { "name": "storage.type.declaration.nupp" },
+            "5": { "name": "entity.name.type.nupp" }
+          }
+        },
+        {
           "match": "\\b(local)([ \\t]+)(type|record|interface|struct)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "storage.modifier.local.nupp" },
@@ -376,7 +402,7 @@
         },
         {
           "name": "keyword.control.nupp",
-          "match": "\\b(?:break|do|else|elseif|end|for|goto|if|in|repeat|return|then|unsafe|until|while)\\b"
+          "match": "\\b(?:break|do|else|elseif|end|for|goto|if|in|repeat|return|sealed|then|unsafe|until|while)\\b"
         },
         {
           "name": "storage.modifier.ownership.nupp",

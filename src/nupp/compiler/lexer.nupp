@@ -203,7 +203,7 @@ type lexer.LexError = {
 local KEYWORDS: {[string]: boolean} = {}
 for word in (
     "and break do else elseif end false for function goto if in local "
-    .. "nil not or repeat return then true until while"
+    .. "nil not or repeat return sealed then true until while"
 ):gmatch("%S+") do
     KEYWORDS[word] = true
 end

@@ -65,6 +65,8 @@ function M.basicKinds()
    assertEq(kindsOf('return "s" .. [[l]]'), "return string .. string")
    assertEq(kindsOf("const x = 1"), "name name = number",
       "const must remain a soft keyword")
+   assertEq(kindsOf("local sealed interface Token end"),
+      "local sealed name name end", "sealed must be reserved")
 end
 
 function M.luajit3Operators()

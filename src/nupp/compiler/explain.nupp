@@ -124,8 +124,8 @@ local ENTRIES: {
     rule = "A private field is representation available only while checking the "
     .. "canonical module that declares its record. Expose a public method when "
     .. "another module needs an operation without revealing that representation.",
-    wrong = "local m = require('nupp.span')\nlocal s = m.fromString('x')\nreturn s.pointer\n",
-    right = "local m = require('nupp.span')\nlocal s = m.fromString('x')\nreturn s:get(1)\n",
+    wrong = "local h = require('nupp.heap')\nlocal a = h.allocate(ffi.typeof<int32>(), 1)\nreturn a.pointer\n",
+    right = "local h = require('nupp.heap')\nlocal a = h.allocate(ffi.typeof<int32>(), 1)\nreturn a:read():get(1)\n",
     related = {"NUPP2004", "NUPP2202"},
     docs = "docs/type-system/records.md#private-fields",
 }, {
@@ -534,6 +534,20 @@ local ENTRIES: {
     .. "end\n\nreturn Direct\n",
     related = {"NUPP2127"},
     docs = "docs/type-system/associated-types.md",
+}, {
+    code = "NUPP2136",
+    summary = "A sealed interface is implemented outside its owning module",
+    rule = "A sealed interface carries hidden invariants that its public shape cannot "
+    .. "prove. Only a declaration in the interface's own module may explicitly name "
+    .. "it after `is`; structural lookalikes do not satisfy it. Obtain the value from "
+    .. "that module's constructors instead of declaring another implementation.",
+    wrong = "local spans = require(\"nupp.span\")\n\n"
+    .. "local record Forged is spans.Span<int32>\nend\n\nreturn Forged\n",
+    right = "local spans = require(\"nupp.span\")\n\n"
+    .. "local storage = ffi.new<int32[4]>()\n"
+    .. "local view = spans.fromFixedCarray(storage, 4)\n\nreturn view.count\n",
+    related = {"NUPP2001", "NUPP2117"},
+    docs = "docs/type-system/interfaces.md#sealed-interfaces",
 }, {
     code = "NUPP2511",
     summary = "An associated type was erased because inference did not reach its head",
