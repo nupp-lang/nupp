@@ -774,7 +774,7 @@ following hold:
 - boxing and outlining rules preserve existing errors, ownership, and hot
   reload without general deoptimization;
 - generated SIMD meets the same one-call and throughput gates as an explicit
-  kernel;
+  native function;
 - preferred species stays out of public type identity and module fingerprints;
 - implementation cost is concentrated in reusable IR/backend work rather than
   a growing imitation of LuaJIT.
