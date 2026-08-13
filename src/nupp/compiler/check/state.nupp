@@ -438,6 +438,13 @@ record state.Checker
     --- field types because structural types deliberately carry no source provenance.
     moduleFieldDefs: {[string]: any}
 
+    --- Direct function declarations on the returned module table, collected before
+    --- bodies are checked so a read may resolve a later declaration's signature.
+    moduleFunctionDeclarations: {[string]: any}
+
+    --- Publishes a collected module function in the current flow scope.
+    resolveModuleFunction: function(name: string): Type?
+
     --- Which direct module exports were established with `const M.field`.
     moduleFieldConst: {[string]: boolean}
 

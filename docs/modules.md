@@ -201,6 +201,30 @@ function shapes.Path.trim(self, count: integer): shapes.Path
 end
 ```
 
+Direct function declarations on the table a file returns publish their signatures
+before any function body in that block is checked. Module functions may therefore call
+one another in either source order without predeclaring the module table's shape:
+
+```nupp
+local strings = {}
+
+function strings.first(): string
+    return strings.second()
+end
+
+function strings.second(): string
+    return "second"
+end
+
+return strings
+```
+
+This is declaration behavior, not assignment behavior. A later
+`strings.second = function ... end` becomes visible only after that assignment, and a
+`local function` follows the same lexical flow as Lua. The runtime writes also remain in
+source order, so module initialization must not call `strings.first` before
+`strings.second` has been assigned.
+
 
 ## Conventions
 

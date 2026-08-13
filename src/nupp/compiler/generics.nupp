@@ -1734,7 +1734,7 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
                 generics.unify(param.key, arg.key, map)
                 generics.unify(param.value, arg.value, map)
             end
-            if param.writeKey and arg.writeKey then
+            if param.writeKey and param.writeValue and arg.writeKey and arg.writeValue then
                 generics.unify(param.writeKey, arg.writeKey, map)
                 generics.unify(param.writeValue, arg.writeValue, map)
             end

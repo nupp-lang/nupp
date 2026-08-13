@@ -706,6 +706,75 @@ function M.methodsAreHoisted()
    }, "\n")), "NUPP2006")
 end
 
+-- A direct function on the returned table declares the module surface just as a
+-- method declares a record surface. Its signature is available to every other direct
+-- function in the block, while the runtime assignments remain in source order.
+function M.moduleFunctionsAreHoisted()
+   assertEq(diagsOf(table.concat({
+      "local m = {}",
+      "function m.even(n: integer): boolean",
+      "    if n == 0 then return true end",
+      "    return m.odd(n - 1)",
+      "end",
+      "function m.odd(n: integer): boolean",
+      "    if n == 0 then return false end",
+      "    return m.even(n - 1)",
+      "end",
+      "return m",
+   }, "\n")), "")
+   assertEq(diagsOf(table.concat({
+      "local m = {}",
+      "function m.first(): integer",
+      "    return m.second('wrong')",
+      "end",
+      "function m.second(value: integer): integer",
+      "    return value",
+      "end",
+      "return m",
+   }, "\n")), "NUPP2006")
+   -- Signature resolution happens after preceding value imports have entered scope.
+   -- Resolving every signature at the block's initial declaration pre-pass would turn
+   -- both uses of Type into any here.
+   assertEq(diagsOf(table.concat({
+      "local T = require('nupp.compiler.types')",
+      "local type Type = T.Type",
+      "local m = {}",
+      "function m.first(value: Type): Type",
+      "    return m.second(value)",
+      "end",
+      "function m.second(value: Type): Type",
+      "    return value",
+      "end",
+      "return m",
+   }, "\n")), "")
+   assertEq(diagsOf(table.concat({
+      "local m = {}",
+      "if true then",
+      "    function m.first(): integer",
+      "        return m.second('wrong')",
+      "    end",
+      "    function m.second(value: integer): integer",
+      "        return value",
+      "    end",
+      "end",
+      "return m",
+   }, "\n")), "NUPP2006")
+end
+
+-- Local functions still follow Lua's lexical flow: the name being defined is visible
+-- to its own body, but a separate local declaration below it is not.
+function M.localFunctionsRemainFlowSensitive()
+   assertEq(diagsOf(table.concat({
+      "local function first(): integer",
+      "    return second()",
+      "end",
+      "local function second(): integer",
+      "    return 2",
+      "end",
+      "return {first, second}",
+   }, "\n"), {strict = true}), "NUPP2105")
+end
+
 -- The CST is one record per production and `Node` is their union, so a pass
 -- that dispatches on `kind` is checked against the vocabulary rather than
 -- trusted with it: reading a field belonging to another kind is an error.

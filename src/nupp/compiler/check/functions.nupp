@@ -1183,6 +1183,14 @@ function functions.install(c: state.Checker): state.StatHandlers
             -- The body, so that boundary finalization can ask this declaration's own
             -- summary rather than guessing from a type two exports may share.
             c.moduleFieldValues[memberTok.text] = body
+            local declarations = c.moduleFunctionDeclarations[memberTok.text] or {}
+            for j = #declarations, 1, -1 do
+                local pending = declarations[j]
+                if pending.body == body then
+                    pending.signature = ft
+                    break
+                end
+            end
         end
         -- ...and a later reference has to find it the same way too. An assignment
         -- records the path it wrote, which is how `m.f = function() end` gives a

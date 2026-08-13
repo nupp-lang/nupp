@@ -227,6 +227,22 @@ function M.nominalMethodsCarryTheirOwnGuarantees()
    assertEq(waits.noYield, nil, "a yielding method remains may-yield")
 end
 
+function M.forwardModuleCallsCarryTheirCalleeEffect()
+   local moduleType = moduleTypeOf(table.concat({
+      "local M = {}",
+      "function M.waits(): nil",
+      "    M.later()",
+      "end",
+      "function M.later(): nil",
+      "    coroutine.yield()",
+      "end",
+      "return M",
+   }, "\n"))
+   local waits = fieldType(moduleType, "waits")
+   assertTrue(waits ~= nil, "the forward caller is exported")
+   assertEq(waits.noYield, nil, "the later callee's suspension reaches its caller")
+end
+
 function M.inlineNominalMethodsCarryTheirOwnGuarantees()
    local _, _, exports = moduleTypeOf(table.concat({
       "local M = {}",

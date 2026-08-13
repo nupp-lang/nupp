@@ -1156,6 +1156,12 @@ itself on that table, so nothing is merged in behind your back. Another file
 reaches a member through the module it was attached to, and a module path also
 names a type directly, as in `models.user.User`.
 
+A direct `function M.name(...)` declaration on the table the file returns
+publishes its annotated signature before the other function bodies in that block
+are checked, so module functions may call one another in either source order. A
+field assignment and a `local function` remain flow-sensitive. Runtime writes
+still happen in source order.
+
 The returned local already identifies the module table; there is no `module`
 keyword. Use `const M.field = value` to make an export slot immutable. A fresh
 table can mark individual named slots with `const name = value`, or use

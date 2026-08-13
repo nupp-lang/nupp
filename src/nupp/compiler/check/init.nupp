@@ -623,7 +623,7 @@ function checkMod.check(
         depth = 0,
         completionScope = result.root,
         parent = nil
-    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, dropOperationFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, handledDepth = 0, functionDepth = 0, functionBodies = {}, jitHazards = {}, scopedCaptureDepth = 0, closureCaptureStack = {}, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldDefs = {}, moduleFieldConst = {}, moduleFieldValues = {}, nominalEffectOwners = {}, nominalEffectEntries = {}, constModulePaths = {}, moduleLocalAnnotated = false)
+    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, dropOperationFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, handledDepth = 0, functionDepth = 0, functionBodies = {}, jitHazards = {}, scopedCaptureDepth = 0, closureCaptureStack = {}, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldDefs = {}, moduleFunctionDeclarations = {}, moduleFieldConst = {}, moduleFieldValues = {}, nominalEffectOwners = {}, nominalEffectEntries = {}, constModulePaths = {}, moduleLocalAnnotated = false)
     c.rootScope = c.scope
     c.moduleExports.valueDefs = c.moduleExports.valueDefs or {}
     c.moduleExports.comptimeFunctions = c.moduleExports.comptimeFunctions or {}
@@ -1875,7 +1875,12 @@ function checkMod.check(
         end
 
         -- Methods, once the types they name are bound: publishing each signature now is
-        -- what lets two methods call each other.
+        -- what lets two methods call each other. Direct functions on the table this
+        -- file returns are declarations of that module's surface in the same sense.
+        -- Keep those pending rather than resolving them here: unlike a record method,
+        -- a module signature may name a type reached through an earlier local require,
+        -- and the require has not been bound during this pre-pass. An assignment to a
+        -- module field and a local function remain ordinary flow-sensitive writes.
         for _, stat in ipairs(block.stats or {}) do
             local decl = stat
             while decl and decl.kind == "pragmaStmt" do
@@ -1901,10 +1906,69 @@ function checkMod.check(
                     else
                         owner.staticWriteByname[member] = signature
                     end
+                elseif not fname.method and ownerKey == c.moduleLocal and memberTok then
+                    local definition = c.definition(memberTok, "function")
+                    c.moduleFieldTokens[memberTok.text] = memberTok
+                    c.moduleFieldDefs[memberTok.text] = definition
+                    c.moduleExports.valueDefs[memberTok.text] = definition
+                    local declarations = c.moduleFunctionDeclarations[memberTok.text] or {}
+                    c.moduleFunctionDeclarations[memberTok.text] = declarations
+                    declarations[
+                        #declarations + 1
+                    ] = {body = decl.body, token = memberTok, definition = definition, scope = c.scope,}
                 end
             end
         end
         c.hoisting = wasHoisting
+    end
+
+    -- Resolves a pending direct module function against its block's lexical scope,
+    -- after preceding imports and locals have been bound. The caller may be inside a
+    -- different function body, whose generic and local names are not in scope at the
+    -- declaration site, so temporarily resolve from the declaration scope rather than
+    -- through the caller's. Applying the result happens after restoring the caller,
+    -- which makes the declaration visible there without publishing an assignment.
+    c.resolveModuleFunction = function(name: string): Type?
+        if not c.moduleLocal then
+            return nil
+        end
+        local declarations = c.moduleFunctionDeclarations[name]
+        if not declarations then
+            return nil
+        end
+        local pending = nil
+        for j = #declarations, 1, -1 do
+            local candidate = declarations[j]
+            local visible = c.scope
+            while visible and visible ~= candidate.scope do
+                visible = visible.parent
+            end
+            if visible then
+                pending = candidate
+                break
+            end
+        end
+        if not pending then
+            return nil
+        end
+        local signature = pending.signature
+        if not signature then
+            local callerScope = c.scope
+            c.scope = pending.scope
+            signature = c.signatureOf(pending.body, nil)
+            c.scope = callerScope
+            pending.signature = signature
+            if pending.definition then
+                pending.definition.type = signature
+            end
+            c.moduleFields[name] = signature
+        end
+        c.moduleFieldTokens[name] = pending.token
+        c.moduleFieldDefs[name] = pending.definition
+        c.moduleExports.valueDefs[name] = pending.definition
+        c.applyFacts({[c.moduleLocal .. "." .. name] = signature})
+
+        return signature
     end
 
     --- Checks every statement of a block, hoisting the declarations in it first so they

@@ -75,9 +75,16 @@ function index.install(c: state.Checker): state.ExprHandlers
         end
         if kind == "dotIndex" and not node.writeContext then
             local key = c.pathKey(node)
+            if c.moduleLocal and key == c.moduleLocal .. "." .. memberName then
+                c.resolveModuleFunction(memberName)
+            end
             local narrowed = key and c.lookupNarrowed(key)
             if narrowed then
                 c.infer(target) -- keep definitions and side effects
+                if holderName == c.moduleLocal then
+                    local definition = c.moduleFieldDefs[memberName]
+                    c.markToken(member, definition, narrowed, definition and definition.kind or "function")
+                end
                 return narrowed
             end
             -- A declaration qualified by a table binds under its whole path, so
