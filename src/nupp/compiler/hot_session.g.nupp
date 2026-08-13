@@ -312,17 +312,17 @@ function hotSession.new(root, opts)
     self.observedInputs = {}
     self.libraryPaths = {}
     self.libraryConfiguredPaths = {}
-    local configured = self.inc.env.config and self.inc.env.config.hotReload
+    local configured = self.inc.env.config and self.inc.env.config.hotreload
     if configured ~= nil and type(configured) ~= "table" then
-        error("hotReload must be a table", 2)
+        error("hotreload must be a table", 2)
     end
     local libraries = configured and configured.libraries or nil
     if libraries ~= nil and type(libraries) ~= "table" then
-        error("hotReload.libraries must be a table of loader names to paths", 2)
+        error("hotreload.libraries must be a table of loader names to paths", 2)
     end
     for name, path in pairs(libraries or {}) do
         if type(name) ~= "string" or name == "" or type(path) ~= "string" or path == "" then
-            error("hotReload.libraries must map non-empty string names to non-empty paths", 2)
+            error("hotreload.libraries must map non-empty string names to non-empty paths", 2)
         end
         local configuredPath = fs.absolute(fs.join(self.inc.env.rootDir, path))
         self.libraryConfiguredPaths[name] = configuredPath

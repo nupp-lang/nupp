@@ -216,7 +216,7 @@ local nupp: {
     log: nupp.log,
 
     --- Cooperative development hot reload, installed by `nupp run --watch`.
-    hotReload: nupp.HotReload,
+    hotreload: nupp.HotReload,
 
     --- Compile and run byte-oriented parsing-expression grammars.
     --- @namespace

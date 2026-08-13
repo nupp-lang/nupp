@@ -221,16 +221,16 @@ end
       ["main.g.nupp"] = table.concat({
          "local watched = require('watched')",
          "local write = require('writer')",
-         "nupp.hotReload.poll()",
+         "nupp.hotreload.poll()",
          "print(watched.value())",
          "write('src/watched.nupp', " .. versionTwo .. ")",
-         "nupp.hotReload.poll()",
+         "nupp.hotreload.poll()",
          "print(watched.value())",
          "write('src/watched.nupp', " .. rejected .. ")",
-         "nupp.hotReload.poll()",
+         "nupp.hotreload.poll()",
          "print(watched.value())",
          "write('src/watched.nupp', " .. structural .. ")",
-         "nupp.hotReload.poll()",
+         "nupp.hotreload.poll()",
          "print(watched.value())",
          "",
       }, "\n"),
@@ -275,11 +275,11 @@ end
       ["main.g.nupp"] = table.concat({
          "local api = cheader('api.h')",
          "local write = require('writer')",
-         "nupp.hotReload.poll()",
+         "nupp.hotreload.poll()",
          "write('api.h', '/* comment */\\nint hot_watch_header(void);\\n')",
-         "print(nupp.hotReload.poll().kind)",
+         "print(nupp.hotreload.poll().kind)",
          "write('api.h', 'long hot_watch_header(void);\\n')",
-         "print(nupp.hotReload.poll().kind)",
+         "print(nupp.hotreload.poll().kind)",
          "return api",
          "",
       }, "\n"),
@@ -314,15 +314,15 @@ function M.cliWatchRequiresRestartForMappedNativeReplacement()
          flags, dir, current, dir)), 0, "compile first library")
       assertEq(os.execute(("cc %s -o '%s/%s' '%s/second.c'"):format(
          flags, dir, replacement, dir)), 0, "compile replacement library")
-      writeFile(dir .. "/nupp.lua", ("return { hotReload = { libraries = { mini = %q } } }\n")
+      writeFile(dir .. "/nupp.lua", ("return { hotreload = { libraries = { mini = %q } } }\n")
          :format(current))
       writeFile(dir .. "/main.g.nupp", table.concat({
          "cdef function hot_native_value(): int32 from 'mini'",
          "local replace = require('replace')",
-         "nupp.hotReload.poll()",
+         "nupp.hotreload.poll()",
          "print(hot_native_value())",
          ("replace(%q, %q)"):format(replacement, current),
-         "print(nupp.hotReload.poll().kind)",
+         "print(nupp.hotreload.poll().kind)",
          "",
       }, "\n"))
       local output = dir .. "/output.txt"

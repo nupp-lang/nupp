@@ -1,6 +1,6 @@
 local function value(): integer
-    return nupp.hotReload.generation()
+    return nupp.hotreload.generation()
 end
 
-nupp.hotReload.poll()
+nupp.hotreload.poll()
 print(value())

@@ -139,7 +139,7 @@ levels and remarks.
 nupp run --watch app.nupp
 ```
 
-At a safe loop boundary, call `nupp.hotReload.poll()`. Compatible named-function
+At a safe loop boundary, call `nupp.hotreload.poll()`. Compatible named-function
 body edits commit without recreating application state; broken or structural
 edits leave the last good generation running. Watch is an `-O0` development
 target, not a release-performance build. See [hot reload](../tooling/hot-reload.md).

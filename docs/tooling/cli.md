@@ -1057,7 +1057,7 @@ program that fails still writes what was collected before it did. Each reports
 a summary line on stderr.
 
 --watch is development-only and always uses -O0. A long-running program calls
-nupp.hotReload.poll() at a safe loop or request boundary.
+nupp.hotreload.poll() at a safe loop or request boundary.
 The poll scans inputs, stages a valid changed-body patch, commits it,
 and leaves the last good generation running after diagnostics or a required
 restart. Programs that never return to such a boundary cannot reload

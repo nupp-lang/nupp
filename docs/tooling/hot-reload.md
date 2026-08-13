@@ -6,12 +6,12 @@ implementations can change. It is always an `-O0` build. Run the normal
 optimized build before release: optimizer passes can change control flow,
 allocation and JIT behavior that watch mode does not exercise.
 
-Hot reload is cooperative. The host calls `nupp.hotReload.poll()` at a point
+Hot reload is cooperative. The host calls `nupp.hotreload.poll()` at a point
 where it is safe to change future dispatch:
 
 ```nupp
 while running do
-    nupp.hotReload.poll()
+    nupp.hotreload.poll()
     update()
 end
 ```
@@ -31,7 +31,7 @@ local function message(): string
 end
 
 while true do
-    nupp.hotReload.poll()
+    nupp.hotreload.poll()
     print(message())
     io.read("*l")
 end
@@ -108,7 +108,7 @@ implements it. Watch mode can pin authored loader names to exact artifacts in
 
 ```lua
 return {
-  hotReload = {
+  hotreload = {
     libraries = {
       mini = "build/lib/libmini.dylib",
     },

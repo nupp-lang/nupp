@@ -206,7 +206,7 @@ library map in `nupp.lua`:
 
 ```lua
 return {
-  hotReload = {
+  hotreload = {
     libraries = {
       mini = "build/lib/libmini.dylib",
     },
@@ -412,7 +412,7 @@ non-semantic edits do not.
 
 ### R3: Native artifact tracking
 
-- Validate `hotReload.libraries` configuration and resolve mapped paths.
+- Validate `hotreload.libraries` configuration and resolve mapped paths.
 - Make watch generation load the exact mapped artifact while leaving normal
   generation byte-identical.
 - Add binary inputs to loaded manifests and the dynamic watch set.

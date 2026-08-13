@@ -662,7 +662,7 @@ end
 function M.sessionPinsAndObservesMappedNativeArtifacts()
    local dir = temporaryProject({
       ["libmini.bin"] = "generation one",
-      ["nupp.lua"] = "return { hotReload = { libraries = { mini = 'libmini.bin' } } }\n",
+      ["nupp.lua"] = "return { hotreload = { libraries = { mini = 'libmini.bin' } } }\n",
       ["main.nupp"] = table.concat({
          "cdef function hot_mini_value(): int32 from 'mini'",
          "local function value(): number return hot_mini_value() end",
@@ -786,7 +786,7 @@ function M.mappedNativeSymlinkRetargetRequiresRestart()
    local dir = temporaryProject({
       ["one.bin"] = "identical bytes",
       ["two.bin"] = "identical bytes",
-      ["nupp.lua"] = "return { hotReload = { libraries = { mini = 'current.bin' } } }\n",
+      ["nupp.lua"] = "return { hotreload = { libraries = { mini = 'current.bin' } } }\n",
       ["main.nupp"] = "cdef function hot_symlink(): int32 from 'mini'\nreturn hot_symlink\n",
    })
    assertEq(os.execute(("ln -s '%s/one.bin' '%s/current.bin'"):format(dir, dir)), 0)
