@@ -60,7 +60,14 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 local stdlib = require ( "nupp.compiler.stdlib" )
 
+const Analysis = {} Analysis.__index = Analysis
+
+
+
+
+
 const luaFormat = {} luaFormat.__index = luaFormat
+
 
 
 
@@ -79,39 +86,74 @@ local chunk , why = loadstring ( source , "=nupp compiler Lua-format PEG" )
 assert ( chunk , why )
 setfenv ( chunk , sandbox )
 chunk ( )
-matcher = sandbox . nupp . peg . compile ( [[
+matcher = sandbox . nupp . peg . compile (
+[[
         start <- {| (escaped / directive / malformed / ordinary)* |} !.
         escaped <- '%%'
-        directive <- {| '%' { [-+ #0]* } { [0-9]* } { '.' [0-9]* / '' } { [aAcdiouxXeEfgGpqs] } |}
+        directive <- {| { '%' { [-+ #0]* } { [0-9]* } { '.' [0-9]* / '' } { [aAcdiouxXeEfgGpqs?] } } |}
         malformed <- { '%' (!'%' .)* }
         ordinary <- !'%' .
-    ]] , { backend = "vm" } )
+    ]] ,
+{ backend = "vm" }
+)
 
 return matcher
 end
 
-function luaFormat . argumentKinds ( format )
+function luaFormat . analyze ( format )
 local tokens = parser ( ) : match ( format )
 if not tokens then
 return nil , "invalid string.format directive"
 end
 
 local kinds = { }
+local debugArguments = { }
 for _ , token in ipairs ( tokens ) do
 if type ( token ) ~= "table" then
 return nil , 'invalid string.format directive starting at "' .. tostring ( token ) .. '"'
 end
-local flags , width , precision , conversion = token [ 1 ] , token [ 2 ] , token [ 3 ] , token [ 4 ]
+local _ , flags , width , precision , conversion = token [ 1 ] , token [ 2 ] , token [ 3 ] , token [ 4 ] , token [ 5 ]
 if # width > 2 then
 return nil , 'invalid string.format directive starting at "%' .. flags .. width : sub ( 1 , 3 ) .. '"'
 end
 if # precision > 3 then
 return nil , 'invalid string.format directive starting at "%' .. flags .. width .. precision : sub ( 1 , 4 ) .. '"'
 end
-kinds [ # kinds + 1 ] = string . find ( "aAcdiouxXeEfgG" , conversion , 1 , true ) and "number" or "any"
+local debug = conversion == "?"
+kinds [
+# kinds + 1
+] = debug and "debug" or string . find ( "aAcdiouxXeEfgG" , conversion , 1 , true ) and "number" or "any"
+debugArguments [ # debugArguments + 1 ] = debug
 end
 
-return kinds
+local pieces = { }
+local index , argument = 1 , 1
+while index <= # format do
+local percent = format : find ( "%" , index , true )
+if not percent then
+pieces [ # pieces + 1 ] = format : sub ( index )
+break
+end
+pieces [ # pieces + 1 ] = format : sub ( index , percent - 1 )
+if format : sub ( percent + 1 , percent + 1 ) == "%" then
+pieces [ # pieces + 1 ] = "%%"
+index = percent + 2
+else
+local directive = tokens [ argument ] [ 1 ]
+assert ( format : sub ( percent , percent + # directive - 1 ) == directive )
+pieces [ # pieces + 1 ] = debugArguments [ argument ] and directive : sub ( 1 , - 2 ) .. "s" or directive
+argument = argument + 1
+index = percent + # directive
+end
+end
+
+return setmetatable({ arguments =  kinds ,  format =  table . concat ( pieces ) ,  debugArguments =  debugArguments }, Analysis) , nil
+end
+
+function luaFormat . argumentKinds ( format )
+local analysis , why = luaFormat . analyze ( format )
+
+return analysis and analysis . arguments or nil , why
 end
 
 return luaFormat
@@ -6197,6 +6239,21 @@ end
 return launched
 end
 
+local function exists ( path )
+local file = io . open ( path , "rb" )
+if not file then
+return false
+end
+file : close ( )
+
+return true
+end
+
+
+
+
+
+
 
 
 
@@ -6206,10 +6263,11 @@ if windows then
 local executable = tostring ( argv [ 1 ] ) : gsub ( "\\" , "/" )
 local root = executable : match ( "^(.*)/bin/nupp$" )
 if root then
+local built = root .. "/build/nupp/compiler/main.lua"
 local path = ( "package.path=%q .. package.path" )
 : format ( root .. "/build/?.lua;" )
 local launched = {
-"luajit" , "-e" , path , root .. "/build/nupp/compiler/main.lua"
+"luajit" , "-e" , path , exists ( built ) and built or root .. "/bootstrap/nupp.lua"
 }
 for index = 2 , # argv do
 launched [ # launched + 1 ] = argv [ index ]
@@ -9917,6 +9975,24 @@ tok . text ,
 ( filename ) .. ":" .. tostring ( tok . offset ) .. ":" .. ( role or "generic-pack" )
 )
 end
+
+
+
+
+
+
+
+
+
+c . constDomain = function ( domainToken )
+local written = domainToken and domainToken . text or nil
+if written == "string" or written == "boolean" or written == "integer" or written == "function" then
+return written
+end
+
+return nil
+end
+
 c . constvarAt = function ( tok , domain , role )
 return T . constvar (
 tok . text ,
@@ -9936,15 +10012,15 @@ local isPack = generics . packs and generics . packs [ j ]
 local isConst = generics . consts and generics . consts [ j ]
 if isConst then
 local domainToken = generics . domains and generics . domains [ j ]
-local domain = domainToken and domainToken . text or "unknown"
-if domain ~= "string" and domain ~= "boolean" and domain ~= "integer" then
+local domain = c . constDomain ( domainToken )
+if not domain then
 c . diag (
 "NUPP2131" ,
 domainToken or nameTok ,
-"const parameter domain must be string, boolean, or integer"
+"const parameter domain must be string, boolean, integer, or function"
 )
-domain = "string"
 end
+domain = domain or "string"
 local cv = predeclared
 and predeclared . constParams
 and predeclared . constParams [ # constParams + 1 ]
@@ -10498,11 +10574,9 @@ local isPack = decl . generics . packs and decl . generics . packs [ position ]
 local isConst = decl . generics . consts and decl . generics . consts [ position ]
 if isConst then
 local domainToken = decl . generics . domains and decl . generics . domains [ position ]
-local domain = domainToken and domainToken . text or "unknown"
-if domain ~= "string" and domain ~= "boolean" and domain ~= "integer" then
-domain = "string"
-end
-constParams [ # constParams + 1 ] = c . constvarAt ( nameTok , domain , "nominal" )
+constParams [
+# constParams + 1
+] = c . constvarAt ( nameTok , c . constDomain ( domainToken ) , "nominal" )
 paramKinds [ position ] = "const"
 elseif isPack then
 packParams [ # packParams + 1 ] = c . packvarAt ( nameTok , "nominal" )
@@ -12050,6 +12124,9 @@ local cst = require ( "nupp.compiler.cst" )
 local ffiMod = require ( "nupp.compiler.check.ffi" )
 local methodslots = require ( "nupp.compiler.methodslots" )
 local native = require ( "nupp.compiler.native" )
+local luaFormat = require ( "nupp.compiler.LuaFormat" )
+
+
 local reflection = require ( "nupp.compiler.reflection" )
 local targetLayout = require ( "nupp.compiler.target_layout" )
 local state = require ( "nupp.compiler.check.state" )
@@ -12117,6 +12194,35 @@ local global = c . env and c . env . globals and c . env . globals . nupp
 local resolved = c . lookupEntry ( token . text )
 
 return global and resolved and resolved . definition == global . definition and severity or nil
+end
+
+
+
+local function stringFormatIntrinsic ( c , callee )
+if not callee or callee . kind ~= "dotIndex" or not callee . name or callee . name . text ~= "format" then
+return false
+end
+local base = callee . obj
+local token = base and base . kind == "name" and base . token or nil
+local global = c . env and c . env . globals and c . env . globals . string
+local resolved = token and c . lookupEntry ( token . text ) or nil
+
+return token ~= nil
+and token . text == "string"
+and global ~= nil
+and resolved ~= nil
+and resolved . definition == global . definition
+end
+
+local function debugFormatPlan ( format )
+local parsed = luaFormat . analyze ( format )
+for _ , debug in ipairs ( parsed and parsed . debugArguments or { } ) do
+if debug then
+return parsed
+end
+end
+
+return nil
 end
 
 
@@ -12580,6 +12686,7 @@ end
 end
 if positional and format and format . kind == "string" then
 node . logIntrinsic = severity
+node . logFormatIntrinsic = debugFormatPlan ( literalString ( format ) or "" )
 end
 end
 
@@ -12988,6 +13095,19 @@ if calleeName == "setmetatable" and calleeT . tag ~= "func" then
 c . checkMetatableLiteral ( argExprs [ 2 ] , nil , T . metatable ( T . any ) )
 end
 local first , rets , pack = c . inferCall ( node , calleeT , node . args , knownAts )
+if node . kind == "call" and stringFormatIntrinsic ( c , callee ) then
+local format = literalString ( argExprs [ 1 ] )
+local plan = format and debugFormatPlan ( format ) or nil
+local positional = true
+for _ , argument in ipairs ( argExprs ) do
+if argument . kind == "namedArg" or argument . kind == "pluckArg" then
+positional = false
+end
+end
+if positional and plan then
+node . formatIntrinsic = { format = plan . format , debugArguments = plan . debugArguments , argumentOffset = 1 , }
+end
+end
 local preciseLpeg = specializeLpegCall ( callee , memberName , node . argumentPack )
 if preciseLpeg then
 first , rets , pack = preciseLpeg , { preciseLpeg } , T . pack ( { preciseLpeg } )
@@ -13387,6 +13507,28 @@ member . additionalDefinitions = fieldDefs
 
 local methodType = callable and specializeReceiver ( mt , ot ) or mt
 local first , rets , pack = c . inferCall ( node , callable and dropSelf ( methodType ) or methodType , node . args )
+local literal = receiver
+while literal and literal . kind == "paren" do
+literal = literal . expr
+end
+local positional = true
+local methodArgs = node . args and node . args . kind == "args" and ( node . args ) . exprs or { }
+for _ , argument in ipairs ( methodArgs ) do
+if argument . kind == "namedArg" or argument . kind == "pluckArg" then
+positional = false
+end
+end
+if positional and not optional and member . text == "format" and literal and literal . kind == "string" then
+local format = literalString ( literal )
+local plan = format and debugFormatPlan ( format ) or nil
+if plan then
+node . formatIntrinsic = {
+format = plan . format ,
+debugArguments = plan . debugArguments ,
+argumentOffset = 0 ,
+}
+end
+end
 c . nosuspend . call ( node )
 local owner = rawType ( ot )
 node . overloadMember = pegReplacementMember (
@@ -19883,7 +20025,19 @@ local requirements = contract and ( isStatic and contract . staticByname or cont
 local generated = isStatic and n . derivedStaticDefinitions or n . derivedDefinitions
 local written = isStatic and n . staticFieldDefs or n . fieldDefs
 local namespace = isStatic and "static" or "method"
-for methodName , recipe in pairs ( recipes or { } ) do
+
+
+
+
+
+
+local byName , methodNames = recipes or { } , { }
+for methodName in pairs ( byName ) do
+methodNames [ # methodNames + 1 ] = methodName
+end
+table . sort ( methodNames )
+for _ , methodName in ipairs ( methodNames ) do
+local recipe = byName [ methodName ]
 local requirement = requirements and requirements [ methodName ] or nil
 local callable , declared = nil , recipe . signature ~= nil
 if declared then
@@ -20964,8 +21118,10 @@ local cst = require ( "nupp.compiler.cst" )
 local lexer = require ( "nupp.compiler.lexer" )
 local operators = require ( "nupp.compiler.check.operators" )
 local index = require ( "nupp.compiler.check.index" )
-local callexpr = require ( "nupp.compiler.check.callexpr" )
 local state = require ( "nupp.compiler.check.state" )
+local callexpr = require ( "nupp.compiler.check.callexpr" )
+
+
 local comptime = require ( "nupp.compiler.comptime" )
 
 
@@ -26568,6 +26724,11 @@ local rawType = T . unwrapOwnership
 
 
 
+
+
+
+
+
 function ownership . install ( c )
 local own = { }
 local pendingDefaultCleanups = { }
@@ -26658,6 +26819,31 @@ local key = seen == 0 and base or ( "%s#%d" ) : format ( base , seen )
 cleanupKeys [ definition ] = key
 
 return key
+end
+
+
+
+
+
+
+
+
+
+
+function own . cleanupKeyFor ( name )
+local entry = c . lookupEntry ( name )
+local definition = entry and entry . definition or nil
+if not definition then
+return nil , nil
+end
+local origin = c . result . moduleName or c . filename or "<module>"
+local key = cleanupKey ( origin , name , definition )
+local bound = entry and entry . t or nil
+if bound and bound . tag == "func" then
+addRegistration ( definition . token , T . functionCleanup ( key , name , bound ) , false )
+end
+
+return key , entry
 end
 
 local function resolvedFunctionCleanup ( name , at , registrationNode , after , knownType )
@@ -27928,6 +28114,33 @@ if not arg then
 c . diag ( "NUPP2131" , at , ( "const parameter %s is unbound" ) : format ( parameter . name ) )
 return nil
 end
+
+
+
+
+
+if parameter . domain == "function" then
+local named = arg . kind == "tname" and not arg . typeArgs and arg . base and arg . base . text or nil
+if not named then
+c . diag (
+"NUPP2131" ,
+arg ,
+( "argument for const parameter %s must name a function" ) : format ( parameter . name )
+)
+return nil
+end
+local key , entry = c . own . cleanupKeyFor ( named )
+local bound = entry and entry . t or nil
+if not key then
+c . diag ( "NUPP2131" , arg , ( "%q is not a declared function" ) : format ( named ) )
+return nil
+elseif bound and bound . tag ~= "func" then
+c . diag ( "NUPP2131" , arg , ( "%q is not a function" ) : format ( named ) )
+return nil
+end
+
+return T . constLiteral ( "function" , key )
+end
 local term = consteval . fromType ( c . resolveType ( arg ) )
 if not term then
 c . diag (
@@ -28518,6 +28731,28 @@ if ownership == "pinned" and not pointerShaped ( inner ) then
 c . diag ( "NUPP2602" , node , "Pinned<T> requires a pointer-shaped T" )
 end
 if ownership == "owned" then
+local cleanupArg = node . typeArgs [ 2 ]
+if cleanupArg then
+
+
+
+
+local term = constArgument (
+cleanupArg ,
+{ name = "cleanup" , domain = "function" } ,
+node
+)
+local named = cleanupArg . kind == "tname"
+and not cleanupArg . typeArgs
+and cleanupArg . base
+and cleanupArg . base . text
+or nil
+if term and named then
+local cleanups = c . own . resolveCleanups ( { named } , cleanupArg )
+c . own . validateCleanups ( inner , cleanups , cleanupArg , "NUPP2615" )
+return T . owned ( inner , cleanups )
+end
+end
 return T . owned ( inner )
 
 elseif ownership == "borrowed" then
@@ -29205,6 +29440,9 @@ local state = { }
 
 
 state.Checker = {} state.Checker.__index = state.Checker
+
+
+
 
 
 
@@ -38354,7 +38592,10 @@ return nil
 end
 
 function consteval . singleton ( term )
-if term . tag == "constLiteral" then
+
+
+
+if term . tag == "constLiteral" and term . domain ~= "function" then
 local base = term . domain == "string" and T . string or term . domain == "boolean" and T . boolean or T . integer
 return T . literal ( term . value , base )
 end
@@ -39130,6 +39371,13 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 local lexer = require ( "nupp.compiler.lexer" )
 
 local cst = { }
+
+
+
+
+
+
+
 
 
 
@@ -42186,7 +42434,7 @@ end
 
 local function loadModules ( root , config , settings , requested )
 local modules , errors = { } , { }
-local namespaceBacked = { }
+local namespaceBacked , implied = { } , { }
 for _ , path in ipairs ( sourceFiles ( root , config , settings , requested ) ) do
 local source , readErr = readFile ( path )
 if not source then
@@ -42204,6 +42452,7 @@ modules [ # modules + 1 ] = module
 for _ , extra in ipairs ( extraModules or { } ) do
 modules [ # modules + 1 ] = extra
 namespaceBacked [ extra . name ] = true
+implied [ extra ] = true
 end
 else
 for _ , err in ipairs ( parseErrors ) do
@@ -42211,6 +42460,55 @@ errors [ # errors + 1 ] = err
 end
 end
 end
+end
+
+
+
+
+
+
+local keeper , order = { } , { }
+for _ , module in ipairs ( modules ) do
+local held = keeper [ module . name ]
+if not held then
+keeper [ module . name ] = module
+order [ # order + 1 ] = module . name
+elseif implied [ held ] and not implied [ module ] then
+keeper [ module . name ] = module
+end
+end
+for _ , module in ipairs ( modules ) do
+local into = keeper [ module . name ]
+if into ~= module then
+
+
+
+
+local byPath = { }
+for _ , item in ipairs ( into . items ) do
+byPath [ item . path ] = item
+end
+for _ , item in ipairs ( module . items ) do
+local held = byPath [ item . path ]
+if not held then
+into . items [ # into . items + 1 ] = item
+byPath [ item . path ] = item
+elseif held . doc . text == "" then
+held . doc = item . doc
+end
+end
+if into . text == "" then
+into . text = module . text
+end
+into . documentationInternal = into . documentationInternal or module . documentationInternal
+end
+end
+if # order < # modules then
+local folded = { }
+for _ , name in ipairs ( order ) do
+folded [ # folded + 1 ] = keeper [ name ]
+end
+modules = folded
 end
 
 
@@ -45476,7 +45774,15 @@ local token = tokens [ index ]
 local previous = tokens [ index - 1 ]
 local following = tokens [ index + 1 ]
 if token . kind == "name" then
-local syntaxStyle = SYNTAX_STYLES [ syntaxKinds [ token ] ]
+local syntaxKind = syntaxKinds [ token ]
+
+
+
+
+if syntaxKind == "keyword" and DIRECTIVE_KEYWORDS [ token . text ] then
+return "meta"
+end
+local syntaxStyle = SYNTAX_STYLES [ syntaxKind ]
 if syntaxStyle then
 return syntaxStyle
 end
@@ -53771,6 +54077,20 @@ pluck . emitArgument ( argument , args )
 end
 end
 
+function pluck . formatHelper ( plan )
+local params , arguments = { } , { }
+for index , debug in ipairs ( plan . debugArguments or { } ) do
+local name = "__nuppA" .. tostring ( index )
+params [ index ] = name
+arguments [ index ] = debug and name .. ":debug()" or name
+end
+local body = (
+"return string.format(%q%s)"
+) : format ( plan . format , # arguments > 0 and "," .. table . concat ( arguments , "," ) or "" )
+
+return pluck . declareHelper ( "__nuppFormat" , table . concat ( params , "," ) , body )
+end
+
 function pluck . activate ( plan )
 local prior = { aliases = pluck . argumentAliases , fields = pluck . argumentFields , }
 pluck . argumentAliases = plan . argAliases
@@ -54412,6 +54732,19 @@ emit ( binding . value )
 e ( ";" )
 end
 end
+if ( kind == "call" or kind == "methodCall" ) and x . formatIntrinsic then
+local plan = x . formatIntrinsic
+local arguments = x . args and x . args . exprs or { }
+e ( pluck . formatHelper ( plan ) .. "(" , sourceLine ( x ) )
+for index = ( plan . argumentOffset or 0 ) + 1 , # arguments do
+if index > ( plan . argumentOffset or 0 ) + 1 then
+e ( "," )
+end
+emit ( arguments [ index ] )
+end
+e ( ")" )
+return
+end
 if kind == "call" and x . staticCallee then
 e ( x . staticCallee , sourceLine ( x ) )
 if x . args then
@@ -54805,6 +55138,10 @@ e ( ") end" )
 else
 e ( ( 'pcall(__nuppFfi.cdef, %q) const %s = %s.%s' ) : format ( sig , name , ns , name ) , line )
 end
+for _ , registration in ipairs ( x . name . cleanupRegistrations or { } ) do
+local cleanup = registration . cleanup
+e ( ( ";%s[%q]=%s" ) : format ( cleanupRegistry ( ) , cleanup . key , cleanup . name ) , line )
+end
 return
 end
 
@@ -55090,16 +55427,20 @@ local exprs = call . args and call . args . exprs or { }
 
 local logName = compilerModuleName ( "nupp.log" )
 e ( ( "if %s.on[%d] then %s.emit(%d,%d," ) : format ( logName , severity , logName , severity , line ) , line )
-if # exprs > 1 then
+local formatPlan = call . logFormatIntrinsic
+if formatPlan then
+e ( pluck . formatHelper ( formatPlan ) .. "(" )
+elseif # exprs > 1 then
 e ( "string.format(" )
 end
-for index , argument in ipairs ( exprs ) do
-if index > 1 then
+local first = formatPlan and 2 or 1
+for index = first , # exprs do
+if index > first then
 e ( "," )
 end
-emit ( argument )
+emit ( exprs [ index ] )
 end
-if # exprs > 1 then
+if formatPlan or # exprs > 1 then
 e ( ")" )
 end
 e ( ") end" )
@@ -56374,6 +56715,27 @@ emit ( child )
 end
 end
 emitDepth . fn = emitDepth . fn - 1
+
+elseif kind == "localFuncStmt" then
+emitChildren ( x )
+for _ , registration in ipairs ( x . name and x . name . cleanupRegistrations or { } ) do
+local cleanup = registration . cleanup
+e (
+( ";%s[%q]=%s" ) : format ( cleanupRegistry ( ) , cleanup . key , cleanup . name ) ,
+sourceLine ( x )
+)
+end
+
+elseif kind == "funcStmt" then
+emitChildren ( x )
+local name = x . name and x . name . base or nil
+for _ , registration in ipairs ( name and name . cleanupRegistrations or { } ) do
+local cleanup = registration . cleanup
+e (
+( ";%s[%q]=%s" ) : format ( cleanupRegistry ( ) , cleanup . key , cleanup . name ) ,
+sourceLine ( x )
+)
+end
 
 elseif kind == "pragmaStmt" then
 if x . eraseComptimeFunction then
@@ -70744,6 +71106,7 @@ local stable = require ( "nupp.compiler.build.cache" ) . stable
 local luaFormat = require ( "nupp.compiler.LuaFormat" )
 
 
+
 local luaPattern = require ( "nupp.compiler.LuaPattern" )
 
 
@@ -71248,8 +71611,8 @@ installIntrinsic ( state , library , "formatArguments" , function ( _ , args )
 if type ( args [ 1 ] ) ~= "string" then
 return { arguments = { } , }
 end
-local arguments , why = luaFormat . argumentKinds ( args [ 1 ] )
-return { arguments = arguments or { } , error = why , }
+local parsed , why = luaFormat . analyze ( args [ 1 ] )
+return { arguments = parsed and parsed . arguments or { } , error = why , }
 end )
 
 installIntrinsic ( state , library , "patternCaptures" , function ( _ , args )
@@ -74708,7 +75071,15 @@ add ( g , advance ( ) ) . contextualOp = true
 g . names [ at ] = add ( g , advance ( ) )
 g . consts [ at ] = true
 annotationColon ( g , "after const generic parameter" )
+
+
+
+
+if cur ( ) . kind == "function" then
+g . domains [ at ] = add ( g , advance ( ) )
+else
 g . domains [ at ] = add ( g , expectName ( "as const parameter domain" ) )
+end
 else
 g . names [ at ] = add ( g , expectName ( "in generic parameter list" ) )
 end
@@ -78035,8 +78406,10 @@ return position
 Type parameters go in angle brackets after the name. `T is Bound` constrains
 one, and the bound is an ordinary type, usually an interface. A `const Name:
 string|boolean|integer` binder carries a compile-time-known value through a type
-and erases from runtime code. `T = Default` lets an application leave a trailing
-parameter out; one without a default cannot follow one with it.
+and erases from runtime code. `const Name: function` instead binds a named
+function declaration, so two applications naming different functions are
+different types. `T = Default` lets an application leave a trailing parameter
+out; one without a default cannot follow one with it.
 ]=] ,  example =
 [=[
 local m = {}
@@ -78679,10 +79052,11 @@ return m
 { "NUPP2603" , "NUPP2615" } ,  body =
 [=[
 `Owned<T>` gives a result a cleanup obligation, written in the position it is
-about, and takes its terminal from that type's `@drop`. Any result may be owned,
-not only the first. A known local is destroyed at scope exit. Drop, `takes`, an
-owning return, or `intoRaw` ends or transfers it once. An unresolved owner needs
-an explicit terminal; forgetting is an error, not a leak.
+about, and takes its terminal from that type's `@drop`. `Owned<T, cleanup>` names
+one when `T` cannot declare it, such as a shared C pointer type. Any result may be
+owned, not only the first. A known local is destroyed at scope exit. Drop,
+`takes`, an owning return, or `intoRaw` ends or transfers it once. An unresolved
+owner needs an explicit terminal; forgetting is an error, not a leak.
 
 `@owned(cleanup)` says the same of a first result, and is what a type carrying no
 `@drop` of its own still uses to name a terminal.
@@ -82906,17 +83280,41 @@ local function named(severity)
 local index=INDEX[severity];if index==nil then error("nupp: log has no level named "..tostring(severity),3)end
 return index
 end
+local function render(message,...)
+local count=select("#",...);if count==0 then return message end
+local values={...}
+if message:find("?",1,true)then
+local pieces={};local index=1;local argument=0
+while index<=#message do
+local percent=message:find("%",index,true)
+if not percent then pieces[#pieces+1]=message:sub(index);break end
+pieces[#pieces+1]=message:sub(index,percent-1)
+if message:sub(percent+1,percent+1)=="%"then pieces[#pieces+1]="%%";index=percent+2
+else
+local finish=percent+1;local current=message:sub(finish,finish)
+while current~=""and("-+ #0"):find(current,1,true)do finish=finish+1;current=message:sub(finish,finish)end
+while current:find("[0-9]")do finish=finish+1;current=message:sub(finish,finish)end
+if current=="."then finish=finish+1;current=message:sub(finish,finish);while current:find("[0-9]")do finish=finish+1;current=message:sub(finish,finish)end end
+argument=argument+1
+if current=="?"then values[argument]=values[argument]:debug();current="s"end
+pieces[#pieces+1]=message:sub(percent,finish-1)..current;index=finish+1
+end
+end
+message=table.concat(pieces)
+end
+return string.format(message,unpack(values,1,count))
+end
 local function ambient(severity)
 return function(message,...)
 if not on[severity]then return end
-return emit(severity,"?",0,select("#",...)>0 and string.format(message,...)or message)
+return emit(severity,"?",0,render(message,...))
 end
 end
 __nuppLog.error=ambient(1);__nuppLog.warn=ambient(2);__nuppLog.info=ambient(3);__nuppLog.debug=ambient(4)
 local NO_OP=function()end
 local function writer(severity)
 return function(self,message,...)
-return emit(severity,self.name,0,select("#",...)>0 and string.format(message,...)or message)
+return emit(severity,self.name,0,render(message,...))
 end
 end
 local WRITE={writer(1),writer(2),writer(3),writer(4)}
@@ -85217,6 +85615,15 @@ end
 
 function types . tostringConst ( term )
 if term . tag == "constLiteral" then
+
+
+
+if term . domain == "function" then
+local value = term . value
+
+return value : match ( "#(.*)$" ) or value
+end
+
 return term . domain == "string" and string . format ( "%q" , term . value ) or tostring ( term . value )
 elseif term . tag == "constVar" then
 return term . name
@@ -86642,6 +87049,40 @@ end
 
 
 return derive
+
+end
+package.preload["nupp.format"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+local format = { }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+return format
 
 end
 package.preload["nupp.heap"] = function(...)
@@ -95823,12 +96264,12 @@ local _G: table
 --- The language version the interpreter implements, "Lua 5.1" under LuaJIT.
 local _VERSION: string
 
--- string.format derives its trailing parameter pack from a literal first
+-- Formatting APIs derive their trailing parameter pack from a literal first
 -- argument. A broad string deliberately retains the ordinary variadic fallback.
 
 --- @local
 @comptime
-local function __NuppFormatArguments(Format: type): typepack
+local function __NuppFormatArguments(Format: type, Debug: type): typepack
     local info = nupp.types.describe(Format)
     if info.kind ~= "literal" or type(info.value) ~= "string" then
         return nupp.types.pack({}, nupp.types.any)
@@ -95846,6 +96287,8 @@ local function __NuppFormatArguments(Format: type): typepack
         for _, kind in ipairs(parsed.arguments) do
             if kind == "number" then
                 arguments[#arguments + 1] = nupp.types.number
+            elseif kind == "debug" then
+                arguments[#arguments + 1] = Debug
             else
                 arguments[#arguments + 1] = nupp.types.any
             end
@@ -95905,6 +96348,8 @@ local function __NuppFormatArguments(Format: type): typepack
 
                 if string.find("aAcdiouxXeEfgG", current, 1, true) then
                     arguments[#arguments + 1] = nupp.types.number
+                elseif current == "?" then
+                    arguments[#arguments + 1] = Debug
                 elseif string.find("pqs", current, 1, true) then
                     arguments[#arguments + 1] = nupp.types.any
                 else
@@ -96059,32 +96504,32 @@ record nupp.log
         readonly name: string
 
         --- Logs at debug. Accepts `string.format` directives.
-        debug: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
+        debug: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
 
         --- Logs at info. Accepts `string.format` directives.
-        info: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
+        info: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
 
         --- Logs at warn. Accepts `string.format` directives.
-        warn: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
+        warn: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
 
         --- Logs at error. Accepts `string.format` directives.
-        error: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
+        error: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
 
         --- Whether this logger would emit at `level`.
         enabled: function(self: Logger, level: Level): boolean
     end
 
     --- Logs at error. Accepts `string.format` directives.
-    error: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
+    error: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
 
     --- Logs at warn. Accepts `string.format` directives.
-    warn: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
+    warn: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
 
     --- Logs at info. Accepts `string.format` directives.
-    info: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
+    info: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
 
     --- Logs at debug. Accepts `string.format` directives.
-    debug: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
+    debug: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
 
     --- Reads the threshold, or sets it and answers the one it replaced.
     ---
@@ -96185,7 +96630,7 @@ local string: {
     --- @param fmt the format string
     --- @param ... the values that the directives consume
     --- @return the formatted string
-    format: nosuspend function<Format is string>(fmt: Format, ...: unpackof __NuppFormatArguments(Format)): string,
+    format: nosuspend function<Format is string>(fmt: Format, ...: unpackof __NuppFormatArguments(Format, nupp.Debug)): string,
 
     --- Returns an iterator over each successive match of `pat` in `s`, or over that
     --- match's captures when the pattern has any. Anchors have no special meaning here.
