@@ -3,6 +3,7 @@
 -- with. It does not reach a type error, which is not a judgement.
 local parser = require("nupp.compiler.parser")
 local check = require("fragment")
+local compilerCheck = require("nupp.compiler.check")
 local envMod = require("nupp.compiler.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -63,6 +64,41 @@ local CHAIN = table.concat({
 }, "\n")
 
 local M = {}
+
+local function environmentWithPreludeDiagnostic(severity)
+   local original = compilerCheck.check
+   compilerCheck.check = function(...)
+      local diags, moduleType, exports = original(...)
+      local opts = select(4, ...)
+      if opts and opts.declareGlobals then
+         diags[#diags + 1] = {
+            code = "TEST",
+            severity = severity == "warning" and "warning" or "error",
+            msg = "injected prelude diagnostic",
+            filename = "prelude.d.nupp",
+            line = 1,
+            col = 1,
+            offset = 1,
+            length = 1,
+         }
+      end
+      return diags, moduleType, exports
+   end
+   local ok, value = pcall(envMod.new, HERE .. "/..", {config = {}})
+   compilerCheck.check = original
+   return ok, value
+end
+
+-- Prelude declarations are load-bearing, but a configured lint warning does not make
+-- them ill-typed. Only a fatal diagnostic prevents the environment from being built.
+function M.preludeWarningsDoNotBecomeTypeErrors()
+   local warned, warningFailure = environmentWithPreludeDiagnostic("warning")
+   assert(warned, tostring(warningFailure))
+
+   local errored, errorFailure = environmentWithPreludeDiagnostic("error")
+   assert(not errored, "an error in the prelude must still stop environment creation")
+   assert(tostring(errorFailure):find("injected prelude diagnostic", 1, true), tostring(errorFailure))
+end
 
 function M.everyDiagnosticCarriesASeverity()
    local errs = checkOf('local x: number = "no"')
