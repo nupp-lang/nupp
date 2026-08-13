@@ -1,6 +1,8 @@
 # Hot reload: a design and implementation plan
 
-Status: proposed. Nupp already has incremental per-file checking and a runtime
+Status: implemented for named functions and methods through the host-neutral
+H4 surface. The tecs-repository adapter and H6 anonymous-site reconciliation
+remain follow-up integration work. Nupp already has incremental per-file checking and a runtime
 loader, but generated functions have ordinary Lua identity and a module can only
 be loaded as a whole. This plan adds a development-only patchable target without
 changing normal generated Lua.

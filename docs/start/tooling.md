@@ -133,6 +133,17 @@ the hot code was compiled at all. [Profiling](../tooling/profiling.md) explains
 both channels, and [optimization](../tooling/optimization.md) covers `-O`
 levels and remarks.
 
+## Hot reload
+
+```bash
+nupp run --watch app.nupp
+```
+
+At a safe loop boundary, call `nupp.hotReload.poll()`. Compatible named-function
+body edits commit without recreating application state; broken or structural
+edits leave the last good generation running. Watch is an `-O0` development
+target, not a release-performance build. See [hot reload](../tooling/hot-reload.md).
+
 ## Documentation
 
 ```bash

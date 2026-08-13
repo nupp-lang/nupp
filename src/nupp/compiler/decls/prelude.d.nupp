@@ -215,6 +215,9 @@ local nupp: {
     --- Leveled logging over a swappable destination.
     log: nupp.log,
 
+    --- Cooperative development hot reload, installed by `nupp run --watch`.
+    hotReload: nupp.HotReload,
+
     --- Compile and run byte-oriented parsing-expression grammars.
     --- @namespace
     peg: nupp.peg,
@@ -245,6 +248,16 @@ local nupp: {
     --- @internal
     __materializationTest: nupp.__MaterializationTestAPI
 }
+
+--- Cooperative hot reload installed only while `nupp run --watch` is active.
+--- @internal
+record nupp.HotReload
+    --- Returns the currently committed implementation generation.
+    generation: nosuspend function(): integer
+
+    --- Detects source edits and commits a compatible patch at this host boundary.
+    poll: function(): any
+end
 
 --- A compile-time-only graph handle used by the compiler's materialization tests.
 --- @internal
@@ -3995,6 +4008,14 @@ local debug: {
     --- @param v the value to store
     --- @return the upvalue's name, or nil past the last one
     setupvalue: function(f: any, idx: number, v: any): string?,
+
+    --- Makes one function's upvalue refer to the same lexical cell as another's.
+    ---
+    --- @param f the function whose upvalue is replaced
+    --- @param idx its 1-based upvalue index
+    --- @param source the function providing the cell
+    --- @param sourceIdx its 1-based upvalue index
+    upvaluejoin: function(f: any, idx: number, source: any, sourceIdx: number),
 
     --- Returns the metatable of `v`, ignoring any `__metatable` field.
     ---

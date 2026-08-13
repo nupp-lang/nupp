@@ -1,0 +1,236 @@
+--[[
+Persistent compiler-side state for development hot reload.
+
+The session deliberately owns the incremental query graph and advances its
+baseline only after the host acknowledges a runtime commit. Modules join that
+baseline lazily after their initial chunk has completed successfully.
+]]
+
+local incremental = require("nupp.compiler.incremental")
+local diagnostics = require("nupp.compiler.diagnostics")
+local envMod = require("nupp.compiler.env")
+local gen = require("nupp.compiler.gen")
+
+local hotSession = {}
+local Session = {}
+Session.__index = Session
+
+local function fatalIn(values)
+    for _, value in ipairs(values or {}) do
+        if diagnostics.isFatal(value) then
+            return true
+        end
+    end
+    return false
+end
+
+local function copyManifest(metadata, path)
+    local functions = {}
+    for _, fn in ipairs(metadata.functions or {}) do
+        local captures = {}
+        for index, capture in ipairs(fn.captures or {}) do
+            captures[index] = capture
+        end
+        functions[#functions + 1] = {
+            id = fn.id,
+            slot = fn.slot,
+            name = fn.name,
+            signature = fn.signature,
+            selfName = fn.selfName,
+            captures = captures,
+            implementation = fn.implementation,
+            patchable = fn.patchable,
+            affineCapture = fn.affineCapture,
+        }
+    end
+    return {
+        schema = 1,
+        module = metadata.module,
+        path = path,
+        optimization = 0,
+        structure = metadata.structure,
+        functions = functions,
+    }
+end
+
+local function sameCaptures(left, right)
+    if #left ~= #right then
+        return false
+    end
+    for index, capture in ipairs(left) do
+        if capture ~= right[index] then
+            return false
+        end
+    end
+    return true
+end
+
+local function indexed(manifest)
+    local byID = {}
+    for _, fn in ipairs(manifest.functions or {}) do
+        byID[fn.id] = fn
+    end
+    return byID
+end
+
+local function restart(path, message)
+    return {
+        kind = "restart-required",
+        diagnostics = {{
+            filename = path,
+            line = 1,
+            col = 1,
+            offset = 0,
+            length = 0,
+            code = "NUPP5001",
+            msg = message,
+            help = "restart the program to apply this structural change",
+        }},
+    }
+end
+
+function hotSession.new(root, opts)
+    local self = setmetatable({}, Session)
+    self.inc = incremental.new(root or ".", opts or {})
+    self.generation = 1
+    self.running = {}
+    self.prepared = {}
+    return self
+end
+
+function Session:diskChanged(path, changeType)
+    self.inc.diskChanged(path, changeType)
+end
+
+function Session:compile(path, mode, module, only)
+    local checked = self.inc.checkFile(path)
+    if fatalIn(checked.diags) then
+        return nil, {kind = "diagnostics", diagnostics = checked.diags}
+    end
+    local code, generated, _, _, metadata = gen.generate(checked.result, path, nil, {
+        mode = mode,
+        module = module,
+        baseGeneration = mode == "patch" and self.generation or nil,
+        only = only,
+    })
+    if fatalIn(generated) then
+        return nil, {kind = "diagnostics", diagnostics = generated}
+    end
+    return {code = code, manifest = copyManifest(metadata, path)}
+end
+
+function Session:initial(entries)
+    local path = entries and entries[1]
+    if not path then
+        error("hot reload initial build needs one entry", 2)
+    end
+    local module = envMod.moduleNameForPath(self.inc.env, path) or path
+    local built, failure = self:compile(path, "initial", module)
+    if not built then
+        return failure
+    end
+    return {
+        kind = "initial",
+        generation = self.generation,
+        entryCode = built.code,
+        entryManifest = built.manifest,
+    }
+end
+
+function Session:loaded(module, generation, manifest)
+    if generation ~= self.generation then
+        error("hot reload loaded acknowledgement names an unknown generation", 2)
+    end
+    if self.running[module] then
+        error("hot reload module " .. module .. " was acknowledged twice", 2)
+    end
+    if type(manifest) ~= "table" or manifest.schema ~= 1 or manifest.module ~= module then
+        error("hot reload loaded acknowledgement has a mismatched manifest", 2)
+    end
+    self.running[module] = manifest
+end
+
+function Session:prepare(paths)
+    local patches, candidate = {}, {}
+    for module, manifest in pairs(self.running) do
+        candidate[module] = manifest
+    end
+    local changedCount = 0
+    for _, path in ipairs(paths or {}) do
+        local module = envMod.moduleNameForPath(self.inc.env, path) or path
+        local live = self.running[module]
+        if live then
+            local compiled, failure = self:compile(path, "patch", module)
+            if not compiled then
+                return failure
+            end
+            local nextManifest = compiled.manifest
+            if live.structure ~= nextManifest.structure then
+                return restart(path, "top-level structure changed in " .. module)
+            end
+            local oldByID, nextByID = indexed(live), indexed(nextManifest)
+            local only = {}
+            for id, old in pairs(oldByID) do
+                local nextFn = nextByID[id]
+                if not nextFn or nextFn.slot ~= old.slot then
+                    return restart(path, "reloadable declaration changed: " .. id)
+                end
+                if nextFn.signature ~= old.signature then
+                    return restart(path, "callable signature changed: " .. id)
+                end
+                if not sameCaptures(old.captures, nextFn.captures) then
+                    return restart(path, "captured bindings changed: " .. id)
+                end
+                if nextFn.implementation ~= old.implementation then
+                    if not old.patchable then
+                        return restart(path, "capture " .. tostring(old.affineCapture)
+                            .. " owns a cleanup, so replacing " .. old.id .. " requires restart")
+                    end
+                    only[id] = true
+                    changedCount = changedCount + 1
+                end
+            end
+            for id in pairs(nextByID) do
+                if not oldByID[id] then
+                    return restart(path, "reloadable declaration was added: " .. id)
+                end
+            end
+            if next(only) then
+                local selected, selectedFailure = self:compile(path, "patch", module, only)
+                if not selected then
+                    return selectedFailure
+                end
+                patches[#patches + 1] = selected.code
+            end
+            candidate[module] = nextManifest
+        end
+    end
+    if changedCount == 0 then
+        return {kind = "no-change", generation = self.generation}
+    end
+    local generation = self.generation + 1
+    local result = {
+        kind = "prepared",
+        patch = table.concat(patches, "\n"),
+        baseGeneration = self.generation,
+        generation = generation,
+    }
+    self.prepared[generation] = {result = result, manifests = candidate}
+    return result
+end
+
+function Session:committed(generation)
+    local pending = self.prepared[generation]
+    if not pending or generation ~= self.generation + 1 then
+        error("hot reload commit acknowledgement is unknown or stale", 2)
+    end
+    self.generation = generation
+    self.running = pending.manifests
+    self.prepared = {}
+end
+
+function Session:persist()
+    self.inc.persist()
+end
+
+return hotSession

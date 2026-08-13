@@ -20,13 +20,17 @@ local command = spec.command{
     name = "run",
     summary = "Compile and run a Nupp or Lua program",
     usage = {
-        "nupp run [--strict] [-O<n>] [--profile[=MS]] [--profile-out PATH]",
+        "nupp run [--strict] [-O<n>] [--watch] [--profile[=MS]] [--profile-out PATH]",
         "         [--jit-aborts[=PATH]] <file> [args...]",
     },
     stopAtPositional = true,
     options = optionsMod.join(
         optionsMod.strict,
         optionsMod.optimize(),
+        {
+            name = "--watch",
+            help = "Keep named function identities patchable at cooperative poll points"
+        },
         {
             name = "--profile",
             value = "MS",
@@ -58,7 +62,14 @@ blacklisted trace — permanently demoted to the interpreter — ranked first.
 Both cover the program only: the session opens once the file has compiled and
 closes when it returns, so the compiler's own work stays out of the report. A
 program that fails still writes what was collected before it did. Each reports
-a summary line on stderr.]],
+a summary line on stderr.
+
+--watch is development-only and always uses -O0. A long-running program calls
+nupp.hotReload.poll() at a safe host boundary (for example tecs fresh ingress).
+The poll scans project sources, stages a valid changed-body patch, commits it,
+and leaves the last good generation running after diagnostics or a required
+restart. Programs that never return to such a boundary cannot reload
+cooperatively.]],
 }
 
 local DEFAULT_INTERVAL_MS: integer = 10
@@ -92,6 +103,13 @@ local function run(parsed: any): integer
     if not path then
         return command:usageError("a program file is required")
     end
+    local watching = values.watch == true
+    if watching and not path:find("%.nupp$") then
+        return command:usageError("--watch requires a .nupp program")
+    end
+    if watching and values.optLevel and values.optLevel ~= "0" then
+        return command:usageError("--watch supports -O0 only; run a normal optimized build before release")
+    end
     local programArgs: {string} = {}
     for index = 2, #positional do
         programArgs[#programArgs + 1] = positional[index]
@@ -101,7 +119,20 @@ local function run(parsed: any): integer
     local settings = compile.settings(values)
     local projectEnv = require("nupp.compiler.env").new(".")
     local chunk, err
-    if path:find("%.nupp$") then
+    local watchSession, entryManifest, hotRuntime
+    local pendingManifests = {}
+    local entryAcknowledged = false
+    if watching then
+        hotRuntime = require("nupp.hotreload")
+        watchSession = require("nupp.compiler.hot_session").new(".", {strict = settings.strict})
+        local initialBuild = watchSession:initial({path})
+        if initialBuild.kind ~= "initial" then
+            require("nupp.compiler.diagnostics").report(initialBuild.diagnostics or {})
+            return 1
+        end
+        entryManifest = initialBuild.entryManifest
+        chunk, err = loadstring(initialBuild.entryCode, "@" .. path)
+    elseif path:find("%.nupp$") then
         local code = compile.module(path, projectEnv, settings)
         if not code then
             return 1
@@ -131,11 +162,112 @@ local function run(parsed: any): integer
     end
 
     local runtime = require("nupp.compiler.runtime")
-    local removeLoader = runtime.install(projectEnv, function(modulePath: string, env: any): string?, string?
-        return compile.module(modulePath, env, settings)
-    end)
+    local compileLoaded
+    local loaded
+    if watching then
+        compileLoaded = function(modulePath: string, env: any): string?, string?
+            local module = require("nupp.compiler.env").moduleNameForPath(watchSession.inc.env, modulePath) or modulePath
+            local built, failure = watchSession:compile(modulePath, "initial", module)
+            if not built then
+                require("nupp.compiler.diagnostics").report(failure.diagnostics or {})
+                return nil, failure.kind
+            end
+            pendingManifests[module] = built.manifest
+            return built.code
+        end
+        loaded = function(module: string, modulePath: string, ok: boolean): nil
+            local manifest = pendingManifests[module]
+            pendingManifests[module] = nil
+            if ok then
+                hotRuntime.seal(module)
+                watchSession:loaded(module, watchSession.generation, manifest)
+            else
+                hotRuntime.abort(module)
+            end
+        end
+
+        local seen = {}
+        local watchFs = require("nupp.compiler.fs")
+        local watchEnv = require("nupp.compiler.env")
+        for _, sourcePath in ipairs(watchEnv.listProjectFiles(watchSession.inc.env)) do
+            seen[sourcePath] = watchFs.readFile(sourcePath)
+        end
+        _G.nupp = _G.nupp or {}
+        local function ensureEntryLoaded(): nil
+            if entryAcknowledged then
+                return
+            end
+            hotRuntime.seal(entryManifest.module)
+            watchSession:loaded(entryManifest.module, watchSession.generation, entryManifest)
+            entryAcknowledged = true
+        end
+        _G.nupp.hotReload = {
+            generation = function(): integer
+                return hotRuntime.generation()
+            end,
+            poll = function(): any
+                -- The entry may own a loop and never return from its chunk. Its first
+                -- cooperative boundary proves initialization reached a safe point.
+                ensureEntryLoaded()
+                local changed = {}
+                local current = {}
+                for _, sourcePath in ipairs(watchEnv.listProjectFiles(watchSession.inc.env)) do
+                    current[sourcePath] = true
+                    local text = watchFs.readFile(sourcePath)
+                    if seen[sourcePath] ~= text then
+                        seen[sourcePath] = text
+                        watchSession:diskChanged(sourcePath, text == nil and 3 or 2)
+                        changed[#changed + 1] = sourcePath
+                    end
+                end
+                for sourcePath in pairs(seen) do
+                    if not current[sourcePath] then
+                        seen[sourcePath] = nil
+                        watchSession:diskChanged(sourcePath, 3)
+                        changed[#changed + 1] = sourcePath
+                    end
+                end
+                if #changed == 0 then
+                    return {kind = "no-change", generation = watchSession.generation}
+                end
+                local result = watchSession:prepare(changed)
+                if result.kind == "prepared" then
+                    local prepared, reason = hotRuntime.stage(result.patch, result.baseGeneration)
+                    if not prepared then
+                        return {kind = "diagnostics", diagnostics = {{msg = reason}}}
+                    end
+                    local generation, commitError = hotRuntime.commit(prepared)
+                    if not generation then
+                        return {kind = "diagnostics", diagnostics = {{msg = commitError}}}
+                    end
+                    watchSession:committed(generation)
+                    io.stderr:write(("nupp: committed hot generation %d\n"):format(generation))
+                elseif result.diagnostics then
+                    require("nupp.compiler.diagnostics").report(result.diagnostics)
+                    io.stderr:write(("nupp: generation %d remains running\n"):format(watchSession.generation))
+                end
+                return result
+            end,
+        }
+    else
+        compileLoaded = function(modulePath: string, env: any): string?, string?
+            return compile.module(modulePath, env, settings)
+        end
+    end
+    local removeLoader = runtime.install(projectEnv, compileLoaded, loaded)
     local ok, runErr = pcall(chunk, unpack(programArgs))
     removeLoader()
+    if watching then
+        if ok then
+            if not entryAcknowledged then
+                hotRuntime.seal(entryManifest.module)
+                watchSession:loaded(entryManifest.module, watchSession.generation, entryManifest)
+            end
+        else
+            hotRuntime.abort(entryManifest.module)
+        end
+        watchSession:persist()
+    end
 
     -- Before the program's own failure is reported: a run that ended badly is the one
     -- whose profile is most worth having, and stopping first keeps the reporting out of

@@ -74,6 +74,7 @@ faster than searching for the number.
 | `NUPP2xxx` | Type, declaration, lint, FFI, or ownership diagnostics. |
 | `NUPP3xxx` | Code generation cannot represent a checked construct. |
 | `NUPP4001` | Formatting could not safely produce the requested result. |
+| `NUPP5xxx` | A development-time change requires a restart. |
 | OPT-n | An optimization pass reporting what it did or declined to do. |
 
 `OPT-n` is the one family that does not describe a problem. A pass emits it to

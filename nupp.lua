@@ -687,6 +687,11 @@ nupp lsp            # start the language server]],
                   source = "docs/tooling/profiling.md",
                },
                {
+                  path = "guides/hot-reload",
+                  title = "Hot reload",
+                  source = "docs/tooling/hot-reload.md",
+               },
+               {
                   path = "guides/optimization",
                   title = "Optimization",
                   source = "docs/tooling/optimization.md",

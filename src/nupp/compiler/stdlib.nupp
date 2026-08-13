@@ -18,6 +18,17 @@ local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);loca
 ]=]
 )
 
+-- Watch modules spend one top-level local on their private implementation array. The
+-- ordinary bootstrap always reserves a math namespace local even when math is unused;
+-- addressing that namespace through nupp in the development-only artifact recovers
+-- exactly one local and keeps watch's authored-function ceiling equal to normal.
+local HOT_BASE = compact(
+    [=[
+local __nupp=_G.nupp or {};_G.nupp=__nupp
+local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);rawset(__nupp,"math",rawget(__nupp,"math")or{})
+]=]
+)
+
 local LAZY = compact(
     [=[
 local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end
@@ -1207,8 +1218,8 @@ __nuppLazy(__nuppData,"sha256",function()local native=__nuppNative();return func
 ]=]
 )
 
-function stdlib.bootstrap(effects: {[string]: any}?): string
-    local out = {BASE}
+function stdlib.bootstrap(effects: {[string]: any}?, watch: boolean?): string
+    local out = {watch and HOT_BASE or BASE}
     if effects and next(effects) then
         out[#out + 1] = LAZY
     end
@@ -1223,7 +1234,7 @@ function stdlib.bootstrap(effects: {[string]: any}?): string
         out[#out + 1] = UTF8
     end
     if effects["stdlib.math"] then
-        out[#out + 1] = MATH
+        out[#out + 1] = watch and MATH:gsub("local m=__nuppMath", "local m=_G.nupp.math", 1) or MATH
     end
     if effects["stdlib.log"] then
         out[#out + 1] = LOG

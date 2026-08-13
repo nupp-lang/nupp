@@ -95,6 +95,15 @@ local FAMILIES = {
         docs = "docs/diagnostics.md#code-families"
     },
     {
+        prefix = "NUPP5",
+        title = "Development runtime",
+        summary = "A development-time change requires a restart",
+        rule = "The running program cannot apply this change without replacing "
+        .. "state or callable structure that hot reload promises to preserve. "
+        .. "Restart it so the new program can initialize that state normally.",
+        docs = "docs/tooling/hot-reload.md#changes-that-require-restart"
+    },
+    {
         prefix = "OPT",
         title = "Optimizer remarks",
         summary = "An optimizer remark",

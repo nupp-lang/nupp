@@ -1017,7 +1017,7 @@ mismatch keeps both stages for inspection and exits 1. See
 Compile and run a Nupp or Lua program
 
 Usage:
-  nupp run [--strict] [-O<n>] [--profile[=MS]] [--profile-out PATH]
+  nupp run [--strict] [-O<n>] [--watch] [--profile[=MS]] [--profile-out PATH]
            [--jit-aborts[=PATH]] <file> [args...]
 
 Options:
@@ -1028,6 +1028,8 @@ Options:
                        guarantee
   -Zno-opt=CODE        Turn off one pass, named by its stable code, to bisect a
                        miscompile. Unstable: the spelling may change or go away
+  --watch              Keep named function identities patchable at cooperative
+                       poll points
   --profile[=MS]       Sample the program every MS milliseconds (default 10)
   --profile-out PATH   Where the samples go (default profile.out)
   --jit-aborts[=PATH]  Record where the JIT gave up (default jit-aborts.csv)
@@ -1053,6 +1055,13 @@ Both cover the program only: the session opens once the file has compiled and
 closes when it returns, so the compiler's own work stays out of the report. A
 program that fails still writes what was collected before it did. Each reports
 a summary line on stderr.
+
+--watch is development-only and always uses -O0. A long-running program calls
+nupp.hotReload.poll() at a safe host boundary (for example tecs fresh ingress).
+The poll scans project sources, stages a valid changed-body patch, commits it,
+and leaves the last good generation running after diagnostics or a required
+restart. Programs that never return to such a boundary cannot reload
+cooperatively.
 ```
 
 The first non-option argument is the program; everything after it goes to the

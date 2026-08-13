@@ -1,0 +1,274 @@
+--[[
+The development-only half of Nupp hot reload.
+
+Generated watch modules keep their public function values stable and dispatch
+through one array of implementation functions. A patch is loaded while `stage`
+owns the registry: `define` validates every candidate and joins its authored
+upvalues to the cells held by the live implementation. Nothing in a live slot
+changes until `commit` has a complete candidate vector.
+
+The state is process-wide so a host and generated modules may require this
+module through different loader paths without splitting the registry. Ordinary
+generated programs never require it.
+]]
+
+local hotreload = {}
+local debugAny: any = debug
+
+local STATE_KEY = "__nuppHotReloadState"
+local API_KEY = "__nuppHotReload"
+
+local state: any = _G[STATE_KEY]
+if not state then
+    state = {
+        generation = 1,
+        modules = {},
+        bySlots = setmetatable({}, {__mode = "k"}),
+        staging = nil,
+        preparedSerial = 0,
+    }
+    _G[STATE_KEY] = state
+end
+
+local function upvalues(fn: any, selfName: string?): any
+    local byName, order = {}, {}
+    local index = 1
+    while true do
+        local name = debug.getupvalue(fn, index)
+        if not name then
+            break
+        end
+        if name ~= selfName then
+            if byName[name] then
+                error("nupp hot reload: duplicate upvalue " .. name, 3)
+            end
+            byName[name] = index
+            order[#order + 1] = name
+        end
+        index = index + 1
+    end
+    table.sort(order)
+
+    return {byName = byName, order = order}
+end
+
+local function sameNames(left: any, right: any): boolean
+    if #left ~= #right then
+        return false
+    end
+    for index = 1, #left do
+        if left[index] ~= right[index] then
+            return false
+        end
+    end
+
+    return true
+end
+
+-- A local function declaration closes over its own binding. Before generated
+-- code replaces that binding with the public trampoline, give the implementation
+-- a private cell containing itself. Old activations then retain self-recursion
+-- within their generation while calls to any other function use public slots.
+local function detachSelf(fn: any, selfName: string?): nil
+    if not selfName then
+        return
+    end
+    local index = 1
+    while true do
+        local name = debug.getupvalue(fn, index)
+        if not name then
+            return
+        end
+        if name == selfName then
+            local value = fn
+            local function anchor(): any
+                return value
+            end
+            debugAny.upvaluejoin(fn, index, anchor, 1)
+            return
+        end
+        index = index + 1
+    end
+end
+
+local function moduleForSlots(slots: any): any
+    local module = state.bySlots[slots]
+    if not module then
+        error("nupp hot reload: an implementation used an unknown slot array", 3)
+    end
+
+    return module
+end
+
+--- Returns the direct implementation array for one loaded watch module.
+---
+--- @raises when a patch names a module that has not executed yet
+function hotreload.module(name: string): any
+    local module = state.modules[name]
+    if module then
+        if state.staging and not module.loaded then
+            error("nupp hot reload: patch names unloaded module " .. name, 2)
+        end
+        return module.slots
+    end
+    if state.staging then
+        error("nupp hot reload: patch names unloaded module " .. name, 2)
+    end
+    module = {name = name, slots = {}, definitions = {}, loaded = false}
+    state.modules[name] = module
+    state.bySlots[module.slots] = module
+
+    return module.slots
+end
+
+--- Marks a module's initial registration complete after its chunk returns.
+--- @raises when the module is unknown or has already been sealed
+function hotreload.seal(name: string): nil
+    local module = state.modules[name]
+    if not module or module.loaded then
+        error("nupp hot reload: cannot seal unknown or loaded module " .. name, 2)
+    end
+    module.loaded = true
+end
+
+--- Discards an incomplete registration after its initial chunk fails.
+function hotreload.abort(name: string): nil
+    local module = state.modules[name]
+    if not module or module.loaded then
+        return
+    end
+    state.bySlots[module.slots] = nil
+    state.modules[name] = nil
+end
+
+--- Registers an initial implementation or one candidate in the active stage.
+---
+--- @raises when identity, signature, or captured lexical cells are incompatible
+function hotreload.define(
+    slots: any,
+    index: integer,
+    id: string,
+    signature: string,
+    selfName: string?,
+    implementation: any
+): nil
+    local module = moduleForSlots(slots)
+    detachSelf(implementation, selfName)
+    local captures = upvalues(implementation, selfName)
+    local staging = state.staging
+    if not staging then
+        if module.definitions[index] then
+            error("nupp hot reload: slot " .. tostring(index) .. " was defined twice", 2)
+        end
+        module.definitions[index] = {
+            id = id,
+            signature = signature,
+            selfName = selfName,
+            captures = captures,
+        }
+        slots[index] = implementation
+        return
+    end
+
+    local live = module.definitions[index]
+    if not live or live.id ~= id then
+        error("nupp hot reload: stable function identity changed for " .. id, 2)
+    end
+    if live.signature ~= signature then
+        error("nupp hot reload: signature changed for " .. id .. "; restart required", 2)
+    end
+    if live.selfName ~= selfName then
+        error("nupp hot reload: recursive binding changed for " .. id .. "; restart required", 2)
+    end
+    if not sameNames(live.captures.order, captures.order) then
+        error("nupp hot reload: captured bindings changed for " .. id .. "; restart required", 2)
+    end
+    for _, name in ipairs(captures.order) do
+        debugAny.upvaluejoin(implementation, captures.byName[name], slots[index], live.captures.byName[name])
+    end
+    local key = module.name .. "\0" .. tostring(index)
+    if staging.byKey[key] then
+        error("nupp hot reload: patch defines " .. id .. " twice", 2)
+    end
+    local candidate = {module = module, index = index, implementation = implementation}
+    staging.byKey[key] = candidate
+    staging.candidates[#staging.candidates + 1] = candidate
+end
+
+--- Loads and validates a patch without changing any live implementation.
+---
+--- @return the prepared transaction, or nil and the reason it was rejected
+function hotreload.stage(source: string, baseGeneration: integer): any?, string?
+    if state.staging then
+        return nil, "another patch is already staging"
+    end
+    if baseGeneration ~= state.generation then
+        return nil, "stale generation"
+    end
+    local chunk, loadError = loadstring(source, "@nupp-hot-patch")
+    if not chunk then
+        return nil, tostring(loadError)
+    end
+    local staging = {baseGeneration = baseGeneration, candidates = {}, byKey = {}}
+    state.staging = staging
+    local ok, reason = pcall(chunk)
+    state.staging = nil
+    if not ok then
+        return nil, tostring(reason)
+    end
+    state.preparedSerial = state.preparedSerial + 1
+
+    return {
+        baseGeneration = baseGeneration,
+        generation = baseGeneration + 1,
+        serial = state.preparedSerial,
+        candidates = staging.candidates,
+        committed = false,
+    }
+end
+
+--- Atomically publishes a prepared candidate vector.
+---
+--- @return the committed generation, or nil and why this transaction is stale
+function hotreload.commit(prepared: any): integer?, string?
+    if type(prepared) ~= "table" or prepared.committed then
+        return nil, "patch was already committed or is invalid"
+    end
+    if prepared.baseGeneration ~= state.generation then
+        return nil, "stale generation"
+    end
+    -- Everything fallible happened in stage. Lua cannot run authored code between
+    -- these direct array writes, so no dispatch can observe a partial vector.
+    for _, candidate in ipairs(prepared.candidates) do
+        candidate.module.slots[candidate.index] = candidate.implementation
+    end
+    prepared.committed = true
+    state.generation = prepared.generation
+    jit.flush()
+
+    return state.generation
+end
+
+--- Returns the currently published implementation generation.
+function hotreload.generation(): integer
+    return state.generation
+end
+
+--- Returns whether a module has completed its initial watch execution.
+function hotreload.loaded(name: string): boolean
+    local module = state.modules[name]
+    return module ~= nil and module.loaded == true
+end
+
+--- Clears process state. Intended for compiler/runtime tests only.
+function hotreload.resetForTesting(): nil
+    state.generation = 1
+    state.modules = {}
+    state.bySlots = setmetatable({}, {__mode = "k"})
+    state.staging = nil
+    state.preparedSerial = 0
+end
+
+_G[API_KEY] = hotreload
+
+return hotreload

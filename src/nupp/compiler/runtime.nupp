@@ -19,11 +19,15 @@ local runtime = {}
 -- program was running.
 function runtime.install(
     env: envMod.Env,
-    compile: function(path: string, env: envMod.Env): (string?, string?)
+    compile: function(path: string, env: envMod.Env): (string?, string?),
+    loaded: function(name: string, path: string, ok: boolean)?
 ): function(): nil
     local loaders = package.loaders
     assert(loaders, "this Lua runtime does not expose package loaders")
     assert(type(compile) == "function", "compile callback must be a function")
+    local function pack(...)
+        return {n = select("#", ...), ...}
+    end
 
     local function loadLjppModule(name)
         local path = envMod.findRuntimeModulePath(env, name)
@@ -50,7 +54,25 @@ function runtime.install(
             error(("error loading project module '%s' " .. "from '%s': %s"):format(name, path, tostring(loadErr)), 0)
         end
 
-        return chunk
+        if not loaded or not path:match("%.nupp$") then
+            return chunk
+        end
+
+        -- Watch modules become patch targets only after top level completed. Keep this
+        -- wrapper out of ordinary runs: besides being unnecessary there, pcall would
+        -- be an observable stack-frame change.
+        return function(...)
+            local args = {n = select("#", ...), ...}
+            local result
+            local ok, failure = pcall(function()
+                result = pack(chunk(unpack(args, 1, args.n)))
+            end)
+            loaded(name, path, ok)
+            if not ok then
+                error(failure, 0)
+            end
+            return unpack(result, 1, result.n)
+        end
     end
 
     -- package.preload remains authoritative, matching Lua's normal semantics.
