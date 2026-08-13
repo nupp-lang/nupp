@@ -162,6 +162,14 @@ gradual `...any` tail.
 ```nupp
 local count = string.format("%s has %d messages", "Ada", 3)
 
+@derive(nupp.derive.Debug)
+local record User
+    name: string
+end
+
+-- `%?` requires nupp.Debug, calls `debug()`, and passes the result to Lua's `%s`.
+local inspected = string.format("user=%?", new User(name = "Ada"))
+
 -- A format the checker cannot read is not an error; the call keeps the
 -- gradual ...any tail instead of an exact parameter list.
 local function report(template: string, name: string, unread: integer): string
@@ -190,6 +198,22 @@ local invalid = string.format("%q %y", 1, 2)
 
 Arity errors report at the call, and a conversion mismatch reports at the
 argument that does not fit.
+
+`nupp.format.StringFormatSyntax(Format)` exposes the ordinary Lua directive
+computation to typed wrappers:
+
+```nupp
+local function format<Format is string>(
+    fmt: Format,
+    ...: unpackof nupp.format.StringFormatSyntax(Format)
+): string
+    return string.format(fmt, ...)
+end
+```
+
+The public computation deliberately rejects `%?`: that directive needs the
+compiler to rewrite the format and call `debug()`, so it is available only on
+direct `string.format`, literal `:format`, and logging calls.
 
 ## Lua string patterns
 

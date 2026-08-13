@@ -9,6 +9,7 @@ the finalized graph through `nupp.compiler.typeblueprint`.
 local hash = require("nupp.compiler.build.hash")
 local stable = require("nupp.compiler.build.cache").stable
 local luaFormat = require("nupp.compiler.LuaFormat") as {
+    analyze: function(string): (any, string?),
     argumentKinds: function(string): ({string}?, string?)
 }
 local luaPattern = require("nupp.compiler.LuaPattern") as {
@@ -515,8 +516,8 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         if type(args[1]) ~= "string" then
             return {arguments = {},}
         end
-        local arguments, why = luaFormat.argumentKinds(args[1])
-        return {arguments = arguments or {}, error = why,}
+        local parsed, why = luaFormat.analyze(args[1])
+        return {arguments = parsed and parsed.arguments or {}, error = why,}
     end)
 
     installIntrinsic(state, library, "patternCaptures", function(_, args)

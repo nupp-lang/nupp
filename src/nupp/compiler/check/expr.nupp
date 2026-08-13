@@ -18,8 +18,10 @@ local cst = require("nupp.compiler.cst")
 local lexer = require("nupp.compiler.lexer")
 local operators = require("nupp.compiler.check.operators")
 local index = require("nupp.compiler.check.index")
-local callexpr = require("nupp.compiler.check.callexpr")
 local state = require("nupp.compiler.check.state")
+local callexpr = require("nupp.compiler.check.callexpr") as {
+    install: function(state.Checker): state.ExprHandlers
+}
 local comptime = require("nupp.compiler.comptime") as {
     evaluate: function(any, any, any, any, any, any?): (string?, any, any, any)
 }

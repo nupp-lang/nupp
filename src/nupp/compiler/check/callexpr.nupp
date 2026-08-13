@@ -19,6 +19,9 @@ local cst = require("nupp.compiler.cst")
 local ffiMod = require("nupp.compiler.check.ffi")
 local methodslots = require("nupp.compiler.methodslots")
 local native = require("nupp.compiler.native")
+local luaFormat = require("nupp.compiler.LuaFormat") as {
+    analyze: function(string): (any, string?)
+}
 local reflection = require("nupp.compiler.reflection")
 local targetLayout = require("nupp.compiler.target_layout")
 local state = require("nupp.compiler.check.state")
@@ -86,6 +89,35 @@ local function logIntrinsic(c, callee): integer?
     local resolved = c.lookupEntry(token.text)
 
     return global and resolved and resolved.definition == global.definition and severity or nil
+end
+
+-- Whether this is the prelude's `string.format`, rather than a field on a local table
+-- which happens to use the same spelling.
+local function stringFormatIntrinsic(c, callee): boolean
+    if not callee or callee.kind ~= "dotIndex" or not callee.name or callee.name.text ~= "format" then
+        return false
+    end
+    local base = callee.obj
+    local token = base and base.kind == "name" and base.token or nil
+    local global = c.env and c.env.globals and c.env.globals.string
+    local resolved = token and c.lookupEntry(token.text) or nil
+
+    return token ~= nil
+        and token.text == "string"
+        and global ~= nil
+        and resolved ~= nil
+        and resolved.definition == global.definition
+end
+
+local function debugFormatPlan(format: string): any
+    local parsed = luaFormat.analyze(format)
+    for _, debug in ipairs(parsed and parsed.debugArguments or {}) do
+        if debug then
+            return parsed
+        end
+    end
+
+    return nil
 end
 
 -- Which zone-stack operation `push` or `pop` names, when the receiver is a plain
@@ -549,6 +581,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
             if positional and format and format.kind == "string" then
                 node.logIntrinsic = severity
+                node.logFormatIntrinsic = debugFormatPlan(literalString(format) or "")
             end
         end
         -- push always carries exactly one name and pop none, so the arity check
@@ -957,6 +990,19 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             c.checkMetatableLiteral(argExprs[2], nil, T.metatable(T.any))
         end
         local first, rets, pack = c.inferCall(node, calleeT, node.args, knownAts)
+        if node.kind == "call" and stringFormatIntrinsic(c, callee) then
+            local format = literalString(argExprs[1])
+            local plan = format and debugFormatPlan(format) or nil
+            local positional = true
+            for _, argument in ipairs(argExprs) do
+                if argument.kind == "namedArg" or argument.kind == "pluckArg" then
+                    positional = false
+                end
+            end
+            if positional and plan then
+                node.formatIntrinsic = {format = plan.format, debugArguments = plan.debugArguments, argumentOffset = 1,}
+            end
+        end
         local preciseLpeg = specializeLpegCall(callee, memberName, node.argumentPack)
         if preciseLpeg then
             first, rets, pack = preciseLpeg, {preciseLpeg}, T.pack({preciseLpeg})
@@ -1356,6 +1402,28 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             -- o:m(...) desugars to m(o, ...): drop the self parameter
             local methodType = callable and specializeReceiver(mt, ot) or mt
             local first, rets, pack = c.inferCall(node, callable and dropSelf(methodType) or methodType, node.args)
+            local literal = receiver
+            while literal and literal.kind == "paren" do
+                literal = literal.expr
+            end
+            local positional = true
+            local methodArgs = node.args and node.args.kind == "args" and (node.args as cst.Args).exprs or {}
+            for _, argument in ipairs(methodArgs) do
+                if argument.kind == "namedArg" or argument.kind == "pluckArg" then
+                    positional = false
+                end
+            end
+            if positional and not optional and member.text == "format" and literal and literal.kind == "string" then
+                local format = literalString(literal)
+                local plan = format and debugFormatPlan(format) or nil
+                if plan then
+                    node.formatIntrinsic = {
+                        format = plan.format,
+                        debugArguments = plan.debugArguments,
+                        argumentOffset = 0,
+                    }
+                end
+            end
             c.nosuspend.call(node)
             local owner = rawType(ot)
             node.overloadMember = pegReplacementMember(

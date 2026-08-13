@@ -1125,17 +1125,41 @@ local function named(severity)
 local index=INDEX[severity];if index==nil then error("nupp: log has no level named "..tostring(severity),3)end
 return index
 end
+local function render(message,...)
+local count=select("#",...);if count==0 then return message end
+local values={...}
+if message:find("?",1,true)then
+local pieces={};local index=1;local argument=0
+while index<=#message do
+local percent=message:find("%",index,true)
+if not percent then pieces[#pieces+1]=message:sub(index);break end
+pieces[#pieces+1]=message:sub(index,percent-1)
+if message:sub(percent+1,percent+1)=="%"then pieces[#pieces+1]="%%";index=percent+2
+else
+local finish=percent+1;local current=message:sub(finish,finish)
+while current~=""and("-+ #0"):find(current,1,true)do finish=finish+1;current=message:sub(finish,finish)end
+while current:find("[0-9]")do finish=finish+1;current=message:sub(finish,finish)end
+if current=="."then finish=finish+1;current=message:sub(finish,finish);while current:find("[0-9]")do finish=finish+1;current=message:sub(finish,finish)end end
+argument=argument+1
+if current=="?"then values[argument]=values[argument]:debug();current="s"end
+pieces[#pieces+1]=message:sub(percent,finish-1)..current;index=finish+1
+end
+end
+message=table.concat(pieces)
+end
+return string.format(message,unpack(values,1,count))
+end
 local function ambient(severity)
 return function(message,...)
 if not on[severity]then return end
-return emit(severity,"?",0,select("#",...)>0 and string.format(message,...)or message)
+return emit(severity,"?",0,render(message,...))
 end
 end
 __nuppLog.error=ambient(1);__nuppLog.warn=ambient(2);__nuppLog.info=ambient(3);__nuppLog.debug=ambient(4)
 local NO_OP=function()end
 local function writer(severity)
 return function(self,message,...)
-return emit(severity,self.name,0,select("#",...)>0 and string.format(message,...)or message)
+return emit(severity,self.name,0,render(message,...))
 end
 end
 local WRITE={writer(1),writer(2),writer(3),writer(4)}

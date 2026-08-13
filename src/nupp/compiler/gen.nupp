@@ -1136,6 +1136,20 @@ function gen.generate(
         end
     end
 
+    function pluck.formatHelper(plan): string
+        local params, arguments = {}, {}
+        for index, debug in ipairs(plan.debugArguments or {}) do
+            local name = "__nuppA" .. tostring(index)
+            params[index] = name
+            arguments[index] = debug and name .. ":debug()" or name
+        end
+        local body = (
+            "return string.format(%q%s)"
+        ):format(plan.format, #arguments > 0 and "," .. table.concat(arguments, ",") or "")
+
+        return pluck.declareHelper("__nuppFormat", table.concat(params, ","), body)
+    end
+
     function pluck.activate(plan): any
         local prior = {aliases = pluck.argumentAliases, fields = pluck.argumentFields,}
         pluck.argumentAliases = plan.argAliases
@@ -1776,6 +1790,19 @@ function gen.generate(
                 emit(binding.value)
                 e(";")
             end
+        end
+        if (kind == "call" or kind == "methodCall") and x.formatIntrinsic then
+            local plan = x.formatIntrinsic
+            local arguments = x.args and x.args.exprs or {}
+            e(pluck.formatHelper(plan) .. "(", sourceLine(x))
+            for index = (plan.argumentOffset or 0) + 1, #arguments do
+                if index > (plan.argumentOffset or 0) + 1 then
+                    e(",")
+                end
+                emit(arguments[index])
+            end
+            e(")")
+            return
         end
         if kind == "call" and x.staticCallee then
             e(x.staticCallee, sourceLine(x))
@@ -2455,16 +2482,20 @@ function gen.generate(
             -- knows the module, so a site carries only its severity and its line.
             local logName = compilerModuleName("nupp.log")
             e(("if %s.on[%d] then %s.emit(%d,%d,"):format(logName, severity, logName, severity, line), line)
-            if #exprs > 1 then
+            local formatPlan = call.logFormatIntrinsic
+            if formatPlan then
+                e(pluck.formatHelper(formatPlan) .. "(")
+            elseif #exprs > 1 then
                 e("string.format(")
             end
-            for index, argument in ipairs(exprs) do
-                if index > 1 then
+            local first = formatPlan and 2 or 1
+            for index = first, #exprs do
+                if index > first then
                     e(",")
                 end
-                emit(argument)
+                emit(exprs[index])
             end
-            if #exprs > 1 then
+            if formatPlan or #exprs > 1 then
                 e(")")
             end
             e(") end")

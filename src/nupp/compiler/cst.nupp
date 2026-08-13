@@ -138,6 +138,13 @@ interface cst.Hints
     --- ambient one; lowering additionally needs statement position.
     logIntrinsic: integer?
 
+    --- A literal Nupp format containing `%?`, rewritten to Lua `%s` together with the
+    --- argument positions whose values need their `debug` method called.
+    formatIntrinsic: any
+
+    --- The same rewrite plan when the formatting belongs inside a logging guard.
+    logFormatIntrinsic: any
+
     --- "push" or "pop" when the call is on a name statically known to hold the module
     --- `nupp.zone` returns and carries the right arity. Lowering additionally needs
     --- statement position, so a `pop` whose popped name is kept stays an ordinary call.

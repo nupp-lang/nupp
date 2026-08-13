@@ -67,6 +67,17 @@ function M.formatDirectivesAreCheckedAtTheCallSite()
    assertEq(codesOf("nupp.log.info('%s and %d', 'a', 'b')"), "NUPP2006",
       "an argument of the wrong type is reported")
    assertEq(codesOf("nupp.log.debug('plain')"), "", "a format with no directives is clean")
+   assertEq(codesOf(table.concat({
+      "@derive(nupp.derive.Debug)",
+      "local record Value end",
+      "nupp.log.debug('value=%?', new Value())",
+   }, "\n")), "", "a debug directive accepts nupp.Debug")
+   assertEq(codesOf("nupp.log.debug('value=%?', 'wrong')"), "NUPP2006",
+      "a debug directive requires nupp.Debug")
+   assertEq(codesOf(table.concat({
+      "local logger = nupp.log.named('named')",
+      "logger:debug('value=%?', 'wrong')",
+   }, "\n")), "NUPP2006", "a named logger requires the same contract")
 end
 
 function M.levelNamesAreCheckedAtTheCallSite()
@@ -107,6 +118,35 @@ function M.aFormatWithNoArgumentsSkipsStringFormat()
    assertTrue(message:find("plain", 1, true) ~= nil, "the literal is passed straight through")
 end
 
+function M.aDebugDirectiveLowersInsideTheLevelGuard()
+   local code = compile(table.concat({
+      "@derive(nupp.derive.Debug)",
+      "local record Value end",
+      "nupp.log.debug('value=%?', new Value())",
+   }, "\n"), "amb")
+   local guard = assert(code:find("if __nupp", 1, true), "the enabled guard is present")
+   local call = assert(code:find("__nuppFormat", guard, true), "formatting happens in the guard")
+   assertTrue(guard < call, "debug formatting is lazy")
+   assertTrue(code:find('string.format("value=%s",__nuppA1:debug())', 1, true) ~= nil,
+      "the shared helper rewrites %? to %s and calls debug")
+end
+
+function M.debugDirectivesRunThroughDirectAndMethodFormattingCalls()
+   local code = compile(table.concat({
+      "@derive(nupp.derive.Debug)",
+      "local record Value",
+      "   name: string",
+      "end",
+      "local value = new Value(name = 'ready')",
+      "return string.format('direct=%?', value), ('method=%?'):format(value)",
+   }, "\n"), "amb")
+   local chunk, why = loadstring(code, "@debug-format")
+   assertTrue(chunk ~= nil, why)
+   local direct, method = chunk()
+   assertEq(direct, 'direct=Value { name = "ready" }')
+   assertEq(method, 'method=Value { name = "ready" }')
+end
+
 function M.eachSeverityCarriesItsOwnIndex()
    for index, name in ipairs({"error", "warn", "info", "debug"}) do
       local severity = loweredSite(compile(("nupp.log.%s('m')"):format(name), "amb"))
@@ -140,6 +180,15 @@ function M.whatIsNotLoweredStaysAnOrdinaryCall()
 
    assertTrue(not isLowered(compile("local ok = nupp.log.enabled('warn')", "amb")),
       "a call in value position keeps its value")
+
+   local valueCall = compile(table.concat({
+      "@derive(nupp.derive.Debug)",
+      "local record Value end",
+      "local ignored = nupp.log.debug('value=%?', new Value())",
+   }, "\n"), "amb")
+   assertTrue(not isLowered(valueCall), "a severity call in value position keeps its call")
+   assertTrue(valueCall:find(".debug", 1, true) ~= nil,
+      "and is not replaced by a formatting expression")
 
    assertTrue(not isLowered(compile(table.concat({
       "local nupp = {log = {error = function(m: string): nil print(m) end}}",
@@ -189,6 +238,27 @@ function M.aLoweredSiteDoesNotEvaluateAFilteredArgument()
    assertEq(lines[1].module, "amb", "the sink is handed the module")
    assertEq(lines[1].line, 7, "and the line")
    assertEq(lines[1].level, 4, "and the severity as a number")
+end
+
+function M.aNamedLoggerDefersDebugFormattingUntilTheLevelIsEnabled()
+   local log = runtime()
+   local lines, sink = recorder()
+   log.sink(sink)
+   log.level("warn")
+
+   local calls = 0
+   local value = {debug = function()
+      calls = calls + 1
+      return "rendered"
+   end}
+   local logger = log.named("named")
+   logger:debug("value=%?", value)
+   assertEq(calls, 0, "a disabled named logger does not call debug")
+
+   log.level("debug")
+   logger:debug("value=%?", value)
+   assertEq(calls, 1, "an enabled named logger calls debug once")
+   assertEq(lines[1].message, "value=rendered", "the debug value reaches the sink")
 end
 
 function M.aLevelAdmitsItselfAndEverythingAboveIt()

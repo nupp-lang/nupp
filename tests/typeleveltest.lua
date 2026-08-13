@@ -454,8 +454,13 @@ end
 
 function M.stringFormatDerivesArgumentsFromLiteralFormats()
    clean(table.concat({
+      "@derive(nupp.derive.Debug)",
+      "local record User name: string end",
+      "local user = new User(name = 'Ada')",
       "local name = 'Ada'",
       "local count = string.format('%s has %d messages', name, 3)",
+      "local debug = string.format('user=%?', user)",
+      "local debugMethod = ('user=%?'):format(user)",
       "local percent = string.format('100%% ready')",
       "local decimal = string.format('%.2f', 1.5)",
       "local method = ('%d'):format(3)",
@@ -466,7 +471,7 @@ function M.stringFormatDerivesArgumentsFromLiteralFormats()
       "local many = string.format('%d%d%d%d%d%d%d%d%d', 1, 2, 3, 4, 5, 6, 7, 8, 9)",
       "local dynamic: string = '%s'",
       "local gradual = string.format(dynamic, {}, false, 3)",
-      "print(count, percent, decimal, method, extended, flags, many, gradual)",
+      "print(count, debug, debugMethod, percent, decimal, method, extended, flags, many, gradual)",
    }, "\n"))
    oneDiagnostic("local bad = string.format('%d', 'three')\nprint(bad)",
       "NUPP2006", "argument 2: string is not a number")
@@ -490,13 +495,46 @@ function M.stringFormatDerivesArgumentsFromLiteralFormats()
       "NUPP2006", 'invalid string.format directive starting at "%.100"')
    oneDiagnostic("local bad = ('%d'):format('three')\nprint(bad)",
       "NUPP2006", "argument 1: string is not a number")
+   oneDiagnostic("local bad = string.format('%?', 'wrong')\nprint(bad)",
+      "NUPP2006", "argument 2: string is not a Debug")
+end
+
+function M.stringFormatSyntaxIsReusableByUserFormattingWrappers()
+   clean(table.concat({
+      "local function format<F is string>(fmt: F, ...: unpackof nupp.format.StringFormatSyntax(F)): string",
+      "   return string.format(fmt, ...)",
+      "end",
+      "local value = format('%s=%d', 'count', 3)",
+      "print(value)",
+   }, "\n"))
+   oneDiagnostic(table.concat({
+      "local function format<F is string>(fmt: F, ...: unpackof nupp.format.StringFormatSyntax(F)): string",
+      "   return string.format(fmt, ...)",
+      "end",
+      "local value = format('%d', 'wrong')",
+      "print(value)",
+   }, "\n"), "NUPP2006", "argument 2: string is not a number")
+   oneDiagnostic(table.concat({
+      "local function format<F is string>(fmt: F, ...: unpackof nupp.format.StringFormatSyntax(F)): string",
+      "   return string.format(fmt, ...)",
+      "end",
+      "local value = format('%?', {})",
+      "print(value)",
+   }, "\n"), "NUPP2006", table.concat({
+      "%? is available only to compiler-lowered formatting APIs",
+      "  called StringFormatSyntax at 2:1; defined at 2:1",
+   }, "\n"))
 end
 
 function M.luaFormatParserUsesThePegRuntime()
    local luaFormat = require("nupp.compiler.LuaFormat")
-   local kinds, why = luaFormat.argumentKinds("%-+#09.2f %q %% %d")
+   local kinds, why = luaFormat.argumentKinds("%-+#09.2f %q %% %d %?")
    assertEq(why, nil)
-   assertEq(table.concat(kinds or {}, ","), "number,any,number")
+   assertEq(table.concat(kinds or {}, ","), "number,any,number,debug")
+   local parsed = assert(luaFormat.analyze("100%%: %? %04d"))
+   assertEq(parsed.format, "100%%: %s %04d")
+   assertEq(parsed.debugArguments[1], true)
+   assertEq(parsed.debugArguments[2], false)
    local missing, invalid = luaFormat.argumentKinds("%..f")
    assertEq(missing, nil)
    assertEq(invalid, 'invalid string.format directive starting at "%..f"')

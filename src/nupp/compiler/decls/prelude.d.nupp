@@ -2783,12 +2783,12 @@ local _G: table
 --- The language version the interpreter implements, "Lua 5.1" under LuaJIT.
 local _VERSION: string
 
--- string.format derives its trailing parameter pack from a literal first
+-- Formatting APIs derive their trailing parameter pack from a literal first
 -- argument. A broad string deliberately retains the ordinary variadic fallback.
 
 --- @local
 @comptime
-local function __NuppFormatArguments(Format: type): typepack
+local function __NuppFormatArguments(Format: type, Debug: type): typepack
     local info = nupp.types.describe(Format)
     if info.kind ~= "literal" or type(info.value) ~= "string" then
         return nupp.types.pack({}, nupp.types.any)
@@ -2806,6 +2806,8 @@ local function __NuppFormatArguments(Format: type): typepack
         for _, kind in ipairs(parsed.arguments) do
             if kind == "number" then
                 arguments[#arguments + 1] = nupp.types.number
+            elseif kind == "debug" then
+                arguments[#arguments + 1] = Debug
             else
                 arguments[#arguments + 1] = nupp.types.any
             end
@@ -2865,6 +2867,8 @@ local function __NuppFormatArguments(Format: type): typepack
 
                 if string.find("aAcdiouxXeEfgG", current, 1, true) then
                     arguments[#arguments + 1] = nupp.types.number
+                elseif current == "?" then
+                    arguments[#arguments + 1] = Debug
                 elseif string.find("pqs", current, 1, true) then
                     arguments[#arguments + 1] = nupp.types.any
                 else
@@ -3019,32 +3023,32 @@ record nupp.log
         readonly name: string
 
         --- Logs at debug. Accepts `string.format` directives.
-        debug: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
+        debug: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
 
         --- Logs at info. Accepts `string.format` directives.
-        info: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
+        info: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
 
         --- Logs at warn. Accepts `string.format` directives.
-        warn: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
+        warn: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
 
         --- Logs at error. Accepts `string.format` directives.
-        error: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
+        error: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
 
         --- Whether this logger would emit at `level`.
         enabled: function(self: Logger, level: Level): boolean
     end
 
     --- Logs at error. Accepts `string.format` directives.
-    error: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
+    error: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
 
     --- Logs at warn. Accepts `string.format` directives.
-    warn: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
+    warn: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
 
     --- Logs at info. Accepts `string.format` directives.
-    info: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
+    info: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
 
     --- Logs at debug. Accepts `string.format` directives.
-    debug: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F)): nil
+    debug: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
 
     --- Reads the threshold, or sets it and answers the one it replaced.
     ---
@@ -3145,7 +3149,7 @@ local string: {
     --- @param fmt the format string
     --- @param ... the values that the directives consume
     --- @return the formatted string
-    format: nosuspend function<Format is string>(fmt: Format, ...: unpackof __NuppFormatArguments(Format)): string,
+    format: nosuspend function<Format is string>(fmt: Format, ...: unpackof __NuppFormatArguments(Format, nupp.Debug)): string,
 
     --- Returns an iterator over each successive match of `pat` in `s`, or over that
     --- match's captures when the pattern has any. Anchors have no special meaning here.

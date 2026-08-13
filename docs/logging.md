@@ -7,6 +7,7 @@ nupp.log.error("cannot open %s: %s", path, reason)
 nupp.log.warn("retrying in %dms", delay)
 nupp.log.info("loaded %d entities", count)
 nupp.log.debug("state=%s", state)
+nupp.log.debug("state=%?", state) -- state must implement nupp.Debug
 ```
 
 Each severity accepts a `string.format` directive string and the arguments it
@@ -22,6 +23,11 @@ nupp.log.error("id %d")
 
 Because `%s` accepts anything, nothing needs `tostring` and a nil argument
 prints as `nil` rather than raising.
+
+`%?` is Nupp's debug directive. It requires `nupp.Debug`, calls the value's
+`debug()` method, and formats the returned string as `%s`. At lowered call sites
+that method call is inside the level guard, so filtered logs do not render the
+value. Named loggers perform the same check in their already-lazy writer.
 
 ## Severity calls are intrinsics
 

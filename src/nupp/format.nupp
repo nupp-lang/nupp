@@ -1,0 +1,31 @@
+-- Public type computation for wrappers around Lua's string.format.
+
+local format = {}
+
+--- Computes the arguments consumed by a literal Lua format string. A broad string
+--- produces an open `any` pack. `%?` is reserved for compiler-lowered formatting APIs.
+@comptime
+function format.StringFormatSyntax(Format: type): typepack
+    local info = nupp.types.describe(Format)
+    if info.kind ~= "literal" or type(info.value) ~= "string" then
+        return nupp.types.pack({}, nupp.types.any)
+    end
+    local parsed = nupp.types.formatArguments(info.value)
+    if parsed.error then
+        return nupp.types.error(parsed.error)
+    end
+    local arguments = {}
+    for _, kind in ipairs(parsed.arguments) do
+        if kind == "number" then
+            arguments[#arguments + 1] = nupp.types.number
+        elseif kind == "debug" then
+            return nupp.types.error("%? is available only to compiler-lowered formatting APIs")
+        else
+            arguments[#arguments + 1] = nupp.types.any
+        end
+    end
+
+    return nupp.types.pack(arguments)
+end
+
+return format
