@@ -32,6 +32,19 @@ test("does not expose native environment variables", () => {
   lua.lua_close(L);
 });
 
+test("provides an empty filesystem without loading the native ABI", () => {
+  const L = lauxlib.luaL_newstate();
+  lualib.luaL_openlibs(L);
+  run(L, hostRuntime);
+  run(L, [
+    "assert(#nupp.io.files.list('.') == 0)",
+    "assert(nupp.io.files.info('nupp.lua') == nil)",
+    "assert(nupp.io.files.isDirectory('.') == false)",
+    "assert(nupp.io.files.pendingTransfers() == 0)",
+  ].join("\n"));
+  lua.lua_close(L);
+});
+
 test("wraps LuaJIT bit values without overflowing Fengari hex integers", () => {
   const L = lauxlib.luaL_newstate();
   lualib.luaL_openlibs(L);

@@ -7,11 +7,10 @@ just the code it generates for a checked program.
 C-declaration decoder and the project-index cache actually call them.  `ffi`
 is a stub that fails loudly rather than silently-wrong: nothing here can offer
 real C-ABI introspection, so code that declares or imports real C types is
-the one thing this playground cannot check. `io.open`/`io.popen` are wired to
-"not found" rather than left absent, so the project-index cache and manifest
-lookups take the same "nothing here yet" path they take on a first-ever
-build, per the project's own cache design: corrupt or missing costs one slow
-recompute and changes no answer.
+the one thing this playground cannot check. `io.open`/`io.popen` and
+`nupp.io.files` are wired to "not found" rather than left absent, so the
+project index and manifest lookups take the same empty-filesystem path they
+did before the compiler moved directory walks onto its native files API.
 ]]
 
 arg = {}
@@ -32,6 +31,45 @@ loadstring = loadstring or load
 -- evaluator calls allowlisted functions with an exact argument sequence, so
 -- it needs the 5.1 spelling even though fengari only provides table.unpack.
 unpack = unpack or table.unpack
+
+-- The compiler's project index now walks through nupp.io.files. Preinstalling
+-- the empty browser implementation keeps bootstrap's lazy native installer
+-- from replacing it, which would reach ffi.cdef just to discover that the
+-- browser has no directory to list. The playground checks one in-memory
+-- buffer, so every lookup correctly answers "not found"; mutation reports the
+-- same unavailable filesystem as io.open below.
+do
+    local unavailable = "no filesystem in the browser playground"
+    local function absent() return nil, unavailable end
+    local function no() return false end
+    local files = {
+        info = absent,
+        exists = no,
+        isFile = no,
+        isDirectory = no,
+        isSymlink = no,
+        readLink = absent,
+        list = function() return {} end,
+        glob = function() return {} end,
+        read = absent,
+        open = absent,
+        lines = absent,
+        currentDirectory = absent,
+        userFolder = absent,
+        createTemporaryFile = absent,
+        createTemporaryDirectory = absent,
+        pendingTransfers = function() return 0 end,
+    }
+    for _, name in ipairs({
+        "createSymlink", "setReadOnly", "createDirectory", "remove",
+        "rename", "write", "append", "writeAtomic", "copy",
+    }) do
+        files[name] = function() return false, unavailable end
+    end
+    nupp = nupp or {}
+    nupp.io = nupp.io or {}
+    nupp.io.files = files
+end
 
 -- fengari only registers the "io" global when it thinks it's running under
 -- Node (see the `typeof process` guard build.mjs folds away for the

@@ -46,9 +46,12 @@ corrupting a string it shouldn't touch. `const` and `local` are the same
 length, so the rewrite can't shift any later byte offset the ULL edits also
 need). Needs this project's own `.rocks` on `LUA_PATH`, same as `bin/nupp`.
 
-The `io.open` shim is why running with no manifest, no other files, and no
-warm cache isn't a degraded mode here — it's the same "cache miss, recompute"
-path a real first-ever build takes, per the project's own cache design (see
+The `io.open` and `nupp.io.files` shims are why running with no manifest, no
+other files, and no warm cache isn't a degraded mode here. The compiler's
+directory walk moved from a shell command to the native files API; in the
+browser that API reports an empty filesystem before its lazy native loader can
+reach `ffi.cdef`. This is the same "cache miss, recompute" path a real
+first-ever build takes, per the project's own cache design (see
 [`AGENTS.md`](../../AGENTS.md#speed)): corrupt or missing costs one slow
 recompute and changes no answer, never a wrong one.
 
