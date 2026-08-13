@@ -279,26 +279,34 @@ local user = new User(id = 42, name = "Ada")
 print(user:debug(), user:toJSON())]],
                      },
                      {
-                        title = "Suspend without coloring the call graph",
-                        details = "A suspension-aware call returns its ordinary value. It blocks "
-                           .. "without a handler and parks its coroutine under a host scheduler. "
-                           .. "The checker tracks that effect separately from the return type. "
+                        title = "Async that works like blocking code",
+                        details = "HTTP requests look like ordinary blocking calls. Without a "
+                           .. "handler they block; under a host scheduler, each parks its "
+                           .. "coroutine. The checker tracks suspension separately from the "
+                           .. "return type. "
                            .. "[Follow the call from function to scheduler]"
                            .. "(concepts/suspension/index.html).",
-                        code = [[local process = require("nupp.io.process")
+                        code = [[local http = require("nupp.io.http")
+local suspension = require("nupp.suspension")
+local client = assert(http.newClient())
 
-local function compilerVersion(): string
-    local child = assert(process.new({args = {"cc", "--version"}}))
-    local result = assert(child:communicate())
-    child:close()
-    return result.output
+local function fetch(url: string): integer
+    local response = assert(client:send(new http.Request(
+        url = assert(nupp.io.URI.new(url))
+    )))
+    local status = response.status
+    response:close()
+    return status
 end
 
-local function printVersion(): nil
-    print(compilerVersion())
-end
+local statuses = suspension.all({function(): integer
+    return fetch("https://example.com/")
+end, function(): integer
+    return fetch("https://example.org/")
+end,})
 
-printVersion()]],
+client:close()
+print(statuses[1], statuses[2])]],
                      },
                      {
                         title = "Use every core without sharing the heap",
@@ -321,14 +329,22 @@ end]],
                            .. "check every index and slice, and keep writable access affine. The "
                            .. "adapter verifies equal lengths before calling C exactly once.",
                         code = [[cdef function transform(
-    borrows output: Item* countedBy(count),
-    borrows input: const Item* countedBy(count),
+    borrows output: int32* countedBy(count),
+    borrows input: const int32* countedBy(count),
     count: uint64
 )
 
 local spans = require("nupp.span")
-transform(outputSpan, inputSpan)
-spans.commit(outputSpan)]],
+local input = ffi.new<int32[256]>()
+local output = ffi.new<int32[256]>()
+local readable = spans.fromCarray(input, 256)
+local writable = spans.writeCarray(output, 256)
+
+transform(writable, readable)
+spans.commit(writable)
+
+local result = spans.fromCarray(output, 256)
+print(result:get(1))]],
                      },
                      {
                         title = "Ship only what the program uses",
@@ -391,12 +407,15 @@ end
 -- The generated Lua holds the table, not the loop that built it.]],
                      },
                      {
-                        title = "Built for performance",
-                        details = "Read bytecode beside the Nupp line that produced it. The check "
-                           .. "mode also finds work inside a loop that makes LuaJIT abort trace "
-                           .. "recording and run that hot loop interpreted.",
-                        code = [[nupp bc src/simulation.nupp
-nupp bc --check src/simulation.nupp]],
+                        title = "A standard library for real programs",
+                        details = "Make HTTP requests, run child processes, encode JSON, work with "
+                           .. "hashes and identifiers, and compile typed PEG parsers without "
+                           .. "assembling a third-party stack.",
+                        code = [[nupp.io.http      HTTP client, TLS, streaming bodies
+nupp.io.process   processes, pipes, timeouts
+nupp.data.json    JSON encoding and decoding
+nupp.data         hashes, checksums, UUIDs, UTF-8
+nupp.peg          typed parsing-expression grammars]],
                         codeLanguage = "text",
                      },
                      {
