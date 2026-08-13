@@ -2899,4 +2899,32 @@ function M.aCleanupKeyDoesNotMoveWithTextAboveIt()
    assertEq(shifted, plain, "the cleanup key moved with text above the declaration")
 end
 
+-- A terminal named only in a type has no @owned or @drop statement on which the
+-- checker can register it. Its declaration has to publish the function before a
+-- top-level owner can leave the module scope and ask the lazy resolver for it.
+function M.aTerminalNamedInATypeIsRegisteredAtItsDeclaration()
+   local source = table.concat({
+      "cdef function malloc(size: uint64): voidptr",
+      "cdef function free(takes value: voidptr)",
+      "local function allocate(): Owned<voidptr, free>",
+      "   return malloc(8)",
+      "end",
+      "local value = allocate()",
+      "return true",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-test")
+   assertEq(#genDiags, 0)
+   assert(code:find('["ownership-test.g.nupp#free"]=free', 1, true),
+      "the cleanup declaration did not publish its function: " .. code)
+
+   local previous = _G.__nuppCleanupRegistry
+   _G.__nuppCleanupRegistry = nil
+   local ok, answer = pcall(assert(loadstring(code)))
+   _G.__nuppCleanupRegistry = previous
+   assert(ok, tostring(answer) .. "\n" .. code)
+   assertEq(answer, true, "the top-level owner was not discharged")
+end
+
 return M

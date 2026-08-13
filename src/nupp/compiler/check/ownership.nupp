@@ -57,7 +57,8 @@ type ownership.Ops = {
     resolveCleanups: function(cleanups: any, at: any, registrationNode: any?): {T.Cleanup},
 
     --- The stable key a named cleanup is registered and compared under, with the
-    --- declaration it named. A name that reaches no declaration answers nil.
+    --- declaration it named. Marks that declaration for runtime registration. A name
+    --- that reaches no declaration answers nil.
     cleanupKeyFor: function(name: string): (string?, any),
 
     --- Records a `@drop` operation as the default cleanup of what it takes.
@@ -199,6 +200,11 @@ function ownership.install(c: state.Checker): ownership.Ops
     -- cleanup without declaring one -- a const function argument is that caller. It
     -- has to be the same key, or a terminal written in the type would compare unequal
     -- to the identical terminal written in an annotation.
+    --
+    -- The definition object is not the CST declaration gen sees, but its token is:
+    -- recording the registration there lets each declaration emit it immediately
+    -- after binding the function. That matters for a top-level owner, which can be
+    -- discharged before a module-level registration appended near the return runs.
     function own.cleanupKeyFor(name)
         local entry = c.lookupEntry(name)
         local definition = entry and entry.definition or nil
@@ -206,8 +212,13 @@ function ownership.install(c: state.Checker): ownership.Ops
             return nil, nil
         end
         local origin = c.result.moduleName or c.filename or "<module>"
+        local key = cleanupKey(origin, name, definition)
+        local bound = entry and entry.t or nil
+        if bound and bound.tag == "func" then
+            addRegistration(definition.token, T.functionCleanup(key, name, bound), false)
+        end
 
-        return cleanupKey(origin, name, definition), entry
+        return key, entry
     end
 
     local function resolvedFunctionCleanup(name, at, registrationNode, after, knownType)

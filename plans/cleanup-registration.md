@@ -1,8 +1,9 @@
 # Registering a terminal named in a type
 
-> **Status: blocked.** The checker side works. Generated code does not register the
-> cleanup, so a discharge fails at run time. This is the one thing the rest of the
-> `@owned` retirement waits on.
+> **Status: resolved.** The built-in `Owned` constructor now resolves its optional
+> terminal through the const-function path, and the declaration publishes that
+> terminal through the runtime cleanup registry. A top-level owner exercises the
+> ordering edge in the regression suite.
 
 ## What is being built
 
@@ -77,6 +78,24 @@ matches and the registrations were appended after `return m`:
 NUPP3005: generated code does not load: '<eof>' expected near '__nuppCleanups'
 ```
 
+## What fixed it
+
+The definition object and emitted declaration are different objects, but the
+definition's `token` is the same name token held by the CST declaration. The checker
+records the registration on that token. The `cdefFunc`, `localFuncStmt`, and ordinary
+`funcStmt` generator branches write it immediately after binding the function.
+
+This is earlier than any later top-level acquisition and later than the declaration,
+so a top-level owner can discharge while the module is loading. It adds no state for
+`emit` to capture: the affected branches already use the emitter, source lookup, and
+cleanup-registry resolver.
+
+The committed const-function work did not itself connect the second built-in `Owned`
+argument to the ownership type; the original blocked note incorrectly described that
+checker half as complete. `Owned<T, cleanup>` now routes that argument through the
+same const-function resolver as a declared generic, builds the cleanup-bearing owned
+type, and validates that the terminal accepts `T`.
+
 ## Constraints found along the way
 
 **`emit` is at Lua's 60-upvalue ceiling.** Adding three locals for registration state
@@ -93,7 +112,7 @@ bootstrap instead, which predates the feature and reports a *different* error
 (NUPP2603, an owner with no terminal). Read which compiler answered before believing
 an error.
 
-## The two candidate designs
+## The two fallback designs that were not needed
 
 **Emit inside the top-level block.** Iterate the last top-level block's statements in
 the outer scope, where the emitter and its state are already visible, and write the
@@ -106,8 +125,8 @@ suite run to confirm nothing else depended on it.
 the registrations before the final top-level `return`. No upvalue cost and no
 traversal question, but it is string surgery on generated Lua.
 
-The first is preferred. The second is the fallback if block-level handling turns out
-to matter.
+The declaration-token bridge avoids both. These remain useful history if declaration
+emission is ever redesigned so the shared token no longer reaches gen.
 
 ## How to know it works
 
@@ -116,10 +135,10 @@ A module that names a terminal in a type must, after `nupp build`, contain a
 owner without raising. The case that exercises the guard is a module with both a
 top-level owner and a type-named terminal.
 
-## What waits on this
+## What this unblocks
 
 `Owned<T, cleanup>` is also the *selector* for a type with more than one inherited
 terminal -- `src/nupp/io/http.nupp` has four `@drop` declarations, and the checker
 reports "bare @owned has multiple inherited @drop operations; choose one with
-@owned(cleanup)". Without a way to name a terminal in a type, retiring `@owned`
-requires instead a rule of one terminal per type, and `http.Body` has to change first.
+@owned(cleanup)". With a terminal nameable in an owned type, retiring `@owned` no
+longer requires a one-terminal-per-type rule or a prior redesign of `http.Body`.

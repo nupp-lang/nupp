@@ -271,10 +271,11 @@ annotationargs = "(" [annotationarg *("," annotationarg)] ")"
 annotationarg  = [Name "="] exp
 ; Owned<T> is the ordinary spelling of an owning result: it is a typename, so it
 ; needs no rule of its own, it may be written at any result position, and its
-; terminal comes from the inner type's @drop. @owned(cleanup, ...) decorates a
-; function with an ordered, erased cleanup contract for its first return, and
-; still names a terminal no type declares. Bare @owned resolves one inherited
-; @drop operation; @owned(opaque = true) is explicitly transfer-only. On cdef
+; terminal comes from the inner type's @drop. Owned<T, cleanup> names one when
+; the inner type cannot declare it. @owned(cleanup, ...) decorates a function
+; with an ordered, erased cleanup contract for its first return. Bare @owned
+; resolves one inherited @drop operation; @owned(opaque = true) is explicitly
+; transfer-only. On cdef
 ; functions, @owned(out = p, cleanup = f, success = zero) and
 ; @borrowed(out = p, from = source, success = zero) describe logical outputs.
 

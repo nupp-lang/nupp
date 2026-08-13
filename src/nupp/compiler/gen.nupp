@@ -2198,6 +2198,10 @@ function gen.generate(
             else
                 e(('pcall(__nuppFfi.cdef, %q) const %s = %s.%s'):format(sig, name, ns, name), line)
             end
+            for _, registration in ipairs(x.name.cleanupRegistrations or {}) do
+                local cleanup = registration.cleanup
+                e((";%s[%q]=%s"):format(cleanupRegistry(), cleanup.key, cleanup.name), line)
+            end
             return
         end
 
@@ -3771,6 +3775,27 @@ function gen.generate(
                 end
             end
             emitDepth.fn = emitDepth.fn - 1
+
+        elseif kind == "localFuncStmt" then
+            emitChildren(x)
+            for _, registration in ipairs(x.name and x.name.cleanupRegistrations or {}) do
+                local cleanup = registration.cleanup
+                e(
+                    (";%s[%q]=%s"):format(cleanupRegistry(), cleanup.key, cleanup.name),
+                    sourceLine(x)
+                )
+            end
+
+        elseif kind == "funcStmt" then
+            emitChildren(x)
+            local name = x.name and x.name.base or nil
+            for _, registration in ipairs(name and name.cleanupRegistrations or {}) do
+                local cleanup = registration.cleanup
+                e(
+                    (";%s[%q]=%s"):format(cleanupRegistry(), cleanup.key, cleanup.name),
+                    sourceLine(x)
+                )
+            end
 
         elseif kind == "pragmaStmt" then
             if x.eraseComptimeFunction then
