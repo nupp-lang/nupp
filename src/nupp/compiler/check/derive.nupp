@@ -509,7 +509,19 @@ function derive.install(c: state.Checker): derive.Ops
             local generated = isStatic and n.derivedStaticDefinitions or n.derivedDefinitions
             local written = isStatic and n.staticFieldDefs or n.fieldDefs
             local namespace = isStatic and "static" or "method"
-            for methodName, recipe in pairs(recipes or {}) do
+            -- A provider writes its members as a table keyed by name, so the order
+            -- `pairs` hands them back is the order they would reach `plan.members` --
+            -- and that order is not the same from one process to the next. The plan is
+            -- canonicalized into the recipe fingerprint, which is a cache key, so a
+            -- member list that shuffles makes an unchanged declaration look changed.
+            -- Name order is the one order every process agrees on.
+            local byName, methodNames = recipes or {}, {}
+            for methodName in pairs(byName) do
+                methodNames[#methodNames + 1] = methodName
+            end
+            table.sort(methodNames)
+            for _, methodName in ipairs(methodNames) do
+                local recipe = byName[methodName]
                 local requirement = requirements and requirements[methodName] or nil
                 local callable, declared = nil, recipe.signature ~= nil
                 if declared then
