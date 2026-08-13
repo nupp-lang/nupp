@@ -66,15 +66,16 @@ fi
 
 # Migrate an existing checkout-local Cargo target once. bin/nupp subsequently uses
 # this common target directly, so later worktrees neither copy it nor compile it cold.
+# A drive letter (`C:/...` or `C:\...`) is as absolute as a leading `/`.
 if [ -n "${NUPP_NATIVE_TARGET_DIR:-}" ]; then
     case "$NUPP_NATIVE_TARGET_DIR" in
-        /*) SHARED_NATIVE="$NUPP_NATIVE_TARGET_DIR" ;;
+        /*|[A-Za-z]:*) SHARED_NATIVE="$NUPP_NATIVE_TARGET_DIR" ;;
         *) SHARED_NATIVE="$ROOT/$NUPP_NATIVE_TARGET_DIR" ;;
     esac
 else
     COMMON_DIR=$(git -C "$ROOT" rev-parse --git-common-dir)
     case "$COMMON_DIR" in
-        /*) ;;
+        /*|[A-Za-z]:*) ;;
         *) COMMON_DIR="$ROOT/$COMMON_DIR" ;;
     esac
     REPOSITORY_ROOT=$(dirname "$COMMON_DIR")
@@ -83,6 +84,21 @@ fi
 if [ ! -e "$SHARED_NATIVE" ] && [ -d "$ROOT/build/native/nupp_native" ]; then
     mkdir -p "$(dirname "$SHARED_NATIVE")"
     cp -Rp "$ROOT/build/native/nupp_native" "$SHARED_NATIVE"
+    # `-p` is best effort: Git Bash's NTFS permission emulation does not reliably
+    # carry the executable bit through a copy. Rather than trust the same emulation
+    # to report which source files need it back, mark every regular file at the
+    # destination executable outright -- Cargo's own build script is always one of
+    # them, and the rest are ordinary build artifacts an extra `+x` does not harm.
+    # A just-written file can be briefly locked by antivirus scanning on Windows, so
+    # a failed chmod is retried; either way this step must never fail the worktree
+    # it is only polishing.
+    find "$SHARED_NATIVE" -type f -print 2>/dev/null | while IFS= read -r migrated; do
+        attempt=1
+        while [ "$attempt" -le 30 ] && ! chmod +x "$migrated" 2>/dev/null; do
+            sleep 0.1
+            attempt=$((attempt + 1))
+        done
+    done || true
 fi
 
 echo "created $TASK_ROOT"

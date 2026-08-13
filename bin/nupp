@@ -69,16 +69,19 @@ NATIVE_MANIFEST="$ROOT/runtime/native/Cargo.toml"
 # all of its worktrees resolve to the same place. A source archive with no Git
 # metadata retains the old checkout-local fallback, and callers may name an
 # explicit cache (CI commonly does) without having to imitate the layout.
+# A drive letter (`C:/...` or `C:\...`) is as absolute as a leading `/`; Git for
+# Windows' own commands answer in the POSIX form, but a caller-supplied override or
+# a faked one in a test may not.
 if [ -n "${NUPP_NATIVE_TARGET_DIR:-}" ]; then
     case "$NUPP_NATIVE_TARGET_DIR" in
-        /*) NATIVE_TARGET="$NUPP_NATIVE_TARGET_DIR" ;;
+        /*|[A-Za-z]:*) NATIVE_TARGET="$NUPP_NATIVE_TARGET_DIR" ;;
         *)  NATIVE_TARGET="$ROOT/$NUPP_NATIVE_TARGET_DIR" ;;
     esac
 else
     NATIVE_COMMON_DIR=$(git -C "$ROOT" rev-parse --git-common-dir 2>/dev/null || true)
     if [ -n "$NATIVE_COMMON_DIR" ]; then
         case "$NATIVE_COMMON_DIR" in
-            /*) ;;
+            /*|[A-Za-z]:*) ;;
             *) NATIVE_COMMON_DIR="$ROOT/$NATIVE_COMMON_DIR" ;;
         esac
         NATIVE_REPOSITORY_ROOT=$(dirname "$NATIVE_COMMON_DIR")

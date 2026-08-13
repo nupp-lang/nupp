@@ -951,6 +951,21 @@ function doc.defaultOutDir(format: string?): string
     return "build/docs"
 end
 
+-- Windows can briefly hold a just-written file open for antivirus scanning, which
+-- turns an ordinary removal into a sharing violation moments after the write that
+-- produced it. Retry rather than believe the file survives on purpose.
+local function removeReplaced(path: string): nil
+    for attempt = 1, 20 do
+        local removed = nupp.io.files.remove(path)
+        if removed then
+            return
+        end
+        local deadline = os.clock() + 0.1
+        while os.clock() < deadline do
+        end
+    end
+end
+
 -- A site directory is owned a file at a time rather than wholesale: copied public
 -- assets and generated routes share it, and another target may share its parent. Keep
 -- the last successful file set inside that directory, remove only its disappeared
@@ -972,10 +987,10 @@ local function reconcileSiteFiles(output: string, written: {string}): boolean?, 
     for _, path in ipairs(previous) do
         path = normalize(path)
         if not current[path] and path:sub(1, #output + 1) == output .. "/" then
-            os.remove(path)
+            removeReplaced(path)
             local directory = dirname(path)
             while directory ~= output and directory:sub(1, #output + 1) == output .. "/" do
-                os.remove(directory)
+                removeReplaced(directory)
                 directory = dirname(directory)
             end
         end

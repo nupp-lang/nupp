@@ -1629,7 +1629,12 @@ function M.siteBuildRemovesFilesItNoLongerProduces()
       {path = "guide/old", title = "Old guide", source = "docs/guide.md"},
    }}
    assert(doc.build(dir, config, first, {format = "site", output = "site"}) == 0)
-   assert(io.open(dir .. "/site/guide/old/index.html", "rb"), "first route missing")
+   -- Closed explicitly: Windows refuses to delete a file a handle is still open on,
+   -- and an unclosed one here would still be waiting on the garbage collector when
+   -- the next build tries to remove this exact file below.
+   local firstRoute = assert(io.open(dir .. "/site/guide/old/index.html", "rb"),
+      "first route missing")
+   firstRoute:close()
 
    assert(doc.build(dir, config, {sources = {"src"}},
       {format = "site", output = "site"}) == 0)
@@ -1637,8 +1642,9 @@ function M.siteBuildRemovesFilesItNoLongerProduces()
       "a route omitted by the next successful build survived")
    assert(not io.open(dir .. "/site/guide/old", "rb"),
       "the empty route directory survived")
-   assert(io.open(dir .. "/site/modules/math/index.html", "rb"),
+   local currentOutput = assert(io.open(dir .. "/site/modules/math/index.html", "rb"),
       "the new site lost a current output")
+   currentOutput:close()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
