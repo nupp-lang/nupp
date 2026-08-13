@@ -12,6 +12,122 @@ function run(L, source) {
   assert.equal(status, lua.LUA_OK, message);
 }
 
+// The `loadstring` shim rewrites LuaJIT-only syntax out of a chunk this VM
+// refuses, so that nupp.compiler.gen's re-load of the code it just generated —
+// the NUPP3005 "generated code does not load" check, which reads the host's
+// parser as if it were the target's — answers for LuaJIT rather than for
+// fengari. It asks the compiler's own lexer which tokens are which; this
+// stands in for that lexer with the same contract (`kind` is "name" for an
+// identifier, the keyword's own text for a keyword, "number" for a numeral,
+// and a string literal's contents are never re-tokenized), the contract
+// tools/patch-bootstrap-for-browser.lua relies on for real at build time.
+const STUB_LEXER = `
+package.preload["nupp.compiler.lexer"] = function()
+    local keywords = {}
+    for word in ("and break do else elseif end false for function goto if in "
+        .. "local nil not or repeat return then true until while"):gmatch("%S+") do
+        keywords[word] = true
+    end
+    return {lex = function(source)
+        local tokens, position = {}, 1
+        local function emit(text, offset, kind)
+            tokens[#tokens + 1] = {text = text, offset = offset, kind = kind}
+        end
+        while position <= #source do
+            local char = source:sub(position, position)
+            if char == '"' or char == "'" then
+                local closing = (source:find(char, position + 1, true) or #source) + 1
+                emit(source:sub(position, closing - 1), position, "string")
+                position = closing
+            elseif char:match("[%w_]") then
+                local first, last = source:find("[%w_]+", position)
+                local text = source:sub(first, last)
+                emit(text, first, keywords[text] or (text:match("^%d") and "number" or "name"))
+                position = last + 1
+            elseif char:match("%s") then
+                position = position + 1
+            else
+                -- Punctuation is a token too, and the rewrite depends on it:
+                -- the field access in "held.const, X" is only distinguishable
+                -- from a declaration by the comma between them. (No backticks
+                -- in this string: it is a JS template literal.)
+                emit(char, position, char)
+                position = position + 1
+            end
+        end
+        return tokens, {}
+    end}
+end
+`;
+
+function withStubLexer(source) {
+  return `${STUB_LEXER}\n${source}`;
+}
+
+test("loads generated code that declares LuaJIT constants", () => {
+  const L = lauxlib.luaL_newstate();
+  lualib.luaL_openlibs(L);
+  run(L, hostRuntime);
+  run(L, withStubLexer([
+    'local chunk = assert(loadstring("const X = 41\\nreturn X + 1", "@generated.lua"))',
+    "assert(chunk() == 42)",
+    'assert(assert(loadstring("const N = 0xFFULL\\nreturn N"))() == 255)',
+    'assert(assert(loadstring("const function f() return 7 end\\nreturn f()"))() == 7)',
+  ].join("\n")));
+  lua.lua_close(L);
+});
+
+test("rewrites only real const declarations, never a name or string that reads like one", () => {
+  const L = lauxlib.luaL_newstate();
+  lualib.luaL_openlibs(L);
+  run(L, hostRuntime);
+  // `const` is a soft keyword: a field named `const`, and the five characters
+  // inside a string of generated-code text, are not declarations. Both sit in
+  // the same chunk as a real one, so the rewrite does run over them.
+  run(L, withStubLexer(`
+    local source = table.concat({
+      "const X = 1",
+      "local held = {const = 5}",
+      "if held.const and true then return held.const, X, 'const A' end",
+    }, "\\n")
+    local first, second, third = assert(loadstring(source))()
+    assert(first == 5 and second == 1)
+    assert(third == "const A")
+  `));
+  lua.lua_close(L);
+});
+
+test("still refuses generated code that is malformed for its own reasons", () => {
+  const L = lauxlib.luaL_newstate();
+  lualib.luaL_openlibs(L);
+  run(L, hostRuntime);
+  run(L, withStubLexer([
+    // What NUPP3005 exists to catch has to survive the rewrite: this chunk
+    // is unparseable with or without the const, and the reported reason is
+    // the one that remains after the dialect gap closes.
+    'local chunk, reason = loadstring("const X = 1\\nreturn +", "@generated.lua")',
+    "assert(chunk == nil)",
+    'assert(reason:find("unexpected symbol") ~= nil, reason)',
+    // With no compiler loaded there is nothing to rewrite from, and the
+    // original refusal stands rather than a confusing second one.
+    "package.preload[\"nupp.compiler.lexer\"] = nil",
+    "package.loaded[\"nupp.compiler.lexer\"] = nil",
+    'assert(loadstring("const X = 1\\nreturn X") == nil)',
+  ].join("\n")));
+  lua.lua_close(L);
+});
+
+test("keeps loadstring's plain-Lua job for the constant folder", () => {
+  const L = lauxlib.luaL_newstate();
+  lualib.luaL_openlibs(L);
+  run(L, hostRuntime);
+  run(L, [
+    'assert(assert(loadstring("return 1 + 2"))() == 3)',
+    'assert(loadstring("return 1 +") == nil)',
+  ].join("\n"));
+  lua.lua_close(L);
+});
+
 test("provides LuaJIT's global unpack compatibility helper", () => {
   const L = lauxlib.luaL_newstate();
   lualib.luaL_openlibs(L);

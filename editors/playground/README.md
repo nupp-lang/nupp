@@ -27,6 +27,7 @@ the implementations and the exact reasoning at each one, and
  `0x..ULL` literals    nupp.compiler.build.hash (content-hash cache)    stripped to plain Lua 5.3 ints, at build time
  `bit.*`               nupp.compiler.build.hash, nupp.compiler.cdecl         real bitwise ops, Lua 5.3 native
  `loadstring`          nupp.compiler.optimize's constant folder         Lua 5.3's `load`, same for a chunk
+ both of the above     in code nupp.compiler.gen generates, re-loaded to check it   same two rewrites, at load time
  `unpack`              nupp.compiler.comptime's protected calls         Lua 5.3's `table.unpack`
  `string.buffer`       nupp.compiler.build.store (project-index cache)  a plain string-accumulator
  `cjson`               build cache, `--json`-shaped output     a small JSON codec
@@ -45,6 +46,18 @@ ordinary field or variable name elsewhere in the compiler's own code — or
 corrupting a string it shouldn't touch. `const` and `local` are the same
 length, so the rewrite can't shift any later byte offset the ULL edits also
 need). Needs this project's own `.rocks` on `LUA_PATH`, same as `bin/nupp`.
+
+Those two constructs come back at *run* time, in the code the compiler
+generates for the program in the editor: a program's own top-level `const`
+declarations are emitted as LuaJIT `const`, and 64-bit constants as `ULL`
+literals. `nupp.compiler.gen` loads what it just generated to prove it parses,
+reporting NUPP3005 ("generated code does not load", a compiler bug) when it
+does not — a check that reads the host VM's parser as the target's, which is
+true under LuaJIT and false here. So `loadstring` in
+[`src/host-runtime.lua`](src/host-runtime.lua) applies the same two rewrites,
+with the same lexer, to a chunk this VM refused, and retries: the answer the
+caller wants is the target's, and dropping the check instead would leave a
+real malformed emission silent in the browser.
 
 The `io.open` and `nupp.io.files` shims are why running with no manifest, no
 other files, and no warm cache isn't a degraded mode here. The compiler's

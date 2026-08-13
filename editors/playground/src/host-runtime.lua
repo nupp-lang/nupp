@@ -25,7 +25,76 @@ os.getenv = function() return nil end
 -- reaches for it to evaluate a numeric literal the lexer already accepted, so
 -- without this the optimizer is not merely absent in the browser: turning it
 -- on fails the compile with "attempt to call a nil value".
-loadstring = loadstring or load
+--
+-- Its other caller is nupp.compiler.gen, which loads the Lua it just generated to
+-- prove it parses and reports NUPP3005 ("generated code does not load", a
+-- compiler bug) when it does not. That check reads the host VM's parser as
+-- if it were the target's, which holds under LuaJIT and not here: this VM
+-- rejects the same two LuaJIT-only constructs that
+-- tools/patch-bootstrap-for-browser.lua rewrites out of the compiler's own
+-- source at build time, and generated code carries both -- `const NAME =`
+-- for every top-level `const` a program declares, and `0x..ULL` literals for
+-- 64-bit constants. So a correct program compiled in the browser reported a
+-- compiler bug against itself, at whichever line held its first `const`.
+--
+-- Rewriting those two to their plain-Lua equivalents before a retry answers
+-- the question the caller is actually asking -- "would the target parse
+-- this?" -- rather than dropping the check, which would leave real malformed
+-- emissions silent here. Both spellings are the same length or shorter and
+-- neither changes tokenization, so a syntax error in the retry names the
+-- line the original would have.
+do
+    local realLoad = loadstring or load
+
+    -- Same rules and same reasoning as the build-time patcher, including
+    -- using the compiler's own lexer rather than a pattern over the raw
+    -- text: `const` is a soft keyword, so only a `const NAME`/`const
+    -- function` sequence is a declaration, and the five characters c-o-n-s-t
+    -- inside a string literal (generated code embeds Lua source text, some
+    -- of it holding `const`) must not be touched. The lexer is the bootstrap
+    -- compiler's, already loaded by the time anything asks to load generated
+    -- code; without it there is nothing to rewrite from and the original
+    -- refusal stands.
+    local function asPlainLua(source)
+        local ok, lexer = pcall(require, "nupp.compiler.lexer")
+        if not ok or type(lexer) ~= "table" then return nil end
+        local lexed, errors = lexer.lex(source, "browser-load")
+        if not lexed or (errors and #errors > 0) then return nil end
+        local edits = {}
+        for i, token in ipairs(lexed) do
+            local following = lexed[i + 1]
+            local declares = following and not following.missing
+                and (following.text == "function" or following.kind == "name")
+            if token.text == "const" and declares then
+                edits[#edits + 1] = {offset = token.offset, length = 5, replacement = "local"}
+            elseif token.kind == "number" and (token.text:match("^0[xX][0-9A-Fa-f]+U?LL$")
+                or token.text:match("^[0-9]+U?LL$")) then
+                edits[#edits + 1] = {offset = token.offset, length = #token.text,
+                    replacement = (token.text:gsub("U?LL$", ""))}
+            end
+        end
+        if #edits == 0 then return nil end
+        local parts, position = {}, 1
+        for _, edit in ipairs(edits) do
+            parts[#parts + 1] = source:sub(position, edit.offset - 1)
+            parts[#parts + 1] = edit.replacement
+            position = edit.offset + edit.length
+        end
+        parts[#parts + 1] = source:sub(position)
+        return table.concat(parts)
+    end
+
+    loadstring = function(chunk, ...)
+        local loaded, reason = realLoad(chunk, ...)
+        if loaded or type(chunk) ~= "string" then return loaded, reason end
+        local plain = asPlainLua(chunk)
+        if not plain then return loaded, reason end
+        -- The retry's refusal is the one to report: it is what remains after
+        -- the dialect gap is closed, so it describes the chunk as the
+        -- runtime this code targets would see it.
+        return realLoad(plain, ...)
+    end
+end
 
 -- Lua 5.1 and LuaJIT also exposed this table helper globally. The comptime
 -- evaluator calls allowlisted functions with an exact argument sequence, so
