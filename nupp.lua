@@ -178,10 +178,10 @@ return {
                   },
                   features = {
                      {
-                        title = "Add types without leaving Lua behind",
-                        details = "Start with a LuaJIT program that already runs. Add "
-                           .. "annotations where they earn their keep, then tighten a file "
-                           .. "to strict Nupp when it is ready.",
+                        title = "Bring existing Lua forward",
+                        details = "Every valid LuaJIT program is already valid Nupp. Add type "
+                           .. "syntax under gradual checks, then rename a file when it is ready "
+                           .. "for a strict boundary—without changing how other modules load it.",
                         code = [[-- models.g.nupp: type syntax, gradual checks
 local function scale(point, factor)
     return {x = point.x * factor, y = point.y * factor}
@@ -221,28 +221,51 @@ local function label(value: string | number): string
 end]],
                      },
                      {
-                        title = "Make FFI contracts visible",
-                        details = "Declare native functions with their real C-compatible types. "
-                           .. "Nupp checks every call while LuaJIT still does the fast work.",
-                        code = [[cdef struct timeval
-    tv_sec: int64
-    tv_usec: int32
+                        title = "Compute types with ordinary code",
+                        details = "A comptime function can inspect and construct types with "
+                           .. "normal branches, loops, and recursion. Its result participates in "
+                           .. "inference and narrowing, then the whole function erases.",
+                        code = [[@comptime
+local function Optional(T: type): type
+    return nupp.types.optional(T)
 end
 
-cdef function gettimeofday(tv: timeval*, tz: voidptr?): int32]],
+local value: Optional(string) = nil
+value = "ready"]],
                      },
                      {
-                        title = "Import headers instead of transcribing them",
-                        details = "Turn a C header into a typed Nupp declaration module, then "
-                           .. "keep the generated boundary reviewed and versioned with the code "
-                           .. "that calls it.",
-                        code = [[# Generate typed bindings you can commit and edit.
+                        title = "Derive checked behavior from declarations",
+                        details = "Bundled and project-defined comptime providers can add Debug, "
+                           .. "Default, JSON, or a project contract. Generated members use "
+                           .. "normal lookup, inference, interfaces, and editor navigation.",
+                        code = [[@derive(nupp.derive.Debug, nupp.derive.JSON)
+local record User
+    id: integer
+    name: string
+end
 
-nupp import-c native/library.h --out src/library.d.nupp
+local user = new User(id = 42, name = "Ada")
+print(user:debug(), user:toJSON())]],
+                     },
+                     {
+                        title = "Check C boundaries end to end",
+                        details = "Import a header or write declarations with the real ABI, then "
+                           .. "state what each call borrows, consumes, and returns. Nupp checks "
+                           .. "the contract while LuaJIT FFI still makes the call.",
+                        code = [[cdef struct nativeBuffer
+    size: uint64
+end
 
-# Or use a header directly while compiling.
-local native = cheader("native/library.h")]],
-                        codeLanguage = "text",
+cdef function buffer_free(takes buffer: nativeBuffer*)
+
+@owned(buffer_free)
+cdef function buffer_create(size: uint64): nativeBuffer*
+
+cdef function buffer_read(
+    borrows buffer: nativeBuffer*,
+    exclusive output: uint8*,
+    size: uint64
+): int32]],
                      },
                      {
                         title = "Give resources a lifetime the checker can see",
@@ -293,71 +316,53 @@ do
 end]],
                      },
                      {
-                        title = "Capture what native calls are allowed to do",
-                        details = "Effect contracts describe whether a call borrows, takes, or "
-                           .. "returns ownership. The compiler infers those facts for Nupp code "
-                           .. "and checks them at module boundaries.",
-                        code = [[cdef function send(borrows bytes: cstring): int32
+                        title = "Turn raw pointers into checked spans",
+                        details = "Counted C pointers become sealed spans that retain their root, "
+                           .. "check every index and slice, and keep writable access affine. The "
+                           .. "adapter verifies equal lengths before calling C exactly once.",
+                        code = [[cdef function transform(
+    borrows output: Item* countedBy(count),
+    borrows input: const Item* countedBy(count),
+    count: uint64
+)
 
-@owned(free)
-cdef function malloc(size: uint64): voidptr
-cdef function free(takes value: voidptr)]],
+local spans = require("nupp.span")
+transform(outputSpan, inputSpan)
+spans.commit(outputSpan)]],
                      },
                      {
-                        title = "Keep the LuaJIT you already know",
-                        details = "Every valid LuaJIT program is valid Nupp. Keep Lua's small, "
-                           .. "direct model, then opt into interpolation, typed declarations, and "
-                           .. "the rest of Nupp where they help.",
-                        code = [[local name = "Nupp"
-local status = ready ? "go" : "wait"
-print(`Hello, ${name}: ${status}`)]],
-                     },
-                     {
-                        title = "Pay only for the native runtime you use",
-                        details = "The compiler follows resolved standard-library uses and builds "
-                           .. "exactly their Rust or C providers. Paths, workers, and every "
-                           .. "other native facility disappear completely when the program does "
-                           .. "not use them.",
-                        code = [[local source = nupp.io.Path.new("src", "main.nupp")
-
--- Path support is selected for this target. Workers, URI
--- support, UUID generation, and unrelated native code are absent.]],
-                     },
-                     {
-                        title = "Ship a deterministic, self-contained program",
-                        details = "Build modules, one-file Lua bundles, or executables with a "
-                           .. "feature-matched LuaJIT host. Sorted payloads and content-addressed "
-                           .. "inputs make identical source produce byte-identical output.",
+                        title = "Ship only what the program uses",
+                        details = "Resolved library uses select exactly the required native "
+                           .. "providers, then Nupp stamps them with the program into a "
+                           .. "self-contained LuaJIT host. Content-addressed inputs make the "
+                           .. "result reproducible byte for byte.",
                         code = [[nupp build --target dist
 nupp fixpoint --binary]],
                         codeLanguage = "text",
                      },
                      {
-                        title = "Optimize what the JIT can't infer",
+                        title = "Flatten structured calls without allocations",
                         details = "Nupp leaves hot loops to LuaJIT's tracer and uses types where "
-                           .. "the tracer cannot: declared call projections share stable table "
-                           .. "paths and become flat positional arguments without tables, "
-                           .. "varargs, or closures.",
+                           .. "the tracer cannot: plucked arguments share stable table paths and "
+                           .. "become flat positional arguments without tables, varargs, or "
+                           .. "closures.",
                         code = [[local record Vec2
     x: number
     y: number
-    expands (x, y)
 end
 
 update(
-    ...entity.body.position,
-    ...entity.body.velocity,
-    delta
+    (x, y) = entity.body.position,
+    (vx, vy) = entity.body.velocity,
+    delta = delta
 )
--- entity.body is read once; update receives x, y, x, y, delta.]],
+-- entity.body is read once; update receives x, y, vx, vy, delta.]],
                      },
                      {
-                        title = "Compiler intrinsics",
-                        details = "A logged line and a zone marker are calls the compiler "
-                           .. "knows enough to remove. A filtered nupp.log severity evaluates "
-                           .. "none of its arguments, and a zone push or discarded pop on the "
-                           .. "module nupp.zone returns generates inline--no call left for a "
-                           .. "hot path to pay for.",
+                        title = "Erase instrumentation from hot paths",
+                        details = "Logging filters and profiling zones are compiler intrinsics. "
+                           .. "A disabled severity evaluates none of its arguments, while zone "
+                           .. "push and pop inline—leaving no Lua call for a hot path to pay for.",
                         code = [[nupp.log.debug("spawn at %d,%d", x, y) -- unevaluated when filtered
 
 local zone = require("nupp.zone")
@@ -366,7 +371,7 @@ stepWorld()
 zone.pop() -- inlined against the zone stack, not called]],
                      },
                      {
-                        title = "Compute what you can before the program runs",
+                        title = "Build constants before startup",
                         details = "comptime do ... end runs ordinary Nupp while the file is "
                            .. "compiled and writes the answer into the output as a literal. "
                            .. "Deterministic and sandboxed: no clock, no files, no randomness "
@@ -384,6 +389,15 @@ zone.pop() -- inlined against the zone stack, not called]],
 end
 
 -- The generated Lua holds the table, not the loop that built it.]],
+                     },
+                     {
+                        title = "See why a hot loop stays interpreted",
+                        details = "Read bytecode beside the Nupp line that produced it. The check "
+                           .. "mode also finds work inside a loop that makes LuaJIT abort trace "
+                           .. "recording and run that hot loop interpreted.",
+                        code = [[nupp bc src/simulation.nupp
+nupp bc --check src/simulation.nupp]],
+                        codeLanguage = "text",
                      },
                      {
                         title = "Carry the whole workflow in one toolchain",
