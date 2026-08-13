@@ -284,6 +284,17 @@ function M.deprecatedMetadataIsTypedAndTargeted()
     assertEq(checked("@deprecated\ndo end"), "NUPP2112")
 end
 
+function M.syntaxAnnotationsAreTypedButDoNotConstrainBindings()
+    local codes, result = checked(table.concat({
+        '@syntax("json")',
+        "local document: {integer} = {1}",
+    }, "\n"))
+    assertEq(codes, "")
+    assertEq(result.root.blocks[1].stats[1].stat.embeddedStringFormat, "json")
+    assertEq(checked('@syntax(42)\nlocal value = 1'), "NUPP2115")
+    assertEq(checked('@syntax("json")\ndo end'), "NUPP2112")
+end
+
 function M.deprecatedUsesReportAcrossApiKinds()
     local codes, _, diagnostics = checked(table.concat({
         '@deprecated(reason = "kept for compatibility", replacement = "current")',

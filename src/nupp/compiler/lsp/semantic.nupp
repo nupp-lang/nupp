@@ -264,7 +264,11 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
     return kinds
 end
 
---- String literals directly initialized under `string<"format">`. Their TextMate
+--- Formats whose grammars the bundled VS Code extension embeds. `@syntax` accepts any
+--- literal name, but only these names have a grammar that needs semantic-token masking.
+local EMBEDDED_STRING_FORMATS = {json = true, glsl = true, lua = true, nupp = true, peg = true}
+
+--- String literals directly initialized under `@syntax("format")`. Their TextMate
 --- region is embedded in the named grammar, so sending a broad `string` semantic token
 --- over it would hide every finer token the embedded grammar produces in VS Code.
 local function embeddedStringTokens(result: semantic.Parse): {[lexer.Token]: boolean}
@@ -273,9 +277,11 @@ local function embeddedStringTokens(result: semantic.Parse): {[lexer.Token]: boo
         if node.kind ~= "localStmt" then
             return
         end
-        for index, typeNode in ipairs(node.types or {}) do
-            local value = node.exprs and node.exprs[index] or nil
-            if (typeNode as any).embeddedStringFormat and value
+        if not EMBEDDED_STRING_FORMATS[(node as any).embeddedStringFormat] then
+            return
+        end
+        for _, value in ipairs(node.exprs or {}) do
+            if value
                 and (value.kind == "string" or value.kind == "dedentString") and value.token then
                 embedded[value.token] = true
             end

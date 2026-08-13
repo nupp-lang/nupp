@@ -865,7 +865,8 @@ end
 function M.embeddedStringSyntaxLeavesTheLiteralToTheTextMateGrammar()
    local uri = "file:///tmp/embedded-string.nupp"
    local source = table.concat({
-      "local config: string<\"json\"> = dedent [[",
+      '@syntax("json")',
+      "local config = dedent [[",
       "{\"enabled\": true}",
       "]]",
    }, "\n")
@@ -891,7 +892,7 @@ function M.embeddedStringSyntaxLeavesTheLiteralToTheTextMateGrammar()
          and character + data[index + 1] or data[index + 1]
       at[line .. ":" .. character] = tokenTypes[data[index + 3] + 1]
    end
-   assert(at["0:38"] == nil,
+   assert(at["1:22"] == nil,
       "the embedded long string does not receive an overriding string token")
 end
 

@@ -206,6 +206,7 @@ local BUILTINS = {
     {name = "json", arguments = "typed", targets = {"record", "field"}, builtin = true,},
     {name = "debug", arguments = "typed", targets = {"field"}, builtin = true,},
     {name = "deprecated", arguments = "typed", targets = {"declaration", "field", "c-declaration"}, builtin = true,},
+    {name = "syntax", arguments = "typed", targets = {"local-binding"}, builtin = true,},
     {name = "jit", arguments = "none", targets = {"function"},},
     {name = "comptime", arguments = "none", targets = {"local-function", "function"},},
 }
@@ -280,6 +281,11 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
     }
     deprecated.memberOrder = {"reason", "replacement"}
     deprecated.singleValue = "reason"
+
+    local syntax = registry:get("syntax")
+    syntax.members = {value = member("value", typesApi.string, false)}
+    syntax.memberOrder = {"value"}
+    syntax.singleValue = "value"
 
 end
 

@@ -154,6 +154,17 @@ function pragma.install(c: state.Checker): state.StatHandlers
             end
         end
 
+        if written == "syntax" and valid and target and target.kind == "localStmt" then
+            local values = (stat as any).annotationValues
+            local value = values and values.value
+            local format = value and stringValue(value.expr) or nil
+            if format then
+                -- This is source metadata only: any local value may carry it. The
+                -- editor recognizes long-string initializers for the bundled formats.
+                targetAny.embeddedStringFormat = format
+            end
+        end
+
         if not annotation then
             if stat.stat then
                 c.checkStat(stat.stat)

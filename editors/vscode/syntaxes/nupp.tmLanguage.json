@@ -31,33 +31,53 @@
     },
     "embeddedJson": {
       "name": "meta.embedded.block.json.nupp",
-      "begin": "\\b(?:local|const)\\s+[A-Za-z_][A-Za-z0-9_]*\\s*:\\s*string\\s*<\\s*(?:\\\"json\\\"|'json')\\s*>\\s*=\\s*(?:dedent\\s+)?\\[(=*)\\[",
-      "end": "\\]\\1\\]",
-      "patterns": [{ "include": "source.nupp.embedded.json" }]
+      "begin": "@syntax[ \\t]*\\([ \\t]*(?:\\\"json\\\"|'json')[ \\t]*\\)",
+      "end": "(?<=\\])",
+      "patterns": [{
+        "begin": "\\b(?:local|const)\\s+[A-Za-z_][A-Za-z0-9_]*(?:[ \\t]*:[^=\\r\\n]+)?[ \\t]*=[ \\t]*(?:dedent\\s+)?\\[(=*)\\[",
+        "end": "\\]\\1\\]",
+        "patterns": [{ "include": "source.nupp.embedded.json" }]
+      }]
     },
     "embeddedGlsl": {
       "name": "meta.embedded.block.glsl.nupp",
-      "begin": "\\b(?:local|const)\\s+[A-Za-z_][A-Za-z0-9_]*\\s*:\\s*string\\s*<\\s*(?:\\\"glsl\\\"|'glsl')\\s*>\\s*=\\s*(?:dedent\\s+)?\\[(=*)\\[",
-      "end": "\\]\\1\\]",
-      "patterns": [{ "include": "source.nupp.embedded.glsl" }]
+      "begin": "@syntax[ \\t]*\\([ \\t]*(?:\\\"glsl\\\"|'glsl')[ \\t]*\\)",
+      "end": "(?<=\\])",
+      "patterns": [{
+        "begin": "\\b(?:local|const)\\s+[A-Za-z_][A-Za-z0-9_]*(?:[ \\t]*:[^=\\r\\n]+)?[ \\t]*=[ \\t]*(?:dedent\\s+)?\\[(=*)\\[",
+        "end": "\\]\\1\\]",
+        "patterns": [{ "include": "source.nupp.embedded.glsl" }]
+      }]
     },
     "embeddedLua": {
       "name": "meta.embedded.block.lua.nupp",
-      "begin": "\\b(?:local|const)\\s+[A-Za-z_][A-Za-z0-9_]*\\s*:\\s*string\\s*<\\s*(?:\\\"lua\\\"|'lua')\\s*>\\s*=\\s*(?:dedent\\s+)?\\[(=*)\\[",
-      "end": "\\]\\1\\]",
-      "patterns": [{ "include": "source.nupp.embedded.lua" }]
+      "begin": "@syntax[ \\t]*\\([ \\t]*(?:\\\"lua\\\"|'lua')[ \\t]*\\)",
+      "end": "(?<=\\])",
+      "patterns": [{
+        "begin": "\\b(?:local|const)\\s+[A-Za-z_][A-Za-z0-9_]*(?:[ \\t]*:[^=\\r\\n]+)?[ \\t]*=[ \\t]*(?:dedent\\s+)?\\[(=*)\\[",
+        "end": "\\]\\1\\]",
+        "patterns": [{ "include": "source.nupp.embedded.lua" }]
+      }]
     },
     "embeddedNupp": {
       "name": "meta.embedded.block.nupp.nupp",
-      "begin": "\\b(?:local|const)\\s+[A-Za-z_][A-Za-z0-9_]*\\s*:\\s*string\\s*<\\s*(?:\\\"nupp\\\"|'nupp')\\s*>\\s*=\\s*(?:dedent\\s+)?\\[(=*)\\[",
-      "end": "\\]\\1\\]",
-      "patterns": [{ "include": "$self" }]
+      "begin": "@syntax[ \\t]*\\([ \\t]*(?:\\\"nupp\\\"|'nupp')[ \\t]*\\)",
+      "end": "(?<=\\])",
+      "patterns": [{
+        "begin": "\\b(?:local|const)\\s+[A-Za-z_][A-Za-z0-9_]*(?:[ \\t]*:[^=\\r\\n]+)?[ \\t]*=[ \\t]*(?:dedent\\s+)?\\[(=*)\\[",
+        "end": "\\]\\1\\]",
+        "patterns": [{ "include": "$self" }]
+      }]
     },
     "embeddedPeg": {
       "name": "meta.embedded.block.peg.nupp",
-      "begin": "\\b(?:local|const)\\s+[A-Za-z_][A-Za-z0-9_]*\\s*:\\s*string\\s*<\\s*(?:\\\"peg\\\"|'peg')\\s*>\\s*=\\s*(?:dedent\\s+)?\\[(=*)\\[",
-      "end": "\\]\\1\\]",
-      "patterns": [{ "include": "source.nupp.peg" }]
+      "begin": "@syntax[ \\t]*\\([ \\t]*(?:\\\"peg\\\"|'peg')[ \\t]*\\)",
+      "end": "(?<=\\])",
+      "patterns": [{
+        "begin": "\\b(?:local|const)\\s+[A-Za-z_][A-Za-z0-9_]*(?:[ \\t]*:[^=\\r\\n]+)?[ \\t]*=[ \\t]*(?:dedent\\s+)?\\[(=*)\\[",
+        "end": "\\]\\1\\]",
+        "patterns": [{ "include": "source.nupp.peg" }]
+      }]
     },
     "hashbang": {
       "patterns": [

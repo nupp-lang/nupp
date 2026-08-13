@@ -167,32 +167,37 @@ local function documented(task: Task): string
    return task.title
 end
 
-local json: string<"json"> = dedent [[
+@syntax("json")
+local json = dedent [[
 {"enabled": true}
 -- <- meta.embedded.block.json.nupp
 ]]
 
-local j: string<"json"> = [[
+@syntax("json") local j: string = [[
     {"foo": "bar"}
 --   ^^^^^ string.quoted.double.json
 ]]
 
-local glsl: string<"glsl"> = [[
+@syntax("glsl")
+local glsl = [[
 void main() {}
 -- <- meta.embedded.block.glsl.nupp
 ]]
 
-local luaSource: string<"lua"> = [[
+@syntax("lua")
+local luaSource = [[
 return true
 -- <- meta.embedded.block.lua.nupp
 ]]
 
-local nuppSource: string<"nupp"> = [[
+@syntax("nupp")
+local nuppSource = [[
 local answer: integer = 42
 -- <- meta.embedded.block.nupp.nupp
 ]]
 
-local grammar: string<"peg"> = [[
+@syntax("peg")
+local grammar = [[
 name <- [a-z]+ !.
 -- <- meta.embedded.block.peg.nupp
 ]]

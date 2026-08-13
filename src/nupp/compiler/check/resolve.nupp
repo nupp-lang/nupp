@@ -21,17 +21,6 @@ local state = require("nupp.compiler.check.state")
 
 local resolve = {}
 
---- The formats whose grammars the bundled VS Code extension embeds in a string literal.
---- This is deliberately closed: arbitrary language IDs cannot be selected dynamically by
---- a TextMate grammar, and accepting one would promise editor behaviour we do not supply.
-local EMBEDDED_STRING_FORMATS = {
-    json = true,
-    glsl = true,
-    lua = true,
-    nupp = true,
-    peg = true,
-}
-
 --- The ownership type constructors, by every spelling that still resolves.
 local ownershipConstructors: {[string]: string} = {
     Owned = "owned",
@@ -190,30 +179,6 @@ function resolve.install(c: state.Checker): nil
         c.validateTypeBounds(alias.typeParams, alias.typeBounds, map, node)
 
         return map
-    end
-
-    --- Records the checked editor contract on its written type node. `string<"json">`
-    --- remains plain `string` to the type relation and at runtime. Keeping this on the
-    --- CST lets editor tooling find the source literal without a second runtime type.
-    local function recordEmbeddedStringFormat(node, value)
-        if not value or value.tag ~= "constLiteral" or value.domain ~= "string" then
-            c.diag(
-                "NUPP2131",
-                (node.typeArgs and node.typeArgs[1]) or node,
-                "string syntax must be a compile-time string literal"
-            )
-            return
-        end
-        local format = value.value as string
-        if EMBEDDED_STRING_FORMATS[format] then
-            (node as any).embeddedStringFormat = format
-        else
-            c.diag(
-                "NUPP2131",
-                (node.typeArgs and node.typeArgs[1]) or node,
-                ("string syntax %q is unsupported; expected json, glsl, lua, nupp, or peg"):format(format)
-            )
-        end
     end
 
     -- A generic application means the same thing however the name was reached, so every
@@ -695,14 +660,6 @@ function resolve.install(c: state.Checker): nil
                 return T.any
             end
             local name = base.text
-            if name == "string" and node.typeArgs then
-                if #node.typeArgs ~= 1 then
-                    c.diag("NUPP2131", node, "string syntax needs exactly one literal format")
-                    return T.string
-                end
-                recordEmbeddedStringFormat(node, consteval.fromType(c.resolveType(node.typeArgs[1])))
-                return T.string
-            end
             if name == "ctype" and node.typeArgs and node.typeArgs[1] then
                 return T.ctype(c.resolveType(node.typeArgs[1]))
             end

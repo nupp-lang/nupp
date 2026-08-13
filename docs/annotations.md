@@ -201,6 +201,7 @@ annotated directly.
 | `@json` | Implemented | JSON record or field options | record, field |
 | `@debug` | Implemented | skip or redact | Field in a derived record |
 | `@deprecated` | Implemented | Optional reason and replacement | declaration, field |
+| `@syntax` | Implemented | One syntax name | local binding |
 | `@jit` | Implemented | None | function |
 | `@comptime` | Implemented | None | local-function |
 
@@ -208,6 +209,11 @@ annotated directly.
 Variadic C calls and Lua callbacks passed to C report `NUPP2707` unless the
 relevant function is disabled with `jit.off`. `@comptime` marks a file-private
 helper that may only be called during compile-time evaluation.
+
+`@syntax("name")` is editor metadata for a local or const binding. It accepts
+any literal syntax name and does not change the binding's type. The bundled VS
+Code extension recognizes JSON, GLSL, Lua, Nupp, and PEG when the initializer
+is a long string; other names remain available to tools that understand them.
 
 The derive configuration annotations are reserved semantic names and cannot be
 redefined by a project. They are visible through comptime provider `Info`.
