@@ -78,19 +78,35 @@ local function launchArgs(argv: {string}): {string}
     return launched
 end
 
+local function exists(path: string): boolean
+    local file = io.open(path, "rb")
+    if not file then
+        return false
+    end
+    file:close()
+
+    return true
+end
+
 -- MSYS cannot replace itself with a native executable, so killing a Bash-wrapped
--- worker leaves its LuaJIT child alive with the capture pipe open. The launcher has
--- already built this entry before the compiler can reach here; start it directly so
--- the handle being timed out or cancelled is the worker itself.
+-- worker leaves its LuaJIT child alive with the capture pipe open. The launcher
+-- normally has this entry built before the compiler can reach here, so start it
+-- directly and let the handle being timed out or cancelled be the worker itself.
+--
+-- The first build of a clean checkout is the exception: nothing has built that entry
+-- yet, and `bin/nupp` would fall back to the bootstrap compiler rather than run a
+-- file that is not there. Fall back the same way, or every comptime evaluation in
+-- the build that produces the compiler fails for want of a worker.
 local function isolatedArgs(argv: {string}): {string}
     if windows then
         local executable = tostring(argv[1]):gsub("\\", "/")
         local root = executable:match("^(.*)/bin/nupp$")
         if root then
+            local built = root .. "/build/nupp/compiler/main.lua"
             local path = ("package.path=%q .. package.path")
                 :format(root .. "/build/?.lua;")
             local launched = {
-                "luajit", "-e", path, root .. "/build/nupp/compiler/main.lua"
+                "luajit", "-e", path, exists(built) and built or root .. "/bootstrap/nupp.lua"
             }
             for index = 2, #argv do
                 launched[#launched + 1] = argv[index]
