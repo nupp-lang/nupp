@@ -1219,12 +1219,6 @@ record nupp.data
             --- @return whether decoded arrays carry `ARRAY_MT`
             decodeArrayWithArrayMt: function(setting: boolean | string?): boolean
 
-            --- Sets whether the decoder accepts comments, or reads the current setting
-            --- when omitted.
-            --- @param setting the new setting
-            --- @return whether comments are accepted
-            decodeAllowComment: function(setting: boolean | string?): boolean
-
             --- Configures how excessively sparse arrays are encoded, or reads the current
             --- settings when every argument is omitted.
             --- @param convert whether sparse arrays become JSON objects instead of raising
@@ -1282,17 +1276,6 @@ record nupp.data
             --- @return whether forward slashes are escaped
             encodeEscapeForwardSlash: function(setting: boolean | string?): boolean
 
-            --- Sets whether unsupported values are skipped instead of raising, or reads the
-            --- current setting when omitted.
-            --- @param setting the new setting
-            --- @return whether unsupported values are skipped
-            encodeSkipUnsupportedValueTypes: function(setting: boolean | string?): boolean
-
-            --- Sets the indentation used for encoded containers, or reads the current
-            --- indentation when omitted.
-            --- @param indent the indentation string
-            --- @return the current indentation string
-            encodeIndent: function(indent: string?): string
         end
 
         --- Encodes a Lua value as JSON text.
@@ -1332,12 +1315,6 @@ record nupp.data
         --- @param setting the new setting
         --- @return whether decoded arrays carry `ARRAY_MT`
         decodeArrayWithArrayMt: function(setting: boolean | string?): boolean
-
-        --- Sets whether the decoder accepts comments, or reads the current setting
-        --- when omitted.
-        --- @param setting the new setting
-        --- @return whether comments are accepted
-        decodeAllowComment: function(setting: boolean | string?): boolean
 
         --- Configures how excessively sparse arrays are encoded, or reads the current
         --- settings when every argument is omitted.
@@ -1396,17 +1373,6 @@ record nupp.data
         --- @return whether forward slashes are escaped
         encodeEscapeForwardSlash: function(setting: boolean | string?): boolean
 
-        --- Sets whether unsupported values are skipped instead of raising, or reads the
-        --- current setting when omitted.
-        --- @param setting the new setting
-        --- @return whether unsupported values are skipped
-        encodeSkipUnsupportedValueTypes: function(setting: boolean | string?): boolean
-
-        --- Sets the indentation used for encoded containers, or reads the current
-        --- indentation when omitted.
-        --- @param indent the indentation string
-        --- @return the current indentation string
-        encodeIndent: function(indent: string?): string
     end
 
     --- UTF-8 codepoint operations over strings and byte views.

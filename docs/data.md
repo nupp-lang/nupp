@@ -39,12 +39,11 @@ recommended.
 
 Both `nupp.data.json` and an object returned by `newJSON` provide the
 configuration methods `encodeEmptyTableAsObject`, `decodeArrayWithArrayMt`,
-`decodeAllowComment`, `encodeSparseArray`, `encodeMaxDepth`,
-`decodeMaxDepth`, `encodeNumberPrecision`, `encodeKeepBuffer`,
-`encodeInvalidNumbers`, `decodeInvalidNumbers`,
-`encodeEscapeForwardSlash`, `encodeSkipUnsupportedValueTypes`, and
-`encodeIndent`. Omitting a method's setting reads the current value where the
-provider supports that form; passing a setting changes only that codec.
+`encodeSparseArray`, `encodeMaxDepth`, `decodeMaxDepth`,
+`encodeNumberPrecision`, `encodeKeepBuffer`, `encodeInvalidNumbers`,
+`decodeInvalidNumbers`, and `encodeEscapeForwardSlash`. Omitting a method's
+setting reads the current value where the provider supports that form; passing
+a setting changes only that codec.
 
 ## UTF-8
 
