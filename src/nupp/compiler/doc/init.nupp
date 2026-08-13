@@ -268,7 +268,7 @@ end
 
 local function loadModules(root, config, settings, requested)
     local modules, errors = {}, {}
-    local namespaceBacked = {}
+    local namespaceBacked, implied = {}, {}
     for _, path in ipairs(sourceFiles(root, config, settings, requested)) do
         local source, readErr = readFile(path)
         if not source then
@@ -286,6 +286,7 @@ local function loadModules(root, config, settings, requested)
                 for _, extra in ipairs(extraModules or {}) do
                     modules[#modules + 1] = extra
                     namespaceBacked[extra.name] = true
+                    implied[extra] = true
                 end
             else
                 for _, err in ipairs(parseErrors as {nupp.compiler.lexer.LexError}) do
@@ -293,6 +294,55 @@ local function loadModules(root, config, settings, requested)
                 end
             end
         end
+    end
+    -- One require path is one page, even when two sources document it. `nupp.derive` is
+    -- the case here: the prelude declares the surface the compiler provides, and
+    -- `src/nupp/derive.nupp` implements the rest, so a reader asking for that module
+    -- wants both. The module with a file behind it keeps the page and the one an
+    -- `@namespace` field implied folds into it, because a page that names a source
+    -- should name one a reader can open.
+    local keeper, order = {}, {}
+    for _, module in ipairs(modules) do
+        local held = keeper[module.name]
+        if not held then
+            keeper[module.name] = module
+            order[#order + 1] = module.name
+        elseif implied[held] and not implied[module] then
+            keeper[module.name] = module
+        end
+    end
+    for _, module in ipairs(modules) do
+        local into = keeper[module.name]
+        if into ~= module then
+            -- A declaration and its definition are one entry, not two anchors on the
+            -- same name: the definition states the signature and the declaration is
+            -- usually where the prose was written, so the page shows the first with the
+            -- second filled in.
+            local byPath = {}
+            for _, item in ipairs(into.items) do
+                byPath[item.path] = item
+            end
+            for _, item in ipairs(module.items) do
+                local held = byPath[item.path]
+                if not held then
+                    into.items[#into.items + 1] = item
+                    byPath[item.path] = item
+                elseif held.doc.text == "" then
+                    held.doc = item.doc
+                end
+            end
+            if into.text == "" then
+                into.text = module.text
+            end
+            into.documentationInternal = into.documentationInternal or module.documentationInternal
+        end
+    end
+    if #order < #modules then
+        local folded = {}
+        for _, name in ipairs(order) do
+            folded[#folded + 1] = keeper[name]
+        end
+        modules = folded
     end
     -- A qualified type declaration belongs to the module its name spells, even when
     -- the declaration lives in a different file. The prelude is the important case:

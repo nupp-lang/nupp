@@ -1528,6 +1528,50 @@ function M.namespaceBackedDeclarationsBelongOnlyToTheirSubmodule()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.aNamespaceAndTheModuleImplementingItShareOnePage()
+   local dir = tempProject({
+      ["src/nupp.nupp"] = table.concat({
+         "--- @namespace nupp",
+         "--- @export",
+         "local nupp: {",
+         "   --- Generates checked members on a declaration.",
+         "   --- @namespace",
+         "   derive: nupp.derive",
+         "}",
+         "",
+         "record nupp.derive",
+         "   --- Declares what a provider generates.",
+         "   implement: function(): boolean",
+         "",
+         "   --- Renders the declaration fields.",
+         "   Debug: function(): boolean",
+         "end",
+      }, "\n") .. "\n",
+      ["src/nupp/derive.nupp"] = table.concat({
+         "local derive = {}",
+         "",
+         "function derive.Debug(): boolean",
+         "   return true",
+         "end",
+         "",
+         "return derive",
+      }, "\n") .. "\n",
+   })
+   local config, settings = {include = {"src"}}, {sources = {"src"}}
+   assert(doc.build(dir, config, settings, {format = "site", output = "site"}) == 0)
+   local page = readFile(dir .. "/site/modules/nupp/derive/index.html")
+   assert(page:find("Generates checked members on a declaration%."), page)
+   assert(page:find('id="nupp.derive.implement"', 1, true), page)
+   local _, anchors = page:gsub('id="nupp%.derive%.Debug"', "")
+   assert(anchors == 1, page)
+   assert(page:find("Renders the declaration fields%."), page)
+   assert(doc.build(dir, config, settings, {format = "markdown", output = "api.md"}) == 0)
+   local api = readFile(dir .. "/api.md")
+   local _, sections = api:gsub('<a id="nupp%.derive"></a>', "")
+   assert(sections == 1, api)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.docsBuildTargetWritesSiteAndMarkdown()
    local dir = tempProject({
       ["nupp.lua"] = [[return {
