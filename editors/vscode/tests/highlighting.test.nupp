@@ -167,6 +167,31 @@ local function documented(task: Task): string
    return task.title
 end
 
+local json: String<"json"> = [[
+{"enabled": true}
+-- <- meta.embedded.block.json.nupp
+]]
+
+local glsl: String<"glsl"> = [[
+void main() {}
+-- <- meta.embedded.block.glsl.nupp
+]]
+
+local luaSource: String<"lua"> = [[
+return true
+-- <- meta.embedded.block.lua.nupp
+]]
+
+local nuppSource: String<"nupp"> = [[
+local answer: integer = 42
+-- <- meta.embedded.block.nupp.nupp
+]]
+
+local grammar: String<"peg"> = [[
+name <- [a-z]+ !.
+-- <- meta.embedded.block.peg.nupp
+]]
+
 const MAX_TASKS: integer = 100
 -- <- storage.modifier.const.nupp
 --    ^^^^^^^^^ variable.other.constant.nupp

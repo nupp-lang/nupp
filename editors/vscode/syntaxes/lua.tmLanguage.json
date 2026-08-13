@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Nupp embedded Lua",
+  "scopeName": "source.nupp.embedded.lua",
+  "patterns": [
+    { "include": "source.lua" },
+    { "name": "comment.line.double-dash.lua", "match": "--.*$" },
+    { "name": "string.quoted.double.lua", "begin": "\\\"", "end": "\\\"" },
+    { "name": "string.quoted.single.lua", "begin": "'", "end": "'" },
+    { "name": "keyword.control.lua", "match": "\\b(?:break|do|else|elseif|end|for|function|if|in|local|repeat|return|then|until|while)\\b" },
+    { "name": "constant.language.lua", "match": "\\b(?:false|nil|true)\\b" }
+  ]
+}

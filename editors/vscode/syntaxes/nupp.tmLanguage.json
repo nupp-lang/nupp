@@ -5,6 +5,7 @@
   "patterns": [
     { "include": "#hashbang" },
     { "include": "#comments" },
+    { "include": "#embeddedStrings" },
     { "include": "#interpolatedString" },
     { "include": "#strings" },
     { "include": "#typeDeclarations" },
@@ -19,6 +20,45 @@
     { "include": "#operators" }
   ],
   "repository": {
+    "embeddedStrings": {
+      "patterns": [
+        { "include": "#embeddedJson" },
+        { "include": "#embeddedGlsl" },
+        { "include": "#embeddedLua" },
+        { "include": "#embeddedNupp" },
+        { "include": "#embeddedPeg" }
+      ]
+    },
+    "embeddedJson": {
+      "name": "meta.embedded.block.json.nupp",
+      "begin": "\\b(?:local|const)\\s+[A-Za-z_][A-Za-z0-9_]*\\s*:\\s*String\\s*<\\s*(?:\\\"json\\\"|'json')\\s*>\\s*=\\s*\\[(=*)\\[",
+      "end": "\\]\\1\\]",
+      "patterns": [{ "include": "source.nupp.embedded.json" }]
+    },
+    "embeddedGlsl": {
+      "name": "meta.embedded.block.glsl.nupp",
+      "begin": "\\b(?:local|const)\\s+[A-Za-z_][A-Za-z0-9_]*\\s*:\\s*String\\s*<\\s*(?:\\\"glsl\\\"|'glsl')\\s*>\\s*=\\s*\\[(=*)\\[",
+      "end": "\\]\\1\\]",
+      "patterns": [{ "include": "source.nupp.embedded.glsl" }]
+    },
+    "embeddedLua": {
+      "name": "meta.embedded.block.lua.nupp",
+      "begin": "\\b(?:local|const)\\s+[A-Za-z_][A-Za-z0-9_]*\\s*:\\s*String\\s*<\\s*(?:\\\"lua\\\"|'lua')\\s*>\\s*=\\s*\\[(=*)\\[",
+      "end": "\\]\\1\\]",
+      "patterns": [{ "include": "source.nupp.embedded.lua" }]
+    },
+    "embeddedNupp": {
+      "name": "meta.embedded.block.nupp.nupp",
+      "begin": "\\b(?:local|const)\\s+[A-Za-z_][A-Za-z0-9_]*\\s*:\\s*String\\s*<\\s*(?:\\\"nupp\\\"|'nupp')\\s*>\\s*=\\s*\\[(=*)\\[",
+      "end": "\\]\\1\\]",
+      "patterns": [{ "include": "$self" }]
+    },
+    "embeddedPeg": {
+      "name": "meta.embedded.block.peg.nupp",
+      "begin": "\\b(?:local|const)\\s+[A-Za-z_][A-Za-z0-9_]*\\s*:\\s*String\\s*<\\s*(?:\\\"peg\\\"|'peg')\\s*>\\s*=\\s*\\[(=*)\\[",
+      "end": "\\]\\1\\]",
+      "patterns": [{ "include": "source.nupp.peg" }]
+    },
     "hashbang": {
       "patterns": [
         {
@@ -329,6 +369,14 @@
             "1": { "name": "punctuation.definition.annotation.nupp" },
             "2": { "name": "punctuation.definition.annotation.nupp" },
             "3": { "name": "entity.name.tag.nupp" }
+          }
+        },
+        {
+          "comment": "@comptime annotates a declaration; unlike a bare comptime block it follows @.",
+          "name": "storage.modifier.directive.nupp",
+          "match": "(@)(comptime)\\b",
+          "captures": {
+            "2": { "name": "storage.modifier.directive.nupp" }
           }
         },
         {

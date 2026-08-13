@@ -73,3 +73,19 @@ it attaches to (`record shapes.Point`) highlights that table as a namespace
 and the last segment as the type name. Once the language server is ready,
 semantic tokens refine contextual keywords, declarations, parameters,
 functions, properties, types, and references using checker information.
+
+## Embedded string syntax
+
+`String<"json">`, `String<"glsl">`, `String<"lua">`, `String<"nupp">`, and
+`String<"peg">` are transparent string types whose literal argument tells the
+editor what a directly initialized local or const long string contains:
+
+```nupp
+local config: String<"json"> = [[
+{"enabled": true}
+]]
+```
+
+The annotation is type-erased; the value is an ordinary `string`. Long strings
+are required for embedded highlighting so their contents are not obscured by
+Lua escape sequences.

@@ -826,6 +826,39 @@ function M.contractSyntaxSemanticTokens()
    assert(at["6:22"] == "keyword", "resumes is keyword")
 end
 
+function M.embeddedStringSyntaxLeavesTheLiteralToTheTextMateGrammar()
+   local uri = "file:///tmp/embedded-string.nupp"
+   local source = table.concat({
+      "local config: String<\"json\"> = [[",
+      "{\"enabled\": true}",
+      "]]",
+   }, "\n")
+   local out = runSession({
+      { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
+      { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = { uri = uri, languageId = "nupp", version = 1,
+            text = source } } },
+      { jsonrpc = "2.0", id = 10,
+        method = "textDocument/semanticTokens/full",
+        params = { textDocument = { uri = uri } } },
+      { jsonrpc = "2.0", id = 2, method = "shutdown" },
+      { jsonrpc = "2.0", method = "exit" },
+   })
+   local tokenTypes = responseWithId(out, 1).result.capabilities
+      .semanticTokensProvider.legend.tokenTypes
+   local data = responseWithId(out, 10).result.data
+   local line, character = 0, 0
+   local at = {}
+   for index = 1, #data, 5 do
+      line = line + data[index]
+      character = data[index] == 0
+         and character + data[index + 1] or data[index + 1]
+      at[line .. ":" .. character] = tokenTypes[data[index + 3] + 1]
+   end
+   assert(at["0:31"] == nil,
+      "the embedded long string does not receive an overriding string token")
+end
+
 function M.packBindersHaveTypeParameterEditorSemantics()
    local uri = "file://" .. ROOT .. "/pack-tooling.nupp"
    local source = "local function forward<A...>(...: A...): A... return ... end\n"

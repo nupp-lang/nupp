@@ -255,6 +255,25 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
     return kinds
 end
 
+--- String literals directly initialized under `String<"format">`. Their TextMate
+--- region is embedded in the named grammar, so sending a broad `string` semantic token
+--- over it would hide every finer token the embedded grammar produces in VS Code.
+local function embeddedStringTokens(result: semantic.Parse): {[lexer.Token]: boolean}
+    local embedded = {}
+    tree.walkNodes(result.root, function(node)
+        if node.kind ~= "localStmt" then
+            return
+        end
+        for index, typeNode in ipairs(node.types or {}) do
+            local value = node.exprs and node.exprs[index] or nil
+            if (typeNode as any).embeddedStringFormat and value and value.kind == "string" and value.token then
+                embedded[value.token] = true
+            end
+        end
+    end)
+    return embedded
+end
+
 function semantic.addSemanticSpan(
     entries: {semantic.Entry},
     source: string,
@@ -317,6 +336,7 @@ function semantic.install(s: semantic.Session): semantic.Api
     local function semanticEntries(doc)
         local entries = {}
         local syntax = syntaxKinds(doc.result)
+        local embedded = embeddedStringTokens(doc.result)
         for _, tok in ipairs(doc.result.tokens or {}) do
             for _, trivia in ipairs(tok.trivia or {}) do
                 local docComment = trivia.kind == "comment" and trivia.text:sub(
@@ -339,7 +359,7 @@ function semantic.install(s: semantic.Session): semantic.Api
                 or tok.kind == "istringMid"
                 or tok.kind == "istringClose"
             then
-                kind = "string"
+                kind = not embedded[tok] and "string" or nil
             elseif lexer.KEYWORDS[tok.kind] then
                 kind = "keyword"
             elseif tok.kind == "name" then

@@ -386,6 +386,16 @@ function M.constFunctionInferenceRequiresIdenticalKnownValues()
    }, "\n")), "NUPP2131")
 end
 
+function M.stringFormatsAreTransparentConstGenericAliases()
+   clean(table.concat({
+      "local json: String<'json'> = [[{\\\"enabled\\\": true}]]",
+      "local lua: String<'lua'> = [[return true]]",
+      "local plain: string = json",
+      "return plain, lua",
+   }, "\n"))
+   assertEq(codes("local unsupported: String<'toml'> = ''"), "NUPP2131")
+end
+
 function M.numericLiteralAndMemberIndexSyntaxStayDistinct()
    clean(table.concat({
       "local type Sixteen = 16",
