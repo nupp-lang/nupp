@@ -65,6 +65,9 @@ runtime and no per-frame condition.
 - Making every anonymous closure reloadable in the first milestone. Stable
   anonymous source-site identity is planned after named functions prove the
   patch ABI.
+- Making a watch run representative of optimized shipped code. Version one
+  reloads `-O0` bodies; optimized builds may have different body shape and JIT
+  behavior.
 - Building a scheduler into Nupp. The existing suspension API and a host's
   scheduler remain separate from hot reload.
 - Paying a runtime branch, indirection or bundled-code cost in a normal build.
@@ -131,15 +134,21 @@ end
 record hotreload.InitialBuild
     generation: integer
     entryCode: string
-    manifest: any
+    entryManifest: any
 end
 
 record hotreload.Session
     diskChanged: function(self: hotreload.Session, path: string, changeType: integer)
     initial: function(self: hotreload.Session, entries: {string}): hotreload.InitialBuild
     prepare: function(self: hotreload.Session, paths: {string}): hotreload.Result
-    committed: function(self: hotreload.Session, generation: integer)
-    persist: function(self: hotreload.Session)
+    loaded: function(
+        self: hotreload.Session,
+        module: string,
+        generation: integer,
+        manifest: any
+    ): nil
+    committed: function(self: hotreload.Session, generation: integer): nil
+    persist: function(self: hotreload.Session): nil
 end
 ```
 
@@ -155,11 +164,32 @@ Restart   well-typed change outside the patchable contract
 Unchanged no emitted implementation changed
 ```
 
-`initial` produces the base watch artifact and manifest through the same query
-session that will produce its patches. Every `.nupp` module required by that
-artifact is compiled through the session-backed loader rather than through a
-separate `compile.module` call, so the running slots and the compiler's base
-manifest have one provenance.
+`initial` produces the entry watch artifact and its candidate manifest entry
+through the same query session that will produce its patches. The entry's
+generated epilogue seals its runtime registration after successful top-level
+execution; the embedded host calls `loaded`, or a sidecar host forwards the
+equivalent event. The running manifest is explicitly a growing map of modules
+that have successfully executed and registered slots; it is not a claim that
+every module reachable through a lazy `require` is already resident.
+
+Every `.nupp` module required later is compiled through the session-backed
+loader rather than through a separate `compile.module` call. The loader wraps
+the module chunk and calls `session:loaded` only after the chunk executes
+successfully and its slots exist. That acknowledgement adds the exact compiled
+manifest entry to the running generation. If a source file changes before its
+module is first loaded, the loader compiles its current source directly; there
+is no old implementation to patch.
+
+`prepare` checks the affected source closure but emits replacements only for
+modules acknowledged as loaded. An unloaded changed module is omitted from the
+patch and will enter at its current source when first required. Interface
+changes are still compared against loaded dependents and may require restart;
+"unloaded" does not suppress a compatibility failure in code already running.
+This rule prevents a patch from naming slots that no running module has created.
+A module-load acknowledgement extends the current generation without changing
+its number and does not stale an already prepared patch: that patch contains no
+target for the formerly unloaded module. The session incorporates the new entry
+in every subsequent comparison.
 
 `prepare` always compares with the last generation acknowledged by
 `committed`, not the last patch it emitted or staged. A host may stage a patch
@@ -167,7 +197,9 @@ for several frames, supersede it after another edit, or decline it without
 advancing the compiler. After `hot.commit` succeeds, the host must call
 `session:committed(generation)` (or send the equivalent acknowledgement to a
 sidecar). An acknowledgement for an unknown, stale or unprepared generation is
-an error. This back-channel keeps a delayed host commit from making stale-base
+an error raised by `committed`; success returns `nil`. `loaded` follows the same
+protocol rule for an unknown generation, duplicate module or mismatched manifest
+entry. This back-channel keeps a delayed host commit from making stale-base
 rejection the normal rebuild path.
 
 Do not route watch rebuilds through `compile.module`, which creates a fresh
@@ -211,12 +243,12 @@ array per module:
 
 ```lua
 local __slots = __hot.module("game.systems", metadata)
-__slots[7] = __hot.define(__slots, 7, "game.systems/movement", function(world, dt)
+__hot.define(__slots, 7, "game.systems/movement", metadata, function(world, dt)
    -- initial implementation
 end)
 
 local function movement(...)
-   return __slots[7].impl(...)
+   return __slots[7](...)
 end
 ```
 
@@ -225,13 +257,17 @@ function. This is load-bearing: LuaJIT caps a function at 200 locals, and a
 slot-local plus trampoline-local design roughly halves the number of authored
 functions a watch module can contain. Array indices are deterministic addresses
 within one manifest and the stable function ID is checked beside the index; an
-index alone is never identity across candidate generations.
+index alone is never identity across candidate generations. `define` validates
+and records per-slot metadata in the runtime registry and stores the initial
+implementation directly at `__slots[7]`; its return value is ignored. A commit
+replaces that array value. This avoids a table allocation per function and makes
+dispatch one indexed lookup plus the call rather than `__slots[7].impl`.
 
 The trampoline is the public function value and never changes. Only the indexed
-slot's `impl` changes. Preserve Lua's argument and multiple-return behavior; the
-trampoline must be a tail call wherever LuaJIT permits it. Function diagnostics
-and stack traces should still name the Nupp source path and line rather than a
-runtime helper.
+slot implementation changes. Preserve Lua's argument and multiple-return
+behavior; the trampoline must be a tail call wherever LuaJIT permits it.
+Function diagnostics and stack traces should still name the Nupp source path and
+line rather than a runtime helper.
 
 The simplest first generator may slot every named runtime function in a watch
 module. A later escape analysis may limit trampolines to functions whose
@@ -342,6 +378,13 @@ the ordinary lowering. It may be admitted later only after tests prove that
 staging and abandoned replacement closures cannot duplicate, transfer or run a
 cleanup.
 
+The restart diagnostic is reported at and names the authored capture that
+selected the affine lowering, with the containing function as a related
+location. "This function is affine" is not sufficient: the lowering is not
+source syntax, while a message such as `capture socket owns a cleanup, so
+replacing this closure requires restart` tells the author what made it
+nonpatchable.
+
 ### Patch chunks
 
 A patch chunk is data plus newly compiled closures. It has no authored top-level
@@ -395,6 +438,14 @@ passes structurally rewrite bodies, eliminate expressions and synthesize helper
 shapes; preserving stable patch boundaries through those transformations is a
 separate later project. Ordinary non-watch compilation remains available at
 every optimization level.
+
+This means the body exercised during hot reload is not necessarily the body
+that ships. Passes such as numeric `ipairs` lowering and concatenation through
+`string.buffer` change control flow and allocation shape, and may expose bugs or
+JIT behavior absent at `-O0`. Watch mode is for edit/state continuity, not
+release-performance validation. Documentation and the CLI should tell users to
+run the normal optimized build before release; no watch-mode result claims to
+test optimizer-specific behavior.
 
 ## Compatibility contract
 
@@ -465,20 +516,28 @@ The next invocation through a stable trampoline reads the new target. Retain old
 implementations while a stack may reference them; Lua's ordinary reachability
 does this without an explicit generation refcount.
 
-Self-recursion and statically resolved mutual recursion are generation-stable.
-Each initial or replacement generation constructs a private implementation
-cohort; direct recursive edges inside that cohort call its implementations, not
-the public slot trampolines. An old activation that resumes after a commit and
-then recurses therefore remains in its old cohort. A dynamic call made through
-an escaped public function value consults the slot and enters the newest
-generation, as an ordinary future dispatch does. H0 freezes this distinction so
-H1 knows whether a recursive name lowers to a private implementation reference
-or a stable trampoline.
+Self-recursion is generation-stable; mutual recursion is not. Each initial or
+replacement implementation binds its own private self-reference, so an old
+activation that resumes after a commit and then calls itself remains in its old
+implementation. A call to any other reloadable named function, including a
+statically resolved mutual-recursion edge, goes through that function's public
+slot and enters the newest committed implementation.
+
+Cross-module recursion necessarily follows the same slot rule because a private
+implementation reference cannot span independently loaded module chunks. This
+choice keeps patches limited to changed implementations: changing `f` does not
+require an unchanged mutually recursive `g` to be copied into the patch. The
+generation-consistency guarantee therefore covers the active implementation and
+its self-recursion, not an arbitrary transitive call graph. H0 freezes this
+distinction so H1 knows whether a recursive name lowers to a private
+self-reference or a stable trampoline.
 
 ## Module and state semantics
 
-The initial watch build executes modules normally once. It registers slots and
-persistent binding handles as part of that execution. Later patches do not:
+The entry and each lazily required module execute normally at most once. A
+module registers its slots and persistent binding handles as part of that first
+successful execution, after which it joins the running manifest. Later patches
+do not:
 
 - clear or replace `package.loaded[name]`;
 - rerun a module chunk;
@@ -592,15 +651,16 @@ including functions, methods, captures, records, structs and optimized output.
   insertions, and differ across lexical owners.
 - Decide which generated forms are patchable in H1 and diagnose the rest as
   restart-required.
-- Freeze direct self- and mutual-recursion as private, generation-stable cohort
-  edges while dynamic calls through escaped values use public slots.
+- Freeze direct self-recursion as a private generation-stable edge; mutual and
+  cross-module recursion use public slots so unchanged partners need not appear
+  in a patch.
 - Pin watch compilation to `-O0` and specify usage errors for optimized watch
   requests.
 
 Exit gate: two checked generations can be compared deterministically without
 loading either one; the schemas express all four `Result` outcomes and delayed
-commit acknowledgement; and executable lowering prototypes prove the chosen
-recursive-name semantics.
+commit and module-load acknowledgement; and executable lowering prototypes
+prove the chosen recursive-name semantics.
 
 ### H1: Named-function watch generation
 
@@ -612,27 +672,34 @@ recursive-name semantics.
 - Add the small runtime registry and initial-definition API.
 - Keep all watch emitter state behind one table/upvalue on the recursive emitter.
 - Mark affine-capture functions nonpatchable and diagnose an attempted
-  replacement as restart-required.
+  replacement at the capture that selected the lowering, naming it and relating
+  the containing function.
 - Preserve source line attribution and tail/multiple-return behavior; test
   depth-relative `error` attribution and freeze the observed `debug.getinfo`
   behavior through direct, method, recursive and callback trampolines.
-- Load watch-generated modules with more than 100 named functions to prove the
-  slot layout does not introduce a lower local-variable ceiling than normal
-  generation.
+- Load the same 199-named-function fixture in normal and watch modes and verify
+  both reject the corresponding 200-function fixture. Keep normal generation as
+  the oracle if other lowering-introduced locals change that measured boundary;
+  watch must match its ceiling rather than merely clear an arbitrary 100-function
+  threshold.
 - Build and exercise the compiler with coverage support and watch generation
   present to enforce the generator's own upvalue budget.
 - Keep normal output byte-identical and add direct assertions for that property.
 
 Exit gate: retaining a function value across a synthetic replacement calls the
-new body while ordinary builds still emit today's direct function; large modules
-load; ordinary `error(level)` attribution matches a normal build; and the
-specified debug-stack behavior is covered by tests.
+new body while ordinary builds still emit today's direct function; normal and
+watch modes accept the same boundary fixture; ordinary `error(level)`
+attribution matches a normal build; and the specified debug-stack behavior is
+covered by tests.
 
 ### H2: Patch generation and capture rebinding
 
 - Build a persistent hot-reload compiler session over `incremental.Inc`.
 - Produce the initial watch artifact and install a session-backed runtime loader
-  so every required Nupp module and later patch shares one manifest provenance.
+  that grows the running manifest only after a module executes and registers its
+  slots.
+- Compile an unloaded module from current source when first required, acknowledge
+  its manifest entry, and omit unloaded modules from patch output.
 - Compare the candidate against the last committed manifest.
 - Advance that base only after `Session:committed(generation)` acknowledges a
   successful runtime commit; allow uncommitted prepared patches to be superseded.
@@ -643,7 +710,8 @@ specified debug-stack behavior is covered by tests.
 
 Exit gate: a captured mutable value retains identity across several body
 patches in a base program loaded by the same session; delayed, declined and
-superseded patches retain the correct committed base; and
+superseded patches retain the correct committed base; a changed unloaded module
+produces no slot patch and loads its latest source on first require; and
 syntax/type/incompatibility failures leave the old body callable.
 
 ### H3: Transactional host API and JIT correctness
@@ -704,6 +772,7 @@ Measure actual use before choosing among:
 
 - compatible capture-set growth through anchored module cells;
 - changeable immutable module constants;
+- optimized watch generation with patch identities preserved through rewrites;
 - finer-grained JIT invalidation;
 - explicit reload lifecycle/migration hooks;
 - structural tecs system replacement;
@@ -723,8 +792,8 @@ mutation.
 - Patch output is deterministic for identical base and candidate generations.
 - Normal generated Lua remains byte-identical at every optimization level.
 - Watch generation accepts only `-O0`; `-O1` and `-O2` fail at option handling.
-- A watch module with more than 100 named functions loads without exhausting the
-  main chunk's 200-local limit.
+- The 199- and 200-named-function boundary fixtures prove watch mode has the same
+  main-chunk local ceiling as normal generation.
 - Adding watch state does not push the generator's recursive emitter past
   LuaJIT's upvalue limit, including when coverage support is present.
 - Source paths and lines in replacement stack traces point to authored Nupp.
@@ -751,6 +820,10 @@ mutation.
 - Two prepared successors of one base cannot both commit.
 - Preparing, superseding or declining a patch does not advance the compiler's
   committed base; only a valid commit acknowledgement does.
+- A patch never targets an unloaded module; its first successful require adds
+  its actual manifest entry and slots to the running generation.
+- `loaded` and `committed` return `nil` on success and raise on unknown, stale,
+  duplicate or mismatched acknowledgements.
 - Editing an affine-capture function reports restart-required before patch
   generation.
 
@@ -761,8 +834,8 @@ mutation.
 - A call already executing finishes on its old implementation.
 - A suspended coroutine resumes the old implementation and later calls use the
   new one.
-- An old activation that self-recurses or follows a statically resolved mutual
-  edge after resumption remains in its old implementation cohort.
+- An old activation that self-recurses after resumption remains in its old
+  implementation, while a mutual or cross-module edge enters the current slot.
 - Repeated generations release unreferenced old closures and manifests.
 
 ### tecs
