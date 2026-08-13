@@ -21,6 +21,16 @@ local state = require("nupp.compiler.check.state")
 
 local resolve = {}
 
+--- The ownership type constructors, by every spelling that still resolves.
+local ownershipConstructors: {[string]: string} = {
+    Owned = "owned",
+    Borrowed = "borrowed",
+    Pinned = "pinned",
+    owned = "owned",
+    borrowed = "borrowed",
+    pinned = "pinned",
+}
+
 local instantiateNominal = generics.instantiate
 
 --- A type, as nupp.compiler.types builds them.
@@ -678,17 +688,20 @@ function resolve.install(c: state.Checker): nil
                     c.resolvePack(node.typeArgs[4])
                 )
             end
-            if (
-                name == "owned" or name == "borrowed" or name == "pinned"
-            ) and node.typeArgs and node.typeArgs[1] and not c.lookupType(name) then
+            -- Both cases, for as long as the checked-in bootstrap predates the rename.
+            -- A compiler that reads `Owned` has to be built by one that does not, so
+            -- its own sources cannot say `Owned` until a bootstrap that reads it
+            -- exists. The lowercase spellings go once that bootstrap is regenerated.
+            local ownership = ownershipConstructors[name]
+            if ownership and node.typeArgs and node.typeArgs[1] and not c.lookupType(name) then
                 local inner = c.resolveType(node.typeArgs[1])
-                if name == "pinned" and not pointerShaped(inner) then
-                    c.diag("NUPP2602", node, "pinned<T> requires a pointer-shaped T")
+                if ownership == "pinned" and not pointerShaped(inner) then
+                    c.diag("NUPP2602", node, "Pinned<T> requires a pointer-shaped T")
                 end
-                if name == "owned" then
+                if ownership == "owned" then
                     return T.owned(inner)
 
-                elseif name == "borrowed" then
+                elseif ownership == "borrowed" then
                     return T.borrowed(inner)
                 end
                 return T.pinned(inner)

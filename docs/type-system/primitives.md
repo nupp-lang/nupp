@@ -28,8 +28,8 @@ These names, and only these, resolve as bare builtin types:
 | `uint32` |  |
 | `uint64` |  |
 
-`metatable<T>`, `ctype<T>`, `carray<T>`, `owned<T>`, `borrowed<T>`, and
-`pinned<T>` are constructors rather than names. Each needs a type argument, and
+`metatable<T>`, `ctype<T>`, `carray<T>`, `Owned<T>`, `Borrowed<T>`, and
+`Pinned<T>` are constructors rather than names. Each needs a type argument, and
 bare `metatable` is an unknown type name.
 
 ## `unknown`, the top type

@@ -105,7 +105,7 @@ end
 
 function test.anOwnedPointerFieldIsSilent()
    -- The pointer under it reifies, but the obligation wrapped around it does not:
-   -- a struct field written `owned<widget*>` is NUPP2201. The two halves agree,
+   -- a struct field written `Owned<widget*>` is NUPP2201. The two halves agree,
    -- which is the property worth holding -- what a struct refuses is exactly what
    -- is never suggested.
    assertSilent([[
@@ -116,7 +116,7 @@ end
 cdef function widget_free(takes value: widget*)
 
 local record Holder
-    handle: owned<widget*>
+    handle: Owned<widget*>
     n: int32
 end
 ]])

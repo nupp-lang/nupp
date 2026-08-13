@@ -2035,7 +2035,7 @@ function calls.install(c: state.Checker): calls.Ops
                 if not node.cdefCall then
                     c.diag("NUPP2602", argNodes[j] or node, mode .. " is an imported C-function contract")
                 elseif c.ownershipKind(ats[j]) ~= "pinned" or not entry then
-                    c.diag("NUPP2602", argNodes[j] or node, mode .. " argument requires a named pinned<T> handle")
+                    c.diag("NUPP2602", argNodes[j] or node, mode .. " argument requires a named Pinned<T> handle")
                 elseif entry.moved then
                 -- The name expression already emitted the use-after-move.
                 elseif mode == "retains" then

@@ -660,7 +660,7 @@ return {new = blockNew, free = blockFree, sizeOf = sizeOf}
 ```text [nupp ownership-audit src/block.nupp]
 Foreign ownership contracts
   src/block.nupp:6  blockNew
-    result 1: owned<block*>
+    result 1: Owned<block*>
   src/block.nupp:9  blockFree
     parameter 1 b: block*  takes
 Unsafe assertion sites

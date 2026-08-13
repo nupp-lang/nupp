@@ -206,7 +206,7 @@ the prose around it:
   Lua] `.
 - Examples do not carry commentary in comments. Explain in prose above; use a
   comment only for something the prose cannot point at, like
-  `-- file is borrowed<LuaFile> here`.
+  `-- file is Borrowed<LuaFile> here`.
 - Show the error too. A page that teaches a rule shows one program that breaks
   it and the code that reports it.
 - A `nupp` fence is editable and checked in the browser. Keep each example a

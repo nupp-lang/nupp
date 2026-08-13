@@ -146,13 +146,13 @@ automatic cleanup exactly once.
 
 ## Records that hold resources
 
-A record with `owned<T>` fields is itself a resource, and cleanup is
+A record with `Owned<T>` fields is itself a resource, and cleanup is
 synthesized in reverse field order:
 
 ```nupp:static
 local record Bundle
-    input: owned<Session>
-    output: owned<Session>
+    input: Owned<Session>
+    output: Owned<Session>
 end
 
 local bundle = new Bundle(input = openSession(1), output = openSession(2))
@@ -164,8 +164,8 @@ that by calling their drop operation directly:
 
 ```nupp:static
 local record Pair
-    first: owned<Session>
-    second: owned<Session>
+    first: Owned<Session>
+    second: Owned<Session>
 
     @drop
     function close(self)

@@ -235,7 +235,8 @@ function control.install(c: state.Checker): state.StatHandlers
             end
             if ownershipKind(valueT) == "borrowed" and not (j == 1 and c.borrowReturnStack[#c.borrowReturnStack]) then
                 local expr = stat.exprs[j] or stat
-                local ownCode = c.ownReturnStack[#c.ownReturnStack] and "NUPP2616" or nil
+                local ownReturns = c.ownReturnStack[#c.ownReturnStack]
+                local ownCode = ownReturns and ownReturns[j] and "NUPP2616" or nil
                 c.diag(
                     ownCode or "NUPP2603",
                     expr,
@@ -254,8 +255,9 @@ function control.install(c: state.Checker): state.StatHandlers
                     c.diag("NUPP2603", stat.exprs[j] or stat, valueKind .. " return needs a matching annotation")
                 else
                     local source = ownershipState((c.ownershipEntry(stat.exprs[j])))
-                    local promoted = j == 1 and c.ownReturnStack[
-                        #c.ownReturnStack
+                    local ownReturns = c.ownReturnStack[#c.ownReturnStack]
+                    local promoted = ownReturns and ownReturns[
+                        j
                     ] and source and ownershipKind(source.t) ~= valueKind
                     if not promoted then
                         moveExpression(stat.exprs[j], valueT, "return", valueKind)
@@ -338,12 +340,15 @@ function control.install(c: state.Checker): state.StatHandlers
                 end
             end
         end
+        local ownReturns = c.ownReturnStack[#c.ownReturnStack]
         if annotated and not annotatedPack then
             for j, rt in ipairs(annotated) do
                 local got = ts[j] or T.nil_
                 local expected = rt
-                if j == 1 and c.ownReturnStack[#c.ownReturnStack] and ownershipKind(got) ~= "owned" then
-                    expected = c.ownReturnStack[#c.ownReturnStack]
+                -- A fresh value satisfies an owning result: the declaration is what makes
+                -- it one, so the body is checked against the raw type it actually built.
+                if ownReturns and ownReturns[j] and not ownershipKind(got) then
+                    expected = ownReturns[j]
                 end
                 local ok, why = isA(got, expected)
                 if not ok then
@@ -368,8 +373,8 @@ function control.install(c: state.Checker): state.StatHandlers
             end
             for j, expected in ipairs(annotatedPack.head) do
                 local got = T.packAt(returnedPack, j) or T.nil_
-                if j == 1 and c.ownReturnStack[#c.ownReturnStack] and ownershipKind(got) ~= "owned" then
-                    expected = c.ownReturnStack[#c.ownReturnStack]
+                if ownReturns and ownReturns[j] and not ownershipKind(got) then
+                    expected = ownReturns[j]
                 end
                 local ok, why = isA(got, expected)
                 if not ok then

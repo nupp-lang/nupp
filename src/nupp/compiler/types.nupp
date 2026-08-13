@@ -683,7 +683,7 @@ record types.Nominal
     --- Default terminal operations inherited from `@drop` contracts.
     defaultDropOperations: {types.Cleanup}?
 
-    --- Whether this nominal has appeared behind an `owned<T>` contract.
+    --- Whether this nominal has appeared behind an `Owned<T>` contract.
     affineResource: boolean?
 
     --- Declared fields that carry affine values, in declaration order.
@@ -2539,11 +2539,11 @@ function types.tostring(t: types.Type): string
         end
         return elem .. "*"
     elseif tag == "owned" then
-        return "owned<" .. types.tostring(t.inner) .. ">"
+        return "Owned<" .. types.tostring(t.inner) .. ">"
     elseif tag == "borrowed" then
-        return "borrowed<" .. types.tostring(t.inner) .. ">"
+        return "Borrowed<" .. types.tostring(t.inner) .. ">"
     elseif tag == "pinned" then
-        return "pinned<" .. types.tostring(t.inner) .. ">"
+        return "Pinned<" .. types.tostring(t.inner) .. ">"
     elseif tag == "typevar" then
         return t.name
     elseif tag == "typeHandle" then

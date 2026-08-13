@@ -130,9 +130,9 @@ The whole surface, in one place:
   cannot escape the call.
 - `field: View borrows (source)`: a nominal field is tied to its declared
   sibling root.
-- `owned<T>`: a value carrying one affine discharge obligation.
-- `borrowed<T>`: a non-escaping value tied to another live binding.
-- `pinned<T>`: an affine pointer plus a strong Lua anchor for C retention.
+- `Owned<T>`: a value carrying one affine discharge obligation.
+- `Borrowed<T>`: a non-escaping value tied to another live binding.
+- `Pinned<T>`: an affine pointer plus a strong Lua anchor for C retention.
 - `nupp.drop(x)`: consume `x` and invoke its recorded cleanup list.
 - `nupp.borrow(x)`: create an explicit lexical borrow of `x`.
 - `nupp.intoRaw(x)`: in `unsafe`, abandon tracking and return the underlying
@@ -268,7 +268,7 @@ end
 
 local record PoolConnection
     pool: Pool
-    connection: owned<Connection>
+    connection: Owned<Connection>
 
     @drop
     function close(self)
@@ -507,10 +507,10 @@ end
 ```
 
 The result keeps `pool` borrowed until the result's scope ends. Methods may
-use `borrowed<T>` return sugar when the receiver is the only source:
+use `Borrowed<T>` return sugar when the receiver is the only source:
 
 ```nupp:static
-function Pool:first(): borrowed<Item>
+function Pool:first(): Borrowed<Item>
     return self.items[1]
 end
 ```
@@ -715,7 +715,7 @@ annotation from inventing provenance unrelated to the call.
 ## C retention and Lua-managed memory
 
 A call-duration borrow is insufficient when C stores an address after return.
-Create a `pinned<T>` handle and describe both ends of the retention:
+Create a `Pinned<T>` handle and describe both ends of the retention:
 
 ```nupp
 cdef function remember_name(retains value: cstring)
@@ -774,12 +774,12 @@ transitive effect summary.
 
 ## Affine records and resource composition
 
-A record with `owned<T>` or `pinned<T>` fields is itself affine:
+A record with `Owned<T>` or `Pinned<T>` fields is itself affine:
 
 ```nupp:static
 local record Bundle
-    input: owned<File>
-    output: owned<File>
+    input: Owned<File>
+    output: Owned<File>
 end
 
 local bundle = new Bundle(input = openFile(), output = openFile())
@@ -803,8 +803,8 @@ local function closeFile(takes file: File)
 end
 
 local record Bundle
-    first: owned<File>
-    second: owned<File>
+    first: Owned<File>
+    second: Owned<File>
 
     @drop
     function close(self)
@@ -815,7 +815,7 @@ end
 ```
 
 `nupp.drop(self.second)` does not work here. `drop` needs a value whose static
-type carries a cleanup list, and a field spelled `owned<File>` records the
+type carries a cleanup list, and a field spelled `Owned<File>` records the
 obligation without recording how to discharge it; that reports `NUPP2602` and
 names the fix. The same applies inside a function to a `takes` parameter: its
 erased payload does not carry the producer-specific cleanup witness, so an
@@ -1028,7 +1028,7 @@ activation and cleanup order, and their protected lowering class.
 
 - **NUPP2601**: a resource is used after it was moved, or discharged twice.
 - **NUPP2602**: a value is dropped whose static type records the obligation
-  without recording how to discharge it, such as an `owned<T>` field or a
+  without recording how to discharge it, such as an `Owned<T>` field or a
   `takes` parameter.
 - **NUPP2603**: a borrow outlives what it borrows from, by escaping into a
   destination that may retain it or across a suspension point.

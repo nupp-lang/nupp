@@ -100,7 +100,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
             -- literal just as an annotated binding keeps its exact declared type.
             local bound = ann or init or T.any
             -- Keep the cleanup list discovered at the initializer even when the source
-            -- spells only `owned<T>`.
+            -- spells only `Owned<T>`.
             if ann and init and ownershipKind(ann) == "owned" and ownershipKind(init) == "owned" then
                 bound = init
             end

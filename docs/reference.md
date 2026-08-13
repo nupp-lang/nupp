@@ -845,10 +845,14 @@ Reports: `NUPP2001`. `nupp explain <code>` says more.
 
 ### Owned resources
 
-`@owned(cleanup)` gives a result a cleanup obligation. A known local is destroyed
-at scope exit. Drop, `takes`, an owning return, or `intoRaw` ends or transfers it
-once. An unresolved owner needs an explicit terminal; forgetting is an error,
-not a leak.
+`Owned<T>` gives a result a cleanup obligation, written in the position it is
+about, and takes its terminal from that type's `@drop`. Any result may be owned,
+not only the first. A known local is destroyed at scope exit. Drop, `takes`, an
+owning return, or `intoRaw` ends or transfers it once. An unresolved owner needs
+an explicit terminal; forgetting is an error, not a leak.
+
+`@owned(cleanup)` says the same of a first result, and is what a type carrying no
+`@drop` of its own still uses to name a terminal.
 
 Parameter modes describe calls: `takes` consumes; `borrows` is call-scoped;
 `exclusive` also requires sole access; `retains`/`releases` describe C holding a

@@ -264,7 +264,7 @@ function M.aRecordCanOwnTheRootOfItsBorrowedField()
    assertClean(table.concat({
       RESOURCE,
       "local record Parsed",
-      "   source: owned<resource*>",
+      "   source: Owned<resource*>",
       "   view: resource* borrows (source)",
       "end",
       "local source = resource_new()",
@@ -278,7 +278,7 @@ function M.anInternallyBorrowedRootFieldCannotMoveAlone()
    assertEq(codes(table.concat({
       RESOURCE,
       "local record Parsed",
-      "   source: owned<resource*>",
+      "   source: Owned<resource*>",
       "   view: resource* borrows (source)",
       "end",
       "local source = resource_new()",
@@ -978,7 +978,7 @@ end
 -- one it came from, and the intermediate keeps the root borrowed meanwhile.
 
 -- On a method there is only one thing a source-less borrow could mean, so
--- `borrowed<T>` elides to `borrows self`, the way Rust elides an output
+-- `Borrowed<T>` elides to `borrows self`, the way Rust elides an output
 -- lifetime to `&self`. The result is still explicitly a borrow, so nothing
 -- returning a plain value is affected.
 
@@ -1052,7 +1052,7 @@ end
 function M.aMethodBorrowedReturnElidesToTheReceiver()
    assertEq(codes(POOL .. table.concat({
       "",
-      "function Pool:first(): borrowed<Res>",
+      "function Pool:first(): Borrowed<Res>",
       "   return self.items[1]",
       "end",
       "local pool = open_pool()",
@@ -1320,7 +1320,7 @@ function M.ownershipQualifiersAndParameterModesAreTyped()
       "local function inspect(borrows value: resource*): int32",
       "   return value.value",
       "end",
-      "local value: owned<resource*> = resource_new()",
+      "local value: Owned<resource*> = resource_new()",
       "inspect(value)",
       "resource_free(value)",
    }, "\n"))
@@ -1498,9 +1498,9 @@ function M.ownershipCannotDisappearIntoRawAnnotations()
 end
 
 function M.ownershipQualifiersSupportManagedValuesButPinsRequirePointers()
-   assertEq(codes("local value: owned<number>"), "")
-   assertEq(codes("local value: borrowed<string>"), "")
-   assertEq(codes("local value: pinned<boolean>"), "NUPP2602")
+   assertEq(codes("local value: Owned<number>"), "")
+   assertEq(codes("local value: Borrowed<string>"), "")
+   assertEq(codes("local value: Pinned<boolean>"), "NUPP2602")
 end
 
 function M.liveBorrowPreventsMoveUntilScopeEnds()
@@ -1527,7 +1527,7 @@ end
 function M.borrowedValuesCannotEscape()
    local returned = RESOURCE .. table.concat({
       "",
-      "local function bad(borrows value: resource*): borrowed<resource*>",
+      "local function bad(borrows value: resource*): Borrowed<resource*>",
       "   return value",
       "end",
    }, "\n")
@@ -1686,8 +1686,8 @@ function M.affineRecordsDropOwnedFieldsInReverseOrder()
       "   return new Res(name = name)",
       "end",
       "local record Bundle",
-      "   first: owned<Res>",
-      "   second: owned<Res>",
+      "   first: Owned<Res>",
+      "   second: Owned<Res>",
       "end",
       "local bundle = new Bundle(first = openRes('a'), second = openRes('b'))",
       "drop(bundle)",
@@ -1709,7 +1709,7 @@ function M.affineRecordsTrackPartialFieldMoves()
       "@owned(closeRes)",
       "local function openRes(): Res return new Res() end",
       "local record Bundle",
-      "   value: owned<Res>",
+      "   value: Owned<Res>",
       "end",
       "local bundle = new Bundle(value = openRes())",
       "local value = bundle.value",
@@ -1722,7 +1722,7 @@ function M.affineRecordsTrackPartialFieldMoves()
       "@owned(closeRes)",
       "local function openRes(): Res return new Res() end",
       "local record Bundle",
-      "   value: owned<Res>",
+      "   value: Owned<Res>",
       "end",
       "local bundle = new Bundle(value = openRes())",
       "local value = bundle.value",
@@ -1742,8 +1742,8 @@ function M.customDropOperationsMustDischargeEveryOwnedField()
    }, "\n")
    assertClean(prefix .. "\n" .. table.concat({
       "local record Bundle",
-      "   first: owned<Res>",
-      "   second: owned<Res>",
+      "   first: Owned<Res>",
+      "   second: Owned<Res>",
       "   @drop",
       "   function close(self)",
       "      closeRes(self.second)",
@@ -1755,8 +1755,8 @@ function M.customDropOperationsMustDischargeEveryOwnedField()
    }, "\n"))
    assertEq(codes(prefix .. "\n" .. table.concat({
       "local record Bundle",
-      "   first: owned<Res>",
-      "   second: owned<Res>",
+      "   first: Owned<Res>",
+      "   second: Owned<Res>",
       "   @drop",
       "   function close(self)",
       "      closeRes(self.second)",
@@ -2164,7 +2164,7 @@ function M.pinsProveAndAnchorManagedPointers()
       "cdef function forget(releases value: cstring)",
       "local text = 'hello'",
       "local pointer = ffi.cast<cstring>(text)",
-      "local handle: pinned<cstring> = pin(pointer, text)",
+      "local handle: Pinned<cstring> = pin(pointer, text)",
       "remember(handle)",
       "forget(handle)",
    }, "\n"))
@@ -2449,7 +2449,7 @@ function M.everyIntrinsicAnswersToItsQualifiedSpelling()
       "cdef function forget(releases value: cstring)",
       "local text = 'hello'",
       "local pointer = ffi.cast<cstring>(text)",
-      "local handle: pinned<cstring> = nupp.pin(pointer, text)",
+      "local handle: Pinned<cstring> = nupp.pin(pointer, text)",
       "remember(handle)",
       "forget(handle)",
    }, "\n"))
@@ -2654,7 +2654,7 @@ function M.borrowedClosureTypesNameTheirSiblingSource()
    assertClean(CLOSURE_RESOURCE .. table.concat({
       "",
       "local record ClosureHolder",
-      "   source: owned<ClosureResource>",
+      "   source: Owned<ClosureResource>",
       "   callback: function(): integer borrows (source)",
       "end",
    }, "\n"))
@@ -2690,7 +2690,7 @@ end
 function M.aTakingClosureMayBeReturned()
    assertClean(CLOSURE_RESOURCE .. table.concat({
       "",
-      "local function make(): owned<function(): integer>",
+      "local function make(): Owned<function(): integer>",
       "   local resource = openClosureResource(7)",
       "   return function(): integer takes (resource)",
       "      return resource.value",
@@ -2704,7 +2704,7 @@ end
 function M.aTakesCallbackCannotEraseBorrowedClosureProvenance()
    assertEq(codes(CLOSURE_RESOURCE .. table.concat({
       "",
-      "local function retain(takes callback: function(): any): owned<function(): any>",
+      "local function retain(takes callback: function(): any): Owned<function(): any>",
       "   return callback",
       "end",
       "local resource = openClosureResource(7)",
@@ -2781,6 +2781,87 @@ function M.raceAcceptsBorrowedClosuresWithoutRetainingThem()
       "})",
       "print(answer)",
       "drop(resource)",
+   }, "\n"))
+end
+
+-- `Owned<T>` says in the result what `@owned` said above the signature. A record
+-- that declared a `@drop` already says how it ends, so a producer states only that
+-- it produces an owner and the terminal is not restated at each one.
+local DROPPING_RECORD = table.concat({
+   "local record Session",
+   "   id: integer",
+   "",
+   "   @drop",
+   "   close: nosuspend function(takes self: Session): nil",
+   "end",
+   "function Session.close(takes self)",
+   "   unsafe do",
+   "      nupp.intoRaw(self)",
+   "   end",
+   "end",
+}, "\n")
+
+function M.anOwnedResultInheritsTheTypesDropOperation()
+   assertClean(DROPPING_RECORD .. table.concat({
+      "",
+      "local function open(id: integer): Owned<Session>",
+      "   return new Session(id = id)",
+      "end",
+      "do",
+      "   local session = open(7)",
+      "   print(session.id)",
+      "end",
+   }, "\n"))
+end
+
+-- What `@owned` cannot say: it names the first result and only the first, so a
+-- function owning its second had no spelling before the constructor.
+function M.aNonFirstResultMayBeOwned()
+   assertClean(DROPPING_RECORD .. table.concat({
+      "",
+      "local function openLogged(id: integer): (integer, Owned<Session>)",
+      "   return id * 2, new Session(id = id)",
+      "end",
+      "do",
+      "   local code, session = openLogged(7)",
+      "   print(code + session.id)",
+      "end",
+   }, "\n"))
+end
+
+function M.anOwnedNonFirstResultIsDestroyedAtItsScope()
+   local source = DROPPING_RECORD .. table.concat({
+      "",
+      "local function openLogged(id: integer): (integer, Owned<Session>)",
+      "   return id * 2, new Session(id = id)",
+      "end",
+      "local function use(): integer",
+      "   local code, session = openLogged(7)",
+      "   return code",
+      "end",
+      "return use",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-test")
+   assertEq(#genDiags, 0)
+   assert(code:find("__nuppCleanup", 1, true),
+      "the second result is discharged at scope exit: " .. code)
+end
+
+-- The annotation keeps meaning what it meant, so a migration can be done one
+-- declaration at a time rather than all at once.
+function M.theOwnedAnnotationStillDeclaresAnOwningResult()
+   assertClean(DROPPING_RECORD .. table.concat({
+      "",
+      "@owned",
+      "local function open(id: integer): Session",
+      "   return new Session(id = id)",
+      "end",
+      "do",
+      "   local session = open(7)",
+      "   print(session.id)",
+      "end",
    }, "\n"))
 end
 

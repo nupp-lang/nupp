@@ -88,12 +88,12 @@ local value = flow_open()
 unsafe do local raw: any = value end
 ]]},
    {"nominal affine field", true, [[
-local record Box item: owned<flow_resource*> end
+local record Box item: Owned<flow_resource*> end
 local box = new Box(item = flow_open())
 drop(box)
 ]]},
    {"partial move and residual cleanup", true, [[
-local record Box item: owned<flow_resource*> end
+local record Box item: Owned<flow_resource*> end
 local box = new Box(item = flow_open())
 local item = box.item
 drop(item)

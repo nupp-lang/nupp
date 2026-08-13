@@ -288,8 +288,8 @@ function M.partialFieldMovesAndReinitializationKeepExactObligations()
    local chunk = compile(PRELUDE .. table.concat({
       "",
       "local record Bundle",
-      "   first: owned<Resource>",
-      "   second: owned<Resource>",
+      "   first: Owned<Resource>",
+      "   second: Owned<Resource>",
       "end",
       "local function run()",
       "   local bundle = new Bundle(",

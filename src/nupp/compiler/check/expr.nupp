@@ -570,7 +570,7 @@ function expr.install(c: state.Checker): nil
             local target = c.resolveType(node.type)
             if c.ownershipKind(target) then
                 if c.ownershipKind(target) == "pinned" and c.ownershipKind(source) ~= "pinned" then
-                    c.diag("NUPP2604", node, "a pinned<T> value must be constructed with pin(pointer, anchor)")
+                    c.diag("NUPP2604", node, "a Pinned<T> value must be constructed with pin(pointer, anchor)")
                 end
                 return target
             end

@@ -1207,7 +1207,7 @@ function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
       "   yields (number) resumes (boolean)",
       "   return new Factory(count = 1_000)",
       "end",
-      "local function preserve(scoped callback: function(): nil, value: owned<voidptr>): voidptr preserves value return value end",
+      "local function preserve(scoped callback: function(): nil, value: Owned<voidptr>): voidptr preserves value return value end",
       "local compiled = comptime do return {answer = 42} end",
       "nosuspend do end",
       "handle suspension with cancel do cancel() end",

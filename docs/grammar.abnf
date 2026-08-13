@@ -269,9 +269,12 @@ annotatedstat  = annotation stat
 annotation     = "@" Name [annotationargs]
 annotationargs = "(" [annotationarg *("," annotationarg)] ")"
 annotationarg  = [Name "="] exp
-; @owned(cleanup, ...) decorates a function with an ordered, erased cleanup
-; contract for its first return. Bare @owned resolves one inherited @drop
-; operation; @owned(opaque = true) is explicitly transfer-only. On cdef
+; Owned<T> is the ordinary spelling of an owning result: it is a typename, so it
+; needs no rule of its own, it may be written at any result position, and its
+; terminal comes from the inner type's @drop. @owned(cleanup, ...) decorates a
+; function with an ordered, erased cleanup contract for its first return, and
+; still names a terminal no type declares. Bare @owned resolves one inherited
+; @drop operation; @owned(opaque = true) is explicitly transfer-only. On cdef
 ; functions, @owned(out = p, cleanup = f, success = zero) and
 ; @borrowed(out = p, from = source, success = zero) describe logical outputs.
 
@@ -579,7 +582,7 @@ packunion      = typepack 1*("|" typepack)
 ;   parenthesized list of parameters, the result borrows from. The result may
 ;   not outlive any named argument, and no source may move while it is live.
 ;   On a method the source may be left out by
-;   writing the return as `borrowed<T>`: the receiver is the only thing it
+;   writing the return as `Borrowed<T>`: the receiver is the only thing it
 ;   could name. Where the function also carries `@owned`, the result stays
 ;   owned and holds the borrow as well, which is what a layered resource is.
 ;   A Nupp body must prove the declared result provenance. A bodyless

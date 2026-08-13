@@ -346,7 +346,7 @@ function M.affinePackResultsCannotBeSilentlyDiscarded()
       "@owned(cleanup = release)",
       "cdef function acquire(): voidptr",
       "cdef function release(takes value: voidptr)",
-      "local function make(): (number, owned<voidptr>)",
+      "local function make(): (number, Owned<voidptr>)",
       "   return 1, acquire()",
       "end",
    }, "\n")
@@ -383,7 +383,7 @@ function M.genericPackForwardingKeepsBorrowProvenance()
       "cdef function resource_new(): resource*",
       "cdef function resource_free(takes value: resource*)",
       "local function borrow(borrows value: resource*):",
-      "   borrowed<resource*> borrows (value)",
+      "   Borrowed<resource*> borrows (value)",
       "   return value",
       "end",
       "local function forward<A...>(...: A...): A...",
