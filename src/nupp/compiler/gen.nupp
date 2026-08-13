@@ -193,6 +193,40 @@ function literal.quote(s)
     return '"' .. s .. '"'
 end
 
+--- A long-string token's runtime bytes after `dedent` removes the indentation that
+--- appears immediately before its closing delimiter. Lua already ignores the first
+--- newline after a long-string opener; this mirrors that rule before stripping the
+--- margin and renders the result as a normal quoted Lua literal.
+local function dedentLongString(text)
+    local equals = text:match("^%[(=*)%[")
+    if equals == nil then
+        return text
+    end
+    local delimiterLength = #equals + 2
+    local body = text:sub(delimiterLength + 1, #text - delimiterLength)
+    body = body:gsub("\r\n", "\n"):gsub("\r", "\n")
+    if body:sub(1, 1) == "\n" then
+        body = body:sub(2)
+    end
+    local margin = body:match("\n([ \t]*)$")
+    if margin then
+        body = body:sub(1, #body - #margin)
+        if #margin > 0 then
+            local function strip(line)
+                if line:sub(1, #margin) == margin then
+                    return line:sub(#margin + 1)
+                end
+                return line
+            end
+            local first = body:match("^[^\n]*") or ""
+            body = strip(first) .. body:sub(#first + 1):gsub("\n([^\n]+)", function(line)
+                return "\n" .. strip(line)
+            end)
+        end
+    end
+    return body
+end
+
 --- Renders a closed, data-only derive recipe as one Lua expression. Keys are sorted so
 --- equal semantic recipes produce byte-identical output regardless of table iteration.
 --- @raises when a compiler-owned recipe contains a non-data value or a cycle
@@ -1630,6 +1664,10 @@ function gen.generate(
         local kind = x.kind
         if kind == "block" and x.automaticOwners and #x.automaticOwners > 0 then
             emitChildren(x)
+            return
+        end
+        if kind == "dedentString" then
+            e(string.format("%q", dedentLongString(x.token and x.token.text or "")), sourceLine(x))
             return
         end
         if coverageOn and kind == "block" then

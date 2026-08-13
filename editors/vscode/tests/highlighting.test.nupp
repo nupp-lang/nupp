@@ -167,27 +167,27 @@ local function documented(task: Task): string
    return task.title
 end
 
-local json: String<"json"> = [[
+local json: string<"json"> = dedent [[
 {"enabled": true}
 -- <- meta.embedded.block.json.nupp
 ]]
 
-local glsl: String<"glsl"> = [[
+local glsl: string<"glsl"> = [[
 void main() {}
 -- <- meta.embedded.block.glsl.nupp
 ]]
 
-local luaSource: String<"lua"> = [[
+local luaSource: string<"lua"> = [[
 return true
 -- <- meta.embedded.block.lua.nupp
 ]]
 
-local nuppSource: String<"nupp"> = [[
+local nuppSource: string<"nupp"> = [[
 local answer: integer = 42
 -- <- meta.embedded.block.nupp.nupp
 ]]
 
-local grammar: String<"peg"> = [[
+local grammar: string<"peg"> = [[
 name <- [a-z]+ !.
 -- <- meta.embedded.block.peg.nupp
 ]]

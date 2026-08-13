@@ -312,6 +312,8 @@ function expr.install(c: state.Checker): nil
                 return T.literal(body, T.string)
             end
             return T.string
+        elseif kind == "dedentString" then
+            return T.string
         elseif kind == "nilExpr" then
             return T.nil_
         elseif kind == "trueExpr" then

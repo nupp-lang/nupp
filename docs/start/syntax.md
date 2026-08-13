@@ -33,8 +33,11 @@ local function sum(...items) -- named varargs
 end
 ```
 
-Nupp adds three things here and takes nothing away: interpolated strings
-(`` `a is ${a}` ``), `??=`, and type annotations on short-function parameters.
+Nupp adds four things here and takes nothing away: interpolated strings
+(`` `a is ${a}` ``), `dedent [[...]]` text blocks, `??=`, and type annotations
+on short-function parameters. A `dedent` long string strips the indentation of
+its closing `]]` from every nonblank content line; ordinary `[[...]]` strings
+remain exact Lua strings.
 
 ## Level 1: the typed layer
 

@@ -1358,6 +1358,19 @@ record cst.StringLit is cst.Hints
     token: lexer.Token?
 end
 
+--- A long string with its closing delimiter's indentation removed from content lines.
+record cst.DedentString is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'dedentString'
+
+    --- The contextual `dedent` introducer.
+    keyword: lexer.Token?
+
+    --- The following Lua long-string token.
+    token: lexer.Token?
+end
+
 --- `nil`.
 record cst.NilExpr is cst.Hints
     {cst.Node | lexer.Token}
@@ -2255,6 +2268,7 @@ type cst.Node = cst.Chunk
     | cst.NameExpr
     | cst.NumberLit
     | cst.StringLit
+    | cst.DedentString
     | cst.NilExpr
     | cst.TrueExpr
     | cst.FalseExpr

@@ -21,7 +21,7 @@ local state = require("nupp.compiler.check.state")
 
 local resolve = {}
 
---- The formats whose grammars the bundled VS Code extension embeds in a String literal.
+--- The formats whose grammars the bundled VS Code extension embeds in a string literal.
 --- This is deliberately closed: arbitrary language IDs cannot be selected dynamically by
 --- a TextMate grammar, and accepting one would promise editor behaviour we do not supply.
 local EMBEDDED_STRING_FORMATS = {
@@ -192,17 +192,16 @@ function resolve.install(c: state.Checker): nil
         return map
     end
 
-    --- Records the checked editor contract on its written type node. The alias itself
-    --- remains transparent: `String<"json">` is exactly `string` to the type relation
-    --- and at runtime. Keeping this on the CST is what lets editor tooling find the
-    --- source literal without introducing a second runtime type.
-    local function embeddedStringFormat(alias, node, map)
-        if alias.name ~= "String" or alias.body ~= T.string or #(alias.typeParams or {}) ~= 0
-            or #(alias.packParams or {}) ~= 0 or #(alias.constParams or {}) ~= 1 then
-            return
-        end
-        local value = map[alias.constParams[1]]
+    --- Records the checked editor contract on its written type node. `string<"json">`
+    --- remains plain `string` to the type relation and at runtime. Keeping this on the
+    --- CST lets editor tooling find the source literal without a second runtime type.
+    local function recordEmbeddedStringFormat(node, value)
         if not value or value.tag ~= "constLiteral" or value.domain ~= "string" then
+            c.diag(
+                "NUPP2131",
+                (node.typeArgs and node.typeArgs[1]) or node,
+                "string syntax must be a compile-time string literal"
+            )
             return
         end
         local format = value.value as string
@@ -212,7 +211,7 @@ function resolve.install(c: state.Checker): nil
             c.diag(
                 "NUPP2131",
                 (node.typeArgs and node.typeArgs[1]) or node,
-                ("String syntax %q is unsupported; expected json, glsl, lua, nupp, or peg"):format(format)
+                ("string syntax %q is unsupported; expected json, glsl, lua, nupp, or peg"):format(format)
             )
         end
     end
@@ -229,7 +228,6 @@ function resolve.install(c: state.Checker): nil
         end
         if t and t.tag == "genericAlias" then
             local map = aliasArgumentMap(t, node)
-            embeddedStringFormat(t, node, map)
             local rebound = generics.materialize(t.body, map)
             local reduced, reductionError = generics.reduce(rebound, {}, c.reducerMemo, c.reductionControl)
             if reductionError then
@@ -697,6 +695,14 @@ function resolve.install(c: state.Checker): nil
                 return T.any
             end
             local name = base.text
+            if name == "string" and node.typeArgs then
+                if #node.typeArgs ~= 1 then
+                    c.diag("NUPP2131", node, "string syntax needs exactly one literal format")
+                    return T.string
+                end
+                recordEmbeddedStringFormat(node, consteval.fromType(c.resolveType(node.typeArgs[1])))
+                return T.string
+            end
             if name == "ctype" and node.typeArgs and node.typeArgs[1] then
                 return T.ctype(c.resolveType(node.typeArgs[1]))
             end

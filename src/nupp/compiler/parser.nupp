@@ -1493,7 +1493,13 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- A literal, constructor, function, or suffixed expression.
     local function parseSimpleexp(): Node
         local kind = cur().kind
-        if kind == "number" or kind == "string" then
+        if kind == "name" and cur().text == "dedent" and tokens[i + 1]
+            and tokens[i + 1].kind == "string" and tokens[i + 1].text:sub(1, 1) == "[" then
+            local n = new cst.DedentString(kind = "dedentString")
+            n.keyword = add(n, advance())
+            n.token = add(n, advance())
+            return n
+        elseif kind == "number" or kind == "string" then
             local n: cst.NumberLit | cst.StringLit
             if kind == "number" then
                 n = new cst.NumberLit(kind = "number")

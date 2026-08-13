@@ -21,13 +21,6 @@ This file is parsed and checked by `nupp` itself: the first dogfooded `.d.nupp`
 declaration file.
 ]]
 
---- A string whose literal contents use the named embedded-language syntax.
----
---- `String<"json">`, `String<"glsl">`, `String<"lua">`, `String<"nupp">`,
---- and `String<"peg">` are ordinary strings at runtime. The language argument is
---- type-erased editor metadata, used to colour directly initialized long strings.
-local type String<const Syntax: string> = string
-
 --- Writes every argument to standard output, converted with `tostring`, separated by
 --- tabs and followed by a newline.
 ---

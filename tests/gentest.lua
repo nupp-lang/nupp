@@ -422,6 +422,12 @@ function M.istringSemantics()
     assertEq(run("local t = { n = 4 }\nreturn `v=${ ({ t.n })[1] }`"), "v=4")
 end
 
+function M.dedentLongStringSemantics()
+    assertEq(run("return dedent [[\n   hello\n   ]]"), "hello\n")
+    assertEq(run("return dedent [[\n   outer\n      inner\n   ]]"), "outer\n   inner\n")
+    assertEq(run("return dedent [=[\n   ]] remains text\n   ]=]"), "]] remains text\n")
+end
+
 function M.isSemantics()
     assertEq(run("local v: number | string = 'hi'\nreturn v is string"), true)
     assertEq(run("local v: number | string = 5\nreturn v is string"), false)

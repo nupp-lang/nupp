@@ -76,16 +76,17 @@ functions, properties, types, and references using checker information.
 
 ## Embedded string syntax
 
-`String<"json">`, `String<"glsl">`, `String<"lua">`, `String<"nupp">`, and
-`String<"peg">` are transparent string types whose literal argument tells the
+`string<"json">`, `string<"glsl">`, `string<"lua">`, `string<"nupp">`, and
+`string<"peg">` are transparent string types whose literal argument tells the
 editor what a directly initialized local or const long string contains:
 
 ```nupp
-local config: String<"json"> = [[
-{"enabled": true}
-]]
+local config: string<"json"> = dedent [[
+   {"enabled": true}
+   ]]
 ```
 
 The annotation is type-erased; the value is an ordinary `string`. Long strings
 are required for embedded highlighting so their contents are not obscured by
-Lua escape sequences.
+Lua escape sequences. `dedent` removes the closing delimiter's indentation
+from the content, making indented text blocks convenient.

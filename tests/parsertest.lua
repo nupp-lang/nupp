@@ -314,6 +314,14 @@ function M.interpolatedStringsParse()
    assertEq(cst.textOf(result.root), "local s = `broken ${x")
 end
 
+function M.dedentStringsStayContextualAndLossless()
+   assertEq(exprDump("dedent [[\n   ready\n   ]]"),
+      "(dedentString dedent [[\n   ready\n   ]])")
+   local ordinary = exprDump("dedent[1]")
+   assertEq(ordinary, "(bracketIndex (name dedent) [ (number 1) ])")
+   assertRoundtrip("local text = dedent [=[\n   ]] stays raw\n   ]=]\n")
+end
+
 function M.precedenceBitLayers()
    -- | < ~ < & < shift, and .. binds tighter than shift (Lua 5.3 layering)
    assertEq(exprDump("1 | 2 ~ 3 & 4 << 5"),
