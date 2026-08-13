@@ -377,6 +377,13 @@ function M.bitsetsReachTheCheckedModuleThroughTheNamespace()
       assert(set:count() == 12)
       assert(set:nextSetBit(0) == 5)
 
+      local ffi = require("ffi")
+      local target = ffi.new("int32_t[?]", 4)
+      local written, resume = set:positionsInto(target, 4, 0)
+      assert(written == 4, "positionsInto filled the destination")
+      assert(target[0] == 5, "first position")
+      assert(resume == 43, "and reported where to carry on")
+
       assert(nupp.data.bitset.WORD_BITS == 32)
       assert(set:wordAt(0) == 32)
       assert(nupp.data.bitset.create(8) ~= nupp.data.bitset.create(8))

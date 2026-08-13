@@ -433,6 +433,78 @@ record bitset.Bitset
         return -1
     end
 
+    --- Writes every set position at or after `from` into `target`, lowest first.
+    ---
+    --- One call rather than one per position. A walk pays a call and a word read
+    --- for every position it returns, which for a few thousand positions is most
+    --- of what it costs; this reads each word once and clears the position it
+    --- just reported out of a register.
+    ---
+    --- `target` is a pointer and a count because that is what a native kernel
+    --- takes. Filling it here rather than allocating keeps a per-frame extraction
+    --- allocation-free, and leaves the boundary where a native one would sit.
+    ---
+    --- @param target where positions are written, indexed from 0
+    --- @param capacity how many positions `target` holds
+    --- @param from the lowest position that may be written, counting from 0
+    --- @return how many positions were written, and the position to resume from
+    ---     when `target` filled first, or -1 when the set is exhausted
+    --- @raises when capacity is negative
+    function positionsInto(
+        self,
+        target: int32[?],
+        capacity: integer,
+        from: integer
+    ): (integer, integer)
+        if capacity < 0 then
+            error("bitset target capacity cannot be negative", 2)
+        end
+
+        local start = from < 0 ? 0 : from
+        local first = rshift(start, WORD_SHIFT)
+        local used = self.used
+        if first >= used then
+            return 0, -1
+        end
+        if capacity == 0 then
+            return 0, start
+        end
+
+        local words = self.words
+        local offset = band(start, BIT_MASK)
+        local written = 0
+        -- Both loops are bounded. The inner one cannot run past a word's width,
+        -- and an unbounded loop here would be an inner loop LuaJIT re-detects on
+        -- every pass of whatever loop the extraction sits in.
+        unsafe do
+            for word = first, used - 1 do
+                local bits = tobit(words[word])
+                if word == first and offset ~= 0 then
+                    bits = band(bits, bnot(lshift(1, offset) - 1))
+                end
+
+                local base = lshift(word, WORD_SHIFT)
+                for _ = 1, BITS_PER_WORD do
+                    if bits == 0 then
+                        break
+                    end
+
+                    local position = base + lowestBit(bits)
+                    if written >= capacity then
+                        return written as integer, position
+                    end
+                    target[written] = position
+                    written = (written + 1) as integer
+                    -- Clearing the lowest set bit is cheaper than masking the
+                    -- word again from the position just reported.
+                    bits = band(bits, bits - 1)
+                end
+            end
+        end
+
+        return written as integer, -1
+    end
+
     --- Whether every bit set in `other` is also set here.
     --- @param other read and not modified
     --- @return true when `other` is a subset. An empty `other` is contained by

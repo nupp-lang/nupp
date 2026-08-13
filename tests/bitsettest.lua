@@ -494,4 +494,121 @@ function M.wordCountBoundsEverySetBit()
       "every set bit is below the bound")
 end
 
+function M.positionsIntoMatchesTheWalk()
+   local ffi = require("ffi")
+   for _, bits in ipairs({1, 32, 33, 200, 4096}) do
+      local set = bitset.create(8)
+      local want = oracle()
+      local step = math.max(1, math.floor(bits / 17))
+      for position = 0, bits - 1, step do
+         set:set(position)
+         want:set(position)
+      end
+
+      local expected = want:positions()
+      local target = ffi.new("int32_t[?]", math.max(1, #expected))
+      local written, resume = set:positionsInto(target, #expected, 0)
+      check.equal(written, #expected, "written at width " .. bits)
+      check.equal(resume, -1, "exhausted at width " .. bits)
+      for at = 1, #expected do
+         check.equal(target[at - 1], expected[at],
+            ("position %d at width %d"):format(at, bits))
+      end
+   end
+end
+
+function M.positionsIntoResumesWhenTargetFills()
+   local ffi = require("ffi")
+   local set = bitset.create(64)
+   local want = oracle()
+   for position = 0, 300, 3 do
+      set:set(position)
+      want:set(position)
+   end
+   local expected = want:positions()
+
+   -- A target smaller than the population, drained in chunks. The chained calls
+   -- have to produce exactly the walk's sequence with nothing lost or repeated.
+   local target = ffi.new("int32_t[?]", 7)
+   local collected, from = {}, 0
+   while from >= 0 do
+      local written, resume = set:positionsInto(target, 7, from)
+      for at = 1, written do collected[#collected + 1] = target[at - 1] end
+      check.assert(resume == -1 or written == 7,
+         "a partial fill means the set was exhausted")
+      from = resume
+   end
+
+   check.equal(#collected, #expected, "chunked total")
+   for at = 1, #expected do
+      check.equal(collected[at], expected[at], "chunked position " .. at)
+   end
+end
+
+function M.positionsIntoEdges()
+   local ffi = require("ffi")
+   local target = ffi.new("int32_t[?]", 4)
+
+   local empty = bitset.create(64)
+   local written, resume = empty:positionsInto(target, 4, 0)
+   check.equal(written, 0, "nothing written for an empty set")
+   check.equal(resume, -1, "and it is exhausted")
+
+   local set = bitset.create(64)
+   set:set(5)
+   set:set(100)
+
+   written, resume = set:positionsInto(target, 0, 0)
+   check.equal(written, 0, "a zero capacity writes nothing")
+   check.equal(resume, 0, "and resumes where it started")
+
+   written, resume = set:positionsInto(target, 4, 6)
+   check.equal(written, 1, "a start past the first position skips it")
+   check.equal(target[0], 100, "and finds the next")
+   check.equal(resume, -1, "then is exhausted")
+
+   written, resume = set:positionsInto(target, 4, 101)
+   check.equal(written, 0, "a start past every position writes nothing")
+   check.equal(resume, -1, "and is exhausted")
+
+   written, resume = set:positionsInto(target, 4, -5)
+   check.equal(written, 2, "a negative start reads as zero")
+   check.equal(target[0], 5, "first position")
+
+   written, resume = set:positionsInto(target, 4, FAR)
+   check.equal(written, 0, "a start far past the end writes nothing")
+   check.equal(resume, -1, "and is exhausted")
+
+   check.raises(function() set:positionsInto(target, -1, 0) end, "capacity")
+end
+
+function M.positionsIntoAfterSetAlgebra()
+   -- The used bound is an upper bound after intersection, so the extraction has
+   -- to tolerate trailing zero words rather than trusting the bound is tight.
+   local ffi = require("ffi")
+   local set = bitset.create(4096)
+   local other = bitset.create(4096)
+   local want, otherWant = oracle(), oracle()
+   for position = 0, 3000, 7 do
+      set:set(position)
+      want:set(position)
+   end
+   for position = 0, 500, 7 do
+      other:set(position)
+      otherWant:set(position)
+   end
+
+   set:andWith(other)
+   want:andWith(otherWant)
+   local expected = want:positions()
+
+   local target = ffi.new("int32_t[?]", math.max(1, #expected))
+   local written, resume = set:positionsInto(target, #expected, 0)
+   check.equal(written, #expected, "written after intersection")
+   check.equal(resume, -1, "exhausted after intersection")
+   for at = 1, #expected do
+      check.equal(target[at - 1], expected[at], "position " .. at)
+   end
+end
+
 return M

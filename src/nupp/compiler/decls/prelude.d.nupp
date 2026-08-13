@@ -1469,6 +1469,23 @@ record nupp.data
             --- @return that position, or -1 when there is none
             nextSetBit: function(self, from: integer): integer
 
+            --- Writes every set position at or after `from` into `target`, lowest
+            --- first. One call rather than one per position, which is most of what
+            --- a walk over a few thousand of them costs. `target` is a pointer and
+            --- a count because that is what a native kernel takes.
+            --- @param target where positions are written, indexed from 0
+            --- @param capacity how many positions `target` holds
+            --- @param from the lowest position that may be written
+            --- @return how many were written, and the position to resume from when
+            ---     `target` filled first, or -1 when the set is exhausted
+            --- @raises when capacity is negative
+            positionsInto: function(
+                self,
+                target: int32[?],
+                capacity: integer,
+                from: integer
+            ): (integer, integer)
+
             --- Whether every bit set in `other` is also set here.
             --- @param other read and not modified
             --- @return true when `other` is a subset

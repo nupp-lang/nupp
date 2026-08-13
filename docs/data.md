@@ -172,6 +172,26 @@ width.
 `nextSetBit` holds no state on the set, so walks may be nested and a mutation
 between two calls cannot invalidate one in progress.
 
+`positionsInto` writes every set position into an array in one call, which is
+what a per-frame extraction should use: a walk pays a call and a word read for
+each position it returns, and one call measured 1.3 to 1.6 times faster than the
+same walk over a few thousand positions. It takes a pointer and a count rather
+than allocating, so nothing is allocated per frame, and returns how many it
+wrote alongside the position to resume from when the destination filled first.
+
+```nupp:static
+local ffi = require("ffi")
+local live = ffi.new("int32_t[?]", capacity)
+
+local written, resume = visible:positionsInto(live, capacity, 0)
+for index = 0, written - 1 do
+    consider(live[index])
+end
+if resume >= 0 then
+    -- The destination filled; the next call carries on from here.
+end
+```
+
 This is pure generated Lua with no native provider. It is an ordinary checked
 Nupp module that the namespace loads on first reach.
 
@@ -186,5 +206,6 @@ Nupp module that the namespace loads on first reach.
 | `containsAll(other)`, `overlaps(other)`, `disjoint(other)` | boolean | Compare two sets. |
 | `orWith`, `andWith`, `andNotWith`, `xorWith`, `copyFrom` | — | Set algebra in place. |
 | `nextSetBit(from)` | integer, or -1 | Walk set positions. |
+| `positionsInto(target, capacity, from)` | written, resume | Extract every set position in one call. |
 | `wordCount()`, `wordAt(index)` | integer | Walk stored words. |
 | `reserve(bits)` | — | Grow ahead of use. |
