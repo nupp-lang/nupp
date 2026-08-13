@@ -88,5 +88,5 @@ local config: string<"json"> = dedent [[
 
 The annotation is type-erased; the value is an ordinary `string`. Long strings
 are required for embedded highlighting so their contents are not obscured by
-Lua escape sequences. `dedent` removes the closing delimiter's indentation
-from the content, making indented text blocks convenient.
+Lua escape sequences. `dedent` removes shared indentation from the content,
+including when the closing delimiter follows its final line.

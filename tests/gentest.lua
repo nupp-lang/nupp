@@ -426,6 +426,8 @@ function M.dedentLongStringSemantics()
     assertEq(run("return dedent [[\n   hello\n   ]]"), "hello\n")
     assertEq(run("return dedent [[\n   outer\n      inner\n   ]]"), "outer\n   inner\n")
     assertEq(run("return dedent [=[\n   ]] remains text\n   ]=]"), "]] remains text\n")
+    assertEq(run("return dedent [[\n    {\n        \"user\": \"foo\"\n    }]]"),
+        "{\n    \"user\": \"foo\"\n}")
 end
 
 function M.isSemantics()

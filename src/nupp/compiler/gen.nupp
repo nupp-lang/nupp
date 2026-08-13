@@ -193,10 +193,11 @@ function literal.quote(s)
     return '"' .. s .. '"'
 end
 
---- A long-string token's runtime bytes after `dedent` removes the indentation that
---- appears immediately before its closing delimiter. Lua already ignores the first
---- newline after a long-string opener; this mirrors that rule before stripping the
---- margin and renders the result as a normal quoted Lua literal.
+--- A long-string token's runtime bytes after `dedent` removes incidental indentation.
+--- The closing delimiter's indentation is the margin when it is on its own line;
+--- otherwise the longest common content indentation is used. Lua already ignores the
+--- first newline after a long-string opener; this mirrors that rule before stripping
+--- the margin and renders the result as a normal quoted Lua literal.
 local function dedentLongString(text)
     local equals = text:match("^%[(=*)%[")
     if equals == nil then
@@ -211,18 +212,37 @@ local function dedentLongString(text)
     local margin = body:match("\n([ \t]*)$")
     if margin then
         body = body:sub(1, #body - #margin)
-        if #margin > 0 then
-            local function strip(line)
-                if line:sub(1, #margin) == margin then
-                    return line:sub(#margin + 1)
+    else
+        --- The common byte prefix keeps mixed tabs and spaces unambiguous: only the
+        --- indentation text every nonblank line actually shares is removed.
+        for line in (body .. "\n"):gmatch("([^\n]*)\n") do
+            if line:find("[^ \t]") then
+                local indent = line:match("^[ \t]*") or ""
+                if margin == nil then
+                    margin = indent
+                else
+                    local length = math.min(#margin, #indent)
+                    local shared = 0
+                    while shared < length and margin:sub(shared + 1, shared + 1)
+                        == indent:sub(shared + 1, shared + 1) do
+                        shared = shared + 1
+                    end
+                    margin = margin:sub(1, shared)
                 end
-                return line
             end
-            local first = body:match("^[^\n]*") or ""
-            body = strip(first) .. body:sub(#first + 1):gsub("\n([^\n]+)", function(line)
-                return "\n" .. strip(line)
-            end)
         end
+    end
+    if margin and #margin > 0 then
+        local function strip(line)
+            if line:sub(1, #margin) == margin then
+                return line:sub(#margin + 1)
+            end
+            return line
+        end
+        local first = body:match("^[^\n]*") or ""
+        body = strip(first) .. body:sub(#first + 1):gsub("\n([^\n]+)", function(line)
+            return "\n" .. strip(line)
+        end)
     end
     return body
 end

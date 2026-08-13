@@ -172,6 +172,11 @@ local json: string<"json"> = dedent [[
 -- <- meta.embedded.block.json.nupp
 ]]
 
+local j: string<"json"> = [[
+    {"foo": "bar"}
+--   ^^^^^ string.quoted.double.json
+]]
+
 local glsl: string<"glsl"> = [[
 void main() {}
 -- <- meta.embedded.block.glsl.nupp

@@ -35,9 +35,10 @@ end
 
 Nupp adds four things here and takes nothing away: interpolated strings
 (`` `a is ${a}` ``), `dedent [[...]]` text blocks, `??=`, and type annotations
-on short-function parameters. A `dedent` long string strips the indentation of
-its closing `]]` from every nonblank content line; ordinary `[[...]]` strings
-remain exact Lua strings.
+on short-function parameters. A `dedent` long string strips shared incidental
+indentation; an own-line closing `]]` supplies that margin, while an inline
+closing delimiter uses the common indentation of its content. Ordinary
+`[[...]]` strings remain exact Lua strings.
 
 ## Level 1: the typed layer
 
