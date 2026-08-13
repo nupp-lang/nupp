@@ -31,15 +31,13 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v4
 
-      - name: Set up Lua
-        uses: leafo/gh-actions-lua@v13
-        with:
-          luaVersion: "5.1.5"
-
-      - name: Set up LuaRocks
-        uses: leafo/gh-actions-luarocks@v6
-        with:
-          luaRocksVersion: "3.12.2"
+      # Compiling Nupp evaluates `@comptime` code, and the compiler evaluates that by
+      # starting a sealed worker through `bin/nupp` -- which is a LuaJIT launcher. A
+      # build of the compiler therefore needs the same interpreter the compiler matrix
+      # builds, whatever interpreter drives the build itself.
+      - name: Build LuaJIT and lua-cjson
+        shell: bash
+        run: .github/scripts/setup-luajit-posix.sh
 
       - name: Build Nupp
         env:
@@ -54,32 +52,29 @@ jobs:
             --features files,process
 
           case "$RUNNER_OS" in
-            macOS)
-              bootstrap_host=build/bootstrap-host/release/nupp-host
-              native_library=build/bootstrap-native/release/libnupp_native.dylib
-              ;;
-            *)
-              bootstrap_host=build/bootstrap-host/release/nupp-host
-              native_library=build/bootstrap-native/release/libnupp_native.so
-              ;;
+            macOS) native_library=build/bootstrap-native/release/libnupp_native.dylib ;;
+            *)     native_library=build/bootstrap-native/release/libnupp_native.so ;;
           esac
 
-          export NUPP_COMPILER_ROOT="$GITHUB_WORKSPACE"
-          export NUPP_LUA_DIR="$GITHUB_WORKSPACE/.lua"
-          export NUPP_NATIVE_LIBRARY="$GITHUB_WORKSPACE/$native_library"
-          "$bootstrap_host" bootstrap/nupp.lua build --target compiler
+          # Stage 0 through the launcher, which stages the native file provider that
+          # listing the compiler's own sources reaches, so no worker has to wait on
+          # Cargo. Stage 1 through the stub, so the interpreter every standalone binary
+          # carries is the one that compiles the payload it will carry.
+          ./bin/nupp build --target compiler
           cat > build/current-compiler.lua <<'LUA'
           package.path = os.getenv("GITHUB_WORKSPACE") .. "/build/?.lua;"
              .. package.path
           dofile(os.getenv("GITHUB_WORKSPACE") .. "/build/nupp/compiler/main.lua")
           LUA
-          "$bootstrap_host" build/current-compiler.lua build --target dist
+          NUPP_COMPILER_ROOT="$GITHUB_WORKSPACE" \
+            NUPP_NATIVE_LIBRARY="$GITHUB_WORKSPACE/$native_library" \
+            build/bootstrap-host/release/nupp-host \
+            build/current-compiler.lua build --target dist
 
           mkdir -p release
           mv build/dist/nupp "release/$ARTIFACT_NAME"
           chmod +x "release/$ARTIFACT_NAME"
 
-          unset NUPP_NATIVE_LIBRARY
           "release/$ARTIFACT_NAME" check src/nupp/init.nupp
 
       - name: Extract the platform-independent payload
