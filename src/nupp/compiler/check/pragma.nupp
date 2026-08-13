@@ -14,6 +14,7 @@ through the chain to reach the declaration underneath.
 local cst = require("nupp.compiler.cst")
 local lints = require("nupp.compiler.lints")
 local hash = require("nupp.compiler.build.hash")
+local T = require("nupp.compiler.types")
 local state = require("nupp.compiler.check.state")
 
 local pragma = {}
@@ -238,20 +239,20 @@ function pragma.install(c: state.Checker): state.StatHandlers
                     local answerBase = answer and (answer.origin or answer) or nil
                     if answerBase == resultType then
                         local contract = answer.typeArgs and answer.typeArgs[1] or nil
+                        local hasContract = contract and contract.tag == "nominal" and contract.declKind == "interface"
+                        local isUnconstrained = contract == T.any
                         if #signature.params ~= 1 or signature.params[
                             1
                         ] ~= infoType
                             or #signature.rets ~= 1
                             or signature.vararg
-                            or not contract
-                            or contract.tag ~= "nominal"
-                            or contract.declKind ~= "interface" then
+                            or not (hasContract or isUnconstrained) then
                             c.diag(
                                 "NUPP2809",
                                 helper.name,
                                 "a derive provider must have signature function(nupp.derive.Info): nupp.derive.Result<I>",
                                 nil,
-                                {help = "I must be one existing interface"}
+                                {help = "I must be one existing interface, or any for self-declared members"}
                             )
                         else
                             sealedProgram.bodyFingerprint = sealedProgram.identity
@@ -267,8 +268,8 @@ function pragma.install(c: state.Checker): state.StatHandlers
                                 )
                             )
                             sealedProgram.deriveProvider = true
-                            sealedProgram.deriveInterface = contract
-                            sealedProgram.deriveInterfaceIdentity = contract.id
+                            sealedProgram.deriveInterface = hasContract and contract or nil
+                            sealedProgram.deriveInterfaceIdentity = hasContract and contract.id or nil
                             sealedProgram.providerModule = c.result.moduleName
                             sealedProgram.providerModuleLocal = c.moduleLocal
                             sealedProgram.runtimeHelpers = {}

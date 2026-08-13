@@ -1534,7 +1534,6 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     inst.writeFieldDefs = n.writeFieldDefs
     inst.staticFieldDefs = n.staticFieldDefs
     inst.staticWriteFieldDefs = n.staticWriteFieldDefs
-    inst.deriveOperations = n.deriveOperations
     inst.deriveKey = n.deriveKey
     inst.deriveRecipe = n.deriveRecipe
     inst.derivedDefinitions = n.derivedDefinitions

@@ -582,9 +582,9 @@ record nupp.derive
 
     --- One value a generated call passes.
     ---
-    --- Built by `receiver`, `argument`, `field`, `constant`, or `array`. The compiler
-    --- owns it: a provider may hold one and place it in an argument list, and nothing
-    --- else.
+    --- Built by `receiver`, `entry`, `argument`, `field`, `constant`, or `array`.
+    --- The compiler owns it: a provider may hold one and place it in an argument
+    --- list, and nothing else.
     record Argument
     end
 
@@ -600,25 +600,32 @@ record nupp.derive
     record Forward
     end
 
+    --- A generated member with a comptime-built function signature and forward
+    --- recipe. Use this when the provider declares a member that is not already an
+    --- interface requirement.
+    record Member
+    end
+
     --- What a provider returns: the recipe implementing interface `I`.
     ---
-    --- `I` is the one interface the provider implements, and writing it in the return
-    --- type is how `@derive` knows which contract applying the provider claims. Produce
-    --- one with `implement`, or refuse the declaration with `error`. The compiler owns
-    --- it and there is nothing on it to read: what it carries crosses the comptime
+    --- `I` is the interface the provider implements, or `any` when every generated
+    --- member supplies its own signature. Writing an interface in the return type is
+    --- how `@derive` knows which contract applying the provider claims. Produce one
+    --- with `implement`, or refuse the declaration with `error`. The compiler owns it
+    --- and there is nothing on it to read: what it carries crosses the comptime
     --- boundary as a versioned recipe the compiler validates.
     ---
-    --- @typearg I the one interface this provider implements
+    --- @typearg I the interface this provider implements, or `any`
     record Result<I>
     end
 
-    --- Returns forwarding implementations. `methods` fills instance requirements and
-    --- `statics` fills static interface requirements.
+    --- Returns forwarding implementations. `methods` fills instance members and
+    --- `statics` fills static members.
     ---
-    --- Both are keyed by the requirement's name on the provider's interface, and each
-    --- value is a `Forward`. Naming anything that is not a bodyless, unoverloaded
-    --- callable requirement is refused, as is generating a member that another provider
-    --- on the same owner already generates.
+    --- Both are keyed by member name. A `Forward` fills a bodyless, unoverloaded
+    --- callable requirement on the provider's interface; a `Member` supplies a new
+    --- member's function signature and forwarding recipe. Generating a member that
+    --- another provider on the same owner already generates is refused.
     ---
     --- @param specification a table with optional `methods` and `statics` maps
     --- @return the recipe, as this provider's `Result<I>`
@@ -632,8 +639,9 @@ record nupp.derive
     ---
     --- @param message what the consumer is told
     --- @param reference which part of the declaration is at fault
+    --- @param code the diagnostic code, defaulting to `NUPP2810`
     --- @return the refusal, as this provider's `Result<I>`
-    error: function(message: string, reference: Reference?): any
+    error: function(message: string, reference: Reference?, code: string?): any
 
     --- Implements one requirement by calling one runtime helper.
     ---
@@ -645,6 +653,13 @@ record nupp.derive
     --- @param specification a table with `helper` and `arguments`
     --- @return the implementation, to place in `implement`
     forward: function(specification: any): Forward
+
+    --- Declares a generated member's function signature and forwarding recipe.
+    ---
+    --- @param specification a table with `signature`, optional parameter names, and
+    --- a `forward` recipe
+    --- @return the member recipe, to place in `implement`
+    member: function(specification: any): Member
 
     --- Names an ordinary exported Nupp function to forward to.
     ---
@@ -660,6 +675,11 @@ record nupp.derive
     ---
     --- @return the argument recipe
     receiver: function(): Argument
+
+    --- Passes the record's registered derive entry.
+    ---
+    --- @return the argument recipe
+    entry: function(): Argument
 
     --- Passes one parameter of the generated method, under the name the interface
     --- requirement declares for it.

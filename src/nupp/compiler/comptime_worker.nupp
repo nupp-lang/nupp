@@ -163,15 +163,14 @@ local function handleRequest(request): any
             return {ok = false, code = stopped.code, message = stopped.message}
         end
         local comptime = require("nupp.compiler.comptime") as {
-            evaluateDeriveProviderDirect: function(any, any, any, any, string?, string?): (any, any)
+            evaluateDeriveProviderDirect: function(any, any, any, any, string?): (any, any)
         }
         local envelope, failure = comptime.evaluateDeriveProviderDirect(
             program.main,
             request.input,
             program.helpers,
             request.runtimeHelpers,
-            request.providerModule,
-            request.internalProvider
+            request.providerModule
         )
         if failure then
             return {ok = false, code = failure.code, message = failure.message, help = failure.help}
@@ -517,8 +516,7 @@ function worker.evaluateDeriveProvider(
     runtimeHelpers: any,
     providerModule: string?,
     executable: string,
-    host: any?,
-    internalProvider: string?
+    host: any?
 ): any, worker.Failure?
     local main = program.helper
     local mainName = program.main or main and main.name and main.name.text or nil
@@ -541,7 +539,6 @@ function worker.evaluateDeriveProvider(
             input = input,
             runtimeHelpers = runtimeHelpers,
             providerModule = providerModule,
-            internalProvider = internalProvider,
         },
         executable,
         host

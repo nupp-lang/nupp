@@ -776,6 +776,9 @@ function gen.generate(
         if not recipe then
             return
         end
+        for effect in pairs(recipe.effects or {}) do
+            needRuntimeEffect(effect)
+        end
         local recipeCodec = require("nupp.compiler.materialize.codec")
         local renderedRecipe, renderError = recipeCodec.render(recipe, {limit = recipeCodec.MAX_OUTPUT_BYTES,})
         if not renderedRecipe then
@@ -790,15 +793,14 @@ function gen.generate(
             return
         end
         needRuntimeEffect("stdlib.derives")
-        if recipe.operations and recipe.operations["json.v1"] then
-            needRuntimeEffect("native.cjson")
-        end
         e(";do local __nuppDerived=" .. renderedRecipe)
         e((";local __nuppDerivedEntry=_G.nupp.__derive.register(%q,%s,__nuppDerived)"):format(recipe.key, runtimeName))
 
         local function forwardingArgument(argument, parameters)
             if argument.kind == "receiver" then
                 return "self"
+            elseif argument.kind == "entry" then
+                return "__nuppDerivedEntry"
             elseif argument.kind == "argument" then
                 return parameters[argument.name] or error("invalid derived member argument " .. tostring(argument.name))
             elseif argument.kind == "field" then
@@ -820,39 +822,7 @@ function gen.generate(
         end
 
         for _, member in ipairs(recipe.members or {}) do
-            if member.operation == "debug.v1" then
-                e(
-                    (
-                        ";%s[%q]=function(self)return _G.nupp.__derive.debug(self,__nuppDerived)end"
-                    ):format(runtimeName, member.name)
-                )
-            elseif member.operation == "default.v1" then
-                e(
-                    (
-                        ";%s[%q]=function()return _G.nupp.__derive.default(__nuppDerivedEntry)end"
-                    ):format(runtimeName, member.name)
-                )
-            elseif member.operation == "from.v1" then
-                e(
-                    (
-                        ";%s[%q]=function(value)return _G.setmetatable({[%q]=value},%s)end"
-                    ):format(runtimeName, member.name, recipe.fromField, runtimeName)
-                )
-            elseif member.operation == "json.v1" and member.name == "toJSON" then
-                e(
-                    (
-                        ";%s[%q]=function(self)return _G.nupp.__derive.toJSON(self,__nuppDerivedEntry)end"
-                    ):format(runtimeName, member.name)
-                )
-            elseif member.operation == "json.v1" and member.name == "fromJSON" then
-                e(
-                    (
-                        ";%s[%q]=function(text)return _G.nupp.__derive.fromJSON(text,__nuppDerivedEntry)end"
-                    ):format(runtimeName, member.name)
-                )
-            elseif member.operation == "json.v1" and member.name == "fieldCodec" then
-                e((";%s[%q]=function()return __nuppDerivedEntry.codec end"):format(runtimeName, member.name))
-            elseif member.operation == "forward.v1" then
+            if member.operation == "forward.v1" then
                 local names, parameters = {}, {}
                 local first = 1
                 if member.namespace == "instance" then

@@ -422,12 +422,18 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         local payload = found.payload
         return {
             kind = payload.kind,
+            sourceKind = payload.sourceKind,
             name = payload.name,
             value = payload.value,
             element = payload.element,
             members = payload.members,
             fields = payload.fields,
             indexer = payload.indexer,
+            readKey = payload.readKey,
+            readValue = payload.readValue,
+            writeKey = payload.writeKey,
+            writeValue = payload.writeValue,
+            nominal = payload.nominal,
             head = payload.head,
             tail = payload.tail,
             modes = payload.modes,
@@ -565,13 +571,37 @@ function typeprovider.importDescriptor(
                 or referencedSource and require("nupp.compiler.reflection").describe(referencedSource).fingerprint
                 or nil
             if type(referenceFingerprint) ~= "string" then return nil end
-            made = make(state, opaque, "Type", {
+            local payload = {
                 kind = "reference", source = referencedSource,
                 referenceId = referencePrefix and referencePrefix .. ":" .. tostring(index) or nil,
                 fingerprint = referenceFingerprint,
                 key = "reference:" .. (referencePrefix and referencePrefix .. ":" .. tostring(index)
                     or referenceFingerprint),
-            }, nil)
+            }
+            made = make(state, opaque, "Type", payload, nil)
+            built[index] = made
+            local reflected = {
+                kind = node.kind,
+                name = node.name,
+                deriveKey = node.deriveKey,
+                annotations = node.annotations or {},
+                fields = {},
+                supertypes = {},
+            }
+            payload.nominal = reflected
+            for position, field in ipairs(node.fields or {}) do
+                reflected.fields[position] = {
+                    name = field.name,
+                    read = field.read and import(field.read) or nil,
+                    write = field.write and import(field.write) or nil,
+                    readable = field.readable,
+                    writable = field.writable,
+                    annotations = field.annotations or {},
+                }
+            end
+            for position, supertype in ipairs(node.supertypes or {}) do
+                reflected.supertypes[position] = import(supertype)
+            end
         elseif PRIMITIVES[kind] then
             made = make(state, opaque, "Type", {kind = "primitive", name = kind, key = "primitive:" .. kind}, nil)
         elseif kind == "literal" then
@@ -582,6 +612,8 @@ function typeprovider.importDescriptor(
                     key = "literal:" .. type(node.value) .. ":" .. tostring(node.value),
                 }, nil)
             end
+        elseif kind == "typevar" or kind == "typeHandle" then
+            made = import(node.bound)
         elseif kind == "array" then
             local element = import(node.element)
             if element then made = make(state, opaque, "Type", {kind = "array", element = element, key = "array:" .. keyOf(state, element)}, nil) end
@@ -598,7 +630,7 @@ function typeprovider.importDescriptor(
                 }
                 made = make(state, opaque, "Type", {
                     kind = "indexer", readKey = readKey, readValue = readValue,
-                    writeKey = writeKey, writeValue = writeValue, key = table.concat(keys, ":"),
+                    writeKey = writeKey, writeValue = writeValue, sourceKind = "map", key = table.concat(keys, ":"),
                 }, nil)
             end
         elseif kind == "shape" then

@@ -27,7 +27,7 @@ local id = nupp.into(42, UserId)
 print(user:debug(), id.value, user:toJSON())
 ```
 
-The four compiler-shipped comptime providers are:
+The four bundled comptime providers are:
 
 - `nupp.derive.Debug`: `debug(self): string` and `nupp.Debug` conformance.
 - `nupp.derive.Default`: static `default(): T` and `nupp.default(T)` support.
@@ -40,8 +40,11 @@ interface checking. A written member of the same name is a compile-time
 conflict. Stacked `@derive` applications combine, but a provider cannot be
 requested twice.
 
-All four travel through the same sealed comptime worker, immutable `Info`,
-versioned result envelope, cache and recipe lowering used by package providers.
+They are ordinary exported `@comptime` functions implemented in
+`src/nupp/derive.nupp`; the compiler has no provider-name or operation switch
+for them. All four travel through the same sealed comptime worker, immutable
+`Info`, versioned result envelope, cache and recipe lowering used by package
+providers.
 Their schema configuration (`@debug`, `@default`, and `@json`) is included in
 the semantic annotations visible through `Info`; it is not a second planner.
 
@@ -71,9 +74,10 @@ end
 
 Applying the provider also claims `M.Inspect`. An equal written `is
 inspect.Inspect` is redundant and coalesced. Interface defaults are inherited
-normally, associated requirements are checked normally, and the provider can
-fill only bodyless callable requirements. Generic, variadic, overloaded, and
-effectful provider declarations are not part of the first recipe version.
+normally and associated requirements are checked normally. A provider can fill
+a bodyless callable requirement or declare a new function member with a closed
+comptime-built signature. Generic, variadic, overloaded, and effectful provider
+declarations are not part of the first recipe version.
 
 Every provider on an owner receives the same immutable pre-merge `Info` view.
 It contains the owner and interface type handles, ordered stored fields with
@@ -90,23 +94,28 @@ concrete arguments.
 Providers run through the bounded comptime worker. Their sealed source and
 reachable comptime helper closure travel in the module interface; they do not
 remain runtime functions. A provider failure may return
-`nupp.derive.error(message, reference)` to point at the owner or contributing
-field without observing a filename or source position.
+`nupp.derive.error(message, reference, code)` to point at the owner or
+contributing field without observing a filename or source position. The code
+is optional and defaults to the generic provider diagnostic `NUPP2810`.
 
 ## Closed forwarding recipes
 
-`nupp.derive.implement` returns methods keyed by interface requirement name.
-The interface owns each generated signature. `forward.v1` names one ordinary
-runtime helper and supplies a closed argument list:
+`nupp.derive.implement` returns instance methods and static functions. A bare
+`Forward` fills an interface requirement and inherits its signature. A
+`nupp.derive.member` supplies a function type built with `nupp.types` and its
+parameter names, allowing a provider to add a member that is not declared by
+the result interface. Both forms lower through `forward.v1`, which names one
+ordinary runtime helper and supplies a closed argument list:
 
 - `receiver()` passes the generated method receiver.
 - `argument(name)` passes a named interface method parameter.
+- `entry()` passes the derived type's private runtime schema entry.
 - `field(fieldInfo)` directly reads one admitted stored field.
 - `constant(value)` embeds a bounded quotable value.
 - `array(arguments)` constructs a fresh array from argument recipes.
 
 There are no nested calls, operators, branches, assignments, loops, arbitrary
-member accesses, source fragments, or provider-chosen signatures. Table-shaped
+member accesses, or source fragments in a forwarding recipe. Table-shaped
 constants and arrays are fresh for each call, so mutation by one invocation
 cannot affect the next.
 
@@ -125,9 +134,8 @@ return nupp.derive.implement {
 ```
 
 The first version refuses overloaded requirements, interface defaults,
-associated types, constructors, static members, properties, setters, and
-metamethods. Those require separate versioned recipe capabilities rather than
-silently widening `forward.v1`.
+properties, setters, and metamethods. Those require separate versioned recipe
+capabilities rather than silently widening `forward.v1`.
 
 ### Runtime helpers
 
@@ -431,9 +439,10 @@ another JSON instance cannot alter a derived codec.
 ## Relationship to comptime
 
 Comptime evaluates closed value-producing programs after normal type checking.
-Derives run as part of declaration checking and may attach only their
-compiler-owned member recipes. They can share reflection and materialization
-infrastructure, but neither turns comptime into arbitrary source generation.
+Derives run as part of declaration checking and may attach only validated
+member recipes. The bundled Debug, Default, From, and JSON providers use that
+same public mechanism; neither derives nor comptime become arbitrary source
+generation.
 
 ## Next
 

@@ -110,19 +110,32 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
             if not value then why = "type blueprint names an unknown primitive " .. tostring(node.name) end
         elseif node.kind == "reference" then
             local reference = type(envelope.references) == "table" and envelope.references[node.reference] or nil
+            local explicitlyPermitted = false
             if (type(reference) ~= "table" or not reference.source)
                 and type(node.referenceId) == "string" and type(permittedReferences) == "table" then
                 reference = permittedReferences[node.referenceId]
+                explicitlyPermitted = reference ~= nil
+            end
+            if (type(reference) ~= "table" or not reference.source) and type(permittedReferences) == "table" then
+                for _, permitted in pairs(permittedReferences) do
+                    if permitted.fingerprint == node.fingerprint then
+                        reference = permitted
+                        explicitlyPermitted = true
+                        break
+                    end
+                end
             end
             if type(node.fingerprint) ~= "string" or type(reference) ~= "table"
                 or type(reference.fingerprint) ~= "string" or not reference.source
                 or node.fingerprint ~= reference.fingerprint then
-                why = "type blueprint names an invalid permitted input reference"
+                why = "type blueprint names an invalid permitted input reference "
+                    .. tostring(node.referenceId or node.reference)
             else
                 local reflection = require("nupp.compiler.reflection")
                 local described = reflection.describe(reference.source)
-                if described.fingerprint ~= reference.fingerprint then
-                    why = "type blueprint input reference fingerprint is stale"
+                if not explicitlyPermitted and described.fingerprint ~= reference.fingerprint then
+                    why = "type blueprint input reference fingerprint is stale "
+                        .. tostring(node.referenceId or node.reference)
                 else
                     value = reference.source
                 end

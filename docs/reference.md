@@ -1618,8 +1618,7 @@ says more.
 - **NUPP2809**: A comptime derive provider declaration or reference is invalid.
 - **NUPP2810**: A comptime derive provider failed or returned an invalid
   blueprint.
-- **NUPP2811**: A derive recipe does not name an implementable interface
-  requirement.
+- **NUPP2811**: A derive recipe declares an invalid generated member.
 - **NUPP2812**: A forwarding argument does not exist on the generated method.
 - **NUPP2813**: A runtime forwarding helper does not satisfy the generated call.
 - **NUPP3001**: `is` has nothing to test against this type.

@@ -1,10 +1,11 @@
--- Closed evaluator surface shared by compiler-shipped and package derive recipes.
+-- Closed evaluator surface shared by bundled and package derive recipes.
 -- Provider code can
 -- inspect immutable input handles and assemble forwarding blueprints, but it
 -- never receives checker objects or source nodes.
 
 local hash = require("nupp.compiler.build.hash")
 local recipeCodec = require("nupp.compiler.materialize.codec")
+local typeprovider = require("nupp.compiler.materialize.typeprovider")
 
 local record deriveProvider
     installEvaluator: function(any, any, any, any, any): nil
@@ -62,6 +63,12 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
             return nil, failure("NUPP2810", "derive.receiver takes no arguments")
         end
         return opaque("derive", "Argument", {kind = "receiver"}, provenance(at, "receiver"))
+    end)
+    install("entry", function(at, args)
+        if args.n ~= 0 then
+            return nil, failure("NUPP2810", "derive.entry takes no arguments")
+        end
+        return opaque("derive", "Argument", {kind = "entry"}, provenance(at, "entry"))
     end)
     install("argument", function(at, args)
         if args.n ~= 1 or type(args[1]) ~= "string" or args[1] == "" then
@@ -139,12 +146,40 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
             provenance(at, "forward.v1")
         )
     end)
+    install("member", function(at, args)
+        local specification = args[1]
+        local signature = type(specification) == "table" and entryOf(specification.signature) or nil
+        local forward = type(specification) == "table" and entryOf(specification.forward) or nil
+        if args.n ~= 1 or not hasOnly(specification, {signature = true, parameters = true, forward = true})
+            or not signature or signature.provider ~= "types" or signature.family ~= "Type"
+            or not forward or forward.provider ~= "derive" or forward.family ~= "Forward" then
+            return nil, failure("NUPP2810", "derive.member needs a function signature and forward recipe")
+        end
+        if signature.payload.kind ~= "function" then
+            return nil, failure("NUPP2810", "derive.member signature must be a function type")
+        end
+        local parameters = specification.parameters or {}
+        if not denseArray(parameters) then
+            return nil, failure("NUPP2810", "derive.member parameters must be an array")
+        end
+        for _, name in ipairs(parameters) do
+            if type(name) ~= "string" or name == "" then
+                return nil, failure("NUPP2810", "derive.member parameter names must be non-empty strings")
+            end
+        end
+        return opaque("derive", "Member", {
+            signature = specification.signature,
+            parameters = parameters,
+            forward = specification.forward,
+        }, provenance(at, "member"))
+    end)
     install("implement", function(at, args)
         local specification = args[1]
         if args.n ~= 1 or not hasOnly(
             specification,
-            {methods = true, statics = true}
-        ) or type(specification.methods or {}) ~= "table" or type(specification.statics or {}) ~= "table" then
+            {methods = true, statics = true, data = true, effects = true}
+        ) or type(specification.methods or {}) ~= "table" or type(specification.statics or {}) ~= "table"
+            or type(specification.data or {}) ~= "table" or not denseArray(specification.effects or {}) then
             return nil, failure(
                 "NUPP2810",
                 (
@@ -156,44 +191,23 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
         return opaque(
             "derive",
             "Result",
-            {methods = specification.methods or {}, statics = specification.statics or {}, operations = {},},
+            {methods = specification.methods or {}, statics = specification.statics or {}, data = specification.data or {}, effects = specification.effects or {},},
             provenance(at, "implement")
         )
     end)
-    install("internal", function(at, args)
-        local info = args[1] and entryOf(args[1]) or nil
-        if not state.deriveInternalProvider
-            or args.n ~= 1
-            or not info
-            or info.provider ~= "derive"
-            or info.family ~= "Info"
-        then
-            return nil, failure("NUPP2810", "derive.internal is available only to compiler-shipped providers")
-        end
-
-        return opaque(
-            "derive",
-            "Result",
-            {methods = {}, statics = {}, operations = {{kind = state.deriveInternalProvider},},},
-            provenance(at, state.deriveInternalProvider)
-        )
-    end)
     install("error", function(at, args)
-        local reference = args[2] and entryOf(args[2]) or nil
-        if (
-            args.n ~= 1 and args.n ~= 2
-        ) or type(
-            args[1]
-        ) ~= "string" or (
-            args[2] ~= nil and (not reference or reference.provider ~= "derive" or reference.family ~= "Reference")
-        ) then
+        local message, suppliedReference, code = args[1], args[2], args[3] or "NUPP2810"
+        local reference = suppliedReference and entryOf(suppliedReference) or nil
+        if (args.n ~= 1 and args.n ~= 2 and args.n ~= 3) or type(message) ~= "string"
+            or type(code) ~= "string" or not code:match("^NUPP%d%d%d%d$")
+            or (suppliedReference ~= nil and (not reference or reference.provider ~= "derive" or reference.family ~= "Reference")) then
             return nil, failure("NUPP2810", "derive.error needs a message and optional Info reference")
         end
 
         return opaque(
             "derive",
             "Error",
-            {message = args[1], reference = reference and reference.payload.token or nil,},
+            {code = code, message = message, reference = reference and reference.payload.token or nil,},
             provenance(at, "error")
         )
     end)
@@ -206,8 +220,28 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
             right.payload.fingerprint or right.payload.key
         ) or nil
         local claims = state.deriveClaims and state.deriveClaims[args[1]] or nil
-
-        return claims and rightIdentity and claims[rightIdentity] == true or false
+        if claims and rightIdentity and claims[rightIdentity] == true then
+            return true
+        end
+        local left = entryOf(args[1])
+        if not left or left.provider ~= "types" or not rightIdentity then
+            return false
+        end
+        local leftIdentity = left.payload and (left.payload.fingerprint or left.payload.key) or nil
+        if leftIdentity == rightIdentity then
+            return true
+        end
+        local nominal = left.payload and left.payload.nominal or nil
+        for _, supertype in ipairs(nominal and nominal.supertypes or {}) do
+            local inherited = entryOf(supertype)
+            local inheritedIdentity = inherited and inherited.payload and (
+                inherited.payload.fingerprint or inherited.payload.key
+            ) or nil
+            if inheritedIdentity == rightIdentity then
+                return true
+            end
+        end
+        return false
     end)
 
     env.nupp = env.nupp or {}
@@ -420,6 +454,7 @@ function deriveProvider.finalize(state: any, root: any): any, any
     end
     if rootEntry.family == "Error" then
         local payload = {
+            code = rootEntry.payload.code,
             message = rootEntry.payload.message,
             reference = rootEntry.payload.reference,
             requestFingerprint = state.deriveRequest and state.deriveRequest.fingerprint,
@@ -482,7 +517,7 @@ function deriveProvider.finalize(state: any, root: any): any, any
                     return nil, why
                 end
             end
-        elseif payload.kind ~= "receiver" then
+        elseif payload.kind ~= "receiver" and payload.kind ~= "entry" then
             active[handle] = nil
             return nil, "unknown forwarding argument operation"
         end
@@ -501,21 +536,31 @@ function deriveProvider.finalize(state: any, root: any): any, any
                 return nil, failure("NUPP2810", "derive member names must be non-empty strings")
             end
             local entry = state.opaque[handle]
-            if not entry or entry.provider ~= "derive" or entry.family ~= "Forward" then
+            local member = entry and entry.provider == "derive" and entry.family == "Member" and entry.payload or nil
+            local forward = member and state.opaque[member.forward] or entry
+            if not forward or forward.provider ~= "derive" or forward.family ~= "Forward" then
                 return nil, failure("NUPP2810", "derive " .. namespace .. " " .. name .. " is not a forward recipe")
             end
             if not takeNode() then
                 return nil, failure("NUPP2810", "recipe exceeds its node limit")
             end
             local arguments = {}
-            for index, child in ipairs(entry.payload.arguments or {}) do
+            for index, child in ipairs(forward.payload.arguments or {}) do
                 local why
                 arguments[index], why = argument(child)
                 if why then
                     return nil, failure("NUPP2810", why)
                 end
             end
-            methods[name] = {operation = "forward.v1", helper = entry.payload.helper, arguments = arguments,}
+            local out = {operation = "forward.v1", helper = forward.payload.helper, arguments = arguments,}
+            if member then
+                local signature, why = typeprovider.finalize(state, member.signature)
+                if not signature or signature.family ~= "Type" then
+                    return nil, failure("NUPP2810", "derive member has an invalid function signature: " .. tostring(why and why.message))
+                end
+                out.signature, out.parameters = signature, member.parameters
+            end
+            methods[name] = out
         end
 
         return methods
@@ -536,8 +581,22 @@ function deriveProvider.finalize(state: any, root: any): any, any
         ownerIdentity = state.deriveRequest and state.deriveRequest.ownerIdentity,
         methods = methods,
         statics = statics,
-        operations = rootEntry.payload.operations or {},
+        data = {},
+        effects = rootEntry.payload.effects or {},
     }
+    for name, value in pairs(rootEntry.payload.data or {}) do
+        if type(name) ~= "string" or name == "" then
+            return nil, failure("NUPP2810", "derive data keys must be non-empty strings")
+        end
+        local copied, why = copyConstant(value, {}, count, state)
+        if why then return nil, failure("NUPP2810", "derive data " .. name .. " " .. why) end
+        payload.data[name] = copied
+    end
+    for _, effect in ipairs(payload.effects) do
+        if type(effect) ~= "string" or effect == "" then
+            return nil, failure("NUPP2810", "derive effects must be non-empty strings")
+        end
+    end
     local canonical, why = recipeCodec.canonical(payload)
     if not canonical then
         return nil, failure("NUPP2810", "derive result is not canonical: " .. tostring(why))

@@ -67,6 +67,7 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
             out.kind = t.declKind
             out.name = t.name
             out.nominal = true
+            out.deriveKey = t.deriveKey
             out.annotations = reflectedAnnotations(t.annotations)
             out.fields = {}
             local view = members.view(t)
