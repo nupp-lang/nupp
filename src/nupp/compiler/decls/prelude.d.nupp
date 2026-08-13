@@ -290,94 +290,413 @@ record nupp.__MaterializationTestAPI
     factory: function(): nupp.__MaterializationFactoryBlueprint
 end
 
---- Compiler-only builders available while an `@comptime` derive provider runs.
+--- Generates checked members on a declaration while that declaration is checked.
+---
+--- `@derive(Provider, ...)` names providers on a `record` or `struct`. Each one reads
+--- an immutable semantic view of the declaration and returns a closed recipe; the
+--- compiler generates members from that recipe and checks them the way it checks
+--- written ones. This is a declaration-augmentation phase rather than a text macro. A
+--- provider adds no imports, top-level declarations, modules, or independently
+--- nameable types, and it observes no tokens, source positions, comments, or another
+--- provider's output.
+---
+--- Four providers ship with the compiler and cross the same boundary a package
+--- provider does: `Debug`, `Default`, `From`, and `JSON`.
+---
+--- #### Derive the shipped providers
+---
+--- ```nupp
+--- @derive(nupp.derive.Debug, nupp.derive.Default)
+--- local record Settings
+---     @default("localhost")
+---     host: string
+---     port: integer
+--- end
+---
+--- local settings = nupp.default(Settings)
+--- assert(settings:debug() == 'Settings { host = "localhost", port = 0 }')
+--- ```
+---
+--- #### Write a package provider
+---
+--- A provider is an exported, nongeneric `@comptime` function whose signature names the
+--- one interface it implements. `Info` describes the owner, `implement` returns the
+--- recipe, and a consumer applies the resolved export rather than a runtime function
+--- value. Applying it also claims that interface.
+---
+--- ```nupp:static
+--- local M = {}
+---
+--- interface M.Named
+---     named: function(self): string
+--- end
+---
+--- function M.nameValue(value: string): string
+---     return "name=" .. value
+--- end
+---
+--- @comptime
+--- function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Named>
+---     local field = info.fields[1]
+---     if not field or field.name ~= "name" then
+---         return nupp.derive.error("Named needs a first field named name", info.reference)
+---     end
+---
+---     return nupp.derive.implement{
+---         methods = {
+---             named = nupp.derive.forward{
+---                 helper = nupp.derive.helper(M, "nameValue"),
+---                 arguments = {nupp.derive.field(field)},
+---             },
+---         },
+---     }
+--- end
+---
+--- @derive(M.derive)
+--- record M.User
+---     name: string
+--- end
+---
+--- local user = new M.User(name = "ada")
+--- assert(user:named() == "name=ada")
+---
+--- return M
+--- ```
+---
+--- #### What a recipe may say
+---
+--- The interface owns every generated signature, so a recipe chooses only which runtime
+--- function stands behind a requirement and which values reach it. `forward` names one
+--- ordinary exported Nupp function and a closed argument list built from `receiver`,
+--- `argument`, `field`, `constant`, and `array`. There are no nested calls, operators,
+--- branches, loops, assignments, or provider-chosen signatures, so behavior stays in
+--- ordinary type-checked Nupp rather than in a macro IR, and the generated call is
+--- checked against the helper's declaration the way any other call is.
+---
+--- `forward.v1` fills only bodyless, unoverloaded callable requirements, and cannot
+--- replace an interface default. A provider that refuses a declaration returns `error`
+--- rather than raising.
+---
+--- Providers run inside the bounded comptime worker, once per owner rather than once
+--- per generic instantiation, and a recipe is memoized on the `Info` fingerprint.
+--- `claims` asks whether a type already writes or requests an interface, which lets
+--- mutually recursive derives plan without depending on evaluation order.
 record nupp.derive
     --- A comptime-only provider symbol accepted by `@derive`.
+    ---
+    --- A shipped provider is one of the four values below; a package provider is the
+    --- `@comptime` function a module exports. Neither survives into the program.
     record Provider
     end
 
-    --- Compiler-shipped providers use the same recipe boundary as package providers.
+    --- Generates `debug(self): string` and `nupp.Debug` conformance, rendering the
+    --- declaration's own fields in declaration order.
+    ---
+    --- `@debug(redact = true)` keeps a field's name and hides its value, which is what a
+    --- secret wants; `@debug(skip = true)` removes the field from the output entirely.
+    ---
+    --- ```nupp
+    --- @derive(nupp.derive.Debug)
+    --- local record Credentials
+    ---     user: string
+    ---     @debug(redact = true)
+    ---     password: string
+    --- end
+    ---
+    --- local credentials = new Credentials(user = "ada", password = "hunter2")
+    --- assert(credentials:debug() == 'Credentials { user = "ada", password = <redacted> }')
+    --- ```
     Debug: Provider
 
+    --- Generates a static `default(): T`, which `nupp.default(T)` also reaches.
+    ---
+    --- Every field answers for itself: optionals give nil, booleans false, numerics
+    --- zero, strings the empty string, and tables a fresh one each call. `@default`
+    --- supplies a compile-time literal instead, and a nominal field uses its own
+    --- `default`, so one call fills a whole graph. A required recursive field is
+    --- refused, having no bottom to build from.
     Default: Provider
+
+    --- Generates a static `from(value): T`, which `nupp.into(value, T)` also reaches,
+    --- for a record with exactly one stored field and no written constructor.
+    ---
+    --- It is the unambiguous newtype conversion. It performs no structural record
+    --- conversion and does not validate; a conversion that can fail stays an ordinary
+    --- function returning `T?, string?`.
+    ---
+    --- ```nupp
+    --- @derive(nupp.derive.From)
+    --- local record UserId
+    ---     value: integer
+    --- end
+    ---
+    --- local id = nupp.into(42, UserId)
+    --- assert(id.value == 42)
+    --- ```
     From: Provider
+
+    --- Generates `toJSON`, a static `fromJSON(text): T?, string?`, a `fieldCodec`, and
+    --- `nupp.data.json.JSONEncodable` conformance.
+    ---
+    --- Encoding is deterministic: fields follow declaration order and string map keys
+    --- sort by byte order, so one value always produces the same bytes. A decode error
+    --- names the path that failed rather than saying the document was bad.
+    ---
+    --- ```nupp
+    --- @derive(nupp.derive.JSON)
+    --- local record User
+    ---     @json(name = "user_id")
+    ---     id: integer
+    ---     name: string
+    --- end
+    ---
+    --- local user = new User(id = 7, name = "ada")
+    --- assert(user:toJSON() == '{"user_id":7,"name":"ada"}')
+    ---
+    --- local decoded, failure = User.fromJSON('{"name": "ada"}')
+    --- assert(decoded == nil and failure == '$.user_id: required field is absent')
+    --- ```
     JSON: Provider
 
     --- Semantic configuration visible to providers as `Info` annotations.
+    ---
+    --- Each of these is the checked shape of one field annotation. A provider reads
+    --- what was written from `Field.annotations` or `Info.annotations`; the shipped
+    --- providers read the same projection rather than consulting a second planner.
     interface DefaultOptions
+        --- The compile-time literal `default` stores in this field.
         value: any
     end
 
+    --- The checked shape of `@json`, written on a record or on one of its fields.
     interface JSONOptions
+        --- What decoding does with a key the record does not declare. Written on the
+        --- record, and `reject` when omitted.
         unknown: ("reject" | "ignore")?
+
+        --- The key this field encodes to and decodes from.
         name: string?
+
+        --- Removes the field from both directions. Requires a default.
         omit: boolean?
+
+        --- Omits nil, false, empty strings, and empty tables when encoding. Encoding
+        --- only: a field left out of the output is still required coming back in.
         omitEmpty: boolean?
     end
 
+    --- The checked shape of `@debug`, written on a field.
     interface DebugOptions
+        --- Removes the field from the rendered output entirely.
         skip: boolean?
+
+        --- Keeps the field's name and renders its value as `<redacted>`.
         redact: boolean?
     end
 
     --- An opaque reference which a provider may attach to a diagnostic.
+    ---
+    --- Obtained from `Info.reference` for the declaration or `Field.reference` for one
+    --- field, and accepted only by `error`. It carries no filename, line, or column: a
+    --- provider says which part of the declaration is at fault and the compiler decides
+    --- where to point.
     record Reference
     end
 
     --- One written stored field in the immutable derive input projection.
+    ---
+    --- Fields arrive in declaration order. A generated member never reaches one by
+    --- name; pass this value to `field` to read it.
     record Field
+        --- The name as written.
         readonly name: string
+
+        --- Whether the field can be read, and so whether `field` admits it.
         readonly readable: boolean
+
+        --- Whether the field can be written.
         readonly writable: boolean
+
+        --- A transported handle for the read type, or nil for a write-only field.
         readonly readType: any?
+
+        --- A transported handle for the write type, or nil for a read-only field.
         readonly writeType: any?
+
+        --- The field's typed annotations in source order, `@json` and `@debug` among
+        --- them.
         readonly annotations: {TypeInfoAnnotation}
+
+        --- Points this provider's `error` at this field.
         readonly reference: Reference
     end
 
     --- The immutable semantic view passed to an `@comptime` provider.
+    ---
+    --- One `Info` describes one owner for one provider, and is built before any
+    --- provider's output is merged, so two providers on the same declaration see the
+    --- same thing whichever order they run in. A generic owner is projected once rather
+    --- than per instantiation, and a type parameter exposes its bound, or `unknown`, so
+    --- a provider cannot specialize for arguments a later instantiation supplies.
     record Info
+        --- The projection's schema version, currently 1.
         readonly schema: integer
+
+        --- What the owner was declared as: `record`, `struct`, or `interface`.
         readonly kind: string
+
+        --- The owner's declared name.
         readonly name: string
+
+        --- How the declaration is bound: `local`, `module`, `global`, or `nested`.
         readonly visibility: string
+
+        --- The stable identity of the provider being run.
         readonly providerIdentity: string
+
+        --- The stable identity of the owning declaration.
         readonly ownerIdentity: string
+
+        --- A transported handle for the owner's type, accepted by `claims`.
         readonly ownerType: any
+
+        --- A transported handle for the one interface this provider implements.
         readonly interfaceType: any
+
+        --- The written stored fields, in declaration order.
         readonly fields: {Field}
+
+        --- The owner's own typed annotations, in source order.
         readonly annotations: {TypeInfoAnnotation}
+
+        --- Whether the declaration writes a constructor.
         readonly hasConstructor: boolean
+
+        --- Points this provider's `error` at the declaration as a whole.
         readonly reference: Reference
+
+        --- A digest of everything above. Two owners with one fingerprint share one
+        --- evaluation, so a provider must decide from `Info` and nothing else.
         readonly fingerprint: string
     end
 
-    --- Compiler-owned closed recipe handles.
+    --- One value a generated call passes.
+    ---
+    --- Built by `receiver`, `argument`, `field`, `constant`, or `array`. The compiler
+    --- owns it: a provider may hold one and place it in an argument list, and nothing
+    --- else.
     record Argument
     end
 
+    --- An ordinary exported Nupp function a generated member calls, from `helper`.
+    ---
+    --- The module owning it becomes a runtime dependency of the consumer, even when the
+    --- comptime provider itself erases.
     record RuntimeHelper
     end
 
+    --- One requirement's implementation, from `forward`, to be placed in `implement`
+    --- under the name of the requirement it fills.
     record Forward
     end
 
-    --- `I` is the one interface the provider implements.
+    --- What a provider returns: the recipe implementing interface `I`.
+    ---
+    --- `I` is the one interface the provider implements, and writing it in the return
+    --- type is how `@derive` knows which contract applying the provider claims. Produce
+    --- one with `implement`, or refuse the declaration with `error`. The compiler owns
+    --- it and there is nothing on it to read: what it carries crosses the comptime
+    --- boundary as a versioned recipe the compiler validates.
+    ---
+    --- @typearg I the one interface this provider implements
     record Result<I>
     end
 
     --- Returns forwarding implementations. `methods` fills instance requirements and
     --- `statics` fills static interface requirements.
+    ---
+    --- Both are keyed by the requirement's name on the provider's interface, and each
+    --- value is a `Forward`. Naming anything that is not a bodyless, unoverloaded
+    --- callable requirement is refused, as is generating a member that another provider
+    --- on the same owner already generates.
+    ---
+    --- @param specification a table with optional `methods` and `statics` maps
+    --- @return the recipe, as this provider's `Result<I>`
     implement: function(specification: any): any
 
+    --- Refuses the declaration with a diagnostic instead of returning a recipe.
+    ---
+    --- The reference decides what the diagnostic points at: `Info.reference` for the
+    --- declaration, or the `Field.reference` of the field that made the recipe
+    --- impossible. Returning this is how a provider fails; raising is a provider fault.
+    ---
+    --- @param message what the consumer is told
+    --- @param reference which part of the declaration is at fault
+    --- @return the refusal, as this provider's `Result<I>`
     error: function(message: string, reference: Reference?): any
+
+    --- Implements one requirement by calling one runtime helper.
+    ---
+    --- `helper` names the function and `arguments` is the closed list it receives, in
+    --- order. The interface owns the resulting signature, and the generated call is
+    --- checked against the helper's declaration for types, ownership, effects, and its
+    --- suspension contract.
+    ---
+    --- @param specification a table with `helper` and `arguments`
+    --- @return the implementation, to place in `implement`
     forward: function(specification: any): Forward
+
+    --- Names an ordinary exported Nupp function to forward to.
+    ---
+    --- Runtime behavior stays in the language: helpers are checked at their own
+    --- declarations, and a generic helper is refused by `forward.v1`.
+    ---
+    --- @param module the module value holding the function
+    --- @param name the name it is exported under
+    --- @return the helper handle
     helper: function(module: any, name: string): RuntimeHelper
+
+    --- Passes the generated method's receiver.
+    ---
+    --- @return the argument recipe
     receiver: function(): Argument
+
+    --- Passes one parameter of the generated method, under the name the interface
+    --- requirement declares for it.
+    ---
+    --- @param name the parameter's declared name
+    --- @return the argument recipe
     argument: function(name: string): Argument
+
+    --- Reads one stored field of the receiver directly. The field must be readable.
+    ---
+    --- @param field one of `Info.fields`
+    --- @return the argument recipe
     field: function(field: Field): Argument
+
+    --- Embeds a bounded quotable value.
+    ---
+    --- A table-shaped constant is rebuilt for every call, so mutation by one invocation
+    --- cannot reach the next.
+    ---
+    --- @param value the value to embed
+    --- @return the argument recipe
     constant: function(value: any): Argument
+
+    --- Builds a fresh array from argument recipes, once per call.
+    ---
+    --- @param arguments the element recipes, in order
+    --- @return the argument recipe
     array: function(arguments: {Argument}): Argument
+
+    --- Asks whether a type writes or requests an interface.
+    ---
+    --- The answer does not depend on whether that type's own providers have run, so
+    --- mutually recursive derives can plan against one another.
+    ---
+    --- @param subject a type handle, such as a `Field.readType`
+    --- @param interface a type handle, such as `Info.interfaceType`
+    --- @return whether `subject` claims `interface`
     claims: function(subject: any, interface: any): boolean
 end
 
