@@ -101,9 +101,44 @@ patch chunks over an existing control channel.
 Add a host-neutral compiler-side object, conceptually:
 
 ```nupp
+type hotreload.Result = hotreload.Prepared |
+    hotreload.Rejected |
+    hotreload.Restart |
+    hotreload.Unchanged
+
+record hotreload.Prepared
+    kind: "prepared"
+    patch: string
+    baseGeneration: integer
+    generation: integer
+end
+
+record hotreload.Rejected
+    kind: "diagnostics"
+    diagnostics: {any}
+end
+
+record hotreload.Restart
+    kind: "restart-required"
+    diagnostics: {any}
+end
+
+record hotreload.Unchanged
+    kind: "no-change"
+    generation: integer
+end
+
+record hotreload.InitialBuild
+    generation: integer
+    entryCode: string
+    manifest: any
+end
+
 record hotreload.Session
     diskChanged: function(self: hotreload.Session, path: string, changeType: integer)
+    initial: function(self: hotreload.Session, entries: {string}): hotreload.InitialBuild
     prepare: function(self: hotreload.Session, paths: {string}): hotreload.Result
+    committed: function(self: hotreload.Session, generation: integer)
     persist: function(self: hotreload.Session)
 end
 ```
@@ -114,11 +149,26 @@ public interface with the running generation, generates candidate bodies and
 answers one of:
 
 ```text
-PreparedPatch   complete, loadable patch bytes plus manifest
-Diagnostics     syntax/type/generation failures; old generation remains valid
-RestartRequired well-typed change outside the patchable contract
-NoChange        no emitted implementation changed
+Prepared  complete, loadable patch bytes plus manifest
+Rejected  syntax/type/generation failures; old generation remains valid
+Restart   well-typed change outside the patchable contract
+Unchanged no emitted implementation changed
 ```
+
+`initial` produces the base watch artifact and manifest through the same query
+session that will produce its patches. Every `.nupp` module required by that
+artifact is compiled through the session-backed loader rather than through a
+separate `compile.module` call, so the running slots and the compiler's base
+manifest have one provenance.
+
+`prepare` always compares with the last generation acknowledged by
+`committed`, not the last patch it emitted or staged. A host may stage a patch
+for several frames, supersede it after another edit, or decline it without
+advancing the compiler. After `hot.commit` succeeds, the host must call
+`session:committed(generation)` (or send the equivalent acknowledgement to a
+sidecar). An acknowledgement for an unknown, stale or unprepared generation is
+an error. This back-channel keeps a delayed host commit from making stale-base
+rejection the normal rebuild path.
 
 Do not route watch rebuilds through `compile.module`, which creates a fresh
 parse/check/generate pipeline for one file. Reuse `incremental.Inc` so a body
@@ -147,27 +197,38 @@ invalidate stale JIT traces.
 
 Only one prepared successor to a running generation may commit. A patch declares
 its base generation; staging or committing it after another patch landed reports
-a stale-generation result and asks the compiler for a replacement.
+a stale-generation result and asks the compiler for a replacement. Runtime
+commit success and compiler acknowledgement are separate protocol messages so a
+transport failure can be retried without committing twice.
 
 ## Watch code generation
 
 ### Stable slots and trampolines
 
 For a named function whose value escapes into a module table, record method,
-callback registry or another long-lived value, watch emission is conceptually:
+callback registry or another long-lived value, watch emission uses one slot
+array per module:
 
 ```lua
-local __slot = __hot.define("game.systems/movement", metadata, function(world, dt)
+local __slots = __hot.module("game.systems", metadata)
+__slots[7] = __hot.define(__slots, 7, "game.systems/movement", function(world, dt)
    -- initial implementation
 end)
 
 local function movement(...)
-   return __slot.impl(...)
+   return __slots[7].impl(...)
 end
 ```
 
-The trampoline is the public function value and never changes. Only the slot's
-`impl` changes. Preserve Lua's argument and multiple-return behavior; the
+The module spends one main-chunk local on the slot array, not one local per
+function. This is load-bearing: LuaJIT caps a function at 200 locals, and a
+slot-local plus trampoline-local design roughly halves the number of authored
+functions a watch module can contain. Array indices are deterministic addresses
+within one manifest and the stable function ID is checked beside the index; an
+index alone is never identity across candidate generations.
+
+The trampoline is the public function value and never changes. Only the indexed
+slot's `impl` changes. Preserve Lua's argument and multiple-return behavior; the
 trampoline must be a tail call wherever LuaJIT permits it. Function diagnostics
 and stack traces should still name the Nupp source path and line rather than a
 runtime helper.
@@ -181,6 +242,34 @@ body may remain direct functions when no old value can retain them.
 Methods currently emitted into record and struct method tables receive the same
 stable treatment. A reload patches their slots; it does not recreate an FFI
 metatype or replace its `__index` table.
+
+Watch-specific generator state must not become a collection of new upvalues on
+the generator's recursive `emit` closure. That closure is already near
+LuaJIT's 60-upvalue limit under coverage, and the plucking machinery already
+consolidates dependencies for the same reason. Store watch emission state behind
+one table reached through one upvalue. H1 includes compiling and exercising the
+compiler with coverage and watch-generation code present so this host-compiler
+limit fails at the milestone rather than in a large user module.
+
+### Stack-depth behavior
+
+A trampoline changes physical stack structure even when it tail-calls. Nupp and
+its runtime libraries use depth-relative `error(message, level)`, and user code
+may inspect callers with `debug.getinfo(level)`. H1 must characterize both before
+the slot ABI is accepted:
+
+- guards and runtime helpers using `error(message, 2)` or level 3 must continue
+  to attribute the failure to the same authored caller as a normal build;
+- tests must record `debug.getinfo(2)` and deeper results through direct,
+  method, recursive and callback trampolines;
+- any unavoidable `debug.getinfo` difference is a specified watch-mode
+  observable, not an accidental result, and compiler/runtime helpers may not
+  depend on an unadjusted depth across the trampoline.
+
+If ordinary `error` attribution cannot be preserved, H1 does not exit and the
+trampoline representation must change. Exact debug stack parity is desirable,
+but an explicitly documented tail-call frame difference is acceptable because
+watch code is a distinct development target.
 
 ### Stable IDs
 
@@ -231,7 +320,7 @@ with `debug.upvaluejoin`. Joining rather than copying preserves mutation shared
 between closures.
 
 Version one requires the same capture IDs, types and modes. Adding, removing or
-retargeting a capture is `RestartRequired`. This restriction also avoids the
+retargeting a capture answers `Restart`. This restriction also avoids the
 case where no running closure exposes a newly captured lexical cell. A later
 watch lowering may anchor every module binding or represent persistent bindings
 as explicit cells, at which point compatible capture-set growth can be allowed.
@@ -241,6 +330,17 @@ an owner, extend a borrow, run a cleanup, or make an uncalled replacement closur
 responsible for a second cleanup. Replacement implementations borrow the same
 already-established lexical cells; the stable trampoline retains the original
 lifetime.
+
+Affine-capture functions are not one ordinary Lua closure. The current
+`emitDepth.affineFunction` lowering constructs an outer wrapper, an active flag,
+an inner closure and cleanup-stack entries whose identity is tied to function
+depth. Treat that complete lowering as its own runtime function form during H0.
+H1 records a named function lowered through `emitDepth.affineFunction` as
+nonpatchable and reports restart-required when an edit would replace it, rather
+than attempting to slot only its inner function. The initial watch build may run
+the ordinary lowering. It may be admitted later only after tests prove that
+staging and abandoned replacement closures cannot duplicate, transfer or run a
+cleanup.
 
 ### Patch chunks
 
@@ -261,6 +361,7 @@ return {
          functions = {
             {
                id = "game.systems/movement",
+               slot = 7,
                signature = "<callable fingerprint>",
                captures = { ... },
                implementation = function(world, dt) ... end,
@@ -282,6 +383,19 @@ or manifest plumbing belongs on existing lines or before the first authored line
 without shifting it; replacement function bodies retain their `@source.nupp`
 chunk name.
 
+### Optimization policy
+
+Version-one watch compilation is always `-O0`. `nupp run --watch -O1` and
+`--watch -O2` are usage errors explaining that optimized watch generation is
+not yet supported. The manifest records optimization level 0, and a patch with
+another level is incompatible.
+
+This is a semantic decision rather than a deferred optimizer risk. Existing
+passes structurally rewrite bodies, eliminate expressions and synthesize helper
+shapes; preserving stable patch boundaries through those transformations is a
+separate later project. Ordinary non-watch compilation remains available at
+every optimization level.
+
 ## Compatibility contract
 
 The compiler, not the runtime, gives the useful authored diagnostic. It compares
@@ -293,8 +407,7 @@ Version one accepts:
 
 - edits inside the bodies of an existing reloadable function or method;
 - literal and control-flow changes contained in those bodies;
-- changes to private functions created wholly inside a replaced body;
-- compatible optimizer-output changes caused by those edits.
+- changes to private functions created wholly inside a replaced body.
 
 Version one requires restart for:
 
@@ -306,6 +419,7 @@ Version one requires restart for:
 - a changed constructor, derive or materialization result that affects runtime
   identity or initialization;
 - a changed implicit runtime feature/provider set;
+- an edit to a named function using the affine-capture lowering;
 - addition or removal of a module from the running source set.
 
 The result should distinguish a broken edit from a valid edit requiring restart:
@@ -350,6 +464,16 @@ and completes there. A suspended coroutine also resumes the old implementation.
 The next invocation through a stable trampoline reads the new target. Retain old
 implementations while a stack may reference them; Lua's ordinary reachability
 does this without an explicit generation refcount.
+
+Self-recursion and statically resolved mutual recursion are generation-stable.
+Each initial or replacement generation constructs a private implementation
+cohort; direct recursive edges inside that cohort call its implementations, not
+the public slot trampolines. An old activation that resumes after a commit and
+then recurses therefore remains in its old cohort. A dynamic call made through
+an escaped public function value consults the slot and enters the newest
+generation, as an ordinary future dispatch does. H0 freezes this distinction so
+H1 knows whether a recursive name lowers to a private implementation reference
+or a stable trampoline.
 
 ## Module and state semantics
 
@@ -456,44 +580,71 @@ including functions, methods, captures, records, structs and optimized output.
 
 ### H0: Freeze semantics and fingerprints
 
-- Define the patch schema, generation rules and compatibility matrix.
+- Define the patch and result schemas, generation rules, slot-array addressing,
+  commit-acknowledgement protocol and compatibility matrix.
 - Add stable callable, lexical owner and captured-binding identities to checked
   results without changing ordinary generation.
 - Inventory every runtime function form emitted by `gen`: named statements,
   function expressions, short functions, inline record methods, struct methods,
-  constructors, derived functions and compiler-generated helpers.
+  constructors, derived functions, compiler-generated helpers and the complete
+  wrapper/inner/cleanup shape emitted by `emitDepth.affineFunction`.
 - Add checker tests proving stable IDs survive body edits and preceding-line
   insertions, and differ across lexical owners.
 - Decide which generated forms are patchable in H1 and diagnose the rest as
   restart-required.
+- Freeze direct self- and mutual-recursion as private, generation-stable cohort
+  edges while dynamic calls through escaped values use public slots.
+- Pin watch compilation to `-O0` and specify usage errors for optimized watch
+  requests.
 
 Exit gate: two checked generations can be compared deterministically without
-loading either one.
+loading either one; the schemas express all four `Result` outcomes and delayed
+commit acknowledgement; and executable lowering prototypes prove the chosen
+recursive-name semantics.
 
 ### H1: Named-function watch generation
 
 - Add an explicit watch-generation request beside the existing coverage request.
-- Emit initial stable slots and trampolines for named functions and methods.
+- Emit one indexed slot array per module and stable trampolines for named
+  functions and methods; do not add one main-chunk slot local per function.
 - Emit a manifest containing IDs, callable fingerprints and complete capture
   inventories.
 - Add the small runtime registry and initial-definition API.
-- Preserve source line attribution and tail/multiple-return behavior.
+- Keep all watch emitter state behind one table/upvalue on the recursive emitter.
+- Mark affine-capture functions nonpatchable and diagnose an attempted
+  replacement as restart-required.
+- Preserve source line attribution and tail/multiple-return behavior; test
+  depth-relative `error` attribution and freeze the observed `debug.getinfo`
+  behavior through direct, method, recursive and callback trampolines.
+- Load watch-generated modules with more than 100 named functions to prove the
+  slot layout does not introduce a lower local-variable ceiling than normal
+  generation.
+- Build and exercise the compiler with coverage support and watch generation
+  present to enforce the generator's own upvalue budget.
 - Keep normal output byte-identical and add direct assertions for that property.
 
 Exit gate: retaining a function value across a synthetic replacement calls the
-new body while ordinary builds still emit today's direct function.
+new body while ordinary builds still emit today's direct function; large modules
+load; ordinary `error(level)` attribution matches a normal build; and the
+specified debug-stack behavior is covered by tests.
 
 ### H2: Patch generation and capture rebinding
 
 - Build a persistent hot-reload compiler session over `incremental.Inc`.
+- Produce the initial watch artifact and install a session-backed runtime loader
+  so every required Nupp module and later patch shares one manifest provenance.
 - Compare the candidate against the last committed manifest.
+- Advance that base only after `Session:committed(generation)` acknowledges a
+  successful runtime commit; allow uncommitted prepared patches to be superseded.
 - Emit inert patch chunks containing changed named implementations only.
 - Implement full ordinary-free-variable capture analysis.
 - Stage replacements and join their upvalues to existing lexical cells.
 - Reject capture and interface changes with authored diagnostics.
 
 Exit gate: a captured mutable value retains identity across several body
-patches; syntax/type/incompatibility failures leave the old body callable.
+patches in a base program loaded by the same session; delayed, declined and
+superseded patches retain the correct committed base; and
+syntax/type/incompatibility failures leave the old body callable.
 
 ### H3: Transactional host API and JIT correctness
 
@@ -509,7 +660,7 @@ and stale/out-of-order patches cannot land.
 ### H4: Standalone watch command
 
 - Add the watch option and file-change source.
-- Reuse one incremental session for the process lifetime.
+- Put the H2 session-backed initial loader and patch loop behind the public CLI.
 - Debounce or settle writes so editors that replace files do not create noisy
   transient generations.
 - Keep the last good program running while printing current diagnostics.
@@ -571,6 +722,11 @@ mutation.
 - Normal and watch artifacts occupy distinct cache identities.
 - Patch output is deterministic for identical base and candidate generations.
 - Normal generated Lua remains byte-identical at every optimization level.
+- Watch generation accepts only `-O0`; `-O1` and `-O2` fail at option handling.
+- A watch module with more than 100 named functions loads without exhausting the
+  main chunk's 200-local limit.
+- Adding watch state does not push the generator's recursive emitter past
+  LuaJIT's upvalue limit, including when coverage support is present.
 - Source paths and lines in replacement stack traces point to authored Nupp.
 
 ### Runtime identity
@@ -581,7 +737,9 @@ mutation.
 - Recursive and mutually recursive functions dispatch according to the declared
   generation semantics.
 - Nil and multiple returns pass through trampolines unchanged.
-- Errors preserve the authored source location.
+- `error(message, 2)` and deeper runtime guards preserve the authored caller.
+- `debug.getinfo` through each trampoline form matches the H1-specified stack
+  behavior.
 
 ### Failure and transaction behavior
 
@@ -591,6 +749,10 @@ mutation.
 - A malformed, foreign, stale or duplicate-ID patch is rejected by the runtime.
 - Failure while staging the last function in a patch changes no earlier slot.
 - Two prepared successors of one base cannot both commit.
+- Preparing, superseding or declining a patch does not advance the compiler's
+  committed base; only a valid commit acknowledgement does.
+- Editing an affine-capture function reports restart-required before patch
+  generation.
 
 ### LuaJIT and execution
 
@@ -599,6 +761,8 @@ mutation.
 - A call already executing finishes on its old implementation.
 - A suspended coroutine resumes the old implementation and later calls use the
   new one.
+- An old activation that self-recurses or follows a statically resolved mutual
+  edge after resumption remains in its old implementation cohort.
 - Repeated generations release unreferenced old closures and manifests.
 
 ### tecs
@@ -641,26 +805,17 @@ must not make the compiler depend on tecs.
 1. **Upvalue names and indices.** Generated lowering can introduce or reorder
    Lua upvalues. The manifest must use compiler-assigned binding IDs and emitted
    indices; runtime `debug.getupvalue` names are validation aids, not identity.
-2. **Optimizer interaction.** Optimization may inline, eliminate or synthesize
-   functions. Watch mode either constrains passes that erase patch boundaries or
-   records a stable mapping through them. A pass may not make a named reloadable
-   function disappear without an equivalent stable slot.
-3. **Atomic root swap versus slot vector.** Sequential slot assignments are
+2. **Atomic root swap versus slot vector.** Sequential slot assignments are
    safe only while no Lua code can run. Prefer one generation-table root swap if
    finalizers, hooks or allocation make that proof fragile.
-4. **Recursive calls.** Decide whether self-recursion in an old activation stays
-   on the old implementation or traverses the stable slot into the new one after
-   commit. The least surprising rule is generation consistency for an active
-   call, but it may require the implementation to close over itself rather than
-   call the public trampoline. Specify and test one rule before H1.
-5. **Compiler placement.** An embedded compiler is simpler initially; a sidecar
+3. **Compiler placement.** An embedded compiler is simpler initially; a sidecar
    keeps compiler code and memory out of the game VM. Keep the patch and host
    interfaces transport-neutral so this remains a deployment choice.
-6. **Security boundary.** A development host may receive patch bytes from
+4. **Security boundary.** A development host may receive patch bytes from
    another process. Treat schema data as untrusted, but acknowledge that loading
    Lua code is code execution and bind any transport to the local development
    session rather than advertising a network service.
-7. **Watch source.** Native file watching is not required for the semantic core.
+5. **Watch source.** Native file watching is not required for the semantic core.
    Begin with a settled polling source or the host's existing watcher; do not
    couple patch correctness to one platform watcher backend.
 
