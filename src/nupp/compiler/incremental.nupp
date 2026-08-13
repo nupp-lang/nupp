@@ -127,6 +127,9 @@ record incremental.Inc
     --- The current semantic digest of one keyed project-index answer.
     projectDependencyFingerprint: function(name: string, key: string): string?
 
+    --- Source paths that contributed to one keyed project-index answer.
+    projectDependencyPaths: function(name: string, key: string): {string}
+
     --- Writes back what this run worked out that the next one can reuse.
     ---
     --- Nothing depends on it being called: skipping it costs the next command the work
@@ -601,6 +604,36 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return hash.digest(stable(value))
     end
 
+    local function projectDependencyPaths(name, key)
+        local value = q:get(name, key)
+        local paths, seen = {}, {}
+        local function add(path)
+            if type(path) == "string" and not seen[path] then
+                seen[path] = true
+                paths[#paths + 1] = path
+            end
+        end
+        if name == "projectModulePath" then
+            add(value)
+        elseif name == "projectPathEntries" then
+            add(key)
+            for _, entry in ipairs(value or {}) do
+                add(entry.path)
+            end
+        elseif name == "projectEntries" or name == "projectAnnotations" then
+            for _, entry in ipairs(value or {}) do
+                add(entry.path)
+            end
+        elseif name == "projectModuleBasenames" then
+            for _, module in ipairs(value or {}) do
+                add(q:get("projectModulePath", module))
+            end
+        end
+        table.sort(paths)
+
+        return paths
+    end
+
     function inc.projectDependencies(path: string): {any}
         q:get("checkModule", path)
         local byPath = q.memo.checkModule
@@ -629,6 +662,13 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             return nil
         end
         return projectFingerprint(name, key)
+    end
+
+    function inc.projectDependencyPaths(name: string, key: string): {string}
+        if not PROJECT_QUERY[name] then
+            return {}
+        end
+        return projectDependencyPaths(name, key)
     end
 
     function inc.persist()

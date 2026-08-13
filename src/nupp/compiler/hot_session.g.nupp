@@ -84,9 +84,10 @@ local function indexed(manifest)
     return byID
 end
 
-local function restart(path, message)
+local function restart(path, message, reason)
     return {
         kind = "restart-required",
+        reason = reason,
         diagnostics = {
             {
                 filename = path,
@@ -189,21 +190,102 @@ local function interfaceFingerprint(moduleType, exports, cdefFingerprint)
     )
 end
 
-local function snapshotChanged(previous, candidate)
-    for identity, old in pairs(previous.modules or {}) do
+local function snapshotChanged(previous, candidate, consumer)
+    local function keys(values)
+        local out = {}
+        for identity in pairs(values or {}) do
+            out[#out + 1] = identity
+        end
+        table.sort(out)
+
+        return out
+    end
+
+    local moduleKeys = keys(previous.modules)
+    for _, identity in ipairs(moduleKeys) do
+        local old = previous.modules[identity]
         local current = candidate.modules[identity]
-        if current and current.fingerprint ~= old.fingerprint then
-            return "module interface changed: " .. old.label
+        if current and current.cFingerprint ~= old.cFingerprint then
+            return {
+                kind = "c-declaration",
+                dependencyKind = "C declarations",
+                dependency = old.label,
+                identity = identity,
+                path = old.path,
+            }
         end
     end
-    for identity, old in pairs(previous.declarations or {}) do
+    for _, identity in ipairs(keys(previous.declarations)) do
+        local old = previous.declarations[identity]
         local current = candidate.declarations[identity]
         if current and current.fingerprint ~= old.fingerprint then
-            return "declaration changed: " .. old.label
+            return {
+                kind = "project-declaration",
+                dependencyKind = old.query,
+                dependency = old.label,
+                identity = identity,
+                path = old.paths and old.paths[1] or nil,
+                paths = old.paths,
+            }
         end
     end
 
+    -- A dependency's changed interface can change the loaded root's inferred
+    -- interface too. Name the dependency first; use the root only when it is the
+    -- declaration that actually changed.
+    for _, identity in ipairs(moduleKeys) do
+        local old = previous.modules[identity]
+        local current = candidate.modules[identity]
+        if identity ~= consumer and current and current.fingerprint ~= old.fingerprint then
+            return {
+                kind = "module-interface",
+                dependencyKind = "module",
+                dependency = old.label,
+                identity = identity,
+                path = old.path,
+            }
+        end
+    end
+    local old = previous.modules and previous.modules[consumer]
+    local current = candidate.modules and candidate.modules[consumer]
+    if old and current and current.fingerprint ~= old.fingerprint then
+        return {
+            kind = "module-interface",
+            dependencyKind = "module",
+            dependency = old.label,
+            identity = consumer,
+            path = old.path,
+        }
+    end
+
     return nil
+end
+
+local function dependencyChangeMessage(change, consumer, consumerPath)
+    local subject
+    if change.kind == "c-declaration" then
+        subject = "C declarations in module " .. change.dependency
+    elseif change.kind == "module-interface" then
+        subject = "module interface " .. change.dependency
+    else
+        local labels = {
+            projectEntries = "project declaration",
+            projectPathEntries = "project path declaration",
+            projectModulePath = "module resolution",
+            projectModuleBasenames = "module basename resolution",
+            projectAnnotations = "project annotation",
+        }
+        subject = (labels[change.dependencyKind] or "semantic dependency") .. " " .. change.dependency
+    end
+    if change.path then
+        subject = subject .. " at " .. change.path
+    end
+    local required = "required by " .. consumer
+    if consumerPath then
+        required = required .. " at " .. consumerPath
+    end
+
+    return subject .. " changed (" .. required .. ")"
 end
 
 function hotSession.new(root, opts)
@@ -237,15 +319,25 @@ function Session:semanticSnapshot(path, checked, module)
         if fatalIn(result.diags) then
             return nil, diagnosticsFailure(result.diags)
         end
+        local cFingerprint = cdefFingerprint(result.result)
         snapshot.modules[
             currentModule
         ] = {
-            fingerprint = interfaceFingerprint(result.moduleType, result.exports, cdefFingerprint(result.result)),
+            fingerprint = interfaceFingerprint(result.moduleType, result.exports, cFingerprint),
             label = currentModule,
+            path = currentPath,
+            cFingerprint = cFingerprint,
         }
         for _, dependency in ipairs(self.inc.projectDependencies(currentPath)) do
             local identity = dependency.name .. "\0" .. tostring(dependency.key)
-            snapshot.declarations[identity] = {fingerprint = dependency.fingerprint, label = tostring(dependency.key),}
+            snapshot.declarations[
+                identity
+            ] = {
+                fingerprint = dependency.fingerprint,
+                label = tostring(dependency.key),
+                query = dependency.name,
+                paths = self.inc.projectDependencyPaths(dependency.name, dependency.key),
+            }
         end
         for _, dependency in ipairs(self.inc.moduleDependencies(currentPath)) do
             local dependencyPath = self.inc.modulePath(dependency)
@@ -259,7 +351,10 @@ function Session:semanticSnapshot(path, checked, module)
                 if bundled then
                     snapshot.modules[
                         dependency
-                    ] = {fingerprint = interfaceFingerprint(bundled.type, bundled.exports), label = dependency,}
+                    ] = {
+                        fingerprint = interfaceFingerprint(bundled.type, bundled.exports),
+                        label = dependency,
+                    }
                 end
             end
         end
@@ -346,9 +441,15 @@ function Session:prepare(paths)
         if not abi then
             return failure
         end
-        local change = snapshotChanged(live.abi or {}, abi)
+        local change = snapshotChanged(live.abi or {}, abi, module)
         if change then
-            return restart(live.path, change .. " (required by " .. module .. ")")
+            change.consumer = module
+            change.consumerPath = live.path
+            return restart(
+                change.path or live.path,
+                dependencyChangeMessage(change, module, live.path),
+                change
+            )
         end
     end
     local changedCount = 0
@@ -362,20 +463,36 @@ function Session:prepare(paths)
             end
             local nextManifest = compiled.manifest
             if live.structure ~= nextManifest.structure then
-                return restart(path, "top-level structure changed in " .. module)
+                return restart(
+                    path,
+                    "top-level structure changed in " .. module,
+                    {kind = "source-structure", dependency = module, path = path, consumer = module,}
+                )
             end
             local oldByID, nextByID = indexed(live), indexed(nextManifest)
             local only = {}
             for id, old in pairs(oldByID) do
                 local nextFn = nextByID[id]
                 if not nextFn or nextFn.slot ~= old.slot then
-                    return restart(path, "reloadable declaration changed: " .. id)
+                    return restart(
+                        path,
+                        "reloadable declaration changed: " .. id,
+                        {kind = "reloadable-declaration", dependency = id, path = path, consumer = module,}
+                    )
                 end
                 if nextFn.signature ~= old.signature then
-                    return restart(path, "callable signature changed: " .. id)
+                    return restart(
+                        path,
+                        "callable signature changed: " .. id,
+                        {kind = "callable-abi", dependency = id, path = path, consumer = module,}
+                    )
                 end
                 if not sameCaptures(old.captures, nextFn.captures) then
-                    return restart(path, "captured bindings changed: " .. id)
+                    return restart(
+                        path,
+                        "captured bindings changed: " .. id,
+                        {kind = "capture-set", dependency = id, path = path, consumer = module,}
+                    )
                 end
                 if nextFn.implementation ~= old.implementation then
                     if not old.patchable then
@@ -383,7 +500,14 @@ function Session:prepare(paths)
                             path,
                             "capture " .. tostring(
                                 old.affineCapture
-                            ) .. " owns a cleanup, so replacing " .. old.id .. " requires restart"
+                            ) .. " owns a cleanup, so replacing " .. old.id .. " requires restart",
+                            {
+                                kind = "affine-capture",
+                                dependency = old.id,
+                                path = path,
+                                consumer = module,
+                                capture = old.affineCapture,
+                            }
                         )
                     end
                     only[id] = true
@@ -392,7 +516,11 @@ function Session:prepare(paths)
             end
             for id in pairs(nextByID) do
                 if not oldByID[id] then
-                    return restart(path, "reloadable declaration was added: " .. id)
+                    return restart(
+                        path,
+                        "reloadable declaration was added: " .. id,
+                        {kind = "reloadable-declaration", dependency = id, path = path, consumer = module,}
+                    )
                 end
             end
             if next(only) then

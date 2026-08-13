@@ -117,6 +117,25 @@ function M.retainedFunctionUsesPatchedBodyAndCapturedCell()
    assertEq(retained(1), 4, "patched implementation shares old value cell")
 end
 
+function M.commitFlushesJitAfterPublishing()
+   local before = "local function value(): integer return 1 end\nreturn value"
+   local retained = initial(before, "jit-flush")
+   local patch = generate(before:gsub("return 1", "return 2"), "patch", "jit-flush")
+   local prepared, reason = hot.stage(patch, hot.generation())
+   assert(prepared, reason)
+   local original = jit.flush
+   local flushes = 0
+   jit.flush = function()
+      flushes = flushes + 1
+   end
+   local ok, generation, commitError = pcall(hot.commit, prepared)
+   jit.flush = original
+   assert(ok, generation)
+   assertEq(generation, 2, commitError)
+   assertEq(flushes, 1, "commit flushes stale JIT traces exactly once")
+   assertEq(retained(), 2, "the flushed generation was published")
+end
+
 function M.rejectedCaptureChangeLeavesOldGenerationRunning()
    local before = table.concat({
       "local value: integer = 3",
@@ -410,6 +429,9 @@ function M.sessionReportsStructuralChangesAsRestartRequired()
    local result = session:prepare({path})
    assertEq(result.kind, "restart-required")
    assertEq(result.diagnostics[1].code, "NUPP5001")
+   assertEq(result.reason.kind, "source-structure")
+   assertEq(result.reason.dependency, "main")
+   assertEq(result.reason.path, path)
 end
 
 function M.sessionRechecksLoadedModulesAfterDeclarationChanges()
@@ -452,7 +474,42 @@ function M.sessionRejectsSemanticSignatureChangesWithTheSameSpelling()
    local result = session:prepare({globalsPath})
    assertEq(result.kind, "restart-required")
    assertEq(result.diagnostics[1].code, "NUPP5001")
-   assert(result.diagnostics[1].msg:find("changed", 1, true), result.diagnostics[1].msg)
+   assertEq(result.reason.kind, "project-declaration")
+   assertEq(result.reason.dependency, "Watched")
+   assertEq(result.reason.path, globalsPath)
+   assertEq(result.reason.consumer, "main")
+   assert(result.diagnostics[1].msg:find(globalsPath, 1, true), result.diagnostics[1].msg)
+   assert(result.diagnostics[1].msg:find("required by main", 1, true), result.diagnostics[1].msg)
+end
+
+function M.sessionNamesTheImportedModuleWhoseInterfaceChanged()
+   local dir = temporaryProject({
+      ["dependency.nupp"] = table.concat({
+         "local M = {}",
+         "function M.identity(value: int32): int32 return value end",
+         "return M",
+      }, "\n"),
+      ["main.nupp"] = "local dependency = require('dependency')\nreturn dependency.identity\n",
+   })
+   local mainPath = dir .. "/main.nupp"
+   local dependencyPath = dir .. "/dependency.nupp"
+   local session = loadedCompilerSession(dir, mainPath)
+
+   write(dependencyPath, table.concat({
+      "local M = {}",
+      "function M.identity(value: int64): int64 return value end",
+      "return M",
+   }, "\n"))
+   session:diskChanged(dependencyPath, 2)
+   local result = session:prepare({dependencyPath})
+   assertEq(result.kind, "restart-required")
+   assertEq(result.reason.kind, "module-interface")
+   assertEq(result.reason.dependency, "dependency")
+   assertEq(result.reason.path, dependencyPath)
+   assertEq(result.reason.consumer, "main")
+   assert(result.diagnostics[1].msg:find("module interface dependency", 1, true),
+      result.diagnostics[1].msg)
+   assert(result.diagnostics[1].msg:find(dependencyPath, 1, true), result.diagnostics[1].msg)
 end
 
 function M.sessionRejectsChangedCLayoutsBeforePatching()
@@ -482,6 +539,43 @@ function M.sessionRejectsChangedCLayoutsBeforePatching()
    local result = session:prepare({nativePath})
    assertEq(result.kind, "restart-required")
    assertEq(result.diagnostics[1].code, "NUPP5001")
+   assertEq(result.reason.kind, "c-declaration")
+   assertEq(result.reason.dependency, "native")
+   assertEq(result.reason.path, nativePath)
+   assertEq(result.reason.consumer, "main")
+   assert(result.diagnostics[1].msg:find("C declarations in module native", 1, true),
+      result.diagnostics[1].msg)
+   assert(result.diagnostics[1].msg:find(nativePath, 1, true), result.diagnostics[1].msg)
+end
+
+function M.sessionNamesTheAffineCaptureThatRequiresRestart()
+   local before = table.concat({
+      "local record Resource",
+      "   value: integer",
+      "end",
+      "local function closeResource(resource: Resource): nil end",
+      "@owned(closeResource)",
+      "local function openResource(): Resource",
+      "   return new Resource(value = 7)",
+      "end",
+      "local resource = openResource()",
+      "local function read(): integer takes (resource)",
+      "   return resource.value",
+      "end",
+      "return read()",
+   }, "\n")
+   local dir = temporaryProject({["main.nupp"] = before})
+   local path = dir .. "/main.nupp"
+   local session = loadedCompilerSession(dir, path)
+
+   write(path, before:gsub("return resource.value", "return resource.value + 1"))
+   session:diskChanged(path, 2)
+   local result = session:prepare({path})
+   assertEq(result.kind, "restart-required")
+   assertEq(result.reason.kind, "affine-capture")
+   assertEq(result.reason.capture, "resource")
+   assert(result.diagnostics[1].msg:find("capture resource", 1, true), result.diagnostics[1].msg)
+   assert(result.diagnostics[1].msg:find("main/module/local/read", 1, true), result.diagnostics[1].msg)
 end
 
 function M.sessionIgnoresUnrelatedDeclarationChanges()

@@ -194,4 +194,72 @@ return models
    end)
 end
 
+function M.cliWatchCommitsAndKeepsTheLastGoodGeneration()
+   local function watched(body)
+      return table.concat({
+         "local M = {}",
+         "function M.value(): integer",
+         "   " .. body,
+         "end",
+         "return M",
+         "",
+      }, "\n")
+   end
+   local versionTwo = string.format("%q", watched("return 2"))
+   local rejected = string.format("%q", watched("return 'bad'"))
+   local structural = string.format("%q", "local marker: integer = 1\n" .. watched("return 3"))
+   withProject({
+      ["nupp.lua"] = "return { include = { 'src' } }\n",
+      ["writer.lua"] = [[
+return function(path, text)
+   local file = assert(io.open(path, "wb"))
+   file:write(text)
+   file:close()
+end
+]],
+      ["src/watched.nupp"] = watched("return 1"),
+      ["main.g.nupp"] = table.concat({
+         "local watched = require('watched')",
+         "local write = require('writer')",
+         "nupp.hotReload.poll()",
+         "print(watched.value())",
+         "write('src/watched.nupp', " .. versionTwo .. ")",
+         "nupp.hotReload.poll()",
+         "print(watched.value())",
+         "write('src/watched.nupp', " .. rejected .. ")",
+         "nupp.hotReload.poll()",
+         "print(watched.value())",
+         "write('src/watched.nupp', " .. structural .. ")",
+         "nupp.hotReload.poll()",
+         "print(watched.value())",
+         "",
+      }, "\n"),
+   }, function(dir)
+      local output = dir .. "/output.txt"
+      local errors = dir .. "/errors.txt"
+      local command = ("cd '%s' && '%s/bin/nupp' run --watch main.g.nupp "
+         .. "> '%s' 2> '%s'"):format(dir, ROOT, output, errors)
+      local status = os.execute(command)
+      local stderr = readFile(errors)
+      assertEq(status, 0, "nupp run --watch exit status: " .. stderr)
+      assertEq(readFile(output), "1\n2\n2\n2\n", "watch generation output")
+      assert(stderr:find("committed hot generation 2", 1, true), stderr)
+      assert(stderr:find("NUPP2002", 1, true), stderr)
+      assert(stderr:find("generation 2 remains running", 1, true), stderr)
+      assert(stderr:find("NUPP5001", 1, true), stderr)
+      assert(stderr:find("top-level structure changed in watched", 1, true), stderr)
+   end)
+end
+
+function M.cliWatchRejectsOptimizedGeneration()
+   withProject({["main.nupp"] = "print(1)\n"}, function(dir)
+      local output = dir .. "/output.txt"
+      local command = ("cd '%s' && '%s/bin/nupp' run --watch -O1 main.nupp "
+         .. "> '%s' 2>&1"):format(dir, ROOT, output)
+      local status = os.execute(command)
+      assert(status ~= 0, "optimized watch command must fail")
+      assert(readFile(output):find("--watch supports -O0 only", 1, true), readFile(output))
+   end)
+end
+
 return M
