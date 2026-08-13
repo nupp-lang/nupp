@@ -1213,6 +1213,8 @@ end
 --- @param backend the platform that runs it
 --- @param options what to run and how to connect it
 --- @return the child, which must be closed
+--- @raises when the options do not describe a runnable child, or the backend cannot
+--- start one
 @owned
 function process.spawnOn(backend: processtypes.Backend, options: processtypes.Options): process.Process
     validateOptions(options)

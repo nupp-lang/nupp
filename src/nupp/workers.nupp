@@ -511,6 +511,8 @@ end
 
 --- Starts `entry` in a fresh LuaJIT state.
 --- @return an owned worker that is stopped on every structured exit
+--- @raises when the entry is not a nonempty module name, or the worker state cannot
+--- be started
 @owned
 function workers.spawn(entry: string): workers.Worker
     if type(entry) ~= "string" or entry == "" then
