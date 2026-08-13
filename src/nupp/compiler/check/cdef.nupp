@@ -25,6 +25,15 @@ local cdef = {}
 --- A type, as nupp.compiler.types builds them.
 local type Type = T.Type
 
+local function stringLiteral(token): string?
+    if not token then return nil end
+    local chunk = loadstring("return " .. token.text)
+    if not chunk then return nil end
+    local ok, value = pcall(chunk)
+
+    return ok and type(value) == "string" and value or nil
+end
+
 --- Installs the cdef statements on one run.
 ---
 --- @param c the run's state
@@ -63,6 +72,8 @@ function cdef.install(
         local n = T.nominal(structName.text, "struct")
         n.cdefName = structName.text
         n.cdefKind = stat.aggregateKind or "struct"
+        stat.cdefIdentity = table.concat({"aggregate", n.cdefKind, structName.text}, "\0")
+        n.cdefIdentity = stat.cdefIdentity
         c.bindType(structName.text, n, structName)
         if structName.definition then
             structName.definition.cdef = true
@@ -70,6 +81,7 @@ function cdef.install(
         n.fieldOrder = {}
         n.fieldDefs = {}
         n.writeFieldDefs = {}
+        local semanticFields = {}
         for _, e in ipairs(stat.entries) do
             local fieldName, declaredType = nil, nil
             local bitWidth = nil
@@ -89,6 +101,12 @@ function cdef.install(
                 fieldDef.cdef = true
                 c.markToken(fieldName, fieldDef, ft, "property")
                 n.fieldOrder[#n.fieldOrder + 1] = text
+                semanticFields[
+                    #semanticFields + 1
+                ] = table.concat(
+                    {text, T.tostring(ft), bitWidth and bitWidth.text or ""},
+                    ":"
+                )
                 if not reifiableField(ft, true) then
                     c.diag("NUPP2203", e, ("cdef field %q: %s is not a C type"):format(text, T.tostring(ft)))
                 end
@@ -116,7 +134,14 @@ function cdef.install(
                 c.diag("NUPP2203", e, "cdef aggregate bodies hold fields only")
             end
         end
+        stat.cdefSemantic = table.concat(
+            {"c-aggregate-v1", n.cdefKind, structName.text, table.concat(semanticFields, "\0")},
+            "\0"
+        )
         c.bindVar(structName.text, n, true, structName)
+        if structName.definition then
+            structName.definition.cdefIdentity = stat.cdefIdentity
+        end
     end
 
     handlers.cdefFunc = function(stat: cst.CdefFunc)
@@ -419,6 +444,19 @@ function cdef.install(
         end
         if cdefName.definition then
             cdefName.definition.cdef = true
+            local library = stringLiteral(stat.fromLib) or "<default>"
+            stat.cdefIdentity = table.concat({"function", library, cdefName.text}, "\0")
+            stat.cdefSemantic = table.concat(
+                {
+                    "c-function-v1",
+                    library,
+                    cdefName.text,
+                    T.tostring(stat.physicalSignatureType),
+                    T.tostring(stat.signatureType),
+                },
+                "\0"
+            )
+            cdefName.definition.cdefIdentity = stat.cdefIdentity
         end
     end
 

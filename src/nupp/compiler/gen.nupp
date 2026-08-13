@@ -656,6 +656,44 @@ function gen.generate(
         return names
     end
 
+    --- Keyed C uses belonging to one retained implementation. Checked direct C
+    --- declarations carry an identity; any foreign call the checker cannot join to
+    --- one deliberately selects the module-wide fallback in the session.
+    local function hotCUses(node): ({string}, boolean)
+        local used, unknown = {}, false
+        local function walk(child)
+            if not child or cst.isToken(child) then
+                return
+            end
+            if child.cdefIdentity then
+                used[child.cdefIdentity] = true
+            elseif child.kind == "name"
+                and child.token
+                and child.token.definition
+                and child.token.definition.cdefIdentity
+            then
+                used[child.token.definition.cdefIdentity] = true
+            elseif child.cdefCall or child.cdefDeclarationBlock or child.cheaderCdef then
+                unknown = true
+            end
+            if (child.kind == "cdefFunc" or child.kind == "cdefStruct") and child.cdefIdentity then
+                used[child.cdefIdentity] = true
+            end
+            for _, nested in ipairs(child) do
+                walk(nested)
+            end
+        end
+
+        walk(node.body)
+        local identities = {}
+        for identity in pairs(used) do
+            identities[#identities + 1] = identity
+        end
+        table.sort(identities)
+
+        return identities, unknown
+    end
+
     local function planHotFunction(node, owner): nil
         if not hotState or not node.body or hotState.allByNode[node] then
             return
@@ -677,6 +715,7 @@ function gen.generate(
         local affineCapture = affine and node.body and node.body.takenCaptures and node.body.takenCaptures[
             1
         ] and node.body.takenCaptures[1].name or nil
+        local cUses, cUnknown = hotCUses(node)
         local planned = {
             node = node,
             slot = slot,
@@ -691,6 +730,8 @@ function gen.generate(
             implementation = compactSource(node.body and node.body.body),
             patchable = not affine,
             affineCapture = affineCapture,
+            cUses = cUses,
+            cUnknown = cUnknown,
         }
         hotState.functions[slot] = planned
         hotState.allByNode[node] = planned
@@ -752,8 +793,19 @@ function gen.generate(
                     if not cst.isToken(statement) then
                         local actual = statement.kind == "pragmaStmt" and statement.stat or statement
                         local planned = actual and hotState.allByNode[actual]
+                        local structural = actual
+                        while structural and structural.kind == "pragmaStmt" do
+                            structural = structural.stat
+                        end
                         if planned then
                             hotState.structure[#hotState.structure + 1] = "function\0" .. planned.id
+                        elseif structural
+                            and (structural.kind == "cdefFunc" or structural.kind == "cdefStruct")
+                        then
+                            -- Keyed checked C metadata owns declaration presence,
+                            -- semantics, and runtime-binding compatibility. Keeping
+                            -- source spelling in the structural stream would turn a
+                            -- harmless reorder into a restart before that comparison.
                         else
                             local shape = compactSource(statement)
                             local first, last = cst.firstToken(statement), cst.lastToken(statement)
@@ -4606,6 +4658,8 @@ function gen.generate(
                 implementation = planned.implementation,
                 patchable = planned.patchable,
                 affineCapture = planned.affineCapture,
+                cUses = planned.cUses,
+                cUnknown = planned.cUnknown,
             }
         end
         hotMetadata = {

@@ -2,6 +2,7 @@ local parser = require("nupp.compiler.parser")
 local check = require("nupp.compiler.check")
 local envMod = require("nupp.compiler.env")
 local gen = require("nupp.compiler.gen")
+local optimize = require("nupp.compiler.optimize")
 local hot = require("nupp.hotreload")
 local hotSession = require("nupp.compiler.hot_session")
 
@@ -86,6 +87,28 @@ function M.normalGenerationRemainsByteIdentical()
    local explicit = assert(gen.generate(result, "ordinary.g.nupp", nil, nil))
    assertEq(explicit, ordinary, "absent watch request changes normal output")
    assert(not ordinary:find("__nuppHot", 1, true), "normal output contains hot runtime")
+end
+
+function M.normalOptimizationLevelsContainNoHotReloadMetadata()
+   local source = table.concat({
+      "cdef function hot_plain(value: int32): int32",
+      "local function f(n: int32): int32 return hot_plain(n) + 1 end",
+      "return f",
+   }, "\n")
+   for level = 0, 2 do
+      local left = checked(source, "ordinary.nupp")
+      local right = checked(source, "ordinary.nupp")
+      if level > 0 then
+         optimize.run(left, {level = level})
+         optimize.run(right, {level = level})
+      end
+      local ordinary = assert(gen.generate(left, "ordinary.nupp"))
+      local explicit = assert(gen.generate(right, "ordinary.nupp", nil, nil))
+      assertEq(explicit, ordinary, "absent watch request changes -O" .. level .. " output")
+      assert(not ordinary:find("__nuppHot", 1, true), "-O" .. level .. " contains hot runtime")
+      assert(not ordinary:find("provider-file", 1, true), "-O" .. level .. " contains provider metadata")
+      assert(not ordinary:find("cUses", 1, true), "-O" .. level .. " contains C-use metadata")
+   end
 end
 
 function M.retainedFunctionUsesPatchedBodyAndCapturedCell()
@@ -540,12 +563,200 @@ function M.sessionRejectsChangedCLayoutsBeforePatching()
    assertEq(result.kind, "restart-required")
    assertEq(result.diagnostics[1].code, "NUPP5001")
    assertEq(result.reason.kind, "c-declaration")
-   assertEq(result.reason.dependency, "native")
+   assertEq(result.reason.dependency, "hot_point")
    assertEq(result.reason.path, nativePath)
    assertEq(result.reason.consumer, "main")
-   assert(result.diagnostics[1].msg:find("C declarations in module native", 1, true),
+   assert(result.diagnostics[1].msg:find("C declarations in module hot_point", 1, true),
       result.diagnostics[1].msg)
    assert(result.diagnostics[1].msg:find(nativePath, 1, true), result.diagnostics[1].msg)
+end
+
+function M.sessionKeysCDeclarationsIndependentOfOrder()
+   local before = table.concat({
+      "cdef function hot_first(value: int32): int32",
+      "cdef function hot_second(value: int32): int32",
+      "local function value(n: int32): int32 return hot_first(n) end",
+      "return value",
+   }, "\n")
+   local after = table.concat({
+      "cdef function hot_second(value: int32): int32",
+      "cdef function hot_first(value: int32): int32",
+      "local function value(n: int32): int32 return hot_first(n) end",
+      "return value",
+   }, "\n")
+   local dir = temporaryProject({["main.nupp"] = before})
+   local path = dir .. "/main.nupp"
+   local session = loadedCompilerSession(dir, path)
+
+   write(path, after)
+   session:diskChanged(path, 2)
+   assertEq(session:prepare({path}).kind, "no-change",
+      "declaration order is not part of keyed C ABI semantics")
+end
+
+function M.sessionKeysCFunctionsByDecodedLibraryAndSymbol()
+   local before = table.concat({
+      "cdef function hot_library_value(): int32 from 'hot-one'",
+      "local function value(): int32 return 1 end",
+      "return value",
+   }, "\n")
+   local equivalent = before:gsub("'hot%-one'", '"hot-one"')
+   local changed = equivalent:gsub('"hot%-one"', '"hot-two"')
+   local dir = temporaryProject({["main.nupp"] = before})
+   local path = dir .. "/main.nupp"
+   local session = loadedCompilerSession(dir, path)
+
+   write(path, equivalent)
+   session:diskChanged(path, 2)
+   assertEq(session:prepare({path}).kind, "no-change",
+      "equivalent library literal spelling changes C identity")
+
+   write(path, changed)
+   session:diskChanged(path, 3)
+   local result = session:prepare({path})
+   assertEq(result.kind, "restart-required")
+   assertEq(result.reason.kind, "c-declaration")
+   assertEq(result.reason.dependency, "hot_library_value")
+end
+
+function M.sessionRejectsNewCUseMissingFromTheRunningModule()
+   local before = table.concat({
+      "local function value(n: int32): int32 return n end",
+      "return value",
+   }, "\n")
+   local after = table.concat({
+      "local function value(n: int32): int32",
+      "   cdef function hot_late(value: int32): int32",
+      "   return hot_late(n)",
+      "end",
+      "return value",
+   }, "\n")
+   local dir = temporaryProject({["main.nupp"] = before})
+   local path = dir .. "/main.nupp"
+   local session = loadedCompilerSession(dir, path)
+
+   write(path, after)
+   session:diskChanged(path, 2)
+   local result = session:prepare({path})
+   assertEq(result.kind, "restart-required")
+   assertEq(result.reason.kind, "c-declaration")
+   assertEq(result.reason.dependency, "hot_late")
+end
+
+function M.sessionKeepsRawFfiDeclarationsOnTheConservativeFallback()
+   local before = table.concat({
+      "local ffi = require('ffi')",
+      "local function declare(): nil",
+      "   ffi.cdef('int hot_raw(int value);')",
+      "end",
+      "return declare",
+   }, "\n")
+   local after = before:gsub("int hot_raw", "long hot_raw")
+   local dir = temporaryProject({["main.nupp"] = before})
+   local path = dir .. "/main.nupp"
+   local session = loadedCompilerSession(dir, path)
+
+   write(path, after)
+   session:diskChanged(path, 2)
+   local result = session:prepare({path})
+   assertEq(result.kind, "restart-required")
+   assertEq(result.reason.kind, "c-declaration")
+   assertEq(result.reason.identity, "<module-wide C fallback>")
+end
+
+function M.sessionTracksDeriveProviderFilesystemInputs()
+   local source = table.concat({
+      "local M = {}",
+      "interface M.Labelled",
+      "   label: function(self): string",
+      "end",
+      "function M.labelValue(value: string): string return value end",
+      "@comptime",
+      "function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Labelled>",
+      "   local label = nupp.derive.file('schema.txt')",
+      "   return nupp.derive.implement{methods = {",
+      "      label = nupp.derive.forward{helper = nupp.derive.helper(M, 'labelValue'), arguments = {nupp.derive.constant(label)}},",
+      "   }}",
+      "end",
+      "@derive(M.derive)",
+      "record M.Value",
+      "   value: integer",
+      "end",
+      "return M",
+   }, "\n")
+   local dir = temporaryProject({["schema.txt"] = "version one", ["main.nupp"] = source})
+   local path = dir .. "/main.nupp"
+   local inputPath = require("nupp.compiler.fs").canonical(dir .. "/schema.txt")
+   local session = loadedCompilerSession(dir, path)
+   local observed = false
+   for _, input in ipairs(session:watchedInputs()) do
+      if input.path == inputPath and input.kind == "provider-file" then observed = true end
+   end
+   assert(observed, "provider filesystem input joins the dynamic watch set")
+
+   write(inputPath, "version two")
+   session:diskChanged(inputPath, 2)
+   local result = session:prepare({inputPath})
+   assertEq(result.kind, "restart-required")
+   assertEq(result.reason.kind, "provider-input")
+   assertEq(result.reason.dependency, "schema.txt")
+   assertEq(result.reason.path, inputPath)
+end
+
+function M.deriveProviderFilesystemInputsRequireLiteralPaths()
+   local source = table.concat({
+      "local M = {}",
+      "interface M.Contract",
+      "   value: function(self): string",
+      "end",
+      "function M.value(): string return 'value' end",
+      "@comptime",
+      "function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Contract>",
+      "   local path = 'schema.txt'",
+      "   local schema = nupp.derive.file(path)",
+      "   return nupp.derive.implement{methods = {value = nupp.derive.forward{helper = nupp.derive.helper(M, 'value'), arguments = {}}}}",
+      "end",
+      "@derive(M.derive)",
+      "record M.Value end",
+      "return M",
+   }, "\n")
+   local dir = temporaryProject({["schema.txt"] = "value", ["main.nupp"] = source})
+   local session = hotSession.new(dir, {cache = false})
+   local result = session:initial({dir .. "/main.nupp"})
+   assertEq(result.kind, "diagnostics")
+   assertEq(result.diagnostics[1].code, "NUPP2810")
+   assert(result.diagnostics[1].msg:find("string literal", 1, true), result.diagnostics[1].msg)
+end
+
+function M.deriveProviderFilesystemInputsStayInsideTheProject()
+   local source = table.concat({
+      "local M = {}",
+      "interface M.Contract",
+      "   value: function(self): string",
+      "end",
+      "function M.value(): string return 'value' end",
+      "@comptime",
+      "function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Contract>",
+      "   local schema = nupp.derive.file('../outside.txt')",
+      "   return nupp.derive.implement{methods = {value = nupp.derive.forward{helper = nupp.derive.helper(M, 'value'), arguments = {}}}}",
+      "end",
+      "@derive(M.derive)",
+      "record M.Value end",
+      "return M",
+   }, "\n")
+   local dir = temporaryProject({["main.nupp"] = source})
+   local session = hotSession.new(dir, {cache = false})
+   local result = session:initial({dir .. "/main.nupp"})
+   assertEq(result.kind, "diagnostics")
+   local escaped
+   for _, diagnostic in ipairs(result.diagnostics) do
+      if diagnostic.code == "NUPP2810"
+         and diagnostic.msg:find("escapes the project root", 1, true)
+      then
+         escaped = diagnostic
+      end
+   end
+   assert(escaped, "project-escaping derive.file did not report NUPP2810")
 end
 
 function M.sessionNamesTheAffineCaptureThatRequiresRestart()

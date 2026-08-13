@@ -758,6 +758,9 @@ record types.Nominal
     --- The C tag namespace used by this nominal: `struct` or `union`.
     cdefKind: string?
 
+    --- Stable identity of the checked C declaration that introduced this nominal.
+    cdefIdentity: string?
+
     --- Parameters of a generic declaration, and what it has been instantiated as so
     --- far.
     typeParams: {types.Type}?

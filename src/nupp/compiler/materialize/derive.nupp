@@ -106,6 +106,21 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
         end
         return opaque("derive", "Argument", {kind = "array", values = args[1]}, provenance(at, "array"))
     end)
+    install("file", function(_, args)
+        local path = args[1]
+        if args.n ~= 1 or type(path) ~= "string" or path == "" then
+            return nil, failure("NUPP2810", "derive.file needs one non-empty project-relative path")
+        end
+        local value = state.deriveFiles and state.deriveFiles[path]
+        if type(value) ~= "string" then
+            return nil, failure(
+                "NUPP2810",
+                "derive.file path was not statically admitted by the compiler: " .. path
+            )
+        end
+
+        return value
+    end)
     install("helper", function(at, args)
         local moduleName, member
         if args.n == 1 and type(args[1]) == "string" then
@@ -254,6 +269,8 @@ function deriveProvider.materializeInfo(state: any, input: any, opaque: any, pro
         providerIdentity = input.providerIdentity,
         ownerIdentity = input.ownerIdentity,
     }
+    state.deriveFiles = input.providerFiles or {}
+    state.deriveInputDescriptors = input.providerInputDescriptors or {}
     local references, views = {}, {}
     local view
     view = function(value)
@@ -588,7 +605,7 @@ function deriveProvider.finalize(state: any, root: any): any, any
         return nil, staticsFailure
     end
     local payload = {
-        version = "nupp.derive.result.v2",
+        version = "nupp.derive.result.v3",
         requestFingerprint = state.deriveRequest and state.deriveRequest.fingerprint,
         providerIdentity = state.deriveRequest and state.deriveRequest.providerIdentity,
         ownerIdentity = state.deriveRequest and state.deriveRequest.ownerIdentity,
@@ -596,6 +613,7 @@ function deriveProvider.finalize(state: any, root: any): any, any
         statics = statics,
         data = {},
         effects = rootEntry.payload.effects or {},
+        inputs = state.deriveInputDescriptors or {},
     }
     for name, value in pairs(rootEntry.payload.data or {}) do
         if type(name) ~= "string" or name == "" then
@@ -621,7 +639,7 @@ function deriveProvider.finalize(state: any, root: any): any, any
         schema = 1,
         family = "Result",
         payload = payload,
-        fingerprint = hash.sha256("nupp.derive.result\0v2\0" .. canonical),
+        fingerprint = hash.sha256("nupp.derive.result\0v3\0" .. canonical),
     }
 end
 

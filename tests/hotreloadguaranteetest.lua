@@ -95,12 +95,33 @@ local guarantees = {
       },
    },
    {
+      claim = "keyed C dependencies ignore order and reject changed or newly used ABI",
+      cases = {
+         {"hotreloadtest", "sessionKeysCDeclarationsIndependentOfOrder"},
+         {"hotreloadtest", "sessionKeysCFunctionsByDecodedLibraryAndSymbol"},
+         {"hotreloadtest", "sessionRejectsChangedCLayoutsBeforePatching"},
+         {"hotreloadtest", "sessionRejectsNewCUseMissingFromTheRunningModule"},
+         {"hotreloadtest", "sessionKeepsRawFfiDeclarationsOnTheConservativeFallback"},
+      },
+   },
+   {
+      claim = "derive provider filesystem inputs are observed and invalidate consumers",
+      cases = {
+         {"hotreloadtest", "sessionTracksDeriveProviderFilesystemInputs"},
+         {"hotreloadtest", "deriveProviderFilesystemInputsRequireLiteralPaths"},
+         {"hotreloadtest", "deriveProviderFilesystemInputsStayInsideTheProject"},
+      },
+   },
+   {
       claim = "an active call finishes on the implementation it entered",
       cases = {{"hotreloadtest", "activeCallFinishesOnTheImplementationItEntered"}},
    },
    {
       claim = "ordinary generation contains no hot-reload machinery",
-      cases = {{"hotreloadtest", "normalGenerationRemainsByteIdentical"}},
+      cases = {
+         {"hotreloadtest", "normalGenerationRemainsByteIdentical"},
+         {"hotreloadtest", "normalOptimizationLevelsContainNoHotReloadMetadata"},
+      },
    },
 }
 

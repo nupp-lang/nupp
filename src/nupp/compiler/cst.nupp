@@ -335,6 +335,10 @@ interface cst.Hints
     --- Header declarations a cheader call brought in.
     cheaderCdef: any
 
+    --- A literal ffi.cdef/pcall declaration block. It has no keyed Nupp cdef node,
+    --- so hot reload retains it through the conservative module-wide C fallback.
+    cdefDeclarationBlock: boolean?
+
     --- The library those declarations bind to.
     cheaderLib: any
 
@@ -374,6 +378,11 @@ interface cst.Hints
 
     --- Set on a call that crosses into C.
     cdefCall: boolean?
+
+    --- Stable keyed C declaration identity when the checker can prove which
+    --- declaration this operation reaches. A missing identity on a C operation keeps
+    --- hot reload on its conservative module-wide fallback.
+    cdefIdentity: string?
 
     --- Which ownership intrinsic a call is.
     ownershipIntrinsic: string?
@@ -1217,6 +1226,11 @@ record cst.CdefFunc is cst.Hints
     countedAbi: any
 
     physicalSignatureType: any
+
+    --- Canonical checked identity and ABI/ownership semantics for hot reload.
+    cdefIdentity: string?
+
+    cdefSemantic: string?
 end
 
 --- `cdef struct Name ... end`.
@@ -1234,6 +1248,11 @@ record cst.CdefStruct is cst.Hints
 
     --- Its fields.
     entries: {cst.Node}
+
+    --- Canonical checked identity and layout semantics for hot reload.
+    cdefIdentity: string?
+
+    cdefSemantic: string?
 end
 
 --- A generic parameter clause, `<K, V is Bound>`.

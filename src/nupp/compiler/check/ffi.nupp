@@ -138,6 +138,9 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
         if typeArg then
             local name = memberName
             local argT = c.resolveType(typeArg)
+            if argT and argT.tag == "nominal" and argT.cdefIdentity then
+                node.cdefIdentity = argT.cdefIdentity
+            end
             local hint = typeArg
             node.ffiIntrinsic = name
             node.ffiTypeNode = hint
@@ -408,6 +411,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                     local ok, _, names = require("nupp.compiler.cheader").declare(body)
                     if ok then
                         c.recordCDeclarations(names)
+                        node.cdefDeclarationBlock = true
                     end
                 end
             end
@@ -427,6 +431,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                 if body then
                     local ok, err, names = require("nupp.compiler.cheader").declare(body)
                     c.recordCDeclarations(names)
+                    node.cdefDeclarationBlock = true
                     if not ok then
                         c.diag(
                             "NUPP2303",

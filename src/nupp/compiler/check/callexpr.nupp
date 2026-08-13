@@ -756,6 +756,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         if calleeName ~= "" then
             local entry = c.lookupEntry(calleeName)
             node.cdefCall = entry and entry.definition and entry.definition.cdef or false
+            node.cdefIdentity = node.cdefCall and entry.definition.cdefIdentity or nil
         end
         -- require("mod") resolves to the module's type when the module can be found. An
         -- undeclared Lua module stays gradual by default, but strict checking exposes

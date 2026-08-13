@@ -607,6 +607,17 @@ record nupp.derive
     --- @return the recipe, as this provider's `Result<I>`
     implement: function(specification: any): any
 
+    --- Reads one immutable filesystem input admitted to this provider invocation.
+    ---
+    --- The path must be a string literal in the provider's checked source. It resolves
+    --- from the consumer project root, becomes an incremental query dependency, and is
+    --- included in the provider recipe fingerprint. Watch mode therefore observes the
+    --- file and rechecks only modules that consume the provider.
+    ---
+    --- @param path project-relative path written as a literal
+    --- @return the file's bytes
+    file: function(path: string): string
+
     --- Refuses the declaration with a diagnostic instead of returning a recipe.
     ---
     --- The reference decides what the diagnostic points at: `Info.reference` for the

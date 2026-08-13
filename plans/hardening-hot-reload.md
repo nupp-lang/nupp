@@ -1,12 +1,10 @@
 # Hardening hot-reload
 
-Status: R1-R3 implemented; R4-R6 remain. The current
-implementation safely patches compatible named function bodies, rechecks loaded
-Nupp modules, and conservatively treats changed C declarations as restart-only.
-This plan closes the remaining gaps between that implementation and the public
-documentation: external header observation, explicit native-library identity,
-extensible semantic inputs, precise C dependency comparison, and executable
-coverage for every guarantee.
+Status: R1-R6 implemented. Hot reload now observes headers, configured native
+artifacts, and literal filesystem inputs declared by derive providers; compares
+checked C declarations by identity and retained use with a conservative fallback;
+and keeps every public guarantee connected to executable coverage. The remaining
+limits in this plan are deliberate boundaries rather than unfinished milestones.
 
 ## Outcome
 
@@ -78,25 +76,19 @@ An optional supervisor may later restart the process after a restart result,
 but that is process replacement, not hot reload. State restoration would need a
 separate application-owned serialization and migration protocol.
 
-## Current gaps
+## Gaps closed
 
-The current implementation has four concrete gaps:
+The completed implementation closed four concrete gaps:
 
-1. `src/nupp/compiler/cli/run.nupp` polls
-   `env.listProjectFiles`, which enumerates Nupp project sources but not headers
-   read by `cheader`. Editing only a header therefore does not wake the session.
-2. `hot_session.g.nupp` fingerprints the C declaration text recovered during a
-   Nupp source recheck, but does not identify or observe the shared library that
-   implements those declarations.
-3. C fingerprinting is module-wide and token-based. It is safe, but an unrelated
-   declaration edit in a loaded module may require restart even when no retained
-   body or runtime binding depends on it.
-4. The documentation describes several safety properties, but there is no
-   single matrix connecting each claim to a session test, runtime test, and
-   standalone watcher test.
-
-The existing semantic snapshot and conservative C fingerprint remain the
-fallback until the replacements below meet their exit gates.
+1. The watcher now asks the session for dynamic inputs rather than polling only
+   the Nupp project-file list, so direct and preprocessed headers wake it.
+2. Configured native libraries now resolve to the exact artifact loaded by watch
+   generation, and replacement, deletion, or symlink retargeting requires restart.
+3. Checked C declarations now have keyed semantics, runtime-binding status, and
+   per-retained-function uses. Unknown raw or indirect FFI operations deliberately
+   keep the module-wide digest as a conservative fallback.
+4. The guarantee matrix now connects public claims to session, runtime, and
+   standalone watcher tests, including provider files and `-O0`–`-O2` isolation.
 
 ## External-input model
 
@@ -368,7 +360,7 @@ must distinguish:
 
 ## Implementation milestones
 
-### R0: Freeze claims and test inventory
+### R0: Freeze claims and test inventory — complete
 
 - Convert every sentence in `docs/tooling/hot-reload.md` that promises safety or
   observation into a row in the guarantee matrix.
@@ -381,7 +373,7 @@ must distinguish:
 Exit gate: no public claim lacks a named test or an explicit boundary statement,
 and the result schema can explain every hardening restart without parsing text.
 
-### R1: Dynamic external inputs
+### R1: Dynamic external inputs — complete
 
 - Add keyed external inputs to incremental query results and semantic snapshots.
 - Add `Session:watchedInputs()` and invalidate external input queries through
@@ -396,7 +388,7 @@ Exit gate: changing any synthetic external input rechecks exactly its loaded
 consumers, while unrelated modules remain cached and unloaded modules create no
 slot patch.
 
-### R2: Complete header observation
+### R2: Complete header observation — complete
 
 - Return canonical provenance and semantic fingerprints from `cheader.load`.
 - Record a direct header as an external input.
@@ -410,7 +402,7 @@ Exit gate: editing a retained header or contributing include without touching a
 `.nupp` file wakes `run --watch`; semantic ABI changes require restart and
 non-semantic edits do not.
 
-### R3: Native artifact tracking
+### R3: Native artifact tracking — complete
 
 - Validate `hotreload.libraries` configuration and resolve mapped paths.
 - Make watch generation load the exact mapped artifact while leaving normal
@@ -424,7 +416,7 @@ Exit gate: rebuilding a configured temporary shared library causes a restart
 result before any Lua slot changes, while a bare name is never described as
 binary-verified.
 
-### R4: Keyed C ABI dependencies
+### R4: Keyed C ABI dependencies — complete
 
 - Export canonical C declaration identities and semantics from checking.
 - Record top-level runtime bindings and per-function C uses in generation
@@ -437,19 +429,19 @@ binary-verified.
 Exit gate: safe unrelated C edits answer `no-change` without weakening any case
 that currently requires restart.
 
-### R5: Provider input protocol
+### R5: Provider input protocol — complete
 
-- Add filesystem input descriptors to provider results and incremental cache
-  keys.
+- Add literal `nupp.derive.file` dependencies to the provider input and result
+  envelopes and incremental cache keys.
 - Thread provider inputs into loaded semantic snapshots and watched paths.
-- Diagnose providers that perform untracked external reads in watch mode where
-  the compiler can identify them.
+- Reject dynamic or project-escaping paths; isolated providers have no general
+  host I/O with which to perform a hidden external read.
 - Add a fixture provider whose schema change invalidates only its consumers.
 
 Exit gate: a generated semantic input receives the same observe, recheck,
 reject/restart, and diagnostic behavior as a Nupp declaration dependency.
 
-### R6: Documentation and regression gate
+### R6: Documentation and regression gate — complete
 
 - Update hot-reload documentation to the exact implemented boundary.
 - Run the focused hot-reload, header, incremental, generator, and CLI suites.
@@ -464,11 +456,9 @@ hardening metadata or runtime path.
 
 ## Recommended order
 
-Implement R0 through R3 first. They close missed-change holes and make the
-native boundary honest. R4 is a precision improvement and must follow the safe
-conservative behavior. R5 extends the same proof to future semantic providers
-without blocking header and native hardening. R6 lands with each milestone's
-documentation changes and becomes the final release gate.
+The implementation followed R0 through R6 in order: missed-change holes and
+native identity first, keyed C precision without removing the fallback, then
+provider inputs and the permanent documentation/regression gate.
 
 Do not combine in-process native replacement with these milestones. The safe
 improvement is reliable detection followed by an explicit restart; stateful

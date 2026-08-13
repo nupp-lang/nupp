@@ -89,6 +89,35 @@ remain runtime functions. A provider failure may return
 contributing field without observing a filename or source position. The code
 is optional and defaults to the generic provider diagnostic `NUPP2810`.
 
+### Filesystem inputs
+
+A provider that generates a recipe from a schema or other immutable project
+file reads it with `nupp.derive.file`:
+
+```nupp
+@comptime
+function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
+    local schema = nupp.derive.file("schemas/inspect.txt")
+    return nupp.derive.implement {
+        methods = {
+            inspect = nupp.derive.forward {
+                helper = nupp.derive.helper(M, "renderSchema"),
+                arguments = {nupp.derive.constant(schema)},
+            },
+        },
+    }
+end
+```
+
+The path must be a string literal and remain within the consumer project root.
+The compiler reads it before the isolated worker starts, fingerprints its bytes
+with the provider input, and records it in the incremental dependency graph.
+Changing the file invalidates only provider consumers; watch mode observes the
+canonical path and refuses to patch over changed generated state without a
+restart. Missing files are diagnostics. Providers have no general host I/O, so
+network resources, environment variables, clocks, mutable tables, and hidden
+filesystem reads cannot silently enter a cache or hot-reload guarantee.
+
 ## Closed forwarding recipes
 
 `nupp.derive.implement` returns instance methods and static functions. A bare

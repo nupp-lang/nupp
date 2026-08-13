@@ -50,6 +50,8 @@ local function copyManifest(metadata, path, abi)
             implementation = fn.implementation,
             patchable = fn.patchable,
             affineCapture = fn.affineCapture,
+            cUses = fn.cUses or {},
+            cUnknown = fn.cUnknown == true,
         }
     end
 
@@ -137,6 +139,14 @@ local function cdefFingerprint(parsed)
         return type(node) == "table" and (node.kind == "cdefStruct" or node.kind == "cdefFunc")
     end
 
+    local function beginsCdef(node)
+        return node.kind == "cdefStruct"
+            or node.kind == "cdefFunc"
+            or node.cdefDeclarationBlock
+            or node.cheaderCdef
+            or node.kind == "pragmaStmt" and wrapsCdef(node)
+    end
+
     local function visit(node, inside)
         if type(node) ~= "table" then
             return
@@ -147,12 +157,13 @@ local function cdefFingerprint(parsed)
             end
             return
         end
-        local begins = node.kind == "cdefStruct" or node.kind == "cdefFunc" or (
-            node.kind == "pragmaStmt" and wrapsCdef(node)
-        )
+        local begins = beginsCdef(node)
         local active = inside or begins
         if begins then
             parts[#parts + 1] = "begin:" .. node.kind
+            if node.cheaderCdef then
+                parts[#parts + 1] = "cheader:" .. tostring(node.cheaderCdef)
+            end
         end
         for _, child in ipairs(node) do
             visit(child, active)
@@ -167,7 +178,49 @@ local function cdefFingerprint(parsed)
     return table.concat(parts, "\0")
 end
 
-local function interfaceFingerprint(moduleType, exports, cdefFingerprint)
+--- Checked C declarations keyed independently of source order. Declarations that can
+--- execute while the module initializes are retained runtime bindings. Nested ones
+--- become relevant only when a retained implementation uses them; an unclassified
+--- operation keeps the old module digest as a load-bearing fallback.
+local function cDeclarations(parsed)
+    local declarations = {}
+    local function visit(node, functionDepth)
+        if type(node) ~= "table" or cst.isToken(node) then
+            return
+        end
+        local isFunction = node.kind == "localFuncStmt"
+            or node.kind == "funcStmt"
+            or node.kind == "inlineMethod"
+            or node.kind == "funcExpr"
+            or node.kind == "shortfn"
+        local depth = functionDepth + (isFunction and 1 or 0)
+        if (node.kind == "cdefStruct" or node.kind == "cdefFunc") and node.cdefIdentity then
+            local prior = declarations[node.cdefIdentity]
+            local semantic = node.cdefSemantic or cst.textOf(node):gsub("%s+", "")
+            if prior and prior.semantic ~= semantic then
+                semantic = prior.semantic .. "\0duplicate\0" .. semantic
+            end
+            declarations[
+                node.cdefIdentity
+            ] = {
+                identity = node.cdefIdentity,
+                semantic = semantic,
+                name = node.name and node.name.text or node.cdefIdentity,
+                kind = node.kind == "cdefStruct" and "aggregate" or "function",
+                runtimeBinding = depth == 0 or prior and prior.runtimeBinding or false,
+            }
+        end
+        for _, child in ipairs(node) do
+            visit(child, depth)
+        end
+    end
+
+    visit(parsed and parsed.root, 0)
+
+    return declarations
+end
+
+local function interfaceFingerprint(moduleType, exports)
     exports = exports or {}
     return hash.digest(
         buildModules.typeFingerprint(
@@ -180,8 +233,77 @@ local function interfaceFingerprint(moduleType, exports, cdefFingerprint)
             exports.deriveInterfaceFingerprint or ""
         ) .. "\0comptime-functions:" .. (
             exports.comptimeFunctionFingerprint or ""
-        ) .. "\0cdef:" .. (cdefFingerprint or "")
+        )
     )
+end
+
+local function applyCMetadata(snapshot, metadata)
+    local module = metadata and snapshot.modules[metadata.module]
+    if not module then
+        return
+    end
+    local uses, functions = {}, {}
+    local unknown = false
+    for _, fn in ipairs(metadata.functions or {}) do
+        local own = {}
+        for _, identity in ipairs(fn.cUses or {}) do
+            uses[identity] = true
+            own[identity] = true
+        end
+        functions[fn.id] = own
+        unknown = unknown or fn.cUnknown == true
+    end
+    module.cUses = uses
+    module.cFunctionUses = functions
+    module.cUnknown = unknown
+end
+
+local function carryCMetadata(previous, candidate)
+    for identity, current in pairs(candidate.modules or {}) do
+        local old = previous.modules and previous.modules[identity]
+        if old then
+            current.cUses = current.cUses or old.cUses
+            current.cFunctionUses = current.cFunctionUses or old.cFunctionUses
+            if current.cUnknown == nil then
+                current.cUnknown = old.cUnknown
+            end
+        end
+    end
+end
+
+local function cDeclarationChange(old, current)
+    local oldDeclarations = old.cDeclarations or {}
+    local nextDeclarations = current.cDeclarations or {}
+    local oldUses = old.cUses or {}
+    local nextUses = current.cUses or oldUses
+    local identities = {}
+    for identity in pairs(oldDeclarations) do identities[identity] = true end
+    for identity in pairs(nextDeclarations) do identities[identity] = true end
+    for identity in pairs(nextUses) do
+        local declaration = nextDeclarations[identity] or oldDeclarations[identity]
+        if not oldUses[identity] and declaration and not declaration.runtimeBinding then
+            return declaration, "new-use"
+        end
+    end
+    local ordered = {}
+    for identity in pairs(identities) do ordered[#ordered + 1] = identity end
+    table.sort(ordered)
+    for _, identity in ipairs(ordered) do
+        local before, after = oldDeclarations[identity], nextDeclarations[identity]
+        local changed = not before or not after or before.semantic ~= after.semantic
+        local relevant = before and before.runtimeBinding
+            or after and after.runtimeBinding
+            or oldUses[identity]
+            or nextUses[identity]
+        if changed and relevant then
+            return before or after, not before and "added" or not after and "removed" or "changed"
+        end
+    end
+    if old.cFingerprint ~= current.cFingerprint and (old.cUnknown or current.cUnknown) then
+        return {name = old.label or current.label, identity = "<module-wide C fallback>"}, "fallback"
+    end
+
+    return nil
 end
 
 local function snapshotChanged(previous, candidate, consumer)
@@ -200,8 +322,12 @@ local function snapshotChanged(previous, candidate, consumer)
         local old = previous.inputs[identity]
         local current = candidate.inputs[identity]
         if not current or current.fingerprint ~= old.fingerprint then
+            local kind = old.binary and "native-artifact"
+                or old.kind == "header" and "header-abi"
+                or old.kind == "provider-file" and "provider-input"
+                or "semantic-input"
             return {
-                kind = old.binary and "native-artifact" or "header-abi",
+                kind = kind,
                 dependencyKind = old.kind,
                 dependency = old.display,
                 identity = identity,
@@ -215,13 +341,15 @@ local function snapshotChanged(previous, candidate, consumer)
     for _, identity in ipairs(moduleKeys) do
         local old = previous.modules[identity]
         local current = candidate.modules[identity]
-        if current and current.cFingerprint ~= old.cFingerprint then
+        local declaration, disposition = current and cDeclarationChange(old, current) or nil
+        if declaration then
             return {
                 kind = "c-declaration",
                 dependencyKind = "C declarations",
-                dependency = old.label,
-                identity = identity,
+                dependency = declaration.name or old.label,
+                identity = declaration.identity or identity,
                 path = old.path,
+                disposition = disposition,
             }
         end
     end
@@ -279,6 +407,8 @@ local function dependencyChangeMessage(change, consumer, consumerPath)
         subject = "header " .. change.dependency
     elseif change.kind == "native-artifact" then
         subject = "native artifact for " .. change.dependency
+    elseif change.kind == "provider-input" then
+        subject = "provider input " .. change.dependency
     elseif change.kind == "module-interface" then
         subject = "module interface " .. change.dependency
     else
@@ -397,13 +527,15 @@ function Session:semanticSnapshot(path, checked, module)
             return nil, diagnosticsFailure(result.diags)
         end
         local cFingerprint = cdefFingerprint(result.result)
+        local declarations = cDeclarations(result.result)
         snapshot.modules[
             currentModule
         ] = {
-            fingerprint = interfaceFingerprint(result.moduleType, result.exports, cFingerprint),
+            fingerprint = interfaceFingerprint(result.moduleType, result.exports),
             label = currentModule,
             path = currentPath,
             cFingerprint = cFingerprint,
+            cDeclarations = declarations,
         }
         for _, input in ipairs(result.result and result.result.externalInputs or {}) do
             addInput(snapshot, input, currentModule)
@@ -526,6 +658,7 @@ function Session:compile(path, mode, module, only)
     if fatalIn(generated) then
         return nil, diagnosticsFailure(generated)
     end
+    applyCMetadata(abi, metadata)
 
     return {code = code, manifest = copyManifest(metadata, path, abi)}
 end
@@ -661,6 +794,7 @@ function Session:prepare(paths)
             change.consumerPath = live.path
             return restart(live.path, dependencyChangeMessage(change, module, live.path), change)
         end
+        carryCMetadata(live.abi or {}, abi)
         local refreshed = {}
         for key, value in pairs(live) do
             refreshed[key] = value
@@ -679,6 +813,12 @@ function Session:prepare(paths)
                 return failure
             end
             local nextManifest = compiled.manifest
+            local abiChange = snapshotChanged(live.abi or {}, nextManifest.abi or {}, module)
+            if abiChange then
+                abiChange.consumer = module
+                abiChange.consumerPath = path
+                return restart(path, dependencyChangeMessage(abiChange, module, path), abiChange)
+            end
             if live.structure ~= nextManifest.structure then
                 return restart(
                     path,
