@@ -21,8 +21,8 @@ end
 This exists for types that cannot carry a `@drop` of their own. A C pointer has
 nowhere to write one, and `voidptr` is shared by everything in a project, so a
 terminal attached to that type would be wrong for every other use of it. Naming the
-terminal at the producer is what `@owned(cleanup)` does today, and moving it into
-the type is what lets `@owned` go.
+terminal at the producer is what `Owned<T, cleanup>` does, and moving it into the
+type is what lets a producer say only that it produces an owner.
 
 ## Why registration exists at all
 
@@ -139,6 +139,6 @@ top-level owner and a type-named terminal.
 
 `Owned<T, cleanup>` is also the *selector* for a type with more than one inherited
 terminal -- `src/nupp/io/http.nupp` has four `@drop` declarations, and the checker
-reports "bare @owned has multiple inherited @drop operations; choose one with
-@owned(cleanup)". With a terminal nameable in an owned type, retiring `@owned` no
-longer requires a one-terminal-per-type rule or a prior redesign of `http.Body`.
+reports "bare Owned<T> has multiple inherited @drop operations; choose one with
+Owned<T, cleanup>". A terminal nameable in an owned type means this needs no
+one-terminal-per-type rule and no prior redesign of `http.Body`.

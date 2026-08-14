@@ -194,7 +194,6 @@ local BUILTINS = {
     {name = "annotationValue", arguments = "none", targets = {"field"},},
     {name = "ref", arguments = "none", targets = {"field"},},
     {name = "allow", arguments = "warnings", targets = {"statement"},},
-    {name = "owned", arguments = "owned", targets = {"function", "c-function", "field"},},
     {name = "borrowed", arguments = "owned", targets = {"c-function"},},
     {name = "drop", arguments = "none", targets = {"function", "c-function", "field"},},
     {name = "override", arguments = "none", targets = {"function"},},

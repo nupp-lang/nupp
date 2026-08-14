@@ -142,7 +142,7 @@ do
 end
 ```
 
-`open` is an `@owned` function, so a `File` nobody binds reports NUPP2605 and
+`open` is a function returning `Owned<T>`, so a `File` nobody binds reports NUPP2605 and
 one that goes out of scope is closed across fallthrough, early return and
 errors. `TemporaryPath` is an owner for the same reason. This is where Nupp
 improves on the original: tecs declares `is Closeable` and documents the
@@ -578,5 +578,5 @@ No range is reserved. The rules this namespace needs are already enforced:
   process library this shares a platform layer's worth of lessons with.
 - [docs/io.md](../docs/io.md): the buffer, reader and writer contracts this
   namespace implements.
-- [docs/ownership.md](../docs/ownership.md): `@owned`, lexical cleanup, and
+- [docs/ownership.md](../docs/ownership.md): `Owned<T>`, lexical cleanup, and
   what a suspension may cross.

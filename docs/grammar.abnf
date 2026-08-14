@@ -269,15 +269,12 @@ annotatedstat  = annotation stat
 annotation     = "@" Name [annotationargs]
 annotationargs = "(" [annotationarg *("," annotationarg)] ")"
 annotationarg  = [Name "="] exp
-; Owned<T> is the ordinary spelling of an owning result: it is a typename, so it
-; needs no rule of its own, it may be written at any result position, and its
-; terminal comes from the inner type's @drop. Owned<T, cleanup> names one when
-; the inner type cannot declare it. @owned(cleanup, ...) decorates a function
-; with an ordered, erased cleanup contract for its first return. Bare @owned
-; resolves one inherited @drop operation; @owned(opaque = true) is explicitly
-; transfer-only. On cdef
-; functions, @owned(out = p, cleanup = f, success = zero) and
-; @borrowed(out = p, from = source, success = zero) describe logical outputs.
+; Owned<T> is the spelling of an owning result: it is a typename, so it needs no
+; rule of its own, it may be written at any result position, and its terminal
+; comes from the inner type's @drop. Owned<T, cleanup> names one when the inner
+; type cannot declare it, and Owned<T, opaque> is explicitly transfer-only. On
+; cdef functions, @borrowed(out = p, from = source, success = zero) describes a
+; logical borrowed output; there is no owned equivalent.
 
 stat           =/ unsafestat
 unsafestat     = %s"unsafe" "do" block "end"  ; permit unproved FFI operations;
@@ -329,8 +326,8 @@ matchesdecl    = %s"matches" exp "end"          ; interface runtime test [CS-20]
 
 ; C declarations [CS-10]: "cdef" is contextual. Fields and parameters use
 ; the same one-explicit-type-per-name rule as everywhere else; "..." is a
-; C vararg. @owned(cleanup, ...) marks a returned pointer as caller-owned
-; without changing the ABI type or attaching a runtime finalizer.
+; C vararg. A cdef declaration states no ownership of its own: a returned
+; pointer is made an owner by the Nupp function that wraps the call.
 stat           =/ cdefstat
 cdefstat       = "cdef" ("struct" Name *fielddecl "end"
                          / "function" Name "(" [cdefparlist] ")" [":" cdefret]
@@ -603,8 +600,8 @@ packunion      = typepack 1*("|" typepack)
 ;   not outlive any named argument, and no source may move while it is live.
 ;   On a method the source may be left out by
 ;   writing the return as `Borrowed<T>`: the receiver is the only thing it
-;   could name. Where the function also carries `@owned`, the result stays
-;   owned and holds the borrow as well, which is what a layered resource is.
+;   could name. Where the result is also `Owned<T>`, it stays owned and holds
+;   the borrow as well, which is what a layered resource is.
 ;   A Nupp body must prove the declared result provenance. A bodyless
 ;   declaration remains a trusted boundary contract, as foreign ownership is.
 ;

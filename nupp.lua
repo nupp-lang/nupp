@@ -240,8 +240,11 @@ end
 
 cdef function buffer_free(takes buffer: nativeBuffer*)
 
-@owned(buffer_free)
-cdef function buffer_create(size: uint64): nativeBuffer*
+cdef function buffer_create_c(size: uint64): nativeBuffer*
+
+local function buffer_create(size: uint64): Owned<nativeBuffer*, buffer_free>
+    return buffer_create_c(size)
+end
 
 cdef function buffer_read(
     borrows buffer: nativeBuffer*,

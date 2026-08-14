@@ -365,8 +365,7 @@ function M.hoverAndInspectExposeAutomaticCleanup()
       "end",
       "local function close_handle(value: Handle)",
       "end",
-      "@owned(close_handle)",
-      "local function open_handle(): Handle",
+      "local function open_handle(): Owned<Handle, close_handle>",
       "   return new Handle(name = 'a')",
       "end",
       "local function work()",
@@ -393,12 +392,12 @@ function M.hoverAndInspectExposeAutomaticCleanup()
 
    local hover = responseWithId(out, 10).result
    assertContains(hover.contents.value,
-      "Automatically destroyed after line 12 with `close_handle`.",
+      "Automatically destroyed after line 11 with `close_handle`.",
       "automatic cleanup hover")
    local inspected = responseWithId(out, 11).result
    assert(inspected.automaticCleanup
       and inspected.automaticCleanup.status == "automatic"
-      and inspected.automaticCleanup.line == 12
+      and inspected.automaticCleanup.line == 11
       and inspected.automaticCleanup.cleanups[1] == "close_handle",
       "inspect returns the structured cleanup boundary")
 end
@@ -1224,12 +1223,14 @@ function M.annotationTypeReferencesHaveDefinitions()
       "@ref navigates to the type declaration")
 end
 
-function M.ownCleanupReferencesHaveDefinitions()
+function M.namedTerminalsHaveDefinitions()
    local uri = "file://" .. ROOT .. "/own-ref-demo.nupp"
    local source = table.concat({
       "cdef function free(takes value: voidptr)",
-      "@owned(free)",
       "cdef function malloc(size: uint64): voidptr",
+      "local function ownedMalloc(size: uint64): Owned<voidptr, free>",
+      "   return malloc(size)",
+      "end",
    }, "\n")
    local out = runSession({
       { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
@@ -1239,16 +1240,16 @@ function M.ownCleanupReferencesHaveDefinitions()
       { jsonrpc = "2.0", id = 10,
         method = "textDocument/definition",
         params = { textDocument = { uri = uri },
-           position = { line = 1, character = 7 } } },
+           position = { line = 2, character = 57 } } },
       { jsonrpc = "2.0", id = 2, method = "shutdown" },
       { jsonrpc = "2.0", method = "exit" },
    })
 
    local definition = responseWithId(out, 10).result
-   assert(definition and definition.range, "@owned definition location")
+   assert(definition and definition.range, "cleanup definition location")
    assert(definition.range.start.line == 0
       and definition.range.start.character == 14,
-      "@owned cleanup navigates to the function declaration")
+      "a terminal named in a result type navigates to its declaration")
 end
 
 -- A member is reached as `shapes.Point`, so the editor has to follow that

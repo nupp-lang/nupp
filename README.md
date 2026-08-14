@@ -9,9 +9,9 @@ adding to them rather than subtracting
 straight through to the output, because LuaJIT 2.1 backported it; generated
 code needs LuaJIT 2.1.1784535649 or newer. Unlike every existing typed Lua, its
 types are not always erased: `struct` declarations lower to FFI cdata (fixed
-layout, no hash lookups) and C headers import as typed declarations. Owned C
-resources are affine: `@owned(...)` records deterministic cleanup obligations,
-`takes` calls move them, borrows cannot escape, and
+layout, no hash lookups) and C headers import as typed declarations. Owned
+resources are affine: an `Owned<T, cleanup>` result records a deterministic
+cleanup obligation, `takes` calls move it, borrows cannot escape, and
 `pinned<T>` handles keep Lua-managed pointers alive across declared
 `retains`/`releases` C calls. Raw-pointer reconstruction is confined to
 explicit `unsafe do` blocks. See [docs/ownership.md](docs/ownership.md). A

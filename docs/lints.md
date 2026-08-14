@@ -54,7 +54,6 @@ Every lint has a name and a stable code:
 | positional-record-construction | `NUPP2512` | style | warning |
 | deprecated | `NUPP2513` | suspicious | warning |
 | jit-boundary | `NUPP2514` | suspicious | warning |
-| owned-annotation | `NUPP2515` | migration | warning |
 
 The name is what you write in configuration and suppressions; the code is what
 survives renaming and what tooling keys on. Either is accepted everywhere.
@@ -427,41 +426,6 @@ Reads and allocation are not reasons to call: reading state and dropping the
 answer is the mistake being described. Writes, shape and metatable changes,
 escapes, declared callees, yielding and raising all are. A function returning
 nothing, including one returning only `nil`, discards nothing and is not judged.
-
-### `owned-annotation`
-
-An owning result stated above its declaration rather than in its type. `@owned`
-predates `Owned<T>` and always applies to the first result. The annotation remains
-valid while migration tooling moves contracts into result types.
-
-::: code-group
-```nupp [src/owned-annotation.nupp]
-local record Session
-    id: integer
-
-    @drop
-    close: function(takes self: Session): nil
-end
-
-@owned
-local function open(id: integer): Session
-    return new Session(id = id)
-end
-```
-
-```text [nupp check output]
-src/owned-annotation.nupp:8:2: warning: NUPP2515 owned-annotation: @owned says above the declaration what Owned<T> says in its result
- 8 | @owned
-   |  ^~~~~
-help: move the contract into the result type
-```
-:::
-
-The machine-applicable fix deletes the annotation and changes the result to
-`Owned<Session>`. A named cleanup becomes `Owned<T, cleanup>` and
-`@owned(opaque = true)` becomes `Owned<T, opaque>`. On a callable intersection,
-one fix wraps every overload's first result. Cleanup lists are refused because
-their attempt-all failure behaviour is not equivalent to one terminal.
 
 ### `reifiable-record`
 

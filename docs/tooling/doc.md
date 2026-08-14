@@ -67,8 +67,7 @@ Prose here is rendered as Markdown.
 --- @param id the stable account identifier
 --- @return the open session
 --- @raises when the service refuses the connection
-@owned(closeSession)
-local function openSession(id: uint64): Session
+local function openSession(id: uint64): Owned<Session, closeSession>
 ```
 
 Only the final adjacent run counts. An ordinary `--` comment or a blank line is

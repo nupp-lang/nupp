@@ -195,14 +195,13 @@ local record Session
     end
 end
 
-@owned
-local function openSession(): Session
+local function openSession(): Owned<Session>
     return new Session(closed = false)
 end
 ```
 
-`@drop` marks the operation that consumes the resource; `@owned` marks the
-function that produces one. An ordinary local is destroyed automatically:
+`@drop` marks the operation that consumes the resource; `Owned<T>` marks the
+result that carries one. An ordinary local is destroyed automatically:
 
 ```nupp
 do

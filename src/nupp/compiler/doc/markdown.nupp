@@ -57,7 +57,7 @@ local function heading(level)
 end
 
 -- What a declaration was annotated with, on its own line under the heading. `@drop` and
--- `@owned` are the ownership contract, and a reader who cannot see them cannot tell an
+-- `Owned<T>` are the ownership contract, and a reader who cannot see them cannot tell an
 -- obligation from an ordinary method.
 local function markdownAnnotations(out, annotations)
     if not annotations or #annotations == 0 then

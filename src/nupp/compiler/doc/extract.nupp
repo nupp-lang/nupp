@@ -57,7 +57,7 @@ record extract.Member
     isType: boolean?
     members: {Member}?
 
-    --- What it was annotated with, as written: `@drop`, `@owned`,
+    --- What it was annotated with, as written: `@drop`,
     --- `@derive(nupp.derive.JSON)`.
     annotations: {string}?
 end
@@ -347,7 +347,7 @@ local function annotationText(node): string?
     return "@" .. name .. "(" .. table.concat(args, ", ") .. ")"
 end
 
--- What a record entry or shape field was annotated with. `@drop` and `@owned` say who
+-- What a record entry or shape field was annotated with. `@drop` says who
 -- owes the cleanup, which is the one thing about a resource a reader cannot infer from
 -- the signature, so documentation that drops them describes a different API than the
 -- one
@@ -443,7 +443,7 @@ local function cdefSignature(stat)
     end
     local result = "cdef function " .. stat.name.text .. "(" .. table.concat(params, ", ") .. ")"
     if stat.ret then
-        result = result .. ": " .. (stat.ownTok and "own " or "") .. syntax(stat.ret)
+        result = result .. ": " .. syntax(stat.ret)
     end
     if stat.fromLib then
         result = result .. " from " .. stat.fromLib.text

@@ -1,4 +1,4 @@
--- `@owned(cleanup)` says a result carries a cleanup obligation. An ordinary local is
+-- `Owned<T, cleanup>` says a result carries a cleanup obligation. An ordinary local is
 -- closed automatically on fallthrough, return, loop control, and errors unless its
 -- ownership moves elsewhere first.
 
@@ -11,8 +11,7 @@ end
 --- @param path where to read from
 --- @return an owned handle
 --- @raises when the file cannot be opened
-@owned(closeFile)
-local function open(path: string): LuaFile
+local function open(path: string): Owned<LuaFile, closeFile>
     local file = io.open(path, "r")
     if not file then
         error("cannot open " .. path)

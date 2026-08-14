@@ -14,7 +14,7 @@ model. Named lifetimes, stored borrowed fields, and the other items under
 
 Nupp will keep resource ownership explicit:
 
-- `@owned(cleanup, ...)` describes a value that carries an affine cleanup
+- `Owned<T, cleanup>` describes a value that carries an affine cleanup
   obligation. It applies to pointer returns and arbitrary return
   types; the value does not need to inherit from or structurally implement a
   `Closeable` type.
@@ -36,7 +36,7 @@ drop is a compile error.
 
 The initial implementation is deliberately narrow:
 
-- Ownership comes from `@owned` on named function declarations and logical
+- Ownership comes from `Owned<T>` on named function declarations and logical
   owned outputs on `cdef` declarations.
 - Any non-optional owned type may be acquired, not just pointers.
 - An existing owner may be moved into a `with`.
@@ -94,7 +94,7 @@ pass-throughs are deferred; see [Open questions](#open-questions).
 
 ## Ownership contracts for arbitrary values
 
-`@owned` belongs on the operation that creates or transfers an ownership
+`Owned<T>` belongs on the operation that creates or transfers an ownership
 obligation, not on the resource type:
 
 ```nupp
@@ -110,8 +110,7 @@ local function close_channel(channel: Channel)
     if not ok then error(reason) end
 end
 
-@owned(close_channel)
-local function open_channel(): Channel
+local function open_channel(): Owned<Channel, close_channel>
     return Channel.connect()
 end
 ```
@@ -137,8 +136,7 @@ local function close_file(file: LuaFile)
     if not ok then error(reason) end
 end
 
-@owned(close_file)
-local function open_file(path: string, mode: string?): LuaFile
+local function open_file(path: string, mode: string?): Owned<LuaFile, close_file>
     return assert(io.open(path, mode))
 end
 ```
@@ -147,15 +145,14 @@ This requires the standard declaration for `io.open` to return a real
 `LuaFile` interface rather than `any`, but `LuaFile` does not implement an
 NUPP cleanup protocol. The wrapper's annotation is the ownership contract.
 
-`@owned` applies to named function declarations. Function-valued declaration
+`Owned<T>` applies to named function declarations. Function-valued declaration
 fields still cannot carry producer annotations, so an annotated wrapper is
 used for APIs such as `io.open`:
 
 ```nupp
 -- Deferred declaration-field surface:
 local interface IO
-    @owned(close_file)
-    open: function(path: string, mode: string?): (LuaFile?, string?)
+    open: function(path: string, mode: string?): Owned<(LuaFile?, string?), close_file>
 end
 ```
 
@@ -163,8 +160,8 @@ Until then an annotated named wrapper carries the contract. That keeps the
 initial `with` implementation independent of a prelude refactor, at the cost
 of one wrapper per owning standard-library producer.
 
-Bare `@owned` resolves the result type's unique inherited `@drop` operation.
-Use `@owned(opaque = true)` for a transfer-only contract; with no known cleanup
+Bare `Owned<T>` resolves the result type's unique inherited `@drop` operation.
+Use `Owned<T, opaque>` for a transfer-only contract; with no known cleanup
 it may be moved or passed to `takes`, but cannot be used by `with` or
 `drop`.
 
@@ -240,7 +237,7 @@ end
 `drop(assert(maybe_owned()))` reports NUPP2602 — and making generic
 pass-throughs ownership-aware is deferred; see [Open
 questions](#open-questions). The `open_file` wrapper above is unaffected
-because its `assert` runs before the wrapper's own `@owned` boundary, which is
+because its `assert` runs before the wrapper's own `Owned<T>` boundary, which is
 what establishes ownership of the result.
 
 Destructuring acquisition and an inline `using` clause are also deferred. An
@@ -297,7 +294,7 @@ local other = open_channel()
 drop(other)             -- close at this exact point
 
 local returned = open_channel()
-return returned            -- enclosing function has @owned(...)
+return returned            -- enclosing function has Owned<T, cleanup>
 ```
 
 The existing live-owner diagnostic remains central. Outside `with`, a live
@@ -316,8 +313,7 @@ An owning producer may borrow an argument for the duration of its call, and
 may also hand back a result that keeps holding it, by declaring the tie:
 
 ```nupp
-@owned(tls_flush, tls_free)
-local function open_tls(borrows socket: Socket): TLS borrows socket
+local function open_tls(borrows socket: Socket): Owned<TLS, tls_flush> borrows socket
 ```
 
 The result is still `owned<TLS>` and still has to be discharged; what the
@@ -351,7 +347,7 @@ Retention roots are declared, then checked where a body exists:
 
 - A producer that retains says so. Without the annotation its result is
   untied, and an ordinary call-duration borrow is unaffected — an
-  `@owned(widget_free)` declaration of `widget_clone(borrows source: widget*)`
+  `Owned<T, widget_free>` declaration of `widget_clone(borrows source: widget*)`
   needs nothing.
 - A Nupp body must return a value whose provenance can be traced to every
   declared source. A `cdef` declaration or overlay remains trusted because it
@@ -375,13 +371,11 @@ Resources close in reverse acquisition order. Within one owner's annotation,
 cleanup functions run in annotation order. Given:
 
 ```nupp
-@owned(channel_stop, channel_close)
-local function open_channel(): Channel
+local function open_channel(): Owned<Channel, channel_stop>
     -- ...
 end
 
-@owned(log_flush, log_close)
-local function open_log(): Log
+local function open_log(): Owned<Log, log_flush>
     -- ...
 end
 
@@ -543,7 +537,7 @@ cannot unwind an arbitrarily abandoned raw coroutine.
 No behavior is inferred from the name `scope:own` or from a method named
 `close`. A TECS `Closeable` interface may opt in explicitly by marking its
 consuming close operation `@drop`; otherwise producers use
-`@owned(tecs_cleanup)` adapters that translate failure results into errors.
+`Owned<T, tecs_cleanup>` adapters that translate failure results into errors.
 
 ## Tooling and incremental behavior
 
@@ -555,7 +549,7 @@ consuming close operation `@drop`; otherwise producers use
   `with` acquisition.
 - Semantic tokens distinguish the visible borrowed binding from ordinary
   locals without requiring a new TextMate scope.
-- A function's ordered `@owned` cleanup list remains part of its exported
+- A function's ordered cleanup list remains part of its exported
   interface fingerprint. Changing it rechecks dependents.
 - `with` itself is local implementation detail and does not change a module
   interface unless it changes an inferred exported result.
@@ -594,7 +588,7 @@ annotation and the acquisition expression survive exactly as written. The scope
 closes at the `drop` when there is one, and otherwise at the end of the
 enclosing block, which is where the obligation already came due. It is not
 offered for an owner the block returns: `with` would close it on the way out
-and hand back a dead value. An opaque owner (`@owned()` naming no cleanup) is
+and hand back a dead value. An opaque owner (`Owned<T, opaque>`) is
 transfer-only and gets no offer either, since the scope would have nothing to
 call.
 
@@ -634,7 +628,7 @@ path and does not block the rewrite.
   errors; arbitrary error objects; and traceback and line preservation.
 - **Runtime:** rejected suspension with cleanup pending, cooperative TECS
   cancellation outside the checked scope, and LuaJIT target conformance.
-- **Tooling:** interface invalidation after `@owned` changes,
+- **Tooling:** interface invalidation after `Owned<T>` changes,
   hover/definition/diagnostics, semantic tokens, VS Code grammar,
   generated line counts, and the wrap/unwrap code actions — offered,
   refused where they would change meaning, and rewriting to a file that
@@ -678,7 +672,7 @@ documented in [ownership.md](../docs/ownership.md).
 
 1. Generalize `owned<T>` and `borrowed<T>` from pointer-shaped values to
    arbitrary values while retaining the stricter raw-pointer operations.
-2. Generalize `@owned` checking on named function declarations and validate
+2. Generalize `Owned<T>` checking on named function declarations and validate
    ordered cleanup signatures for their first return. Reject returned owners
    that retain input borrows (NUPP2616), checking NUPP bodies and trusting
    overlay contracts. Field-level annotations stay out of V1.

@@ -2156,7 +2156,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     end
 
     -- cdef declarations [CS-10]: "cdef" is contextual; the forms cdef struct Name
-    -- <fields> end @owned(cleanup, ...) cdef function name(params): ret declare C ABI
+    -- <fields> end   cdef function name(params): ret            declare C ABI
     -- entities: a named C struct, or a C function bound from the default namespace. C
     -- varargs are written "...".
 

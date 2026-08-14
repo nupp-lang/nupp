@@ -323,7 +323,9 @@ of this.
 
 ## Describe lifetime behavior
 
-C types do not reveal who frees a returned pointer. Add that fact explicitly:
+C types do not reveal who frees a returned pointer, and a `cdef` declaration
+has no way to say it: `Owned<T>` is not accepted on a C type. A C allocation is
+described by its parameter modes alone:
 
 ```nupp
 cdef struct nativeBuffer
@@ -332,18 +334,21 @@ end
 
 cdef function buffer_free(takes buffer: nativeBuffer*) from"mini"
 
-@owned(buffer_free)
 cdef function buffer_create(size: uint64): nativeBuffer* from"mini"
 
 do
     local buffer = buffer_create(4096)
     print(buffer.size)
+    buffer_free(buffer)
 end
 ```
 
-`@owned(buffer_free)` says the caller receives one cleanup obligation.
-`takes` says `buffer_free` consumes it. The lexical owner guarantees cleanup
-across fallthrough, errors, and structured control flow.
+`takes` still says `buffer_free` consumes its argument, so a value passed to it
+is discharged. What is missing is the other half: nothing marks
+`buffer_create`'s result as carrying an obligation, so the checker will not
+report a leak if the program forgets `buffer_free`. Wrapping the pair in a Nupp
+function that returns `Owned<nativeBuffer*, buffer_free>` restores the guarantee
+at that boundary.
 
 Use `borrows` when C only observes a resource for the duration of a call, and
 `exclusive` when the call needs sole access for its duration. Use `retains` and

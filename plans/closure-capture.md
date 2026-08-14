@@ -362,7 +362,7 @@ spelling everything else is written in.
    a suspended loser, which it cancels and unwinds.
 
 4. **Completed — apply the I/O ownership annotations.** `@drop` is present on
-   the four original closeables, `@owned` on their nine producers, and the HTTP
+   the four original closeables, `Owned<T>` on their nine producers, and the HTTP
    upload path explicitly transfers its scratch buffer into its affine closure.
    Scalar readers and writers follow the same rule: their constructors are
    owning overloads, buffer inputs borrow, reader and writer inputs transfer,
@@ -384,7 +384,7 @@ what make it cost a line at a call site rather than a rewrite.
   shares its declaration's ownership state. Each arm now runs from the state the
   statement began in, and the move is recorded once every arm has been seen.
   Without this a closure body could not conditionally discharge what it took.
-- **Annotations in documentation.** `@drop` and `@owned` render on the member
+- **Annotations in documentation.** `@drop` and `Owned<T>` render on the member
   they annotate, and a parameter's mode is spelled beside its name, so `takes
   self` reads as consuming. Stage 4 changes what the closeables promise; before
   this, the promise was invisible to a reader of the generated docs.

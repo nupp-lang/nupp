@@ -14,8 +14,8 @@ the complete model.
 
 ## Declaring a resource
 
-`@drop` marks the operation that consumes the resource; `@owned` marks the
-function that produces one:
+`@drop` marks the operation that consumes the resource; `Owned<T>` marks the
+result that carries one:
 
 ```nupp:playground
 local record File
@@ -27,14 +27,13 @@ local record File
     end
 end
 
-@owned
-local function openFile(): File
+local function openFile(): Owned<File>
     return new File(closed = false)
 end
 ```
 
 The annotation, rather than the name, is what makes `close` the drop operation.
-Bare `@owned` is accepted only when the result type has exactly one, so the
+Bare `Owned<T>` is accepted only when the result type has exactly one, so the
 compiler never has to guess between close, free, flush, and stop.
 
 For a type you do not own, the drop operation can be a free function, and the
@@ -50,8 +49,7 @@ local function closeSession(takes session: Session)
     print("closing", session.id)
 end
 
-@owned(closeSession)
-local function openSession(id: integer): Session
+local function openSession(id: integer): Owned<Session, closeSession>
     return new Session(id = id)
 end
 ```
@@ -89,7 +87,7 @@ local s = openSession(1)
 enqueue(s)
 ```
 
-**Return it** from a function that is itself `@owned`.
+**Return it** from a function whose own result is `Owned<T>`.
 
 Inside a function, a `takes` parameter is discharged by passing it to another
 `takes` parameter, either the drop operation or something that adopts it.

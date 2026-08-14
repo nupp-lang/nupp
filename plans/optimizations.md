@@ -237,7 +237,7 @@ Each entry is tagged with where its win lands:
   the benchmark gate below; not worth building.
 - `core` **Pin elision.** Drop `pinned<T>` machinery where the checker
   proves no GC point falls between the pin and the use.
-- `core` **cleanup-region pooling.** Deterministic reuse of automatic `@owned`
+- `core` **cleanup-region pooling.** Deterministic reuse of automatic `Owned<T>`
   cleanup machinery across entries to the same lexical scope.
 
 ### Trace awareness
@@ -492,7 +492,7 @@ declarations; see docs/effects.md.
 The aliasing half exists. Alias classes are computed per body by
 union-find, with return aliasing propagated through known summaries, and
 they already answer questions about ordinary tables rather than only
-about `@owned` values.
+about `Owned<T>` values.
 
 The escape half is narrower than its name suggests, and an earlier
 revision of this section claimed it whole. `escapes` is populated through

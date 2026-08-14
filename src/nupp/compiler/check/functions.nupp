@@ -28,19 +28,8 @@ local functions = {}
 function functions.install(c: state.Checker): state.StatHandlers
     local registerDefaultDropOperation = c.own.registerDefaultDropOperation
 
-    local resolvedOwnedCleanups = c.own.resolvedOwnedCleanups
     local ownershipState, pointerShaped = c.ownershipState, c.pointerShaped
-    local validateCleanups = c.validateCleanups
     local expectedFuncbodies: {[any]: Type} = {}
-
-    local function writtenResultOf(body): {any}
-        local written = body.returnPack and body.returnPack.kind == "tpack" and (
-            body.returnPack as cst.Tpack
-        ).types or body.rets
-        local value = cst.resultValueType(written and written[1] or nil)
-
-        return value and {value} or {}
-    end
 
     local function inferredParameterModes(body)
         local modes, byname, declared = {}, {}, {}
@@ -670,48 +659,16 @@ function functions.install(c: state.Checker): state.StatHandlers
             annotated[1] = rawType(annotated[1])
             rets[1] = annotated[1]
         end
-        -- Whether the annotation spoke for the first result. It settles that position
-        -- completely, opaque included, and an opaque owner carries no cleanup on
-        -- purpose -- so the loop below must not read its empty list as a position it
-        -- still has to resolve.
-        local annotationOwnedFirst = body.ownCleanups ~= nil
-        if body.ownCleanups then
-            if not annotated or not annotated[1] then
-                c.diag("NUPP2602", body.ownTok or body, "@owned requires an annotated return type")
-            else
-                body.ownCleanups = resolvedOwnedCleanups(
-                    annotated[1],
-                    body.ownCleanups,
-                    body.ownOpaque,
-                    body.ownTok or body,
-                    body.cleanupRegistrationNode
-                )
-                annotated[1] = T.owned(rawType(annotated[1]), body.ownCleanups)
-                rets[1] = annotated[1]
-                validateCleanups(annotated[1], body.ownCleanups, body.ownTok or body, "NUPP2615")
-                c.own.reportOwnedAnnotation(
-                    body.cleanupRegistrationNode,
-                    body.ownTok,
-                    writtenResultOf(body),
-                    body.ownCleanups,
-                    body.ownOpaque
-                )
-            end
-        end
-        -- `Owned<T>` written as a return type says what `@owned` says, in the position
-        -- it is about rather than above the signature. Every position is resolved, so a
-        -- function may own any result and not only its first, and a terminal comes from
-        -- the type's own `@drop` instead of being restated at each producer. The loop
-        -- also reaches what the branch above just built, so both spellings arrive at
-        -- one
-        -- contract and the readers below cannot tell which was written.
+        -- `Owned<T>` written as a return type states ownership in the position it is
+        -- about. Every position is resolved, so a function may own any result and not
+        -- only its first, and a terminal comes from the type's own `@drop` rather than
+        -- being restated at each producer.
         local ownedReturns = {}
         local ownsAResult = false
         local writtenResults = body.rets
         -- The same normalization every other signature path uses, so a declaration says
         -- one thing whether it was read here, published while hoisting, or written as a
-        -- function type. `@owned` has already settled the first result when it was
-        -- given, and the helper leaves a slot that carries cleanups alone.
+        -- function type. The helper leaves a slot that carries cleanups alone.
         local normalized = c.own.normalizeOwnedResults(T.pack(annotated or {}, nil), body.returnPack, body)
         for j, ret in ipairs(normalized.head or {}) do
             annotated[j], rets[j] = ret, ret
@@ -721,10 +678,10 @@ function functions.install(c: state.Checker): state.StatHandlers
                     and written.kind == "tname"
                     and written.base ~= nil
                     and written.base.text == "Owned"
-                if wroteOwned and j == 1 and not annotationOwnedFirst then
+                if wroteOwned and j == 1 then
                     body.ownCleanups = ret.cleanups
                 end
-                if wroteOwned or (j == 1 and annotationOwnedFirst) then
+                if wroteOwned then
                     ownsAResult = true
                     ownedReturns[j] = rawType(ret)
                 end
@@ -735,8 +692,8 @@ function functions.install(c: state.Checker): state.StatHandlers
         -- `alternatives` and leaves `head` empty, so rebuilding one from `rets` would
         -- replace it with an empty pack: the declaration would return nothing, where
         -- the same signature written as a function type returns the union. Neither
-        -- adjustment applies to a union anyway — both reach through `annotated[1]`,
-        -- which a union leaves nil, and @owned already reports NUPP2602 for that.
+        -- adjustment applies to a union anyway: both reach through `annotated[1]`,
+        -- which a union leaves nil.
         if body.returnPack and not retPack.alternatives then
             retPack = T.pack(rets, retPack.tail, retPack.modes)
         end
@@ -1247,8 +1204,8 @@ function functions.install(c: state.Checker): state.StatHandlers
         -- records the path it wrote, which is how `m.f = function() end` gives a
         -- following `m.f()` a type at all; a declaration that skipped this left `m.f`
         -- reading through an open table as `any`, so every annotation on it was
-        -- accepted and then meant nothing — `@owned` included, which is how this was
-        -- found. A nominal owner already has its member on `byname`, where the type
+        -- accepted and then meant nothing, which is how this was found. A nominal
+        -- owner already has its member on `byname`, where the type
         -- namespace rather than the value path answers for it.
         if not fname.method and not owner and ownerKey and memberTok then
             c.applyFacts({[ownerKey .. "." .. memberTok.text] = ft})

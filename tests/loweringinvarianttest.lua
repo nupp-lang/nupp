@@ -38,8 +38,10 @@ end
 
 local OWNED = table.concat({
    "cdef function free(takes value: voidptr)",
-   "@owned(free)",
    "cdef function malloc(size: uint64): voidptr",
+   "local function ownedMalloc(size: uint64): Owned<voidptr, free>",
+   "   return malloc(size)",
+   "end",
 }, "\n")
 
 -- Every reason `gen` accepts today, and what each is. Adding a case here is the decision
@@ -89,7 +91,7 @@ function M.theConstructsCarryingAReasonStillGenerate()
       moveInALoop = OWNED .. "\n" .. table.concat({
          "local n = 0",
          "for i = 1, 4 do",
-         "   local value = malloc(8)",
+         "   local value = ownedMalloc(8)",
          "   n = n + 1",
          "   drop(value)",
          "end",
@@ -98,7 +100,7 @@ function M.theConstructsCarryingAReasonStillGenerate()
       rawRoundTripInALoop = OWNED .. "\n" .. table.concat({
          "local n = 0",
          "for i = 1, 4 do",
-         "   local value = malloc(8)",
+         "   local value = ownedMalloc(8)",
          "   local raw",
          "   unsafe do",
          "      raw = intoRaw(value)",

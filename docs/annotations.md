@@ -189,7 +189,6 @@ annotated directly.
 | `@annotationValue` | Implemented | None | An annotation definition field |
 | `@ref` | Implemented | None | An annotation definition field |
 | `@allow` | Implemented | Lint names or codes        statement |  |
-| `@owned` | Implemented | Cleanup, default, opaque or output  fu | tion, c-function |
 | `@borrowed` | Implemented | Foreign output and source      c-funct | n |
 | `@drop` | Implemented | None | function, c-function, field |
 | `@override` | Implemented | None | function |
@@ -236,33 +235,29 @@ use reports the suppressible `deprecated` lint; completion and semantic tokens
 carry the LSP deprecated tag/modifier; hover shows the reason and replacement;
 and generated documentation retains the annotation. It emits no Lua.
 
-`@owned(cleanup, ...)` marks the first return as an affine owner. The checker
-requires it to be transferred or explicitly discharged, and `nupp.drop(value)`
-invokes the named cleanup functions in source order. Bare `@owned` resolves
-the result type's unique inherited `@drop` operation;
-`@owned(opaque = true)` is the explicit transfer-only form.
-It may also decorate a function-valued record or interface field to describe a
-bodyless owning producer directly.
+An owning result is written in the result type as `Owned<T>`, which takes the
+type's own `@drop` operation, or `Owned<T, cleanup>`, which names a terminal.
+`Owned<T, opaque>` is the explicit transfer-only form. See [Ownership and FFI
+safety](ownership.md).
 
-On a C function, `@owned(out = result, cleanup = free, success = zero)`
-describes a logical owned output parameter. `@borrowed(out = view,
-from = source, success = zero)` does the same for a view tied to a `borrows`
-input. These contracts allocate and position the C output holder while
-presenting an ordinary Lua multiple return.
+On a C function, `@borrowed(out = view, from = source, success = zero)`
+describes a logical output tied to a `borrows` input. It allocates and positions
+the C output holder while presenting an ordinary Lua multiple return. There is
+currently no contract for an *owned* C output.
 
 A declaration that never comes back, because it raises, exits, or loops forever,
 says so with `never` as its return type, not an annotation; see
 [primitives](type-system/primitives.md#never-the-bottom-type).
 
 `@drop` marks a consuming function, method, or interface field as a type's
-default drop operation. A drop contract must take its resource, and a
-bare `@owned` result is rejected unless exactly one default applies. See
+default drop operation. A drop contract must take its resource, and a bare
+`Owned<T>` result is rejected unless exactly one default applies. See
 [Ownership and FFI safety](ownership.md) for the complete model and examples.
 
-Automatic lexical cleanup uses `@owned` producers with arbitrary return types;
-the returned type does not need to implement a cleanup interface. The annotation
-belongs to the producer, not the type, so different producers of the same type
-may carry different cleanup contracts.
+Automatic lexical cleanup works over owning producers with arbitrary return
+types; the returned type does not need to implement a cleanup interface. A
+terminal named on the result belongs to that producer, so different producers of
+the same type may carry different cleanup contracts.
 
 `@override` marks a member that replaces a default implementation an interface
 provides. It is required there, and equally an error on a member that replaces

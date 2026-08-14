@@ -168,7 +168,8 @@ makes `drop(x)` an ordinary call.
 
 ## Owned results and deterministic cleanup
 
-An explicit cleanup list is the clearest C-boundary contract:
+A named terminal is the clearest C-boundary contract. A `cdef` declaration
+cannot state one, so the wrapper that returns the pointer carries it:
 
 ```nupp
 cdef struct widget
@@ -178,18 +179,34 @@ end
 cdef function widget_stop(borrows value: widget*)
 cdef function widget_free(takes value: widget*)
 
-@owned(widget_stop, widget_free)
-cdef function widget_new(): widget*
+cdef function widget_create(): widget*
+
+local function widget_end(takes value: widget*)
+    widget_stop(value)
+    widget_free(value)
+end
+
+local function widget_new(): Owned<widget*, widget_end>
+    return widget_create()
+end
 
 local value = widget_new()
 print(value.value)
-nupp.drop(value) -- stop, then free
+nupp.drop(value) -- widget_end: stop, then free
 print(value.value) -- NUPP2601: use after move
 ```
 
-Cleanup functions run from left to right. `drop` takes the owner, so it
-cannot run twice. Passing the value to any `takes` parameter discharges the
-same obligation without also running the recorded cleanup:
+`Owned<T, cleanup>` names exactly one terminal; a second is **NUPP2602**. An
+ordered *list* of cleanups is not currently expressible. `widget_end` above is
+the nearest thing, and it is not equivalent: it stops where the first step
+raises, turning one failed cleanup into skipped obligations, where automatic
+destruction and resource sets both attempt every step. The list returns with
+`nupp.cleanup.attemptAll`; until then a terminal whose steps can fail
+independently has no faithful spelling.
+
+`drop` takes the owner, so it cannot run twice. Passing the value to any
+`takes` parameter discharges the same obligation without also running the
+recorded cleanup:
 
 ```nupp
 cdef function widget_adopt(takes value: widget*)
@@ -285,18 +302,20 @@ Use an opaque owner only when another API must accept the value and local code
 has no valid way to destroy it:
 
 ```nupp
-@owned(opaque = true)
-cdef function begin_request(): voidptr
+cdef function request_begin(): voidptr
 
 cdef function submit_request(takes request: voidptr)
+
+local function begin_request(): Owned<voidptr, opaque>
+    return request_begin()
+end
 
 local request = begin_request()
 submit_request(request) -- valid
 -- nupp.drop(request)         -- no cleanup exists
 ```
 
-Outside the cdef contract, write this as `Owned<voidptr, opaque>`. Bare
-`Owned<T>` does not mean opaque. Opaque ownership must be conspicuous.
+Bare `Owned<T>` does not mean opaque. Opaque ownership must be conspicuous.
 
 ## Default drop and Closeable-style interfaces
 
@@ -668,25 +687,10 @@ changing the ABI.
 
 ### Owned outputs
 
-```nupp
-cdef function free(takes value: voidptr)
-
-@owned(out = result, cleanup = free, success = zero)
-cdef function posix_memalign(out result: voidptr*, alignment: uint64, size: uint64): int32
-
-local status, pointer = posix_memalign(16, 4096)
-if pointer then
-    nupp.drop(pointer)
-end
-```
-
-The generated call allocates the output slot, passes it in its original C
-parameter position, calls C once, and appends the logical output to the Lua
-return list. On failure, a conditional output is `nil`.
-
-`success` accepts `always`, `zero`, `nonzero`, or a literal number/string. Use
-one annotation per output; multiple outputs preserve both C argument order and
-Lua return order. Every owned output needs an explicit `cleanup` name or list.
+There is no contract for one: an `out` parameter must be `@borrowed`. A C
+function that allocates through `T **` is bound by declaring the raw signature
+and wrapping the call in a Nupp function whose own result is
+`Owned<T, cleanup>`.
 
 ### Borrowed outputs
 
@@ -976,8 +980,9 @@ auditable trusted computing base.
 
 Use this order when binding an API:
 
-1. Write every fresh Nupp return as `Owned<T>` (or name its terminal), and mark
-   cdef outputs with `@owned(out = ...)`.
+1. Write every fresh Nupp return as `Owned<T>` (or name its terminal). A C
+   function that produces an owner is wrapped by one of those, since a `cdef`
+   declaration cannot state ownership itself.
 2. Mark destruction/adoption parameters `takes`.
 3. Mark call-duration pointer access `borrows`; use `exclusive` only if live
    views could be invalidated.

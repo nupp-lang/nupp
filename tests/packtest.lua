@@ -343,9 +343,11 @@ end
 
 function M.affinePackResultsCannotBeSilentlyDiscarded()
    local declaration = table.concat({
-      "@owned(cleanup = release)",
-      "cdef function acquire(): voidptr",
+      "cdef function acquire_c(): voidptr",
       "cdef function release(takes value: voidptr)",
+      "local function acquire(): Owned<voidptr, release>",
+      "   return acquire_c()",
+      "end",
       "local function make(): (number, Owned<voidptr, opaque>)",
       "   return 1, acquire()",
       "end",
@@ -356,9 +358,11 @@ end
 
 function M.protectedCallOwnersAutoDestroyOnlyInTheSuccessArm()
    local declaration = table.concat({
-      "@owned(cleanup = release)",
-      "cdef function acquire(): voidptr",
+      "cdef function acquire_c(): voidptr",
       "cdef function release(takes value: voidptr)",
+      "local function acquire(): Owned<voidptr, release>",
+      "   return acquire_c()",
+      "end",
    }, "\n")
    clean(declaration .. "\n" .. table.concat({
       "local ok, resource = pcall(acquire)",
@@ -379,9 +383,11 @@ function M.genericPackForwardingKeepsBorrowProvenance()
       "local struct resource",
       "   value: int32",
       "end",
-      "@owned(cleanup = resource_free)",
-      "cdef function resource_new(): resource*",
+      "cdef function resource_create(): resource*",
       "cdef function resource_free(takes value: resource*)",
+      "local function resource_new(): Owned<resource*, resource_free>",
+      "   return resource_create()",
+      "end",
       "local function borrow(borrows value: resource*):",
       "   Borrowed<resource*> borrows (value)",
       "   return value",

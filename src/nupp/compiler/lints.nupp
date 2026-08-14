@@ -139,13 +139,6 @@ lints.all = {
         summary = "use of an API marked deprecated"
     ),
     new lints.Lint(
-        name = "owned-annotation",
-        code = "NUPP2515",
-        category = "migration",
-        level = "warning",
-        summary = "an owning result stated above the signature rather than in it"
-    ),
-    new lints.Lint(
         name = "jit-boundary",
         code = "NUPP2514",
         category = "suspicious",

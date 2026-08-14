@@ -759,8 +759,8 @@ function declare.install(
     ---
     --- Two interfaces providing the same name are two implementations and no reason to
     --- prefer either, so the declaration has to say which behaviour it means by writing
-    --- the member itself. The same shape as a bare `@owned` with several inherited
-    --- `@drop` operations.
+    --- the member itself. The same shape as an `Owned<T>` result with several
+    --- inherited `@drop` operations.
     local function checkInheritedDefaults(stat: any, n: any)
         n.inheritedDefaults = {}
         local providers: {[string]: {any}} = {}
@@ -1463,14 +1463,11 @@ function declare.install(
                         c.raises.checkParams(e, (e.type as any).params or {})
                     end
                     local isDropOperation = false
-                    local ownedApplication = nil
                     local partitionApplication = nil
                     for _, application in ipairs(e.annotations or {}) do
                         local definition2, valid = validateAnnotation(application, e, stat)
                         if definition2 and valid and application.name.text == "drop" then
                             isDropOperation = true
-                        elseif definition2 and valid and application.name.text == "owned" then
-                            ownedApplication = application
                         elseif definition2 and valid and application.name.text == "partition" then
                             partitionApplication = application
                         end
@@ -1542,124 +1539,6 @@ function declare.install(
                             )
                         else
                             ft = T.withPartitionResults(ft, {[1] = {[names[1]] = "L", [names[2]] = "R"}})
-                        end
-                    end
-                    if ownedApplication then
-                        local ownedMembers = ft.tag == "intersection" and ft.members or {ft}
-                        local fixedResults = true
-                        for _, member in ipairs(ownedMembers) do
-                            if member.tag ~= "func" or not member.rets[1] or member.retPack.alternatives then
-                                fixedResults = false
-                                break
-                            end
-                        end
-                        if not fixedResults then
-                            c.diag("NUPP2602", ownedApplication, "@owned field requires a callable with a fixed result")
-                        else
-                            local cleanupNames, opaque = {}, false
-                            for _, arg in ipairs(ownedApplication.annotationArgs or {}) do
-                                local expr = arg.expr
-                                local argName = arg.name and arg.name.text or nil
-                                if argName == "opaque" and expr and expr.kind == "trueExpr" then
-                                    opaque = true
-                                elseif argName == "cleanup" then
-                                    local cleanupExprs = {}
-                                    if expr and expr.kind == "name" then
-                                        cleanupExprs[1] = expr
-                                    elseif expr and expr.kind == "tableExpr" then
-                                        for _, item in ipairs(expr.fields or {}) do
-                                            cleanupExprs[#cleanupExprs + 1] = item.value
-                                        end
-                                    end
-                                    if #cleanupExprs == 0 then
-                                        c.diag("NUPP2602", arg, "@owned cleanup must name one or more functions")
-                                    end
-                                    for _, cleanupExpr in ipairs(cleanupExprs) do
-                                        if cleanupExpr and cleanupExpr.kind == "name" then
-                                            cleanupNames[#cleanupNames + 1] = cleanupExpr.token.text
-                                            local entry = c.lookupEntry(cleanupExpr.token.text)
-                                            if entry then
-                                                c.markToken(
-                                                    cleanupExpr.token,
-                                                    entry.definition,
-                                                    entry.t,
-                                                    entry.definition and entry.definition.kind or "function"
-                                                )
-                                            end
-                                        else
-                                            c.diag("NUPP2602", arg, "@owned cleanup entries must be function names")
-                                        end
-                                    end
-                                elseif not argName and expr and expr.kind == "name" then
-                                    cleanupNames[#cleanupNames + 1] = expr.token.text
-                                    local entry = c.lookupEntry(expr.token.text)
-                                    if entry then
-                                        c.markToken(
-                                            expr.token,
-                                            entry.definition,
-                                            entry.t,
-                                            entry.definition and entry.definition.kind or "function"
-                                        )
-                                    end
-                                else
-                                    c.diag("NUPP2602", arg, "invalid @owned field argument")
-                                end
-                            end
-                            if opaque and #cleanupNames > 0 then
-                                c.diag(
-                                    "NUPP2602",
-                                    ownedApplication,
-                                    "@owned(opaque = true) cannot also declare cleanup functions"
-                                )
-                            end
-                            local wrapped = {}
-                            local settledCleanups = nil
-                            for _, member in ipairs(ownedMembers) do
-                                local callable = member as T.Func
-                                local resultType = callable.rets[1]
-                                local cleanups = c.own.resolvedOwnedCleanups(
-                                    resultType,
-                                    cleanupNames,
-                                    opaque,
-                                    ownedApplication,
-                                    ownedApplication
-                                )
-                                settledCleanups = settledCleanups or cleanups
-                                c.own.validateCleanups(resultType, cleanups, ownedApplication)
-                                wrapped[#wrapped + 1] = T.withFirstResult(callable, T.owned(resultType, cleanups))
-                            end
-                            ft = #wrapped == 1 and wrapped[1] or T.intersection(wrapped)
-                            -- A callable field states an owning result the same way a
-                            -- function statement does. An intersection has one written
-                            -- signature per overload, and the shared builder refuses a
-                            -- contract it cannot move as a whole.
-                            local signatures = {}
-                            if e.type and e.type.kind == "tfunc" then
-                                signatures[1] = e.type
-                            elseif e.type and e.type.kind == "tintersection" then
-                                for _, part in ipairs((e.type as cst.Tintersection).types or {}) do
-                                    if part.kind == "tfunc" then
-                                        signatures[#signatures + 1] = part
-                                    end
-                                end
-                            end
-                            local results = {}
-                            for _, signature in ipairs(signatures) do
-                                local pack = signature.returnPack
-                                local written = pack and pack.kind == "tpack" and (
-                                    pack as cst.Tpack
-                                ).types or signature.rets
-                                local value = cst.resultValueType(written and written[1] or nil)
-                                results[#results + 1] = value
-                            end
-                            ownedApplication.declaresAt = cst.firstToken(e)
-                            c.own.reportOwnedAnnotation(
-                                ownedApplication,
-                                ownedApplication.name,
-                                #results == #signatures and results or {},
-                                settledCleanups or {},
-                                opaque
-                            )
                         end
                     end
                     local fieldBorrowRelation: any = e.type and (

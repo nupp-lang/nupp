@@ -231,7 +231,7 @@ lookup — which Java cannot do, because it resolves through the itable.
   any of them, any number of times. Upvalues are fine: the closure is created
   once in its defining module.
 - **The diamond**: two supertypes providing the same default is refused, and the
-  record must define it. Same shape as NUPP2602 refusing a bare `@owned` with
+  record must define it. Same shape as NUPP2602 refusing a a bare `Owned<T>` with
   multiple inherited `@drop` operations.
 - **`@override` is required, in both directions.** A member shadowing an
   inherited default without it is an error, and an `@override` shadowing nothing

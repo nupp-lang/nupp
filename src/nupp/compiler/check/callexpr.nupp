@@ -738,7 +738,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     c.diag(
                         "NUPP2602",
                         args[1] or node,
-                        "drop needs @owned cleanup functions; transfer this owner " .. "to a declared takes parameter"
+                        "drop needs a named terminal; transfer this owner "
+                        .. "to a declared takes parameter"
                     )
                 end
                 node.ownershipIntrinsic = "drop"

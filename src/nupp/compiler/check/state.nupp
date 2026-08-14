@@ -163,7 +163,7 @@ record state.Checker
 
     retPackStack: {any}
 
-    --- Raw first-return types for functions whose public result is wrapped by `@owned`.
+    --- Raw first-return types for functions whose public result is an owner.
     --- The body may return a newly produced raw value or transfer an existing owner;
     --- the annotation establishes the public obligation.
     ownReturnStack: {any}

@@ -60,8 +60,7 @@ name, or user-written lifetime parameter.
 The existing surface remains the default:
 
 ```nupp
-@owned(closeFile)
-local function openFile(path: string): File
+local function openFile(path: string): Owned<File, closeFile>
 
 local function inspect(borrows file: File)
 local function resize(exclusive buffer: Buffer, size: integer)
@@ -136,10 +135,10 @@ Calling the entire model affine must not weaken the second rule.
 The guarantee deliberately begins after these claims. They are trusted because
 their truth is not observable from Lua values or a C header:
 
-- An external `@owned` producer returned a fresh, exclusive resource.
+- An external `Owned<T>` producer returned a fresh, exclusive resource.
 - Its ordered cleanup list is the correct protocol and allocator pairing.
 - A bodyless `takes`, `borrows`, `exclusive`, `retains`, `releases`,
-  `@borrowed`, or `@owned` declaration describes the foreign implementation.
+  `@borrowed`, or `Owned<T>` declaration describes the foreign implementation.
 - A foreign borrowed output actually derives from every named input.
 - A cleanup body, cancellation callback, or handler shutdown implementation
   performs what its contract says.
@@ -211,7 +210,7 @@ checking, a cast, or pack reconstruction.
 
 The following are implemented and are not redesigned here:
 
-- producer-specific ordered `@owned` cleanup, including private cross-module
+- producer-specific ordered cleanup, including private cross-module
   cleanup references;
 - unique inherited `@drop` and explicit transfer-only owners;
 - `takes`, inferred/declared `borrows`, and call-duration `exclusive`;
@@ -737,14 +736,14 @@ Exit criteria:
 Audit every C-shaped value path against one vocabulary:
 
 ```text
-fresh result       @owned
+fresh result       Owned<T>
 consumed input     takes
 call-only input    borrows
 invalidating input exclusive
 stored input       retains
 unregistered input releases
 derived output     @borrowed(... from ...)
-fresh output       @owned(out = ...)
+fresh output       (no spelling yet)
 ```
 
 Complete the following gaps:
@@ -814,8 +813,7 @@ Many protocols need no new typestate system when ownership and provenance are
 used precisely:
 
 ```nupp
-@owned(finishPass)
-local function beginPass(borrows frame: Frame): Pass borrows frame
+local function beginPass(borrows frame: Frame): Owned<Pass, finishPass> borrows frame
 
 local function finishPass(takes pass: Pass)
 ```
@@ -833,8 +831,7 @@ a structural operation. A reference-counted or duplicable resource exposes an
 explicit producer, and each call creates one independently checked obligation:
 
 ```nupp
-@owned(release)
-local function clone(borrows value: Resource): Resource
+local function clone(borrows value: Resource): Owned<Resource, release>
 ```
 
 Add no arbitrary state predicates to the ownership checker. Instead, audit the

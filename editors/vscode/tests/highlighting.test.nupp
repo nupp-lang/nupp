@@ -239,7 +239,7 @@ cdef struct Pair
 --       ^^^^^^^ support.type.builtin.nupp
 end
 
-@owned(free)
+@deprecated
 -- <- punctuation.definition.annotation.nupp
 cdef function allocate(size: uint64): voidptr
 -- <- storage.modifier.cdef.nupp

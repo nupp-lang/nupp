@@ -5,7 +5,7 @@
 -- takes. Nothing here needs an unimplemented feature:
 --
 --   ffi.gc          what a LuaJIT programmer writes today
---   drop         what @owned + drop lowers to (a direct free call)
+--   drop         what an owned result + drop lowers to (a direct free call)
 --   region (upvalue) naive lowering: fresh closure, owner in an upvalue
 --   region (args)    cleanup lowering using xpcall's extra arguments and a
 --                   per-execution slot table instead of a closure
@@ -217,7 +217,7 @@ for _, work in ipairs(GRAINS) do
 end
 print((" %s"):format(("-"):rep(28 + 12 * #GRAINS)))
 print(counts)
-print(" (ratios vs drop, the direct-free path @owned+drop emits)")
+print(" (ratios vs drop, the direct-free path Owned<T> + drop emits)")
 
 ---------------------------------------------------------------------------
 -- Backpressure: does the collector know how much C memory is outstanding?

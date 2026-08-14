@@ -240,7 +240,6 @@ function M.spanAbiAnnotationWasRemoved()
       .. "cdef function old(borrows values: const int32*, count: uint64)")
    assert(got:find("NUPP2111", 1, true), got)
 end
-
 function M.cdefCallbackParameter()
    local source = "cdef function each(fn: function(int32), n: int32)"
    assertClean(source)
@@ -285,12 +284,12 @@ function M.cdefBindingsAndHelpersUseConstWherePossible()
    assert(libraryCode:find("local l = __nuppLibCache[n]", 1, true), libraryCode)
 end
 
-function M.ownRequiresPointer()
-   assertEq((diagsOf(
-      "@owned(free) cdef function bad(): int32")), "NUPP2203:1")
-   assertClean("@owned(free) cdef function good(): voidptr")
+-- A cdef states no ownership of its own, so a pointer return is an ordinary C type
+-- and the wrapper that owns it is written in Nupp.
+function M.pointerReturnsNeedNoOwnershipContract()
+   assertClean("cdef function good(): voidptr")
    assertClean("cdef struct blob\n   n: int32\nend\n"
-      .. "@owned(release) cdef function mk(): blob*\n"
+      .. "cdef function mk(): blob*\n"
       .. "cdef function release(b: blob*)")
 end
 
@@ -382,9 +381,11 @@ end
 function M.ownIsStaticAndDropIsExplicit()
    assertEq(run(table.concat({
       "cdef function free(takes p: voidptr)",
-      "@owned(free)",
       "cdef function malloc(n: uint64): voidptr",
-      "local p = malloc(64)",
+      "local function ownedMalloc(n: uint64): Owned<voidptr, free>",
+      "   return malloc(n)",
+      "end",
+      "local p = ownedMalloc(64)",
       "local ok = p ~= nil",
       "drop(p)",
       "return ok",

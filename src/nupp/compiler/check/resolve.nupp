@@ -738,6 +738,19 @@ function resolve.install(c: state.Checker): nil
                 end
                 if ownership == "owned" then
                     local cleanupArg = node.typeArgs[2]
+                    -- One terminal, or none. An ordered list composes failure
+                    -- behaviour a single terminal does not, and reading only the
+                    -- second argument would discharge the first and silently forget
+                    -- the rest.
+                    if node.typeArgs[3] then
+                        c.diag(
+                            "NUPP2602",
+                            node.typeArgs[3],
+                            "Owned<T, cleanup> names one terminal",
+                            nil,
+                            {help = "ordered attempt-all cleanup is not currently expressible"}
+                        )
+                    end
                     -- `opaque` is a word rather than a cleanup: the owner is
                     -- transfer-only because the author said so, which is what separates
                     -- it from one resolution merely found no terminal for. Contextual,
@@ -761,14 +774,25 @@ function resolve.install(c: state.Checker): nil
                         -- declared generic so its identity and runtime-linker key are
                         -- exactly the ones every other function const argument gets.
                         local term = constArgument(cleanupArg, {name = "cleanup", domain = "function"}, node)
-                        local named = cleanupArg.kind == "tname"
+                        local cleanupName = cleanupArg.kind == "tname"
                             and not cleanupArg.typeArgs
-                            and cleanupArg.base
-                            and cleanupArg.base.text
+                            and (cleanupArg as cst.Tname).base
                             or nil
+                        local named = cleanupName and cleanupName.text or nil
                         if term and named then
                             local cleanups = c.own.resolveCleanups({named}, cleanupArg)
                             c.own.validateCleanups(inner, cleanups, cleanupArg, "NUPP2615")
+                            -- The terminal is a reference to a function an editor
+                            -- should be able to follow, exactly as a call to it is.
+                            local entry = c.lookupEntry(named)
+                            if entry then
+                                c.markToken(
+                                    cleanupName,
+                                    entry.definition,
+                                    entry.t,
+                                    entry.definition and entry.definition.kind or "function"
+                                )
+                            end
                             return T.owned(inner, cleanups)
                         end
                     end
@@ -958,7 +982,7 @@ function resolve.install(c: state.Checker): nil
             return T.boolean
         elseif kind == "tborrows" then
             -- the body returns the plain value; the borrow wrapper and the argument it
-            -- is tied to are applied to the function type, the same way @owned wraps an
+            -- is tied to are applied to the function type, the same way Owned<T> wraps an
             -- annotated return
             return c.resolveType(node.type)
         elseif kind == "tpreserves" then

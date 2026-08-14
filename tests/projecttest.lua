@@ -1284,8 +1284,10 @@ end
 function M.ownCleanupListsInvalidateIncrementalInterfaces()
    local function library(cleanup)
       return table.concat({
-         "@owned(" .. cleanup .. ")",
-         "cdef function create(): voidptr",
+         "cdef function create_c(): voidptr",
+         "local function create(): Owned<voidptr, " .. cleanup .. ">",
+         "   return create_c()",
+         "end",
          "return { create = create }",
       }, "\n")
    end
@@ -1305,7 +1307,7 @@ return {
    local changed = {}
    assertEq(project.build(dir, {stats = changed}), 0)
    assertEq(changed.checkedModules, 2,
-      "@owned cleanup changes recheck dependents")
+      "a changed cleanup rechecks dependents")
    remove(dir)
 end
 

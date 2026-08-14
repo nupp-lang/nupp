@@ -272,7 +272,7 @@ function M.anAnnotatedMemberKeepsItsDocumentation()
       close.returns[1] and close.returns[1].text)
 end
 
--- `@drop` and `@owned` are the ownership contract. A reader who cannot see them
+-- `@drop` and `Owned<T>` are the ownership contract. A reader who cannot see them
 -- cannot tell an obligation from an ordinary method, and the parameter mode that
 -- carries the same news was extracted but never rendered.
 function M.documentsAnnotationsAndParameterModes()
@@ -526,8 +526,7 @@ function M.documentsDeclarationsWrappedInAnnotations()
       "--- Opens an owned handle.",
       "--- @param path Where to open it.",
       "--- @return The owned handle.",
-      "@owned(close)",
-      "function resources.open(path: string): LuaFile",
+      "function resources.open(path: string): Owned<LuaFile, close>",
       "   return assert(io.open(path))",
       "end",
    }, "\n")

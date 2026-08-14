@@ -46,8 +46,7 @@ local PRELUDE = table.concat({
    "local function close_resource(value: Resource)",
    "   calls = calls .. value.name",
    "end",
-   "@owned(close_resource)",
-   "local function open_resource(name: string): Resource",
+   "local function open_resource(name: string): Owned<Resource, close_resource>",
    "   return new Resource(name = name)",
    "end",
 }, "\n")
@@ -173,8 +172,7 @@ end
 function M.anOwningReturnTransfersResponsibility()
    local chunk = compile(PRELUDE .. table.concat({
       "",
-      "@owned(close_resource)",
-      "local function make(): Resource",
+      "local function make(): Owned<Resource, close_resource>",
       "   local value = open_resource('r')",
       "   return value",
       "end",
@@ -201,8 +199,7 @@ end
 
 function M.opaqueOwnersStillNeedAnExplicitTerminal()
    local source = table.concat({
-      "@owned(opaque = true)",
-      "local function begin(): table return {} end",
+      "local function begin(): Owned<table, opaque> return {} end",
       "local value = begin()",
    }, "\n")
    assertEq(codes(source), "NUPP2603")
@@ -220,8 +217,7 @@ end
 function M.optionalOwnersDestroyOnlyWhenPresent()
    local chunk = compile(PRELUDE .. table.concat({
       "",
-      "@owned(close_resource)",
-      "local function maybe_open(present: boolean): Resource?",
+      "local function maybe_open(present: boolean): Owned<Resource?, close_resource>",
       "   if present then return new Resource(name = 'p') end",
       "   return nil",
       "end",
@@ -253,8 +249,7 @@ function M.partialAcquisitionCleansOnlySuccessfulOwners()
    local chunk = compile(PRELUDE .. table.concat({
       "",
       "local function fail(): Resource error('acquire') end",
-      "@owned(close_resource)",
-      "local function failed_open(): Resource return fail() end",
+      "local function failed_open(): Owned<Resource, close_resource> return fail() end",
       "local ok = pcall(function()",
       "   local first = open_resource('a')",
       "   local second = failed_open()",
@@ -271,8 +266,7 @@ function M.oneDeclarationRegistersEachSuccessfulAcquisition()
    local chunk = compile(PRELUDE .. table.concat({
       "",
       "local function fail(): Resource error('acquire') end",
-      "@owned(close_resource)",
-      "local function failed_open(): Resource return fail() end",
+      "local function failed_open(): Owned<Resource, close_resource> return fail() end",
       "local ok = pcall(function()",
       "   local first, second = open_resource('m'), failed_open()",
       "   print(first.name, second.name)",
@@ -345,29 +339,6 @@ function M.structuredExitsRunCleanup()
    assertEq(n, 1)
    assertEq(calls, "r12g")
 end
-
-function M.cleanupFailuresUseTheSharedAggregationContract()
-   local chunk = compile(table.concat({
-      "local calls = ''",
-      "local function bad(value: table) calls = calls .. 'b'; error('bad') end",
-      "local function last(value: table) calls = calls .. 'l'; error('last') end",
-      "@owned(bad, last)",
-      "local function open(): table return {} end",
-      "local ok, reason = pcall(function()",
-      "   local first = open()",
-      "   local second = open()",
-      "   if first == second then calls = calls end",
-      "   error('body')",
-      "end)",
-      "return ok, reason, calls",
-   }, "\n"))
-   local ok, reason, calls = chunk()
-   assertEq(ok, false)
-   assertEq(type(reason), "table")
-   assertEq(#reason.suppressed, 4)
-   assertEq(calls, "blbl")
-end
-
 function M.automaticLoweringPreservesSourceLineCount()
    local source = PRELUDE .. table.concat({
       "",

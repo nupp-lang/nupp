@@ -423,7 +423,7 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
    assertEq((diagsOf("nupp.io.files.open('x')")), "NUPP2605:1")
    assertEq((diagsOf("nupp.io.files.createTemporaryFile()")), "NUPP2605:1")
 
-   -- The prelude marks `open` and the temporaries `@owned`, so a binding the
+   -- The prelude gives `open` and the temporaries owning results, so a binding the
    -- program drops is dropped where it goes out of scope rather than leaking.
    local source = table.concat({
       "local file = nupp.io.files.open('input.txt') as nupp.io.Files.File",

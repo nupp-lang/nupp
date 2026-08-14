@@ -451,8 +451,7 @@ record res.File
     end
 end
 
-@owned
-function res.open(): res.File
+function res.open(): Owned<res.File>
     return new res.File(closed = false)
 end
 
@@ -504,8 +503,7 @@ local function closeFile(takes file: LuaFile)
     file:close()
 end
 
-@owned
-function res.open(path: string): LuaFile
+function res.open(path: string): Owned<LuaFile>
     local file = io.open(path, "r")
     if not file then error("cannot open " .. path) end
     return file
@@ -558,8 +556,7 @@ local function closeFile(file: LuaFile)
     file:close()
 end
 
-@owned(closeFile)
-function res.open(path: string): LuaFile
+function res.open(path: string): Owned<LuaFile, closeFile>
     local file = io.open(path, "r")
     if not file then error("cannot open " .. path) end
     return file
@@ -597,8 +594,7 @@ function M.aMisspelledCleanupIsReportedAtItsDeclaration()
       ["src/res.g.nupp"] = [[
 local res = {}
 
-@owned(closeFyle)
-function res.open(path: string): LuaFile
+function res.open(path: string): Owned<LuaFile, closeFyle>
     local file = io.open(path, "r")
     if not file then error("cannot open " .. path) end
     return file

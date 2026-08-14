@@ -359,7 +359,7 @@ return wrong
    os.execute("rm -rf '" .. dir .. "'")
 end
 
--- Typed is not enough on its own: the `@owned` contract has to cross too, or an
+-- Typed is not enough on its own: the ownership contract has to cross too, or an
 -- ordinary local cannot arrange automatic cleanup.
 function M.theStandardLibraryCarriesItsOwnershipOutsideThisTree()
    local dir = tempProject({

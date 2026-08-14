@@ -208,8 +208,7 @@ local record http
     end
 
     record Client
-        @owned
-        send: function(self: Client, request: Request): (Response?, string?)
+        send: function(self: Client, request: Request): Owned<(Response?, string?)>
         pending: nosuspend function(self: Client): integer
 
         @drop
@@ -226,8 +225,7 @@ local record http
         contentType: string?
     ): FileBody
 
-    @owned
-    newClient: function(options: Options?): (Client?, string?)
+    newClient: function(options: Options?): Owned<(Client?, string?)>
 end
 ```
 

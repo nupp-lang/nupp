@@ -1,10 +1,17 @@
 # Ownership in the type, not above the signature
 
-> **Status: partly implemented.** A result written `Owned<T>` inherits that type's
-> `@drop` wherever a signature is built, `Owned<T, cleanup>` names a terminal, and
-> `Owned<T, opaque>` says an owner is deliberately transfer-only. Nupp functions
-> and callable fields have been migrated. What remains is the cdef contract, the
-> ordered-cleanup helper, the documentation pipeline, and removing the annotation.
+> **Status: implemented for Nupp, unimplemented for C.** A result written
+> `Owned<T>` inherits that type's `@drop` wherever a signature is built,
+> `Owned<T, cleanup>` names a terminal, and `Owned<T, opaque>` says an owner is
+> deliberately transfer-only. That is the only way to state ownership.
+>
+> Two contracts have no spelling at all. A `cdef` declaration cannot say that it
+> produces an owner, or that an `out` parameter is one: the C section below is
+> unimplemented, and an owning C function is bound by wrapping the call in a Nupp
+> function. An ordered cleanup list has none either, and one terminal calling
+> several operations is not equivalent to it, for the reason the rejected
+> alternatives give. What remains is the cdef contract, the ordered-cleanup
+> helper, and the documentation pipeline.
 
 ## Decision
 
@@ -43,10 +50,9 @@ contract the value arrives with.
 
 ## The C contract
 
-A cdef function bundles three facts into `@owned(out = p, cleanup = f, success =
-zero)`: which parameter is an owner, what discharges it, and when the outputs are
-valid. Only the third is about the function rather than the parameter, and it is
-about the *return value* — so it belongs on the return.
+A C contract needs three facts: which parameter is an owner, what discharges it,
+and when the outputs are valid. Only the third is about the function rather than
+the parameter, and it is about the *return value* — so it belongs on the return.
 
 ```nupp
 cdef function make_pair(
@@ -56,8 +62,8 @@ cdef function make_pair(
 ): Success<int32, 7>
 ```
 
-`Success<T, const N: integer>` states the successful status once, where two
-stacked annotations could disagree. `success = always` is a bare `int32`.
+`Success<T, const N: integer>` states the successful status once, in the one
+place that can hold it. `success = always` is a bare `int32`.
 `success = nonzero` has no single value and needs `Failure<T, const N>`.
 
 This needs `cdef.nupp` to accept an ownership wrapper around a C type as still a
@@ -68,8 +74,8 @@ NUPP2203 and NUPP2602.
 
 **A cdef-only `cOwned`.** It would carry the C facts away from the general type,
 but `success` is a relation between the return value and the outputs, so on a
-parameter it is the same remote addressing `@owned(out = ...)` already does. Two
-out-parameters could still disagree.
+parameter it addresses the contract remotely. Two out-parameters could still
+disagree.
 
 **Cleanups as const generic arguments**, `Owned<voidptr*, free>`. Const
 parameters are already types, so this needs a singleton type per function
@@ -81,7 +87,8 @@ resolution inverts a layer, since a type can resolve before the function it
 names is declared. A string-named cleanup would stay inside the existing domain
 if the C case ever needs one.
 
-**Ordered cleanup lists**, `@owned(first, second)` -- the syntax, not the
+**Ordered cleanup lists**, a second terminal in `Owned<T, first, second>` -- the
+syntax, not the
 semantics. A wrapper that calls both in order is *not* equivalent: it stops where
 the first raises, turning one failed cleanup into skipped obligations and leaking
 whatever the later steps release. It would also make a composed terminal behave
@@ -97,7 +104,7 @@ migration writes an ordinary terminal that calls it.
 ## Open
 
 - Whether an unresolvable terminal is an error or means opaque. `Owned<voidptr>`
-  currently checks clean and behaves transfer-only, where bare `@owned` reports
+  currently checks clean and behaves transfer-only, where a bare `Owned<T>` reports
   NUPP2602. Making it explicit costs a second constructor and keeps "there is
   deliberately no terminal" distinct from "I forgot one".
 - Whether a second `@drop` registration for one type is an error. Registration is

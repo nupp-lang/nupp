@@ -36,7 +36,7 @@ local function kindBadge(kind)
     return '<span class="nuppdoc-kind-badge nuppdoc-kind-' .. htmlEscape(kind) .. '">' .. htmlEscape(kind) .. '</span>'
 end
 
--- What a declaration was annotated with. `@drop` and `@owned` are the ownership
+-- What a declaration was annotated with. `@drop` and `Owned<T>` are the ownership
 -- contract, so they belong beside the name rather than only inside a raw signature
 -- dump.
 local function annotationBadges(annotations)

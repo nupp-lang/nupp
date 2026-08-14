@@ -167,19 +167,6 @@ function M.resultRelationsAttachToTheirFixedPackSlots()
    assertEq(stats[2].types[1].returnPack.types[2].kind, "tborrows")
    assertEq(stats[2].types[1].returnPack.types[2].param.text, "source")
 end
-
-function M.ownIsADeclarationAnnotationWithMultipleCleanups()
-   local r = parser.parse(
-      "@owned(stop, release) cdef function make(): voidptr", "test")
-   assertEq(#r.errors, 0)
-   local pragma = r.root.blocks[1].stats[1]
-   assertEq(pragma.kind, "pragmaStmt")
-   assertEq(pragma.name.text, "owned")
-   assertEq(pragma.annotationArgs[1].expr.token.text, "stop")
-   assertEq(pragma.annotationArgs[2].expr.token.text, "release")
-   assertEq(pragma.stat.kind, "cdefFunc")
-end
-
 function M.precedenceArithmetic()
    assertEq(exprDump("1 + 2 * 3"),
       "(binop (number 1) + (binop (number 2) * (number 3)))")

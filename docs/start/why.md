@@ -88,8 +88,9 @@ print(file:read("*a"))
 -- file is destroyed automatically here, including when read raises
 ```
 
-Drop early, transfer it to a `takes` parameter, or return it from an
-`@owned` function when automatic lexical destruction is not the desired end:
+Drop early, transfer it to a `takes` parameter, or return it from a function
+whose result is `Owned<T>` when automatic lexical destruction is not the
+desired end:
 
 ```nupp
 local file = resources.openFile("in.txt", "r")

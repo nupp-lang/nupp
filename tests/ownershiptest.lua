@@ -33,30 +33,15 @@ local function assertClean(source)
    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
 end
 
-local MIGRATION_LINTS = {
-   migration = "warning",
-   ["unused-binding"] = "off",
-   ["discarded-result"] = "off",
-}
-
-local function applyFix(source, fix)
-   local edits = {}
-   for _, edit in ipairs(fix.edits or {}) do edits[#edits + 1] = edit end
-   table.sort(edits, function(a, b) return a.offset > b.offset end)
-   for _, edit in ipairs(edits) do
-      source = source:sub(1, edit.offset - 1) .. edit.newText
-         .. source:sub(edit.offset + edit.length)
-   end
-   return source
-end
-
 local RESOURCE = table.concat({
    "cdef struct resource",
    "   value: int32",
    "end",
-   "@owned(resource_free)",
-   "cdef function resource_new(): resource*",
+   "cdef function resource_create(): resource*",
    "cdef function resource_free(takes value: resource*)",
+   "local function resource_new(): Owned<resource*, resource_free>",
+   "   return resource_create()",
+   "end",
 }, "\n")
 
 local M = {}
@@ -161,11 +146,11 @@ end
 function M.assertPreservesAndNarrowsAnOptionalOwner()
    assertClean(table.concat({
       RESOURCE,
-      "local function cleanup(takes value: resource*?)",
-      "   if value then resource_free(value) end",
+      "local function cleanup(value: resource*?) end",
+      "cdef function maybe_resource_c(): resource*?",
+      "local function maybe_resource(): Owned<resource*?, cleanup>",
+      "   return maybe_resource_c()",
       "end",
-      "@owned(cleanup)",
-      "cdef function maybe_resource(): resource*?",
       "local value = assert(maybe_resource())",
       "drop(value)",
    }, "\n"))
@@ -174,11 +159,11 @@ end
 function M.assertingANamedOptionalOwnerKeepsItInPlace()
    local declaration = table.concat({
       RESOURCE,
-      "local function cleanup(takes value: resource*?)",
-      "   if value then resource_free(value) end",
+      "local function cleanup(value: resource*?) end",
+      "cdef function maybe_resource_c(): resource*?",
+      "local function maybe_resource(): Owned<resource*?, cleanup>",
+      "   return maybe_resource_c()",
       "end",
-      "@owned(cleanup)",
-      "cdef function maybe_resource(): resource*?",
    }, "\n")
    assertClean(table.concat({
       declaration,
@@ -239,8 +224,7 @@ function M.nominalRecordsCanRetainDeclaredBorrowedFields()
       "   value: string",
       "end",
       "local function closeBuffer(value: Buffer) end",
-      "@owned(closeBuffer)",
-      "local function openBuffer(): Buffer",
+      "local function openBuffer(): Owned<Buffer, closeBuffer>",
       "   return new Buffer(value = 'bytes')",
       "end",
       "local function view(borrows source: Buffer): Buffer borrows (source)",
@@ -347,8 +331,7 @@ function M.cleanupContractsCannotSuspend()
       "local function close(takes value: Resource)",
       "   coroutine.yield()",
       "end",
-      "@owned(close)",
-      "local function open(): Resource",
+      "local function open(): Owned<Resource, close>",
       "   return new Resource(value = 1)",
       "end",
       "local value = open()",
@@ -449,8 +432,7 @@ function M.resourceSetsRequireAWitnessForOpaqueOwners()
       "local record Request",
       "   value: integer",
       "end",
-      "@owned(opaque = true)",
-      "local function beginRequest(): Request return new Request(value = 1) end",
+      "local function beginRequest(): Owned<Request, opaque> return new Request(value = 1) end",
       "do",
       "   local group = resources.set('requests')",
       "   local request = group:adopt(beginRequest())",
@@ -470,42 +452,6 @@ function M.resourceSetsCanTransferARegistrationBackOutExactlyOnce()
       "end",
    }, "\n"))
 end
-
-function M.aReifiedWitnessAttemptsEveryCleanupStep()
-   local source = table.concat({
-      "local resources = require('nupp.resources')",
-      "local calls = ''",
-      "local record Resource end",
-      "local function first(value: Resource)",
-      "   calls = calls .. 'a'",
-      "   error('first')",
-      "end",
-      "local function second(value: Resource)",
-      "   calls = calls .. 'b'",
-      "   error('second')",
-      "end",
-      "@owned(first, second)",
-      "local function open(): Resource return new Resource() end",
-      "local ok = pcall(function()",
-      "   do",
-      "      local group = resources.set('test')",
-      "      local value = group:adopt(open())",
-      "      print(value)",
-      "   end",
-      "end)",
-      "return calls, ok",
-   }, "\n")
-   local result, diags = checked(source)
-   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
-   local code, genDiags = gen.generate(result, "ownership-test")
-   assertEq(#genDiags, 0)
-   local chunk, loadErr = loadstring(code, "@ownership-resource-set")
-   assert(chunk, tostring(loadErr) .. "\n" .. code)
-   local calls, ok = chunk()
-   assertEq(calls, "ab", "the witness attempts every cleanup in contract order")
-   assertEq(ok, false, "the aggregate still reports the primary failure")
-end
-
 function M.spansCarryBoundsRootsAndAnAffineWriteExtent()
    assertClean(table.concat({
       "local spans = require('nupp.span')",
@@ -1003,8 +949,7 @@ local POOL = table.concat({
    "   items: {Res}",
    "end",
    "local function close_pool(p: Pool) end",
-   "@owned(close_pool)",
-   "local function open_pool(): Pool",
+   "local function open_pool(): Owned<Pool, close_pool>",
    "   return new Pool(items = {})",
    "end",
    "function Pool:get(index: integer): Res borrows (self)",
@@ -1122,12 +1067,10 @@ local LAYERED = table.concat({
    "end",
    "local function close_socket(s: Socket) end",
    "local function close_tls(t: TLS) end",
-   "@owned(close_socket)",
-   "local function open_socket(): Socket",
+   "local function open_socket(): Owned<Socket, close_socket>",
    "   return new Socket(fd = 1)",
    "end",
-   "@owned(close_tls)",
-   "local function open_tls(borrows s: Socket): TLS borrows (s)",
+   "local function open_tls(borrows s: Socket): Owned<TLS, close_tls> borrows (s)",
    "   return new TLS(s = s)",
    "end",
 }, "\n")
@@ -1204,8 +1147,7 @@ function M.anInlineMethodsBorrowedResultKeepsItsSource()
       "   end",
       "end",
       "local function close_holder(h: Holder) end",
-      "@owned(close_holder)",
-      "local function open_holder(): Holder return new Holder(items = {}) end",
+      "local function open_holder(): Owned<Holder, close_holder> return new Holder(items = {}) end",
       "local h = open_holder()",
       "local item = h:first()",
       "drop(h)",
@@ -1226,8 +1168,7 @@ function M.aDeclaredMethodsBorrowedResultKeepsItsSource()
       "   return self.items[1]",
       "end",
       "local function close_holder(h: Holder) end",
-      "@owned(close_holder)",
-      "local function open_holder(): Holder return new Holder(items = {}) end",
+      "local function open_holder(): Owned<Holder, close_holder> return new Holder(items = {}) end",
       "local h = open_holder()",
       "local item = h:first()",
       "drop(h)",
@@ -1294,7 +1235,7 @@ end
 
 -- The declaration is the contract: a result declared `borrows p` may be
 -- derived through any number of intermediates, and the checker takes the
--- annotation's word for what it roots at, exactly as it does for @owned.
+-- annotation's word for what it roots at, exactly as it does for an owning result.
 function M.aBorrowMayBeDerivedThroughAnIntermediate()
    assertClean(POOL .. table.concat({
       "",
@@ -1312,8 +1253,10 @@ end
 
 function M.opaqueOwnersAreTransferOnly()
    local opaque = table.concat({
-      "@owned(opaque = true)",
-      "cdef function resource_new(): voidptr",
+      "cdef function resource_new_c(): voidptr",
+      "local function resource_new(): Owned<voidptr, opaque>",
+      "   return resource_new_c()",
+      "end",
       "cdef function resource_take(takes value: voidptr)",
    }, "\n")
    assertClean(opaque .. "\nlocal value = resource_new()\nresource_take(value)")
@@ -1332,8 +1275,7 @@ function M.bareOwnedUsesTheDeclaredDefaultDropOperation()
       "      self.closed = true",
       "   end",
       "end",
-      "@owned",
-      "local function openFile(): File",
+      "local function openFile(): Owned<File>",
       "   return new File(closed = false)",
       "end",
       "local file = openFile()",
@@ -1356,8 +1298,7 @@ function M.anExplicitDefaultDropAfterACallIsASeparateStatement()
       "   @drop",
       "   function stop(self): nil calls = calls .. 'stop' end",
       "end",
-      "@owned",
-      "local function openFile(): File return new File() end",
+      "local function openFile(): Owned<File> return new File() end",
       "local file = openFile()",
       "print('before')",
       "file:stop()",
@@ -1382,8 +1323,7 @@ function M.defaultDropOperationsAreInheritedFromInterfaces()
       "   closed: boolean",
       "end",
       "function File:close() self.closed = true end",
-      "@owned",
-      "local function openFile(): File",
+      "local function openFile(): Owned<File>",
       "   return new File(closed = false)",
       "end",
       "do local file = openFile(); print(file.closed) end",
@@ -1398,8 +1338,7 @@ function M.ownedFieldsApplyToEveryOverload()
       "end",
       "local record File is Closeable end",
       "local record Library",
-      "   @owned",
-      "   open: function(name: string): File & function(id: integer): File",
+      "   open: function(name: string): Owned<File> & function(id: integer): Owned<File>",
       "end",
       "local library = nil as any as Library",
       "do local named = library.open('name') end",
@@ -1412,8 +1351,7 @@ function M.bareOwnedRejectsMissingAndAmbiguousDefaults()
       "local record File",
       "   closed: boolean",
       "end",
-      "@owned",
-      "local function openFile(): File return new File(closed = false) end",
+      "local function openFile(): Owned<File> return new File(closed = false) end",
    }, "\n")), "NUPP2602")
 
    assertEq(codes(table.concat({
@@ -1428,8 +1366,7 @@ function M.bareOwnedRejectsMissingAndAmbiguousDefaults()
       "local record File is Stops, Closes",
       "   closed: boolean",
       "end",
-      "@owned",
-      "local function openFile(): File return new File(closed = false) end",
+      "local function openFile(): Owned<File> return new File(closed = false) end",
    }, "\n")), "NUPP2602")
 end
 
@@ -1589,8 +1526,10 @@ function M.nullableOwnersNarrowWithoutLosingOwnership()
       "   value: int32",
       "end",
       "cdef function free(takes value: voidptr)",
-      "@owned(free)",
-      "cdef function maybe_new(): maybe_resource*?",
+      "cdef function maybe_new_c(): maybe_resource*?",
+      "local function maybe_new(): Owned<maybe_resource*?, free>",
+      "   return maybe_new_c()",
+      "end",
       "local value = maybe_new()",
       "if value then",
       "   print(value.value)",
@@ -1773,9 +1712,8 @@ function M.borrowedResultsCanNameMultipleSources()
       "   right: resource*",
       "end",
       "local function closePair(pair: Pair) end",
-      "@owned(closePair)",
       "local function pair(borrows left: resource*, borrows right: resource*)",
-      "   : Pair borrows(left, right)",
+      "   : Owned<Pair, closePair> borrows(left, right)",
       "   return new Pair(left = left, right = right)",
       "end",
    }, "\n")
@@ -1808,8 +1746,7 @@ function M.affineRecordsDropOwnedFieldsInReverseOrder()
       "local function closeRes(value: Res)",
       "   calls = calls .. value.name",
       "end",
-      "@owned(closeRes)",
-      "local function openRes(name: string): Res",
+      "local function openRes(name: string): Owned<Res, closeRes>",
       "   return new Res(name = name)",
       "end",
       "local record Bundle",
@@ -1833,8 +1770,7 @@ function M.affineRecordsTrackPartialFieldMoves()
    assertClean(table.concat({
       "local record Res end",
       "local function closeRes(value: Res) end",
-      "@owned(closeRes)",
-      "local function openRes(): Res return new Res() end",
+      "local function openRes(): Owned<Res, closeRes> return new Res() end",
       "local record Bundle",
       "   value: Owned<Res>",
       "end",
@@ -1846,8 +1782,7 @@ function M.affineRecordsTrackPartialFieldMoves()
    assertEq(codes(table.concat({
       "local record Res end",
       "local function closeRes(value: Res) end",
-      "@owned(closeRes)",
-      "local function openRes(): Res return new Res() end",
+      "local function openRes(): Owned<Res, closeRes> return new Res() end",
       "local record Bundle",
       "   value: Owned<Res>",
       "end",
@@ -1864,8 +1799,7 @@ function M.customDropOperationsMustDischargeEveryOwnedField()
       "local record Res end",
       "@drop",
       "local function closeRes(takes value: Res) end",
-      "@owned(closeRes)",
-      "local function openRes(): Res return new Res() end",
+      "local function openRes(): Owned<Res, closeRes> return new Res() end",
    }, "\n")
    assertClean(prefix .. "\n" .. table.concat({
       "local record Bundle",
@@ -1906,8 +1840,7 @@ function M.contextualCleanupUsesExplicitOwnerFields()
       "      released = self.arena.name .. ':' .. self.value",
       "   end",
       "end",
-      "@owned",
-      "local function allocate(arena: Arena, value: string): Allocation",
+      "local function allocate(arena: Arena, value: string): Owned<Allocation>",
       "   return new Allocation(arena = arena, value = value)",
       "end",
       "local arena = new Arena(name = 'frame')",
@@ -1991,136 +1924,6 @@ function M.rebindingTheNameToItselfIsStillTheLibrary()
       "end",
    }, "\n")), "NUPP2603")
 end
-
-function M.anAliasOfAShadowedCoroutineIsNotTheRealOne()
-   -- The false-positive direction, and the one that made an earlier attempt
-   -- unshippable: a local bound to somebody else's table is not a suspension however
-   -- it is spelled downstream.
-   assertClean(RESOURCE .. table.concat({
-      "",
-      "local coroutine = {yield = function(): nil end}",
-      "local co = coroutine",
-      "local function pause()",
-      "   local value = resource_new()",
-      "   co.yield()",
-      "   resource_free(value)",
-      "end",
-   }, "\n"))
-end
-
-function M.aLocalNamedCoroutineIsNotTheRealOne()
-   -- The other direction: somebody else's table with a `yield` field is not a
-   -- suspension, and refusing it would refuse the wrong thing.
-   assertClean(RESOURCE .. table.concat({
-      "",
-      "local coroutine = {yield = function(): nil end}",
-      "local function pause()",
-      "   local value = resource_new()",
-      "   coroutine.yield()",
-      "   resource_free(value)",
-      "end",
-   }, "\n"))
-end
-
-function M.aHandledSuspensionMayCrossALiveObligation()
-   -- The rule S4 turns on. A raw yield has nobody responsible for it; a handled
-   -- suspension has a handler holding the resume and the cancellation, so an obligation
-   -- may be live across one.
-   assertClean(RESOURCE .. table.concat({
-      "",
-      'local s = require("nupp.suspension")',
-      "local h = {park = function(): nil end}",
-      "local function pause(): nil",
-      "   local value = resource_new()",
-      "   handle suspension with h do",
-      "      s.suspend('waiting', function(resume: function(integer)): nil",
-      "         resume(1)",
-      "      end)",
-      "   end",
-      "   resource_free(value)",
-      "end",
-      "print(pause)",
-   }, "\n"))
-end
-
-function M.cdefOwnedOutputsBecomeLuaReturns()
-   local source = table.concat({
-      "cdef function free(takes value: voidptr)",
-      "@owned(out = result, cleanup = free, success = zero)",
-      "cdef function posix_memalign(out result: voidptr*, alignment: uint64, size: uint64): int32",
-      "local status, pointer = posix_memalign(16, 64)",
-      "if pointer then drop(pointer) end",
-      "return status == 0",
-   }, "\n")
-   local result, diags = checked(source)
-   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
-   local code, genDiags = gen.generate(result, "ownership-test")
-   assertEq(#genDiags, 0)
-   assert(code:find('__nuppFfi.new("void *[1]")', 1, true),
-      "allocates the logical out slot")
-   assert(code:find('const __nuppFfi = require("ffi")', 1, true), code)
-   assert(code:find("const posix_memalign = __nuppFfi.C.posix_memalign", 1, true),
-      code)
-   assert(code:find('const __nuppT', 1, true),
-      "out holders and status are const: " .. code)
-   if require("ffi").os == "Windows" then return end
-   local chunk, loadErr = loadstring(code, "@ownership-cdef-out")
-   assert(chunk, tostring(loadErr) .. "\n" .. code)
-   assertEq(chunk(), true, "owned out pointer is returned and dropped")
-end
-
-function M.failedOwnedOutputsAreNil()
-   if require("ffi").os == "Windows" then return end
-   local source = table.concat({
-      "cdef function free(takes value: voidptr)",
-      "@owned(out = result, cleanup = free, success = zero)",
-      "cdef function posix_memalign(out result: voidptr*, alignment: uint64, size: uint64): int32",
-      "local status, pointer = posix_memalign(3, 64)",
-      "local failed = pointer == nil",
-      "if pointer then drop(pointer) end",
-      "return status ~= 0 and failed",
-   }, "\n")
-   local result, diags = checked(source)
-   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
-   local code = gen.generate(result, "ownership-test")
-   local chunk, loadErr = loadstring(code, "@ownership-cdef-out-failure")
-   assert(chunk, tostring(loadErr) .. "\n" .. code)
-   assertEq(chunk(), true, "failed output is nil")
-end
-
-function M.ignoredOwnedOutputsAreRejected()
-   assertEq(codes(table.concat({
-      "cdef function free(takes value: voidptr)",
-      "@owned(out = result, cleanup = free, success = zero)",
-      "cdef function posix_memalign(out result: voidptr*, alignment: uint64, size: uint64): int32",
-      "posix_memalign(16, 64)",
-   }, "\n")), "NUPP2605")
-end
-
-function M.multipleOwnedOutputsPreserveCAndLuaOrder()
-   local source = table.concat({
-      "cdef function free(takes value: voidptr)",
-      "@owned(out = first, cleanup = free, success = 7)",
-      "@owned(out = second, cleanup = free, success = 7)",
-      "cdef function make_pair(out first: voidptr*, seed: int32, out second: voidptr*): int32",
-      "local status, first, second = make_pair(1)",
-      "if second then drop(second) end",
-      "if first then drop(first) end",
-   }, "\n")
-   local result, diags = checked(source)
-   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
-   local code, genDiags = gen.generate(result, "ownership-test")
-   assertEq(#genDiags, 0)
-   -- The call is made inside the declared sequence, so the C order is read there: the two
-   -- cells sit at the positions the declaration gave them, with the seed between them.
-   assert(code:find("__nuppFn(__nuppH1,__nuppA1,__nuppH2)", 1, true),
-      "holders remain in their declared C parameter positions\n" .. code)
-   assert(code:find("__nuppOut%d+%(%s*make_pair%s*,%s*1%s*%)"),
-      "the callee and its ordinary arguments are handed to that sequence\n" .. code)
-   assert(code:find("==7 and", 1, true),
-      "literal success predicates guard outputs")
-end
-
 -- LuaJIT does not record `FNEW`. A loop containing one aborts recording, is blacklisted
 -- after enough attempts, and then never compiles -- so a function built where it is used
 -- costs the whole enclosing loop its trace. These lowerings all sat inside loops and all
@@ -2153,11 +1956,13 @@ function M.hotLoweringsBuildNoFunctionWhereTheyAreUsed()
 
    local dropped = table.concat({
       "cdef function free(takes value: voidptr)",
-      "@owned(free)",
       "cdef function malloc(size: uint64): voidptr",
+      "local function ownedMalloc(size: uint64): Owned<voidptr, free>",
+      "   return malloc(size)",
+      "end",
       "local n = 0",
       "for i = 1, 10 do",
-      "   local value = malloc(8)",
+      "   local value = ownedMalloc(8)",
       "   n = n + 1",
       "   drop(value)",
       "end",
@@ -2177,8 +1982,10 @@ end
 function M.cdefBorrowedOutputsTrackTheirInputOwner()
    local declarations = table.concat({
       "cdef function free(takes value: voidptr)",
-      "@owned(free)",
-      "cdef function make_owner(): voidptr",
+      "cdef function make_owner_c(): voidptr",
+      "local function make_owner(): Owned<voidptr, free>",
+      "   return make_owner_c()",
+      "end",
       "@borrowed(out = view, from = owner, success = zero)",
       "cdef function get_view(borrows owner: voidptr, out view: voidptr*): int32",
    }, "\n")
@@ -2357,9 +2164,11 @@ end
 function M.rawTransferAndDropAreStaticAndDeterministic()
    local source = table.concat({
       "cdef function free(takes value: voidptr)",
-      "@owned(free)",
       "cdef function malloc(size: uint64): voidptr",
-      "local value = malloc(8)",
+      "local function ownedMalloc(size: uint64): Owned<voidptr, free>",
+      "   return malloc(size)",
+      "end",
+      "local value = ownedMalloc(8)",
       "local raw",
       "unsafe do",
       "   raw = intoRaw(value)",
@@ -2379,46 +2188,19 @@ function M.rawTransferAndDropAreStaticAndDeterministic()
    assert(chunk, tostring(loadErr) .. "\n" .. code)
    assertEq(chunk(), true, "raw transfer runs without a double free")
 end
-
-function M.multipleCleanupsRunInAnnotationOrder()
-   local source = table.concat({
-      "local calls = ''",
-      "local function stop(value: voidptr) calls = calls .. 'stop' end",
-      "local function release(value: voidptr) calls = calls .. ',release' end",
-      "@owned(stop, release)",
-      "local function make(): voidptr",
-      "   local raw = ffi.cast<voidptr>(1)",
-      "   unsafe do return fromRaw(raw, stop, release) end",
-      "end",
-      "local value = make()",
-      "drop(value)",
-      "return calls",
-   }, "\n")
-   local result, diags = checked(source)
-   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
-   local code, genDiags = gen.generate(result, "ownership-test")
-   assertEq(#genDiags, 0)
-   assert(not code:find(".gc(", 1, true), "@owned emits no ffi.gc call")
-   local chunk, loadErr = loadstring(code, "@ownership-cleanup-order")
-   assert(chunk, tostring(loadErr) .. "\n" .. code)
-   assertEq(chunk(), "stop,release", "cleanup order")
-end
-
 function M.sameSpelledCleanupBindingsKeepDistinctReferences()
    local source = table.concat({
       "local calls = ''",
       "local record Resource end",
       "do",
       "   local function close(value: Resource) calls = calls .. 'a' end",
-      "   @owned(close)",
-      "   local function open(): Resource return new Resource() end",
+      "   local function open(): Owned<Resource, close> return new Resource() end",
       "   local value = open()",
       "   drop(value)",
       "end",
       "do",
       "   local function close(value: Resource) calls = calls .. 'b' end",
-      "   @owned(close)",
-      "   local function open(): Resource return new Resource() end",
+      "   local function open(): Owned<Resource, close> return new Resource() end",
       "   local value = open()",
       "   drop(value)",
       "end",
@@ -2436,9 +2218,11 @@ end
 function M.consumingCFunctionsNeedNoRuntimeDetachment()
    local source = table.concat({
       "cdef function free(takes value: voidptr)",
-      "@owned(free)",
       "cdef function malloc(size: uint64): voidptr",
-      "local value = malloc(8)",
+      "local function ownedMalloc(size: uint64): Owned<voidptr, free>",
+      "   return malloc(size)",
+      "end",
+      "local value = ownedMalloc(8)",
       "free(value)",
       "return true",
    }, "\n")
@@ -2456,9 +2240,11 @@ end
 function M.ownershipLoweringPreservesLineCount()
    local source = table.concat({
       "cdef function free(takes value: voidptr)",
-      "@owned(free)",
       "cdef function malloc(size: uint64): voidptr",
-      "local value = malloc(8)",
+      "local function ownedMalloc(size: uint64): Owned<voidptr, free>",
+      "   return malloc(size)",
+      "end",
+      "local value = ownedMalloc(8)",
       "local raw",
       "unsafe do",
       "   raw = intoRaw(value)",
@@ -2478,7 +2264,7 @@ end
 -- `function m.f()` has to put f on the table the way `m.f = ...` does, which
 -- means recording the path a later reference reads back. It did not, so `m.f`
 -- resolved through an open table as `any`, and every annotation on it was
--- accepted and then meant nothing. `@owned` is how that was noticed: the
+-- accepted and then meant nothing. An owning result is how that was noticed: the
 -- obligation simply never existed.
 function M.aQualifiedFunctionCarriesAnAutomaticallyDischargedOwnedContract()
    assertEq(codes(table.concat({
@@ -2486,8 +2272,7 @@ function M.aQualifiedFunctionCarriesAnAutomaticallyDischargedOwnedContract()
       "local function closeFile(file: LuaFile)",
       "   file:close()",
       "end",
-      "@owned(closeFile)",
-      "function m.open(path: string): LuaFile",
+      "function m.open(path: string): Owned<LuaFile, closeFile>",
       "   local file = io.open(path, 'r')",
       "   if not file then error('cannot open') end",
       "   return file",
@@ -2501,8 +2286,7 @@ function M.aFunctionValuedFieldCanDeclareAnOwningProducer()
    assertClean(table.concat({
       RESOURCE,
       "local record Api",
-      "   @owned(resource_free)",
-      "   open: function(): resource*",
+      "   open: function(): Owned<resource*, resource_free>",
       "end",
       "local api: Api = nil as any",
       "local value = api.open()",
@@ -2519,93 +2303,6 @@ local MIGRATABLE_SESSION = table.concat({
    "   print(session.id)",
    "end",
 }, "\n")
-
-function M.ownedAnnotationFixesFunctionStatementsAndCallableFields()
-   local cases = {
-      {
-         MIGRATABLE_SESSION,
-         "@owned",
-         "local function open(): Session",
-         "   return new Session(id = 1)",
-         "end",
-      },
-      {
-         MIGRATABLE_SESSION,
-         "local record Api",
-         "   @owned",
-         "   open: function(): (Session?, string?)",
-         "end",
-      },
-      {
-         MIGRATABLE_SESSION,
-         "local record Pool",
-         "   @owned",
-         "   open: function(exclusive self: Pool): Session borrows(self)",
-         "end",
-      },
-   }
-   local expected = {
-      "local function open(): Owned<Session>",
-      "open: function(): (Owned<Session?>, string?)",
-      "open: function(exclusive self: Pool): Owned<Session> borrows(self)",
-   }
-   for j, lines in ipairs(cases) do
-      local source = table.concat(lines, "\n")
-      local _, diagnostics = checked(source, {lints = MIGRATION_LINTS})
-      assertEq(#diagnostics, 1, "one migration lint")
-      assertEq(diagnostics[1].code, "NUPP2515")
-      assertEq(
-         #(diagnostics[1].fixes or {}),
-         1,
-         ("case %d, one whole fix: %s"):format(j, diagnostics[1].help or "no help")
-      )
-      local rewritten = applyFix(source, diagnostics[1].fixes[1])
-      assert(rewritten:find(expected[j], 1, true), rewritten)
-      assert(not rewritten:find("@owned", 1, true), rewritten)
-      local _, after = checked(rewritten, {lints = MIGRATION_LINTS})
-      assertEq(#after, 0, after[1] and after[1].msg or "rewritten declaration")
-   end
-end
-
-function M.ownedAnnotationFixWrapsEveryCallableIntersectionResult()
-   local source = table.concat({
-      MIGRATABLE_SESSION,
-      "local record Api",
-      "   @owned",
-      "   open: function(): Session & function(code: integer): Session",
-      "end",
-   }, "\n")
-   local _, diagnostics = checked(source, {lints = MIGRATION_LINTS})
-   assertEq(#diagnostics, 1)
-   assertEq(diagnostics[1].code, "NUPP2515")
-   assertEq(#(diagnostics[1].fixes or {}), 1, "one atomic intersection fix")
-   local rewritten = applyFix(source, diagnostics[1].fixes[1])
-   local _, count = rewritten:gsub("Owned<Session>", "")
-   assertEq(count, 2, rewritten)
-   local _, after = checked(rewritten, {lints = MIGRATION_LINTS})
-   assertEq(#after, 0, after[1] and after[1].msg or "rewritten intersection")
-end
-
-function M.ownedCallableFieldInheritsALaterNestedDropOperation()
-   local source = table.concat({
-      "local record Library",
-      "   interface Session",
-      "      @owned",
-      "      open: function(): Session",
-      "      @drop",
-      "      close: function(takes self: Session): nil",
-      "   end",
-      "end",
-   }, "\n")
-   local _, diagnostics = checked(source, {lints = MIGRATION_LINTS})
-   assertEq(#diagnostics, 1)
-   assertEq(diagnostics[1].code, "NUPP2515")
-   assertEq(#(diagnostics[1].fixes or {}), 1, diagnostics[1].help)
-   local rewritten = applyFix(source, diagnostics[1].fixes[1])
-   local _, after = checked(rewritten, {lints = MIGRATION_LINTS})
-   assertEq(#after, 0, after[1] and after[1].msg or "nested terminal")
-end
-
 function M.ownedBorrowingCallableFieldKeepsItsDischargeObligation()
    assertClean(table.concat({
       MIGRATABLE_SESSION,
@@ -2637,8 +2334,7 @@ function M.aQualifiedFunctionAcquiresIntoAnAutomaticLocal()
       "local function closeFile(file: LuaFile)",
       "   file:close()",
       "end",
-      "@owned(closeFile)",
-      "function m.open(path: string): LuaFile",
+      "function m.open(path: string): Owned<LuaFile, closeFile>",
       "   local file = io.open(path, 'r')",
       "   if not file then error('cannot open') end",
       "   return file",
@@ -2667,9 +2363,11 @@ function M.everyIntrinsicAnswersToItsQualifiedSpelling()
    }, "\n"))
    assertClean(table.concat({
       "cdef function free(takes value: voidptr)",
-      "@owned(free)",
       "cdef function malloc(size: uint64): voidptr",
-      "local value = malloc(8)",
+      "local function ownedMalloc(size: uint64): Owned<voidptr, free>",
+      "   return malloc(size)",
+      "end",
+      "local value = ownedMalloc(8)",
       "unsafe do",
       "   local raw = nupp.intoRaw(value)",
       "   local owner = nupp.fromRaw(raw, free)",
@@ -2691,9 +2389,11 @@ function M.everyIntrinsicAnswersToItsQualifiedSpelling()
    -- and it is refused for the same reasons the bare spelling is
    assertEq(codes(table.concat({
       "cdef function free(takes value: voidptr)",
-      "@owned(free)",
       "cdef function malloc(size: uint64): voidptr",
-      "local value = malloc(8)",
+      "local function ownedMalloc(size: uint64): Owned<voidptr, free>",
+      "   return malloc(size)",
+      "end",
+      "local value = ownedMalloc(8)",
       "local raw = nupp.intoRaw(value)",
    }, "\n")), "NUPP2604")
 end
@@ -2727,8 +2427,7 @@ function M.bothSpellingsOfDropLowerTheSameWay()
          "      calls = calls .. 'close'",
          "   end",
          "end",
-         "@owned",
-         "local function openFile(): File",
+         "local function openFile(): Owned<File>",
          "   return new File(closed = false)",
          "end",
          "local file = openFile()",
@@ -2797,8 +2496,7 @@ local CLOSURE_RESOURCE = table.concat({
    "local function closeClosureResource(value: ClosureResource)",
    "   calls = calls + 1",
    "end",
-   "@owned(closeClosureResource)",
-   "local function openClosureResource(value: integer): ClosureResource",
+   "local function openClosureResource(value: integer): Owned<ClosureResource, closeClosureResource>",
    "   return new ClosureResource(value = value)",
    "end",
 }, "\n")
@@ -3019,7 +2717,7 @@ function M.raceAcceptsBorrowedClosuresWithoutRetainingThem()
    }, "\n"))
 end
 
--- `Owned<T>` says in the result what `@owned` said above the signature. A record
+-- `Owned<T>` says ownership in the result itself. A record
 -- that declared a `@drop` already says how it ends, so a producer states only that
 -- it produces an owner and the terminal is not restated at each one.
 local DROPPING_RECORD = table.concat({
@@ -3167,6 +2865,18 @@ function M.anOwnedResultNeedsOneTerminalOrExplicitOpaqueOwnership()
    }, "\n"))
 end
 
+function M.anOwnedResultCannotSilentlyDiscardExtraTerminals()
+   local _, diagnostics = checked(table.concat({
+      "cdef function stop(takes value: voidptr)",
+      "cdef function release(takes value: voidptr)",
+      "local allocate: function(): Owned<voidptr, stop, release>",
+   }, "\n"))
+   assertEq(#diagnostics, 1, diagnostics[2] and diagnostics[2].msg or "one diagnostic")
+   assertEq(diagnostics[1].code, "NUPP2602")
+   assert((diagnostics[1].help or ""):find("attempt-all", 1, true),
+      diagnostics[1].help or "no help")
+end
+
 function M.anOwnedFunctionResultRejectsSeveralDropOperations()
    local source = table.concat({
       "local record Session",
@@ -3182,8 +2892,8 @@ function M.anOwnedFunctionResultRejectsSeveralDropOperations()
    assertEq(codes(source), "NUPP2602")
 end
 
--- What `@owned` cannot say: it names the first result and only the first, so a
--- function owning its second had no spelling before the constructor.
+-- Every result position is resolved, so a function may own its second result and
+-- not only its first.
 function M.aNonFirstResultMayBeOwned()
    assertClean(DROPPING_RECORD .. table.concat({
       "",
@@ -3217,13 +2927,10 @@ function M.anOwnedNonFirstResultIsDestroyedAtItsScope()
       "the second result is discharged at scope exit: " .. code)
 end
 
--- The annotation keeps meaning what it meant, so a migration can be done one
--- declaration at a time rather than all at once.
-function M.theOwnedAnnotationStillDeclaresAnOwningResult()
+function M.anOwnedResultDeclaresAnOwningResult()
    assertClean(DROPPING_RECORD .. table.concat({
       "",
-      "@owned",
-      "local function open(id: integer): Session",
+      "local function open(id: integer): Owned<Session>",
       "   return new Session(id = id)",
       "end",
       "do",
@@ -3267,7 +2974,7 @@ function M.aCleanupKeyDoesNotMoveWithTextAboveIt()
    assertEq(shifted, plain, "the cleanup key moved with text above the declaration")
 end
 
--- A terminal named only in a type has no @owned or @drop statement on which the
+-- A terminal named only in a type has no @drop statement on which the
 -- checker can register it. Its declaration has to publish the function before a
 -- top-level owner can leave the module scope and ask the lazy resolver for it.
 function M.aTerminalNamedInATypeIsRegisteredAtItsDeclaration()

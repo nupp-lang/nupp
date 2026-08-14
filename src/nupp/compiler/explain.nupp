@@ -619,13 +619,15 @@ local ENTRIES: {
     rule = "Lua may truncate extra results, but Nupp cannot silently lose an "
     .. "owned or pinned slot. Bind and discharge every affine result, or "
     .. "forward the complete generic pack to a matching result or parameter.",
-    wrong = "cdef function release(takes value: voidptr)\n"
-    .. "@owned(cleanup = release)\n"
-    .. "cdef function acquire(): voidptr\nacquire()\n",
-    right = "cdef function release(takes value: voidptr)\n"
-    .. "@owned(cleanup = release)\n"
-    .. "cdef function acquire(): voidptr\n"
-    .. "local value = acquire()\nrelease(value)\n",
+    wrong = "local record Resource\nend\n"
+    .. "local function release(takes value: Resource): nil\nend\n"
+    .. "local function acquire(): Owned<Resource, release>\n"
+    .. "    return new Resource()\nend\nacquire()\nreturn acquire\n",
+    right = "local record Resource\nend\n"
+    .. "local function release(takes value: Resource): nil\nend\n"
+    .. "local function acquire(): Owned<Resource, release>\n"
+    .. "    return new Resource()\nend\n"
+    .. "local value = acquire()\nrelease(value)\nreturn acquire\n",
     related = {"NUPP2602", "NUPP2603", "NUPP2010"},
     docs = "docs/type-system/packs.md#ownership-and-provenance",
 }, {
@@ -635,25 +637,29 @@ local ENTRIES: {
     .. "matching ownership contract, or explicitly converted to raw form. "
     .. "Borrows likewise stay within the lifetime and suspension boundaries "
     .. "their provenance permits.",
-    wrong = "@owned(opaque = true)\ncdef function acquire(): voidptr\n" .. "local value = acquire()\nreturn 0\n",
-    right = "@owned(opaque = true)\ncdef function acquire(): voidptr\n"
-    .. "cdef function release(takes value: voidptr)\n"
+    wrong = "local record Resource\nend\n"
+    .. "local function acquire(): Owned<Resource, opaque>\n"
+    .. "    return new Resource()\nend\n"
+    .. "local value = acquire()\nreturn 0\n",
+    right = "local record Resource\nend\n"
+    .. "local function release(takes value: Resource): nil\nend\n"
+    .. "local function acquire(): Owned<Resource, opaque>\n"
+    .. "    return new Resource()\nend\n"
     .. "local value = acquire()\nrelease(value)\nreturn 0\n",
     related = {"NUPP2601", "NUPP2602", "NUPP2605"},
     docs = "docs/reference.md#owned-resources",
 }, {
     code = "NUPP2615",
     summary = "An owned value names an invalid cleanup operation",
-    rule = "Every cleanup named by `@owned` must be visible and accept the "
-    .. "owned value's raw type. In an ordered cleanup list, only the final "
-    .. "operation may consume it; earlier steps must borrow it.",
+    rule = "The cleanup named by `Owned<T, cleanup>` must be visible and accept the "
+    .. "owned value's raw type.",
     wrong = "local record Resource\nend\nlocal record Other\nend\n"
     .. "local function release(value: Other): nil\nend\n"
-    .. "@owned(release)\nlocal function acquire(): Resource\n"
+    .. "local function acquire(): Owned<Resource, release>\n"
     .. "    return new Resource()\nend\nreturn acquire\n",
     right = "local record Resource\nend\nlocal record Other\nend\n"
     .. "local function release(value: Resource): nil\nend\n"
-    .. "@owned(release)\nlocal function acquire(): Resource\n"
+    .. "local function acquire(): Owned<Resource, release>\n"
     .. "    return new Resource()\nend\nreturn acquire\n",
     related = {"NUPP2602", "NUPP2603"},
     docs = "docs/reference.md#owned-resources",

@@ -11,8 +11,10 @@ local env = envMod.new(HERE .. "/..")
 
 local RESOURCE = table.concat({
    "cdef struct flow_resource value: int32 end",
-   "@owned(flow_close)",
-   "cdef function flow_open(): flow_resource*",
+   "cdef function flow_open_c(): flow_resource*",
+   "local function flow_open(): Owned<flow_resource*, flow_close>",
+   "   return flow_open_c()",
+   "end",
    "cdef function flow_close(takes value: flow_resource*)",
 }, "\n")
 

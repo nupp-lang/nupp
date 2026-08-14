@@ -188,8 +188,7 @@ registry:add(file) -- takes file
 An owning return does the same:
 
 ```nupp
-@owned
-local function openConfigured(path: string): File
+local function openConfigured(path: string): Owned<File>
     local file = openFile(path)
     configure(file)
     return file
@@ -214,8 +213,7 @@ ABI or a type-level destructor and is deliberately not guessed here.
 Only a capability with a known local cleanup list is automatic:
 
 ```nupp
-@owned(closeFile)
-local function openFile(path: string): File
+local function openFile(path: string): Owned<File, closeFile>
 
 local file = openFile(path) -- eligible
 ```
@@ -227,8 +225,7 @@ destroy differently.
 An opaque owner has no automatic action:
 
 ```nupp
-@owned(opaque = true)
-cdef function beginRequest(): Request
+cdef function beginRequest(): Owned<Request, opaque>
 
 local request = beginRequest()
 -- still an error: submit(request) or cancel(request) must take it
@@ -240,7 +237,7 @@ matching terminal consumer.
 
 ### Destruction is not successful finalization
 
-`@drop` or an `@owned(cleanup...)` list describes the safe fallback that may
+`@drop` or an `Owned<T, cleanup>` list describes the safe fallback that may
 run automatically. An operation whose successful result matters stays an
 explicit consuming transition:
 
@@ -502,7 +499,7 @@ wrong layer.
 
 The feature applies wherever Nupp recognizes an ownership capability, not only
 under `--strict`. Gradual typing may decline to originate a capability, but it
-may not weaken one after an `@owned` boundary created it.
+may not weaken one after an ownership boundary created it.
 
 ## Generator changes
 
@@ -792,7 +789,7 @@ timing differences.
 
 ### Enable it only in strict files
 
-A capability created by an `@owned` contract is non-forgettable regardless of
+A capability created by an `Owned<T>` contract is non-forgettable regardless of
 the gradual typing floor. Different destruction semantics across `.nupp` and
 `.g.nupp` would make a file rename change resource behavior.
 

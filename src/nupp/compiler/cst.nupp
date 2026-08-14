@@ -410,17 +410,8 @@ interface cst.Hints
     --- The annotation node on which resolved cleanup registrations are emitted.
     cleanupRegistrationNode: any
 
-    --- The cleanup list `@owned` declared.
+    --- The cleanup list this declaration's owning first result carries.
     ownCleanups: any
-
-    --- Whether that owner is transfer-only.
-    ownOpaque: boolean?
-
-    --- Where `@owned` was written.
-    ownTok: lexer.Token?
-
-    --- Logical owned outputs of a C function.
-    ownedOuts: any
 
     --- Logical borrowed outputs of a C function.
     borrowedOuts: any

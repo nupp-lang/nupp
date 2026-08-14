@@ -13,13 +13,11 @@ itself.
 ]]
 
 local T = require("nupp.compiler.types")
-local narrowing = require("nupp.compiler.narrowing")
 local generics = require("nupp.compiler.generics")
 local cabi = require("nupp.compiler.cabi")
 local cst = require("nupp.compiler.cst")
 local state = require("nupp.compiler.check.state")
 
-local subtract = narrowing.subtract
 
 local cdef = {}
 
@@ -51,8 +49,7 @@ function cdef.install(
 ): state.StatHandlers
     local own = c.own
     local registerDefaultDropOperation = own.registerDefaultDropOperation
-    local resolvedOwnedCleanups = own.resolvedOwnedCleanups
-    local pointerShaped, validateCleanups = c.pointerShaped, c.validateCleanups
+    local pointerShaped = c.pointerShaped
 
     local handlers = {}
 
@@ -152,10 +149,6 @@ function cdef.install(
         local abiParams = {}
         local physicalNodes, physicalDefs = {}, {}
         local outputByName = {}
-        for _, output in ipairs(stat.ownedOuts or {}) do
-            output.kind = "owned"
-            outputByName[output.name] = output
-        end
         for _, output in ipairs(stat.borrowedOuts or {}) do
             output.kind = "borrowed"
             outputByName[output.name] = output
@@ -207,7 +200,7 @@ function cdef.install(
                     end
                     local output = outputByName[pname and pname.text or ""]
                     if not output then
-                        c.diag("NUPP2602", p, "out parameter needs an @owned(out = ...) contract")
+                        c.diag("NUPP2602", p, "out parameter needs a @borrowed(out = ...) contract")
                     elseif pt.tag ~= "ptr" then
                         c.diag("NUPP2602", p, "out parameter must have pointer-to-pointer type")
                     elseif not pointerShaped(pt.elem) then
@@ -238,30 +231,10 @@ function cdef.install(
         end
         local rets = {}
         local abiResult = nil
-        if stat.ownCleanups and not stat.ret then
-            c.diag("NUPP2602", stat.ownTok or stat, "@owned requires an annotated pointer return type")
-        end
         if stat.ret then
             local rt = c.resolveType(stat.ret)
             abiResult = rt
             rets[1] = rt
-            if stat.ownCleanups then
-                local base = rt
-                if base.tag == "union" then
-                    base = subtract(base, T.nil_)
-                end
-                if base.tag ~= "ptr" and base ~= T.cstring and base ~= T.voidptr then
-                    c.diag("NUPP2203", stat.ret, "@owned applies to pointer returns only")
-                end
-                stat.ownCleanups = resolvedOwnedCleanups(
-                    rt,
-                    stat.ownCleanups,
-                    stat.ownOpaque,
-                    stat.ownTok or stat,
-                    stat.cleanupRegistrationNode
-                )
-                rets[1] = T.owned(rt, stat.ownCleanups)
-            end
             if not (reifiableField(rt, true) or rt == T.number) then
                 c.diag("NUPP2203", stat.ret, ("cdef return: %s is not a C type"):format(T.tostring(rt)))
             end
@@ -271,35 +244,17 @@ function cdef.install(
         end
         for _, output in ipairs(ffiOut) do
             local valueType = output.success == "always" and output.valueType or T.optional(output.valueType)
-            if output.kind == "borrowed" then
-                output.sourceParam = logicalByName[output.source]
-                if not output.sourceParam then
-                    c.diag(
-                        "NUPP2602",
-                        output.at or stat,
-                        ("borrowed output source %q is not an input parameter"):format(output.source)
-                    )
-                elseif paramModes[output.sourceParam] ~= "borrows" then
-                    c.diag("NUPP2602", output.at or stat, "a borrowed output source must be a borrows parameter")
-                end
-                rets[#rets + 1] = T.borrowed(valueType)
-            else
-                output.cleanups = resolvedOwnedCleanups(
-                    output.valueType,
-                    output.cleanups,
-                    false,
+            output.sourceParam = logicalByName[output.source]
+            if not output.sourceParam then
+                c.diag(
+                    "NUPP2602",
                     output.at or stat,
-                    output.cleanupRegistrationNode
+                    ("borrowed output source %q is not an input parameter"):format(output.source)
                 )
-                local ownedOutput = T.owned(valueType, output.cleanups)
-                validateCleanups(
-                    T.owned(output.valueType, output.cleanups),
-                    output.cleanups,
-                    output.at or stat,
-                    "NUPP2615"
-                )
-                rets[#rets + 1] = ownedOutput
+            elseif paramModes[output.sourceParam] ~= "borrows" then
+                c.diag("NUPP2602", output.at or stat, "a borrowed output source must be a borrows parameter")
             end
+            rets[#rets + 1] = T.borrowed(valueType)
             output.returnIndex = #rets
         end
         local cdefType = T.func(

@@ -31,8 +31,9 @@ Every page opens the same way.
 ```markdown
 # Owned resources
 
-A file, a socket, a C allocation, or any other value produced by an `@owned`
-function carries a cleanup obligation that the checker will not let you drop.
+A file, a socket, a C allocation, or any other value produced by a function
+returning `Owned<T>` carries a cleanup obligation the checker will not let you
+drop.
 An ordinary local discharges it at its scope boundary:
 
 ```nupp
@@ -365,8 +366,7 @@ The rules above apply inside `---` blocks, compressed.
 --- @param id the stable account identifier
 --- @return the open session
 --- @raises when the service refuses the connection
-@owned(closeSession)
-local function openSession(id: uint64): Session
+local function openSession(id: uint64): Owned<Session, closeSession>
 ```
 
 - **First line: one sentence, third person, ending in a period.** "Opens a
@@ -395,10 +395,10 @@ The rest is formatting, and none of it is negotiable per page:
   ```
    Not                                       Write
    ────────────────────────────────────────  ─────────────────────────────
-   Two annotations. `@drop` marks the        `@drop` marks the operation
+   Two contracts. `@drop` marks the          `@drop` marks the operation
    operation that consumes the resource,     that consumes the resource;
-   and `@owned` marks the function that      `@owned` marks the function
-   produces one.                             that produces one.
+   and `Owned<T>` marks the result that      `Owned<T>` marks the result
+   carries one.                              that carries one.
   ```
 - Ordinary quotes, not curly, everywhere except inside prose already using
   them.

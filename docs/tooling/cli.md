@@ -643,11 +643,14 @@ cdef struct block
    size: integer
 end
 
-@owned(blockFree)
-cdef function blockNew(size: integer): block*
+cdef function blockCreate(size: integer): block*
 
 @drop
 cdef function blockFree(takes b: block*)
+
+local function blockNew(size: integer): Owned<block*, blockFree>
+    return blockCreate(size)
+end
 
 local function sizeOf(borrows b: block*): integer
     unsafe do
@@ -660,13 +663,18 @@ return {new = blockNew, free = blockFree, sizeOf = sizeOf}
 
 ```text [nupp ownership-audit src/block.nupp]
 Foreign ownership contracts
-  src/block.nupp:6  blockNew
-    result 1: Owned<block*>
-  src/block.nupp:9  blockFree
+  src/block.nupp:5  blockCreate
+    result 1: block*
+  src/block.nupp:8  blockFree
     parameter 1 b: block*  takes
 Unsafe assertion sites
-  src/block.nupp:12:5  unsafe assertion region
+  src/block.nupp:15:5  unsafe assertion region
 ```
+
+The audit reports what the *foreign* boundary states. `blockCreate` returns a
+plain `block*` because a `cdef` declaration cannot say it produces an owner; the
+obligation begins at `blockNew`, which is ordinary Nupp and so is not a foreign
+contract to enumerate.
 
 See [ownership.md](../ownership.md) for the contracts this enumerates.
 
