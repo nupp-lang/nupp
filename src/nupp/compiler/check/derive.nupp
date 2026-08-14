@@ -9,9 +9,9 @@ local fs = require("nupp.compiler.fs")
 local recipeCodec = require("nupp.compiler.materialize.codec")
 local reflection = require("nupp.compiler.reflection")
 local typeblueprint = require("nupp.compiler.typeblueprint")
-local comptime = require("nupp.compiler.comptime") as {
-    evaluateDeriveProviderDirect: function(any, any, any, any, string?): (any, any)
-}
+local comptime = require(
+    "nupp.compiler.comptime"
+) as {evaluateDeriveProviderDirect: function(any, any, any, any, string?): (any, any)}
 local state = require("nupp.compiler.check.state")
 
 local derive = {}
@@ -523,9 +523,9 @@ function derive.install(c: state.Checker): derive.Ops
             local root = os.getenv("NUPP_COMPILER_ROOT")
             local executable = root and root .. "/bin/nupp" or nil
             if executable and not os.getenv("NUPP_COMPTIME_WORKER_CHILD") then
-                local worker = require("nupp.compiler.comptime_worker") as {
-                    evaluateDeriveProvider: function(any, any, any, string?, string, any?): (any, any)
-                }
+                local worker = require(
+                    "nupp.compiler.comptime_worker"
+                ) as {evaluateDeriveProvider: function(any, any, any, string?, string, any?): (any, any)}
                 envelope, evaluationFailure = worker.evaluateDeriveProvider(
                     provider.sealedProgram,
                     input,

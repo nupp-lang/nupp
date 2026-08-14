@@ -189,7 +189,9 @@ end
 -- must not take them for one.
 function M.contextualOperatorsAreNotCallees()
    assertEq(fmt1("local a = t as {number}"), "local a = t as {number}\n")
-   assertEq(fmt1("local a = t as {p: number}"), "local a = t as {\n    p: number\n}\n")
+   assertEq(fmt1("local a = t as {p: number}"), "local a = t as {p: number}\n")
+   assertEq(fmt1("local a = t as {p: number, q: string}"),
+      "local a = t as {\n    p: number,\n    q: string\n}\n")
    assertEq(fmt1('local b = v is "red"'), 'local b = v is "red"\n')
    assertEq(fmt1("local c = v is {string}"), "local c = v is {string}\n")
    -- and the sugar still hugs a real callee

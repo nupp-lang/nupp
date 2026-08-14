@@ -1,0 +1,24 @@
+local m = {}
+
+-- One field is a single type standing where a type goes, so it stays put.
+local type Session = {documents: {[string]: any}}
+local type Headers = {string: string}?
+local type Backend = {newClient: function(any): (any?, string?)}
+
+-- Several fields are a list of them, and read as one however short they are.
+local type Pair = {first: string, second: number}
+local type Predicate = {param: integer, type: m.Type}
+
+-- Until one field no longer fits, and then the width decides like anywhere else.
+local type Wide = {anExceptionallyLongFieldNameIndeedYes: function(first: string, second: integer, third: boolean): string}
+
+record m.Options
+    headers: {string: string}?
+    limits: {connections: integer, redirects: integer}?
+end
+
+function m.render(opts: {level: integer?}?): string
+    return tostring(opts and opts.level or 1)
+end
+
+return m

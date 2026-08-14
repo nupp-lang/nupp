@@ -49,9 +49,7 @@ type query.Memo = {
 }
 
 --- A running computation, collecting what it reads.
-type query.Frame = {
-    deps: {query.Dep}
-}
+type query.Frame = {deps: {query.Dep}}
 
 --- How to compute one query.
 ---

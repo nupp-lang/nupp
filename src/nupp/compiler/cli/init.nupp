@@ -327,21 +327,15 @@ function cli.main(argv: {string}): integer
             rest[#rest + 1] = argv[index]
         end
 
-        local worker = require("nupp.compiler.comptime_worker") as {
-            main: function({string}): integer
-        }
+        local worker = require("nupp.compiler.comptime_worker") as {main: function({string}): integer}
 
         return worker.main(rest)
     elseif name == "__comptime-worker-service" then
-        local worker = require("nupp.compiler.comptime_worker") as {
-            serviceMain: function(): integer
-        }
+        local worker = require("nupp.compiler.comptime_worker") as {serviceMain: function(): integer}
 
         return worker.serviceMain()
     elseif name == "__lsp-reader" then
-        local server = require("nupp.compiler.lsp.init") as {
-            readerMain: function(): integer
-        }
+        local server = require("nupp.compiler.lsp.init") as {readerMain: function(): integer}
 
         return server.readerMain()
     end

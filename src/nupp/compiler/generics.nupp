@@ -1014,9 +1014,9 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
                     err = failure and failure.message or tostring(failure or "type-function evaluation failed")
                 end
                 if not err and out and not t.comptimeResultPack and t.comptimeBound then
-                    local relations = require("nupp.compiler.relations") as {
-                        isA: function(Type, Type): (boolean, string?)
-                    }
+                    local relations = require(
+                        "nupp.compiler.relations"
+                    ) as {isA: function(Type, Type): (boolean, string?)}
                     local fits, why = relations.isA(out, t.comptimeBound)
                     if not fits then
                         err = "generated type violates its declared result bound: " .. (why or "not satisfied")

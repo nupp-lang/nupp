@@ -172,9 +172,7 @@ typeFingerprint = function(
     if active[t] then
         -- Only some tags carry a name. One that does not is identified by its tag,
         -- which every type has, and asking is what the cast is for.
-        local named = t as {
-            name: string?
-        }
+        local named = t as {name: string?}
         return "@" .. (named.name or t.tag)
     end
     active[t] = true

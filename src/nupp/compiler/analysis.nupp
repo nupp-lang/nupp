@@ -1164,9 +1164,7 @@ type analysis.Target = {
 --- naming
 --- its
 --- record here would close the require graph into a loop.
-type analysis.Reporter = {
-    readonly diag: function(code: string, at: any, msg: string, fixes: any?, details: any?)
-}
+type analysis.Reporter = {readonly diag: function(code: string, at: any, msg: string, fixes: any?, details: any?)}
 
 --- The questions, bound to what one run worked out.
 ---

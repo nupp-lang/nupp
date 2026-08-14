@@ -341,9 +341,7 @@ type gen.Checked = {
 
 --- How a coverage build is asked for: `true` to instrument and name the file after
 --- `filename`, or a table naming the path the report should attribute sites to.
-type gen.CoverageRequest = {
-    path: string?
-}
+type gen.CoverageRequest = {path: string?}
 
 --- What a coverage build needs back: where the file was, and every site it may report
 --- having reached.

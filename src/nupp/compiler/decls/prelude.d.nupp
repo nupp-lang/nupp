@@ -4135,9 +4135,7 @@ local jit: {
 
     --- The optimization submodule. `jit.opt.start` takes flags such as `"hotloop=10"`
     --- or `"-fold"`, each as its own argument.
-    opt: {
-        start: function(...: any)
-    },
+    opt: {start: function(...: any)},
 
     --- Reports how the VM was built for a security-relevant parameter, such as `"prng"`
     --- or `"strhash"`.

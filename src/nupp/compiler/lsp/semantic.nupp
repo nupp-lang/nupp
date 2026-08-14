@@ -31,9 +31,7 @@ type semantic.Entry = {
 
 --- What semantic tokens read of a session, which is nothing: the session is taken so
 --- the shape matches the other installs.
-type semantic.Session = {
-    documents: {[string]: any}
-}
+type semantic.Session = {documents: {[string]: any}}
 
 --- The parser surface syntax colouring needs. Project identity and checker facts are
 --- optional refinements carried by editor parses, not prerequisites for this pass.

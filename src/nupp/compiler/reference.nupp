@@ -2057,9 +2057,7 @@ end
 ---
 --- @param opts `level` shifts every heading, for embedding under a page title
 --- @return the whole document
-function reference.markdown(opts: {
-    level: integer?
-}?): string
+function reference.markdown(opts: {level: integer?}?): string
     local base = opts and opts.level or 1
     local out: {string} = {}
     out[#out + 1] = heading(base, "Nupp language reference")

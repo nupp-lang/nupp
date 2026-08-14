@@ -307,9 +307,7 @@ function native.sourceEffects(source: string, filename: string, env: {[string]: 
     if #parsed.errors > 0 then
         return {}
     end
-    local checker = require("nupp.compiler.check") as {
-        check: function(any, string?, any, any): any
-    }
+    local checker = require("nupp.compiler.check") as {check: function(any, string?, any, any): any}
     checker.check(parsed, filename, env, {strict = false})
 
     return parsed.effects or {}

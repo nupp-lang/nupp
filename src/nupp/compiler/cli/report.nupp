@@ -142,9 +142,7 @@ function report.json(diagnostics: {any}): nil
 end
 
 --- Whether a diagnostic stops the work. Only an error does.
-function report.fatal(diagnostic: {
-    readonly severity: string?
-}): boolean
+function report.fatal(diagnostic: {readonly severity: string?}): boolean
     return REPORTED[diagnostic.severity] == nil
 end
 

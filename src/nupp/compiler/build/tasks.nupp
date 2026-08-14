@@ -254,9 +254,7 @@ end
 --- @param opts `buildOnly` leaves out the configured test and self-host actions
 --- @return the task, or the whole list
 --- @return why not, ready to print
-function tasks.describe(root: string?, requested: string?, opts: {
-    buildOnly: boolean?
-}?): tasks.Description?, string?
+function tasks.describe(root: string?, requested: string?, opts: {buildOnly: boolean?}?): tasks.Description?, string?
     local config, err = manifest.load(root or ".")
     if not config then
         return nil, err

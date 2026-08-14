@@ -114,6 +114,21 @@ clause is. A signature that does not fit is nearly always its parameters, so
 those are what break and `function<E, A..., R...>` stays as written. A generic
 parameter list breaks only when it is all the line has to break.
 
+A shape type of several fields is a list of them and is written as one, each
+field on its own line however short the whole is. A shape of exactly one field
+is not a list: it is a single type standing where a type goes, so it stays on
+the line that names it and breaks only when the width says so.
+
+```nupp
+record http.Options
+    headers: {string: string}?
+    limits: {
+        connections: integer,
+        redirects: integer
+    }?
+end
+```
+
 Blank runs collapse to one, leading blanks are stripped, trailing whitespace
 goes, and a file ends with exactly one newline. A bare `;` terminates the
 statement before it and stays on that statement's line rather than taking one of

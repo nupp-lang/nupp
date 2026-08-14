@@ -75,16 +75,6 @@ work makes sense in.
       bounded generics, nested type namespaces, and `self` directly into their
       landed nupp forms
 
-## Formatting
-
-- [ ] **A shape type with one field still breaks across three lines.** `Shape
-      types always put each field on its own line` reads well for a record-like
-      type and badly for `{string: any}` in a parameter list, which is twelve
-      sites in this tree and every one of them worse for it. The rule is
-      deliberate, documented and tested (`tests/fmtwidthtest.lua:143`), so
-      changing it is another taste decision rather than a defect: either a
-      one-field shape is exempt, or the rule holds and these read as they read.
-
 ## Performance and incrementality
 
 - [ ] **A cleanup region inside a loop still builds a function every iteration.**

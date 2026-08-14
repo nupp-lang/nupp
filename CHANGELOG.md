@@ -7,6 +7,9 @@
   body is a block. A call's trailing function or table still hugs the line that
   opens the call while what precedes its body fits there, and a table
   constructor spreads on the same terms.
+- Keep a shape type of one field on the line that names it, so
+  `headers: {string: string}?` stays as written and breaks only on width. A
+  shape of several fields is still a list of them, one per line however short.
 - Keep the space in `borrows (p)` and a closure's `takes (a, b)`, leave a bare
   `;` on the line of the statement it terminates, indent a comment that is the
   whole of an `if` arm inside that arm, and stop a docblock's trailing

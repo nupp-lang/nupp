@@ -17,9 +17,7 @@ local HELPERS = {
     ["nupp.fieldcodec.keyed"] = "_G.nupp.fieldcodec.keyed",
 }
 
-type ir.Failure = {
-    readonly message: string
-}
+type ir.Failure = {readonly message: string}
 
 local record ir
     ABI: integer

@@ -133,9 +133,7 @@ type manifest.Task = {
 --- invalidates the artifacts built under the old value.
 type manifest.Config = {
     include: {string}?,
-    fmt: {
-        methodParens: boolean?
-    }?,
+    fmt: {methodParens: boolean?}?,
     lints: {[string]: string}?,
     dependencies: {[string]: manifest.Dependency}?,
     build: manifest.Build?,

@@ -41,9 +41,7 @@ local highlight = {}
 
 --- What the generator was configured with, of the parts that decide highlighting: where
 --- the bundled Scintillua lexers were unpacked to.
-type highlight.Settings = {
-    lexers: string?
-}
+type highlight.Settings = {lexers: string?}
 
 local TYPE_NAMES = {borrowed = true, ctype = true, metatable = true, owned = true, pinned = true,}
 for name in pairs(types.builtins) do

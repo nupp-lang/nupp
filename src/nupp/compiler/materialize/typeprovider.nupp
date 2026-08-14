@@ -12,9 +12,7 @@ local luaFormat = require("nupp.compiler.LuaFormat") as {
     analyze: function(string): (any, string?),
     argumentKinds: function(string): ({string}?, string?)
 }
-local luaPattern = require("nupp.compiler.LuaPattern") as {
-    captureKinds: function(string): ({string}?, string?)
-}
+local luaPattern = require("nupp.compiler.LuaPattern") as {captureKinds: function(string): ({string}?, string?)}
 
 type typeprovider.Failure = {
     readonly code: string,

@@ -66,9 +66,7 @@ type complete.CallSite = {
 
 --- What completion reads of a session: the query graph, which is where a required
 --- module's declarations and members come from.
-type complete.Session = {
-    inc: any
-}
+type complete.Session = {inc: any}
 
 --- The two navigation questions completion asks. Navigation requires this module, so
 --- the pair it lends back is named here rather than taken from there.

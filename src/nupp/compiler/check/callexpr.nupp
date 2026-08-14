@@ -19,15 +19,13 @@ local cst = require("nupp.compiler.cst")
 local ffiMod = require("nupp.compiler.check.ffi")
 local methodslots = require("nupp.compiler.methodslots")
 local native = require("nupp.compiler.native")
-local luaFormat = require("nupp.compiler.LuaFormat") as {
-    analyze: function(string): (any, string?)
-}
+local luaFormat = require("nupp.compiler.LuaFormat") as {analyze: function(string): (any, string?)}
 local reflection = require("nupp.compiler.reflection")
 local targetLayout = require("nupp.compiler.target_layout")
 local state = require("nupp.compiler.check.state")
-local pegTyping = require("nupp.compiler.materialize.peg") as {
-    inferSourceResult: function(string, T.Type?): (T.Pack?, any)
-}
+local pegTyping = require(
+    "nupp.compiler.materialize.peg"
+) as {inferSourceResult: function(string, T.Type?): (T.Pack?, any)}
 
 local isA = relations.isA
 local packIsA = relations.packIsA
@@ -36,9 +34,7 @@ local dropSelf = generics.dropSelf
 local specializeSelf = generics.specializeSelf
 local specializeReceiver = generics.specializeReceiver
 
-local callexpr: {
-    install: function(state.Checker): state.ExprHandlers
-} = {}
+local callexpr: {install: function(state.Checker): state.ExprHandlers} = {}
 
 -- Which ownership intrinsic a callee is, once the names in it have been resolved.
 --

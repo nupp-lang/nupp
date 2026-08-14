@@ -830,9 +830,9 @@ function checkMod.check(
         ) == "table" and type(arg[0]) == "string" and arg[0] or nil
         local envelope, evaluationFailure
         if executable and not os.getenv("NUPP_COMPTIME_WORKER_CHILD") then
-            local worker = require("nupp.compiler.comptime_worker") as {
-                evaluateTypeFunction: function(any, {any}, string, any?): (any, any)
-            }
+            local worker = require(
+                "nupp.compiler.comptime_worker"
+            ) as {evaluateTypeFunction: function(any, {any}, string, any?): (any, any)}
             envelope, evaluationFailure = worker.evaluateTypeFunction(
                 program,
                 transported,

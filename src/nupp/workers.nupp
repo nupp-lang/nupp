@@ -172,9 +172,7 @@ local function unsendable(value: any, path: string, depth: integer, seen: {[any]
         return ("%s repeats a table already present in the message"):format(path)
     end
     seen[value] = true
-    for key, item in pairs(value as {
-        any: any
-    }) do
+    for key, item in pairs(value as {any: any}) do
         if not SENDABLE[type(key)] then
             return ("%s has a %s key"):format(path, type(key))
         end

@@ -8,9 +8,7 @@ interface derive.JSONContract is nupp.data.json.JSONEncodable
 end
 
 record derive.Entry
-    schema: {
-        data: {[string]: any}
-    }
+    schema: {data: {[string]: any}}
     codec: nupp.reflect.FieldCodec<any>
 end
 

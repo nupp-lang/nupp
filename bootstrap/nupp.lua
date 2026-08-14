@@ -2110,8 +2110,6 @@ end
 
 
 
-
-
 function analysis . queries ( facts )
 if not facts or not facts . byDefinition then
 return nil
@@ -4792,8 +4790,6 @@ local manifest = { }
 
 
 
-
-
 local function validateArray ( value , label , itemType , required )
 if value == nil then
 if required then
@@ -5796,8 +5792,6 @@ if active [ t ] then
 
 
 local named = t
-
-
 return "@" .. ( named . name or t . tag )
 end
 active [ t ] = true
@@ -9331,9 +9325,7 @@ end
 
 
 
-function tasks . describe ( root , requested , opts
-
-)
+function tasks . describe ( root , requested , opts )
 local config , err = manifest . load ( root or "." )
 if not config then
 return nil , err
@@ -11727,9 +11719,9 @@ arg
 ) == "table" and type ( arg [ 0 ] ) == "string" and arg [ 0 ] or nil
 local envelope , evaluationFailure
 if executable and not os . getenv ( "NUPP_COMPTIME_WORKER_CHILD" ) then
-local worker = require ( "nupp.compiler.comptime_worker" )
-
-
+local worker = require (
+"nupp.compiler.comptime_worker"
+)
 envelope , evaluationFailure = worker . evaluateTypeFunction (
 program ,
 transported ,
@@ -14569,14 +14561,12 @@ local ffiMod = require ( "nupp.compiler.check.ffi" )
 local methodslots = require ( "nupp.compiler.methodslots" )
 local native = require ( "nupp.compiler.native" )
 local luaFormat = require ( "nupp.compiler.LuaFormat" )
-
-
 local reflection = require ( "nupp.compiler.reflection" )
 local targetLayout = require ( "nupp.compiler.target_layout" )
 local state = require ( "nupp.compiler.check.state" )
-local pegTyping = require ( "nupp.compiler.materialize.peg" )
-
-
+local pegTyping = require (
+"nupp.compiler.materialize.peg"
+)
 
 local isA = relations . isA
 local packIsA = relations . packIsA
@@ -14585,9 +14575,7 @@ local dropSelf = generics . dropSelf
 local specializeSelf = generics . specializeSelf
 local specializeReceiver = generics . specializeReceiver
 
-local callexpr
-
-= { }
+local callexpr = { }
 
 
 
@@ -22104,9 +22092,9 @@ local fs = require ( "nupp.compiler.fs" )
 local recipeCodec = require ( "nupp.compiler.materialize.codec" )
 local reflection = require ( "nupp.compiler.reflection" )
 local typeblueprint = require ( "nupp.compiler.typeblueprint" )
-local comptime = require ( "nupp.compiler.comptime" )
-
-
+local comptime = require (
+"nupp.compiler.comptime"
+)
 local state = require ( "nupp.compiler.check.state" )
 
 local derive = { }
@@ -22618,9 +22606,9 @@ if not envelope then
 local root = os . getenv ( "NUPP_COMPILER_ROOT" )
 local executable = root and root .. "/bin/nupp" or nil
 if executable and not os . getenv ( "NUPP_COMPTIME_WORKER_CHILD" ) then
-local worker = require ( "nupp.compiler.comptime_worker" )
-
-
+local worker = require (
+"nupp.compiler.comptime_worker"
+)
 envelope , evaluationFailure = worker . evaluateDeriveProvider (
 provider . sealedProgram ,
 input ,
@@ -22741,6 +22729,66 @@ for methodName in pairs ( byName ) do
 methodNames [ # methodNames + 1 ] = methodName
 end
 table . sort ( methodNames )
+
+
+
+
+
+local function argumentType ( argument , parameterTypes )
+if argument . kind == "receiver" then
+if isStatic then
+c . diag (
+"NUPP2812" ,
+provider . site . arg . expr or provider . site . arg ,
+"a static recipe has no receiver"
+)
+
+return T . unknown , false
+end
+
+return n , true
+elseif argument . kind == "argument" then
+local found = parameterTypes [ argument . name ]
+if not found then
+c . diag (
+"NUPP2812" ,
+provider . site . arg . expr or provider . site . arg ,
+"unknown method argument " .. tostring ( argument . name )
+)
+end
+
+return found or T . unknown , found ~= nil
+elseif argument . kind == "field" then
+local found = n . byname [ argument . name ]
+if not found then
+c . diag (
+"NUPP2812" ,
+nodes [ argument . name ] or item . stat ,
+"derive recipe cannot read field " .. tostring ( argument . name )
+)
+end
+
+return found or T . unknown , found ~= nil
+elseif argument . kind == "constant" then
+return valueType ( argument . value ) , true
+elseif argument . kind == "entry" then
+return T . any , true
+elseif argument . kind == "array" then
+local children , ok = { } , true
+for _ , child in ipairs ( argument . values or { } ) do
+local childT , childOk = argumentType ( child , parameterTypes )
+children [ # children + 1 ] = childT
+ok = ok and childOk
+end
+
+return T . array (
+# children == 0 and T . unknown or # children == 1 and children [ 1 ] or T . union ( children )
+) , ok
+end
+
+return T . unknown , false
+end
+
 for _ , methodName in ipairs ( methodNames ) do
 local recipe = byName [ methodName ]
 local requirement = requirements and requirements [ methodName ] or nil
@@ -22832,60 +22880,10 @@ if index > ( isStatic and 0 or 1 ) and parameterName ~= "" then
 parameterTypes [ parameterName ] = callable . params [ index ]
 end
 end
-local function argumentType ( argument )
-if argument . kind == "receiver" then
-if isStatic then
-c . diag (
-"NUPP2812" ,
-provider . site . arg . expr or provider . site . arg ,
-"a static recipe has no receiver"
-)
-valid = false
-return T . unknown
-end
-return n
-elseif argument . kind == "argument" then
-local found = parameterTypes [ argument . name ]
-if not found then
-c . diag (
-"NUPP2812" ,
-provider . site . arg . expr or provider . site . arg ,
-"unknown method argument " .. tostring ( argument . name )
-)
-valid = false
-end
-return found or T . unknown
-elseif argument . kind == "field" then
-local found = n . byname [ argument . name ]
-if not found then
-c . diag (
-"NUPP2812" ,
-nodes [ argument . name ] or item . stat ,
-"derive recipe cannot read field " .. tostring ( argument . name )
-)
-valid = false
-end
-return found or T . unknown
-elseif argument . kind == "constant" then
-return valueType ( argument . value )
-elseif argument . kind == "entry" then
-return T . any
-elseif argument . kind == "array" then
-local children = { }
-for _ , child in ipairs ( argument . values or { } ) do
-children [ # children + 1 ] = argumentType ( child )
-end
-return T . array (
-# children == 0 and T . unknown or # children == 1 and children [ 1 ] or T . union ( children )
-)
-end
-valid = false
-
-return T . unknown
-end
-
 for index , argument in ipairs ( recipe . arguments or { } ) do
-argumentTypes [ index ] = argumentType ( argument )
+local argumentT , ok = argumentType ( argument , parameterTypes )
+argumentTypes [ index ] = argumentT
+valid = valid and ok
 end
 local helperType = runtimeHelperType ( recipe . helper )
 if not helperType or helperType . tag ~= "func" then
@@ -24015,14 +24013,15 @@ end
 
 function ops . sweep ( queries )
 local diagnosed = { }
-for _ , region in ipairs ( regions ) do
-local effect = region . effect
-local function walk ( node )
+
+
+
+local function walk ( node , root , effect )
 if not node or cst . isToken ( node ) then
 return
 end
 local kind = node . kind
-if node ~= region . body and (
+if node ~= root and (
 kind == "localFuncStmt"
 or kind == "funcStmt"
 or kind == "inlineMethod"
@@ -24056,11 +24055,12 @@ report ( effect , node , why , info , queries )
 end
 end
 for _ , child in ipairs ( node ) do
-walk ( child )
+walk ( child , root , effect )
 end
 end
 
-walk ( region . body )
+for _ , region in ipairs ( regions ) do
+walk ( region . body , region . body , region . effect )
 end
 end
 
@@ -24093,11 +24093,9 @@ local operators = require ( "nupp.compiler.check.operators" )
 local index = require ( "nupp.compiler.check.index" )
 local state = require ( "nupp.compiler.check.state" )
 local callexpr = require ( "nupp.compiler.check.callexpr" )
-
-
-local comptime = require ( "nupp.compiler.comptime" )
-
-
+local comptime = require (
+"nupp.compiler.comptime"
+)
 local materializeProviders = require ( "nupp.compiler.materialize.providers" )
 
 
@@ -30130,6 +30128,21 @@ end
 
 local reportedResults = { }
 
+
+
+
+
+
+
+
+local function reportOwnedResult ( site , message , help )
+if not site or reportedResults [ site ] then
+return
+end
+reportedResults [ site ] = true
+c . diag ( "NUPP2602" , site , message , nil , { help = help } )
+end
+
 function own . normalizeOwnedResults ( pack , writtenPack , at )
 
 
@@ -30167,19 +30180,6 @@ if bare and resolved . tag == "owned" and not resolved . opaque and # ( resolved
 
 local declared = rawType ( resolved )
 local resource = own . resourceBehind ( declared )
-
-
-
-
-local function reportOnce ( message , help )
-local site = written or at
-if not site or reportedResults [ site ] then
-return
-end
-reportedResults [ site ] = true
-c . diag ( "NUPP2602" , site , message , nil , { help = help } )
-end
-
 local terminals = own . inheritedTerminals ( resource )
 if resource . tag == "func" then
 
@@ -30190,13 +30190,15 @@ elseif resource . tag ~= "nominal" or # terminals == 0 then
 
 
 
-reportOnce (
+reportOwnedResult (
+written or at ,
 "an owning result needs a terminal" ,
 "give the type a `@drop`, name one with `Owned<T, cleanup>`, "
 .. "or say `Owned<T, opaque>` for a transfer-only owner"
 )
 elseif # terminals > 1 then
-reportOnce (
+reportOwnedResult (
+written or at ,
 (
 "an owning result of %s has %d terminals to choose from"
 ) : format ( T . tostring ( resource ) , # terminals ) ,
@@ -31150,6 +31152,33 @@ local instantiateNominal = generics . instantiate
 
 
 
+
+
+
+
+
+
+
+
+
+
+local function setIndexer (
+c ,
+indexer ,
+at ,
+key ,
+value ,
+which
+)
+local keyName = which .. "Key"
+local valueName = which .. "Value"
+if indexer [ valueName ] then
+local spelling = which == "read" and "readonly" or "writeonly"
+c . diag ( "NUPP2118" , at , "duplicate " .. spelling .. " indexer capability" )
+else
+indexer [ keyName ] , indexer [ valueName ] = key , value
+end
+end
 
 
 
@@ -32284,24 +32313,13 @@ end
 elseif f . kind == "tmap" then
 local key , value = c . resolveType ( f . key ) , c . resolveType ( f . value )
 local capability = f . capability and f . capability . propertyCapability or nil
-local function setIndexer ( which )
-local keyName = which .. "Key"
-local valueName = which .. "Value"
-if indexer [ valueName ] then
-local spelling = which == "read" and "readonly" or "writeonly"
-c . diag ( "NUPP2118" , f , "duplicate " .. spelling .. " indexer capability" )
-else
-indexer [ keyName ] , indexer [ valueName ] = key , value
-end
-end
-
 if capability == "read" then
-setIndexer ( "read" )
+setIndexer ( c , indexer , f , key , value , "read" )
 elseif capability == "write" then
-setIndexer ( "write" )
+setIndexer ( c , indexer , f , key , value , "write" )
 else
-setIndexer ( "read" )
-setIndexer ( "write" )
+setIndexer ( c , indexer , f , key , value , "read" )
+setIndexer ( c , indexer , f , key , value , "write" )
 end
 end
 end
@@ -33797,19 +33815,13 @@ end
 
 local worker = require ( "nupp.compiler.comptime_worker" )
 
-
-
 return worker . main ( rest )
 elseif name == "__comptime-worker-service" then
 local worker = require ( "nupp.compiler.comptime_worker" )
 
-
-
 return worker . serviceMain ( )
 elseif name == "__lsp-reader" then
 local server = require ( "nupp.compiler.lsp.init" )
-
-
 
 return server . readerMain ( )
 end
@@ -35434,8 +35446,6 @@ if shell ~= "bash" and shell ~= "zsh" and shell ~= "fish" then
 return command : usageError ( "unknown shell " .. shell .. "; expected bash, zsh, or fish" )
 end
 local cli = require ( "nupp.compiler.cli" )
-
-
 io . write ( require ( "nupp.compiler.cli.completions" ) . render ( shell , cli . commands ( ) ) )
 
 return 0
@@ -35835,13 +35845,16 @@ detail = [[The selected build target supplies layoutTarget. When it has none, th
 compiler host is used. Header generation itself invokes no C compiler.]] ,
 }
 
-local function walk ( node , visit )
+
+
+
+local function walk ( node , visit , context )
 if not node or require ( "nupp.compiler.cst" ) . isToken ( node ) then
 return
 end
-visit ( node )
+visit ( node , context )
 for _ , child in ipairs ( node ) do
-walk ( child , visit )
+walk ( child , visit , context )
 end
 end
 
@@ -35902,6 +35915,13 @@ local env = envMod . new ( "." , { config = config } )
 local parser = require ( "nupp.compiler.parser" )
 local checker = require ( "nupp.compiler.check" )
 local allDiagnostics , types , functions , sites = { } , { } , { } , { }
+local function collectCdefFunction ( node , moduleName )
+if node . kind == "cdefFunc" and node . name and node . cAbiSignature then
+local qualified = ( moduleName and moduleName .. "." or "" ) .. node . name . text
+functions [ qualified ] , sites [ qualified ] = node . cAbiSignature , node
+end
+end
+
 for _ , path in ipairs ( paths ) do
 local source , readErr = fs . readFile ( path )
 if not source then
@@ -35923,12 +35943,7 @@ for name , t in pairs ( exports and exports . types or { } ) do
 local qualified = ( moduleName and moduleName .. "." or "" ) .. name
 types [ qualified ] , sites [ qualified ] = t , exports . typeDefs [ name ]
 end
-walk ( result . root , function ( node )
-if node . kind == "cdefFunc" and node . name and node . cAbiSignature then
-local qualified = ( moduleName and moduleName .. "." or "" ) .. node . name . text
-functions [ qualified ] , sites [ qualified ] = node . cAbiSignature , node
-end
-end )
+walk ( result . root , collectCdefFunction , moduleName )
 end
 end
 end
@@ -38498,9 +38513,7 @@ report . write ( { diagnostics = report . diagnosticValues ( diagnostics ) } )
 end
 
 
-function report . fatal ( diagnostic
-
-)
+function report . fatal ( diagnostic )
 return REPORTED [ diagnostic . severity ] == nil
 end
 
@@ -40684,6 +40697,11 @@ end
 
 
 
+
+
+
+
+
 local function installComptimeFunctions ( state , env , helpers )
 for name , supplied in pairs ( helpers or { } ) do
 local node = supplied . node or supplied
@@ -41869,9 +41887,9 @@ local executable = root and root .. "/bin/nupp" or type (
 arg
 ) == "table" and type ( arg [ 0 ] ) == "string" and arg [ 0 ] or nil
 if executable and not os . getenv ( "NUPP_COMPTIME_WORKER_CHILD" ) then
-local worker = require ( "nupp.compiler.comptime_worker" )
-
-
+local worker = require (
+"nupp.compiler.comptime_worker"
+)
 local quoted , failure , envelope = worker . evaluate (
 cst . textOf ( node ) ,
 executable ,
@@ -42068,9 +42086,9 @@ message = "type-function worker program could not be loaded" ,
 }
 return { ok = false , code = stopped . code , message = stopped . message }
 end
-local comptime = require ( "nupp.compiler.comptime" )
-
-
+local comptime = require (
+"nupp.compiler.comptime"
+)
 local envelope , failure = comptime . evaluateTypeFunctionDirect (
 program . main ,
 request . arguments or { } ,
@@ -42090,9 +42108,9 @@ message = "derive-provider worker program could not be loaded" ,
 }
 return { ok = false , code = stopped . code , message = stopped . message }
 end
-local comptime = require ( "nupp.compiler.comptime" )
-
-
+local comptime = require (
+"nupp.compiler.comptime"
+)
 local envelope , failure = comptime . evaluateDeriveProviderDirect (
 program . main ,
 request . input ,
@@ -42130,9 +42148,9 @@ return { ok = false , code = "NUPP2412" , message = "invalid comptime helper req
 end
 helpers [ name ] = { node = helper , line = descriptor . line , column = descriptor . column }
 end
-local comptime = require ( "nupp.compiler.comptime" )
-
-
+local comptime = require (
+"nupp.compiler.comptime"
+)
 local quoted , _ , failure , envelope = comptime . evaluateDirect (
 node ,
 node . body ,
@@ -46080,9 +46098,7 @@ local REPORTED = { note = "note" , warning = "warning" }
 
 
 
-function diagnostics . isFatal ( e
-
-)
+function diagnostics . isFatal ( e )
 return REPORTED [ e . severity ] == nil
 end
 
@@ -48638,6 +48654,19 @@ end
 
 
 
+local function annotationTokens ( child , parts )
+if cst . isToken ( child ) then
+parts [ # parts + 1 ] = child . text
+else
+for _ , nested in ipairs ( child ) do
+annotationTokens ( nested , parts )
+end
+end
+end
+
+
+
+
 
 local function annotationText ( node )
 local name = node and node . name and node . name . text
@@ -48647,17 +48676,7 @@ end
 local args = { }
 for _ , arg in ipairs ( node . annotationArgs or { } ) do
 local parts = { }
-local function walk ( child )
-if cst . isToken ( child ) then
-parts [ # parts + 1 ] = child . text
-else
-for _ , nested in ipairs ( child ) do
-walk ( nested )
-end
-end
-end
-
-walk ( arg )
+annotationTokens ( arg , parts )
 args [ # args + 1 ] = trim ( table . concat ( parts ) )
 end
 if # args == 0 then
@@ -49831,8 +49850,6 @@ local htmlEscape = stringsMod . htmlEscape
 local join , dirname , exists = filesMod . join , filesMod . dirname , filesMod . exists
 
 local highlight = { }
-
-
 
 
 
@@ -55530,6 +55547,8 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 
+
+
 local parser = require ( "nupp.compiler.parser" )
 local lexer = require ( "nupp.compiler.lexer" )
 local cst = require ( "nupp.compiler.cst" )
@@ -55874,7 +55893,11 @@ inner . last = lastToken ( n [ closeIdx - 1 ] )
 if kind == "tshape" and inner . last == inner . seps [ # inner . seps ] then
 inner . last . formatOmit = true
 end
-if kind == "tshape" then
+
+
+
+
+if kind == "tshape" and # ( n . fields or { } ) > 1 then
 for _ , field in ipairs ( n . fields or { } ) do
 local first = firstToken ( field )
 if first then
@@ -56622,28 +56645,29 @@ end
 
 local function splitForcedLines ( lines )
 local out , changed = { } , false
-for _ , line in ipairs ( lines ) do
-local start = 1
-local function emit ( from , to , first )
+
+
+
+local function emit ( line , from , to , first )
 if from <= to then
 local items = { }
 for idx = from , to do
 items [ # items + 1 ] = line . items [ idx ]
 end
-out [
-# out + 1
-] = { items = items , indent = line . indent , blankBefore = first and line . blankBefore or false , }
+out [ # out + 1 ] = { items = items , indent = line . indent , blankBefore = first and line . blankBefore or false , }
 end
 end
 
+for _ , line in ipairs ( lines ) do
+local start = 1
 for idx , item in ipairs ( line . items ) do
 if idx > start and item . kind == "token" and item . token . forceBreak then
-emit ( start , idx - 1 , start == 1 )
+emit ( line , start , idx - 1 , start == 1 )
 start = idx
 changed = true
 end
 end
-emit ( start , # line . items , start == 1 )
+emit ( line , start , # line . items , start == 1 )
 end
 
 return changed and out or nil
@@ -58183,8 +58207,6 @@ parts [ # parts + 1 ] = x . name . text
 
 return table . concat ( parts , "." )
 end
-
-
 
 
 
@@ -63705,9 +63727,9 @@ else
 err = failure and failure . message or tostring ( failure or "type-function evaluation failed" )
 end
 if not err and out and not t . comptimeResultPack and t . comptimeBound then
-local relations = require ( "nupp.compiler.relations" )
-
-
+local relations = require (
+"nupp.compiler.relations"
+)
 local fits , why = relations . isA ( out , t . comptimeBound )
 if not fits then
 err = "generated type violates its declared result bound: " .. ( why or "not satisfied" )
@@ -68692,13 +68714,16 @@ reroot ( next_ )
 end
 
 handlers [ "workspace/didChangeWatchedFiles" ] = function ( _ , params )
+
+
+
+eachGraph ( function ( inc )
 for _ , change in ipairs ( params . changes or { } ) do
 if change . uri and change . uri : match ( "^file://" ) then
-eachGraph ( function ( inc )
 inc . diskChanged ( uriToPath ( change . uri ) , change . type )
+end
+end
 end )
-end
-end
 refreshOpenDocuments ( nil )
 end
 
@@ -69762,8 +69787,6 @@ table = true ,
 bit = true ,
 nupp = true ,
 }
-
-
 
 
 
@@ -71041,13 +71064,16 @@ reroot ( next_ )
 end
 
 handlers [ "workspace/didChangeWatchedFiles" ] = function ( _ , params )
+
+
+
+eachGraph ( function ( inc )
 for _ , change in ipairs ( params . changes or { } ) do
 if change . uri and change . uri : match ( "^file://" ) then
-eachGraph ( function ( inc )
 inc . diskChanged ( uriToPath ( change . uri ) , change . type )
+end
+end
 end )
-end
-end
 refreshOpenDocuments ( nil )
 end
 
@@ -72644,8 +72670,6 @@ local lexer = require ( "nupp.compiler.lexer" )
 local T = require ( "nupp.compiler.types" )
 
 local semantic = { }
-
-
 
 
 
@@ -75121,8 +75145,6 @@ local HELPERS = {
 
 
 
-
-
 const ir = {} ir.__index = ir
 
 
@@ -75518,6 +75540,10 @@ end
 
 function peg . installEvaluator ( state , env , newOpaque , provenance )
 local library = { }
+
+
+
+
 
 local function intrinsic ( name , callback )
 local token = function ( )
@@ -78478,8 +78504,6 @@ local luaPattern = require ( "nupp.compiler.LuaPattern" )
 
 
 
-
-
 const typeprovider = {} typeprovider.__index = typeprovider
 
 
@@ -80301,9 +80325,7 @@ local narrowing = { }
 
 
 
-local isA = ( relations
-
-) . isA
+local isA = ( relations ) . isA
 
 
 
@@ -80776,8 +80798,6 @@ if # parsed . errors > 0 then
 return { }
 end
 local checker = require ( "nupp.compiler.check" )
-
-
 checker . check ( parsed , filename , env , { strict = false } )
 
 return parsed . effects or { }
@@ -81384,29 +81404,11 @@ end
 
 
 
-
-
-
-
-
-
-
-
-
-
-local function concatBufferWalk ( result , remarks )
-local facts = require ( "nupp.compiler.analysis" ) . queries ( result . analysis )
-if not facts then
-return
-end
-local counter = 0
-for _ , body in ipairs ( result . analysis . bodies or { } ) do
-local asked = facts . body ( body )
-local function blocks ( node )
+local function concatBufferBlocks ( node , asked , remarks , counter )
 
 
 if not node or isToken ( node ) or NESTED_FUNCTION [ node . kind ] then
-return
+return counter
 end
 local stats = node . kind == "block" and node . stats or nil
 for i , stat in ipairs ( stats or { } ) do
@@ -81441,19 +81443,41 @@ remarks ,
 stat ,
 "OPT-5" ,
 (
-"concat-buffer: %s is built with a string.buffer, "
-.. "which appends instead of rebuilding"
+"concat-buffer: %s is built with a string.buffer, " .. "which appends instead of rebuilding"
 ) : format ( stat . names [ 1 ] . text )
 )
 end
 end
 end
 for _ , child in ipairs ( node ) do
-blocks ( child )
-end
+counter = concatBufferBlocks ( child , asked , remarks , counter )
 end
 
-blocks ( body )
+return counter
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local function concatBufferWalk ( result , remarks )
+local facts = require ( "nupp.compiler.analysis" ) . queries ( result . analysis )
+if not facts then
+return
+end
+local counter = 0
+for _ , body in ipairs ( result . analysis . bodies or { } ) do
+counter = concatBufferBlocks ( body , facts . body ( body ) , remarks , counter )
 end
 end
 
@@ -85592,8 +85616,6 @@ local query = { }
 
 
 
-
-
 query.Q = {} query.Q.__index = query.Q
 
 
@@ -87854,9 +87876,7 @@ end
 
 
 
-function reference . markdown ( opts
-
-)
+function reference . markdown ( opts )
 local base = opts and opts . level or 1
 local out = { }
 out [ # out + 1 ] = heading ( base , "Nupp language reference" )
@@ -94973,8 +94993,6 @@ derive.Entry = {} derive.Entry.__index = derive.Entry
 
 
 
-
-
 function derive . debug ( value , entry )
 return _G . nupp . __derive . debug ( value , entry . schema . data . debug )
 end
@@ -95324,23 +95342,31 @@ local function detachSelf ( fn , selfName )
 if not selfName then
 return
 end
+
+
+
+local found = nil
 local index = 1
 while true do
 local name = debug . getupvalue ( fn , index )
 if not name then
-return
+break
 end
 if name == selfName then
+found = index
+break
+end
+index = index + 1
+end
+if not found then
+return
+end
 local value = fn
 local function anchor ( )
 return value
 end
 
-debugAny . upvaluejoin ( fn , index , anchor , 1 )
-return
-end
-index = index + 1
-end
+debugAny . upvaluejoin ( fn , found , anchor , 1 )
 end
 
 local function moduleForSlots ( slots )
@@ -95534,8 +95560,6 @@ const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,
 
 local suspension = require ( "nupp.suspension" )
 
-
-
 local native = require ( "nupp.io.httpnative" )
 
 local http = { }
@@ -95543,8 +95567,6 @@ local http = { }
 
 
 http.Options = {} http.Options.__index = http.Options
-
-
 
 
 
@@ -95576,8 +95598,6 @@ http.FileBody = {} http.FileBody.__index = http.FileBody
 
 
 http.Request = {} http.Request.__index = http.Request
-
-
 
 
 
@@ -95952,8 +95972,6 @@ return
 end
 self . _closed = true
 local transfer = self . _transfer
-
-
 transfer : close ( )
 end
 
@@ -95963,8 +95981,6 @@ local function destroyBody ( body )
 if not body . _closed then
 body . _closed = true
 local transfer = body . _transfer
-
-
 transfer : close ( )
 end
 end ;__nuppCleanups["nupp.io.http#destroyBody"]=destroyBody ;__nuppCleanups["nupp.io.http#destroyBody"]=destroyBody
@@ -96016,8 +96032,6 @@ return scheme .. "://" .. ( uri : host ( ) or "" ) : lower ( ) .. ":" .. port
 end
 
 http.Response = {} http.Response.__index = http.Response
-
-
 
 
 
@@ -96094,8 +96108,6 @@ return out
 end
 
 function http.Response:headers()
-
-
 if self . _headers == nil then
 self : _decode ( )
 local out = { }
@@ -96105,9 +96117,7 @@ end
 self . _headers = out
 end
 local copy = { }
-for name , value in pairs ( self . _headers
-
-) do
+for name , value in pairs ( self . _headers ) do
 copy [ name ] = value
 end
 
@@ -96908,18 +96918,18 @@ if self . closed or self . gone then
 return 0
 end
 local sent = 0
+local before = 0
 local function interest ( )
 
 
 return setmetatable({ child =  self . owner . handle ,  read =  { } ,  write =  { self . handle } }, processtypes.Interest)
 end
 
-while sent < # data and not self . closed and not self . gone do
-local before = sent
-local completed = await (
-self . owner ,
-"process stream write" ,
-function ( )
+
+
+
+
+local function offered ( )
 if self . closed or self . gone then
 return true
 end
@@ -96930,10 +96940,11 @@ sent = sent + self : offer ( data : sub ( sent + 1 ) )
 
 
 return sent > before
-end ,
-interest ,
-stopAt
-)
+end
+
+while sent < # data and not self . closed and not self . gone do
+before = sent
+local completed = await ( self . owner , "process stream write" , offered , interest , stopAt )
 if not completed then
 break
 end
@@ -97176,6 +97187,31 @@ stdin : release ( )
 end
 end
 
+
+
+
+
+
+
+
+
+
+local function interest ( )
+local read = { }
+if stdout ~= nil and not stdout . eof and not stdout . closed then
+read [ # read + 1 ] = stdout . handle
+end
+if stderr ~= nil and not stderr . eof and not stderr . closed then
+read [ # read + 1 ] = stderr . handle
+end
+local write = { }
+if stdin ~= nil and not stdin . closed and sent < # pending then
+write [ # write + 1 ] = stdin . handle
+end
+
+return setmetatable({ child =  self . handle ,  read =  read ,  write =  write }, processtypes.Interest)
+end
+
 while not ( inputDone ( ) and outputDone ( ) ) do
 local moved = false
 if stdin ~= nil and not stdin . closed then
@@ -97231,27 +97267,7 @@ if not moved then
 if idle ( ) then
 break
 end
-awaitTick ( self , "process communicate" , function ( )
-
-
-
-
-
-
-local read = { }
-if stdout ~= nil and not stdout . eof and not stdout . closed then
-read [ # read + 1 ] = stdout . handle
-end
-if stderr ~= nil and not stderr . eof and not stderr . closed then
-read [ # read + 1 ] = stderr . handle
-end
-local write = { }
-if stdin ~= nil and not stdin . closed and sent < # pending then
-write [ # write + 1 ] = stdin . handle
-end
-
-return setmetatable({ child =  self . handle ,  read =  read ,  write =  write }, processtypes.Interest)
-end )
+awaitTick ( self , "process communicate" , interest )
 end
 end
 
@@ -100924,9 +100940,7 @@ if seen [ value ] then
 return ( "%s repeats a table already present in the message" ) : format ( path )
 end
 seen [ value ] = true
-for key , item in pairs ( value
-
-) do
+for key , item in pairs ( value ) do
 if not SENDABLE [ type ( key ) ] then
 return ( "%s has a %s key" ) : format ( path , type ( key ) )
 end
@@ -101720,17 +101734,13 @@ return ffi
 ]=],
 ["/decls/httpnative.d.nupp"] = [[
 --- Private provider binding for `nupp.io.http`.
-local httpnative: {
-    newClient: function(options: any): (any?, string?)
-}
+local httpnative: {newClient: function(options: any): (any?, string?)}
 
 return httpnative
 ]],
 ["/decls/httpnative.d.nupp"] = [[
 --- Private provider binding for `nupp.io.http`.
-local httpnative: {
-    newClient: function(options: any): (any?, string?)
-}
+local httpnative: {newClient: function(options: any): (any?, string?)}
 
 return httpnative
 ]],
@@ -106240,9 +106250,7 @@ local jit: {
 
     --- The optimization submodule. `jit.opt.start` takes flags such as `"hotloop=10"`
     --- or `"-fold"`, each as its own argument.
-    opt: {
-        start: function(...: any)
-    },
+    opt: {start: function(...: any)},
 
     --- Reports how the VM was built for a security-relevant parameter, such as `"prng"`
     --- or `"strhash"`.
@@ -106639,9 +106647,7 @@ interface derive.JSONContract is nupp.data.json.JSONEncodable
 end
 
 record derive.Entry
-    schema: {
-        data: {[string]: any}
-    }
+    schema: {data: {[string]: any}}
     codec: nupp.reflect.FieldCodec<any>
 end
 
@@ -107119,9 +107125,7 @@ as reasons.
 ]]
 
 local suspension = require("nupp.suspension")
-local type NativeBackend = {
-    newClient: function(any): (any?, string?)
-}
+local type NativeBackend = {newClient: function(any): (any?, string?)}
 local native = require("nupp.io.httpnative") as NativeBackend
 
 local http = {}
@@ -107130,9 +107134,7 @@ type http.Version = "1.0" | "1.1" | "2"
 
 record http.Options
     userAgent: string?
-    headers: {
-        string: string
-    }?
+    headers: {string: string}?
     timeoutMs: integer?
     connectTimeoutMs: integer?
     stallTimeoutMs: integer?
@@ -107164,9 +107166,7 @@ type http.RequestBody = string | nupp.io.ByteView | nupp.io.Buffer | http.Reader
 record http.Request
     url: nupp.io.URI
     method: string?
-    headers: {
-        string: string
-    }?
+    headers: {string: string}?
     body: http.RequestBody?
     timeoutMs: integer?
     stallTimeoutMs: integer?
@@ -107537,9 +107537,7 @@ record http.Body is nupp.io.Reader
             return
         end
         self._closed = true
-        local transfer = self._transfer as {
-            close: nosuspend function(any): nil
-        }
+        local transfer = self._transfer as {close: nosuspend function(any): nil}
         transfer:close()
     end
 end
@@ -107548,9 +107546,7 @@ end
 local function destroyBody(takes body: http.Body): nil
     if not body._closed then
         body._closed = true
-        local transfer = body._transfer as {
-            close: nosuspend function(any): nil
-        }
+        local transfer = body._transfer as {close: nosuspend function(any): nil}
         transfer:close()
     end
 end
@@ -107608,9 +107604,7 @@ record http.Response
     body: Owned<http.Body>
     _packed: string
     _values: {[string]: {string}}?
-    _headers: {
-        string: string
-    }?
+    _headers: {string: string}?
     _closed: boolean
 
     function _decode(self): nil
@@ -107679,9 +107673,7 @@ record http.Response
         return out
     end
 
-    function headers(self): {
-        string: string
-    }
+    function headers(self): {string: string}
         if self._headers == nil then
             self:_decode()
             local out = {}
@@ -107691,9 +107683,7 @@ record http.Response
             self._headers = out
         end
         local copy = {}
-        for name, value in pairs(self._headers as {
-            string: string
-        }) do
+        for name, value in pairs(self._headers as {string: string}) do
             copy[name] = value
         end
 
@@ -108493,32 +108483,33 @@ record process.Writer is nupp.io.Writer
             return 0
         end
         local sent = 0
+        local before = 0
         local function interest(): processtypes.Interest
             -- Room in this pipe, and the child: a child that exits makes every
             -- remaining write impossible, which is an answer too.
             return new processtypes.Interest(child = self.owner.handle, read = {}, write = {self.handle})
         end
 
+        -- Both of these are written above the loop rather than in it, so the loop holds
+        -- no function to build -- one that does is a loop LuaJIT never compiles. What
+        -- the pass they belong to varies by is `sent` and `before`, and a name declared
+        -- out here is the same cell every pass.
+        local function offered(): boolean
+            if self.closed or self.gone then
+                return true
+            end
+            sent = sent + self:offer(data:sub(sent + 1))
+
+            -- Return after each piece, not only after the whole value. A timeout
+            -- bounds one period with no progress; a child that keeps taking bytes
+            -- may keep the write alive beyond that interval.
+
+            return sent > before
+        end
+
         while sent < #data and not self.closed and not self.gone do
-            local before = sent
-            local completed = await(
-                self.owner,
-                "process stream write",
-                function(): boolean
-                    if self.closed or self.gone then
-                        return true
-                    end
-                    sent = sent + self:offer(data:sub(sent + 1))
-
-                    -- Return after each piece, not only after the whole value. A
-                    -- timeout bounds one period with no progress; a child that keeps
-                    -- taking bytes may keep the write alive beyond that interval.
-
-                    return sent > before
-                end,
-                interest,
-                stopAt
-            )
+            before = sent
+            local completed = await(self.owner, "process stream write", offered, interest, stopAt)
             if not completed then
                 break
             end
@@ -108761,6 +108752,31 @@ record process.Process
                 end
             end
 
+            -- Everything a quiet pass would have used: the streams still worth
+            -- draining, room for whatever input is left, and the child. This is the one
+            -- wait that may ask about the outputs, because it is the one that reads
+            -- them every pass -- so a ready stream leads to work rather than straight
+            -- back here.
+            --
+            -- Written here rather than at the wait it belongs to, because that wait is
+            -- inside the loop, and a function built inside a loop is one LuaJIT never
+            -- compiles. It reads what varies through names the loop shares with it.
+            local function interest(): processtypes.Interest
+                local read: {any} = {}
+                if stdout ~= nil and not stdout.eof and not stdout.closed then
+                    read[#read + 1] = stdout.handle
+                end
+                if stderr ~= nil and not stderr.eof and not stderr.closed then
+                    read[#read + 1] = stderr.handle
+                end
+                local write: {any} = {}
+                if stdin ~= nil and not stdin.closed and sent < #pending then
+                    write[#write + 1] = stdin.handle
+                end
+
+                return new processtypes.Interest(child = self.handle, read = read, write = write)
+            end
+
             while not (inputDone() and outputDone()) do
                 local moved = false
                 if stdin ~= nil and not stdin.closed then
@@ -108816,27 +108832,7 @@ record process.Process
                     if idle() then
                         break
                     end
-                    awaitTick(self, "process communicate", function(): processtypes.Interest
-                        -- Everything this pass would have used: the streams still worth
-                        -- draining, room for whatever input is left, and the child.
-                        -- This
-                        -- is the one wait that may ask about the outputs, because it is
-                        -- the one that reads them every pass -- so a ready stream leads
-                        -- to work rather than straight back here.
-                        local read: {any} = {}
-                        if stdout ~= nil and not stdout.eof and not stdout.closed then
-                            read[#read + 1] = stdout.handle
-                        end
-                        if stderr ~= nil and not stderr.eof and not stderr.closed then
-                            read[#read + 1] = stderr.handle
-                        end
-                        local write: {any} = {}
-                        if stdin ~= nil and not stdin.closed and sent < #pending then
-                            write[#write + 1] = stdin.handle
-                        end
-
-                        return new processtypes.Interest(child = self.handle, read = read, write = write)
-                    end)
+                    awaitTick(self, "process communicate", interest)
                 end
             end
 
@@ -112503,9 +112499,7 @@ local function unsendable(value: any, path: string, depth: integer, seen: {[any]
         return ("%s repeats a table already present in the message"):format(path)
     end
     seen[value] = true
-    for key, item in pairs(value as {
-        any: any
-    }) do
+    for key, item in pairs(value as {any: any}) do
         if not SENDABLE[type(key)] then
             return ("%s has a %s key"):format(path, type(key))
         end

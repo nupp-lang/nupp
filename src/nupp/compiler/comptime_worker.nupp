@@ -148,9 +148,9 @@ local function handleRequest(request): any
             }
             return {ok = false, code = stopped.code, message = stopped.message}
         end
-        local comptime = require("nupp.compiler.comptime") as {
-            evaluateTypeFunctionDirect: function(any, {any}, any): (any, any)
-        }
+        local comptime = require(
+            "nupp.compiler.comptime"
+        ) as {evaluateTypeFunctionDirect: function(any, {any}, any): (any, any)}
         local envelope, failure = comptime.evaluateTypeFunctionDirect(
             program.main,
             request.arguments or {},
@@ -170,9 +170,9 @@ local function handleRequest(request): any
             }
             return {ok = false, code = stopped.code, message = stopped.message}
         end
-        local comptime = require("nupp.compiler.comptime") as {
-            evaluateDeriveProviderDirect: function(any, any, any, any, string?): (any, any)
-        }
+        local comptime = require(
+            "nupp.compiler.comptime"
+        ) as {evaluateDeriveProviderDirect: function(any, any, any, any, string?): (any, any)}
         local envelope, failure = comptime.evaluateDeriveProviderDirect(
             program.main,
             request.input,
@@ -210,9 +210,9 @@ local function handleRequest(request): any
         end
         helpers[name] = {node = helper, line = descriptor.line, column = descriptor.column}
     end
-    local comptime = require("nupp.compiler.comptime") as {
-        evaluateDirect: function(any, any, any, any, any): (string?, any, any, any)
-    }
+    local comptime = require(
+        "nupp.compiler.comptime"
+    ) as {evaluateDirect: function(any, any, any, any, any): (string?, any, any, any)}
     local quoted, _, failure, envelope = comptime.evaluateDirect(
         node,
         node.body,
