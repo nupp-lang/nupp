@@ -11,8 +11,10 @@ Fixed, with two knobs:
 - an over-long chain of method calls is broken between its steps, one call
   per line, before anything inside a call is broken;
 - an `if` is broken across lines, however short its arms;
-- docblocks wrap only when an individual safe prose line exceeds their width,
-  and are set off from what they document;
+- docblocks wrap only when a safe prose paragraph has a line exceeding their
+  width, and then the whole paragraph is refilled so no word is left stranded
+  on a line of its own; a paragraph that fits keeps the breaks it was written
+  with, and docblocks are set off from what they document;
 - a method call written as sugar, `obj:m{...}` or `obj:m"..."`, gets its `(`
   and `)` back, so every method call reads the same. `opts.methodParens =
   false` turns that off and leaves the sugar as written.
@@ -557,6 +559,48 @@ local function breakWordsToFit(text, firstWidth, restWidth)
     return lines
 end
 
+-- A line that opens a markdown structure of its own. Refilling reads a paragraph as
+-- one run of words, and a list item, heading, quote, or table row joined to the line
+-- above stops being one, so a paragraph holding any of these keeps every break it was
+-- written with.
+local MARKDOWN_BLOCK_STARTS = {"^[-*+] ", "^%d+[.)] ", "^[>#|]", "^=+%s*$", "^%-%-+%s*$",}
+
+local function opensMarkdownBlock(text)
+    for _, pattern in ipairs(MARKDOWN_BLOCK_STARTS) do
+        if text:match(pattern) then
+            return true
+        end
+    end
+
+    return false
+end
+
+-- A paragraph's line breaks are authorial and kept, until one of its lines does not
+-- fit. Breaking only the offending line pushed what overflowed onto a line of its own
+-- and left the short line beneath it alone, which is how `...when it merges` came to
+-- be followed by `the` and nothing else. Filling the paragraph puts the overflow in
+-- front of the words the next line already held. Returns nil for a paragraph that
+-- fits, or one whose spacing may be deliberate, which is left exactly as written.
+local function refillParagraph(texts, width)
+    local fits = true
+    for _, text in ipairs(texts) do
+        if displayWidth(text) > width then
+            fits = false
+        end
+        if text:sub(1, 1) == " " or text:sub(-1) == " " or text:find("  ") then
+            return nil
+        end
+        if text:find("[^%S ]") or opensMarkdownBlock(text) then
+            return nil
+        end
+    end
+    if fits then
+        return nil
+    end
+
+    return breakWordsToFit(table.concat(texts, " "), width, width)
+end
+
 -- Parses raw comment lines without joining them: existing line breaks are authorial.
 -- Blocks are { kind = "text"|"annot"|"blank"|"verbatim", text = ? }.
 local function parseDoc(rawLines)
@@ -597,19 +641,42 @@ local function renderComment(rawLines, indentStr, marker)
         width = 24
     end
     local out = {}
-    for _, block in ipairs(parseDoc(rawLines)) do
+    local blocks = parseDoc(rawLines)
+    local index = 1
+    while index <= #blocks do
+        local block = blocks[index]
         if block.kind == "blank" then
             out[#out + 1] = prefix
+            index = index + 1
         elseif block.kind == "verbatim" then
             out[#out + 1] = (prefix .. " " .. block.text):gsub("%s+$", "")
+            index = index + 1
         elseif block.kind == "annot" then
             local lines = breakWordsToFit(block.text, width, width - 4)
             for j, line in ipairs(lines) do
                 local pad = j == 1 and " " or "     "
                 out[#out + 1] = (prefix .. pad .. line):gsub("%s+$", "")
             end
+            index = index + 1
         else
-            for _, line in ipairs(breakWordsToFit(block.text, width, width)) do
+            -- Prose wraps a paragraph at a time rather than a line at a time, so a
+            -- word pushed off the end of one line lands among the words it reads
+            -- with instead of alone.
+            local texts = {}
+            while blocks[index] and blocks[index].kind == "text" do
+                texts[#texts + 1] = blocks[index].text
+                index = index + 1
+            end
+            local lines = refillParagraph(texts, width)
+            if not lines then
+                lines = {}
+                for _, text in ipairs(texts) do
+                    for _, line in ipairs(breakWordsToFit(text, width, width)) do
+                        lines[#lines + 1] = line
+                    end
+                end
+            end
+            for _, line in ipairs(lines) do
                 out[#out + 1] = (prefix .. " " .. line):gsub("%s+$", "")
             end
         end

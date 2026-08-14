@@ -364,6 +364,56 @@ function M.docblockRewrapsAtEightyEight()
    assertEq(fmt1(got), got, "doc idempotency")
 end
 
+function M.docblockRefillsTheParagraphRatherThanTheLine()
+   -- The second line is one word too long. Breaking it alone left that word on a
+   -- line by itself with the author's short third line still sitting under it.
+   local src = lines(
+      "--- The target's own name, filled in by `nupp.compiler.build.tasks` when it",
+      "--- merges the build's keys with the target's own keys and then hands it back.",
+      "--- A docs target takes `targetName` instead.",
+      "local x = 1")
+   local got = fmt1(src)
+   for line in got:gmatch("[^\n]+") do
+      if line:sub(1, 3) == "---" then
+         assert(#line <= 88, "doc line over 88 columns: " .. line)
+         local body = line:match("^%-%-%-%s*(.*)$")
+         assert(body == "" or body:find(" "), "a word was stranded alone:\n" .. got)
+      end
+   end
+   assert(got:find("takes `targetName` instead.", 1, true), "the paragraph is intact")
+   assertEq(fmt1(got), got, "refill idempotency")
+end
+
+function M.docblockKeepsAuthorsBreaksWhenTheParagraphFits()
+   local src = lines(
+      "--- A short opening line.",
+      "--- A second line the author chose to break here.",
+      "--- And a third.",
+      "local x = 1")
+   check(src, src, "a paragraph within the width is left as written")
+end
+
+function M.docblockDoesNotJoinAListIntoAParagraph()
+   -- One item runs past the width. Refilling the run would fold every bullet into
+   -- one line and turn a list into a sentence, so a run holding any of them wraps
+   -- a line at a time the way it always did.
+   local src = lines(
+      "--- - the first option, whose description is deliberately long enough that it "
+      .. "has to wrap somewhere or other",
+      "--- - the second option",
+      "local x = 1")
+   local got = fmt1(src)
+   assert(got:find("\n--- %- the second option\n"),
+      "the second bullet stays a bullet:\n" .. got)
+   assert(got:find("--- - the first option", 1, true), "the first bullet keeps its marker")
+   for line in got:gmatch("[^\n]+") do
+      if line:sub(1, 3) == "---" then
+         assert(#line <= 88, "doc line over 88 columns: " .. line)
+      end
+   end
+   assertEq(fmt1(got), got, "list idempotency")
+end
+
 function M.docblockAnnotationsHangUnderTheirTag()
    local got = fmt1("--- Summary line.\n"
       .. "--- @param samples the samples to average, which carries a long "
