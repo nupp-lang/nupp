@@ -58,10 +58,10 @@ local function expandGlob(root: string, glob: string): {string}
     local prefix = glob:match("^(.-)[*?]") or "."
     prefix = prefix:match("^(.*)/") or "."
     local base = join(root, prefix)
-    local pattern = syntax.glob(join(root, glob))
+    local isMatch = syntax.glob(join(root, glob))
     local matches = {}
     for _, path in ipairs(listFiles(base)) do
-        if pattern and pattern:match(path) then
+        if isMatch(path) then
             matches[#matches + 1] = path
         end
     end

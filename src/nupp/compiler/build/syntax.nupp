@@ -26,37 +26,35 @@ local Depfile = nupp.peg.compile(
     {definitions = {backslash = "\\", cr = "\r"}}
 )
 
-local globCache = setmetatable({}, {__mode = "v"})
-
---- Compile a path glob. `*` and `?` stay within one path segment, while `**/`
---- also matches zero directories, as it does in Git and common glob tools.
-local function compileGlob(glob: string): nupp.peg.Peg<...any>
-    local cached = globCache[glob]
-    if cached then
-        return cached
-    end
-    local definitions, source = {}, {"start <- part1 !."}
+--- Parse a path glob once and return its matcher. `*` and `?` stay within one
+--- segment; `**/` consumes zero or more complete directories.
+local function compileGlob(glob: string): function(string): boolean
     local tokens = assert(GlobTokens(glob))
-    for index, token in ipairs(tokens) do
-        local current, nextPart = "part" .. index, "part" .. (index + 1)
-        if token == "**/" then
-            source[#source + 1] = current .. " <- " .. nextPart .. " / [^/]+ '/' " .. current
-        elseif token == "**" then
-            source[#source + 1] = current .. " <- " .. nextPart .. " / . " .. current
-        elseif token == "*" then
-            source[#source + 1] = current .. " <- " .. nextPart .. " / [^/] " .. current
-        elseif token == "?" then
-            source[#source + 1] = current .. " <- [^/] " .. nextPart
-        else
-            definitions[current] = token
-            source[#source + 1] = current .. " <- %" .. current .. " " .. nextPart
-        end
-    end
-    source[#source + 1] = "part" .. (#tokens + 1) .. " <- ''"
-    local pattern = nupp.peg.compile(table.concat(source, "\n"), {definitions = definitions})
-    globCache[glob] = pattern
+    return function(path: string): boolean
+        local match: function(integer, integer): boolean
+        match = function(tokenIndex: integer, pathIndex: integer): boolean
+            local token, ch = tokens[tokenIndex], path:sub(pathIndex, pathIndex)
+            if not token then
+                return pathIndex > #path
+            elseif token == "**/" then
+                local slash = path:find("/", pathIndex, true)
+                return match(
+                    tokenIndex + 1,
+                    pathIndex
+                ) or (slash ~= nil and slash > pathIndex and match(tokenIndex, slash + 1))
+            elseif token == "**" then
+                return match(tokenIndex + 1, pathIndex) or (ch ~= "" and match(tokenIndex, pathIndex + 1))
+            elseif token == "*" then
+                return match(tokenIndex + 1, pathIndex) or (ch ~= "" and ch ~= "/" and match(tokenIndex, pathIndex + 1))
+            elseif token == "?" then
+                return ch ~= "" and ch ~= "/" and match(tokenIndex + 1, pathIndex + 1)
+            end
 
-    return pattern
+            return path:sub(pathIndex, pathIndex + #token - 1) == token and match(tokenIndex + 1, pathIndex + #token)
+        end
+
+        return match(1, 1)
+    end
 end
 
 return {glob = compileGlob, shellWords = ShellWords, depfile = Depfile}

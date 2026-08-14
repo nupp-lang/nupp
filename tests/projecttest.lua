@@ -1717,6 +1717,15 @@ function M.makeDepfilesPreserveEscapedPathsAndContinuations()
 end
 
 function M.buildGlobsTreatDoubleStarAsZeroOrMoreDirectories()
+   local component = buildSyntax.glob("src/*/file?.nupp")
+   assert(component("src/one/file1.nupp"))
+   assert(not component("src/one/two/file1.nupp"))
+   assert(not component("src/one/file12.nupp"))
+   local directories = buildSyntax.glob("src/**/file.nupp")
+   assert(directories("src/file.nupp"))
+   assert(directories("src/one/two/file.nupp"))
+   assert(not directories("src/one/two/not-file.nupp"))
+
    local dir = tempProject({
       ["src/root.nupp"] = "return 1\n",
       ["src/nested/child.nupp"] = "return 2\n",
