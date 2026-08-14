@@ -45,8 +45,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The stub runs the compiler, which reads its own doc comments
+          # through nupp.peg, so it carries LPeg for the same reason it
+          # carries lua-cjson.
           cargo build --release --manifest-path host/Cargo.toml \
-            --target-dir build/bootstrap-host --features cjson
+            --target-dir build/bootstrap-host --features cjson,lpeg
           cargo build --release --manifest-path runtime/native/Cargo.toml \
             --target-dir build/bootstrap-native --no-default-features \
             --features files,process
@@ -134,7 +137,7 @@ jobs:
         run: |
           cargo build --release --manifest-path host/Cargo.toml `
             --target-dir build/release-host `
-            --features cjson,lua-utf8,native-files,native-process
+            --features cjson,lpeg,lua-utf8,native-files,native-process
 
       - name: Stamp and smoke-test the standalone binary
         shell: bash
