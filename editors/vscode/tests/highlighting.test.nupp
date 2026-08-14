@@ -63,6 +63,16 @@ end
 local readonly = true
 --    ^^^^^^^^ source.nupp - keyword.other.property.nupp
 
+local record PrivateField
+--    ^^^^^^ storage.type.declaration.nupp
+   private readonly value: string
+-- ^^^^^^^ keyword.control.nupp
+--         ^^^^^^^^ keyword.other.property.nupp
+end
+
+local private = true
+--    ^^^^^^^ source.nupp - keyword.control.nupp
+
 local mt: metatable<Task>
 --        ^^^^^^^^^ support.type.builtin.nupp
 

@@ -99,6 +99,16 @@
         "path": "./syntaxes/lua.tmLanguage.json"
       }
     ],
+    "semanticTokenScopes": [
+      {
+        "language": "nupp",
+        "scopes": {
+          "keyword": [
+            "keyword.control.nupp"
+          ]
+        }
+      }
+    ],
     "configuration": {
       "title": "Nupp",
       "properties": {

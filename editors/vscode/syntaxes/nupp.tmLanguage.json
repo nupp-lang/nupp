@@ -455,6 +455,11 @@
         {
           "name": "keyword.control.nupp",
           "match": "\\b(?:each|when|infer)\\b(?=[ \\t]+[A-Za-z_{(])"
+        },
+        {
+          "comment": "private is contextual: a field modifier only when a field name and type follow.",
+          "name": "keyword.control.nupp",
+          "match": "\\bprivate\\b(?=[ \\t]+(?:readonly|writeonly|[A-Za-z_][A-Za-z0-9_]*[ \\t]*:))"
         }
       ]
     },

@@ -43,6 +43,11 @@ if (!language || language.icon?.light !== "./nupp.svg"
   || language.icon?.dark !== "./nupp.svg") {
   throw new Error("NUPP language must use nupp.svg for light and dark themes");
 }
+const semanticScopes = manifest.contributes.semanticTokenScopes || [];
+const nuppSemanticScopes = semanticScopes.find(({ language }) => language === "nupp");
+if (!nuppSemanticScopes?.scopes?.keyword?.includes("keyword.control.nupp")) {
+  throw new Error("NUPP semantic keywords must map to the grammar keyword scope");
+}
 const languageIcon = fs.readFileSync(path.join(root, "nupp.svg"), "utf8");
 if (!languageIcon.startsWith("<?xml") || !languageIcon.includes("<svg")) {
   throw new Error("NUPP language icon must be an SVG");
