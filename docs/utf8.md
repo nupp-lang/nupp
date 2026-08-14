@@ -37,4 +37,4 @@ reached.
 | truncate(text, maxBytes) | string | Copies that valid prefix. |
 
 Part of the [`nupp.data`](data.md) namespace, which also holds UUIDs, hashes
-and checksums, and bitsets.
+and checksums.

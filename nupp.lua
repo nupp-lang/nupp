@@ -627,6 +627,11 @@ nupp lsp            # start the language server]],
                   source = "docs/utf8.md",
                },
                {
+                  path = "modules/nupp/data/bitset",
+                  title = "Module: nupp.data.bitset",
+                  source = "docs/bitsets.md",
+               },
+               {
                   path = "modules/nupp/derive",
                   title = "Module: nupp.derive",
                   source = "docs/derives.md",

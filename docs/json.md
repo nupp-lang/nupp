@@ -40,4 +40,4 @@ setting reads the current value where the provider supports that form; passing
 a setting changes only that codec.
 
 Part of the [`nupp.data`](data.md) namespace, which also holds UUIDs, hashes
-and checksums, and bitsets.
+and checksums.
