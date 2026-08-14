@@ -646,6 +646,66 @@ function derive.install(c: state.Checker): derive.Ops
                 methodNames[#methodNames + 1] = methodName
             end
             table.sort(methodNames)
+            -- What one forwarding argument's type is, and whether the recipe naming it
+            -- holds up. Declared outside the loop over the members rather than in it,
+            -- because a function built inside a loop is one LuaJIT never compiles; what
+            -- varies per member is handed over instead. Validity comes back rather than
+            -- being set on a shared flag, so the caller folds one answer per argument.
+            local function argumentType(argument, parameterTypes): any, boolean
+                if argument.kind == "receiver" then
+                    if isStatic then
+                        c.diag(
+                            "NUPP2812",
+                            provider.site.arg.expr or provider.site.arg,
+                            "a static recipe has no receiver"
+                        )
+
+                        return T.unknown, false
+                    end
+
+                    return n, true
+                elseif argument.kind == "argument" then
+                    local found = parameterTypes[argument.name]
+                    if not found then
+                        c.diag(
+                            "NUPP2812",
+                            provider.site.arg.expr or provider.site.arg,
+                            "unknown method argument " .. tostring(argument.name)
+                        )
+                    end
+
+                    return found or T.unknown, found ~= nil
+                elseif argument.kind == "field" then
+                    local found = n.byname[argument.name]
+                    if not found then
+                        c.diag(
+                            "NUPP2812",
+                            nodes[argument.name] or item.stat,
+                            "derive recipe cannot read field " .. tostring(argument.name)
+                        )
+                    end
+
+                    return found or T.unknown, found ~= nil
+                elseif argument.kind == "constant" then
+                    return valueType(argument.value), true
+                elseif argument.kind == "entry" then
+                    return T.any, true
+                elseif argument.kind == "array" then
+                    local children, ok = {}, true
+                    for _, child in ipairs(argument.values or {}) do
+                        local childT, childOk = argumentType(child, parameterTypes)
+                        children[#children + 1] = childT
+                        ok = ok and childOk
+                    end
+
+                    return T.array(
+                        #children == 0 and T.unknown or #children == 1 and children[1] or T.union(children)
+                    ), ok
+                end
+
+                return T.unknown, false
+            end
+
             for _, methodName in ipairs(methodNames) do
                 local recipe = byName[methodName]
                 local requirement = requirements and requirements[methodName] or nil
@@ -737,60 +797,10 @@ function derive.install(c: state.Checker): derive.Ops
                             parameterTypes[parameterName] = callable.params[index]
                         end
                     end
-                    local function argumentType(argument)
-                        if argument.kind == "receiver" then
-                            if isStatic then
-                                c.diag(
-                                    "NUPP2812",
-                                    provider.site.arg.expr or provider.site.arg,
-                                    "a static recipe has no receiver"
-                                )
-                                valid = false
-                                return T.unknown
-                            end
-                            return n
-                        elseif argument.kind == "argument" then
-                            local found = parameterTypes[argument.name]
-                            if not found then
-                                c.diag(
-                                    "NUPP2812",
-                                    provider.site.arg.expr or provider.site.arg,
-                                    "unknown method argument " .. tostring(argument.name)
-                                )
-                                valid = false
-                            end
-                            return found or T.unknown
-                        elseif argument.kind == "field" then
-                            local found = n.byname[argument.name]
-                            if not found then
-                                c.diag(
-                                    "NUPP2812",
-                                    nodes[argument.name] or item.stat,
-                                    "derive recipe cannot read field " .. tostring(argument.name)
-                                )
-                                valid = false
-                            end
-                            return found or T.unknown
-                        elseif argument.kind == "constant" then
-                            return valueType(argument.value)
-                        elseif argument.kind == "entry" then
-                            return T.any
-                        elseif argument.kind == "array" then
-                            local children = {}
-                            for _, child in ipairs(argument.values or {}) do
-                                children[#children + 1] = argumentType(child)
-                            end
-                            return T.array(
-                                #children == 0 and T.unknown or #children == 1 and children[1] or T.union(children)
-                            )
-                        end
-                        valid = false
-
-                        return T.unknown
-                    end
-
                     for index, argument in ipairs(recipe.arguments or {}) do
-                        argumentTypes[index] = argumentType(argument)
+                        local argumentT, ok = argumentType(argument, parameterTypes)
+                        argumentTypes[index] = argumentT
+                        valid = valid and ok
                     end
                     local helperType = runtimeHelperType(recipe.helper)
                     if not helperType or helperType.tag ~= "func" then

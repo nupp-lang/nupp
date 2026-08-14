@@ -398,13 +398,16 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     end
 
     handlers["workspace/didChangeWatchedFiles"] = function(_, params)
-        for _, change in ipairs(params.changes or {}) do
-            if change.uri and change.uri:match("^file://") then
-                eachGraph(function(inc)
+        -- Graph-major rather than change-major, so the loop holds no function to build.
+        -- The graphs are independent, so telling one about every change before telling
+        -- the next is the same news in the same order.
+        eachGraph(function(inc)
+            for _, change in ipairs(params.changes or {}) do
+                if change.uri and change.uri:match("^file://") then
                     inc.diskChanged(uriToPath(change.uri), change.type)
-                end)
+                end
             end
-        end
+        end)
         refreshOpenDocuments(nil)
     end
 

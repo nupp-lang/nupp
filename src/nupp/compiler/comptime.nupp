@@ -702,6 +702,11 @@ end
 --- Installs checked, file-private helper bodies as evaluator-only callables. The token
 --- functions are never invoked by Lua; `callValues` recognizes their identities before
 --- the ordinary allowlisted-call path.
+---
+--- The token is built inside the loop because the token *is* the identity: two helpers
+--- need two objects, and a function built once outside would be one key for all of
+--- them. So this loop is one LuaJIT cannot record (`jit-loop-closure`), which is
+--- accepted here -- it runs once per file, over the helpers that file declared.
 local function installComptimeFunctions(state, env, helpers)
     for name, supplied in pairs(helpers or {}) do
         local node = supplied.node or supplied

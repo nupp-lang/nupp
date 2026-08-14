@@ -1144,28 +1144,29 @@ end
 -- closer before looking for another width-driven split.
 local function splitForcedLines(lines)
     local out, changed = {}, false
+    -- Written once per call and told which line it is cutting, rather than once per
+    -- line: a function built inside a loop is one LuaJIT never compiles, and this loop
+    -- runs over every line of every file formatted.
+    local function emit(line, from, to, first)
+        if from <= to then
+            local items = {}
+            for idx = from, to do
+                items[#items + 1] = line.items[idx]
+            end
+            out[#out + 1] = {items = items, indent = line.indent, blankBefore = first and line.blankBefore or false,}
+        end
+    end
+
     for _, line in ipairs(lines) do
         local start = 1
-        local function emit(from, to, first)
-            if from <= to then
-                local items = {}
-                for idx = from, to do
-                    items[#items + 1] = line.items[idx]
-                end
-                out[
-                    #out + 1
-                ] = {items = items, indent = line.indent, blankBefore = first and line.blankBefore or false,}
-            end
-        end
-
         for idx, item in ipairs(line.items) do
             if idx > start and item.kind == "token" and item.token.forceBreak then
-                emit(start, idx - 1, start == 1)
+                emit(line, start, idx - 1, start == 1)
                 start = idx
                 changed = true
             end
         end
-        emit(start, #line.items, start == 1)
+        emit(line, start, #line.items, start == 1)
     end
 
     return changed and out or nil

@@ -75,23 +75,31 @@ local function detachSelf(fn: any, selfName: string?): nil
     if not selfName then
         return
     end
+    -- The search first, the cell after it. Building the anchor inside the search would
+    -- be building a function inside a loop, which LuaJIT cannot record; the cell itself
+    -- has to be a fresh closure, because it is the upvalue being joined to.
+    local found = nil
     local index = 1
     while true do
         local name = debug.getupvalue(fn, index)
         if not name then
-            return
+            break
         end
         if name == selfName then
-            local value = fn
-            local function anchor(): any
-                return value
-            end
-
-            debugAny.upvaluejoin(fn, index, anchor, 1)
-            return
+            found = index
+            break
         end
         index = index + 1
     end
+    if not found then
+        return
+    end
+    local value = fn
+    local function anchor(): any
+        return value
+    end
+
+    debugAny.upvaluejoin(fn, found, anchor, 1)
 end
 
 local function moduleForSlots(slots: any): any

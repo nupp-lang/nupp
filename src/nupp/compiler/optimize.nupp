@@ -533,6 +533,62 @@ local function soleAccumulation(loop, definition, asked)
     return found
 end
 
+-- One node of a body, and every node under it. `counter` numbers the buffers a whole
+-- run creates, so it is carried in and handed back rather than kept in a name this
+-- would have to be written inside the loop to reach -- and a function written inside a
+-- loop is one LuaJIT never compiles.
+local function concatBufferBlocks(node, asked, remarks, counter: integer): integer
+    -- A function written in this body is its own body in `bodies`, and walking
+    -- into it here would judge the same statement twice.
+    if not node or isToken(node) or NESTED_FUNCTION[node.kind] then
+        return counter
+    end
+    local stats = node.kind == "block" and node.stats or nil
+    for i, stat in ipairs(stats or {}) do
+        if stat.kind == "localStmt" and #(
+            stat.names or {}
+        ) == 1 and #(stat.exprs or {}) == 1 and emptyString(stat.exprs[1]) and stat.names[1].definition then
+            local definition = stat.names[1].definition
+            -- The loop this accumulator is built by, if the statements in
+            -- between leave it alone. One that is read or reassigned before the
+            -- loop is not an accumulator being started here.
+            local loop, untouched = nil, true
+            for j = i + 1, #stats do
+                local next = stats[j]
+                if LOOPS[next.kind] then
+                    loop = next
+                    break
+                end
+                if asked.uses(definition, next) > 0 then
+                    untouched = false
+                    break
+                end
+            end
+            local accumulation = untouched and loop and soleAccumulation(loop, definition, asked) or nil
+            if accumulation then
+                counter = counter + 1
+                local name = ("__nuppBuf_%d"):format(counter)
+                stat.concatBuffer = {name = name}
+                accumulation.stat.concatBuffer = {name = name, pieces = accumulation.pieces}
+                loop.concatBuffer = {name = name, target = stat.names[1].text}
+                remark(
+                    remarks,
+                    stat,
+                    "OPT-5",
+                    (
+                        "concat-buffer: %s is built with a string.buffer, " .. "which appends instead of rebuilding"
+                    ):format(stat.names[1].text)
+                )
+            end
+        end
+    end
+    for _, child in ipairs(node) do
+        counter = concatBufferBlocks(child, asked, remarks, counter)
+    end
+
+    return counter
+end
+
 --- Lowers a string accumulated round a loop to a `string.buffer`.
 ---
 --- `s = s .. piece` in a loop is O(n^2): each round allocates a string holding
@@ -552,61 +608,9 @@ local function concatBufferWalk(result, remarks)
     if not facts then
         return
     end
-    local counter = 0
+    local counter: integer = 0
     for _, body in ipairs(result.analysis.bodies or {}) do
-        local asked = facts.body(body)
-        local function blocks(node)
-            -- A function written in this body is its own body in `bodies`, and walking
-            -- into it here would judge the same statement twice.
-            if not node or isToken(node) or NESTED_FUNCTION[node.kind] then
-                return
-            end
-            local stats = node.kind == "block" and node.stats or nil
-            for i, stat in ipairs(stats or {}) do
-                if stat.kind == "localStmt" and #(
-                    stat.names or {}
-                ) == 1 and #(stat.exprs or {}) == 1 and emptyString(stat.exprs[1]) and stat.names[1].definition then
-                    local definition = stat.names[1].definition
-                    -- The loop this accumulator is built by, if the statements in
-                    -- between leave it alone. One that is read or reassigned before the
-                    -- loop is not an accumulator being started here.
-                    local loop, untouched = nil, true
-                    for j = i + 1, #stats do
-                        local next = stats[j]
-                        if LOOPS[next.kind] then
-                            loop = next
-                            break
-                        end
-                        if asked.uses(definition, next) > 0 then
-                            untouched = false
-                            break
-                        end
-                    end
-                    local accumulation = untouched and loop and soleAccumulation(loop, definition, asked) or nil
-                    if accumulation then
-                        counter = counter + 1
-                        local name = ("__nuppBuf_%d"):format(counter)
-                        stat.concatBuffer = {name = name}
-                        accumulation.stat.concatBuffer = {name = name, pieces = accumulation.pieces}
-                        loop.concatBuffer = {name = name, target = stat.names[1].text}
-                        remark(
-                            remarks,
-                            stat,
-                            "OPT-5",
-                            (
-                                "concat-buffer: %s is built with a string.buffer, "
-                                .. "which appends instead of rebuilding"
-                            ):format(stat.names[1].text)
-                        )
-                    end
-                end
-            end
-            for _, child in ipairs(node) do
-                blocks(child)
-            end
-        end
-
-        blocks(body)
+        counter = concatBufferBlocks(body, facts.body(body), remarks, counter)
     end
 end
 

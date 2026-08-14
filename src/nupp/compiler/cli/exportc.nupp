@@ -29,13 +29,16 @@ local command = spec.command{
 compiler host is used. Header generation itself invokes no C compiler.]],
 }
 
-local function walk(node: any, visit: function(any): nil)
+-- Every node of one tree, with whatever the visitor needs carried alongside rather
+-- than captured. That is what lets the visitor be written once above the loop over the
+-- files: a function built inside a loop is one LuaJIT never compiles.
+local function walk(node: any, visit: function(any, any): nil, context: any)
     if not node or require("nupp.compiler.cst").isToken(node) then
         return
     end
-    visit(node)
+    visit(node, context)
     for _, child in ipairs(node) do
-        walk(child, visit)
+        walk(child, visit, context)
     end
 end
 
@@ -96,6 +99,13 @@ local function run(parsed: any): integer
     local parser = require("nupp.compiler.parser")
     local checker = require("nupp.compiler.check")
     local allDiagnostics, types, functions, sites = {}, {}, {}, {}
+    local function collectCdefFunction(node: any, moduleName: string?): nil
+        if node.kind == "cdefFunc" and node.name and node.cAbiSignature then
+            local qualified = (moduleName and moduleName .. "." or "") .. node.name.text
+            functions[qualified], sites[qualified] = node.cAbiSignature, node
+        end
+    end
+
     for _, path in ipairs(paths) do
         local source, readErr = fs.readFile(path)
         if not source then
@@ -117,12 +127,7 @@ local function run(parsed: any): integer
                     local qualified = (moduleName and moduleName .. "." or "") .. name
                     types[qualified], sites[qualified] = t, exports.typeDefs[name]
                 end
-                walk(result.root, function(node)
-                    if node.kind == "cdefFunc" and node.name and node.cAbiSignature then
-                        local qualified = (moduleName and moduleName .. "." or "") .. node.name.text
-                        functions[qualified], sites[qualified] = node.cAbiSignature, node
-                    end
-                end)
+                walk(result.root, collectCdefFunction, moduleName)
             end
         end
     end

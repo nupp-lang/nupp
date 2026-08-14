@@ -157,32 +157,41 @@ reads the iteration and cannot. The second is off until a project asks for it,
 because it reports correct code with no mechanical fix; what gives it teeth is
 that it goes out through `c.jitHazards`, so a function annotated `@jit` promised
 that it compiles and gets `NUPP2707` whatever the lint's level, and `jit.off` on
-the enclosing function says nothing. It found fourteen sites in this compiler,
-all of them real.
+the enclosing function says nothing.
+
+It found fifteen sites in this compiler and twelve of them are gone: a function
+that reads the iteration is written above the loop and told what varies, which
+in a few places also made what it does clearer. The three that remain are one
+shape -- `nupp.compiler.comptime` and the two registration loops in
+`nupp.compiler.materialize.peg` build a function *as* an identity, one object per
+entry, so there is nothing to hoist. Each says so where it is written. They run
+once, over a handful of entries.
+
+Two of the twelve were loops `nupp bc --check` had not reported, and they are
+the same shape: a `while` whose condition is a chain of tests, which leaves a
+forward branch over the body, which is what the checker reads as "some branch
+can skip this" and declines to report. That is the deliberately weak half of
+that heuristic doing what it was written to do, and it is the case the source
+lint answers, because a name that varies per pass is visible in the source
+whatever the branches do.
+
+The lint stays out of this project's own `nupp.lua` for a reason worth knowing
+before trying: a manifest naming a lint the tracked `bootstrap/nupp.lua` has
+never heard of cannot be read by the bootstrap, so a checkout with only the
+bootstrap could not build. Enabling it here waits on
+`fixpoint --update-bootstrap`.
 
 What is left:
 
-- [ ] **The prelude image, if its cost becomes worth it.** `env.new` measured
-      11.7 ms on August 7, all of it parsing and checking `prelude.d.nupp` on
-      every command. Storing the result means storing a cyclic type graph, which
-      `string.buffer.encode` cannot do — it rejects cycles and does not
-      preserve sharing — so it needs a codec that assigns object ids and
-      rebuilds by reference. The delicate part is not the codec but
-      `types.nupp`'s arena: every structural type is interned under its
-      canonical `id`, and a restored graph has to be rewritten to whatever the
-      arena already holds before anything compares two types by identity. Get
-      that wrong and the interface cutoff either stops cutting off or starts
-      cutting off things that differ. Eleven milliseconds against the most
-      identity-sensitive machinery in the compiler is a bad trade today; it
-      becomes a good one if the floor drops further or the graph grows.
 - [ ] **The store never shrinks below what a run touched.** `KEEP_COLD = 2048`
       (`src/nupp/compiler/build/store.nupp:36`) bounds the cold entries, which is fine
       for a project this size and unmeasured for a large one.
 - [ ] **A cleanup region inside a loop still builds a function every iteration.**
       An owned binding needs its body run under `xpcall`, and `xpcall` takes a
       function. Where that function is built per entry, the loop holding it
-      never compiles, for the same reason as the entry above — and acquiring a
-      resource per iteration is an ordinary thing to write, not a corner case.
+      never compiles, for the same reason `jit-loop-closure` reports — and
+      acquiring a resource per iteration is an ordinary thing to write, not a
+      corner case.
       Half of this is already handled and the half that is left is bigger than
       it looks. `gen` caches the region function in a module table and passes
       the binding in, building it on first entry and reusing it after

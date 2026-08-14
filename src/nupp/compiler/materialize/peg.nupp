@@ -97,6 +97,10 @@ end
 function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: any)
     local library = {}
 
+    -- The token is the identity the evaluator matches on, so each intrinsic needs an
+    -- object of its own and this builds one. That is also why the registration loops
+    -- below cannot be made recordable (`jit-loop-closure`): moving the callback out
+    -- would leave this behind. They run once, when the library is materialized.
     local function intrinsic(name, callback)
         local token = function()
         end

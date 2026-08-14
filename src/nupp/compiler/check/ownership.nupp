@@ -445,6 +445,21 @@ function ownership.install(c: state.Checker): ownership.Ops
 
     local reportedResults: {[any]: boolean} = {}
 
+    -- Once per written result, not once per pass. The same signature is normalized
+    -- where it is read as a function type, again when it is published while hoisting,
+    -- and again when the declaration is checked. The mistake is in the source, so the
+    -- report belongs to the node.
+    --
+    -- Declared here rather than beside its callers so that the loop holding them can be
+    -- compiled: a function built inside a loop is one LuaJIT cannot record.
+    local function reportOwnedResult(site, message, help)
+        if not site or reportedResults[site] then
+            return
+        end
+        reportedResults[site] = true
+        c.diag("NUPP2602", site, message, nil, {help = help})
+    end
+
     function own.normalizeOwnedResults(pack, writtenPack, at)
         -- Narrowed once here rather than at each caller: a `returnPack` is an ordinary
         -- node until its kind says otherwise, and a pack union has arms rather than
@@ -482,19 +497,6 @@ function ownership.install(c: state.Checker): ownership.Ops
                 -- lookup reaches behind its optional arm.
                 local declared = rawType(resolved)
                 local resource = own.resourceBehind(declared)
-                -- Once per written result, not once per pass. The same signature is
-                -- normalized where it is read as a function type, again when it is
-                -- published while hoisting, and again when the declaration is checked.
-                -- The mistake is in the source, so the report belongs to the node.
-                local function reportOnce(message, help)
-                    local site = written or at
-                    if not site or reportedResults[site] then
-                        return
-                    end
-                    reportedResults[site] = true
-                    c.diag("NUPP2602", site, message, nil, {help = help})
-                end
-
                 local terminals = own.inheritedTerminals(resource)
                 if resource.tag == "func" then
                     -- A closure carries its own terminal, discharged through the
@@ -505,13 +507,15 @@ function ownership.install(c: state.Checker): ownership.Ops
                     -- mean either "transfer-only on purpose" or "nothing was found",
                     -- and
                     -- nothing in the source said which.
-                    reportOnce(
+                    reportOwnedResult(
+                        written or at,
                         "an owning result needs a terminal",
                         "give the type a `@drop`, name one with `Owned<T, cleanup>`, "
                         .. "or say `Owned<T, opaque>` for a transfer-only owner"
                     )
                 elseif #terminals > 1 then
-                    reportOnce(
+                    reportOwnedResult(
+                        written or at,
                         (
                             "an owning result of %s has %d terminals to choose from"
                         ):format(T.tostring(resource), #terminals),

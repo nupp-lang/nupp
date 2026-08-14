@@ -38,6 +38,33 @@ local type Type = T.Type
 --- A node of the tree being checked.
 local type Node = cst.Node
 
+--- One indexer capability of a shape, set or reported as already taken.
+---
+--- Declared here rather than beside the loop over a shape's fields, because a function
+--- built inside a loop is one LuaJIT never compiles.
+---
+--- @param c the run's state
+--- @param indexer the indexer being built
+--- @param at the field node a duplicate is reported at
+--- @param which "read" or "write"
+local function setIndexer(
+    c: state.Checker,
+    indexer: {[string]: any},
+    at: Node,
+    key: Type,
+    value: Type,
+    which: string
+): nil
+    local keyName = which .. "Key"
+    local valueName = which .. "Value"
+    if indexer[valueName] then
+        local spelling = which == "read" and "readonly" or "writeonly"
+        c.diag("NUPP2118", at, "duplicate " .. spelling .. " indexer capability")
+    else
+        indexer[keyName], indexer[valueName] = key, value
+    end
+end
+
 --- Installs type-annotation resolution on one run. It answers through the run rather
 --- than through a table of its own, because everything that resolves an annotation
 --- already has the run in hand.
@@ -1171,24 +1198,13 @@ function resolve.install(c: state.Checker): nil
                 elseif f.kind == "tmap" then
                     local key, value = c.resolveType(f.key), c.resolveType(f.value)
                     local capability = f.capability and f.capability.propertyCapability or nil
-                    local function setIndexer(which)
-                        local keyName = which .. "Key"
-                        local valueName = which .. "Value"
-                        if indexer[valueName] then
-                            local spelling = which == "read" and "readonly" or "writeonly"
-                            c.diag("NUPP2118", f, "duplicate " .. spelling .. " indexer capability")
-                        else
-                            indexer[keyName], indexer[valueName] = key, value
-                        end
-                    end
-
                     if capability == "read" then
-                        setIndexer("read")
+                        setIndexer(c, indexer, f, key, value, "read")
                     elseif capability == "write" then
-                        setIndexer("write")
+                        setIndexer(c, indexer, f, key, value, "write")
                     else
-                        setIndexer("read")
-                        setIndexer("write")
+                        setIndexer(c, indexer, f, key, value, "read")
+                        setIndexer(c, indexer, f, key, value, "write")
                     end
                 end
             end

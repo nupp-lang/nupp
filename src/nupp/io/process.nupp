@@ -397,32 +397,33 @@ record process.Writer is nupp.io.Writer
             return 0
         end
         local sent = 0
+        local before = 0
         local function interest(): processtypes.Interest
             -- Room in this pipe, and the child: a child that exits makes every
             -- remaining write impossible, which is an answer too.
             return new processtypes.Interest(child = self.owner.handle, read = {}, write = {self.handle})
         end
 
+        -- Both of these are written above the loop rather than in it, so the loop holds
+        -- no function to build -- one that does is a loop LuaJIT never compiles. What
+        -- the pass they belong to varies by is `sent` and `before`, and a name declared
+        -- out here is the same cell every pass.
+        local function offered(): boolean
+            if self.closed or self.gone then
+                return true
+            end
+            sent = sent + self:offer(data:sub(sent + 1))
+
+            -- Return after each piece, not only after the whole value. A timeout
+            -- bounds one period with no progress; a child that keeps taking bytes
+            -- may keep the write alive beyond that interval.
+
+            return sent > before
+        end
+
         while sent < #data and not self.closed and not self.gone do
-            local before = sent
-            local completed = await(
-                self.owner,
-                "process stream write",
-                function(): boolean
-                    if self.closed or self.gone then
-                        return true
-                    end
-                    sent = sent + self:offer(data:sub(sent + 1))
-
-                    -- Return after each piece, not only after the whole value. A
-                    -- timeout bounds one period with no progress; a child that keeps
-                    -- taking bytes may keep the write alive beyond that interval.
-
-                    return sent > before
-                end,
-                interest,
-                stopAt
-            )
+            before = sent
+            local completed = await(self.owner, "process stream write", offered, interest, stopAt)
             if not completed then
                 break
             end
@@ -665,6 +666,31 @@ record process.Process
                 end
             end
 
+            -- Everything a quiet pass would have used: the streams still worth
+            -- draining, room for whatever input is left, and the child. This is the one
+            -- wait that may ask about the outputs, because it is the one that reads
+            -- them every pass -- so a ready stream leads to work rather than straight
+            -- back here.
+            --
+            -- Written here rather than at the wait it belongs to, because that wait is
+            -- inside the loop, and a function built inside a loop is one LuaJIT never
+            -- compiles. It reads what varies through names the loop shares with it.
+            local function interest(): processtypes.Interest
+                local read: {any} = {}
+                if stdout ~= nil and not stdout.eof and not stdout.closed then
+                    read[#read + 1] = stdout.handle
+                end
+                if stderr ~= nil and not stderr.eof and not stderr.closed then
+                    read[#read + 1] = stderr.handle
+                end
+                local write: {any} = {}
+                if stdin ~= nil and not stdin.closed and sent < #pending then
+                    write[#write + 1] = stdin.handle
+                end
+
+                return new processtypes.Interest(child = self.handle, read = read, write = write)
+            end
+
             while not (inputDone() and outputDone()) do
                 local moved = false
                 if stdin ~= nil and not stdin.closed then
@@ -720,27 +746,7 @@ record process.Process
                     if idle() then
                         break
                     end
-                    awaitTick(self, "process communicate", function(): processtypes.Interest
-                        -- Everything this pass would have used: the streams still worth
-                        -- draining, room for whatever input is left, and the child.
-                        -- This
-                        -- is the one wait that may ask about the outputs, because it is
-                        -- the one that reads them every pass -- so a ready stream leads
-                        -- to work rather than straight back here.
-                        local read: {any} = {}
-                        if stdout ~= nil and not stdout.eof and not stdout.closed then
-                            read[#read + 1] = stdout.handle
-                        end
-                        if stderr ~= nil and not stderr.eof and not stderr.closed then
-                            read[#read + 1] = stderr.handle
-                        end
-                        local write: {any} = {}
-                        if stdin ~= nil and not stdin.closed and sent < #pending then
-                            write[#write + 1] = stdin.handle
-                        end
-
-                        return new processtypes.Interest(child = self.handle, read = read, write = write)
-                    end)
+                    awaitTick(self, "process communicate", interest)
                 end
             end
 

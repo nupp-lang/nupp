@@ -193,52 +193,54 @@ function effectregions.install(c: state.Checker): effectregions.Ops
 
     function ops.sweep(queries)
         local diagnosed = {}
-        for _, region in ipairs(regions) do
-            local effect = region.effect
-            local function walk(node)
-                if not node or cst.isToken(node) then
-                    return
-                end
-                local kind = node.kind
-                if node ~= region.body and (
-                    kind == "localFuncStmt"
-                    or kind == "funcStmt"
-                    or kind == "inlineMethod"
-                    or kind == "constructorDecl"
-                    or kind == "funcExpr"
-                    or kind == "shortfn"
-                ) then
-                    if effect == "allocates" and not diagnosed[node] then
-                        diagnosed[node] = true
-                        report(effect, node, "allocates a closure", nil, queries)
-                    end
-                    return
-                elseif (
-                    kind == "tableExpr"
-                    or kind == "newExpr"
-                    or kind == "istring"
-                    or kind == "binop"
-                    and node.op
-                    and node.op.kind == ".."
-                ) and effect == "allocates" and not diagnosed[node] then
+        -- Written once per sweep and told which region it is walking, rather than
+        -- declared inside the loop over the regions: a function built in a loop is one
+        -- LuaJIT never compiles, and this walk is the whole of the sweep's work.
+        local function walk(node, root, effect)
+            if not node or cst.isToken(node) then
+                return
+            end
+            local kind = node.kind
+            if node ~= root and (
+                kind == "localFuncStmt"
+                or kind == "funcStmt"
+                or kind == "inlineMethod"
+                or kind == "constructorDecl"
+                or kind == "funcExpr"
+                or kind == "shortfn"
+            ) then
+                if effect == "allocates" and not diagnosed[node] then
                     diagnosed[node] = true
-                    report(effect, node, "constructs a managed value", nil, queries)
-                elseif node.effectUnknownOperation and not diagnosed[node] then
-                    diagnosed[node] = true
-                    report(effect, node, "may invoke code with unknown effects", nil, queries)
-                elseif kind == "call" or kind == "safeCall" or kind == "methodCall" then
-                    local free, why, info = callIsFree(node, effect, queries)
-                    if not free and not diagnosed[node] then
-                        diagnosed[node] = true
-                        report(effect, node, why, info, queries)
-                    end
+                    report(effect, node, "allocates a closure", nil, queries)
                 end
-                for _, child in ipairs(node) do
-                    walk(child)
+                return
+            elseif (
+                kind == "tableExpr"
+                or kind == "newExpr"
+                or kind == "istring"
+                or kind == "binop"
+                and node.op
+                and node.op.kind == ".."
+            ) and effect == "allocates" and not diagnosed[node] then
+                diagnosed[node] = true
+                report(effect, node, "constructs a managed value", nil, queries)
+            elseif node.effectUnknownOperation and not diagnosed[node] then
+                diagnosed[node] = true
+                report(effect, node, "may invoke code with unknown effects", nil, queries)
+            elseif kind == "call" or kind == "safeCall" or kind == "methodCall" then
+                local free, why, info = callIsFree(node, effect, queries)
+                if not free and not diagnosed[node] then
+                    diagnosed[node] = true
+                    report(effect, node, why, info, queries)
                 end
             end
+            for _, child in ipairs(node) do
+                walk(child, root, effect)
+            end
+        end
 
-            walk(region.body)
+        for _, region in ipairs(regions) do
+            walk(region.body, region.body, region.effect)
         end
     end
 

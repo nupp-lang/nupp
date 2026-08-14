@@ -315,6 +315,19 @@ local function structureSignature(node, includePrivate)
     return trim(formatted)
 end
 
+-- Every token under one annotation argument, in order. A separate function rather than
+-- one written inside the loop over the arguments, because a function built inside a
+-- loop is one LuaJIT never compiles.
+local function annotationTokens(child, parts: {string}): nil
+    if cst.isToken(child) then
+        parts[#parts + 1] = child.text
+    else
+        for _, nested in ipairs(child) do
+            annotationTokens(nested, parts)
+        end
+    end
+end
+
 -- One annotation as it was written. Built from the name and its arguments rather than
 -- from the node's text, because a node carries its leading trivia and that trivia is
 -- the
@@ -327,17 +340,7 @@ local function annotationText(node): string?
     local args = {}
     for _, arg in ipairs(node.annotationArgs or {}) do
         local parts: {string} = {}
-        local function walk(child)
-            if cst.isToken(child) then
-                parts[#parts + 1] = child.text
-            else
-                for _, nested in ipairs(child) do
-                    walk(nested)
-                end
-            end
-        end
-
-        walk(arg)
+        annotationTokens(arg, parts)
         args[#args + 1] = trim(table.concat(parts))
     end
     if #args == 0 then
