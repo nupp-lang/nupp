@@ -16,6 +16,10 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+const SOURCE_DIR_ENV: &str = "NUPP_HOST_SOURCE_DIR";
+const SOURCE_BASE_URL_ENV: &str = "NUPP_HOST_SOURCE_BASE_URL";
+const OFFLINE_ENV: &str = "NUPP_HOST_OFFLINE";
+
 const CJSON_VERSION: &str = "2.1.0.14";
 const CJSON_SHA256: &str = "14cac5c7a4520b33449a1fc961344556b8b6a2a2c6b739b0e46e3002e6e605bc";
 
@@ -34,6 +38,9 @@ const LUAJIT_SHA256: &str = "85497ea149d136afbe2d7ef222e08849248e52cecc6dc8deefd
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    for name in [SOURCE_DIR_ENV, SOURCE_BASE_URL_ENV, OFFLINE_ENV] {
+        println!("cargo:rerun-if-env-changed={name}");
+    }
 
     export_native_provider();
 
@@ -229,23 +236,15 @@ fn enabled(name: &str) -> bool {
 /// library and the headers both live in `src/` there, which is where LuaJIT's
 /// own makefile leaves them.
 fn build_luajit(out: &Path) -> PathBuf {
-    let root = out.join(format!("LuaJIT-{LUAJIT_REV}"));
+    let directory = format!("LuaJIT-{LUAJIT_REV}");
+    let root = out.join(&directory);
     let library = root.join("src").join(static_library_name());
     if library.exists() {
         return root;
     }
 
-    let archive = out.join("luajit.tar.gz");
     let url = format!("https://github.com/LuaJIT/LuaJIT/archive/{LUAJIT_REV}.tar.gz");
-    run(Command::new("curl").args(["-sSL", "-o"]).arg(&archive).arg(&url));
-
-    let digest = sha256(&archive);
-    assert_eq!(
-        digest, LUAJIT_SHA256,
-        "LuaJIT {LUAJIT_REV} does not match its pinned digest; refusing to \
-         compile something other than what this build was written against"
-    );
-    run(Command::new("tar").arg("xzf").arg(&archive).arg("-C").arg(out));
+    extract_archive(out, &directory, &url, LUAJIT_SHA256, "src/lj_arch.h");
 
     let target = std::env::var("TARGET").expect("cargo sets TARGET");
     if target.contains("msvc") {
@@ -335,13 +334,48 @@ fn fetch_cjson(out: &Path) -> PathBuf {
 /// is unpacked, so a mirror that served something else is refused rather than
 /// compiled.
 fn fetch_archive(out: &Path, directory: &str, url: &str, digest: &str, marker: &str) -> PathBuf {
+    extract_archive(out, directory, url, digest, marker)
+}
+
+/// Finds one exact pinned source archive and extracts it into Cargo's output.
+///
+/// An existing extraction or output-directory archive is the nearest cache. A
+/// directory named by `NUPP_HOST_SOURCE_DIR` comes next, so an offline builder,
+/// package manager or CI cache can supply the same immutable archives without
+/// teaching Cargo about their layout. Only a miss reaches the network. A mirror
+/// may replace the URL prefix, but never the digest which authenticates the
+/// selected bytes.
+fn extract_archive(out: &Path, directory: &str, url: &str, digest: &str, marker: &str) -> PathBuf {
     let extracted = out.join(directory);
     if extracted.join(marker).exists() {
         return extracted;
     }
 
-    let archive = out.join(format!("{directory}.tar.gz"));
-    run(Command::new("curl").args(["-sSL", "-o"]).arg(&archive).arg(url));
+    let archive_name = format!("{directory}.tar.gz");
+    let cached = out.join(&archive_name);
+    let archive = if cached.is_file() {
+        cached
+    } else if let Some(source_dir) = source_directory() {
+        let supplied = source_dir.join(&archive_name);
+        if supplied.is_file() {
+            supplied
+        } else if offline() {
+            panic!(
+                "{OFFLINE_ENV} is enabled and {archive_name} is not in {}; \
+                 supply the pinned archive there or disable offline mode",
+                source_dir.display()
+            );
+        } else {
+            download_archive(out, &archive_name, archive_url(url, &archive_name), digest)
+        }
+    } else if offline() {
+        panic!(
+            "{OFFLINE_ENV} is enabled and {archive_name} is not cached; set \
+             {SOURCE_DIR_ENV} to a directory containing the pinned archive"
+        );
+    } else {
+        download_archive(out, &archive_name, archive_url(url, &archive_name), digest)
+    };
 
     let found = sha256(&archive);
     assert_eq!(
@@ -351,7 +385,90 @@ fn fetch_archive(out: &Path, directory: &str, url: &str, digest: &str, marker: &
     );
 
     run(Command::new("tar").arg("xzf").arg(&archive).arg("-C").arg(out));
+    assert!(
+        extracted.join(marker).is_file(),
+        "{archive_name} did not extract the expected {directory}/{marker}"
+    );
     extracted
+}
+
+/// The optional directory holding already downloaded source archives. Relative
+/// paths are resolved from the host crate, not from whichever directory invoked
+/// Cargo, so the same setting means the same thing in every build frontend.
+fn source_directory() -> Option<PathBuf> {
+    let configured = std::env::var_os(SOURCE_DIR_ENV)?;
+    assert!(!configured.is_empty(), "{SOURCE_DIR_ENV} must not be empty");
+    let path = PathBuf::from(configured);
+    if path.is_absolute() {
+        Some(path)
+    } else {
+        Some(
+            PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets it"))
+                .join(path),
+        )
+    }
+}
+
+/// Replaces the upstream location with a flat mirror when one is configured.
+fn archive_url(upstream: &str, archive_name: &str) -> String {
+    match std::env::var(SOURCE_BASE_URL_ENV) {
+        Ok(base) => {
+            let base = base.trim_end_matches('/');
+            assert!(!base.is_empty(), "{SOURCE_BASE_URL_ENV} must not be empty");
+            format!("{base}/{archive_name}")
+        }
+        Err(std::env::VarError::NotPresent) => upstream.to_owned(),
+        Err(error) => panic!("cannot read {SOURCE_BASE_URL_ENV}: {error}"),
+    }
+}
+
+/// Downloads into a temporary sibling, verifies it, then installs it as a cache
+/// entry. A failed transfer or digest never becomes a file a later build trusts.
+fn download_archive(out: &Path, archive_name: &str, url: String, digest: &str) -> PathBuf {
+    let archive = out.join(archive_name);
+    let temporary = out.join(format!(
+        ".{archive_name}.{}.download",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&temporary);
+    let status = Command::new("curl")
+        .args(["--fail", "--location", "--silent", "--show-error", "--output"])
+        .arg(&temporary)
+        .arg(&url)
+        .status()
+        .unwrap_or_else(|error| panic!("cannot download {url} with curl: {error}"));
+    if !status.success() {
+        let _ = std::fs::remove_file(&temporary);
+        panic!("cannot download {url}: curl failed with {status}");
+    }
+    let found = sha256(&temporary);
+    if found != digest {
+        let _ = std::fs::remove_file(&temporary);
+        panic!(
+            "{archive_name} downloaded from {url} has digest {found}, expected \
+             {digest}; refusing to cache or compile it"
+        );
+    }
+    std::fs::rename(&temporary, &archive).unwrap_or_else(|error| {
+        panic!(
+            "cannot install downloaded {archive_name} at {}: {error}",
+            archive.display()
+        )
+    });
+    archive
+}
+
+fn offline() -> bool {
+    let Some(value) = std::env::var_os(OFFLINE_ENV) else {
+        return false;
+    };
+    match value.to_string_lossy().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => true,
+        "0" | "false" | "no" | "off" => false,
+        _ => panic!(
+            "{OFFLINE_ENV} must be one of 1, true, yes, on, 0, false, no or off"
+        ),
+    }
 }
 
 /// Holds `host/notices` to what the pinned sources actually say.

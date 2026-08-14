@@ -125,6 +125,44 @@ into it, and what makes `nupp` itself usable during development.
 Everything else a stub does is its own business. A game engine's stub may open a
 window and own an event loop before step 6; Nupp's own does none of that.
 
+## Host source acquisition
+
+The compiler-owned host builds its pinned LuaJIT, lua-cjson, LPeg and luautf8
+sources rather than committing generated native artifacts or source archives.
+An ordinary cold build downloads the exact upstream archives and verifies their
+SHA-256 digests before extraction. An extracted source tree or archive already
+in Cargo's output directory is reused before any download.
+
+Package managers, offline builders and CI caches may put the same canonically
+named archives in another directory and point the build at it:
+
+```sh
+NUPP_HOST_SOURCE_DIR=/opt/nupp-sources \
+NUPP_HOST_OFFLINE=1 \
+cargo build --release --manifest-path host/Cargo.toml
+```
+
+`NUPP_HOST_SOURCE_DIR` may be relative to `host/`, though an absolute path is
+usually clearer. It contains archives named after their extracted directories:
+
+```text
+LuaJIT-1edc3e52b67eaf6ce5f809be8e17d6862594b8bc.tar.gz
+lua-cjson-2.1.0.14.tar.gz
+lpeg-1.1.0.tar.gz
+luautf8-0.2.1.tar.gz
+```
+
+Every supplied archive is checked against the same committed digest as a
+download; pointing elsewhere changes where bytes come from, never which bytes
+the build accepts.
+
+`NUPP_HOST_SOURCE_BASE_URL` replaces the upstream locations with one flat mirror
+whose final path component is the canonical archive name. It is consulted only
+after the output cache and source directory miss. `NUPP_HOST_OFFLINE` accepts
+`1`, `true`, `yes` or `on` to forbid that last network fallback, and the
+corresponding false values to allow it. An offline miss names the archive and
+the source-directory setting needed to supply it.
+
 ## Third-party notices
 
 The compiler-owned stub links LuaJIT, and, where the features are on, LPeg,

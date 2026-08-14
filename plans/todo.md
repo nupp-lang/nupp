@@ -19,13 +19,15 @@ work makes sense in.
       damages a stamped binary twenty ways, feeds its language server nine
       malformed sessions, and replays a recorded editor session through it
       against the same session through `bin/nupp`. What remains:
-  - [ ] decide whether pinned-and-fetched is enough or the sources should be
-        vendored in-tree; a build still needs `curl` and the network, which a
-        vendored tree would not
+  - [x] keep the sources pinned-and-fetched without committing archive blobs;
+        `NUPP_HOST_SOURCE_DIR` supplies existing verified archives,
+        `NUPP_HOST_SOURCE_BASE_URL` selects a mirror, output-directory archives
+        are reused, and `NUPP_HOST_OFFLINE` forbids a network fallback
   - [ ] strict JSON numbers and explicit empty array/object semantics are set
         per call site on the Nupp side, not in the host
-  - [ ] cross-target stub selection and shipped per-platform stubs; a binary
-        target still has no target list or cross-build selection
+  - [ ] cross-target stub selection and shipped per-platform stubs
+        ([plan](cross-target-binaries.md)); a binary target still has no target
+        list or cross-build selection
 - [ ] **The `nupp-cargo` helper is a manifest provider now, and what is left of
       it is two promises it does not keep.** `kind = "cargo"` builds a crate's
       cdylib into an isolated target directory, forwards `target`, `profile`,
