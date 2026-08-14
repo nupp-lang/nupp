@@ -106,8 +106,7 @@ function M.automaticCleanupParticipatesInTheRaisingSummary()
       "local record Resource end",
       "@drop",
       "local function close(takes value: Resource): nil error('close') end",
-      "@owned(close)",
-      "local function open(): Resource return new Resource() end",
+      "local function open(): Owned<Resource, close> return new Resource() end",
       "local function use(): nil local value = open() end",
       "noraise do use() end",
    }, "\n"))

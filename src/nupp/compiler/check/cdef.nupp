@@ -185,11 +185,18 @@ function cdef.install(
                     )
                 end
                 local abiCountedBy = (p as cst.Param).countedBy
+                -- The ABI record is the C signature, and an ownership wrapper is not
+                -- part of it. An out parameter carries the wrapper inside its pointer,
+                -- so the slot is unwrapped rather than the pointer around it.
+                local abiType = T.unwrapOwnership(pt)
+                if abiType.tag == "ptr" and abiType.elem.tag == "owned" then
+                    abiType = T.ptr(T.unwrapOwnership(abiType.elem))
+                end
                 abiParams[
                     #abiParams + 1
                 ] = {
                     name = pname and pname.text or ("arg" .. tostring(parameterIndex)),
-                    type = T.unwrapOwnership(pt),
+                    type = abiType,
                     mode = mode,
                     countedBy = abiCountedBy and abiCountedBy.text or nil,
                 }

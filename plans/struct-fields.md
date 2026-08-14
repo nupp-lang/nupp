@@ -140,7 +140,7 @@ Three ways out, and none is good:
 
 1. **A strong registry.** Pools are held by a module-level table, so an element is
    valid while its pool is registered, and release is a program action. Element
-   validity then equals pool liveness, which is exactly Nupp's `@owned` model --
+   validity then equals pool liveness, which is exactly Nupp's `Owned<T>` model --
    at the pool, not the element. But use after release is undefined and
    unchecked, so element access becomes an unsafe operation wearing a typed
    field's clothes. That contradicts the reason for doing this in the language.

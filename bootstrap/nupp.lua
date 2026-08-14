@@ -2433,7 +2433,6 @@ local BUILTINS = {
 { name = "annotationValue" , arguments = "none" , targets = { "field" } , } ,
 { name = "ref" , arguments = "none" , targets = { "field" } , } ,
 { name = "allow" , arguments = "warnings" , targets = { "statement" } , } ,
-{ name = "owned" , arguments = "owned" , targets = { "function" , "c-function" , "field" } , } ,
 { name = "borrowed" , arguments = "owned" , targets = { "c-function" } , } ,
 { name = "drop" , arguments = "none" , targets = { "function" , "c-function" , "field" } , } ,
 { name = "override" , arguments = "none" , targets = { "function" } , } ,
@@ -14627,7 +14626,8 @@ if c . ownershipKind ( valueT ) == "owned" and # ( dropped . cleanups or { } ) =
 c . diag (
 "NUPP2602" ,
 args [ 1 ] or node ,
-"drop needs @owned cleanup functions; transfer this owner " .. "to a declared takes parameter"
+"drop needs a named terminal; transfer this owner "
+.. "to a declared takes parameter"
 )
 end
 node . ownershipIntrinsic = "drop"
@@ -17823,14 +17823,14 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 
+
+
 local T = require ( "nupp.compiler.types" )
-local narrowing = require ( "nupp.compiler.narrowing" )
 local generics = require ( "nupp.compiler.generics" )
 local cabi = require ( "nupp.compiler.cabi" )
 local cst = require ( "nupp.compiler.cst" )
 local state = require ( "nupp.compiler.check.state" )
 
-local subtract = narrowing . subtract
 
 local cdef = { }
 
@@ -17963,10 +17963,6 @@ local params , paramModes , paramNames = { } , { } , { }
 local abiParams = { }
 local physicalNodes , physicalDefs = { } , { }
 local outputByName = { }
-for _ , output in ipairs ( stat . ownedOuts or { } ) do
-output . kind = "owned"
-outputByName [ output . name ] = output
-end
 for _ , output in ipairs ( stat . borrowedOuts or { } ) do
 output . kind = "borrowed"
 outputByName [ output . name ] = output
@@ -18000,11 +17996,18 @@ p ,
 )
 end
 local abiCountedBy = ( p ) . countedBy
+
+
+
+local abiType = T . unwrapOwnership ( pt )
+if abiType . tag == "ptr" and abiType . elem . tag == "owned" then
+abiType = T . ptr ( T . unwrapOwnership ( abiType . elem ) )
+end
 abiParams [
 # abiParams + 1
 ] = {
 name = pname and pname . text or ( "arg" .. tostring ( parameterIndex ) ) ,
-type = pt ,
+type = abiType ,
 mode = mode ,
 countedBy = abiCountedBy and abiCountedBy . text or nil ,
 }
@@ -18016,24 +18019,40 @@ local countedBy = ( p ) . countedBy
 if countedBy then
 c . diag ( "NUPP2630" , countedBy , "countedBy does not support out parameters" )
 end
-local output = outputByName [ pname and pname . text or "" ]
+local named = pname and pname . text or ""
+local output = outputByName [ named ]
+local slot = pt . tag == "ptr" and pt . elem or nil
+
+
+
+
+if slot and slot . tag == "owned" and not output then
+output = {
+kind = "owned" ,
+name = named ,
+cleanups = slot . cleanups ,
+opaque = slot . opaque ,
+at = p ,
+}
+end
 if not output then
-c . diag ( "NUPP2602" , p , "out parameter needs an @owned(out = ...) contract" )
-elseif pt . tag ~= "ptr" then
-c . diag ( "NUPP2602" , p , "out parameter must have pointer-to-pointer type" )
-elseif not pointerShaped ( pt . elem ) then
+c . diag (
+"NUPP2602" ,
+p ,
+"an out parameter is written `out p: Owned<T, cleanup>*`, "
+.. "or given a @borrowed(out = ...) contract"
+)
+elseif not slot or not pointerShaped ( T . unwrapOwnership ( slot ) ) then
 c . diag ( "NUPP2602" , p , "out parameter must have pointer-to-pointer type" )
 else
 output . typeNode = declared
-output . valueType = pt . elem
+output . valueType = T . unwrapOwnership ( slot )
 output . cIndex = parameterIndex
 output . hasStatus = stat . ret ~= nil
-if output . success ~= "always" and not stat . ret then
-c . diag ( "NUPP2602" , output . at or p , "conditional output needs a C status return" )
-end
+output . success = output . success or "pending"
 ffiOut [ # ffiOut + 1 ] = output
 end
-outputByName [ pname and pname . text or "" ] = nil
+outputByName [ named ] = nil
 else
 params [ # params + 1 ] = pt
 paramModes [ # params ] = mode
@@ -18049,40 +18068,60 @@ c . diag ( "NUPP2602" , output . at or stat , ( "output contract %q names no out
 end
 local rets = { }
 local abiResult = nil
-if stat . ownCleanups and not stat . ret then
-c . diag ( "NUPP2602" , stat . ownTok or stat , "@owned requires an annotated pointer return type" )
-end
 if stat . ret then
+c . cdefReturn = true
 local rt = c . resolveType ( stat . ret )
-abiResult = rt
+c . cdefReturn = nil
 rets [ 1 ] = rt
-if stat . ownCleanups then
-local base = rt
-if base . tag == "union" then
-base = subtract ( base , T . nil_ )
+
+
+
+local raw = T . unwrapOwnership ( rt )
+abiResult = raw
+if rt . tag == "owned" then
+if not pointerShaped ( raw ) and raw ~= T . cstring then
+c . diag ( "NUPP2203" , stat . ret , "an owned cdef return must be a pointer" )
 end
-if base . tag ~= "ptr" and base ~= T . cstring and base ~= T . voidptr then
-c . diag ( "NUPP2203" , stat . ret , "@owned applies to pointer returns only" )
+local cleanups = resolvedOwnedCleanups ( raw , rt . cleanups , rt . opaque , stat . ret , nil )
+local owner = T . owned ( raw , cleanups )
+rets [ 1 ] = owner
+validateCleanups ( owner , cleanups , stat . ret , "NUPP2615" )
 end
-stat . ownCleanups = resolvedOwnedCleanups (
-rt ,
-stat . ownCleanups ,
-stat . ownOpaque ,
-stat . ownTok or stat ,
-stat . cleanupRegistrationNode
-)
-rets [ 1 ] = T . owned ( rt , stat . ownCleanups )
-end
-if not ( reifiableField ( rt , true ) or rt == T . number ) then
-c . diag ( "NUPP2203" , stat . ret , ( "cdef return: %s is not a C type" ) : format ( T . tostring ( rt ) ) )
+if not ( reifiableField ( raw , true ) or raw == T . number ) then
+c . diag ( "NUPP2203" , stat . ret , ( "cdef return: %s is not a C type" ) : format ( T . tostring ( raw ) ) )
 end
 if rt . tag == "nominal" and rt . declKind == "struct" and not rt . cdefName then
 c . diag ( "NUPP2203" , stat . ret , "an ordinary Nupp struct crosses a C boundary by pointer, not by value" )
 end
 end
+
+
+
+local success = stat . ret and ( stat . ret ) . cdefSuccess or "always"
 for _ , output in ipairs ( ffiOut ) do
+if output . success == "pending" then
+output . success = success
+end
+if output . success ~= "always" and not stat . ret then
+c . diag ( "NUPP2602" , output . at or stat , "conditional output needs a C status return" )
+end
 local valueType = output . success == "always" and output . valueType or T . optional ( output . valueType )
-if output . kind == "borrowed" then
+if output . kind == "owned" then
+output . cleanups = resolvedOwnedCleanups (
+output . valueType ,
+output . cleanups ,
+output . opaque ,
+output . at or stat ,
+nil
+)
+validateCleanups (
+T . owned ( output . valueType , output . cleanups ) ,
+output . cleanups ,
+output . at or stat ,
+"NUPP2615"
+)
+rets [ # rets + 1 ] = T . owned ( valueType , output . cleanups )
+else
 output . sourceParam = logicalByName [ output . source ]
 if not output . sourceParam then
 c . diag (
@@ -18094,22 +18133,6 @@ elseif paramModes [ output . sourceParam ] ~= "borrows" then
 c . diag ( "NUPP2602" , output . at or stat , "a borrowed output source must be a borrows parameter" )
 end
 rets [ # rets + 1 ] = T . borrowed ( valueType )
-else
-output . cleanups = resolvedOwnedCleanups (
-output . valueType ,
-output . cleanups ,
-false ,
-output . at or stat ,
-output . cleanupRegistrationNode
-)
-local ownedOutput = T . owned ( valueType , output . cleanups )
-validateCleanups (
-T . owned ( output . valueType , output . cleanups ) ,
-output . cleanups ,
-output . at or stat ,
-"NUPP2615"
-)
-rets [ # rets + 1 ] = ownedOutput
 end
 output . returnIndex = # rets
 end
@@ -20675,14 +20698,11 @@ if e . type and e . type . kind == "tfunc" then
 c . raises . checkParams ( e , ( e . type ) . params or { } )
 end
 local isDropOperation = false
-local ownedApplication = nil
 local partitionApplication = nil
 for _ , application in ipairs ( e . annotations or { } ) do
 local definition2 , valid = validateAnnotation ( application , e , stat )
 if definition2 and valid and application . name . text == "drop" then
 isDropOperation = true
-elseif definition2 and valid and application . name . text == "owned" then
-ownedApplication = application
 elseif definition2 and valid and application . name . text == "partition" then
 partitionApplication = application
 end
@@ -20754,124 +20774,6 @@ partitionApplication ,
 )
 else
 ft = T . withPartitionResults ( ft , { [ 1 ] = { [ names [ 1 ] ] = "L" , [ names [ 2 ] ] = "R" } } )
-end
-end
-if ownedApplication then
-local ownedMembers = ft . tag == "intersection" and ft . members or { ft }
-local fixedResults = true
-for _ , member in ipairs ( ownedMembers ) do
-if member . tag ~= "func" or not member . rets [ 1 ] or member . retPack . alternatives then
-fixedResults = false
-break
-end
-end
-if not fixedResults then
-c . diag ( "NUPP2602" , ownedApplication , "@owned field requires a callable with a fixed result" )
-else
-local cleanupNames , opaque = { } , false
-for _ , arg in ipairs ( ownedApplication . annotationArgs or { } ) do
-local expr = arg . expr
-local argName = arg . name and arg . name . text or nil
-if argName == "opaque" and expr and expr . kind == "trueExpr" then
-opaque = true
-elseif argName == "cleanup" then
-local cleanupExprs = { }
-if expr and expr . kind == "name" then
-cleanupExprs [ 1 ] = expr
-elseif expr and expr . kind == "tableExpr" then
-for _ , item in ipairs ( expr . fields or { } ) do
-cleanupExprs [ # cleanupExprs + 1 ] = item . value
-end
-end
-if # cleanupExprs == 0 then
-c . diag ( "NUPP2602" , arg , "@owned cleanup must name one or more functions" )
-end
-for _ , cleanupExpr in ipairs ( cleanupExprs ) do
-if cleanupExpr and cleanupExpr . kind == "name" then
-cleanupNames [ # cleanupNames + 1 ] = cleanupExpr . token . text
-local entry = c . lookupEntry ( cleanupExpr . token . text )
-if entry then
-c . markToken (
-cleanupExpr . token ,
-entry . definition ,
-entry . t ,
-entry . definition and entry . definition . kind or "function"
-)
-end
-else
-c . diag ( "NUPP2602" , arg , "@owned cleanup entries must be function names" )
-end
-end
-elseif not argName and expr and expr . kind == "name" then
-cleanupNames [ # cleanupNames + 1 ] = expr . token . text
-local entry = c . lookupEntry ( expr . token . text )
-if entry then
-c . markToken (
-expr . token ,
-entry . definition ,
-entry . t ,
-entry . definition and entry . definition . kind or "function"
-)
-end
-else
-c . diag ( "NUPP2602" , arg , "invalid @owned field argument" )
-end
-end
-if opaque and # cleanupNames > 0 then
-c . diag (
-"NUPP2602" ,
-ownedApplication ,
-"@owned(opaque = true) cannot also declare cleanup functions"
-)
-end
-local wrapped = { }
-local settledCleanups = nil
-for _ , member in ipairs ( ownedMembers ) do
-local callable = member
-local resultType = callable . rets [ 1 ]
-local cleanups = c . own . resolvedOwnedCleanups (
-resultType ,
-cleanupNames ,
-opaque ,
-ownedApplication ,
-ownedApplication
-)
-settledCleanups = settledCleanups or cleanups
-c . own . validateCleanups ( resultType , cleanups , ownedApplication )
-wrapped [ # wrapped + 1 ] = T . withFirstResult ( callable , T . owned ( resultType , cleanups ) )
-end
-ft = # wrapped == 1 and wrapped [ 1 ] or T . intersection ( wrapped )
-
-
-
-
-local signatures = { }
-if e . type and e . type . kind == "tfunc" then
-signatures [ 1 ] = e . type
-elseif e . type and e . type . kind == "tintersection" then
-for _ , part in ipairs ( ( e . type ) . types or { } ) do
-if part . kind == "tfunc" then
-signatures [ # signatures + 1 ] = part
-end
-end
-end
-local results = { }
-for _ , signature in ipairs ( signatures ) do
-local pack = signature . returnPack
-local written = pack and pack . kind == "tpack" and (
-pack
-) . types or signature . rets
-local value = cst . resultValueType ( written and written [ 1 ] or nil )
-results [ # results + 1 ] = value
-end
-ownedApplication . declaresAt = cst . firstToken ( e )
-c . own . reportOwnedAnnotation (
-ownedApplication ,
-ownedApplication . name ,
-# results == # signatures and results or { } ,
-settledCleanups or { } ,
-opaque
-)
 end
 end
 local fieldBorrowRelation = e . type and (
@@ -25262,19 +25164,8 @@ local functions = { }
 function functions . install ( c )
 local registerDefaultDropOperation = c . own . registerDefaultDropOperation
 
-local resolvedOwnedCleanups = c . own . resolvedOwnedCleanups
 local ownershipState , pointerShaped = c . ownershipState , c . pointerShaped
-local validateCleanups = c . validateCleanups
 local expectedFuncbodies = { }
-
-local function writtenResultOf ( body )
-local written = body . returnPack and body . returnPack . kind == "tpack" and (
-body . returnPack
-) . types or body . rets
-local value = cst . resultValueType ( written and written [ 1 ] or nil )
-
-return value and { value } or { }
-end
 
 local function inferredParameterModes ( body )
 local modes , byname , declared = { } , { } , { }
@@ -25908,41 +25799,9 @@ end
 
 
 
-local annotationOwnedFirst = body . ownCleanups ~= nil
-if body . ownCleanups then
-if not annotated or not annotated [ 1 ] then
-c . diag ( "NUPP2602" , body . ownTok or body , "@owned requires an annotated return type" )
-else
-body . ownCleanups = resolvedOwnedCleanups (
-annotated [ 1 ] ,
-body . ownCleanups ,
-body . ownOpaque ,
-body . ownTok or body ,
-body . cleanupRegistrationNode
-)
-annotated [ 1 ] = T . owned ( rawType ( annotated [ 1 ] ) , body . ownCleanups )
-rets [ 1 ] = annotated [ 1 ]
-validateCleanups ( annotated [ 1 ] , body . ownCleanups , body . ownTok or body , "NUPP2615" )
-c . own . reportOwnedAnnotation (
-body . cleanupRegistrationNode ,
-body . ownTok ,
-writtenResultOf ( body ) ,
-body . ownCleanups ,
-body . ownOpaque
-)
-end
-end
-
-
-
-
-
-
-
 local ownedReturns = { }
 local ownsAResult = false
 local writtenResults = body . rets
-
 
 
 
@@ -25955,10 +25814,10 @@ local wroteOwned = written ~= nil
 and written . kind == "tname"
 and written . base ~= nil
 and written . base . text == "Owned"
-if wroteOwned and j == 1 and not annotationOwnedFirst then
+if wroteOwned and j == 1 then
 body . ownCleanups = ret . cleanups
 end
-if wroteOwned or ( j == 1 and annotationOwnedFirst ) then
+if wroteOwned then
 ownsAResult = true
 ownedReturns [ j ] = rawType ( ret )
 end
@@ -29264,15 +29123,6 @@ local rawType = T . unwrapOwnership
 
 
 
-
-
-
-
-
-
-
-
-
 function ownership . install ( c )
 local own = { }
 local pendingDefaultCleanups = { }
@@ -29475,7 +29325,7 @@ if not cleanupT then
 c . diag (
 code ,
 at ,
-( "@owned cleanup %q is not declared" ) : format ( cleanup . name ) ,
+( "cleanup %q is not declared" ) : format ( cleanup . name ) ,
 nil ,
 {
 notes = {
@@ -29486,9 +29336,9 @@ notes = {
 }
 )
 elseif cleanupT and cleanupT ~= T . any and ( not firstParam or not isA ( cleanupValue , firstParam ) ) then
-c . diag ( code , at , ( "@owned cleanup %q must accept %s" ) : format ( cleanup . name , T . tostring ( cleanupValue ) ) )
+c . diag ( code , at , ( "cleanup %q must accept %s" ) : format ( cleanup . name , T . tostring ( cleanupValue ) ) )
 elseif cleanupFunc and j < # ( cleanups or { } ) and cleanupFunc . paramModes [ 1 ] == "takes" then
-c . diag ( "NUPP2615" , at , ( "@owned cleanup %q takes before the final step" ) : format ( cleanup . name ) )
+c . diag ( "NUPP2615" , at , ( "cleanup %q takes before the final step" ) : format ( cleanup . name ) )
 end
 :: continue ::
 end
@@ -29511,8 +29361,8 @@ if base . tag ~= "nominal" then
 c . diag (
 "NUPP2602" ,
 at ,
-"bare @owned needs exactly one inherited @drop operation; "
-.. "use @owned(cleanup) or @owned(opaque = true)"
+"bare Owned<T> needs exactly one inherited @drop operation; "
+.. "use Owned<T, cleanup> or Owned<T, opaque>"
 )
 return { }
 end
@@ -29524,7 +29374,8 @@ elseif # defaults > 1 then
 c . diag (
 "NUPP2602" ,
 at ,
-"bare @owned has multiple inherited @drop operations; " .. "choose one with @owned(cleanup)"
+"bare Owned<T> has multiple inherited @drop operations; "
+.. "choose one with Owned<T, cleanup>"
 )
 return { }
 end
@@ -29538,14 +29389,15 @@ if # pending . defaults == 0 then
 c . diag (
 "NUPP2602" ,
 pending . at ,
-"bare @owned needs exactly one inherited @drop operation; "
-.. "use @owned(cleanup) or @owned(opaque = true)"
+"bare Owned<T> needs exactly one inherited @drop operation; "
+.. "use Owned<T, cleanup> or Owned<T, opaque>"
 )
 elseif # pending . defaults > 1 then
 c . diag (
 "NUPP2602" ,
 pending . at ,
-"bare @owned has multiple inherited @drop operations; choose one with @owned(cleanup)"
+"bare Owned<T> has multiple inherited @drop operations; "
+.. "choose one with Owned<T, cleanup>"
 )
 end
 end
@@ -29705,84 +29557,6 @@ end
 
 
 
-
-function own . reportOwnedAnnotation ( annotation , site , results , cleanups , opaque )
-site = site or annotation
-if not annotation or not site then
-return
-end
-cleanups = cleanups or { }
-local refusal = nil
-if # cleanups > 1 then
-refusal = "cannot rewrite: a cleanup list composes failure behaviour one terminal does not"
-elseif # results == 0 then
-refusal = "cannot rewrite: this declaration states no result to move the contract into"
-end
-local inner = nil
-if opaque then
-inner = "opaque"
-else
-for _ , arg in ipairs ( annotation . annotationArgs or { } ) do
-local argName = arg . name and arg . name . text or nil
-local expr = arg . expr
-local named = expr and expr . kind == "name" and expr . token and expr . token . text or nil
-if named and ( argName == nil or argName == "cleanup" ) then
-inner = named
-break
-end
-end
-end
-if not inner and # cleanups ~= 1 then
-refusal = refusal or "cannot rewrite: a bare contract resolved to no single terminal"
-end
-local spelling = inner and ( "Owned<T, %s>" ) : format ( inner ) or "Owned<T>"
-local fixes = nil
-local annotationStart = cst . firstToken ( annotation )
-local declaration = annotation . stat and cst . firstToken ( annotation . stat ) or annotation . declaresAt
-local placements = { }
-for _ , value in ipairs ( results ) do
-local valueStart = value and cst . firstToken ( value ) or nil
-local valueEnd = value and cst . lastToken ( value ) or nil
-if valueStart and valueEnd then
-placements [ # placements + 1 ] = { first = valueStart , last = valueEnd }
-end
-end
-if not refusal and (
-# placements ~= # results or not annotationStart or not declaration
-) then
-refusal = "cannot rewrite: the annotation and its result are not both placed"
-end
-if not refusal and annotationStart and declaration then
-local edits = {
-{
-offset = annotationStart . offset ,
-length = declaration . offset - annotationStart . offset ,
-newText = "" ,
-} ,
-}
-for _ , placement in ipairs ( placements ) do
-edits [ # edits + 1 ] = { offset = placement . first . offset , length = 0 , newText = "Owned<" }
-edits [ # edits + 1 ] = {
-offset = placement . last . offset + # placement . last . text ,
-length = 0 ,
-newText = inner and ( ", " .. inner .. ">" ) or ">" ,
-}
-end
-fixes = {
-c . edits . fix (
-( "state the owner as %s" ) : format ( spelling ) ,
-unpack ( edits )
-) ,
-}
-end
-c . diag (
-"NUPP2515" ,
-site ,
-( "@owned says above the declaration what %s says in its result" ) : format ( spelling ) ,
-fixes ,
-{ help = refusal or "move the contract into the result type" }
-)
-end
 
 function own . ownershipEntry ( expr )
 while expr and ( expr . kind == "paren" or expr . kind == "castExpr" ) do
@@ -30565,92 +30339,6 @@ c . checkStat ( stat . stat )
 end
 return
 
-elseif written == "owned" then
-local cleanups = { }
-local opaque , outName , success = false , nil , "always"
-for _ , arg in ipairs ( stat . annotationArgs or { } ) do
-local expr = arg . expr
-local argName = arg . name and arg . name . text or nil
-local named = nameText ( expr )
-if argName == "opaque" and expr and expr . kind == "trueExpr" then
-opaque = true
-elseif argName == "out" and named then
-outName = named
-elseif argName == "success" and ( named == "always" or named == "zero" or named == "nonzero" ) then
-success = named
-elseif argName == "success" and literalText ( expr ) then
-success = "equals:" .. tostring ( literalText ( expr ) )
-elseif argName == "cleanup" then
-local cleanupExprs = { }
-if expr and expr . kind == "name" then
-cleanupExprs [ 1 ] = expr
-elseif expr and expr . kind == "tableExpr" then
-for _ , field in ipairs ( expr . fields or { } ) do
-cleanupExprs [ # cleanupExprs + 1 ] = field . value
-end
-end
-if # cleanupExprs == 0 then
-c . diag ( "NUPP2602" , arg , "@owned cleanup must name one or more functions" )
-end
-for _ , cleanupExpr in ipairs ( cleanupExprs ) do
-local cleanupName = nameText ( cleanupExpr )
-if not cleanupName then
-c . diag ( "NUPP2602" , arg , "@owned cleanup entries must be function names" )
-else
-cleanups [ # cleanups + 1 ] = cleanupName
-end
-end
-elseif argName or not named then
-c . diag ( "NUPP2602" , arg , "invalid @owned argument" )
-else
-local entry = c . lookupEntry ( named )
-if entry and expr and expr . kind == "name" then
-c . markToken (
-expr . token ,
-entry . definition ,
-entry . t ,
-entry . definition and entry . definition . kind or "function"
-)
-end
-cleanups [ # cleanups + 1 ] = named
-end
-end
-if opaque and # cleanups > 0 then
-c . diag ( "NUPP2602" , stat , "@owned(opaque = true) cannot also declare cleanup functions" )
-end
-if outName then
-if not valid or targetKind ~= "cdefFunc" or not target then
-c . diag ( "NUPP2602" , stat , "@owned(out = ...) applies only to cdef functions" )
-elseif opaque or # cleanups == 0 then
-c . diag ( "NUPP2602" , stat , "an owned output needs an explicit cleanup" )
-else
-target . ownedOuts = target . ownedOuts or { }
-target . ownedOuts [
-# target . ownedOuts + 1
-] = {
-name = outName ,
-cleanups = cleanups ,
-success = success ,
-at = stat . name ,
-cleanupRegistrationNode = stat ,
-}
-end
-elseif valid and target and targetKind == "cdefFunc" then
-target . ownCleanups = cleanups
-target . ownOpaque = opaque
-target . ownTok = stat . name
-target . cleanupRegistrationNode = stat
-elseif valid and targetBody then
-targetBody . ownCleanups = cleanups
-targetBody . ownOpaque = opaque
-targetBody . ownTok = annotationName
-targetBody . cleanupRegistrationNode = stat
-end
-if stat . stat then
-c . checkStat ( stat . stat )
-end
-return
-
 elseif written == "borrowed" then
 local outName , sourceName , success = nil , nil , "always"
 for _ , arg in ipairs ( stat . annotationArgs or { } ) do
@@ -30787,6 +30475,12 @@ local resolve = { }
 
 
 local ownershipConstructors = { Owned = "owned" , Borrowed = "borrowed" , Pinned = "pinned" , }
+
+
+
+
+
+local statusConstructors = { Success = "equals" , Failure = "notequals" }
 
 local instantiateNominal = generics . instantiate
 
@@ -31494,6 +31188,27 @@ end
 
 
 
+local status = statusConstructors [ name ]
+if status and node . typeArgs and node . typeArgs [ 1 ] and not c . lookupType ( name ) then
+if not c . cdefReturn then
+c . diag (
+"NUPP2602" ,
+node ,
+( "%s<T, N> states when a C call succeeded, so it belongs on a cdef return" ) : format ( name )
+)
+end
+local inner = c . resolveType ( node . typeArgs [ 1 ] )
+local statusValue = constArgument (
+node . typeArgs [ 2 ] ,
+{ name = "status" , domain = "integer" } ,
+node
+)
+if statusValue and statusValue . tag == "constLiteral" then
+node . cdefSuccess = status .. ":" .. tostring ( statusValue . value )
+end
+
+return inner
+end
 local ownership = ownershipConstructors [ name ]
 if ownership and node . typeArgs and node . typeArgs [ 1 ] and not c . lookupType ( name ) then
 local inner = c . resolveType ( node . typeArgs [ 1 ] )
@@ -31502,6 +31217,19 @@ c . diag ( "NUPP2602" , node , "Pinned<T> requires a pointer-shaped T" )
 end
 if ownership == "owned" then
 local cleanupArg = node . typeArgs [ 2 ]
+
+
+
+
+if node . typeArgs [ 3 ] then
+c . diag (
+"NUPP2602" ,
+node . typeArgs [ 3 ] ,
+"Owned<T, cleanup> names one terminal" ,
+nil ,
+{ help = "ordered attempt-all cleanup is not currently expressible" }
+)
+end
 
 
 
@@ -31525,14 +31253,25 @@ if cleanupArg then
 
 
 local term = constArgument ( cleanupArg , { name = "cleanup" , domain = "function" } , node )
-local named = cleanupArg . kind == "tname"
+local cleanupName = cleanupArg . kind == "tname"
 and not cleanupArg . typeArgs
-and cleanupArg . base
-and cleanupArg . base . text
+and ( cleanupArg ) . base
 or nil
+local named = cleanupName and cleanupName . text or nil
 if term and named then
 local cleanups = c . own . resolveCleanups ( { named } , cleanupArg )
 c . own . validateCleanups ( inner , cleanups , cleanupArg , "NUPP2615" )
+
+
+local entry = c . lookupEntry ( named )
+if entry then
+c . markToken (
+cleanupName ,
+entry . definition ,
+entry . t ,
+entry . definition and entry . definition . kind or "function"
+)
+end
 return T . owned ( inner , cleanups )
 end
 end
@@ -32255,6 +31994,10 @@ local state = { }
 
 
 state.Checker = {} state.Checker.__index = state.Checker
+
+
+
+
 
 
 
@@ -43109,15 +42852,6 @@ local cst = { }
 
 
 
-
-
-
-
-
-
-
-
-
 cst.Chunk = {} cst.Chunk.__index = cst.Chunk
 
 
@@ -44575,6 +44309,10 @@ cst.Tliteral = {} cst.Tliteral.__index = cst.Tliteral
 
 
 cst.Tname = {} cst.Tname.__index = cst.Tname
+
+
+
+
 
 
 
@@ -46752,6 +46490,7 @@ end
 
 
 
+
 local function annotationBadges ( annotations )
 if not annotations or # annotations == 0 then
 return ""
@@ -46766,9 +46505,11 @@ end
 
 
 
+
 local function spelledParam ( param )
 return ( param . mode and ( param . mode .. " " ) or "" ) .. param . name
 end
+
 
 
 
@@ -46960,20 +46701,42 @@ end
 
 
 
+local function memberHeading ( name , path , tag , extra , badge )
+return '<div class="nuppdoc-api-member' .. (
+extra or ""
+) .. '" id="' .. htmlEscape (
+path
+) .. '"><' .. tag .. '><code>' .. htmlEscape (
+name
+) .. "</code>" .. (
+badge and '<span class="nuppdoc-kind-badge nuppdoc-kind-' .. htmlEscape (
+badge
+) .. '">' .. htmlEscape ( badge ) .. "</span>" or ""
+) .. '<a class="nuppdoc-header-anchor" href="#' .. htmlEscape (
+path
+) .. '" aria-label="Link to ' .. htmlEscape ( name ) .. '">#</a></' .. tag .. ">"
+end
 
 
 
-local function renderHtmlMembers ( out , members , links , level )
+
+
+
+
+
+
+local function renderHtmlMembers (
+out ,
+members ,
+links ,
+level
+)
 local fields , methods , types = splitMembers ( members )
 local hGroup , hName , hSub = htag ( level ) , htag ( level + 1 ) , htag ( level + 2 )
 if # methods > 0 then
 out [ # out + 1 ] = "<" .. hGroup .. ">Methods</" .. hGroup .. ">"
 for _ , method in ipairs ( methods ) do
-out [
-# out + 1
-] = '<div class="nuppdoc-api-member" id="' .. htmlEscape (
-method . path
-) .. '"><' .. hName .. '><code>' .. htmlEscape ( method . name ) .. "</code></" .. hName .. ">"
+out [ # out + 1 ] = memberHeading ( method . name , method . path , hName )
 out [ # out + 1 ] = annotationBadges ( method . annotations )
 out [ # out + 1 ] = markdownHtml ( method . text , links )
 out [
@@ -46995,7 +46758,9 @@ inlineNupp ( param . type , links ) ,
 markdownHtml ( param . text , links )
 }
 end
-out [ # out + 1 ] = "<" .. hSub .. ">Arguments</" .. hSub .. ">" .. tableHtml ( { "Name" , "Type" , "Description" } , rows )
+out [
+# out + 1
+] = "<" .. hSub .. ">Arguments</" .. hSub .. ">" .. tableHtml ( { "Name" , "Type" , "Description" } , rows )
 end
 if # method . returns > 0 then
 local rows = { }
@@ -47011,15 +46776,7 @@ end
 if # types > 0 then
 out [ # out + 1 ] = "<" .. hGroup .. ">Types</" .. hGroup .. ">"
 for _ , nested in ipairs ( types ) do
-out [
-# out + 1
-] = '<div class="nuppdoc-api-member nuppdoc-api-nested-type" id="' .. htmlEscape (
-nested . path
-) .. '"><' .. hName .. '><code>' .. htmlEscape (
-nested . name
-) .. '</code><span class="nuppdoc-kind-badge nuppdoc-kind-' .. htmlEscape (
-nested . type
-) .. '">' .. htmlEscape ( nested . type ) .. '</span></' .. hName .. '>'
+out [ # out + 1 ] = memberHeading ( nested . name , nested . path , hName , " nuppdoc-api-nested-type" , nested . type )
 out [ # out + 1 ] = annotationBadges ( nested . annotations )
 out [ # out + 1 ] = markdownHtml ( nested . text , links )
 renderHtmlMembers ( out , nested . members , links , level + 2 )
@@ -47027,17 +46784,21 @@ out [ # out + 1 ] = "</div>"
 end
 end
 if # fields > 0 then
-local rows = { }
+out [ # out + 1 ] = "<" .. hGroup .. ">Fields</" .. hGroup .. ">"
 for _ , field in ipairs ( fields ) do
-rows [
-# rows + 1
-] = {
-"<code>" .. htmlEscape ( field . name ) .. "</code>" ,
-inlineNupp ( field . type , links ) ,
-markdownHtml ( field . text , links )
-}
+out [ # out + 1 ] = memberHeading ( field . name , field . path , hName )
+out [ # out + 1 ] = annotationBadges ( field . annotations )
+out [ # out + 1 ] = markdownHtml ( field . text , links )
+out [
+# out + 1
+] = '<div class="nuppdoc-code-block" data-lang="nupp"><pre>'
+.. '<code class="language-nupp">'
+.. highlightNupp (
+field . name .. ": " .. field . type ,
+links
+) .. "</code></pre></div>"
+out [ # out + 1 ] = "</div>"
 end
-out [ # out + 1 ] = "<" .. hGroup .. ">Fields</" .. hGroup .. ">" .. tableHtml ( { "Name" , "Type" , "Description" } , rows )
 end
 end
 
@@ -47764,8 +47525,34 @@ end
 return nil
 end
 
+
+
+
+
+
+
+local function dedent ( text )
+if not text : find ( "\n" , 1 , true ) then
+return text
+end
+local margin , found = "" , false
+for line in text : gmatch ( "\n([^\n]*)" ) do
+if not line : match ( "^[ \t]*$" ) then
+local indent = line : match ( "^[ \t]*" ) or ""
+if not found or # indent < # margin then
+margin , found = indent , true
+end
+end
+end
+if margin == "" then
+return text
+end
+
+return ( text : gsub ( "\n" .. margin , "\n" ) )
+end
+
 local function syntax ( node )
-return trim ( cst . textOf ( node ) )
+return dedent ( trim ( cst . textOf ( node ) ) )
 end
 
 
@@ -48051,7 +47838,7 @@ end
 end
 local result = "cdef function " .. stat . name . text .. "(" .. table . concat ( params , ", " ) .. ")"
 if stat . ret then
-result = result .. ": " .. ( stat . ownTok and "own " or "" ) .. syntax ( stat . ret )
+result = result .. ": " .. syntax ( stat . ret )
 end
 if stat . fromLib then
 result = result .. " from " .. stat . fromLib . text
@@ -48607,6 +48394,21 @@ end
 
 
 
+local function declaredTypePath ( stat , moduleName )
+while stat . kind == "pragmaStmt" and stat . stat do
+stat = stat . stat
+end
+local declaresType = stat . kind == "recordDecl" or stat . kind == "typeAlias" or stat . kind == "cdefStruct"
+if not declaresType or not stat . name then
+return nil
+end
+
+return moduleName .. "." .. stat . name . text
+end
+
+
+
+
 
 
 
@@ -48623,7 +48425,7 @@ end
 return nil
 end
 
-local function foldMethods ( items )
+local function foldMethods ( items , declaredTypes )
 local types = { }
 for _ , item in ipairs ( items ) do
 if item . kind ~= "function" and item . kind ~= "method" and item . kind ~= "variable" then
@@ -48632,10 +48434,13 @@ end
 end
 local kept = { }
 for _ , item in ipairs ( items ) do
-local ownerPath = item . kind == "method" and item . path : match ( "^(.*):" ) or nil
+local callable = item . kind == "method" or item . kind == "function"
+local ownerPath = callable and item . path : match ( "^(.*)[.:][^.:]+$" ) or nil
 local owner = ownerPath and types [ ownerPath ] or nil
-if owner then
-local name = item . name : match ( "([^:]+)$" ) or item . name
+if not owner and ownerPath and declaredTypes [ ownerPath ] then
+
+elseif owner then
+local name = item . name : match ( "([^.:]+)$" ) or item . name
 local declared = memberNamed ( owner , name )
 if declared then
 if declared . text == "" then
@@ -48730,8 +48535,13 @@ documentationInternal = parsed . root . documentationInternal ,
 result . text = headerDoc ( parsed . root ) or ""
 local declarationFile = path ~= nil and path : match ( "%.d%.nupp$" ) ~= nil
 local extraModules = { }
+local declaredTypes = { }
 for _ , block in ipairs ( parsed . root . blocks or { } ) do
 for _ , stat in ipairs ( block . stats or { } ) do
+local typePath = declaredTypePath ( stat , name )
+if typePath then
+declaredTypes [ typePath ] = true
+end
 local info = parseDoc ( docLines ( stat ) )
 if info . tags . module then
 result . text = type ( info . tags . module ) == "string" and info . tags . module or info . text
@@ -48776,7 +48586,7 @@ end
 end
 end
 end
-result . items = foldMethods ( result . items )
+result . items = foldMethods ( result . items , declaredTypes )
 table . sort ( result . items , byKindThenName )
 
 return result , { } , extraModules
@@ -50216,6 +50026,8 @@ end
 
 
 
+
+
 local function renderMarkdownMembers ( out , members , level )
 local fields , methods , types = splitMembers ( members )
 local hGroup , hName , hSub = heading ( level ) , heading ( level + 1 ) , heading ( level + 2 )
@@ -50258,16 +50070,20 @@ end
 if # fields > 0 then
 out [ # out + 1 ] = hGroup .. " Fields"
 out [ # out + 1 ] = ""
-out [ # out + 1 ] = "| Name | Type | Description |"
-out [ # out + 1 ] = "| --- | --- | --- |"
 for _ , field in ipairs ( fields ) do
-out [
-# out + 1
-] = "| `" .. markdownEscape (
-field . name
-) .. "` | `" .. markdownEscape ( field . type ) .. "` | " .. cell ( field . text ) .. " |"
-end
+out [ # out + 1 ] = '<a id="' .. field . path .. '"></a>'
+out [ # out + 1 ] = hName .. " `" .. field . name .. "`"
 out [ # out + 1 ] = ""
+markdownAnnotations ( out , field . annotations )
+if field . text ~= "" then
+out [ # out + 1 ] = prose ( field . text )
+out [ # out + 1 ] = ""
+end
+out [ # out + 1 ] = "```nupp"
+out [ # out + 1 ] = field . name .. ": " .. field . type
+out [ # out + 1 ] = "```"
+out [ # out + 1 ] = ""
+end
 end
 end
 
@@ -50318,11 +50134,7 @@ end
 
 
 
-function markdown . items (
-items ,
-level ,
-constructorPattern
-)
+function markdown . items ( items , level , constructorPattern )
 local out = { }
 for _ , item in ipairs ( items ) do
 renderMarkdownItem ( out , item , constructorPattern , level or 3 )
@@ -54046,13 +53858,15 @@ summary = "Adjusting a value pack would discard an affine value" ,
 rule = "Lua may truncate extra results, but Nupp cannot silently lose an "
 .. "owned or pinned slot. Bind and discharge every affine result, or "
 .. "forward the complete generic pack to a matching result or parameter." ,
-wrong = "cdef function release(takes value: voidptr)\n"
-.. "@owned(cleanup = release)\n"
-.. "cdef function acquire(): voidptr\nacquire()\n" ,
-right = "cdef function release(takes value: voidptr)\n"
-.. "@owned(cleanup = release)\n"
-.. "cdef function acquire(): voidptr\n"
-.. "local value = acquire()\nrelease(value)\n" ,
+wrong = "local record Resource\nend\n"
+.. "local function release(takes value: Resource): nil\nend\n"
+.. "local function acquire(): Owned<Resource, release>\n"
+.. "    return new Resource()\nend\nacquire()\nreturn acquire\n" ,
+right = "local record Resource\nend\n"
+.. "local function release(takes value: Resource): nil\nend\n"
+.. "local function acquire(): Owned<Resource, release>\n"
+.. "    return new Resource()\nend\n"
+.. "local value = acquire()\nrelease(value)\nreturn acquire\n" ,
 related = { "NUPP2602" , "NUPP2603" , "NUPP2010" } ,
 docs = "docs/type-system/packs.md#ownership-and-provenance" ,
 } , {
@@ -54062,25 +53876,25 @@ rule = "An owned value must be consumed, dropped, returned under a "
 .. "matching ownership contract, or explicitly converted to raw form. "
 .. "Borrows likewise stay within the lifetime and suspension boundaries "
 .. "their provenance permits." ,
-wrong = "@owned(opaque = true)\ncdef function acquire(): voidptr\n" .. "local value = acquire()\nreturn 0\n" ,
-right = "@owned(opaque = true)\ncdef function acquire(): voidptr\n"
-.. "cdef function release(takes value: voidptr)\n"
-.. "local value = acquire()\nrelease(value)\nreturn 0\n" ,
+wrong = "cdef function begin_request(): Owned<voidptr, opaque>\n"
+.. "local request = begin_request()\nreturn 0\n" ,
+right = "cdef function begin_request(): Owned<voidptr, opaque>\n"
+.. "cdef function submit_request(takes request: voidptr)\n"
+.. "local request = begin_request()\nsubmit_request(request)\nreturn 0\n" ,
 related = { "NUPP2601" , "NUPP2602" , "NUPP2605" } ,
 docs = "docs/reference.md#owned-resources" ,
 } , {
 code = "NUPP2615" ,
 summary = "An owned value names an invalid cleanup operation" ,
-rule = "Every cleanup named by `@owned` must be visible and accept the "
-.. "owned value's raw type. In an ordered cleanup list, only the final "
-.. "operation may consume it; earlier steps must borrow it." ,
+rule = "The cleanup named by `Owned<T, cleanup>` must be visible and accept the "
+.. "owned value's raw type." ,
 wrong = "local record Resource\nend\nlocal record Other\nend\n"
 .. "local function release(value: Other): nil\nend\n"
-.. "@owned(release)\nlocal function acquire(): Resource\n"
+.. "local function acquire(): Owned<Resource, release>\n"
 .. "    return new Resource()\nend\nreturn acquire\n" ,
 right = "local record Resource\nend\nlocal record Other\nend\n"
 .. "local function release(value: Resource): nil\nend\n"
-.. "@owned(release)\nlocal function acquire(): Resource\n"
+.. "local function acquire(): Owned<Resource, release>\n"
 .. "    return new Resource()\nend\nreturn acquire\n" ,
 related = { "NUPP2602" , "NUPP2603" } ,
 docs = "docs/reference.md#owned-resources" ,
@@ -56570,6 +56384,14 @@ return "const char *"
 
 elseif name == "voidptr" then
 return "void *"
+end
+
+
+if ( name == "Owned" or name == "Success" or name == "Failure" )
+and t . typeArgs
+and t . typeArgs [ 1 ]
+then
+return cdefCType ( t . typeArgs [ 1 ] )
 end
 if t . cdefName then
 return ( t . cdefKind or "struct" ) .. " " .. t . cdefName
@@ -59598,6 +59420,9 @@ if output . success == "zero" then
 results [ # results + 1 ] = ( "(%s==0 and %s[0] or nil)" ) : format ( status , holders [ j ] )
 elseif output . success == "nonzero" then
 results [ # results + 1 ] = ( "(%s~=0 and %s[0] or nil)" ) : format ( status , holders [ j ] )
+elseif output . success : match ( "^notequals:" ) then
+local literal = output . success : sub ( # "notequals:" + 1 )
+results [ # results + 1 ] = ( "(%s~=%s and %s[0] or nil)" ) : format ( status , literal , holders [ j ] )
 elseif output . success : match ( "^equals:" ) then
 local literal = output . success : sub ( # "equals:" + 1 )
 results [ # results + 1 ] = ( "(%s==%s and %s[0] or nil)" ) : format ( status , literal , holders [ j ] )
@@ -66581,13 +66406,6 @@ lints . all = { setmetatable({ name =
 "use of an API marked deprecated" }, lints.Lint)
 , setmetatable({ name =
 
-"owned-annotation" ,  code =
-"NUPP2515" ,  category =
-"migration" ,  level =
-"warning" ,  summary =
-"an owning result stated above the signature rather than in it" }, lints.Lint)
-, setmetatable({ name =
-
 "jit-boundary" ,  code =
 "NUPP2514" ,  category =
 "suspicious" ,  level =
@@ -66614,7 +66432,6 @@ correctness = "the program is very likely wrong" ,
 suspicious = "legal, and probably not meant" ,
 style = "it works and reads badly" ,
 performance = "a declaration is paying for something it does not use" ,
-migration = "a construct a newer spelling replaces" ,
 }
 
 
@@ -66634,7 +66451,7 @@ local LEVELS = { off = true , note = true , warning = true , error = true , }
 
 
 
-local OPT_IN = { performance = true , migration = true }
+local OPT_IN = { performance = true }
 
 
 lints . categories = CATEGORIES

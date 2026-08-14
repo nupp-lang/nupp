@@ -429,9 +429,8 @@ end
 function M.typedVarargOwnershipChecksEveryOriginalArgument()
    local declaration = table.concat({
       "cdef struct resource value: int32 end",
-      "@owned(resource_free)",
-      "cdef function resource_new(): resource*",
       "cdef function resource_free(takes value: resource*)",
+      "cdef function resource_new(): Owned<resource*, resource_free>",
    }, "\n")
    clean(declaration .. "\n" .. table.concat({
       "local function observe(borrows ...: resource*): nil end",
