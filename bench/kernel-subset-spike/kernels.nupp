@@ -1,0 +1,24 @@
+local span = require("nupp.span")
+
+-- Test-only spelling: the production design currently calls this `@native`.
+@annotation(targets = {"function"})
+record kernel
+end
+
+@kernel
+local function scaleAdd(
+    exclusive output: span.WriteSpan<float>,
+    borrows left: span.Span<float>,
+    borrows right: span.Span<float>,
+    scale: float
+): nil
+    if output.count ~= left.count or output.count ~= right.count then
+        error("length mismatch", 2)
+    end
+
+    for i = 1, output.count do
+        output:set(i, left:get(i) + right:get(i) * scale)
+    end
+end
+
+return {scaleAdd = scaleAdd,}
