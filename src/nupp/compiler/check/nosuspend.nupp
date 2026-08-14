@@ -194,7 +194,12 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
                     local allTypedNonYielding = #calls > 0
                     for _, call in ipairs(calls) do
                         local target = call.calleeType or call.signatureType
-                        if not target or target.tag ~= "func" or not target.noYield then
+                        -- An ownership intrinsic is not a call to something that could
+                        -- yield: it lowers to generated code that calls the terminals
+                        -- named in it, and those are judged as the cleanups they are.
+                        if call.ownershipIntrinsic then
+                            target = nil
+                        elseif not target or target.tag ~= "func" or not target.noYield then
                             allTypedNonYielding = false
                         end
                     end

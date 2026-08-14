@@ -14567,6 +14567,52 @@ cleanups = c . own . resolveCleanups ( cleanups , node )
 node . ownershipIntrinsic = "fromRaw"
 node . ownerCleanups = cleanups
 return T . owned ( rawType ( valueT ) , cleanups )
+elseif intrinsic == "attemptAll" then
+
+
+
+
+
+
+local valueT = args [ 1 ] and c . infer ( args [ 1 ] ) or T . any
+local cleanups = { }
+if # args < 2 then
+c . diag ( "NUPP2602" , node , "attemptAll expects a value and at least one operation" )
+end
+for j = 2 , # args do
+local operationT = c . infer ( args [ j ] )
+local operationNode = args [ j ]
+local operationTok = operationNode . kind == "name" and operationNode . token or nil
+if not operationTok then
+c . diag ( "NUPP2602" , args [ j ] , "attemptAll operations must be function names" )
+else
+cleanups [ # cleanups + 1 ] = operationTok . text
+end
+if operationT ~= T . any and (
+operationT . tag ~= "func"
+or not operationT . params [ 1 ]
+or not isA ( rawType ( valueT ) , operationT . params [ 1 ] )
+) then
+c . diag ( "NUPP2602" , args [ j ] , "an attemptAll operation must accept the value" )
+end
+
+
+if operationT ~= T . any
+and operationT . tag == "func"
+and operationT . paramModes
+and operationT . paramModes [ 1 ] == "takes"
+and j < # args
+then
+c . diag ( "NUPP2615" , args [ j ] , "only the final attemptAll operation may take the value" )
+end
+end
+c . moveExpression ( args [ 1 ] or node , valueT , "attemptAll" , nil , true )
+node . ownershipIntrinsic = "attemptAll"
+
+
+node . ownerCleanups = c . own . resolveCleanups ( cleanups , node , node )
+
+return T . nil_
 elseif intrinsic == "drop" then
 local valueT = args [ 1 ] and c . infer ( args [ 1 ] ) or T . any
 
@@ -28468,7 +28514,12 @@ callsWithin ( info . body , calls )
 local allTypedNonYielding = # calls > 0
 for _ , call in ipairs ( calls ) do
 local target = call . calleeType or call . signatureType
-if not target or target . tag ~= "func" or not target . noYield then
+
+
+
+if call . ownershipIntrinsic then
+target = nil
+elseif not target or target . tag ~= "func" or not target . noYield then
 allTypedNonYielding = false
 end
 end
@@ -45007,7 +45058,16 @@ cst . isToken = isToken
 
 local OWNERSHIP_INTRINSICS
 
-= { borrow = true , borrowFrom = true , drop = true , fromRaw = true , intoRaw = true , partition = true , pin = true , }
+= {
+attemptAll = true ,
+borrow = true ,
+borrowFrom = true ,
+drop = true ,
+fromRaw = true ,
+intoRaw = true ,
+partition = true ,
+pin = true ,
+}
 
 
 
@@ -57383,6 +57443,33 @@ end
 return nil
 end
 
+
+
+
+local function ensureCleanupRuntime ( )
+needsCleanupRegions = true
+if cleanupPackName then
+return
+end
+cleanupPackName = nextTemp ( )
+cleanupIdName = nextTemp ( )
+cleanupFailureName = nextTemp ( )
+cleanupCacheName = nextTemp ( )
+cleanupGlobals = { }
+for _ , name in ipairs ( {
+"pcall" ,
+"xpcall" ,
+"error" ,
+"unpack" ,
+"select" ,
+"setmetatable" ,
+"tostring" ,
+"ipairs"
+} ) do
+cleanupGlobals [ name ] = nextTemp ( )
+end
+end
+
 local function protectedCleanupCall ( cleanup , value , pcallName )
 if cleanup . kind == "function" then
 return pcallName .. "(" .. cleanupFunctionName ( cleanup ) .. "," .. value .. ")"
@@ -59398,6 +59485,23 @@ inner . ownershipMoveCleared = nil
 e ( "end" )
 return
 
+elseif kind == "callStmt" and x . expr and x . expr . ownershipIntrinsic == "attemptAll" then
+
+
+
+local inner = x . expr
+for _ , registration in ipairs ( inner . cleanupRegistrations or { } ) do
+if not registration . after then
+local cleanup = registration . cleanup
+e ( ( "%s[%q]=%s;" ) : format ( cleanupRegistry ( ) , cleanup . key , cleanup . name ) , sourceLine ( x ) )
+end
+end
+e ( "do " , sourceLine ( x ) )
+e ( "local " .. nextTemp ( ) .. "=" )
+emit ( inner )
+e ( " end" )
+return
+
 elseif kind == "callStmt" and x . expr and x . expr . ownershipIntrinsic then
 
 
@@ -59602,6 +59706,32 @@ emit ( args [ 1 ] )
 else
 e ( "nil" )
 end
+elseif x . ownershipIntrinsic == "attemptAll" then
+
+
+
+ensureCleanupRuntime ( )
+local statements = { "if __nuppV == nil then return end local __errs,__n={},0; " }
+for _ , cleanup in ipairs ( x . ownerCleanups or { } ) do
+local call = protectedCleanupCall ( cleanup , "__nuppV" , cleanupGlobals . pcall )
+if call then
+statements [ # statements + 1 ] = "do local __ok,__reason="
+.. call
+.. "; if not __ok then __n=__n+1; __errs[__n]=__reason end end; "
+end
+end
+statements [
+# statements + 1
+] = (
+"if __n>0 then if __n>1 then %s(%s(__errs[1],__errs,2),0) else %s(__errs[1],0) end end"
+) : format ( cleanupGlobals . error , cleanupFailureName , cleanupGlobals . error )
+e ( pluck . declareHelper ( "__nuppAttemptAll" , "__nuppV" , table . concat ( statements ) ) .. "(" , line )
+if args [ 1 ] then
+emit ( args [ 1 ] )
+else
+e ( "nil" )
+end
+e ( ")" )
 else
 
 
@@ -60107,26 +60237,7 @@ region . capturesEnclosing = automaticCaptures ( x . body , region . bindings )
 emit ( region )
 
 elseif kind == "cleanupRegion" then
-needsCleanupRegions = true
-if not cleanupPackName then
-cleanupPackName = nextTemp ( )
-cleanupIdName = nextTemp ( )
-cleanupFailureName = nextTemp ( )
-cleanupCacheName = nextTemp ( )
-cleanupGlobals = { }
-for _ , name in ipairs ( {
-"pcall" ,
-"xpcall" ,
-"error" ,
-"unpack" ,
-"select" ,
-"setmetatable" ,
-"tostring" ,
-"ipairs"
-} ) do
-cleanupGlobals [ name ] = nextTemp ( )
-end
-end
+ensureCleanupRuntime ( )
 local count = nextTemp ( )
 local ok = nextTemp ( )
 
@@ -84765,8 +84876,11 @@ variable-length C-array indexing therefore requires `unsafe`; use `nupp.span`
 when a runtime count is available. A fixed C array rejects a statically
 out-of-range literal and inserts a runtime guard for a non-literal index.
 
-Ownership intrinsics are `nupp.drop`, `nupp.borrow`, `nupp.intoRaw`,
-`nupp.fromRaw`, `nupp.borrowFrom`, and `nupp.pin`. Bare aliases lower identically.
+Ownership intrinsics are `nupp.drop`, `nupp.attemptAll`, `nupp.borrow`,
+`nupp.intoRaw`, `nupp.fromRaw`, `nupp.borrowFrom`, and `nupp.pin`.
+`nupp.attemptAll(value, ...)` runs each named operation in order, attempts every
+one after a failure, and raises the first with the rest suppressed; only the last
+may `takes` the value. Bare aliases lower identically.
 Any local spelling, including `nupp`, shadows them.
 ]=] ,  example =
 [=[

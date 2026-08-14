@@ -724,6 +724,52 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 node.ownershipIntrinsic = "fromRaw"
                 node.ownerCleanups = cleanups
                 return T.owned(rawType(valueT), cleanups)
+            elseif intrinsic == "attemptAll" then
+                -- An ordered list of operations, as one terminal. `drop` stops where a
+                -- cleanup raises, which is right for a single one and wrong for a list:
+                -- the steps after the failure are obligations of their own, and skipping
+                -- them leaks whatever they release. This attempts every one, so a
+                -- terminal written with it behaves like automatic destruction and like a
+                -- resource set, which both attempt everything.
+                local valueT = args[1] and c.infer(args[1]) or T.any
+                local cleanups = {}
+                if #args < 2 then
+                    c.diag("NUPP2602", node, "attemptAll expects a value and at least one operation")
+                end
+                for j = 2, #args do
+                    local operationT = c.infer(args[j])
+                    local operationNode = args[j]
+                    local operationTok = operationNode.kind == "name" and operationNode.token or nil
+                    if not operationTok then
+                        c.diag("NUPP2602", args[j], "attemptAll operations must be function names")
+                    else
+                        cleanups[#cleanups + 1] = operationTok.text
+                    end
+                    if operationT ~= T.any and (
+                        operationT.tag ~= "func"
+                        or not operationT.params[1]
+                        or not isA(rawType(valueT), operationT.params[1])
+                    ) then
+                        c.diag("NUPP2602", args[j], "an attemptAll operation must accept the value")
+                    end
+                    -- Only the last step may consume it. An earlier one that takes the
+                    -- value leaves every step after it running on something released.
+                    if operationT ~= T.any
+                        and operationT.tag == "func"
+                        and operationT.paramModes
+                        and operationT.paramModes[1] == "takes"
+                        and j < #args
+                    then
+                        c.diag("NUPP2615", args[j], "only the final attemptAll operation may take the value")
+                    end
+                end
+                c.moveExpression(args[1] or node, valueT, "attemptAll", nil, true)
+                node.ownershipIntrinsic = "attemptAll"
+                -- The operations are reached through the runtime cleanup registry, and
+                -- nothing else here declares them, so this call is what publishes them.
+                node.ownerCleanups = c.own.resolveCleanups(cleanups, node, node)
+
+                return T.nil_
             elseif intrinsic == "drop" then
                 local valueT = args[1] and c.infer(args[1]) or T.any
                 -- Dropping something that is not an owner is reported below rather

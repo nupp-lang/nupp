@@ -977,8 +977,11 @@ variable-length C-array indexing therefore requires `unsafe`; use `nupp.span`
 when a runtime count is available. A fixed C array rejects a statically
 out-of-range literal and inserts a runtime guard for a non-literal index.
 
-Ownership intrinsics are `nupp.drop`, `nupp.borrow`, `nupp.intoRaw`,
-`nupp.fromRaw`, `nupp.borrowFrom`, and `nupp.pin`. Bare aliases lower identically.
+Ownership intrinsics are `nupp.drop`, `nupp.attemptAll`, `nupp.borrow`,
+`nupp.intoRaw`, `nupp.fromRaw`, `nupp.borrowFrom`, and `nupp.pin`.
+`nupp.attemptAll(value, ...)` runs each named operation in order, attempts every
+one after a failure, and raises the first with the rest suppressed; only the last
+may `takes` the value. Bare aliases lower identically.
 Any local spelling, including `nupp`, shadows them.
 ]=],
         example = [=[

@@ -11,9 +11,9 @@
 > physical pointer-to-pointer type and the wrapper sits on the slot, which leaves
 > the ABI, the emitted prototype, and the borrowed-output spelling untouched.
 >
-> One gap remains. An ordered cleanup list has no spelling, and one terminal
-> calling several operations is not equivalent to it, for the reason the rejected
-> alternatives give; it waits on `nupp.cleanup.attemptAll`.
+> Ordered cleanup lists are `nupp.attemptAll`, written inside an ordinary
+> terminal. It is spelled on `nupp` beside the other ownership intrinsics rather
+> than under a `nupp.cleanup` namespace of one.
 
 ## Decision
 
@@ -97,7 +97,7 @@ whatever the later steps release. It would also make a composed terminal behave
 unlike automatic destruction and unlike a resource set, both of which attempt
 everything.
 
-So the list goes and the behaviour stays, under `nupp.cleanup.attemptAll`:
+So the list goes and the behaviour stays, under `nupp.attemptAll`:
 operations run in declaration order, every one is attempted after a failure, the
 first failure is the primary and later ones are reported as suppressed, and
 `takes` is permitted only on the final operation -- which is today's rule. The

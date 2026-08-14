@@ -2447,7 +2447,16 @@ cst.isToken = isToken
 --- thing and lower to the same code.
 local OWNERSHIP_INTRINSICS: {
     [string]: boolean
-} = {borrow = true, borrowFrom = true, drop = true, fromRaw = true, intoRaw = true, partition = true, pin = true,}
+} = {
+    attemptAll = true,
+    borrow = true,
+    borrowFrom = true,
+    drop = true,
+    fromRaw = true,
+    intoRaw = true,
+    partition = true,
+    pin = true,
+}
 
 --- The ownership intrinsic a callee is written as, before anything asks what the names
 --- in it resolve to. Answers nil for a callee of any other shape.

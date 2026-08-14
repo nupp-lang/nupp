@@ -975,6 +975,33 @@ function gen.generate(
         return nil
     end
 
+    -- The names the emitted cleanup runtime is reached through. A file gets them from
+    -- whichever construct needs them first -- a cleanup region, or an `attemptAll` in a
+    -- file with no region at all -- and every later one reuses the same set.
+    local function ensureCleanupRuntime()
+        needsCleanupRegions = true
+        if cleanupPackName then
+            return
+        end
+        cleanupPackName = nextTemp()
+        cleanupIdName = nextTemp()
+        cleanupFailureName = nextTemp()
+        cleanupCacheName = nextTemp()
+        cleanupGlobals = {}
+        for _, name in ipairs({
+            "pcall",
+            "xpcall",
+            "error",
+            "unpack",
+            "select",
+            "setmetatable",
+            "tostring",
+            "ipairs"
+        }) do
+            cleanupGlobals[name] = nextTemp()
+        end
+    end
+
     local function protectedCleanupCall(cleanup, value, pcallName)
         if cleanup.kind == "function" then
             return pcallName .. "(" .. cleanupFunctionName(cleanup) .. "," .. value .. ")"
@@ -2990,6 +3017,23 @@ function gen.generate(
             e("end")
             return
 
+        elseif kind == "callStmt" and x.expr and x.expr.ownershipIntrinsic == "attemptAll" then
+            -- The operations this names are published here, because the call is the
+            -- only place they are declared to the runtime. The assignments precede the
+            -- call, so the registry holds them by the time the helper reads it.
+            local inner = x.expr
+            for _, registration in ipairs(inner.cleanupRegistrations or {}) do
+                if not registration.after then
+                    local cleanup = registration.cleanup
+                    e(("%s[%q]=%s;"):format(cleanupRegistry(), cleanup.key, cleanup.name), sourceLine(x))
+                end
+            end
+            e("do ", sourceLine(x))
+            e("local " .. nextTemp() .. "=")
+            emit(inner)
+            e(" end")
+            return
+
         elseif kind == "callStmt" and x.expr and x.expr.ownershipIntrinsic then
             -- Every intrinsic but `drop` lowers to a value: `intoRaw` and `borrow` to
             -- their argument, `pin` to a table. Written for the assertion rather than
@@ -3197,6 +3241,32 @@ function gen.generate(
                 else
                     e("nil")
                 end
+            elseif x.ownershipIntrinsic == "attemptAll" then
+                -- Every step is attempted, and the first failure is the primary one.
+                -- The body reads its parameter and nothing else, so this is one
+                -- function per operation list rather than one per call site.
+                ensureCleanupRuntime()
+                local statements = {"if __nuppV == nil then return end local __errs,__n={},0; "}
+                for _, cleanup in ipairs(x.ownerCleanups or {}) do
+                    local call = protectedCleanupCall(cleanup, "__nuppV", cleanupGlobals.pcall)
+                    if call then
+                        statements[#statements + 1] = "do local __ok,__reason="
+                            .. call
+                            .. "; if not __ok then __n=__n+1; __errs[__n]=__reason end end; "
+                    end
+                end
+                statements[
+                    #statements + 1
+                ] = (
+                    "if __n>0 then if __n>1 then %s(%s(__errs[1],__errs,2),0) else %s(__errs[1],0) end end"
+                ):format(cleanupGlobals.error, cleanupFailureName, cleanupGlobals.error)
+                e(pluck.declareHelper("__nuppAttemptAll", "__nuppV", table.concat(statements)) .. "(", line)
+                if args[1] then
+                    emit(args[1])
+                else
+                    e("nil")
+                end
+                e(")")
             else -- drop
                 -- The body reads its parameter and nothing else, so the cleanups a
                 -- `drop`
@@ -3702,26 +3772,7 @@ function gen.generate(
             emit(region)
 
         elseif kind == "cleanupRegion" then
-            needsCleanupRegions = true
-            if not cleanupPackName then
-                cleanupPackName = nextTemp()
-                cleanupIdName = nextTemp()
-                cleanupFailureName = nextTemp()
-                cleanupCacheName = nextTemp()
-                cleanupGlobals = {}
-                for _, name in ipairs({
-                    "pcall",
-                    "xpcall",
-                    "error",
-                    "unpack",
-                    "select",
-                    "setmetatable",
-                    "tostring",
-                    "ipairs"
-                }) do
-                    cleanupGlobals[name] = nextTemp()
-                end
-            end
+            ensureCleanupRuntime()
             local count = nextTemp()
             local ok = nextTemp()
             -- On success this holds the completion tag; on failure, the error.

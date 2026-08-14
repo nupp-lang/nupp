@@ -192,13 +192,23 @@ nupp.drop(value) -- widget_end: stop, then free
 print(value.value) -- NUPP2601: use after move
 ```
 
-`Owned<T, cleanup>` names exactly one terminal; a second is **NUPP2602**. An
-ordered *list* of cleanups is not currently expressible. `widget_end` above is
-the nearest thing, and it is not equivalent: it stops where the first step
-raises, turning one failed cleanup into skipped obligations, where automatic
-destruction and resource sets both attempt every step. The list returns with
-`nupp.cleanup.attemptAll`; until then a terminal whose steps can fail
-independently has no faithful spelling.
+`Owned<T, cleanup>` names exactly one terminal; a second is **NUPP2602**. A
+terminal that performs several steps writes them with `nupp.attemptAll`, which
+is what `widget_end` above should use:
+
+```nupp
+local function widget_end(takes value: widget*)
+    nupp.attemptAll(value, widget_stop, widget_free)
+end
+```
+
+Calling the two in sequence is *not* the same thing: it stops where the first
+raises, turning one failed cleanup into skipped obligations and leaking whatever
+the later steps release. `attemptAll` runs them in order, attempts every one
+after a failure, and raises the first failure with the rest reported as
+suppressed — the contract automatic destruction and resource sets already keep.
+Only the final operation may `takes` the value, since an earlier one that
+consumes it leaves every later step running on something already released.
 
 `drop` takes the owner, so it cannot run twice. Passing the value to any
 `takes` parameter discharges the same obligation without also running the

@@ -2028,6 +2028,73 @@ function M.statusWrappersBelongOnACdefReturn()
    }, "\n")), "NUPP2602")
 end
 
+-- An ordered list of operations, as one terminal. `drop` stops where a cleanup
+-- raises, which is right for one and wrong for a list: the steps after the
+-- failure are obligations of their own. This is the contract automatic
+-- destruction and resource sets already keep, reached from a terminal.
+function M.attemptAllRunsEveryStepAfterAFailure()
+   local source = table.concat({
+      "local record Resource id: integer end",
+      "local calls = ''",
+      "local function stop(value: Resource): nil",
+      "   calls = calls .. 'stop'",
+      "   error('stop failed')",
+      "end",
+      "local function release(value: Resource): nil",
+      "   calls = calls .. ',release'",
+      "end",
+      "local function finish(takes value: Resource): nil",
+      "   nupp.attemptAll(value, stop, release)",
+      "end",
+      "local function open(): Owned<Resource, finish>",
+      "   return new Resource(id = 1)",
+      "end",
+      "local ok = pcall(function()",
+      "   local value = open()",
+      "   nupp.drop(value)",
+      "end)",
+      "return calls, ok",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-test")
+   assertEq(#genDiags, 0)
+   local chunk, loadErr = loadstring(code, "@ownership-attempt-all")
+   assert(chunk, tostring(loadErr) .. "\n" .. code)
+   local calls, ok = chunk()
+   assertEq(calls, "stop,release", "every step is attempted")
+   assertEq(ok, false, "and the failure still propagates")
+end
+
+-- A step that consumes the value leaves every later one running on something
+-- already released, so only the last may take it.
+function M.onlyTheFinalAttemptAllOperationMayTakeTheValue()
+   local declaration = table.concat({
+      "local record Resource id: integer end",
+      "local function first(takes value: Resource): nil end",
+      "local function second(value: Resource): nil end",
+      "local function finish(takes value: Resource): nil",
+   }, "\n")
+   -- `first` consuming its own parameter is NUPP2603 in its empty body; the
+   -- ordering rule is the second diagnostic.
+   assertEq(codes(declaration .. table.concat({
+      "",
+      "   nupp.attemptAll(value, first, second)",
+      "end",
+   }, "\n")), "NUPP2603 NUPP2615")
+   assertClean(table.concat({
+      "local record Resource id: integer end",
+      "local function first(value: Resource): nil end",
+      "local function second(takes value: Resource): nil",
+      "   unsafe do nupp.intoRaw(value) end",
+      "end",
+      "local function finish(takes value: Resource): nil",
+      "   nupp.attemptAll(value, first, second)",
+      "end",
+      "return finish",
+   }, "\n"))
+end
+
 -- LuaJIT does not record `FNEW`. A loop containing one aborts recording, is blacklisted
 -- after enough attempts, and then never compiles -- so a function built where it is used
 -- costs the whole enclosing loop its trace. These lowerings all sat inside loops and all
