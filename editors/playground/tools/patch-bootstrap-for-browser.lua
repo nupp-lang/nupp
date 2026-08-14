@@ -8,8 +8,9 @@ implementation uses, not just code it generates for a checked program:
   - `const NAME = value`, LuaJIT's backported immutable-local declaration
   - `0x...ULL`-style 64-bit cdata integer literals, in the content-hash
     function nupp.compiler.build.hash uses for incremental build caching
+  - Nupp's `? :` and `??` expressions, in nupp.data.bitset
 
-Both are found with the bootstrap compiler's OWN lexer — loaded from the very
+These are found with the bootstrap compiler's OWN lexer — loaded from the very
 file being patched — rather than regexes, because a regex can't tell "real
 `const` keyword" from "the five characters c-o-n-s-t inside a string that
 happens to hold generated-code *text* for a program this compiler is
@@ -97,16 +98,153 @@ for i, tok in ipairs(tokens) do
         ullCount = ullCount + 1
     end
 end
-table.sort(edits, function(a, b) return a.offset < b.offset end)
-
-local parts, pos = {}, 1
-for _, e in ipairs(edits) do
-    parts[#parts + 1] = source:sub(pos, e.offset - 1)
-    parts[#parts + 1] = e.replacement
-    pos = e.offset + e.length
+local function applyEdits(text, changes)
+    table.sort(changes, function(a, b) return a.offset < b.offset end)
+    local parts, pos = {}, 1
+    for _, e in ipairs(changes) do
+        parts[#parts + 1] = text:sub(pos, e.offset - 1)
+        parts[#parts + 1] = e.replacement
+        pos = e.offset + e.length
+    end
+    parts[#parts + 1] = text:sub(pos)
+    return table.concat(parts)
 end
-parts[#parts + 1] = source:sub(pos)
-local patched = table.concat(parts)
+
+local patched = applyEdits(source, edits)
+
+-- The bundled compiler is ordinary Nupp source emitted as LuaJIT source, so
+-- its private bitset implementation can use Nupp conditional expressions too.
+-- Fengari is plain Lua and must parse the whole bundle before it can reach the
+-- compiler's lexer. The bundle has one statement per line, which makes these
+-- expression-only lowerings deliberately small and lets the lexer keep strings
+-- and comments out of the rewrite just as it does for const above.
+local plainTokens, plainErrors = lexer.lex(patched, inputPath)
+if plainErrors and #plainErrors > 0 then
+    io.stderr:write("patched " .. inputPath .. " has " .. #plainErrors .. " lex error(s):\n")
+    os.exit(1)
+end
+
+local function lineBounds(text, offset)
+    local before = text:sub(1, offset - 1)
+    local start = (before:match(".*()\n") or 0) + 1
+    local ending = text:find("\n", offset, true) or (#text + 1)
+    return start, ending
+end
+
+local function failUnsupported(token)
+    io.stderr:write("cannot lower browser-incompatible " .. token.text
+        .. " expression at byte " .. token.offset
+        .. "; update patch-bootstrap-for-browser.lua\n")
+    os.exit(1)
+end
+
+local syntaxEdits, ternaryCount, coalesceCount = {}, 0, 0
+for i, token in ipairs(plainTokens) do
+    if token.text == "?" or token.text == "??" then
+        local lineStart, lineEnd = lineBounds(patched, token.offset)
+        local earlier, later
+        for j = i - 1, 1, -1 do
+            local candidate = plainTokens[j]
+            if candidate.offset < lineStart then break end
+            if candidate.text == "return" or candidate.text == "=" then
+                earlier = candidate
+                break
+            end
+        end
+        for j = i + 1, #plainTokens do
+            local candidate = plainTokens[j]
+            if candidate.offset >= lineEnd then break end
+            if token.text == "?" and candidate.text == ":" then
+                later = candidate
+                break
+            elseif token.text == "??" and candidate.text == ")" then
+                later = candidate
+                break
+            end
+        end
+
+        if token.text == "?" then
+            if not earlier or not later then failUnsupported(token) end
+            local expressionAt = earlier.offset + #earlier.text
+            local condition = patched:sub(expressionAt + 1, token.offset - 1)
+            local whenTrue = patched:sub(token.offset + 1, later.offset - 1)
+            local whenFalse = patched:sub(later.offset + 1, lineEnd - 1)
+            local prefix = patched:sub(lineStart, expressionAt)
+            syntaxEdits[#syntaxEdits + 1] = {
+                offset = lineStart,
+                length = lineEnd - lineStart,
+                replacement = prefix .. " (function() if (" .. condition
+                    .. ") then return (" .. whenTrue .. ") else return ("
+                    .. whenFalse .. ") end end)()",
+            }
+            ternaryCount = ternaryCount + 1
+        else
+            -- A nil-coalescing expression in this bundle is parenthesized as
+            -- an argument. Keep a false left side intact and evaluate it once.
+            local opening
+            for j = i - 1, 1, -1 do
+                local candidate = plainTokens[j]
+                if candidate.offset < lineStart then break end
+                if candidate.text == "(" then
+                    opening = candidate
+                    break
+                end
+            end
+            if not opening or not later then failUnsupported(token) end
+            local left = patched:sub(opening.offset + 1, token.offset - 1)
+            local right = patched:sub(token.offset + 2, later.offset - 1)
+            syntaxEdits[#syntaxEdits + 1] = {
+                offset = opening.offset + 1,
+                length = later.offset - opening.offset - 1,
+                replacement = "(function(__nuppBrowserValue) if __nuppBrowserValue ~= nil then return "
+                    .. "__nuppBrowserValue else return " .. right .. " end end)(" .. left .. ")",
+            }
+            coalesceCount = coalesceCount + 1
+        end
+    end
+end
+
+local lambdaCount = 0
+for i, token in ipairs(plainTokens) do
+    if token.text == "|" then
+        local closing, arrow, opening, openingIndex, bodyEnd
+        for j = i + 1, #plainTokens do
+            local candidate = plainTokens[j]
+            if candidate.text == "|" then
+                closing = candidate
+                arrow = plainTokens[j + 1]
+                opening = plainTokens[j + 2]
+                openingIndex = j + 2
+                break
+            end
+        end
+        if closing and arrow and arrow.text == "->" and opening and opening.text == "(" then
+            local depth = 0
+            for j = openingIndex + 1, #plainTokens do
+                local candidate = plainTokens[j]
+                if candidate.text == "(" then
+                    depth = depth + 1
+                elseif candidate.text == ")" then
+                    if depth == 0 then
+                        bodyEnd = candidate
+                        break
+                    end
+                    depth = depth - 1
+                end
+            end
+            if not bodyEnd then failUnsupported(token) end
+            local parameters = patched:sub(token.offset + 1, closing.offset - 1)
+            local body = patched:sub(opening.offset, bodyEnd.offset + #bodyEnd.text - 1)
+            syntaxEdits[#syntaxEdits + 1] = {
+                offset = token.offset,
+                length = bodyEnd.offset + #bodyEnd.text - token.offset,
+                replacement = "function(" .. parameters .. ") return " .. body .. " end",
+            }
+            lambdaCount = lambdaCount + 1
+        end
+    end
+end
+patched = applyEdits(patched, syntaxEdits)
 
 -- The file ends by running the full CLI
 -- (os.exit(require("nupp.compiler.cli").main(arg))), which eagerly requires every
@@ -133,5 +271,5 @@ out:write(patched)
 out:close()
 
 io.stderr:write(string.format(
-    "patched %s -> %s (%d const, %d ULL-literal edits)\n",
-    inputPath, outputPath, constCount, ullCount))
+    "patched %s -> %s (%d const, %d ULL-literal, %d ternary, %d coalescing, %d lambda edits)\n",
+    inputPath, outputPath, constCount, ullCount, ternaryCount, coalesceCount, lambdaCount))

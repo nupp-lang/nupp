@@ -27,8 +27,8 @@ async function boot() {
   if (!res.ok) throw new Error(`fetching nupp-bootstrap.lua: ${res.status}`);
   // Already browser-safe: build.mjs runs tools/patch-bootstrap-for-browser.lua
   // over bootstrap/nupp.lua at build time — using the bootstrap compiler's own
-  // lexer, under real LuaJIT, rather than regexes here — to fix the two
-  // places it uses LuaJIT-only syntax in its own implementation (not just
+  // lexer, under real LuaJIT, rather than regexes here — to lower the
+  // LuaJIT- and Nupp-only syntax its own implementation uses (not just
   // code it generates for a checked program), and to drop the trailing
   // `os.exit(require("nupp.compiler.cli").main(arg))` full-CLI invocation this
   // playground doesn't need. See that script for what and why.
