@@ -78,6 +78,8 @@ whenever output is not a terminal, so piped output never carries escapes.
 
 - `./bin/nupp test` runs the test suite. `--json` reports a record per test —
   name, status, duration, and the failure's message, file and line.
+- CSS or styling-only changes do not require the test suite. Verify the
+  affected generated site or assets instead.
 - `./bin/nupp fixpoint` verifies that the compiler rebuilds byte-identically.
 
 ## Speed
