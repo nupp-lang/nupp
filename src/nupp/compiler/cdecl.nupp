@@ -466,8 +466,16 @@ end
 --- front of the checker and typing it from everything the compiler's own process
 --- happens to have loaded.
 ---
---- A block LuaJIT has already seen introduces nothing and answers an empty set,
---- which is why the caller caches the first answer per text.
+--- A block LuaJIT has already seen introduces nothing, so a function this process had
+--- already declared for its own use is claimed back by name instead. The compiler runs
+--- the code it compiles: `nupp.compiler.ansi` declares `isatty` and calls it, and by
+--- the time the checker reaches that file the declaration is already in the registry
+--- and the diff finds nothing. Left at that, whether `ffi.C` is typed from the program
+--- in front of the checker would depend on whether the compiler happened to reach the
+--- same symbol first, which is an ordering accident nobody can see from the source. The
+--- cost is that a block spelling the name of an already-declared function it does not
+--- itself declare claims that one too; the alternative is losing declarations the
+--- program plainly makes.
 function cdecl.declare(text: string): boolean, string?, {[string]: boolean}?
     local before = {}
     for id = 1, MAX_CTYPE_ID do
@@ -479,10 +487,14 @@ function cdecl.declare(text: string): boolean, string?, {[string]: boolean}?
     if not ok then
         return false, tostring(err)
     end
+    local spelled: {[string]: boolean} = {}
+    for word in text:gmatch("[%a_][%w_]*") do
+        spelled[word] = true
+    end
     local names: {[string]: boolean} = {}
     for id = 1, MAX_CTYPE_ID do
         local entry = info(id)
-        if entry and not before[id] and entry.name and kindOf(entry.info) == CT_FUNC then
+        if entry and entry.name and kindOf(entry.info) == CT_FUNC and (not before[id] or spelled[entry.name]) then
             names[entry.name] = true
         end
     end

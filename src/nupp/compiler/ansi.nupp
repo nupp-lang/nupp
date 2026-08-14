@@ -208,6 +208,23 @@ function ansi.enabled(stream: LuaFile): boolean
     return answer
 end
 
+--- Whether `stream` is a terminal, which is a different question from whether to colour
+--- it. `NO_COLOR` refuses escapes and says nothing about whether somebody is watching,
+--- and a build reporting its own progress wants the second answer: it writes plain text
+--- to a person and nothing at all to a pipe. Cached per descriptor, since neither the
+--- process's descriptors nor the FFI's answer about them changes while it runs.
+local terminals: {[LuaFile]: boolean} = {}
+
+function ansi.isTerminal(stream: LuaFile): boolean
+    local known = terminals[stream]
+    if known == nil then
+        known = isatty(DESCRIPTOR[stream] or 1)
+        terminals[stream] = known
+    end
+
+    return known
+end
+
 --- The style table for `stream`. Two tables exist for the life of the process and this
 --- hands back whichever one applies, so styling never builds anything.
 function ansi.style(stream: LuaFile): ansi.Style

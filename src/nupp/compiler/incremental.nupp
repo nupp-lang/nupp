@@ -152,6 +152,18 @@ record incremental.Inc
     deriveStats: function(): any
 end
 
+--- Told when a module is actually checked, for a caller reporting what a run is doing.
+---
+--- The pair brackets the check, and checks nest: a module's check reaches its
+--- dependencies through the query graph, so `checking` for those arrives before this
+--- one's `checked`. That nesting is the whole point -- an observer that wants a
+--- module's own cost rather than its closure's reads it off the pairs -- and a memo hit
+--- announces nothing, because nothing was checked.
+type incremental.Observer = {
+    checking: function(path: string): nil,
+    checked: function(path: string): nil
+}
+
 --- Builds a query graph rooted at `rootDir`.
 ---
 --- @param rootDir the project root
@@ -374,7 +386,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return plan, (q.stats.materializeDerives or 0) == executions
     end
 
-    q:define("checkModule", function(self: any, path: any): incremental.CheckResult
+    local checkModule = function(self: any, path: any): incremental.CheckResult
         local result = self:get("parse", path)
         if not result then
             return {diags = {}, moduleType = nil, missing = true}
@@ -428,7 +440,24 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             strict = external and false or strict,})
 
         return {diags = diags, moduleType = moduleType, exports = exports, result = result}
-    end)
+    end
+
+    -- The announcement wraps the definition rather than living inside it, so every way
+    -- out of a check -- a missing file, a syntax error, the ordinary end -- is
+    -- bracketed by one pair, and a run with no observer defines exactly what it always
+    -- did.
+    local observer = opts.observe as incremental.Observer?
+    if observer then
+        q:define("checkModule", function(self: any, path: any): incremental.CheckResult
+            observer.checking(path)
+            local result = checkModule(self, path)
+            observer.checked(path)
+
+            return result
+        end)
+    else
+        q:define("checkModule", checkModule)
+    end
 
     q:define("moduleInterface", function(self, name)
         local path = modulePath(self, name)

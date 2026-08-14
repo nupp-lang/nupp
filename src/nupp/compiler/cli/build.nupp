@@ -11,8 +11,8 @@ local spec = require("nupp.compiler.cli.spec")
 local optionsMod = require("nupp.compiler.cli.options")
 
 local command = spec.command{name = "build", summary = "Build source files or a configured project target", usage = {
-    "nupp build [--strict] [-O<n>] [--target NAME] [--out-dir DIR]" .. " [--format text|json]",
-    "nupp build [--strict] [-O<n>] [-o DIR] [--format text|json] <file...>",
+    "nupp build [--strict] [-O<n>] [--target NAME] [--out-dir DIR]" .. " [-q] [--format text|json]",
+    "nupp build [--strict] [-O<n>] [-o DIR] [-q] [--format text|json] <file...>",
 }, options = optionsMod.join({name = "--target", value = "NAME", help = "Build a named manifest target"},
     -- Two directories, not two spellings of one: --out-dir moves a manifest target's
     -- output, -o says where a named file's Lua goes. Distinct keys, so giving both is a
@@ -27,7 +27,7 @@ local command = spec.command{name = "build", summary = "Build source files or a 
     value = "DIR",
     key = "outDir",
     help = "Output directory for explicit source-file builds"
-}, optionsMod.strict, optionsMod.optimize(), optionsMod.format()), schema = {
+}, optionsMod.strict, optionsMod.optimize(), optionsMod.progress(), optionsMod.format()), schema = {
     type = "object",
     description = "What a build reported and what it produced.",
     properties = {
@@ -108,6 +108,38 @@ local command = spec.command{name = "build", summary = "Build source files or a 
                 },
             },
         },
+        timing = {
+            type = "object",
+            description = "Where the build's wall-clock time went. Absent when a "
+            .. "diagnostic stopped the build, since a run that did not finish has no "
+            .. "account of itself to give.",
+            properties = {
+                totalMs = {type = "number", description = "Wall-clock milliseconds for the whole build."},
+                compiledModules = {type = "integer"},
+                reusedModules = {type = "integer"},
+                phases = {
+                    type = "array",
+                    description = "Every activity that took measurable time, longest "
+                    .. "first. One activity is current at a time, so these sum to the whole.",
+                    items = {
+                        type = "object",
+                        properties = {name = {type = "string"}, durationMs = {type = "number"}},
+                        required = {"name", "durationMs"},
+                    },
+                },
+                slowest = {
+                    type = "array",
+                    description = "The costliest modules, longest first, each charged "
+                    .. "for its own checking and generation and not for its dependencies'.",
+                    items = {
+                        type = "object",
+                        properties = {module = {type = "string"}, durationMs = {type = "number"}},
+                        required = {"module", "durationMs"},
+                    },
+                },
+            },
+            required = {"totalMs", "compiledModules", "reusedModules", "phases", "slowest"},
+        },
         ok = {type = "boolean", description = "Whether the build completed. False when a " .. "diagnostic stopped it."},
     },
     required = {"ok", "diagnostics", "written", "materializations", "derives"},
@@ -120,7 +152,14 @@ mixing artifacts compiled at two different levels. See plans/optimizations.md.
 --json reports the same diagnostics as 'nupp check --json' alongside what the
 build wrote, so one call answers both what went wrong and what landed. It also
 reports bounded materialization facts: provider, schema, fingerprint, backend,
-sizes, runtime features and ABI versions.]],}
+sizes, runtime features and ABI versions, and a timing object saying where the
+build's wall-clock time went and which modules cost the most of it.
+
+To a terminal, a build says which module it is on while it compiles and then
+how long it took, what it spent that on, and its slowest modules. To anything
+else it stays quiet, so a script reading the output sees what it always saw.
+NUPP_PROGRESS says what --progress says, for the builds nothing passes a flag
+to -- including the rebuild bin/nupp runs before every other command.]],}
 
 -- Whether the manifest declares a target by this name. Asked only about a positional
 -- that is not a file, so an ordinary build never reads the manifest to find out.
@@ -163,6 +202,10 @@ local function run(parsed: any): integer
     local diagnostics: {any} = {}
     local compile = require("nupp.compiler.cli.compile")
     local settings = compile.settings(values, asJson and diagnostics or nil)
+    -- The same timing either way, and no narration when the reader is a program: it
+    -- gets the numbers in the document it asked for. Naming --progress explicitly
+    -- overrules that, which is how somebody watching a --json build sees it move.
+    local progressMode = values.progress or (asJson and "never" or nil)
     local materializations: {any} = {}
     local derives: {any} = {}
     local function finish(
@@ -170,7 +213,8 @@ local function run(parsed: any): integer
         builtTarget: any,
         outputs: {string},
         observed: {any}?,
-        observedDerives: {any}?
+        observedDerives: {any}?,
+        timing: any?
     ): integer
         if asJson then
             reportMod.write({
@@ -180,6 +224,7 @@ local function run(parsed: any): integer
                 written = outputs,
                 materializations = observed or materializations,
                 derives = observedDerives or derives,
+                timing = code == 0 and timing or nil,
             })
         end
 
@@ -200,10 +245,18 @@ local function run(parsed: any): integer
                 disabled = settings.disabled,
                 relaxed = settings.relaxed,
                 diagnostics = asJson and diagnostics or nil,
-                produced = asJson and produced or nil
+                produced = asJson and produced or nil,
+                progress = progressMode
             }
         )
-        return finish(code, produced.target, produced.outputs or {}, produced.materializations, produced.derives)
+        return finish(
+            code,
+            produced.target,
+            produced.outputs or {},
+            produced.materializations,
+            produced.derives,
+            produced.timing
+        )
     end
     local process = require("nupp.compiler.build.process")
     if outDir and process.run(process.mkdirCommand(outDir)) ~= 0 then
@@ -213,6 +266,11 @@ local function run(parsed: any): integer
     local env = require("nupp.compiler.env").new(".")
     settings.materializations = materializations
     settings.derives = derives
+    -- The file shape has no module graph to count through, since what it will reach is
+    -- discovered by reaching it, so its reporter names files as it gets to them and
+    -- leaves the counter off.
+    local progressMod = require("nupp.compiler.build.progress")
+    local report = progressMod.new(progressMode)
     local failed = false
     local written: {[string]: boolean} = {}
     local outputs: {string} = {}
@@ -221,8 +279,14 @@ local function run(parsed: any): integer
             return true
         end
         written[path] = true
+        report:at("compile")
+        report:step("compiling " .. path)
+        local startedAt = progressMod.now()
         local code = compile.module(path, env, settings)
+        report:spent(path, progressMod.now() - startedAt)
+        report:resolved()
         if not code then
+            report:clear()
             return false
         end
         local outPath: string
@@ -237,6 +301,7 @@ local function run(parsed: any): integer
             io.stderr:write("nupp: " .. tostring(err) .. "\n")
             return false
         end
+        report:at("write")
         out:write(code)
         out:close()
         outputs[#outputs + 1] = outPath
@@ -274,8 +339,15 @@ local function run(parsed: any): integer
         end
     end
     table.sort(outputs)
+    report:counted(#outputs, 0)
+    -- A build that stopped on a diagnostic has already said what is wrong with the
+    -- program, and how long it took to find out is not the answer anybody is waiting
+    -- for.
+    if not failed then
+        report:finish("built")
+    end
 
-    return finish(failed and 1 or 0, nil, outputs, materializations, derives)
+    return finish(failed and 1 or 0, nil, outputs, materializations, derives, report:timing())
 end
 
 return new spec.Handler(spec = command, run = run)

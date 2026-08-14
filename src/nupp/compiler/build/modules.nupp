@@ -18,6 +18,7 @@ local fs = require("nupp.compiler.fs")
 local cache = require("nupp.compiler.build.cache")
 local deps = require("nupp.compiler.build.deps")
 local materializeObserve = require("nupp.compiler.materialize.observe")
+local progress = require("nupp.compiler.build.progress")
 
 local normalize, join = fs.normalize, fs.join
 local readFile, writeFile = fs.readFile, fs.writeFile
@@ -490,7 +491,13 @@ local function buildModules(root: string, outDir: string, config: Config, target
     --- Set when a check was asked about named files rather than about the project. Only
     --- a check narrows: a build compiles the whole source set, because a module nobody
     --- requires is still part of the program.
-    narrow: modules.Narrow?): modules.Result?, string?
+    narrow: modules.Narrow?,
+
+    --- Where what this is doing, and what it costs, is said. A run given none still
+    --- measures itself into a reporter that shows nothing, so there is one code path
+    --- rather than a nil test at every step.
+    reporter: nupp.compiler.build.progress.Reporter?): modules.Result?, string?
+    local report = reporter or progress.new("never")
     local envConfig = {}
     for key, value in pairs(config) do
         envConfig[key] = value
@@ -501,9 +508,60 @@ local function buildModules(root: string, outDir: string, config: Config, target
     end
     envConfig.include[#envConfig.include + 1] = join(outDir, "generated")
     local rocks = deps.rockPaths(root, config, target, newState.dependencies)
+    -- What each file's own check cost, by path, with the dependencies it pulled in
+    -- charged to themselves. A module's check reaches its imports through the query
+    -- graph, so the inclusive time of the first module compiled is most of the build
+    -- and naming it the slowest would be true of whichever module happened to go first.
+    -- Subtracting what the nested checks announced is what makes the number the
+    -- module's own.
+    local checkMs: {[string]: number} = {}
+    local open: {{
+        startedAt: number,
+        children: number
+    }} = {}
+    -- What the build was doing when the outermost check began, to go back to when it
+    -- ends.
+    local resumeActivity = "scan"
+    local rootPrefix = normalize(root)
+    local function shortPath(path: string): string
+        if rootPrefix ~= "." and path:sub(1, #rootPrefix + 1) == rootPrefix .. "/" then
+            return path:sub(#rootPrefix + 2)
+        end
+
+        return path
+    end
+
+    local observer: nupp.compiler.incremental.Observer = {checking = function(path: string): nil
+        -- Checking is charged wherever it happens rather than only where this file
+        -- calls for it. Deciding a module can be reused reaches the checker too, so a
+        -- build that compiles nothing at all would otherwise report its whole runtime
+        -- as bookkeeping.
+        if #open == 0 then
+            resumeActivity = report.activity
+            report:at("check")
+        end
+        open[#open + 1] = {startedAt = progress.now(), children = 0}
+        report:step("checking " .. shortPath(path))
+    end, checked = function(path: string): nil
+        local frame = open[#open]
+        if not frame then
+            return
+        end
+        open[#open] = nil
+        local spent = progress.now() - frame.startedAt
+        local parent = open[#open]
+        if parent then
+            parent.children = parent.children + spent
+        end
+        checkMs[path] = (checkMs[path] or 0) + spent - frame.children
+        if #open == 0 then
+            report:at(resumeActivity)
+        end
+    end,}
+
     local inc = incremental.new(
         root,
-        {config = envConfig, strict = strict, typeRoots = rocks and rocks.typeRoots or {},}
+        {config = envConfig, strict = strict, typeRoots = rocks and rocks.typeRoots or {}, observe = observer,}
     )
     -- A check reuses on the same terms a build does. It used to be excluded, and had to
     -- be: reuse produced no diagnostics, so the second `nupp check` over a project with
@@ -593,6 +651,14 @@ local function buildModules(root: string, outDir: string, config: Config, target
 
     local records, reused, codeFor, paths = {}, {}, {}, {}
     local order, queued, cursor = {}, {}, 1
+    -- What the queue holds now is the whole source set; dependencies discovered later
+    -- can still add to it, which the step line accounts for by never counting past the
+    -- total it is showing.
+    report:expect(#queue)
+    -- Generation, by module name. Kept apart from the check times until the end because
+    -- one is keyed by path and the other by name, and the summary wants them added
+    -- together under the name.
+    local generateMs: {[string]: number} = {}
     stats = (stats or {}) as modules.Stats
     stats.checkedModules, stats.generatedModules, stats.reusedModules = 0, 0, 0
 
@@ -646,6 +712,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
         local output = external and nil or join(root, join(outDir, name:gsub("%.", "/") .. ".lua"))
         local artifactHash, code, coverage
         if not external and not fatal and not checkOnly then
+            report:at("generate")
+            report:step("generating " .. name)
+            local startedGenerating = progress.now()
             local genDiags
             local remarks = optimize.run(
                 result.result,
@@ -683,6 +752,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
             if #genDiags == 0 then
                 artifactHash = hash.digest(code)
             end
+            generateMs[name] = (generateMs[name] or 0) + (progress.now() - startedGenerating)
         end
         said[name] = mine
         local materializations = materializeObserve.collect(result.result and result.result.root, path)
@@ -730,6 +800,11 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 local path = item.path
                 paths[item.name] = path
                 order[#order + 1] = item.name
+                -- Deciding whether a module can be reused is reading and hashing files,
+                -- which on a build that reuses everything is the whole of the run. It
+                -- is its own activity so a warm build can say so.
+                report:at("scan")
+                report:step(item.name)
                 local sourceHash = hashFile(path)
                 local previous = oldState.modules[item.name]
                 local external = envMod.isDependencyTypePath(inc.env, path)
@@ -793,6 +868,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 else
                     compile(item.name, path, sourceHash)
                 end
+                report:resolved()
             end
         end
     end
@@ -834,12 +910,23 @@ local function buildModules(root: string, outDir: string, config: Config, target
             stats.reusedModules = stats.reusedModules + 1
         end
     end
+    -- The same answer, and the two halves of each module's cost added up under the one
+    -- name a reader would look for it by.
+    report:counted(#order - stats.reusedModules, stats.reusedModules)
+    for _, name in ipairs(order) do
+        local spent = (checkMs[paths[name] or ""] or 0) + (generateMs[name] or 0)
+        if spent > 0 then
+            report:spent(name, spent)
+        end
+    end
 
     -- Everything this run learned is written here, which is before the diagnostics are
     -- judged rather than after. A run that ends in errors learned exactly as much as
     -- one that did not -- what every file declares, what each module's interface is,
     -- and what each had to say -- and a project with an error in it is precisely the
     -- one somebody is about to check again.
+    report:at("persist")
+    report:step("saving what this run worked out")
     inc.persist()
     if checkOnly and checkState then
         local checked = {}
@@ -896,6 +983,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
             diagnostics[#diagnostics + 1] = diagnostic
         end
     elseif #errors > 0 then
+        -- A step line is rewritten in place, so anything printed over it would leave
+        -- half of it behind and above whatever came next.
+        report:clear()
         printErrors(errors)
     end
     if fatal then
@@ -964,7 +1054,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
             end
         end
     end
+    report:at("write")
     for _, item in ipairs(pending) do
+        report:step("writing " .. shortPath(item.path))
         local ok, err = writeFile(item.path, item.text)
         if not ok then
             return nil, err

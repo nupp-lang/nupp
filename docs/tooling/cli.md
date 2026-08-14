@@ -422,8 +422,8 @@ See [the formatter](fmt.md) for the rules it applies.
 Build source files or a configured project target
 
 Usage:
-  nupp build [--strict] [-O<n>] [--target NAME] [--out-dir DIR] [--format text|json]
-  nupp build [--strict] [-O<n>] [-o DIR] [--format text|json] <file...>
+  nupp build [--strict] [-O<n>] [--target NAME] [--out-dir DIR] [-q] [--format text|json]
+  nupp build [--strict] [-O<n>] [-o DIR] [-q] [--format text|json] <file...>
 
 Options:
   --target NAME      Build a named manifest target
@@ -436,6 +436,10 @@ Options:
                      guarantee
   -Zno-opt=CODE      Turn off one pass, named by its stable code, to bisect a
                      miscompile. Unstable: the spelling may change or go away
+  --progress[=WHEN]  When to report progress and timing on standard error:
+                     always, never, or auto (default), which reports only to a
+                     terminal
+  -q, --quiet        Report no progress or timing; the same as --progress=never
   --format FORMAT    Output format: text (default) or json
   --json             Shorthand for --format json
   --text             Shorthand for --format text
@@ -453,7 +457,14 @@ mixing artifacts compiled at two different levels. See plans/optimizations.md.
 --json reports the same diagnostics as 'nupp check --json' alongside what the
 build wrote, so one call answers both what went wrong and what landed. It also
 reports bounded materialization facts: provider, schema, fingerprint, backend,
-sizes, runtime features and ABI versions.
+sizes, runtime features and ABI versions, and a timing object saying where the
+build's wall-clock time went and which modules cost the most of it.
+
+To a terminal, a build says which module it is on while it compiles and then
+how long it took, what it spent that on, and its slowest modules. To anything
+else it stays quiet, so a script reading the output sees what it always saw.
+NUPP_PROGRESS says what --progress says, for the builds nothing passes a flag
+to -- including the rebuild bin/nupp runs before every other command.
 ```
 
 `-o` is for explicit source-file builds; `--out-dir` overrides a manifest
@@ -467,8 +478,32 @@ the `-Z` prefix marks that spelling as unstable. Repeatable
 `--relax=GUARANTEE` flags opt in to a named observable tradeoff; no current
 pass requires one.
 
-A successful build writes nothing to the terminal. `--json` says both what
-failed and what landed:
+To a terminal, a build says which module it is on, on one line it rewrites in
+place, and then how long the whole thing took, which activities that time went
+to, and the modules that cost the most of it:
+
+```text
+built compiler in 18.9s: 164 compiled, 0 reused
+  check 16.1s  generate 952ms
+  slowest
+    nupp.compiler.gen            1.9s
+    nupp.heap                    699ms
+    nupp.compiler.check.calls    664ms
+```
+
+One activity is current at a time, so the second line's parts add up to the
+whole rather than overlapping. A module is charged for its own checking and
+generation and not for the dependencies its check pulled in, so the list names
+where the time went rather than whichever module happened to be reached first.
+
+To anything that is not a terminal a successful build still writes nothing, so
+a script reading its output sees what it always saw. `--progress=always` asks
+for the report anyway, `-q` refuses it, and `NUPP_PROGRESS` says the same thing
+for the builds nothing passes a flag to — including the rebuild `bin/nupp` runs
+before every other command.
+
+`--json` says both what failed and what landed, and carries the same timing as
+data rather than as a report:
 
 ```json [nupp build --json]
 {
@@ -476,7 +511,14 @@ failed and what landed:
   "target": "app",
   "written": ["build/greet.lua", "build/main.lua"],
   "diagnostics": [],
-  "materializations": []
+  "materializations": [],
+  "timing": {
+    "totalMs": 412.7,
+    "compiledModules": 2,
+    "reusedModules": 0,
+    "phases": [{"name": "check", "durationMs": 331.2}],
+    "slowest": [{"module": "main", "durationMs": 208.4}]
+  }
 }
 ```
 

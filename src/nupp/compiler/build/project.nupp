@@ -22,6 +22,7 @@ local storeMod = require("nupp.compiler.build.store")
 local native = require("nupp.compiler.build.native")
 local nativeFeatures = require("nupp.compiler.native")
 local materializeObserve = require("nupp.compiler.materialize.observe")
+local progressMod = require("nupp.compiler.build.progress")
 
 local project = {}
 
@@ -65,6 +66,12 @@ type project.BuildOptions = {
 
     --- How many modules were checked, generated and reused.
     stats: nupp.compiler.build.modules.Stats?,
+
+    --- When to say what the build is doing and what it cost: "always", "never", or
+    --- "auto", which means only when standard error is a terminal. Absent, the answer
+    --- comes from `NUPP_PROGRESS` and failing that from "auto". A check reports nothing
+    --- whatever this says.
+    progress: string?,
 
     --- Every diagnostic, instead of printing them.
     diagnostics: {any}?,
@@ -141,6 +148,14 @@ json.encode_invalid_numbers(false)
 
 function project.build(root: string?, opts: project.BuildOptions?): integer
     root, opts = root or ".", (opts or {}) as project.BuildOptions
+    -- Started before the manifest is read, because a build takes as long as it takes
+    -- from where the caller asked for one, and a reader timing it with a wristwatch is
+    -- not going to exclude the parts this one thought were setup.
+    --
+    -- A check is measured and says nothing: it shares this code path, but `nupp check`
+    -- answers a question about the program rather than reporting work done, and a
+    -- summary of how long the answer took belongs to the command that asked.
+    local report = progressMod.new(opts.checkOnly and "never" or opts.progress)
     local config, loadErr = project.loadManifest(root)
     if not config then
         io.stderr:write(tostring(loadErr) .. "\n")
@@ -226,7 +241,10 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
         newState.targets[name] = produced
     end
     local targetKey = target.name or opts.target or "default"
+    report:at("dependencies")
+    report:step("resolving dependencies")
     local dependencies, depErr = buildDependencies(root, outDir, config, oldState.dependencies)
+    report:clear()
     if not dependencies then
         io.stderr:write("nupp: " .. tostring(depErr) .. "\n")
         ;
@@ -245,8 +263,12 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
         opts.stats,
         opts.diagnostics,
         checkState,
-        opts.paths and {paths = opts.paths, unchecked = opts.unchecked or {},} or nil
+        opts.paths and {paths = opts.paths, unchecked = opts.unchecked or {},} or nil,
+        report
     )
+    -- Everything from here writes to the same stream the step line is on, so it comes
+    -- off the screen once rather than before each of a dozen messages.
+    report:clear()
     if not result then
         if buildErr ~= "project has errors" and buildErr ~= "code generation failed" then
             io.stderr:write("nupp: " .. tostring(buildErr) .. "\n")
@@ -275,7 +297,10 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
         )
         return 1
     end
+    report:at("native")
+    report:step("building native providers")
     local nativeOutputs, nativeErr = native.build(root, outDir, resolvedEffects)
+    report:clear()
     if not nativeOutputs then
         io.stderr:write("nupp: " .. tostring(nativeErr) .. "\n")
         return 1
@@ -286,6 +311,8 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
     -- A bundle is a modules build and then one more file: everything it just compiled,
     -- folded into a chunk that runs with nothing beside it.
     if target.kind == "bundle" or target.kind == "binary" then
+        report:at("bundle")
+        report:step("bundling " .. (target.name or target.kind))
         local runtimeModules = {}
         for _, feature in ipairs(nativeFeatures.features(resolvedEffects)) do
             if feature.runtimeModule then
@@ -344,6 +371,7 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
             end
         end
         newState.outputs[output] = true
+        report:clear()
     end
     for _, dep in pairs(dependencies) do
         if dep.output then
@@ -376,6 +404,7 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
         opts.produced.materializations = materializeObserve.public(result.materializations)
         opts.produced.derives = result.derives
     end
+    report:at("write")
     local ok, stateErr = saveState(statePath, newState)
     if not ok then
         io.stderr:write("nupp: " .. tostring(stateErr) .. "\n")
@@ -386,6 +415,12 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
     if not completed then
         io.stderr:write("nupp: " .. tostring(completionErr) .. "\n")
         return 1
+    end
+    report:finish("built", targetKey)
+    -- Timing is published whether or not anything was printed, because a caller
+    -- reporting the build as a document reads it here rather than off the terminal.
+    if opts.produced then
+        opts.produced.timing = report:timing()
     end
 
     return 0

@@ -49,6 +49,35 @@ function options.format(): {any}
     }
 end
 
+-- Two spellings of one choice again, on the same terms as the format group: `-q` is
+-- `--progress=never` written shorter, so it lands on that key and asking for both at
+-- once is caught rather than resolved by whichever came second.
+local DUPLICATE_PROGRESS = "progress reporting was both asked for and refused"
+
+--- `--progress WHEN`, with `-q` and `--quiet` as its shorthand, for the commands that
+--- say what they are doing while they do it.
+function options.progress(): {any}
+    return {
+        {
+            name = "--progress",
+            value = "WHEN",
+            form = "optional",
+            constant = "always",
+            choices = {"always", "never", "auto"},
+            duplicate = DUPLICATE_PROGRESS,
+            help = "When to report progress and timing on standard error: always, "
+            .. "never, or auto (default), which reports only to a terminal"
+        },
+        {
+            names = {"-q", "--quiet"},
+            key = "progress",
+            constant = "never",
+            duplicate = DUPLICATE_PROGRESS,
+            help = "Report no progress or timing; the same as --progress=never"
+        },
+    }
+end
+
 --- The optimizer's options, shared by `build` and `run`. The level is one word rather
 --- than a name and a value, so it is matched by pattern; `-Zno-opt` names a pass by its
 --- stable code and may be given more than once, so its values accumulate into a set the

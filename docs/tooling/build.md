@@ -281,6 +281,41 @@ artifacts, and `.nupp-complete` is written last. `bin/nupp` only selects a
 compiler build carrying that marker; otherwise it falls back to the tracked
 bootstrap compiler.
 
+## What a build says about itself
+
+A build run from a terminal names the module it is working on, on one line it
+rewrites in place, and finishes with how long it took, where that time went,
+and which modules cost the most of it:
+
+```text
+built compiler in 18.9s: 164 compiled, 0 reused
+  check 16.1s  generate 952ms
+  slowest
+    nupp.compiler.gen            1.9s
+    nupp.heap                    699ms
+    nupp.compiler.check.calls    664ms
+```
+
+Time is accounted as a timeline: one activity is current at any moment, so
+switching closes the one before it and the activities add up to the run rather
+than overlapping it. They are `scan`, which is deciding what can be reused,
+`check`, `generate`, `write`, `persist`, `dependencies`, `native`, `bundle`,
+and `other` for what is left over. A warm build that compiles nothing still
+reports `check`: deciding a module can be reused consults the exported call
+guarantees of the modules it depends on, and answering that is a check.
+
+Per-module numbers are exclusive. A module's check reaches its imports through
+the query graph, so the time those take is charged to them rather than to
+whichever module reached them first — otherwise the slowest module would be
+whichever one the build happened to start with.
+
+Nothing is written unless standard error is a terminal, so a build driven by a
+script is as quiet as it has always been. `--progress=always` reports anyway,
+`-q` reports nothing, and `NUPP_PROGRESS` — `always`, `never` or `auto` — says
+the same thing for the builds nothing passes a flag to, including the rebuild
+`bin/nupp` runs before every other command. `nupp build --json` carries the
+same numbers in a `timing` object rather than writing a report.
+
 ## C dependencies
 
 `kind = "c"` supports local sources, `pkgConfig`, compiler and linker flags,
