@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Let a loop compile around an owned binding whose body calls something. The
+  cached region function is written where it stands and only its instance is
+  kept for the module, so a name the chunk's outermost block declares -- which
+  is every module-level function -- can be captured and reused. Only a name
+  belonging to an enclosing function, block, or loop, including a chunk-level
+  loop variable, still costs the region a function per entry.
 - Spread an argument list one argument per line whenever it stops fitting on
   one, whether by width, by a comment inside it, or by an argument whose own
   body is a block. A call's trailing function or table still hugs the line that

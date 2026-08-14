@@ -339,6 +339,41 @@ function M.structuredExitsRunCleanup()
    assertEq(n, 1)
    assertEq(calls, "r12g")
 end
+local CACHED_REGION = "if not __nuppT%d+ then __nuppT%d+=function%("
+
+function M.aBodyThatOnlyCallsOutStillSharesOneRegion()
+   local chunk, code = compile(PRELUDE .. table.concat({
+      "",
+      "local function note(text: string): nil",
+      "   calls = calls .. text",
+      "end",
+      "for _, name in ipairs({'a', 'b', 'c'}) do",
+      "   local value = open_resource(name)",
+      "   note(value.name)",
+      "end",
+      "return calls",
+   }, "\n"))
+   assert(code:match(CACHED_REGION),
+      "a body naming only module-level locals shares one region function")
+   assertEq(chunk(), "aabbcc")
+end
+
+function M.aChunkLevelLoopVariableKeepsTheRegionPerEntry()
+   local chunk, code = compile(PRELUDE .. table.concat({
+      "",
+      "for i = 1, 3 do",
+      "   local value = open_resource('x')",
+      "   calls = calls .. tostring(i)",
+      "end",
+      "return calls",
+   }, "\n"))
+   -- Outside every function and still a fresh instance each iteration, so a reused
+   -- region function would read the first iteration's `i`.
+   assert(not code:match(CACHED_REGION),
+      "a body reading a chunk-level loop variable keeps its own region function")
+   assertEq(chunk(), "1x2x3x")
+end
+
 function M.automaticLoweringPreservesSourceLineCount()
    local source = PRELUDE .. table.concat({
       "",

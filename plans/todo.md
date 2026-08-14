@@ -79,29 +79,29 @@ work makes sense in.
 
 ## Performance and incrementality
 
-- [ ] **A cleanup region inside a loop still builds a function every iteration.**
+- [ ] **A cleanup region whose body writes an enclosing local still builds a
+      function every iteration.**
       An owned binding needs its body run under `xpcall`, and `xpcall` takes a
       function. Where that function is built per entry, the loop holding it
       never compiles, for the same reason `jit-loop-closure` reports — and
       acquiring a resource per iteration is an ordinary thing to write, not a
       corner case.
-      Half of this is already handled and the half that is left is bigger than
-      it looks. `gen` caches the region function in a module table and passes
-      the binding in, building it on first entry and reusing it after
-      (`src/nupp/compiler/gen.nupp`, the `shared` path); nine of the twenty-three
-      regions in this compiler's own source take it, and `nupp bc --check`
-      correctly says those loops compile.
-      What gates the rest is `automaticCaptures`: a body naming anything defined
-      before the region — which includes every module-level function, so any
-      body that calls something — cannot be lifted to a module-level table,
-      because the name would not be in scope there.
+      `gen` caches the region function in a module table and passes the binding
+      in, building it on first entry and reusing it after
+      (`src/nupp/compiler/gen.nupp`, the `shared` path). The function is written
+      where it stands and only its instance is kept, so scope never gated this:
+      what gates it is whether reusing one instance would read a variable
+      belonging to an earlier execution. A name the chunk's outermost block
+      declares would not, so a body whose only outside reference is a call it
+      makes now shares. A name from an enclosing function, block or loop would,
+      and that is what is left.
       Moving the region's own bookkeeping into a table passed to the function
-      does **not** unblock this, which is worth writing down because it looks
-      like it should. `xpcall` does forward extra arguments, so the count, the
-      owners and the active flags could travel that way and still be readable
-      after an error. The free variables cannot: the body reads and sometimes
-      writes names belonging to the enclosing function, and passing those means
-      lambda lifting with write-back, not an extra parameter.
+      does **not** unblock the rest, which is worth writing down because it
+      looks like it should. `xpcall` does forward extra arguments, so the count,
+      the owners and the active flags could travel that way and still be
+      readable after an error. The free variables cannot: the body reads and
+      sometimes writes names belonging to the enclosing function, and passing
+      those means lambda lifting with write-back, not an extra parameter.
       So this is a transformation rather than a lowering change, and it lands in
       the machinery where being wrong means a leak or a double free. It wants
       its own design pass. Until then `nupp bc --check` names the loops it

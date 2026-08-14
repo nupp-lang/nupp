@@ -1828,6 +1828,69 @@ function gen.generate(
         return found
     end
 
+    -- The locals the module's own outermost block declares.
+    --
+    -- A cached region function is built once and reused, so an upvalue it takes stays
+    -- bound to the instance the first entry saw. That is safe only where the variable
+    -- has one instance for as long as the cache does, and only a local the chunk's
+    -- outermost block declares qualifies. A local inside a function, a nested block or
+    -- a loop is a fresh instance per entry, and a reused closure would read the one
+    -- the first entry captured -- including a chunk-level loop variable, which is
+    -- outside every function and still changes every iteration.
+    --
+    -- Computed on the first region rather than up front: a module with no owned
+    -- binding never walks its own root for this.
+    local chunkLocals: {[any]: boolean}?
+    local function isChunkLocal(definition): boolean
+        if not chunkLocals then
+            local found = {}
+            local function declare(stat)
+                if cst.isToken(stat) then
+                    return
+                end
+                -- The parse hands back the chunk's statements either directly or under
+                -- one block node, and a pragma wraps the statement it applies to.
+                if stat.kind == "block" then
+                    for _, inner in ipairs(stat.stats or stat) do
+                        declare(inner)
+                    end
+
+                    return
+                end
+                if stat.kind == "pragmaStmt" and stat.stat then
+                    declare(stat.stat)
+
+                    return
+                end
+                if stat.kind ~= "localStmt" and stat.kind ~= "localFuncStmt" then
+                    return
+                end
+                for _, name in ipairs(stat.names or (stat.name and {stat.name}) or {}) do
+                    if name.definition then
+                        found[name.definition] = true
+                    end
+                end
+            end
+
+            for _, stat in ipairs(result.root or {}) do
+                declare(stat)
+            end
+            chunkLocals = found
+        end
+
+        return chunkLocals[definition] == true
+    end
+
+    -- Whether this body would hold a region function to one execution.
+    --
+    -- The cached function is emitted where it is written and only its instance is
+    -- parked in the module table, so scope is not what decides this: every name the
+    -- body resolves is in scope either way. What decides it is whether reusing one
+    -- instance would read a variable belonging to an earlier execution. A name the
+    -- chunk's outermost block declares would not -- which is every module-level
+    -- function, so a body whose only outside reference is a call it makes still
+    -- shares. A name from an enclosing function, block or loop would, and that body
+    -- keeps its own function.
     local function automaticCaptures(block, bindings)
         local localBindings = {}
         local firstOffset
@@ -1848,7 +1911,9 @@ function gen.generate(
                 local token = definition.token
                 if not localBindings[
                     definition
-                ] and token and firstOffset and token.offset < firstOffset and token.line ~= 0 then
+                ] and token and firstOffset and token.offset < firstOffset and token.line ~= 0 and not isChunkLocal(
+                    definition
+                ) then
                     captured = true
                     return
                 end
@@ -3847,13 +3912,12 @@ function gen.generate(
                 gotos = {},
                 automaticMap = automaticMap,
             }
-            -- A body that resolves nothing from an enclosing scope produces a region
-            -- with no upvalues, so one region can serve every execution. That is what
-            -- lets a loop around an automatic owner compile at all: building a closure
-            -- per
-            -- execution is `NYI: bytecode FNEW` and aborts the enclosing trace whether
-            -- or not it captures. Acquisition moves out of the protected region because
-            -- a lone binding that fails to acquire leaves nothing to clean up.
+            -- A body that would read no earlier execution's variables can be served by
+            -- one region function for the whole module. That is what lets a loop around
+            -- an automatic owner compile at all: building a closure per execution is
+            -- `NYI: bytecode FNEW` and aborts the enclosing trace whether or not it
+            -- captures. Acquisition moves out of the protected region because a lone
+            -- binding that fails to acquire leaves nothing to clean up.
             local shared = not x.capturesEnclosing and #(
                 x.bindings or {}
             ) == 1 and not active[1] and not x.automaticComplex
