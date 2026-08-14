@@ -125,6 +125,7 @@ sealed interface span.WriteSpan<T>
     readonly count: integer
     @drop
     commit: nosuspend function(takes self: WriteSpan<T>): nil
+    getMut: function(exclusive self: WriteSpan<T>, index: integer): T* borrows(self)
     set: function(exclusive self: WriteSpan<T>, index: integer, value: T): nil
     ref: function(exclusive self: WriteSpan<T>): (T[?] borrows(self), integer)
     shared: function(borrows self: WriteSpan<T>): span.Span<T> borrows(self)
@@ -150,6 +151,19 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
     @drop
 
     commit: nosuspend function(takes self: WriteSpanImpl<T>): nil
+
+    --- Returns a checked mutable element reference tied to this write borrow.
+    --- @raises when index is outside 1 through count
+    function getMut(exclusive self: WriteSpanImpl<T>, index: integer): T* borrows(self)
+        if index < 1 or index > self.count then
+            error("write span index out of bounds", 2)
+        end
+        unsafe do
+            local elementOffset = self.offset + index - 1
+            local pointer = (self.pointer as T*) + elementOffset
+            return borrowFrom(pointer, self)
+        end
+    end
 
     function set(exclusive self: WriteSpanImpl<T>, index: integer, value: T): nil
         if index < 1 or index > self.count then
@@ -215,6 +229,17 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
 
     @drop
     commit: nosuspend function(takes self: FixedWriteSpanImpl<T, N>): nil
+
+    function getMut(exclusive self: FixedWriteSpanImpl<T, N>, index: integer): T* borrows(self)
+        if index < 1 or index > (self.count as integer) then
+            error("write span index out of bounds", 2)
+        end
+        unsafe do
+            local elementOffset = self.offset + index - 1
+            local pointer = (self.pointer as T*) + elementOffset
+            return borrowFrom(pointer, self)
+        end
+    end
 
     function set(exclusive self: FixedWriteSpanImpl<T, N>, index: integer, value: T): nil
         if index < 1 or index > (self.count as integer) then

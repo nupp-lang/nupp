@@ -867,6 +867,12 @@ index that is statically out of range and inserts a runtime check for every
 non-literal index. Conversion, unchecked indexing, and unknown pointer
 arithmetic remain inside the smallest possible `unsafe` block.
 
+`WriteSpan.getMut(index)` returns a checked `T* borrows(self)` for reading or
+updating one element in place. That reference keeps the writer unavailable to
+another shared or exclusive operation until its last use. A function's `exclusive` parameter
+may be forwarded to another exclusive call when it has no live derived borrow,
+which lets a checked wrapper preserve rather than erase the capability.
+
 `FixedSpan<T, N>` extends `Span<T>`, and `FixedWriteSpan<T, N>` extends
 `WriteSpan<T>`, with `count: N`. `fromFixedCarray(source, N)` and
 `writeFixedCarray(source, N)` accept only `T[N]`; the literal is stored directly

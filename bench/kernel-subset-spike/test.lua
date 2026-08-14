@@ -18,42 +18,46 @@ assert(first.irText == second.irText, "equivalent input produced different nativ
 assert(first.c == second.c, "equivalent input produced different C")
 assert(first.binding == second.binding, "equivalent input produced different checked bindings")
 
-assert(first.irText:find("native-c-ir 2", 1, true), "IR version was not widened")
-assert(first.irText:find("disjoint r0 r1 proof(exclusive_borrow)", 1, true),
-   "IR lost output/output disjointness")
-assert(first.irText:find("may_alias r2 r3 proof(shared_borrows)", 1, true),
-   "IR incorrectly made shared inputs disjoint")
-assert(first.irText:find("clamp -> f64", 1, true), "IR lost the pure helper")
-assert(first.irText:find("let mixed:f64", 1, true), "IR lost the scalar local")
-assert(first.irText:find("math.sqrt", 1, true), "IR lost the math intrinsic")
-assert(first.irText:find("store output[i]", 1, true), "IR lost the first output")
-assert(first.irText:find("store magnitude[i]", 1, true), "IR lost the second output")
-assert(first.irText:find("if lt(", 1, true), "IR lost structured control flow")
+assert(first.irText:find("native-c-ir 3", 1, true), "IR version was not widened")
+assert(first.irText:find("Transform2D{x:f32,y:f32", 1, true), "IR lost the struct layout")
+assert(first.irText:find("write_span transforms:struct:Transform2D", 1, true), "IR lost struct storage")
+assert(first.irText:find("readwrite", 1, true), "writable span is not readable")
+assert(first.irText:find("disjoint r0 r1 proof(exclusive_borrow)", 1, true), "IR lost disjointness")
+assert(first.irText:find("range first last count(transforms)", 1, true), "IR lost ranged iteration")
+assert(first.irText:find("scalePair -> f64,f64", 1, true), "IR lost multiple helper results")
+assert(first.irText:find("let dx:f64,dy:f64", 1, true), "IR lost multiple local binding")
+assert(first.irText:find("set nextX", 1, true), "IR lost mutable locals")
+assert(first.irText:find("set local:ref:Transform2D transform.x", 1, true), "IR lost field stores")
+assert(first.irText:find("math.sqrt", 1, true), "IR lost closed math")
+assert(first.irText:find("band(", 1, true), "IR lost integer bit operations")
+assert(first.irText:find("lshift(", 1, true), "IR lost shifts")
 
-assert(first.c:find("float *restrict p_output", 1, true), "C lost the first output restrict")
-assert(first.c:find("float *restrict p_magnitude", 1, true), "C lost the second output restrict")
-assert(not first.c:find("const float *restrict p_left", 1, true), "C restricted a shared input")
-assert(first.c:find("ks_transform_helper_clamp", 1, true), "C lost the static helper")
-assert(first.c:find("sqrt(v1_mixed)", 1, true), "C lost the math call")
-assert(first.c:find("ks_transform_forced_scalar", 1, true), "C lost the scalar oracle")
-local autoStart = assert(first.c:find("void ks_transform(", 1, true))
-assert(not first.c:sub(autoStart):find("vectorize(disable)", 1, true),
-   "the optimized C implementation disables vectorization")
+assert(first.c:find("KsTransform2D *restrict p_transforms", 1, true), "C lost output restrict")
+assert(first.c:find("const KsMotion *p_motions", 1, true), "C lost const input")
+assert(first.c:find("offsetof(KsTransform2D, flags)", 1, true), "C lost layout evidence")
+assert(first.c:find("ks_advance_helper_scale_pair_result", 1, true), "C lost result struct")
+assert(first.c:find("sqrt(", 1, true), "C lost the math call")
+assert(first.c:find("ks_advance_forced_scalar", 1, true), "C lost the scalar oracle")
+local autoStart = assert(first.c:find("void ks_advance(", 1, true))
+assert(not first.c:sub(autoStart):find("vectorize(disable)", 1, true), "optimized C disables vectorization")
+
+assert(first.binding:find("layoutof(Transform2D)", 1, true), "binding does not verify layout")
+assert(first.binding:find("exclusive transforms: voidptr", 1, true), "private ABI did not erase pointer spelling")
+assert(first.binding:find("transforms:ref()", 1, true), "wrapper lost span projection")
+assert(first.binding:find("first < 1 or last > transforms.count", 1, true), "wrapper lost range check")
 
 do
-   local renamed = assert(source:gsub("transform", "processRows"))
+   local renamed = assert(source:gsub("advance", "processRows"))
    local result = assert(compiler.compile(renamed, "renamed.nupp"))
-   assert(result.ir.symbol == "ks_process_rows", "private symbol depends on the example name")
-   assert(result.binding:find("processRows = ks_process_rows", 1, true),
-      "renamed checked binding was not emitted")
+   assert(result.ir.symbol == "ks_process_rows", "private symbol depends on example name")
+   assert(result.binding:find("processRows = processRows", 1, true), "renamed wrapper was not emitted")
 end
 
 do
    local fact = table.remove(first.ir.aliasFacts, 1)
    local ok, problem = pcall(compiler.verifyIR, first.ir)
    table.insert(first.ir.aliasFacts, 1, fact)
-   assert(not ok and tostring(problem):find("alias matrix", 1, true),
-      "IR verifier accepted an incomplete alias matrix")
+   assert(not ok and tostring(problem):find("alias matrix", 1, true), "IR accepted an incomplete alias matrix")
 end
 
 local function rejected(label, changed, expected)
@@ -65,48 +69,26 @@ local function rejected(label, changed, expected)
    assert(rendered:find(label .. ".nupp:", 1, true) == 1, rendered)
 end
 
-rejected(
-   "unsupported-type",
-   assert(source:gsub("scale: float", "scale: string", 1)),
-   "parameter type string is not admitted"
-)
-rejected(
-   "offset-load",
-   assert(source:gsub("left:get%(i%)", "left:get(i + 1)", 1)),
-   "span loads must use the active loop index exactly"
-)
-rejected(
-   "dynamic-call",
-   assert(source:gsub("math.sqrt%(mixed%)", "math.sin(mixed)", 1)),
-   "not an admitted intrinsic or helper"
-)
-rejected(
-   "allocation",
-   assert(source:gsub(
-      "local mixed = clamp%(left:get%(i%) %+ right:get%(i%) %* scale, limit%)",
-      "local mixed = {limit}",
-      1
-   )),
-   "expression kind tableExpr is not admitted"
-)
-rejected(
-   "assignment",
-   assert(source:gsub("output:set%(i, mixed%)", "mixed = mixed + 1", 1)),
-   "statement kind assignStmt is not admitted"
-)
+rejected("unsupported-field", assert(source:gsub("drag: float", "drag: string", 1)), "field type string is not admitted")
+rejected("offset-load", assert(source:gsub("motions:get%(i%)", "motions:get(i + 1)", 1)), "active loop index exactly")
+rejected("dynamic-call", assert(source:gsub("math.sqrt%(dx %* dx %+ dy %* dy%)", "math.random()", 1)), "not an admitted intrinsic or helper")
+rejected("mutable-value-get", assert(source:gsub("transforms:getMut%(i%)", "transforms:get(i)", 1)), "span reads use")
+rejected("allocation", assert(source:gsub("local nextX = transform.x %+ dx", "local nextX = {dx}", 1)), "tableExpr is not admitted")
 rejected(
    "recursive-helper",
-   assert(source:gsub(
-      "return math.max%(%-limit, math.min%(value, limit%)%)",
-      "return clamp(value, limit)",
-      1
-   )),
+   assert(source:gsub("return x %* scale, y %* scale", "return scalePair(x, y, scale), y", 1)),
    "recursive native helpers are not admitted"
 )
-rejected(
-   "missing-kernel",
-   assert(source:gsub("@kernel", "@ordinary", 1)),
-   "no @kernel function was found"
-)
+rejected("missing-kernel", assert(source:gsub("@kernel", "@ordinary", 1)), "no @kernel function was found")
 
-io.write("native C subset validation: passed\n")
+local unaryMath = {"abs", "floor", "ceil", "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "exp", "log", "deg", "rad"}
+for _, name in ipairs(unaryMath) do
+   local changed = assert(source:gsub("math.sqrt%(dx %* dx %+ dy %* dy%)", "math." .. name .. "(dx)", 1))
+   assert(compiler.compile(changed, "math-" .. name .. ".nupp"), "closed math intrinsic " .. name .. " was rejected")
+end
+for _, name in ipairs({"atan2", "pow", "fmod"}) do
+   local changed = assert(source:gsub("math.sqrt%(dx %* dx %+ dy %* dy%)", "math." .. name .. "(dx, dy)", 1))
+   assert(compiler.compile(changed, "math-" .. name .. ".nupp"), "closed math intrinsic " .. name .. " was rejected")
+end
+
+io.write("native C Tecs subset validation: passed\n")

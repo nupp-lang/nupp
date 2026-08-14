@@ -588,6 +588,12 @@ function functions.install(c: state.Checker): state.StatHandlers
                     pt
                 ) or (mode == "borrows" or mode == "exclusive") and T.borrowed(pt) or pt
                 c.bindVar(p.name.text, bound, p.type ~= nil, p.name, "parameter")
+                if mode == "exclusive" then
+                    -- The body owns the caller's sole view for this call. It may
+                    -- forward that capability to another exclusive call, provided
+                    -- no element/reference borrow derived from the parameter is live.
+                    c.scope.vars[p.name.text].exclusiveBorrow = true
+                end
             else
                 vararg = true
                 if p.type then

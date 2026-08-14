@@ -785,6 +785,37 @@ function M.writeSpansProveSiblingPartitionsAndRejectOverlap()
    }, "\n"))
 end
 
+function M.exclusiveParametersCanBeForwardedWithoutAStoredBorrow()
+   local prelude = table.concat({
+      "local spans = require('nupp.span')",
+      "local function inner(exclusive values: spans.WriteSpan<int32>): nil end",
+      "local function outer(exclusive values: spans.WriteSpan<int32>): nil",
+      "   inner(values)",
+      "end",
+   }, "\n")
+   assertClean(prelude)
+
+   assertEq(codes(table.concat({
+      "local spans = require('nupp.span')",
+      "local function inner(exclusive values: spans.WriteSpan<int32>): nil end",
+      "local function outer(exclusive values: spans.WriteSpan<int32>): nil",
+      "   local element = values:getMut(1)",
+      "   inner(values)",
+      "   print(element)",
+      "end",
+   }, "\n")), "NUPP2602")
+
+   assertEq(codes(table.concat({
+      "local spans = require('nupp.span')",
+      "local function inspect(borrows values: spans.WriteSpan<int32>): nil end",
+      "local function outer(exclusive values: spans.WriteSpan<int32>): nil",
+      "   local element = values:getMut(1)",
+      "   inspect(values)",
+      "   print(element)",
+      "end",
+   }, "\n")), "NUPP2602")
+end
+
 function M.writeSpanPartitionsKeepCountsOffsetsAndBoundsAtRuntime()
    local source = table.concat({
       "local heap = require('nupp.heap')",

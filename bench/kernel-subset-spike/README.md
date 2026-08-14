@@ -1,88 +1,105 @@
-# Checked native-C subset spike
+# Checked native-C Tecs subset spike
 
-This spike tests ordinary Nupp as the source language for a verified native IR
-that emits private scalar C. Clang, rather than a hand-written intrinsic
-backend, chooses unrolling, vector width, instruction selection, register
-allocation, and tail handling.
+This spike compiles a Tecs-shaped function written as ordinary Nupp into a
+verified native IR and private scalar C. Clang chooses unrolling, vector width,
+instruction selection, register allocation, and tail handling. `@kernel` is a
+test-only annotation; the production design calls the contract `@native`.
 
-`@kernel` remains a test-only custom annotation. The production design calls
-the compilation contract `@native`.
+The source remains the semantic implementation. Turning native compilation off
+builds that same function through the ordinary Nupp backend. Turning it on
+makes every unsupported annotated construct a build error.
 
-## Build and run
+## Build modes
 
 ```sh
+# Required native host library plus the ordinary oracle.
 bench/kernel-subset-spike/build.sh
+
+# No C generation or C compiler. The annotation erases normally.
+NUPP_NATIVE_MODE=off bench/kernel-subset-spike/build.sh
+
+# Produce verified private C without compiling it.
+NUPP_NATIVE_MODE=emit-c bench/kernel-subset-spike/build.sh
+
+# Produce an object with a selected target compiler and sysroot.
+NUPP_NATIVE_MODE=object \
+NUPP_NATIVE_CC=aarch64-none-elf-clang \
+NUPP_NATIVE_CFLAGS="--sysroot=/path/to/sdk" \
+bench/kernel-subset-spike/build.sh
+```
+
+`object` never executes target-built code. A console build can feed the C to
+its vendor compiler, while a console configuration with native compilation
+disabled retains the ordinary Nupp implementation. This spike does not pretend
+to know any console SDK's linker or packaging rules.
+
+After the required host build:
+
+```sh
 luajit bench/kernel-subset-spike/test.lua
 luajit bench/kernel-subset-spike/main.lua
 ```
 
-The build writes ignored native IR, generated C, a checked `countedBy` binding,
-the compiled library, and the ordinary Lua lowering under `build/`.
+## Implemented Tecs-shaped subset
 
-## Implemented subset
+The one annotated function may currently use:
 
-One annotated map function may currently use:
+- readable `exclusive WriteSpan<T>` values and a checked `getMut(i)` element
+  reference whose lifetime is tied to the writer;
+- one or more shared `Span<T>` inputs and multiple disjoint writable columns;
+- flat Nupp `struct` elements containing `float`, `int32`, and `uint32` fields;
+- generated size and per-field offset checks before the native body is exposed;
+- full-span loops or an inclusive `[first,last]` range with an ordinary Nupp
+  range guard, including the empty `1..0` range;
+- `float`, `number`, `integer`, `int32`, and `uint32` uniforms;
+- mutable locals, simultaneous multiple assignment, struct field assignment,
+  branches, scoped blocks, `break`, and `continue`;
+- `+`, `-`, `*`, `/`, `%`, `^`, comparisons, booleans, unary operations, and
+  LuaJIT-compatible 32-bit bit/shift operations;
+- pure statically resolved helpers with one or several scalar results; and
+- closed `math` lowering for `sqrt`, `abs`, `floor`, `ceil`, `min`, `max`,
+  trigonometric and hyperbolic functions, `atan2`, `exp`, `log`, `pow`, `fmod`,
+  `deg`, and `rad`.
 
-- any number of `exclusive WriteSpan<float>` outputs;
-- one or more shared `Span<float>` inputs, which may alias each other;
-- erased `float` uniforms represented as binary64 at the native ABI;
-- a complete equal-count guard and one one-based loop;
-- numeric and boolean locals without mutation or shadowing;
-- `+`, `-`, `*`, `/`, comparisons, boolean `and`/`or`/`not`, and unary minus;
-- structured `if`/`elseif`/`else`, scoped `do`, `break`, and `continue`;
-- any number of stores to writable spans at the active loop index;
-- pure, statically resolved helpers whose bodies are one return expression; and
-- `math.sqrt`, `abs`, `floor`, `ceil`, `min`, and `max` as closed intrinsics.
-
-Unsupported syntax is a source-local hard error. There is no silent Lua
-fallback for an annotation the native compiler accepted.
-
-The example uses two writable outputs, two potentially aliasing inputs, a local
-value, a static clamp helper, `math.min`, `math.max`, `math.sqrt`, and a branch.
-It therefore exercises the structured statement IR rather than recognizing one
-fixed expression tree.
+The example is normal Nupp. It declares `Transform2D` and `Motion`, projects a
+writable and readable component column, updates only a requested archetype row
+range, calls a two-result helper, mutates locals, writes several fields, and
+uses integer flags. There is no C-shaped expression API in the source.
 
 ## Safety and semantics
 
-Every span receives a region identity. The verified alias matrix requires every
-pair containing a writable span to be disjoint and records shared input pairs
-as potentially aliasing. Generated C marks each writable pointer `restrict` and
-never restricts a shared input.
+Every span has an explicit IR region. Every pair containing a writable span is
+proved disjoint; shared inputs may alias. Generated C uses `restrict` only for
+the proved writable regions.
 
-Loads explicitly widen `float` storage to binary64, ordinary Nupp arithmetic is
-performed in binary64, and stores narrow once to `float`. The math min/max
-helpers reproduce LuaJIT's ordered-argument behavior for equal values, signed
-zero, and NaN rather than substituting C `fmin`/`fmax` semantics.
+Float storage loads widen to binary64, ordinary arithmetic stays binary64, and
+stores narrow once. Fixed-width integer storage and bit operations have
+explicit conversions; shifts mask their count to five bits as LuaJIT does.
+The C build disables contraction and fast math.
 
-Correctness compares result bits across ordinary Nupp, a raw LuaJIT loop, C with
-vectorization forcibly disabled, and optimized generated C. Inputs include
-deterministic random mantissas, signed zero, subnormals, infinities, and NaNs.
+Correctness compares all `Transform2D` bytes across ordinary Nupp, an
+equivalent raw LuaJIT loop, forced-scalar C, and optimized C for zero through
+33 rows, partial ranges, and a larger nontrivial range. It also exercises
+length and range failures. The forced-scalar and optimized functions come from
+the same verified IR.
 
-## Generated paths
-
-The same verified statement IR emits two functions:
-
-- a forced-scalar C oracle with Clang vectorization and interleaving disabled;
-- an ordinary scalar C loop compiled with optimization enabled.
-
-The checked binding calls the optimized function. No explicit NEON, SSE, or AVX
-tree is generated. Inspection of the optimized object answers whether Clang
-vectorized a particular source loop.
+The generated wrapper validates the range and all span lengths, projects typed
+span pointers once, and calls C once per archetype range. Nupp structs currently
+have no name usable in a `cdef` signature, so compiler-owned glue uses private
+`void*` ABI slots after verifying the Nupp and C layouts. User source never sees
+that erasure. Giving reified Nupp structs a private generated C spelling remains
+a compiler feature needed before production.
 
 ## Remaining boundary
 
-This is still a map-loop prototype, not a production compiler pass. It does not
-yet admit outer structured control flow, mutated locals, arbitrary numeric loop
-bounds, fixed C arrays, reified structs, multiple return values, status-return
-errors inside the loop, helper statement bodies, several annotated functions in
-one unit, or native-to-native module calls.
+This is still a spike, not the production pass. It verifies structured mutable
+slots rather than a full SSA graph, handles flat structs rather than nested
+structs/fixed arrays, accepts one annotated function, and has no status-return
+model for failures inside the loop. It does not yet implement native module
+call graphs, reductions, stencils, target artifact validation, hot reload,
+code-size budgets, inspection commands, or a target SDK registry.
 
-Those features now extend a statement IR and C emitter rather than requiring
-new target-specific SIMD backends. Fixed arrays and reified structs still need
-checked layout metadata; errors need explicit status and source-site values;
-multiple results need compiler-owned result structs. Allocation, Lua tables,
-strings, dynamic calls, closures, metamethods, coroutines, and arbitrary FFI
-remain outside the direct native subset.
-
-For this experiment, using the annotation makes Clang a conditional build
-dependency. Programs without native functions do not require or probe Clang.
+Allocation, Lua tables, strings, dynamic calls, closures, metamethods,
+coroutines, arbitrary FFI, and owned resources remain outside the subset.
+Closed transcendental calls are semantically supported but commonly inhibit
+auto-vectorization; their availability is not a SIMD promise.

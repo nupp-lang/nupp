@@ -1,148 +1,117 @@
--- Differential correctness and crossover measurements for the native-C spike.
+-- Differential correctness and crossover measurements for the Tecs-shaped subset.
 
 local ffi = require("ffi")
+local bit = require("bit")
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
 package.path = here .. "build/fallback/?.lua;" .. here .. "build/fallback/?/init.lua;"
    .. here .. "build/nupp/?.lua;" .. here .. "build/nupp/?/init.lua;" .. package.path
 
 local checked = require("checked")
 local spans = require("nupp.span")
-local ordinaryKernel = require("kernels")
+local ordinary = require("kernels")
 
 ffi.cdef[[
-void ks_transform_forced_scalar(
-    float *, float *, const float *, const float *, double, double, size_t
-);
-void ks_transform(
-    float *, float *, const float *, const float *, double, double, size_t
-);
+void ks_advance_forced_scalar(void *, const void *, double, double, double, uint32_t, size_t);
+void ks_advance(void *, const void *, double, double, double, uint32_t, size_t);
 ]]
 
 local suffix = ffi.os == "OSX" and ".dylib" or ".so"
 local lib = ffi.load(here .. "build/libkernel_subset_spike" .. suffix)
-local FloatArray = ffi.typeof("float[?]")
+local OrdinaryTransforms = ffi.typeof("$[?]", ordinary.Transform2D)
+local OrdinaryMotions = ffi.typeof("$[?]", ordinary.Motion)
+local CheckedTransforms = ffi.typeof("$[?]", checked.Transform2D)
+local CheckedMotions = ffi.typeof("$[?]", checked.Motion)
+local transformSize = ffi.sizeof(ordinary.Transform2D)
+assert(transformSize == ffi.sizeof(checked.Transform2D), "generated layout verification disagrees")
 
-local function fillBenchmark(left, right, count)
+local function fill(transforms, motions, count)
    for i = 0, count - 1 do
-      left[i] = (i * 17) % 101 - 50
-      right[i] = (i * 29) % 89 - 44
+      transforms[i].x = (i % 97) * 0.25 - 8
+      transforms[i].y = (i % 89) * -0.125 + 4
+      transforms[i].rotation = (i % 31) * 0.01
+      transforms[i].layer = i % 23 - 11
+      transforms[i].flags = i % 5 == 0 and 2 or (i % 0x7fffffff) * 2 + 1
+      motions[i].vx = (i % 13) * 0.03125 - 0.125
+      motions[i].vy = (i % 17) * -0.015625 + 0.25
+      motions[i].angularVelocity = (i % 19) * 0.001 - 0.005
+      motions[i].drag = (i % 7) * 0.0005
    end
 end
 
-local specialBits = {
-   0x00000000, 0x80000000,
-   0x00000001, 0x80000001,
-   0x007fffff, 0x00800000,
-   0x3f800000, 0x3f800001,
-   0x7f7fffff, 0xff7fffff,
-   0x7f800000, 0xff800000,
-   0x7fc12345, 0xffc54321,
-}
-
-local function fillAdversarial(left, right, count)
-   local leftBits = ffi.cast("uint32_t *", left)
-   local rightBits = ffi.cast("uint32_t *", right)
-   local state = 0x6d2b79f5
-   for i = 0, count - 1 do
-      if i < #specialBits then
-         leftBits[i] = specialBits[i + 1]
-         rightBits[i] = specialBits[#specialBits - i]
-      else
-         state = (1664525 * state + 1013904223) % 4294967296
-         local leftExponent = state % 253 + 1
-         local leftSign = state % 2 == 0 and 0 or 0x80000000
-         leftBits[i] = leftSign + leftExponent * 0x800000 + state % 0x800000
-         state = (1664525 * state + 1013904223) % 4294967296
-         local rightExponent = state % 253 + 1
-         local rightSign = state % 2 == 0 and 0 or 0x80000000
-         rightBits[i] = rightSign + rightExponent * 0x800000 + state % 0x800000
+local function rawAdvance(transforms, motions, first, last, dt, enabledMask)
+   for i = first - 1, last - 1 do
+      local dx, dy = motions[i].vx * dt, motions[i].vy * dt
+      local nextX = transforms[i].x + dx
+      local nextY = transforms[i].y + dy
+      local damping = math.max(0, 1 - motions[i].drag * dt)
+      local distance = math.sqrt(dx * dx + dy * dy)
+      nextX, nextY = nextX + distance * 0.000001, nextY - distance * 0.000001
+      if bit.band(transforms[i].flags, enabledMask) ~= 0 then
+         transforms[i].x, transforms[i].y = nextX * damping, nextY * damping
+         transforms[i].rotation = transforms[i].rotation + motions[i].angularVelocity * dt
+         transforms[i].layer = transforms[i].layer + 1
+         transforms[i].flags = bit.bor(
+            bit.lshift(transforms[i].flags, 1), bit.rshift(transforms[i].flags, 31)
+         )
       end
    end
 end
 
-local function luaTransform(output, magnitude, left, right, scale, limit, count)
-   for i = 0, count - 1 do
-      local mixed = math.max(-limit, math.min(left[i] + right[i] * scale, limit))
-      output[i] = mixed
-      if mixed < 0 then
-         magnitude[i] = -mixed
-      else
-         magnitude[i] = math.sqrt(mixed)
-      end
-   end
+local function sameBytes(label, expected, actual, count)
+   local size = count * transformSize
+   local left = ffi.string(ffi.cast("const uint8_t *", expected), size)
+   local right = ffi.string(ffi.cast("const uint8_t *", actual), size)
+   assert(left == right, label .. " changed different component bytes")
 end
 
-local function checkBits(label, expectedArray, actualArray, count)
-   local expected = ffi.cast("uint32_t *", expectedArray)
-   local actual = ffi.cast("uint32_t *", actualArray)
-   for i = 0, count - 1 do
-      local wanted, got = tonumber(expected[i]), tonumber(actual[i])
-      assert(got == wanted, ("%s mismatch at count %d, index %d: %08x ~= %08x"):format(
-         label, count, i, got, wanted
-      ))
-   end
-end
-
-local function checkCount(count)
+local function checkRange(count, first, last)
    local capacity = math.max(1, count)
-   local left, right = ffi.new(FloatArray, capacity), ffi.new(FloatArray, capacity)
-   local ordinaryOutput, ordinaryMagnitude = ffi.new(FloatArray, capacity), ffi.new(FloatArray, capacity)
-   local luaOutput, luaMagnitude = ffi.new(FloatArray, capacity), ffi.new(FloatArray, capacity)
-   local scalarOutput, scalarMagnitude = ffi.new(FloatArray, capacity), ffi.new(FloatArray, capacity)
-   local nativeOutput, nativeMagnitude = ffi.new(FloatArray, capacity), ffi.new(FloatArray, capacity)
-   local scale, limit = 0.1, 100.25
-   fillAdversarial(left, right, count)
-   luaTransform(luaOutput, luaMagnitude, left, right, scale, limit, count)
-   lib.ks_transform_forced_scalar(
-      scalarOutput, scalarMagnitude, left, right, scale, limit, count
-   )
+   local ordinaryTransforms, rawTransforms = ffi.new(OrdinaryTransforms, capacity), ffi.new(OrdinaryTransforms, capacity)
+   local ordinaryMotions, rawMotions = ffi.new(OrdinaryMotions, capacity), ffi.new(OrdinaryMotions, capacity)
+   local scalarTransforms, nativeTransforms = ffi.new(CheckedTransforms, capacity), ffi.new(CheckedTransforms, capacity)
+   local scalarMotions, nativeMotions = ffi.new(CheckedMotions, capacity), ffi.new(CheckedMotions, capacity)
+   for _, pair in ipairs({
+      {ordinaryTransforms, ordinaryMotions}, {rawTransforms, rawMotions},
+      {scalarTransforms, scalarMotions}, {nativeTransforms, nativeMotions},
+   }) do fill(pair[1], pair[2], count) end
 
-   local readableLeft, readableRight = spans.fromCarray(left, count), spans.fromCarray(right, count)
-   local ordinaryWritable = spans.writeCarray(ordinaryOutput, count)
-   local ordinaryMagnitudeWritable = spans.writeCarray(ordinaryMagnitude, count)
-   ordinaryKernel.transform(
-      ordinaryWritable, ordinaryMagnitudeWritable, readableLeft, readableRight, scale, limit
-   )
-   local nativeWritable = spans.writeCarray(nativeOutput, count)
-   local nativeMagnitudeWritable = spans.writeCarray(nativeMagnitude, count)
-   checked.transform(
-      nativeWritable, nativeMagnitudeWritable, readableLeft, readableRight, scale, limit
-   )
+   local dt, mask = 0.125, 1
+   local ordinaryWriter = spans.writeCarray(ordinaryTransforms, count)
+   ordinary.advance(ordinaryWriter, spans.fromCarray(ordinaryMotions, count), first, last, dt, mask)
+   rawAdvance(rawTransforms, rawMotions, first, last, dt, mask)
+   lib.ks_advance_forced_scalar(scalarTransforms, scalarMotions, first, last, dt, mask, count)
+   local nativeWriter = spans.writeCarray(nativeTransforms, count)
+   checked.advance(nativeWriter, spans.fromCarray(nativeMotions, count), first, last, dt, mask)
 
-   checkBits("raw LuaJIT output", ordinaryOutput, luaOutput, count)
-   checkBits("forced scalar output", ordinaryOutput, scalarOutput, count)
-   checkBits("Clang output", ordinaryOutput, nativeOutput, count)
-   checkBits("raw LuaJIT magnitude", ordinaryMagnitude, luaMagnitude, count)
-   checkBits("forced scalar magnitude", ordinaryMagnitude, scalarMagnitude, count)
-   checkBits("Clang magnitude", ordinaryMagnitude, nativeMagnitude, count)
-   ordinaryWritable:commit()
-   ordinaryMagnitudeWritable:commit()
-   nativeWritable:commit()
-   nativeMagnitudeWritable:commit()
+   sameBytes("raw LuaJIT", ordinaryTransforms, rawTransforms, count)
+   sameBytes("forced scalar C", ordinaryTransforms, scalarTransforms, count)
+   sameBytes("optimized C", ordinaryTransforms, nativeTransforms, count)
+   ordinaryWriter:commit()
+   nativeWriter:commit()
 end
 
-for count = 0, 33 do checkCount(count) end
-checkCount(257)
+for count = 0, 33 do
+   checkRange(count, 1, count)
+   if count >= 3 then checkRange(count, 2, count - 1) end
+end
+checkRange(257, 17, 241)
 
 do
-   local output = ffi.new(FloatArray, 3)
-   local magnitude = ffi.new(FloatArray, 3)
-   local left, right = ffi.new(FloatArray, 2), ffi.new(FloatArray, 3)
-   local writable = spans.writeCarray(output, 3)
-   local magnitudeWritable = spans.writeCarray(magnitude, 3)
-   local ok, problem = pcall(
-      checked.transform,
-      writable,
-      magnitudeWritable,
-      spans.fromCarray(left, 2),
-      spans.fromCarray(right, 3),
-      0.1,
-      100.25
-   )
-   assert(not ok and tostring(problem):find("equal lengths", 1, true),
-      "generated wrapper lost its length guard")
+   local transforms = ffi.new(CheckedTransforms, 3)
+   local motions = ffi.new(CheckedMotions, 2)
+   local writable = spans.writeCarray(transforms, 3)
+   local ok, problem = pcall(checked.advance, writable, spans.fromCarray(motions, 2), 1, 2, 0.125, 1)
+   assert(not ok and tostring(problem):find("incompatible lengths", 1, true), "wrapper lost length check")
    writable:commit()
-   magnitudeWritable:commit()
+end
+
+do
+   local transforms = ffi.new(CheckedTransforms, 3)
+   local motions = ffi.new(CheckedMotions, 3)
+   local writable = spans.writeCarray(transforms, 3)
+   local ok, problem = pcall(checked.advance, writable, spans.fromCarray(motions, 3), 0, 3, 0.125, 1)
+   assert(not ok and tostring(problem):find("range out of bounds", 1, true), "wrapper lost range check")
+   writable:commit()
 end
 
 local function median(samples)
@@ -165,65 +134,38 @@ end
 
 local counts = {1, 8, 64, 262144}
 local targetElements = tonumber(os.getenv("KERNEL_SPIKE_ELEMENTS")) or 16000000
-
-io.write("native C subset spike: backend=clang-auto\n\n")
-io.write(("%-14s %-24s %12s %18s\n"):format("elements/call", "path", "ns/call", "million elements/s"))
+io.write("native C Tecs subset spike: backend=clang-auto\n\n")
+io.write(("%-14s %-24s %12s %18s\n"):format("rows/call", "path", "ns/call", "million rows/s"))
 io.write(("%-14s %-24s %12s %18s\n"):format(("-"):rep(14), ("-"):rep(24), ("-"):rep(12), ("-"):rep(18)))
 
 for _, count in ipairs(counts) do
-   local left, right = ffi.new(FloatArray, count), ffi.new(FloatArray, count)
-   local ordinaryOutput, ordinaryMagnitude = ffi.new(FloatArray, count), ffi.new(FloatArray, count)
-   local luaOutput, luaMagnitude = ffi.new(FloatArray, count), ffi.new(FloatArray, count)
-   local scalarOutput, scalarMagnitude = ffi.new(FloatArray, count), ffi.new(FloatArray, count)
-   local clangOutput, clangMagnitude = ffi.new(FloatArray, count), ffi.new(FloatArray, count)
-   local checkedOutput, checkedMagnitude = ffi.new(FloatArray, count), ffi.new(FloatArray, count)
-   fillBenchmark(left, right, count)
-   local readableLeft, readableRight = spans.fromCarray(left, count), spans.fromCarray(right, count)
-   local ordinaryWritable = spans.writeCarray(ordinaryOutput, count)
-   local ordinaryMagnitudeWritable = spans.writeCarray(ordinaryMagnitude, count)
-   local checkedWritable = spans.writeCarray(checkedOutput, count)
-   local checkedMagnitudeWritable = spans.writeCarray(checkedMagnitude, count)
-   local scale, limit = 0.1, 100.25
-   local passes = math.max(100, math.floor(targetElements / count))
+   local ordinaryTransforms, rawTransforms = ffi.new(OrdinaryTransforms, count), ffi.new(OrdinaryTransforms, count)
+   local ordinaryMotions, rawMotions = ffi.new(OrdinaryMotions, count), ffi.new(OrdinaryMotions, count)
+   local scalarTransforms, clangTransforms, checkedTransforms =
+      ffi.new(CheckedTransforms, count), ffi.new(CheckedTransforms, count), ffi.new(CheckedTransforms, count)
+   local scalarMotions, clangMotions, checkedMotions =
+      ffi.new(CheckedMotions, count), ffi.new(CheckedMotions, count), ffi.new(CheckedMotions, count)
+   for _, pair in ipairs({
+      {ordinaryTransforms, ordinaryMotions}, {rawTransforms, rawMotions},
+      {scalarTransforms, scalarMotions}, {clangTransforms, clangMotions}, {checkedTransforms, checkedMotions},
+   }) do fill(pair[1], pair[2], count) end
+   local ordinaryWriter = spans.writeCarray(ordinaryTransforms, count)
+   local checkedWriter = spans.writeCarray(checkedTransforms, count)
+   local ordinaryReadable = spans.fromCarray(ordinaryMotions, count)
+   local checkedReadable = spans.fromCarray(checkedMotions, count)
+   local dt, mask, passes = 0.125, 1, math.max(100, math.floor(targetElements / count))
    local paths = {
-      {"ordinary Nupp", function()
-         ordinaryKernel.transform(
-            ordinaryWritable, ordinaryMagnitudeWritable,
-            readableLeft, readableRight, scale, limit
-         )
-         return ordinaryOutput[0]
-      end},
-      {"ordinary LuaJIT", function()
-         luaTransform(luaOutput, luaMagnitude, left, right, scale, limit, count)
-         return luaOutput[0]
-      end},
-      {"forced scalar C", function()
-         lib.ks_transform_forced_scalar(
-            scalarOutput, scalarMagnitude, left, right, scale, limit, count
-         )
-         return scalarOutput[0]
-      end},
-      {"Clang auto C", function()
-         lib.ks_transform(clangOutput, clangMagnitude, left, right, scale, limit, count)
-         return clangOutput[0]
-      end},
-      {"checked @kernel C", function()
-         checked.transform(
-            checkedWritable, checkedMagnitudeWritable,
-            readableLeft, readableRight, scale, limit
-         )
-         return checkedOutput[0]
-      end},
+      {"ordinary Nupp", function() ordinary.advance(ordinaryWriter, ordinaryReadable, 1, count, dt, mask); return ordinaryTransforms[0].x end},
+      {"ordinary LuaJIT", function() rawAdvance(rawTransforms, rawMotions, 1, count, dt, mask); return rawTransforms[0].x end},
+      {"forced scalar C", function() lib.ks_advance_forced_scalar(scalarTransforms, scalarMotions, 1, count, dt, mask, count); return scalarTransforms[0].x end},
+      {"Clang auto C", function() lib.ks_advance(clangTransforms, clangMotions, 1, count, dt, mask, count); return clangTransforms[0].x end},
+      {"checked @kernel C", function() checked.advance(checkedWriter, checkedReadable, 1, count, dt, mask); return checkedTransforms[0].x end},
    }
    for _, path in ipairs(paths) do
       local seconds = measure(path[2], passes)
-      io.write(("%-14d %-24s %12.1f %18.1f\n"):format(
-         count, path[1], seconds * 1e9, count / seconds / 1e6
-      ))
+      io.write(("%-14d %-24s %12.1f %18.1f\n"):format(count, path[1], seconds * 1e9, count / seconds / 1e6))
    end
    io.write("\n")
-   ordinaryWritable:commit()
-   ordinaryMagnitudeWritable:commit()
-   checkedWritable:commit()
-   checkedMagnitudeWritable:commit()
+   ordinaryWriter:commit()
+   checkedWriter:commit()
 end

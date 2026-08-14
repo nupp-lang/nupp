@@ -1941,18 +1941,23 @@ function calls.install(c: state.Checker): calls.Ops
                     exclusiveRegions[#exclusiveRegions + 1] = {root = regionRoot, path = regionPath}
                 end
                 if c.ownershipKind(ats[j]) == "borrowed" then
-                    local roots = {}
-                    if entry and entry.borrowOwner then
-                        roots[1] = entry.borrowOwner
-                    elseif entry and entry.borrowOwners then
-                        roots = entry.borrowOwners
-                    end
-                    local sole = #roots > 0
-                    for _, root in ipairs(roots) do
-                        -- One live borrow is this named argument itself. Any more means
-                        -- another view exists and the borrow cannot be upgraded.
-                        if (root.activeBorrows or 0) > 1 then
-                            sole = false
+                    local sole
+                    if entry and entry.exclusiveBorrow then
+                        sole = (entry.activeBorrows or 0) == 0
+                    else
+                        local roots = {}
+                        if entry and entry.borrowOwner then
+                            roots[1] = entry.borrowOwner
+                        elseif entry and entry.borrowOwners then
+                            roots = entry.borrowOwners
+                        end
+                        sole = #roots > 0
+                        for _, root in ipairs(roots) do
+                            -- One live borrow is this named argument itself. Any more means
+                            -- another view exists and the borrow cannot be upgraded.
+                            if (root.activeBorrows or 0) > 1 then
+                                sole = false
+                            end
                         end
                     end
                     if regionPath and regionPath ~= "" then
@@ -1991,7 +1996,7 @@ function calls.install(c: state.Checker): calls.Ops
                 -- shared use of the source itself cannot overlap a dependent writer.
                 local entry, nameNode = c.ownershipEntry(argNodes[j])
                 entry = c.ownershipState(entry)
-                if not (entry and entry.exclusiveBorrow) then
+                if not (entry and entry.exclusiveBorrow and (entry.activeBorrows or 0) == 0) then
                     local regionRoot, regionPath = c.regionOf(argNodes[j])
                     local roots = entry and {entry} or c.own.provenanceOwners(argNodes[j])
                     for _, root in ipairs(roots) do

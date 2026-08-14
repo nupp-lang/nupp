@@ -26,10 +26,11 @@ local function scaleAdd(
 end
 ```
 
-`@native` means the complete function is lowered through Nupp's checked native
-IR and compiled for every selected build target. If it cannot be compiled, the
-build reports why. It does not mean operating-system code, imply a GPU, promise
-SIMD, or permit unsafe operations.
+`@native` means the complete function is eligible for Nupp's checked native IR.
+In a native-required build it must compile for every selected target or the
+build reports why. In a native-disabled build the annotation is dormant and the
+same ordinary Nupp body is emitted. It does not mean operating-system code,
+imply a GPU, promise SIMD, or permit unsafe operations.
 
 The initial backend is generated private C compiled by a pinned Clang. Native
 IR remains the safety boundary and the stable compiler architecture; C is a
@@ -83,7 +84,8 @@ understandable.
   runtime under this annotation.
 - Do not admit arbitrary Lua calls, tables, strings, allocation, callbacks,
   coroutines, or dynamic dispatch in the first subset.
-- Do not silently fall back to Lua when an annotated function cannot compile.
+- Do not silently fall back per function when native compilation is required.
+  Selecting an ordinary-only build is an explicit whole-build policy.
 - Do not change numeric answers to obtain faster code. Relaxed floating-point
   behavior requires a separate explicit contract.
 - Do not expose generated native code as a stable C ABI or object-file format.
@@ -104,8 +106,31 @@ property a checked requirement without inventing new expression semantics.
 Eligibility is a versioned compatibility promise. Within a supported language
 line, a source function accepted for a target remains accepted; the admitted
 subset may widen but does not silently narrow. A backend regression is a build
-error and compiler defect, never permission to run the ordinary Lua lowering.
-The programmer can remove `@native` to select ordinary execution explicitly.
+error and compiler defect in native-required mode, never permission to fall
+back just that function. The programmer can remove `@native` or explicitly
+select an ordinary-only build to choose ordinary execution.
+
+### Build policy and portability
+
+The build selects one policy before checking native eligibility:
+
+- `native=off` checks and emits every body as ordinary Nupp. It does not run the
+  native subset checker, find a C compiler, generate C, or package native code.
+- `native=require` lowers every `@native` body and fails if the source subset,
+  target backend, compiler, SDK, or artifact validation is unavailable.
+- `native=emit-c` verifies native IR and emits private target C without running
+  it. A platform build can hand that C to its vendor compiler.
+
+There is deliberately no `auto` mode that quietly mixes successful native
+functions with accidental ordinary fallbacks. A build artifact records its one
+policy. Disabling compilation changes performance and packaging only; the
+ordinary body remains the semantic implementation and differential oracle.
+
+Cross-compilation runs the same front end and IR verifier with the selected
+target layout, then invokes the selected target C compiler/sysroot or exports C
+for a vendor build. It never probes target CPU features by executing target
+code. Consoles may use `require` with their SDK or `off` when native integration
+has not been enabled for that platform.
 
 The annotation applies to local and named functions with visible Nupp bodies.
 It is rejected on constructors, inline interface requirements, bodyless
@@ -183,7 +208,8 @@ The first subset admits:
 
 - `nil`, `boolean`, fixed C numeric types, and integers where their exact
   native semantics are specified;
-- local scalar bindings and immutable compile-time constants;
+- mutable local scalar bindings, multiple assignment, and immutable compile-time
+  constants;
 - reified Nupp structs containing admitted fields;
 - `Span<T>`, `WriteSpan<T>`, and fixed variants over admitted elements;
 - fixed C arrays whose layout is known for the selected target;
@@ -200,8 +226,9 @@ It declines:
 - closures, upvalues other than quotable immutable constants, and varargs;
 - mutable globals or replaceable module fields.
 
-“Declines” means a stable `@native` diagnostic because compilation is required.
-There is no hidden Lua version used to excuse an unsupported value.
+"Declines" means a stable `@native` diagnostic when compilation is required.
+The ordinary body is still available only through the explicit ordinary build
+policy; it never excuses one unsupported function inside a required build.
 
 ### Control flow
 
@@ -237,6 +264,44 @@ Calling an ordinary visible Nupp helper does not silently clone it into the
 native graph. Either mark it `@native`, make it a compiler-recognized intrinsic,
 or inline it through a future explicitly documented rule. This keeps code-size
 growth and cross-module invalidation visible.
+
+### Tecs 80% slice
+
+The first Tecs-oriented slice is an archetype-range function, not a whole ECS
+system. Query selection, scheduling, structural changes, events, dirty tracking,
+and dispatch remain ordinary Nupp. One call receives dense component spans plus
+an inclusive row range and performs all per-row work natively.
+
+Its required source coverage is:
+
+1. A readable exclusive span plus a bounds-checked mutable element reference
+   tied to the writer. `WriteSpan.getMut` and `set` provide this without
+   native-only syntax.
+2. Reified component structs, field loads/stores, and a target layout witness
+   covering size, alignment, field offsets, and field C types.
+3. Inclusive ranged iteration and ordinary span slices, including empty ranges
+   and nonzero underlying offsets.
+4. `int32`/`uint32` component fields, conversions, comparisons, bit operations,
+   and shifts with the ordinary LuaJIT semantics written into native IR.
+5. Mutable initialized locals and simultaneous multiple assignment. The first
+   structured IR may model verified mutable slots; production SSA construction
+   must add dominance and phi verification before optimization.
+6. Static helpers with multiple scalar results, lowered through compiler-owned
+   result structs without a Lua transition between caller and helper.
+7. The closed ordinary `math` surface commonly used by systems: min/max,
+   roots, rounding, trigonometric and hyperbolic functions, `atan2`, exp/log,
+   powers, remainder, and degree/radian conversion. Each is independently
+   eligible; a transcendental call may inhibit SIMD and inspection must say so.
+
+The current spike exercises all seven in ordinary Nupp source and generated C.
+It also exposed two language/library prerequisites that belong below the native
+pass: forwarding an exclusive parameter through a checked wrapper when no
+derived borrow is live, and a checked mutable element borrow from `WriteSpan`.
+
+One ABI integration feature remains: a reified Nupp struct needs a stable
+compiler-private spelling in generated C declarations. Until that lands, the
+spike verifies every layout field and uses private `void*` slots after typed span
+projection. That erasure is acceptable evidence but is not the production ABI.
 
 ## Memory safety and ownership
 
@@ -420,12 +485,12 @@ The disadvantage is toolchain availability and cache reproducibility. A build
 requiring a host Clang is not the final zero-setup experience unless Nupp ships
 or prebuilds every required target artifact.
 
-During the generated-C experiment, Clang is a conditional dependency: a build
-graph containing `@native` requires the pinned supported Clang, while a program
-without `@native` does not probe for Clang and gains no native artifact or
-startup cost. Production must either ship that toolchain, validate prebuilt
-artifacts for every selected target, or choose direct emission. An annotated
-function never falls back merely because Clang is absent.
+During the generated-C experiment, Clang is a conditional dependency only for
+`native=require`. `native=off` does not probe for it, and `native=emit-c` stops
+before compilation. Production must either ship the supported toolchain,
+integrate each target vendor compiler, validate prebuilt artifacts, or choose
+direct emission. A required native function never falls back merely because a
+compiler is absent.
 
 ### Direct DynASM emission
 
@@ -513,7 +578,8 @@ Start with:
 - AVX2 256 and FMA as later independent feature tiers.
 
 One source artifact may contain or cache several versions. A target without an
-implementation fails an `@native` build; it does not silently select Lua.
+implementation fails a native-required build; an explicitly ordinary-only
+target emits the ordinary body for every native annotation.
 
 ## Artifacts, executable memory, and workers
 

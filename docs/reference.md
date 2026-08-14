@@ -881,6 +881,11 @@ those contracts without a runtime length check. `nupp.heap.allocate` gives
 suspension cannot cross an obligation; handled suspension requires its
 cancellation contract.
 
+`WriteSpan.getMut(index)` returns a checked mutable element pointer borrowed
+from the writer for reading or writing, so another shared or
+exclusive use cannot overlap it. An exclusive parameter may be forwarded to
+another exclusive call while no such derived borrow is live.
+
 `WriteSpan.splitAt(mid)` produces disjoint sibling regions. `countedBy(count)`
 maps borrowed cdef pointer/count parameters to checked spans. The wrapper checks
 shared lengths, projects slice-adjusted pointers, and calls C once even at zero
