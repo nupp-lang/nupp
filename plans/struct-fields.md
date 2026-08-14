@@ -1,8 +1,16 @@
 # Fields a struct cannot hold
 
-> **Status: proposed. Not implemented.** Nothing here is built. The measurements
-> are from the compiler's own token stream, taken while moving trivia into an
-> arena.
+> **Status: proposed, revised after review. Not implemented.** Nothing here is
+> built. The measurements are from the compiler's own token stream, taken while
+> moving trivia into an arena.
+>
+> The first revision claimed 32 bytes a token and made element references
+> borrows. Both were wrong. The 32 bytes measured a benchmark struct missing
+> `blockDepth`, `lineIdx`, `id` and `poolId`; the declared field set is 36 bytes,
+> 40 with identity. And a borrow may not be stored in a table or a field
+> (`docs/ownership.md`), which is exactly what the CST array part does with every
+> token it holds, so the design could not have type-checked. See
+> §Representation, which settles both before the stages are actionable.
 
 ## Decision
 
@@ -36,11 +44,14 @@ sites that are not statically typed, not the mechanism.
 Measured on the compiler's 487,949 tokens across its own sources:
 
 ```text
-shape                             MB   bytes/token
-table per token (today)        126.1           264
-struct arena + boxed pointers   30.7            64
-arena alone, referred to by id  15.3            32
+representation                             MB   bytes/token    read
+A  table per token (today)              126.1           264   0.005s
+B  chunked storage + element pointers    34.7            73   0.004s
+C  chunked storage + 8-byte handles     103.5           217   0.023s
 ```
+
+B is the representation this plan assumes; §Representation says why C is not
+available and what B costs.
 
 Lexing allocates 144 MB for those tokens and is 38% of everything a build
 allocates. Parsing the CST is another 23%, and a CST node has the same shape
@@ -58,6 +69,44 @@ That is a bad trade to be forced into by a language whose distinguishing claim i
 that its types are not always erased. The claim is worth keeping; the fields
 have to move.
 
+## Representation
+
+Growth is the whole problem. A pool that reallocates invalidates every reference
+into it, and the first revision answered that by making element references
+borrows -- which cannot be stored in a table or a field, which is the only thing
+the CST ever does with a token. That design could not have worked.
+
+**Storage is chunked and never moves.** A pool is a list of fixed-size blocks;
+growth appends a block and touches no existing one. An element reference is a
+pointer that stays valid for the pool's lifetime, so it is an ordinary value
+that may be stored anywhere a token is stored today, and no borrow is involved.
+
+The measured alternative was a handle -- `(poolId, id)` as an eight-byte value,
+storable anywhere, safe against any lifetime error by construction. It does not
+survive contact with the runtime: boxed as cdata each handle costs about 200
+bytes, so 500,000 of them come to 217 bytes a token against the table's 264,
+and resolving one costs 6.4x a direct element read. A handle only pays unboxed,
+and an unboxed handle in the CST array part is a Lua number that has lost its
+type. So the language cannot offer handles as the reference type, and B is what
+remains.
+
+What B leaves open, and what the rest of this plan depends on being answered:
+
+- **An element pointer is not traced.** If the pool is collected the pointer
+  dangles, silently. Today's equivalent, `lexer.TriviaArena`, is safe only
+  because the arena is a field of every token that indexes it. The language has
+  to say the same thing about pools: a structure holding element references must
+  hold the pool. That is a reachability rule on fields, not a borrow, and it is
+  the one genuinely new piece of checking this plan needs.
+- **Identity is `(poolId, id)`, not `id`.** Element 1 of two pools is one key
+  otherwise. `poolId * 2^32 + id` is exact in a double for a `uint16` pool and a
+  `uint32` index, so the lowered key is one arithmetic expression.
+- **Pool registry lifetime is unresolved.** Strong entries leak every pool a
+  long-running LSP ever opens; weak entries let a stale `poolId` resolve to a
+  different pool; never reusing an id exhausts a `uint16` after 65,536 files.
+  A generation counter beside the id is the usual answer and is not yet
+  designed. **This is the open question that blocks SF-S4.**
+
 ## Goals
 
 1. Let a struct declare fields whose values are not part of its layout, without
@@ -65,8 +114,10 @@ have to move.
 2. Keep every such field typed, so a checker error is what a misuse produces.
 3. Lower a declared field read to the code it means, rather than to a
    metamethod, wherever the receiver's type is known.
-4. Give a pooled instance a stable identity, so it can key a table.
-5. Make an element reference unable to outlive the block it points into.
+4. Give a pooled instance a stable identity, so it can key a table, unique
+   across pools rather than within one.
+5. Make an element reference unable to outlive the pool it points into, by a
+   reachability rule on the structures that store it.
 6. Leave existing structs, and their layout, exactly as they are.
 
 ## Non-goals
