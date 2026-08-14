@@ -407,8 +407,7 @@ local function destroyBody(takes body: http.Body): nil
     end
 end
 
-@owned(destroyBody)
-local function makeBody(client: any, transfer: any): http.Body
+local function makeBody(client: any, transfer: any): Owned<http.Body, destroyBody>
     return new http.Body(_client = client, _transfer = transfer, _closed = false, _reading = false)
 end
 
@@ -543,14 +542,13 @@ record http.Response
     end
 end
 
-@owned
 local function makeResponse(
     status: integer,
     version: http.Version,
     url: nupp.io.URI,
     takes body: http.Body,
     packed: string
-): http.Response
+): Owned<http.Response>
     return new http.Response(status = status, version = version, url = url, body = body,
         _packed = packed, _values = nil, _headers = nil, _closed = false)
 end
@@ -584,8 +582,7 @@ record http.Client
     end
 end
 
-@owned
-function http.Client:send(request: http.Request): (http.Response?, string?)
+function http.Client:send(request: http.Request): (Owned<http.Response?>, string?)
         if self._closed then
             return nil, "the HTTP client is closed"
         end
@@ -865,8 +862,7 @@ function http.file(path: string | nupp.io.Path, contentType: string?): http.File
     return new http.FileBody(path = path, contentType = contentType)
 end
 
-@owned
-function http.newClient(options: http.Options?): (http.Client?, string?)
+function http.newClient(options: http.Options?): (Owned<http.Client?>, string?)
     local copied = copiedOptions(options)
     local backend, reason = native.newClient(copied)
     if backend == nil then

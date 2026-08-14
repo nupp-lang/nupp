@@ -54,7 +54,7 @@ Every lint has a name and a stable code:
 | positional-record-construction | `NUPP2512` | style | warning |
 | deprecated | `NUPP2513` | suspicious | warning |
 | jit-boundary | `NUPP2514` | suspicious | warning |
-| owned-annotation | `NUPP2515` | migration | off |
+| owned-annotation | `NUPP2515` | migration | warning |
 
 The name is what you write in configuration and suppressions; the code is what
 survives renaming and what tooling keys on. Either is accepted everywhere.
@@ -431,9 +431,8 @@ nothing, including one returning only `nil`, discards nothing and is not judged.
 ### `owned-annotation`
 
 An owning result stated above its declaration rather than in its type. `@owned`
-predates `Owned<T>` and always applies to the first result. This migration lint is
-off by default because the annotation remains valid; migration tooling enables it
-while moving contracts into result types.
+predates `Owned<T>` and always applies to the first result. The annotation remains
+valid while migration tooling moves contracts into result types.
 
 ::: code-group
 ```nupp [src/owned-annotation.nupp]

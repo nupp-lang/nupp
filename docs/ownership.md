@@ -24,8 +24,7 @@ local function closeFile(file: LuaFile)
     file:close()
 end
 
-@owned(closeFile)
-function m.open(path: string): LuaFile
+function m.open(path: string): Owned<LuaFile, closeFile>
     local file = io.open(path, "r")
     if not file then
         error("cannot open " .. path)
@@ -42,7 +41,7 @@ end
 return m
 ```
 
-`@owned` says the result carries a cleanup obligation, and `readAll` discharges
+`Owned<LuaFile, closeFile>` says the result carries a cleanup obligation, and `readAll` discharges
 it by letting the local reach its scope boundary. Dropping that obligation
 instead is a compile error rather than a leak.
 
@@ -70,7 +69,7 @@ occasional use-after-free.
 
 ## Ownership syntax
 
-Three of these carry most programs: `@owned` on the producer, `borrows` on a
+Three of these carry most programs: `Owned<T>` on the producer's result, `borrows` on a
 reader, and nothing at all on the caller, which lets the local reach its scope
 boundary.
 
@@ -85,8 +84,7 @@ local function closeSession(s: Session): nil
     s.open = false
 end
 
-@owned(closeSession)
-function m.connect(): Session
+function m.connect(): Owned<Session, closeSession>
     return new Session(open = true)
 end
 
@@ -104,11 +102,9 @@ return m
 
 The whole surface, in one place:
 
-- `@owned(cleanup...)`: the first result is a new affine owner with this ordered
-  cleanup list.
-- `@owned`: use the result type's one inherited `@drop` operation.
-- `@owned(opaque = true)`: the result is transfer-only; it has no local cleanup
-  operation.
+- `Owned<T>`: the result is a new affine owner using `T`'s one inherited `@drop`.
+- `Owned<T, cleanup>`: the result is a new affine owner using the named cleanup.
+- `Owned<T, opaque>`: the result is transfer-only; it has no local cleanup operation.
 - `@drop`: marks the default operation that consumes a resource.
 - `takes p: T`: the callee accepts and consumes the ownership obligation.
 - `borrows p: T`: shared, call-duration access; mutation is allowed but escape
@@ -206,20 +202,19 @@ nupp.drop(value) -- NUPP2601: value was moved
 Every live owner must be discharged along every checked path. A locally
 droppable ordinary binding is discharged automatically at its lexical scope
 boundary, including raised and structured exits. A successful `drop`,
-`takes` call, ownership-preserving move, `@owned` return, or `intoRaw` inside
+`takes` call, ownership-preserving move, owning return, or `intoRaw` inside
 `unsafe` transfers or ends that responsibility and suppresses automatic
 cleanup. Ignoring an owned call result is still an error. Transfer-only owners
 remain errors unless an explicit terminal consumes them.
 
-`@owned` works on Nupp functions and managed Lua values too:
+Owned results work on Nupp functions and managed Lua values too.
 
 A bodyless API may attach the same producer contract directly to a
 function-valued record or interface field:
 
 ```nupp
 local interface Files
-    @owned(closeFile)
-    open: function(path: string): File
+    open: function(path: string): Owned<File, closeFile>
 end
 ```
 
@@ -232,8 +227,7 @@ local function closeChannel(takes channel: Channel)
     print("closing", channel.id)
 end
 
-@owned(closeChannel)
-local function openChannel(id: integer): Channel
+local function openChannel(id: integer): Owned<Channel, closeChannel>
     return new Channel(id = id)
 end
 ```
@@ -242,7 +236,7 @@ The checker verifies the body against the declared return contract, but the
 claim that the returned external resource is truly exclusive remains a
 contract. Exclusivity is not observable from a pointer value.
 
-Free cleanup functions are resolved where `@owned` is declared. A private
+Free cleanup functions are resolved where `Owned<T, cleanup>` is declared. A private
 cleanup therefore crosses a module boundary with the owner contract without
 becoming a public module field. The declaring module registers its function
 object under a compiler-owned key; a consuming module resolves that key on its
@@ -276,8 +270,7 @@ local record PoolConnection
     end
 end
 
-@owned
-local function adopt(pool: Pool, takes connection: Connection): PoolConnection
+local function adopt(pool: Pool, takes connection: Connection): Owned<PoolConnection>
     return new PoolConnection(pool = pool, connection = connection)
 end
 ```
@@ -302,12 +295,13 @@ submit_request(request) -- valid
 -- nupp.drop(request)         -- no cleanup exists
 ```
 
-Bare `@owned` does not mean opaque. Opaque ownership must be conspicuous.
+Outside the cdef contract, write this as `Owned<voidptr, opaque>`. Bare
+`Owned<T>` does not mean opaque. Opaque ownership must be conspicuous.
 
 ## Default drop and Closeable-style interfaces
 
-`@drop` marks a consuming operation as the default drop operation. A bare
-`@owned` producer uses it when the result type has exactly one default:
+`@drop` marks a consuming operation as the default drop operation. A result
+written `Owned<T>` uses it when the result type has exactly one default:
 
 ```nupp
 local record File
@@ -319,8 +313,7 @@ local record File
     end
 end
 
-@owned
-local function openFile(): File
+local function openFile(): Owned<File>
     return new File(closed = false)
 end
 
@@ -339,8 +332,7 @@ end
 local function closeSocket(takes socket: Socket)
 end
 
-@owned
-local function connect(): Socket
+local function connect(): Owned<Socket>
     return new Socket()
 end
 ```
@@ -361,15 +353,14 @@ local record File is Closeable
     end
 end
 
-@owned
-local function openFile(): File
+local function openFile(): Owned<File>
     return new File(fd = 1)
 end
 ```
 
 This gives a Closeable-style abstraction without privileging the name
-`close`. The annotation, not spelling, supplies the contract. Bare `@owned` is
-rejected when the type has no default or inherits more than one, because the
+`close`. The result type supplies the contract. Bare `Owned<T>` is rejected
+when the type has no default or inherits more than one, because the
 compiler must never guess whether `close`, `free`, `stop`, or another operation
 is correct.
 
@@ -518,8 +509,7 @@ end
 Layered resources can be both owned and dependent:
 
 ```nupp
-@owned(closeTls)
-local function openTls(borrows socket: Socket): TLS borrows(socket)
+local function openTls(borrows socket: Socket): Owned<TLS, closeTls> borrows(socket)
     return TLS.connect(socket)
 end
 ```
@@ -528,8 +518,10 @@ The TLS session must be dropped, and the socket cannot be dropped until that
 happens. A result may name several roots:
 
 ```nupp
-@owned(closePair)
-local function pair(borrows left: Resource, borrows right: Resource): Pair borrows(left, right)
+local function pair(
+    borrows left: Resource,
+    borrows right: Resource
+): Owned<Pair, closePair> borrows(left, right)
     return new Pair(left = left, right = right)
 end
 ```
@@ -620,8 +612,7 @@ local struct Allocation
     end
 end
 
-@owned
-local function adopt(ctx: allocator*, value: block*): Allocation
+local function adopt(ctx: allocator*, value: block*): Owned<Allocation>
     return new Allocation(ctx, value)
 end
 ```
@@ -979,7 +970,8 @@ auditable trusted computing base.
 
 Use this order when binding an API:
 
-1. Mark every fresh owning return or output with `@owned`.
+1. Write every fresh Nupp return as `Owned<T>` (or name its terminal), and mark
+   cdef outputs with `@owned(out = ...)`.
 2. Mark destruction/adoption parameters `takes`.
 3. Mark call-duration pointer access `borrows`; use `exclusive` only if live
    views could be invalidated.
@@ -1002,8 +994,7 @@ cdef function fopen(path: cstring, mode: cstring): FILE*
 cdef function fclose(borrows handle: FILE*): integer
 cdef function fileno(borrows handle: FILE*): int32
 
-@owned(fclose)
-function m.open(path: string): FILE*
+function m.open(path: string): Owned<FILE*, fclose>
     return fopen(path, "r")
 end
 

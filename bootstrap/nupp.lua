@@ -37,6 +37,703 @@ const nupp = { }
 return nupp
 
 end
+package.preload["nupp.bitsetimpl"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local bitset = { }
+local ffi = require ( "ffi" )
+
+const band = bit . band
+const bnot = bit . bnot
+const bor = bit . bor
+const bxor = bit . bxor
+const lshift = bit . lshift
+const rshift = bit . rshift
+const tobit = bit . tobit
+
+
+
+
+bitset . WORD_BITS = 32
+
+
+
+const BITS_PER_WORD = 32
+const WORD_SHIFT = 5
+const BIT_MASK = 31
+const ALL_ONES = - 1
+const DEFAULT_BITS = 64
+
+const HALF_MASK = 0xFFFF
+const HALF_SHIFT = 16
+
+
+
+
+
+
+
+
+
+
+local POPCOUNT_HALF = ffi . new ( "uint8_t[65536]" )
+local CTZ_HALF = ffi . new ( "uint8_t[65536]" )
+
+do
+
+
+POPCOUNT_HALF [ 0 ] = 0
+for value = 1 , 65535 do
+POPCOUNT_HALF [ value ] = POPCOUNT_HALF [ band ( value , value - 1 ) ] + 1
+end
+
+
+
+CTZ_HALF [ 0 ] = 16
+for value = 1 , 65535 do
+CTZ_HALF [ value ] = band ( value , 1 ) == 1 ? 0 : CTZ_HALF [ rshift ( value , 1 ) ] + 1
+end
+end
+
+
+local function popcount ( word )
+do
+return POPCOUNT_HALF [ band ( word , HALF_MASK ) ] + POPCOUNT_HALF [ band (
+rshift ( word , HALF_SHIFT ) , HALF_MASK
+) ]
+end
+end
+
+
+local function lowestBit ( word )
+do
+local half = band ( word , HALF_MASK )
+if half ~= 0 then
+return CTZ_HALF [ half ]
+end
+
+return HALF_SHIFT + CTZ_HALF [ band ( rshift ( word , HALF_SHIFT ) , HALF_MASK ) ]
+end
+end
+
+
+local function wordsFor ( bits )
+local words = rshift ( bits + BIT_MASK , WORD_SHIFT )
+return words < 1 ? 1 : words
+end
+
+
+
+
+
+
+
+
+
+
+
+
+bitset.Bitset = {} bitset.Bitset.__index = bitset.Bitset
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bitset.Bitset:reserve(bits)
+local needed = wordsFor ( bits )
+if needed <= self . capacity then
+return
+end
+
+local doubled = self . capacity * 2
+local grown = needed > doubled ? needed : doubled
+local fresh = ffi . new ( "uint32_t[?]" , grown )
+ffi . copy ( fresh , self . words , self . capacity * 4 )
+self . words = fresh
+self . capacity = grown
+end
+
+
+
+
+function bitset.Bitset:set(index)
+
+
+
+
+if index < 0 then
+error ( "bitset index cannot be negative" , 2 )
+end
+
+local word = rshift ( index , WORD_SHIFT )
+if word >= self . capacity then
+self : reserve ( index + 1 )
+end
+
+do
+local previous = tobit ( self . words [ word ] )
+local mask = lshift ( 1 , band ( index , BIT_MASK ) )
+if band ( previous , mask ) == 0 then
+self . words [ word ] = bor ( previous , mask )
+if not self . stale then
+self . population = self . population + 1
+end
+if word >= self . used then
+self . used = word + 1
+end
+end
+end
+end
+
+
+
+
+
+function bitset.Bitset:clear(index)
+local word = rshift ( index , WORD_SHIFT )
+if word >= self . used then
+return
+end
+
+do
+local previous = tobit ( self . words [ word ] )
+local mask = lshift ( 1 , band ( index , BIT_MASK ) )
+if band ( previous , mask ) ~= 0 then
+self . words [ word ] = band ( previous , bnot ( mask ) )
+if not self . stale then
+self . population = self . population - 1
+end
+end
+end
+end
+
+
+
+
+
+function bitset.Bitset:get(index)
+local word = rshift ( index , WORD_SHIFT )
+if word >= self . used then
+return false
+end
+
+do
+return band ( tobit ( self . words [ word ] ) , lshift ( 1 , band ( index , BIT_MASK ) ) ) ~= 0
+end
+end
+
+
+
+
+
+
+
+function bitset.Bitset:setRange(low, high)
+if high < low then
+return
+end
+if low < 0 then
+error ( "bitset range cannot start below zero" , 2 )
+end
+
+self : reserve ( high + 1 )
+
+local firstWord = rshift ( low , WORD_SHIFT )
+local lastWord = rshift ( high , WORD_SHIFT )
+local lowBit = band ( low , BIT_MASK )
+local highBit = band ( high , BIT_MASK )
+local head = bnot ( lshift ( 1 , lowBit ) - 1 )
+local tail = highBit == BIT_MASK ? ALL_ONES : lshift ( 1 , highBit + 1 ) - 1
+
+
+
+
+
+
+
+
+
+
+local exact = not self . stale
+local added = 0
+
+
+local words = self . words
+local used = self . used
+do
+if firstWord == lastWord then
+local old = tobit ( words [ firstWord ] )
+local new = bor ( old , band ( head , tail ) )
+words [ firstWord ] = new
+if exact then
+added = popcount ( new ) - popcount ( old )
+end
+else
+local old = tobit ( words [ firstWord ] )
+local new = bor ( old , head )
+words [ firstWord ] = new
+if exact then
+added = popcount ( new ) - popcount ( old )
+end
+
+
+
+local lastMiddle = lastWord - 1
+local reached = used - 1 < lastMiddle ? used - 1 : lastMiddle
+local counted = reached < firstWord ? firstWord : reached
+if exact then
+for word = firstWord + 1 , counted do
+added = added + BITS_PER_WORD - popcount ( tobit ( words [ word ] ) )
+words [ word ] = ALL_ONES
+end
+if counted < lastMiddle then
+added = added + BITS_PER_WORD * ( lastMiddle - counted )
+end
+for word = counted + 1 , lastMiddle do
+words [ word ] = ALL_ONES
+end
+else
+for word = firstWord + 1 , lastMiddle do
+words [ word ] = ALL_ONES
+end
+end
+
+old = tobit ( words [ lastWord ] )
+new = bor ( old , tail )
+words [ lastWord ] = new
+if exact then
+added = added + popcount ( new ) - popcount ( old )
+end
+end
+
+if exact then
+self . population = ( self . population + added )
+end
+end
+
+if lastWord >= self . used then
+self . used = lastWord + 1
+end
+end
+
+
+
+
+
+function bitset.Bitset:count()
+if not self . stale then
+return self . population
+end
+
+
+
+local words = self . words
+local total = 0
+do
+for word = 0 , self . used - 1 do
+total = total + popcount ( tobit ( words [ word ] ) )
+end
+end
+local resolved = total
+self . population = resolved
+self . stale = false
+
+return resolved
+end
+
+
+
+function bitset.Bitset:isEmpty()
+return self : count ( ) == 0
+end
+
+
+
+function bitset.Bitset:clearAll()
+if self . used > 0 then
+ffi . fill ( self . words , self . used * 4 , 0 )
+self . used = 0
+end
+self . population = 0
+self . stale = false
+end
+
+
+
+
+function bitset.Bitset:setOnly(index)
+self : clearAll ( )
+self : set ( index )
+end
+
+
+
+
+
+function bitset.Bitset:wordCount()
+return self . used
+end
+
+
+
+
+
+
+function bitset.Bitset:wordAt(index)
+if index < 0 or index >= self . used then
+return 0
+end
+
+do
+return tobit ( self . words [ index ] )
+end
+end
+
+
+
+
+
+
+
+function bitset.Bitset:nextSetBit(from)
+local start = from < 0 ? 0 : from
+local first = rshift ( start , WORD_SHIFT )
+local used = self . used
+if first >= used then
+return - 1
+end
+
+local words = self . words
+
+
+
+
+
+do
+local partial = tobit ( words [ first ] )
+local offset = band ( start , BIT_MASK )
+if offset ~= 0 then
+partial = band ( partial , bnot ( lshift ( 1 , offset ) - 1 ) )
+end
+if partial ~= 0 then
+return lshift ( first , WORD_SHIFT ) + lowestBit ( partial )
+end
+
+for word = first + 1 , used - 1 do
+local bits = tobit ( words [ word ] )
+if bits ~= 0 then
+return lshift ( word , WORD_SHIFT ) + lowestBit ( bits )
+end
+end
+end
+
+return - 1
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bitset.Bitset:positionsInto(target, capacity, from)
+
+
+
+
+
+if capacity < 0 then
+error ( "bitset target capacity cannot be negative" , 2 )
+end
+
+local start = from < 0 ? 0 : from
+local first = rshift ( start , WORD_SHIFT )
+local used = self . used
+if first >= used then
+return 0 , - 1
+end
+if capacity == 0 then
+return 0 , start
+end
+
+local words = self . words
+local offset = band ( start , BIT_MASK )
+local written = 0
+
+
+
+do
+for word = first , used - 1 do
+local bits = tobit ( words [ word ] )
+if word == first and offset ~= 0 then
+bits = band ( bits , bnot ( lshift ( 1 , offset ) - 1 ) )
+end
+
+local base = lshift ( word , WORD_SHIFT )
+for _ = 1 , BITS_PER_WORD do
+if bits == 0 then
+break
+end
+
+local position = base + lowestBit ( bits )
+if written >= capacity then
+return written , position
+end
+target [ written ] = position
+written = ( written + 1 )
+
+
+bits = band ( bits , bits - 1 )
+end
+end
+end
+
+return written , - 1
+end
+
+
+
+
+
+function bitset.Bitset:containsAll(other)
+local otherUsed = other . used
+if otherUsed == 0 then
+return true
+end
+if self . used < otherUsed then
+return false
+end
+
+local words , theirWords = self . words , other . words
+do
+for word = 0 , otherUsed - 1 do
+local theirs = tobit ( theirWords [ word ] )
+if band ( tobit ( words [ word ] ) , theirs ) ~= theirs then
+return false
+end
+end
+end
+
+return true
+end
+
+
+
+
+
+function bitset.Bitset:overlaps(other)
+local limit = self . used < other . used ? self . used : other . used
+
+local words , theirWords = self . words , other . words
+do
+for word = 0 , limit - 1 do
+if band ( tobit ( words [ word ] ) , tobit ( theirWords [ word ] ) ) ~= 0 then
+return true
+end
+end
+end
+
+return false
+end
+
+
+
+
+function bitset.Bitset:disjoint(other)
+return not self : overlaps ( other )
+end
+
+
+
+
+function bitset.Bitset:copyFrom(other)
+local otherUsed = other . used
+if otherUsed > self . capacity then
+self : reserve ( lshift ( otherUsed , WORD_SHIFT ) )
+end
+
+if otherUsed > 0 then
+ffi . copy ( self . words , other . words , otherUsed * 4 )
+end
+local words = self . words
+do
+for word = otherUsed , self . used - 1 do
+words [ word ] = 0
+end
+end
+
+self . used = otherUsed
+self . population = other . population
+self . stale = other . stale
+end
+
+
+
+
+
+
+
+function bitset.Bitset:orWith(other)
+local otherUsed = other . used
+if otherUsed == 0 then
+return
+end
+if otherUsed > self . capacity then
+self : reserve ( lshift ( otherUsed , WORD_SHIFT ) )
+end
+
+
+local words , theirWords = self . words , other . words
+do
+for word = 0 , otherUsed - 1 do
+words [ word ] = bor ( tobit ( words [ word ] ) , tobit ( theirWords [ word ] ) )
+end
+end
+
+if otherUsed > self . used then
+self . used = otherUsed
+end
+self . stale = true
+end
+
+
+
+
+function bitset.Bitset:andWith(other)
+local used = self . used
+if used == 0 then
+return
+end
+
+local shared = used < other . used ? used : other . used
+local words , theirWords = self . words , other . words
+do
+for word = 0 , shared - 1 do
+words [ word ] = band ( tobit ( words [ word ] ) , tobit ( theirWords [ word ] ) )
+end
+for word = shared , used - 1 do
+words [ word ] = 0
+end
+end
+
+
+
+self . used = shared
+self . stale = true
+end
+
+
+
+
+function bitset.Bitset:andNotWith(other)
+local limit = self . used < other . used ? self . used : other . used
+if limit == 0 then
+return
+end
+
+local words , theirWords = self . words , other . words
+do
+for word = 0 , limit - 1 do
+words [ word ] = band ( tobit ( words [ word ] ) , bnot ( tobit ( theirWords [ word ] ) ) )
+end
+end
+
+self . stale = true
+end
+
+
+
+function bitset.Bitset:xorWith(other)
+local otherUsed = other . used
+if otherUsed == 0 then
+return
+end
+if otherUsed > self . capacity then
+self : reserve ( lshift ( otherUsed , WORD_SHIFT ) )
+end
+
+local words , theirWords = self . words , other . words
+do
+for word = 0 , otherUsed - 1 do
+words [ word ] = bxor ( tobit ( words [ word ] ) , tobit ( theirWords [ word ] ) )
+end
+end
+
+if otherUsed > self . used then
+self . used = otherUsed
+end
+self . stale = true
+end
+
+
+
+
+
+
+
+function bitset . create ( capacityBits )
+local words = wordsFor ( capacityBits ?? DEFAULT_BITS )
+
+return setmetatable({ words =
+ffi . new ( "uint32_t[?]" , words ) ,  capacity =
+words ,  used =
+0 ,  population =
+0 ,  stale =
+false }, bitset.Bitset)
+
+end
+
+return bitset
+
+end
 package.preload["nupp.compiler"] = function(...)
 local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
@@ -4944,7 +5641,10 @@ params ,
 ","
 ) .. (
 t . vararg and ",..." or ""
-) .. ")->(" .. table . concat ( returns , "," ) .. ")" .. (
+) .. ")->(" .. table . concat (
+returns ,
+","
+) .. ")" .. (
 # partitions > 0 and "!partition(" .. table . concat ( partitions , "," ) .. ")" or ""
 ) .. ( t . noYield and "!noyield" or "" )
 elseif tag == "array" or tag == "ptr" then
@@ -4960,7 +5660,10 @@ local cleanupIds = { }
 for j , cleanup in ipairs ( t . cleanups or { } ) do
 cleanupIds [ j ] = cleanup . id
 end
-value = tag .. "(" .. table . concat ( cleanupIds , "," ) .. "," .. typeFingerprint ( t . inner , active , binders ) .. ")"
+value = tag .. "(" .. table . concat (
+cleanupIds ,
+","
+) .. ( t . opaque and ":opaque" or "" ) .. "," .. typeFingerprint ( t . inner , active , binders ) .. ")"
 elseif tag == "borrowed" or tag == "pinned" then
 value = tag .. "(" .. typeFingerprint ( t . inner , active , binders ) .. ")"
 elseif tag == "map" then
@@ -6445,7 +7148,6 @@ end
 
 return "return",__nuppT1( exit . exitCode , table . concat ( chunks ) ) end; return "normal" end,__nuppT2); const __nuppT17={}; local __nuppT18=0; if __nuppT13>=1 and __nuppT20 and __nuppT19~=nil then  const __nuppT23,__nuppT24=__nuppT5(__nuppCleanup1,__nuppT19);  if not __nuppT23 then __nuppT18=__nuppT18+1; __nuppT17[__nuppT18]=__nuppT24 end; end; if not __nuppT14 then if __nuppT18>0 then __nuppT7(__nuppT3(__nuppT15,__nuppT17,1),0) else __nuppT7(__nuppT15,0) end end; if __nuppT18>0 then if __nuppT18>1 then __nuppT7(__nuppT3(__nuppT17[1],__nuppT17,2),0) else __nuppT7(__nuppT17[1],0) end end; if __nuppT15=="return" then  return __nuppT8(__nuppT16,1,__nuppT16.n)  end; end
 end
-
 
 
 
@@ -8450,8 +9152,23 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 local T = require ( "nupp.compiler.types" )
 local cdecl = require ( "nupp.compiler.cdecl" )
+local fs = require ( "nupp.compiler.fs" )
+local hash = require ( "nupp.compiler.build.hash" )
+local process = require ( "nupp.compiler.build.process" )
 
 local cheader = { }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8563,7 +9280,30 @@ if ret then
 rets [ 1 ] = ret
 end
 
-return T . func ( params , rets , fn . vararg , nil , nil , nil , nil , nil , nil , nil , nil , nil , nil , nil , nil , nil , nil , nil , nil , nil , nil , true )
+return T . func (
+params ,
+rets ,
+fn . vararg ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+nil ,
+true
+)
 end
 
 
@@ -8578,17 +9318,6 @@ end
 end
 
 return table . concat ( out , "\n" )
-end
-
-local function capture ( cmd )
-local p = io . popen ( cmd .. " 2>/dev/null" )
-if not p then
-return nil
-end
-local out = p : read ( "*a" )
-p : close ( )
-
-return out
 end
 
 local function readFile ( path )
@@ -8608,22 +9337,140 @@ local function toolchainTag ( opts )
 if not opts . preprocess then
 return "-"
 end
-local cc = opts . cc or "cc"
-local hit = toolchainCache [ cc ]
+local argv = { opts . cc or "cc" }
+for _ , arg in ipairs ( opts . ccArgs or { } ) do
+argv [ # argv + 1 ] = arg
+end
+argv [ # argv + 1 ] = "--version"
+local key = table . concat ( argv , "\0" )
+local hit = toolchainCache [ key ]
 if hit then
 return hit
 end
-local p = io . popen ( cc .. " --version 2>/dev/null" )
-local version = p and p : read ( "*l" ) or "unknown"
-if p then
-p : close ( )
-end
-toolchainCache [ cc ] = version
+local code , output = process . capture ( argv )
+local version = code == 0 and output : match ( "[^\r\n]+" ) or "unknown"
+toolchainCache [ key ] = version
 
 return version
 end
 
+local function toolchainIdentity ( opts )
+local parts = { opts . cc or "cc" }
+for _ , arg in ipairs ( opts . ccArgs or { } ) do
+parts [ # parts + 1 ] = arg
+end
+parts [ # parts + 1 ] = toolchainTag ( opts )
+
+return table . concat ( parts , "\0" )
+end
+
+local function compilerArgv ( opts , ... )
+local argv = { opts . cc or "cc" }
+for _ , arg in ipairs ( opts . ccArgs or { } ) do
+argv [ # argv + 1 ] = arg
+end
+for _ , arg in ipairs ( { ... } ) do
+argv [ # argv + 1 ] = arg
+end
+
+return argv
+end
+
+
+
+local function dependencyPaths ( text , sourcePath )
+text = text : gsub ( "\\\r?\n" , " " )
+text = text : match ( "^[^:]*:%s*(.*)$" ) or ""
+local paths , word , escaped = { } , { } , false
+local function finish ( )
+if # word > 0 then
+paths [ # paths + 1 ] = fs . canonical ( table . concat ( word ) )
+word = { }
+end
+end
+
+for index = 1 , # text do
+local ch = text : sub ( index , index )
+if escaped then
+word [ # word + 1 ] = ch
+escaped = false
+elseif ch == "\\" then
+escaped = true
+elseif ch : match ( "%s" ) then
+finish ( )
+else
+word [ # word + 1 ] = ch
+end
+end
+finish ( )
+if # paths == 0 then
+paths [ 1 ] = sourcePath
+end
+local unique , out = { } , { }
+for _ , path in ipairs ( paths ) do
+if not unique [ path ] then
+unique [ path ] = true
+out [ # out + 1 ] = path
+end
+end
+table . sort ( out )
+
+return out
+end
+
+local function preprocessHeader ( path , opts )
+local depPath = os . tmpname ( )
+local argv = compilerArgv ( opts , "-E" , "-MD" , "-MF" , depPath , "-MT" , "nupp_header" , "-xc" , path )
+local code , expanded = process . capture ( argv )
+local depText = readFile ( depPath )
+os . remove ( depPath )
+if code ~= 0 then
+return nil , nil , expanded ~= "" and expanded or ( "cannot preprocess " .. path )
+end
+if not depText then
+return nil , nil , "compiler did not report dependencies for " .. path
+end
+if # expanded == 0 then
+return nil , nil , "cc -E produced no output for " .. path
+end
+
+return expanded , dependencyPaths ( depText , path )
+end
+
+local function semanticText ( text )
+text = text : gsub ( "%s+" , " " )
+text = text : gsub ( "%s*([{}%(%)%[%],;%*])%s*" , "%1" )
+return text : match ( "^%s*(.-)%s*$" ) or text
+end
+
 local cache = { }
+
+local function provenance ( path , opts )
+opts = opts or { }
+path = fs . canonical ( path )
+local source = opts . read and opts . read ( path ) or readFile ( path )
+if not source then
+return nil , "cannot read " .. path
+end
+local text = source
+local dependencies = { path }
+if opts . preprocess then
+local expanded , discovered , problem = preprocessHeader ( path , opts )
+if not expanded then
+return nil , problem
+end
+text = expanded
+dependencies = discovered
+end
+text = stripDirectives ( text )
+local semanticFingerprint = hash . digest (
+table . concat ( { "cheader-v2" , cdecl . abiTag ( ) , toolchainIdentity ( opts ) , semanticText ( text ) } , "\0" )
+)
+
+return { cdef = text , sourcePath = path , dependencies = dependencies , semanticFingerprint = semanticFingerprint , }
+end
+
+cheader . provenance = provenance
 
 
 
@@ -8631,6 +9478,7 @@ local cache = { }
 
 local declaredBlocks = { }
 local declaredNames = { }
+
 
 
 
@@ -8713,9 +9561,7 @@ end
 
 
 
-function cheader . declaredFunctions (
-resolver , only
-)
+function cheader . declaredFunctions ( resolver , only )
 local out = { }
 local r = adoptingResolver ( resolver )
 for name , fn in pairs ( cdecl . declaredFunctions ( only ) ) do
@@ -8730,31 +9576,26 @@ end
 
 function cheader . load ( path , opts )
 opts = opts or { }
-local source = readFile ( path )
-if not source then
-return nil , "cannot read " .. path
+local observed , problem = provenance ( path , opts )
+if not observed then
+return nil , problem
 end
+local text = observed . cdef
+local dependencies = observed . dependencies
+local semanticFingerprint = observed . semanticFingerprint
 
 
-local preprocess = opts . preprocess and true or false
-
-
-local key = table . concat ( { tostring ( preprocess ) , cdecl . abiTag ( ) , toolchainTag ( opts ) , source , } , "\0" )
+local key = table . concat ( { semanticFingerprint , table . concat ( dependencies , "\0" ) } , "\0" )
 local hit = cache [ key ]
 if hit then
-return hit
+return {
+exports = hit . exports ,
+cdef = hit . cdef ,
+sourcePath = observed . sourcePath ,
+dependencies = dependencies ,
+semanticFingerprint = semanticFingerprint ,
+}
 end
-
-local text = source
-if preprocess then
-local cc = opts . cc or "cc"
-local expanded = capture ( ( "%s -E -xc '%s'" ) : format ( cc , path ) )
-if not expanded or # expanded == 0 then
-return nil , "cc -E produced no output for " .. path
-end
-text = expanded
-end
-text = stripDirectives ( text )
 
 local parsed , err = cdecl . inspect ( text )
 if not parsed then
@@ -8783,7 +9624,13 @@ for _ , fn in ipairs ( parsed . functions ) do
 exports [ fn . name ] = modelFunction ( fn , structs )
 end
 
-local result = { exports = exports , cdef = text }
+local result = {
+exports = exports ,
+cdef = text ,
+sourcePath = observed . sourcePath ,
+dependencies = dependencies ,
+semanticFingerprint = semanticFingerprint ,
+}
 cache [ key ] = result
 
 return result
@@ -9418,7 +10265,7 @@ automaticOwners = { } ,
 depth = 0 ,
 completionScope = result . root ,
 parent = nil
-} ,  retStack =  { } ,  retPackStack =  { } ,  ownReturnStack =  { } ,  borrowReturnStack =  { } ,  varargPackStack =  { } ,  yieldPackStack =  { } ,  resumePackStack =  { } ,  protocolStack =  { } ,  dropOperationFieldStack =  { } ,  validatedCleanupContracts =  { } ,  unsafeDepth =  0 ,  noSuspendDepth =  0 ,  handledDepth =  0 ,  functionDepth =  0 ,  functionBodies =  { } ,  jitHazards =  { } ,  scopedCaptureDepth =  0 ,  closureCaptureStack =  { } ,  captureWatches =  { } ,  allowed =  { } ,  nextStat =  nil ,  hoisting =  false ,  resolvingAlias =  { } ,  lastCallRets =  nil ,  moduleFields =  { } ,  moduleFieldTokens =  { } ,  moduleFieldDefs =  { } ,  moduleFieldConst =  { } ,  moduleFieldValues =  { } ,  nominalEffectOwners =  { } ,  nominalEffectEntries =  { } ,  constModulePaths =  { } ,  moduleLocalAnnotated =  false }, state.Checker)
+} ,  retStack =  { } ,  retPackStack =  { } ,  ownReturnStack =  { } ,  borrowReturnStack =  { } ,  varargPackStack =  { } ,  yieldPackStack =  { } ,  resumePackStack =  { } ,  protocolStack =  { } ,  dropOperationFieldStack =  { } ,  validatedCleanupContracts =  { } ,  unsafeDepth =  0 ,  noSuspendDepth =  0 ,  handledDepth =  0 ,  functionDepth =  0 ,  functionBodies =  { } ,  jitHazards =  { } ,  scopedCaptureDepth =  0 ,  closureCaptureStack =  { } ,  captureWatches =  { } ,  allowed =  { } ,  nextStat =  nil ,  hoisting =  false ,  resolvingAlias =  { } ,  lastCallRets =  nil ,  moduleFields =  { } ,  moduleFieldTokens =  { } ,  moduleFieldDefs =  { } ,  moduleFunctionDeclarations =  { } ,  moduleFieldConst =  { } ,  moduleFieldValues =  { } ,  nominalEffectOwners =  { } ,  nominalEffectEntries =  { } ,  constModulePaths =  { } ,  moduleLocalAnnotated =  false }, state.Checker)
 c . rootScope = c . scope
 c . moduleExports . valueDefs = c . moduleExports . valueDefs or { }
 c . moduleExports . comptimeFunctions = c . moduleExports . comptimeFunctions or { }
@@ -9476,10 +10323,7 @@ for index , node in ipairs ( descriptor . types or { } ) do
 if node . nominal then
 permitted [
 "argument" .. tostring ( position ) .. ":" .. tostring ( index )
-] = {
-source = descriptor . sources [ index ] ,
-fingerprint = node . referenceFingerprint ,
-}
+] = { source = descriptor . sources [ index ] , fingerprint = node . referenceFingerprint , }
 end
 end
 descriptor . sources = nil
@@ -9491,7 +10335,9 @@ end
 end
 local key = hash . sha256 ( table . concat ( keyParts , "\0" ) )
 local cached = memo [ key ]
-if cached then return cached . result , cached . failure end
+if cached then
+return cached . result , cached . failure
+end
 local persistent = c . env and c . env . openTypeFunctionStore and c . env . openTypeFunctionStore ( c . env ) or nil
 local persisted = persistent and persistent . get ( key ) or nil
 if persisted then
@@ -9502,9 +10348,9 @@ return persistedType , nil
 end
 end
 local root = os . getenv ( "NUPP_COMPILER_ROOT" )
-local executable = root and root .. "/bin/nupp"
-or type ( arg ) == "table" and type ( arg [ 0 ] ) == "string" and arg [ 0 ]
-or nil
+local executable = root and root .. "/bin/nupp" or type (
+arg
+) == "table" and type ( arg [ 0 ] ) == "string" and arg [ 0 ] or nil
 local envelope , evaluationFailure
 if executable and not os . getenv ( "NUPP_COMPTIME_WORKER_CHILD" ) then
 local worker = require ( "nupp.compiler.comptime_worker" )
@@ -9524,15 +10370,16 @@ memo [ key ] = { failure = evaluationFailure }
 return nil , evaluationFailure
 end
 local resultType , validationFailure = typeblueprint . validate ( envelope , permitted )
-if resultType and persistent then persistent . put ( key , envelope ) end
+if resultType and persistent then
+persistent . put ( key , envelope )
+end
 memo [ key ] = { result = resultType , failure = validationFailure }
+
 return resultType , validationFailure
 end
-c . reductionControl = {
-evaluateTypeFunction = function ( helper , arguments )
+c . reductionControl = { evaluateTypeFunction = function ( helper , arguments )
 return c . typeFunctionEvaluator ( helper , arguments , c . comptimeFunctions )
-end
-}
+end }
 resolve . install ( c )
 local ownershipKind = own . ownershipKind
 
@@ -10021,19 +10868,17 @@ domainToken or nameTok ,
 )
 end
 domain = domain or "string"
-local cv = predeclared
-and predeclared . constParams
-and predeclared . constParams [ # constParams + 1 ]
-or c . constvarAt ( nameTok , domain , role )
+local cv = predeclared and predeclared . constParams and predeclared . constParams [
+# constParams + 1
+] or c . constvarAt ( nameTok , domain , role )
 constParams [ # constParams + 1 ] = cv
 paramKinds [ j ] = "const"
 c . bindType ( nameTok . text , consteval . singleton ( cv ) , nameTok )
 elseif isPack then
 sawPack = true
-local pv = predeclared
-and predeclared . packParams
-and predeclared . packParams [ # packParams + 1 ]
-or c . packvarAt ( nameTok , role )
+local pv = predeclared and predeclared . packParams and predeclared . packParams [
+# packParams + 1
+] or c . packvarAt ( nameTok , role )
 packParams [ # packParams + 1 ] = pv
 paramKinds [ j ] = "pack"
 c . bindPack ( nameTok . text , pv , nameTok )
@@ -10041,10 +10886,9 @@ else
 if sawPack then
 c . diag ( "NUPP2121" , nameTok , "an ordinary type parameter cannot follow a pack parameter" )
 end
-local tv = predeclared
-and predeclared . typeParams
-and predeclared . typeParams [ # params + 1 ]
-or c . typevarAt ( nameTok , role )
+local tv = predeclared and predeclared . typeParams and predeclared . typeParams [
+# params + 1
+] or c . typevarAt ( nameTok , role )
 params [ # params + 1 ] = tv
 paramKinds [ j ] = "type"
 c . bindType ( nameTok . text , tv , nameTok )
@@ -10540,6 +11384,27 @@ end
 
 
 
+local function registerHoistedDropMembers ( decl )
+if not decl or decl . kind ~= "recordDecl" or not decl . hoistedType then
+return
+end
+for _ , entry in ipairs ( decl . entries or { } ) do
+if entry . kind == "recordDecl" then
+registerHoistedDropMembers ( entry )
+else
+local named = entry . name and entry . name . text
+for _ , application in ipairs ( named and entry . annotations or { } ) do
+if application . name and application . name . text == "drop" then
+c . own . addDefaultDropOperation ( decl . hoistedType , T . methodCleanup ( named ) )
+end
+end
+end
+end
+end
+
+
+
+
 
 local function hoistDeclarations ( block )
 for _ , stat in ipairs ( block . stats or { } ) do
@@ -10574,9 +11439,7 @@ local isPack = decl . generics . packs and decl . generics . packs [ position ]
 local isConst = decl . generics . consts and decl . generics . consts [ position ]
 if isConst then
 local domainToken = decl . generics . domains and decl . generics . domains [ position ]
-constParams [
-# constParams + 1
-] = c . constvarAt ( nameTok , c . constDomain ( domainToken ) , "nominal" )
+constParams [ # constParams + 1 ] = c . constvarAt ( nameTok , c . constDomain ( domainToken ) , "nominal" )
 paramKinds [ position ] = "const"
 elseif isPack then
 packParams [ # packParams + 1 ] = c . packvarAt ( nameTok , "nominal" )
@@ -10599,8 +11462,79 @@ end
 end
 
 
+
+
+
+
+for _ , stat in ipairs ( block . stats or { } ) do
+local decl = stat
+while decl and decl . kind == "pragmaStmt" do
+decl = decl . stat
+end
+registerHoistedDropMembers ( decl )
+end
+
 local wasHoisting = c . hoisting
 c . hoisting = true
+
+
+
+
+
+
+for _ , stat in ipairs ( block . stats or { } ) do
+local decl , dropTok = stat , nil
+while decl and decl . kind == "pragmaStmt" do
+if decl . name and decl . name . text == "drop" then
+dropTok = decl . name
+end
+decl = decl . stat
+end
+local functionDecl = decl and ( decl . kind == "localFuncStmt" or decl . kind == "funcStmt" )
+if dropTok and functionDecl and decl . body and not decl . body . dropCleanup then
+local named = decl . name
+local ownerKey , memberTok = nil , nil
+if named and named . kind == "funcname" then
+ownerKey , memberTok = c . funcOwner ( named )
+end
+local owner = ownerKey and c . lookupType ( ownerKey ) or nil
+
+
+
+
+
+
+if owner and owner . tag == "nominal" and named . method and memberTok then
+c . own . addDefaultDropOperation ( owner , T . methodCleanup ( memberTok . text ) )
+else
+local path = nil
+if decl . kind == "localFuncStmt" and named then
+path = named . text
+elseif named and named . kind == "funcname" and not named . method then
+
+
+
+
+
+
+path = ownerKey and memberTok and (
+ownerKey .. "." .. memberTok . text
+) or named . base and named . base . text or nil
+end
+if path then
+c . own . registerDefaultDropOperation ( c . signatureOf ( decl . body , nil ) , path , dropTok , nil , decl . body )
+end
+end
+end
+end
+
+
+
+
+
+
+
+
 for _ , stat in ipairs ( block . stats or { } ) do
 local decl = stat
 while decl and decl . kind == "pragmaStmt" do
@@ -10626,10 +11560,69 @@ owner . writeByname [ member ] = signature
 else
 owner . staticWriteByname [ member ] = signature
 end
+elseif not fname . method and ownerKey == c . moduleLocal and memberTok then
+local definition = c . definition ( memberTok , "function" )
+c . moduleFieldTokens [ memberTok . text ] = memberTok
+c . moduleFieldDefs [ memberTok . text ] = definition
+c . moduleExports . valueDefs [ memberTok . text ] = definition
+local declarations = c . moduleFunctionDeclarations [ memberTok . text ] or { }
+c . moduleFunctionDeclarations [ memberTok . text ] = declarations
+declarations [
+# declarations + 1
+] = { body = decl . body , token = memberTok , definition = definition , scope = c . scope , }
 end
 end
 end
 c . hoisting = wasHoisting
+end
+
+
+
+
+
+
+
+c . resolveModuleFunction = function ( name )
+if not c . moduleLocal then
+return nil
+end
+local declarations = c . moduleFunctionDeclarations [ name ]
+if not declarations then
+return nil
+end
+local pending = nil
+for j = # declarations , 1 , - 1 do
+local candidate = declarations [ j ]
+local visible = c . scope
+while visible and visible ~= candidate . scope do
+visible = visible . parent
+end
+if visible then
+pending = candidate
+break
+end
+end
+if not pending then
+return nil
+end
+local signature = pending . signature
+if not signature then
+local callerScope = c . scope
+c . scope = pending . scope
+signature = c . signatureOf ( pending . body , nil )
+c . scope = callerScope
+pending . signature = signature
+if pending . definition then
+pending . definition . type = signature
+end
+c . moduleFields [ name ] = signature
+end
+c . moduleFieldTokens [ name ] = pending . token
+c . moduleFieldDefs [ name ] = pending . definition
+c . moduleExports . valueDefs [ name ] = pending . definition
+c . applyFacts ( { [ c . moduleLocal .. "." .. name ] = signature } )
+
+return signature
 end
 
 
@@ -10705,12 +11698,13 @@ end
 for _ , hazard in ipairs ( c . jitHazards ) do
 local body = hazard . body
 local definition = body and body . jitDefinition or nil
-if not hazard . suppressed
-and not ( body and body . jitDisabled )
-and not ( definition and definition . jitDisabled )
-and not ( hazard . disabledBody and hazard . disabledBody . jitDisabled )
-and not ( hazard . disabledDefinition and hazard . disabledDefinition . jitDisabled )
-then
+if not hazard . suppressed and not (
+body and body . jitDisabled
+) and not (
+definition and definition . jitDisabled
+) and not (
+hazard . disabledBody and hazard . disabledBody . jitDisabled
+) and not ( hazard . disabledDefinition and hazard . disabledDefinition . jitDisabled ) then
 c . diag (
 body and body . jitRequired and "NUPP2707" or hazard . code ,
 hazard . at ,
@@ -10792,11 +11786,14 @@ c . unused . sweep ( )
 c . discard . sweep ( analysis . queries ( facts ) )
 c . nosuspend . sweep ( analysis . queries ( facts ) )
 local comptimeNames , comptimeIdentities = { } , { }
-for name in pairs ( c . moduleExports . comptimeFunctions or { } ) do comptimeNames [ # comptimeNames + 1 ] = name end
+for name in pairs ( c . moduleExports . comptimeFunctions or { } ) do
+comptimeNames [ # comptimeNames + 1 ] = name
+end
 table . sort ( comptimeNames )
 for _ , name in ipairs ( comptimeNames ) do
-comptimeIdentities [ # comptimeIdentities + 1 ] = name .. "="
-.. tostring ( c . moduleExports . comptimeFunctions [ name ] . identity )
+comptimeIdentities [
+# comptimeIdentities + 1
+] = name .. "=" .. tostring ( c . moduleExports . comptimeFunctions [ name ] . identity )
 end
 c . moduleExports . comptimeFunctionFingerprint = table . concat ( comptimeIdentities , "\0" )
 table . sort ( c . diags , function ( a , b )
@@ -12861,6 +13858,7 @@ end
 if calleeName ~= "" then
 local entry = c . lookupEntry ( calleeName )
 node . cdefCall = entry and entry . definition and entry . definition . cdef or false
+node . cdefIdentity = node . cdefCall and entry . definition . cdefIdentity or nil
 end
 
 
@@ -16021,6 +17019,15 @@ local cdef = { }
 
 
 
+local function stringLiteral ( token )
+if not token then return nil end
+local chunk = loadstring ( "return " .. token . text )
+if not chunk then return nil end
+local ok , value = pcall ( chunk )
+
+return ok and type ( value ) == "string" and value or nil
+end
+
 
 
 
@@ -16059,6 +17066,8 @@ end
 local n = T . nominal ( structName . text , "struct" )
 n . cdefName = structName . text
 n . cdefKind = stat . aggregateKind or "struct"
+stat . cdefIdentity = table . concat ( { "aggregate" , n . cdefKind , structName . text } , "\0" )
+n . cdefIdentity = stat . cdefIdentity
 c . bindType ( structName . text , n , structName )
 if structName . definition then
 structName . definition . cdef = true
@@ -16066,6 +17075,7 @@ end
 n . fieldOrder = { }
 n . fieldDefs = { }
 n . writeFieldDefs = { }
+local semanticFields = { }
 for _ , e in ipairs ( stat . entries ) do
 local fieldName , declaredType = nil , nil
 local bitWidth = nil
@@ -16085,6 +17095,12 @@ fieldDef . type = ft
 fieldDef . cdef = true
 c . markToken ( fieldName , fieldDef , ft , "property" )
 n . fieldOrder [ # n . fieldOrder + 1 ] = text
+semanticFields [
+# semanticFields + 1
+] = table . concat (
+{ text , T . tostring ( ft ) , bitWidth and bitWidth . text or "" } ,
+":"
+)
 if not reifiableField ( ft , true ) then
 c . diag ( "NUPP2203" , e , ( "cdef field %q: %s is not a C type" ) : format ( text , T . tostring ( ft ) ) )
 end
@@ -16112,7 +17128,14 @@ else
 c . diag ( "NUPP2203" , e , "cdef aggregate bodies hold fields only" )
 end
 end
+stat . cdefSemantic = table . concat (
+{ "c-aggregate-v1" , n . cdefKind , structName . text , table . concat ( semanticFields , "\0" ) } ,
+"\0"
+)
 c . bindVar ( structName . text , n , true , structName )
+if structName . definition then
+structName . definition . cdefIdentity = stat . cdefIdentity
+end
 end
 
 handlers . cdefFunc = function ( stat )
@@ -16415,6 +17438,19 @@ registerDefaultDropOperation ( cdefType , cdefName . text , stat . dropTok or st
 end
 if cdefName . definition then
 cdefName . definition . cdef = true
+local library = stringLiteral ( stat . fromLib ) or "<default>"
+stat . cdefIdentity = table . concat ( { "function" , library , cdefName . text } , "\0" )
+stat . cdefSemantic = table . concat (
+{
+"c-function-v1" ,
+library ,
+cdefName . text ,
+T . tostring ( stat . physicalSignatureType ) ,
+T . tostring ( stat . signatureType ) ,
+} ,
+"\0"
+)
+cdefName . definition . cdefIdentity = stat . cdefIdentity
 end
 end
 
@@ -18872,6 +19908,7 @@ ownedApplication ,
 )
 end
 local wrapped = { }
+local settledCleanups = nil
 for _ , member in ipairs ( ownedMembers ) do
 local callable = member
 local resultType = callable . rets [ 1 ]
@@ -18882,10 +19919,42 @@ opaque ,
 ownedApplication ,
 ownedApplication
 )
+settledCleanups = settledCleanups or cleanups
 c . own . validateCleanups ( resultType , cleanups , ownedApplication )
 wrapped [ # wrapped + 1 ] = T . withFirstResult ( callable , T . owned ( resultType , cleanups ) )
 end
 ft = # wrapped == 1 and wrapped [ 1 ] or T . intersection ( wrapped )
+
+
+
+
+local signatures = { }
+if e . type and e . type . kind == "tfunc" then
+signatures [ 1 ] = e . type
+elseif e . type and e . type . kind == "tintersection" then
+for _ , part in ipairs ( ( e . type ) . types or { } ) do
+if part . kind == "tfunc" then
+signatures [ # signatures + 1 ] = part
+end
+end
+end
+local results = { }
+for _ , signature in ipairs ( signatures ) do
+local pack = signature . returnPack
+local written = pack and pack . kind == "tpack" and (
+pack
+) . types or signature . rets
+local value = cst . resultValueType ( written and written [ 1 ] or nil )
+results [ # results + 1 ] = value
+end
+ownedApplication . declaresAt = cst . firstToken ( e )
+c . own . reportOwnedAnnotation (
+ownedApplication ,
+ownedApplication . name ,
+# results == # signatures and results or { } ,
+settledCleanups or { } ,
+opaque
+)
 end
 end
 local fieldBorrowRelation = e . type and (
@@ -19521,6 +20590,7 @@ local cst = require ( "nupp.compiler.cst" )
 local relations = require ( "nupp.compiler.relations" )
 local generics = require ( "nupp.compiler.generics" )
 local hash = require ( "nupp.compiler.build.hash" )
+local fs = require ( "nupp.compiler.fs" )
 local recipeCodec = require ( "nupp.compiler.materialize.codec" )
 local reflection = require ( "nupp.compiler.reflection" )
 local typeblueprint = require ( "nupp.compiler.typeblueprint" )
@@ -19553,6 +20623,62 @@ end
 end
 
 return out
+end
+
+local function providerFilePaths ( program )
+local paths , seen = { } , { }
+local function stringLiteral ( token )
+if not token then return nil end
+local chunk = loadstring ( "return " .. token . text )
+if not chunk then return nil end
+local ok , value = pcall ( chunk )
+
+return ok and type ( value ) == "string" and value or nil
+end
+local function dotted ( node )
+if not node or cst . isToken ( node ) then return nil end
+if node . kind == "name" then
+return node . token and node . token . text or nil
+elseif node . kind == "dotIndex" then
+local left = dotted ( node . obj )
+return left and node . name and ( left .. "." .. node . name . text ) or nil
+end
+return nil
+end
+local dynamic
+local function visit ( node )
+if type ( node ) ~= "table" or cst . isToken ( node ) then return end
+if node . kind == "call" and dotted ( node . obj ) == "nupp.derive.file" then
+local args = node . args and node . args . exprs or { }
+local first = args [ 1 ]
+local token = first and first . kind == "string" and first . token or nil
+local path = stringLiteral ( token )
+if path and path ~= "" and # args == 1 then
+if not seen [ path ] then
+seen [ path ] = true
+paths [ # paths + 1 ] = path
+end
+else
+dynamic = node
+end
+end
+for _ , child in ipairs ( node ) do visit ( child ) end
+end
+
+visit ( program and program . helper )
+for _ , helper in pairs ( program and program . helpers or { } ) do visit ( helper ) end
+for name , descriptor in pairs ( program and program . serializedHelpers or { } ) do
+if type ( descriptor ) == "table" and type ( descriptor . source ) == "string" then
+local parsed = require ( "nupp.compiler.parser" ) . parse (
+descriptor . source ,
+"=provider-input-" .. tostring ( name )
+)
+if # ( parsed . errors or { } ) == 0 then visit ( parsed . root ) end
+end
+end
+table . sort ( paths )
+
+return paths , dynamic
 end
 
 
@@ -19801,6 +20927,59 @@ fingerprint = rootNode . referenceFingerprint or reflection . describe ( n ) . f
 }
 end
 if input . interfaceType then permit ( input . interfaceType , "interface" ) end
+local filePaths , dynamicFile = providerFilePaths ( provider . sealedProgram )
+if dynamicFile then
+c . diag (
+"NUPP2810" ,
+dynamicFile ,
+"derive.file needs one project-relative path written as a string literal"
+)
+return
+end
+input . providerFiles = { }
+input . providerInputDescriptors = { }
+local providerInputs = { }
+local root = fs . canonical ( fs . absolute ( c . env and c . env . rootDir or "." ) )
+local rootPrefix = root : sub ( - 1 ) == "/" and root or root .. "/"
+for _ , authoredPath in ipairs ( filePaths ) do
+local absolute = fs . canonical ( fs . absolute ( fs . join ( root , authoredPath ) ) )
+if absolute ~= root and absolute : sub ( 1 , # rootPrefix ) ~= rootPrefix then
+c . diag (
+"NUPP2810" ,
+provider . site . arg . expr or provider . site . arg ,
+"derive.file path escapes the project root: " .. authoredPath
+)
+return
+end
+local bytes = c . env and c . env . externalFile and c . env . externalFile ( c . env , absolute ) or nil
+if bytes == nil then
+c . diag (
+"NUPP2810" ,
+provider . site . arg . expr or provider . site . arg ,
+"derive.file cannot read " .. absolute
+)
+return
+end
+local fingerprint = hash . sha256 (
+table . concat ( { "provider-file-v1" , authoredPath , bytes } , "\0" )
+)
+input . providerFiles [ authoredPath ] = bytes
+input . providerInputDescriptors [
+# input . providerInputDescriptors + 1
+] = { path = authoredPath , display = authoredPath , fingerprint = fingerprint }
+providerInputs [
+# providerInputs + 1
+] = {
+identity = table . concat ( { "provider-file" , provider . identity , authoredPath } , "\0" ) ,
+kind = "provider-file" ,
+display = authoredPath ,
+paths = { absolute } ,
+fingerprint = fingerprint ,
+consumer = tostring ( c . filename or "<module>" ) ,
+binary = false ,
+provider = provider . identity ,
+}
+end
 local descriptorFields = item . ownerDescriptor . fields or { }
 for index , fieldName in ipairs ( n . fieldOrder or { } ) do
 local fieldType = n . byname [ fieldName ]
@@ -19859,6 +21038,7 @@ hasConstructor = input . hasConstructor ,
 owner = input . ownerType . descriptor . fingerprint ,
 interface = input . interfaceType and input . interfaceType . descriptor . fingerprint or "none" ,
 fields = { } ,
+providerInputs = input . providerInputDescriptors ,
 }
 for index , field in ipairs ( input . fields ) do
 fingerprintInput . fields [
@@ -19907,7 +21087,7 @@ cached
 cached . family == "Result" or cached . family == "Error"
 ) then
 local canonical = recipeCodec . canonical ( cached . payload )
-local prefix = cached . family == "Result" and "nupp.derive.result\0v2\0" or "nupp.derive.error\0v1\0"
+local prefix = cached . family == "Result" and "nupp.derive.result\0v3\0" or "nupp.derive.error\0v1\0"
 if canonical and cached . fingerprint == hash . sha256 (
 prefix .. canonical
 )
@@ -19984,7 +21164,7 @@ end
 if envelope . family ~= "Result"
 or envelope . schema ~= 1
 or not envelope . payload
-or envelope . payload . version ~= "nupp.derive.result.v2"
+or envelope . payload . version ~= "nupp.derive.result.v3"
 or envelope . payload . requestFingerprint ~= input . fingerprint
 or envelope . payload . providerIdentity ~= provider . identity
 or envelope . payload . ownerIdentity ~= n . deriveKey
@@ -19995,6 +21175,11 @@ provider . site . arg . expr or provider . site . arg ,
 "derive provider returned a malformed recipe"
 )
 return
+end
+for _ , observed in ipairs ( providerInputs ) do
+if c . env and c . env . observeExternalInput then
+c . env . observeExternalInput ( c . env , observed )
+end
 end
 local diagnosticCount , addedMembers = # c . diags , { }
 local existingMembers , requestedMembers = 0 , 0
@@ -20333,6 +21518,13 @@ c . recordEffect ( effect )
 item . stat . compilerFeatureEffects [ # item . stat . compilerFeatureEffects + 1 ] = effect
 end
 plan . providerABI [ provider . label ] = 1
+plan . inputs = plan . inputs or { }
+for _ , input in ipairs ( providerInputs ) do
+plan . inputs [ # plan . inputs + 1 ] = {
+identity = input . identity ,
+fingerprint = input . fingerprint ,
+}
+end
 end
 
 local function origin ( item , provider )
@@ -21679,7 +22871,7 @@ end
 return target
 end
 if source . tag == "owned" then
-return T . owned ( target , source . cleanups )
+return T . owned ( target , source . cleanups , source . opaque )
 elseif c . ownershipKind ( source ) == "borrowed" then
 return T . borrowed ( target )
 elseif c . ownershipKind ( source ) == "pinned" then
@@ -22144,6 +23336,9 @@ end
 if typeArg then
 local name = memberName
 local argT = c . resolveType ( typeArg )
+if argT and argT . tag == "nominal" and argT . cdefIdentity then
+node . cdefIdentity = argT . cdefIdentity
+end
 local hint = typeArg
 node . ffiIntrinsic = name
 node . ffiTypeNode = hint
@@ -22342,11 +23537,38 @@ candidates [ # candidates + 1 ] = root .. "/" .. headerPath
 end
 local cheaderMod = require ( "nupp.compiler.cheader" )
 local loaded , err
+local externalReader = c . env and c . env . externalFile and function ( externalPath )
+return c . env . externalFile ( c . env , externalPath )
+end or nil
 for _ , candidate in ipairs ( candidates ) do
-loaded , err = cheaderMod . load ( candidate , { preprocess = literal ( args [ 3 ] ) == "preprocess" , } )
+loaded , err = cheaderMod . load (
+candidate ,
+{ preprocess = literal ( args [ 3 ] ) == "preprocess" , read = externalReader , }
+)
 if loaded then
 node . cheaderCdef = loaded . cdef
 node . cheaderLib = lib
+local firstArg = args [ 1 ]
+local consumerLine = firstArg
+and firstArg . kind == "string"
+and firstArg . token
+and firstArg . token . line
+or 1
+local input = {
+identity = "header\0" .. loaded . sourcePath ,
+kind = "header" ,
+display = headerPath ,
+paths = loaded . dependencies ,
+sourcePath = loaded . sourcePath ,
+fingerprint = loaded . semanticFingerprint ,
+consumer = tostring ( c . filename or "<module>" ) .. ":" .. tostring ( consumerLine ) ,
+binary = false ,
+library = lib ,
+preprocess = literal ( args [ 3 ] ) == "preprocess" ,
+}
+if c . env and c . env . observeExternalInput then
+c . env . observeExternalInput ( c . env , input )
+end
 break
 end
 end
@@ -22387,6 +23609,7 @@ if body then
 local ok , _ , names = require ( "nupp.compiler.cheader" ) . declare ( body )
 if ok then
 c . recordCDeclarations ( names )
+node . cdefDeclarationBlock = true
 end
 end
 end
@@ -22406,6 +23629,7 @@ local body = cdefBody ( strTok . text )
 if body then
 local ok , err , names = require ( "nupp.compiler.cheader" ) . declare ( body )
 c . recordCDeclarations ( names )
+node . cdefDeclarationBlock = true
 if not ok then
 c . diag (
 "NUPP2303" ,
@@ -22426,6 +23650,12 @@ end
 
 
 if baseName == "ffi" and memberName == "load" then
+local first = argExprs [ 1 ]
+if first and first . kind == "string" and first . token then
+node . ffiLoadLib = cdefBody ( first . token . text )
+else
+node . ffiLoadDynamic = true
+end
 for _ , e in ipairs ( argExprs ) do
 c . infer ( e )
 end
@@ -22834,6 +24064,15 @@ local resolvedOwnedCleanups = c . own . resolvedOwnedCleanups
 local ownershipState , pointerShaped = c . ownershipState , c . pointerShaped
 local validateCleanups = c . validateCleanups
 local expectedFuncbodies = { }
+
+local function writtenResultOf ( body )
+local written = body . returnPack and body . returnPack . kind == "tpack" and (
+body . returnPack
+) . types or body . rets
+local value = cst . resultValueType ( written and written [ 1 ] or nil )
+
+return value and { value } or { }
+end
 
 local function inferredParameterModes ( body )
 local modes , byname , declared = { } , { } , { }
@@ -23282,11 +24521,11 @@ end
 local inferredModes , declaredModes = inferredParameterModes ( body )
 if explicitSelf then
 local mode = inferredModes [ 1 ] or "borrows"
-if not declaredModes [ 1 ]
-and mode ~= "takes"
-and not pointerShaped ( selfType )
-and not ( selfType . tag == "nominal" and selfType . affineResource )
-then
+if not declaredModes [
+1
+] and mode ~= "takes" and not pointerShaped (
+selfType
+) and not ( selfType . tag == "nominal" and selfType . affineResource ) then
 mode = "plain"
 end
 body . receiverMode = mode
@@ -23447,8 +24686,16 @@ body . cleanupRegistrationNode
 annotated [ 1 ] = T . owned ( rawType ( annotated [ 1 ] ) , body . ownCleanups )
 rets [ 1 ] = annotated [ 1 ]
 validateCleanups ( annotated [ 1 ] , body . ownCleanups , body . ownTok or body , "NUPP2615" )
+c . own . reportOwnedAnnotation (
+body . cleanupRegistrationNode ,
+body . ownTok ,
+writtenResultOf ( body ) ,
+body . ownCleanups ,
+body . ownOpaque
+)
 end
 end
+
 
 
 
@@ -23457,35 +24704,26 @@ end
 
 local ownedReturns = { }
 local ownsAResult = false
-for j , ret in ipairs ( annotated or { } ) do
+local writtenResults = body . rets
+
+
+
+
+local normalized = c . own . normalizeOwnedResults ( T . pack ( annotated or { } , nil ) , body . returnPack , body )
+for j , ret in ipairs ( normalized . head or { } ) do
+annotated [ j ] , rets [ j ] = ret , ret
 if ret . tag == "owned" then
-
-
-
-
-local written = body . rets and body . rets [ j ]
-local wroteName = written ~= nil and written . kind == "tname" and written . base ~= nil and written . base . text or nil
-local wroteOwned = wroteName == "Owned"
-local inner = rawType ( ret )
-
-
-
-
-local inheritsTerminal = inner . tag == "nominal" and # ( inner . defaultDropOperations or { } ) > 0
-if wroteOwned and inheritsTerminal and # (
-ret . cleanups or { }
-) == 0 and not ( j == 1 and annotationOwnedFirst ) then
-local cleanups = resolvedOwnedCleanups ( inner , nil , false , written , nil )
-annotated [ j ] = T . owned ( inner , cleanups )
-rets [ j ] = annotated [ j ]
-validateCleanups ( annotated [ j ] , cleanups , written , "NUPP2615" )
-if j == 1 then
-body . ownCleanups = cleanups
-end
+local written = cst . resultValueType ( writtenResults and writtenResults [ j ] )
+local wroteOwned = written ~= nil
+and written . kind == "tname"
+and written . base ~= nil
+and written . base . text == "Owned"
+if wroteOwned and j == 1 and not annotationOwnedFirst then
+body . ownCleanups = ret . cleanups
 end
 if wroteOwned or ( j == 1 and annotationOwnedFirst ) then
 ownsAResult = true
-ownedReturns [ j ] = rawType ( annotated [ j ] )
+ownedReturns [ j ] = rawType ( ret )
 end
 end
 end
@@ -23729,7 +24967,10 @@ end
 
 
 
-if ( borrowsParam or borrowsSelf or borrowsParams ) and rets [ 1 ] and not body . ownCleanups then
+if ( borrowsParam or borrowsSelf or borrowsParams )
+and rets [ 1 ]
+and rets [ 1 ] . tag ~= "owned"
+then
 rets [ 1 ] = T . borrowed ( rawType ( rets [ 1 ] ) )
 end
 if body . returnPack and not retPack . alternatives then
@@ -23792,11 +25033,11 @@ params [ 1 ] = selfType
 local mode = "plain"
 if explicitSelf then
 mode = inferredModes [ 1 ] or "borrows"
-if not declaredModes [ 1 ]
-and mode ~= "takes"
-and not pointerShaped ( selfType )
-and not ( selfType . tag == "nominal" and selfType . affineResource )
-then
+if not declaredModes [
+1
+] and mode ~= "takes" and not pointerShaped (
+selfType
+) and not ( selfType . tag == "nominal" and selfType . affineResource ) then
 mode = "plain"
 end
 body . receiverMode = mode
@@ -23847,6 +25088,11 @@ modes
 local retPack = body and body . returnPack and c . resolvePack (
 body . returnPack
 ) or T . pack ( { } , { kind = "unknown" , type = T . any } )
+
+
+
+
+retPack = c . own . normalizeOwnedResults ( retPack , body and body . returnPack , body )
 local rets = body and body . returnPack and retPack . head or { T . any }
 local yieldPack = body and body . yieldPack and c . resolvePack ( body . yieldPack ) or nil
 local resumePack = body and body . resumePack and c . resolvePack ( body . resumePack ) or nil
@@ -23934,7 +25180,7 @@ end
 c . unused . declared ( nameTok , c . scope . vars [ nameTok . text ] , "function" )
 c . raises . check ( stat , body )
 if body . dropContract then
-registerDefaultDropOperation ( ft , nameTok . text , body . dropTok or stat , body . cleanupRegistrationNode )
+registerDefaultDropOperation ( ft , nameTok . text , body . dropTok or stat , body . cleanupRegistrationNode , body )
 end
 end
 
@@ -23988,6 +25234,14 @@ c . moduleExports . valueDefs [ memberTok . text ] = memberDefinition
 
 
 c . moduleFieldValues [ memberTok . text ] = body
+local declarations = c . moduleFunctionDeclarations [ memberTok . text ] or { }
+for j = # declarations , 1 , - 1 do
+local pending = declarations [ j ]
+if pending . body == body then
+pending . signature = ft
+break
+end
+end
 end
 
 
@@ -24000,12 +25254,10 @@ if not fname . method and not owner and ownerKey and memberTok then
 c . applyFacts ( { [ ownerKey .. "." .. memberTok . text ] = ft } )
 end
 if body . dropContract and not owner then
-registerDefaultDropOperation (
-ft ,
-fname . base and fname . base . text or "<drop>" ,
-body . dropTok or stat ,
-body . cleanupRegistrationNode
-)
+local path = ownerKey and memberTok and (
+ownerKey .. "." .. memberTok . text
+) or fname . base and fname . base . text or "<drop>"
+registerDefaultDropOperation ( ft , path , body . dropTok or stat , body . cleanupRegistrationNode , body )
 end
 if owner and owner . declKind == "struct" then
 
@@ -24101,7 +25353,8 @@ registerDefaultDropOperation (
 ft ,
 ( owner . runtimePath or ownerKey ) .. "." .. member ,
 body . dropTok or stat ,
-body . cleanupRegistrationNode
+body . cleanupRegistrationNode ,
+body
 )
 end
 end
@@ -24198,9 +25451,16 @@ return c . cNamespaceType ( )
 end
 if kind == "dotIndex" and not node . writeContext then
 local key = c . pathKey ( node )
+if c . moduleLocal and key == c . moduleLocal .. "." .. memberName then
+c . resolveModuleFunction ( memberName )
+end
 local narrowed = key and c . lookupNarrowed ( key )
 if narrowed then
 c . infer ( target )
+if holderName == c . moduleLocal then
+local definition = c . moduleFieldDefs [ memberName ]
+c . markToken ( member , definition , narrowed , definition and definition . kind or "function" )
+end
 return narrowed
 end
 
@@ -26729,6 +27989,25 @@ local rawType = T . unwrapOwnership
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function ownership . install ( c )
 local own = { }
 local pendingDefaultCleanups = { }
@@ -26775,6 +28054,22 @@ end
 function own . optionalOwned ( t )
 local inner = rawType ( t )
 return own . ownershipKind ( t ) == "owned" and inner . tag == "union" and inner . hasNil
+end
+
+
+
+
+function own . resourceBehind ( t )
+local resource = rawType ( t )
+if resource . tag == "union" then
+for _ , member in ipairs ( resource . members ) do
+if member ~= T . nil_ then
+return member
+end
+end
+end
+
+return resource
 end
 
 local function addRegistration ( node , cleanup , after )
@@ -26935,16 +28230,7 @@ end
 end
 
 function own . resolvedOwnedCleanups ( valueT , cleanups , opaque , at , registrationNode )
-local resource = rawType ( valueT )
-if resource . tag == "union" then
-for _ , member in ipairs ( resource . members ) do
-if member ~= T . nil_ then
-resource = member
-;
-break
-end
-end
-end
+local resource = own . resourceBehind ( valueT )
 if resource . tag == "nominal" then
 resource . affineResource = true
 end
@@ -27018,12 +28304,219 @@ end
 defaults [ # defaults + 1 ] = cleanup
 end
 
-function own . registerDefaultDropOperation ( ft , path , at , registrationNode )
+function own . registerDefaultDropOperation ( ft , path , at , registrationNode , declaration )
 if not ft or ft . tag ~= "func" or not ft . params [ 1 ] or ft . paramModes [ 1 ] ~= "takes" then
 c . diag ( "NUPP2602" , at , "@drop requires a function whose first parameter takes " .. "the resource" )
 return
 end
-own . addDefaultDropOperation ( ft . params [ 1 ] , resolvedFunctionCleanup ( path , at , registrationNode , true , ft ) )
+
+
+
+
+
+
+local cleanup = declaration and declaration . dropCleanup
+if not cleanup then
+cleanup = resolvedFunctionCleanup ( path , at , registrationNode , true , ft )
+if declaration then
+declaration . dropCleanup = cleanup
+end
+else
+addRegistration ( registrationNode , cleanup , true )
+end
+own . addDefaultDropOperation ( ft . params [ 1 ] , cleanup )
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+function own . inheritedTerminals ( resourceT )
+return resourceT and resourceT . tag == "nominal" and resourceT . defaultDropOperations or { }
+end
+
+local reportedResults = { }
+
+function own . normalizeOwnedResults ( pack , writtenPack , at )
+
+
+
+local writtenTypes = writtenPack ~= nil and writtenPack . kind == "tpack" and (
+writtenPack
+) . types or nil
+
+
+
+if not pack or pack . alternatives or not writtenTypes or # pack . head == 0 then
+return pack
+end
+local head , changed = nil , false
+for j , resolved in ipairs ( pack . head ) do
+local written = cst . resultValueType ( writtenTypes [ j ] )
+local bare = written ~= nil
+and written . kind == "tname"
+and written . base ~= nil
+and written . base . text == "Owned"
+and not (
+written . typeArgs and written . typeArgs [ 2 ]
+)
+if bare and resolved . tag == "owned" and not resolved . opaque and # ( resolved . cleanups or { } ) == 0 then
+
+
+
+
+
+
+
+
+
+
+
+local declared = rawType ( resolved )
+local resource = own . resourceBehind ( declared )
+
+
+
+
+local function reportOnce ( message , help )
+local site = written or at
+if not site or reportedResults [ site ] then
+return
+end
+reportedResults [ site ] = true
+c . diag ( "NUPP2602" , site , message , nil , { help = help } )
+end
+
+local terminals = own . inheritedTerminals ( resource )
+if resource . tag == "func" then
+
+
+elseif resource . tag ~= "nominal" or # terminals == 0 then
+
+
+
+
+
+reportOnce (
+"an owning result needs a terminal" ,
+"give the type a `@drop`, name one with `Owned<T, cleanup>`, "
+.. "or say `Owned<T, opaque>` for a transfer-only owner"
+)
+elseif # terminals > 1 then
+reportOnce (
+(
+"an owning result of %s has %d terminals to choose from"
+) : format ( T . tostring ( resource ) , # terminals ) ,
+"name the one this result means with `Owned<T, cleanup>`"
+)
+else
+local cleanups = own . resolvedOwnedCleanups ( resource , nil , false , written or at , nil )
+head = head or { }
+if not changed then
+for k , slot in ipairs ( pack . head ) do
+head [ k ] = slot
+end
+changed = true
+end
+head [ j ] = T . owned ( declared , cleanups )
+own . validateCleanups ( head [ j ] , cleanups , written or at , "NUPP2615" )
+end
+end
+end
+if not changed then
+return pack
+end
+
+return T . pack ( head , pack . tail , pack . modes )
+end
+
+
+
+
+function own . reportOwnedAnnotation ( annotation , site , results , cleanups , opaque )
+site = site or annotation
+if not annotation or not site then
+return
+end
+cleanups = cleanups or { }
+local refusal = nil
+if # cleanups > 1 then
+refusal = "cannot rewrite: a cleanup list composes failure behaviour one terminal does not"
+elseif # results == 0 then
+refusal = "cannot rewrite: this declaration states no result to move the contract into"
+end
+local inner = nil
+if opaque then
+inner = "opaque"
+else
+for _ , arg in ipairs ( annotation . annotationArgs or { } ) do
+local argName = arg . name and arg . name . text or nil
+local expr = arg . expr
+local named = expr and expr . kind == "name" and expr . token and expr . token . text or nil
+if named and ( argName == nil or argName == "cleanup" ) then
+inner = named
+break
+end
+end
+end
+if not inner and # cleanups ~= 1 then
+refusal = refusal or "cannot rewrite: a bare contract resolved to no single terminal"
+end
+local spelling = inner and ( "Owned<T, %s>" ) : format ( inner ) or "Owned<T>"
+local fixes = nil
+local annotationStart = cst . firstToken ( annotation )
+local declaration = annotation . stat and cst . firstToken ( annotation . stat ) or annotation . declaresAt
+local placements = { }
+for _ , value in ipairs ( results ) do
+local valueStart = value and cst . firstToken ( value ) or nil
+local valueEnd = value and cst . lastToken ( value ) or nil
+if valueStart and valueEnd then
+placements [ # placements + 1 ] = { first = valueStart , last = valueEnd }
+end
+end
+if not refusal and (
+# placements ~= # results or not annotationStart or not declaration
+) then
+refusal = "cannot rewrite: the annotation and its result are not both placed"
+end
+if not refusal and annotationStart and declaration then
+local edits = {
+{
+offset = annotationStart . offset ,
+length = declaration . offset - annotationStart . offset ,
+newText = "" ,
+} ,
+}
+for _ , placement in ipairs ( placements ) do
+edits [ # edits + 1 ] = { offset = placement . first . offset , length = 0 , newText = "Owned<" }
+edits [ # edits + 1 ] = {
+offset = placement . last . offset + # placement . last . text ,
+length = 0 ,
+newText = inner and ( ", " .. inner .. ">" ) or ">" ,
+}
+end
+fixes = {
+c . edits . fix (
+( "state the owner as %s" ) : format ( spelling ) ,
+unpack ( edits )
+) ,
+}
+end
+c . diag (
+"NUPP2515" ,
+site ,
+( "@owned says above the declaration what %s says in its result" ) : format ( spelling ) ,
+fixes ,
+{ help = refusal or "move the contract into the result type" }
+)
 end
 
 function own . ownershipEntry ( expr )
@@ -27075,6 +28568,7 @@ return root , path
 end
 
 local owner = own . provenanceOwner ( expr )
+
 return owner , owner and "" or nil
 end
 
@@ -27222,7 +28716,8 @@ if entry . borrowOwner then
 entry . borrowOwner . activeBorrows = math . max ( 0 , ( entry . borrowOwner . activeBorrows or 1 ) - 1 )
 if entry . exclusiveBorrow then
 entry . borrowOwner . activeExclusiveBorrows = math . max (
-0 , ( entry . borrowOwner . activeExclusiveBorrows or 1 ) - 1
+0 ,
+( entry . borrowOwner . activeExclusiveBorrows or 1 ) - 1
 )
 end
 entry . borrowOwner = nil
@@ -28026,11 +29521,7 @@ local state = require ( "nupp.compiler.check.state" )
 local resolve = { }
 
 
-local ownershipConstructors = {
-Owned = "owned" ,
-Borrowed = "borrowed" ,
-Pinned = "pinned" ,
-}
+local ownershipConstructors = { Owned = "owned" , Borrowed = "borrowed" , Pinned = "pinned" , }
 
 local instantiateNominal = generics . instantiate
 
@@ -28122,11 +29613,7 @@ end
 if parameter . domain == "function" then
 local named = arg . kind == "tname" and not arg . typeArgs and arg . base and arg . base . text or nil
 if not named then
-c . diag (
-"NUPP2131" ,
-arg ,
-( "argument for const parameter %s must name a function" ) : format ( parameter . name )
-)
+c . diag ( "NUPP2131" , arg , ( "argument for const parameter %s must name a function" ) : format ( parameter . name ) )
 return nil
 end
 local key , entry = c . own . cleanupKeyFor ( named )
@@ -28370,7 +29857,9 @@ local member = table . remove ( calleeParts )
 local moduleName = table . concat ( calleeParts , "." )
 if # calleeParts == 1 then
 local holder = c . lookupEntry ( calleeParts [ 1 ] )
-if holder and holder . requiredModule then moduleName = holder . requiredModule end
+if holder and holder . requiredModule then
+moduleName = holder . requiredModule
+end
 end
 local exports = c . env . resolveModuleExports ( c . env , moduleName )
 helper = exports and exports . comptimeFunctions and exports . comptimeFunctions [ member ] or nil
@@ -28395,12 +29884,9 @@ if parameterCount ~= # ( node . arguments or { } ) then
 c . diag (
 "NUPP2421" ,
 node ,
-( "type function %q expects %d argument%s, got %d" ) : format (
-name ,
-parameterCount ,
-parameterCount == 1 and "" or "s" ,
-# ( node . arguments or { } )
-)
+(
+"type function %q expects %d argument%s, got %d"
+) : format ( name , parameterCount , parameterCount == 1 and "" or "s" , # ( node . arguments or { } ) )
 )
 return T . any
 end
@@ -28415,26 +29901,27 @@ local supplied = c . resolveType ( argumentNode )
 if expected . tag == "typeHandle" then
 local fits , why = relations . isA ( supplied , expected . bound )
 if not fits then
-c . diag ( "NUPP2421" , argumentNode , "type-function type argument violates its bound: " .. ( why or "not satisfied" ) )
+c . diag (
+"NUPP2421" ,
+argumentNode ,
+"type-function type argument violates its bound: " .. ( why or "not satisfied" )
+)
 return T . any
 end
 end
 arguments [ position ] = { kind = "type" , value = supplied }
-deferredArguments [ position ] = {
-kind = "type" , value = supplied ,
-}
+deferredArguments [ position ] = { kind = "type" , value = supplied , }
 open = open or T . hasTypevar ( supplied ) or T . hasProjection ( supplied ) or supplied . tag == "neutral"
 elseif expected == T . typepack then
 local packNode = argumentNode
-while packNode . kind == "tparen" and packNode . inner
-and ( packNode . inner . kind == "tpack" or packNode . inner . kind == "tpackUnion" ) do
+while packNode . kind == "tparen" and packNode . inner and (
+packNode . inner . kind == "tpack" or packNode . inner . kind == "tpackUnion"
+) do
 packNode = packNode . inner
 end
 local suppliedPack = c . resolvePack ( packNode )
 arguments [ position ] = { kind = "typepack" , value = suppliedPack }
-deferredArguments [ position ] = {
-kind = "typepack" , value = suppliedPack ,
-}
+deferredArguments [ position ] = { kind = "typepack" , value = suppliedPack , }
 local wrapped = T . packResult ( suppliedPack )
 open = open or T . hasTypevar ( wrapped ) or T . hasProjection ( wrapped )
 for _ , member in ipairs ( suppliedPack . head or { } ) do
@@ -28444,11 +29931,18 @@ elseif expected == T . string or expected == T . boolean or expected == T . inte
 local supplied = c . resolveType ( argumentNode )
 local term = consteval . fromType ( supplied )
 local reduced , constFailure = nil , nil
-if term then reduced , constFailure = consteval . reduce ( term ) end
-local domain = reduced and ( reduced . tag == "constLiteral" or reduced . tag == "constVar" )
-and reduced . domain or nil
+if term then
+reduced , constFailure = consteval . reduce ( term )
+end
+local domain = reduced and (
+reduced . tag == "constLiteral" or reduced . tag == "constVar"
+) and reduced . domain or nil
 if constFailure or not reduced or domain ~= expected . tag then
-c . diag ( "NUPP2421" , argumentNode , "a scalar type-function argument must be a literal or const binder in its declared domain" )
+c . diag (
+"NUPP2421" ,
+argumentNode ,
+"a scalar type-function argument must be a literal or const binder in its declared domain"
+)
 return T . any
 end
 if reduced . tag == "constLiteral" then
@@ -28456,22 +29950,29 @@ arguments [ position ] = { kind = "value" , value = reduced . value }
 else
 open = true
 end
-deferredArguments [ position ] = {
-kind = "const" , value = reduced ,
-}
+deferredArguments [ position ] = { kind = "const" , value = reduced , }
 else
-c . diag ( "NUPP2421" , parameter and ( parameter . type or parameter ) or node , "type-function parameters must be type, typepack, string, boolean, or integer" )
+c . diag (
+"NUPP2421" ,
+parameter and ( parameter . type or parameter ) or node ,
+"type-function parameters must be type, typepack, string, boolean, or integer"
+)
 return T . any
 end
 end
 local declared = helperType . rets [ 1 ] or T . any
 if declared ~= T . type_ and declared ~= T . typepack and declared . tag ~= "typeHandle" then
-c . diag ( "NUPP2421" , body and body . rets and body . rets [ 1 ] or body or node , "a type-position @comptime function must return type or typepack" )
+c . diag (
+"NUPP2421" ,
+body and body . rets and body . rets [ 1 ] or body or node ,
+"a type-position @comptime function must return type or typepack"
+)
 return T . any
 end
 if open then
-local identity = require ( "nupp.compiler.comptime" )
-. typeFunctionProgram ( helper , c . comptimeFunctions ) . identity
+local identity = require (
+"nupp.compiler.comptime"
+) . typeFunctionProgram ( helper , c . comptimeFunctions ) . identity
 local term = T . comptimeCall (
 identity ,
 helper ,
@@ -28506,7 +30007,11 @@ end
 if declared . tag == "typeHandle" then
 local fits , why = relations . isA ( result , declared . bound )
 if not fits then
-c . diag ( "NUPP2421" , node , "generated type violates its declared result bound: " .. ( why or "not satisfied" ) )
+c . diag (
+"NUPP2421" ,
+node ,
+"generated type violates its declared result bound: " .. ( why or "not satisfied" )
+)
 return T . any
 end
 end
@@ -28732,16 +30237,29 @@ c . diag ( "NUPP2602" , node , "Pinned<T> requires a pointer-shaped T" )
 end
 if ownership == "owned" then
 local cleanupArg = node . typeArgs [ 2 ]
+
+
+
+
+
+
+local saidOpaque = cleanupArg ~= nil
+and cleanupArg . kind == "tname"
+and not cleanupArg . typeArgs
+and cleanupArg . base ~= nil
+and cleanupArg . base . text == "opaque"
+and c . own . cleanupKeyFor (
+"opaque"
+) == nil
+if saidOpaque then
+return T . owned ( inner , nil , true )
+end
 if cleanupArg then
 
 
 
 
-local term = constArgument (
-cleanupArg ,
-{ name = "cleanup" , domain = "function" } ,
-node
-)
+local term = constArgument ( cleanupArg , { name = "cleanup" , domain = "function" } , node )
 local named = cleanupArg . kind == "tname"
 and not cleanupArg . typeArgs
 and cleanupArg . base
@@ -28774,8 +30292,9 @@ end
 c . markToken ( base , def , t , def and def . kind or "type" )
 t = applyTypeArgs ( t , node )
 if t then
-if ( t == T . type_ or t == T . typepack or t . tag == "typeHandle" ) and ( c . comptimeDepth or 0 ) == 0
-and ( c . comptimeFunctionDepth or 0 ) == 0 then
+if (
+t == T . type_ or t == T . typepack or t . tag == "typeHandle"
+) and ( c . comptimeDepth or 0 ) == 0 and ( c . comptimeFunctionDepth or 0 ) == 0 then
 c . diag (
 "NUPP2421" ,
 node ,
@@ -29187,6 +30706,11 @@ local retPack = node . returnPack and c . resolvePack ( node . returnPack ) or T
 
 
 
+
+retPack = c . own . normalizeOwnedResults ( retPack , node . returnPack , node )
+
+
+
 rets = { }
 for j , result in ipairs ( retPack . head ) do
 rets [ j ] = result
@@ -29227,7 +30751,12 @@ if # borrowsParams == 1 then
 borrowsParam , borrowsParams = borrowsParams [ 1 ] , nil
 end
 if rets [ 1 ] then
+
+
+
+if rets [ 1 ] . tag ~= "owned" then
 rets [ 1 ] = T . borrowed ( T . unwrapOwnership ( rets [ 1 ] ) )
+end
 retPack = T . pack ( rets , retPack . tail , retPack . modes )
 end
 end
@@ -29440,6 +30969,13 @@ local state = { }
 
 
 state.Checker = {} state.Checker.__index = state.Checker
+
+
+
+
+
+
+
 
 
 
@@ -34978,13 +36514,14 @@ local command = spec . command {
 name = "run" ,
 summary = "Compile and run a Nupp or Lua program" ,
 usage = {
-"nupp run [--strict] [-O<n>] [--profile[=MS]] [--profile-out PATH]" ,
+"nupp run [--strict] [-O<n>] [--watch] [--profile[=MS]] [--profile-out PATH]" ,
 "         [--jit-aborts[=PATH]] <file> [args...]" ,
 } ,
 stopAtPositional = true ,
 options = optionsMod . join (
 optionsMod . strict ,
 optionsMod . optimize ( ) ,
+{ name = "--watch" , help = "Keep named function identities patchable at cooperative poll points" } ,
 {
 name = "--profile" ,
 value = "MS" ,
@@ -35016,7 +36553,14 @@ blacklisted trace — permanently demoted to the interpreter — ranked first.
 Both cover the program only: the session opens once the file has compiled and
 closes when it returns, so the compiler's own work stays out of the report. A
 program that fails still writes what was collected before it did. Each reports
-a summary line on stderr.]] ,
+a summary line on stderr.
+
+--watch is development-only and always uses -O0. A long-running program calls
+nupp.hotreload.poll() at a safe loop or request boundary.
+The poll scans inputs, stages a valid changed-body patch, commits it,
+and leaves the last good generation running after diagnostics or a required
+restart. Programs that never return to such a boundary cannot reload
+cooperatively.]] ,
 }
 
 local DEFAULT_INTERVAL_MS = 10
@@ -35050,6 +36594,13 @@ local path = positional [ 1 ]
 if not path then
 return command : usageError ( "a program file is required" )
 end
+local watching = values . watch == true
+if watching and not path : find ( "%.nupp$" ) then
+return command : usageError ( "--watch requires a .nupp program" )
+end
+if watching and values . optLevel and values . optLevel ~= "0" then
+return command : usageError ( "--watch supports -O0 only; run a normal optimized build before release" )
+end
 local programArgs = { }
 for index = 2 , # positional do
 programArgs [ # programArgs + 1 ] = positional [ index ]
@@ -35059,7 +36610,20 @@ local compile = require ( "nupp.compiler.cli.compile" )
 local settings = compile . settings ( values )
 local projectEnv = require ( "nupp.compiler.env" ) . new ( "." )
 local chunk , err
-if path : find ( "%.nupp$" ) then
+local watchSession , entryManifest , hotRuntime
+local pendingManifests = { }
+local entryAcknowledged = false
+if watching then
+hotRuntime = require ( "nupp.hotreload" )
+watchSession = require ( "nupp.compiler.hot_session" ) . new ( "." , { strict = settings . strict } )
+local initialBuild = watchSession : initial ( { path } )
+if initialBuild . kind ~= "initial" then
+require ( "nupp.compiler.diagnostics" ) . report ( initialBuild . diagnostics or { } )
+return 1
+end
+entryManifest = initialBuild . entryManifest
+chunk , err = loadstring ( initialBuild . entryCode , "@" .. path )
+elseif path : find ( "%.nupp$" ) then
 local code = compile . module ( path , projectEnv , settings )
 if not code then
 return 1
@@ -35089,11 +36653,145 @@ end
 end
 
 local runtime = require ( "nupp.compiler.runtime" )
-local removeLoader = runtime . install ( projectEnv , function ( modulePath , env )
+local compileLoaded
+local loaded
+local reportWatchNotices = function ( _ )
+end
+local resetWatchInputs = function ( )
+end
+if watching then
+compileLoaded = function ( modulePath , env )
+local module = require (
+"nupp.compiler.env"
+) . moduleNameForPath ( watchSession . inc . env , modulePath ) or modulePath
+local built , failure = watchSession : compile ( modulePath , "initial" , module )
+if not built then
+require ( "nupp.compiler.diagnostics" ) . report ( failure . diagnostics or { } )
+return nil , failure . kind
+end
+pendingManifests [ module ] = built . manifest
+
+return built . code
+end
+loaded = function ( module , modulePath , ok )
+local manifest = pendingManifests [ module ]
+pendingManifests [ module ] = nil
+if ok then
+hotRuntime . seal ( module )
+reportWatchNotices ( watchSession : loaded ( module , watchSession . generation , manifest ) )
+resetWatchInputs ( )
+else
+hotRuntime . abort ( module )
+end
+end
+
+local seen = { }
+local watchFs = require ( "nupp.compiler.fs" )
+local function watchFingerprint ( input )
+local bytes = watchFs . readFile ( input . path )
+local content = bytes and ( "present\0" .. bytes ) or "missing"
+if input . kind == "native-artifact" then
+return watchFs . canonical ( input . path ) .. "\0" .. content
+end
+
+return content
+end
+
+reportWatchNotices = function ( ack )
+for _ , name in ipairs ( ack and ack . unverifiedLibraries or { } ) do
+if name == "<dynamic ffi.load>" then
+io . stderr : write ( "nupp: dynamic ffi.load is not tracked in watch mode\n" )
+else
+io . stderr : write (
+( "nupp: C declarations for %q are checked; its binary identity is unverified\n" ) : format ( name )
+)
+end
+end
+end
+resetWatchInputs = function ( )
+seen = { }
+for _ , input in ipairs ( watchSession : watchedInputs ( ) ) do
+seen [ input . path ] = { kind = input . kind , fingerprint = watchFingerprint ( input ) }
+end
+end
+_G . nupp = _G . nupp or { }
+local function ensureEntryLoaded ( )
+if entryAcknowledged then
+return
+end
+hotRuntime . seal ( entryManifest . module )
+reportWatchNotices ( watchSession : loaded ( entryManifest . module , watchSession . generation , entryManifest ) )
+entryAcknowledged = true
+resetWatchInputs ( )
+end
+
+_G . nupp . hotreload = { generation = function ( )
+return hotRuntime . generation ( )
+end , poll = function ( )
+
+
+ensureEntryLoaded ( )
+local changed = { }
+local current = { }
+for _ , input in ipairs ( watchSession : watchedInputs ( ) ) do
+current [ input . path ] = true
+local fingerprint = watchFingerprint ( input )
+local prior = seen [ input . path ]
+if not prior or prior . kind ~= input . kind or prior . fingerprint ~= fingerprint then
+seen [ input . path ] = { kind = input . kind , fingerprint = fingerprint }
+watchSession : diskChanged ( input . path , watchFs . readFile ( input . path ) == nil and 3 or 2 )
+changed [ # changed + 1 ] = input . path
+end
+end
+for watchedPath in pairs ( seen ) do
+if not current [ watchedPath ] then
+seen [ watchedPath ] = nil
+watchSession : diskChanged ( watchedPath , 3 )
+changed [ # changed + 1 ] = watchedPath
+end
+end
+if # changed == 0 then
+return { kind = "no-change" , generation = watchSession . generation }
+end
+local result = watchSession : prepare ( changed )
+if result . kind == "prepared" then
+local prepared , reason = hotRuntime . stage ( result . patch , result . baseGeneration )
+if not prepared then
+return { kind = "diagnostics" , diagnostics = { { msg = reason } } }
+end
+local generation , commitError = hotRuntime . commit ( prepared )
+if not generation then
+return { kind = "diagnostics" , diagnostics = { { msg = commitError } } }
+end
+reportWatchNotices ( watchSession : committed ( generation ) )
+io . stderr : write ( ( "nupp: committed hot generation %d\n" ) : format ( generation ) )
+elseif result . diagnostics then
+require ( "nupp.compiler.diagnostics" ) . report ( result . diagnostics )
+io . stderr : write ( ( "nupp: generation %d remains running\n" ) : format ( watchSession . generation ) )
+end
+resetWatchInputs ( )
+
+return result
+end , }
+else
+compileLoaded = function ( modulePath , env )
 return compile . module ( modulePath , env , settings )
-end )
+end
+end
+local removeLoader = runtime . install ( projectEnv , compileLoaded , loaded )
 local ok , runErr = pcall ( chunk , unpack ( programArgs ) )
 removeLoader ( )
+if watching then
+if ok then
+if not entryAcknowledged then
+hotRuntime . seal ( entryManifest . module )
+reportWatchNotices ( watchSession : loaded ( entryManifest . module , watchSession . generation , entryManifest ) )
+end
+else
+hotRuntime . abort ( entryManifest . module )
+end
+watchSession : persist ( )
+end
 
 
 
@@ -39836,6 +41534,21 @@ local cst = { }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 cst.Chunk = {} cst.Chunk.__index = cst.Chunk
 
 
@@ -40567,7 +42280,17 @@ cst.CdefFunc = {} cst.CdefFunc.__index = cst.CdefFunc
 
 
 
+
+
+
+
+
 cst.CdefStruct = {} cst.CdefStruct.__index = cst.CdefStruct
+
+
+
+
+
 
 
 
@@ -41836,6 +43559,31 @@ end
 
 
 
+
+
+
+
+
+
+
+
+
+function cst . resultValueType ( node )
+if not node or cst . isToken ( node ) then
+return nil
+end
+local written = node
+if written . kind == "tborrows" then
+return ( written ) . type
+end
+
+return written
+end
+
+
+
+
+
 function cst . firstToken ( x )
 local at = x
 while at and not isToken ( at ) do
@@ -42164,7 +43912,7 @@ return diagnostics
 
 end
 package.preload["nupp.compiler.doc"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON) local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppBytes NuppBytes;const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end __nuppLazy(__nuppIO,"files",function() local native=__nuppNative();local ffi,C=native.ffi,native.C;ffi.cdef[[NuppBytes*nuppFilesGlob(const uint8_t*,size_t);]];local files={};local record=ffi.new("NuppFileInfo[1]") local KINDS={[1]="file",[2]="directory",[3]="other",[4]="symlink"} local ENTRIES={f="file",d="directory",l="symlink",o="other"} local FOLDERS={home=0,documents=1,downloads=2,desktop=3,pictures=4,music=5,videos=6} local MODES={r=0,w=1,a=2,["r+"]=3,["w+"]=4,["a+"]=5} local ORIGINS={set=0,current=1,["end"]=2} local READ_SIZE=65536 local PENDING,READY=0,1 local SOURCE,PRIORITY="nupp-files",20 local waits={};local suspending local File={};File.__index=File;local Reader={};Reader.__index=Reader;local Writer={};Writer.__index=Writer local function named(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.toString then return value:toString()end;error("nupp: io.files "..what.." must be a path or a string",level)end local function done(answered)if answered then return true end;return false,native.error()end local function answer(handle)if handle==nil then return nil,native.error()end;return native.bytes(handle)end local function described(path,follow,level)local text=named(path,"path",level+1);if not C.nuppFilesInfo(text,#text,follow,record)then return nil end;return record[0]end local function optional(options,field,level)local value=options and options[field];if value==nil then return""end;if type(value)~="string"then error("nupp: io.files temporary "..field.." must be a string",level)end;return value end local function temporary(options,directory,level)local root=options and options.directory and named(options.directory,"temporary directory",level+1)or"";local prefix=optional(options,"prefix",level+1);local suffix=optional(options,"suffix",level+1);return answer(C.nuppFilesCreateTemporary(root,#root,prefix,#prefix,suffix,#suffix,directory))end local function payload(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.getString then return value:getString()end;error("nupp: io.files "..what.." must be bytes or a byte view",level)end local function harvest()local moved=0;local index=#waits;while index>0 do local entry=waits[index];if C.nuppFsStatus(entry.handle)~=PENDING then waits[index]=waits[#waits];waits[#waits]=nil;moved=moved+1;entry.resume(true)end;index=index-1 end;return moved end local function polled()C.nuppFsPoll();return harvest()end local function slept(waitMs)C.nuppFsWait(waitMs);return harvest()end local function forget(entry)for index=1,#waits do if waits[index]==entry then waits[index]=waits[#waits];waits[#waits]=nil;return end end end local function runtime()if suspending==nil then suspending=require("nupp.suspension")end;return suspending end local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,polled,slept);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end local function settled(handle)if handle==nil then return nil,native.error()end;await(handle);if C.nuppFsStatus(handle)~=READY then local reason=ffi.string(C.nuppFsError(handle));C.nuppFsDestroy(handle);return nil,reason end;return handle end local function transferred(handle)local done,reason=settled(handle);if not done then return false,reason end;C.nuppFsDestroy(done);return true end local function fetched(handle)local done,reason=settled(handle);if not done then return nil,reason end;local out=ffi.string(C.nuppFsData(done),tonumber(C.nuppFsLength(done)));C.nuppFsDestroy(done);return out end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: io.files "..what.." must be an integer",level)end;return value end local function counted(value,what,level)if whole(value,what,level)<0 then error("nupp: io.files "..what.." must not be negative",level)end;return value end local function live(self,what,level)if self._closed then error("nupp: io.files "..what.." is closed",level)end;return self end function File:isReleased()return self._closed end function File:close()if self._closed then return true end;self._closed=true;local handle=self._handle;self._handle=nil;C.nuppFileClose(handle);return true end function File:size()live(self,"File",2);local size=tonumber(C.nuppFileSize(self._handle));if size<0 then return nil,native.error()end;return size end function File:seek(offset,origin)live(self,"File",2);local whence=ORIGINS[origin or"set"];if whence==nil then error("nupp: io.files has no seek origin named "..tostring(origin),2)end;local at=tonumber(C.nuppFileSeek(self._handle,whole(offset or 0,"seek offset",2),whence));if at<0 then return nil,native.error()end;return at end function File:position()live(self,"File",2);return self:seek(0,"current")end function File:flush()live(self,"File",2);if C.nuppFileFlush(self._handle)then return true end;return false,native.error()end function File:newReader()live(self,"File",2);return setmetatable({_file=self,_scratch=nil,_capacity=0,_closed=false},Reader)end function File:newWriter()live(self,"File",2);return setmetatable({_file=self,_closed=false},Writer)end local function scratch(self,count)if count>self._capacity then local size=self._capacity*2;if size<count then size=count end;if size<READ_SIZE then size=READ_SIZE end;self._scratch=ffi.new("uint8_t[?]",size);self._capacity=size end;return self._scratch end local function usable(self)if self._closed then return nil,"the reader is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Reader:read(count)local file,reason=usable(self);if not file then return nil,reason end;count=whole(count,"Reader:read count",2);if count<1 then count=1 end;local into=scratch(self,count);local got=tonumber(C.nuppFileRead(file._handle,into,count));if got<0 then return nil,native.error()end;if got==0 then return""end;return ffi.string(into,got)end function Reader:readInto(destination,offset,count)local file,reason=usable(self);if not file then return nil,reason end;offset=counted(offset or 0,"Reader:readInto offset",2);count=counted(count or READ_SIZE,"Reader:readInto count",2);if count==0 then return 0 end;local data=rawget(destination,"_data");local capacity=rawget(destination,"_capacity");if data==nil and capacity==nil then local chunk,why=self:read(count);if chunk==nil then return nil,why end;if #chunk==0 then return 0 end;destination:setString(chunk,offset);return #chunk end;destination:ensureCapacity(offset+count);data=rawget(destination,"_data");local length=rawget(destination,"_length");if offset>length then ffi.fill(data+length,offset-length,0)end;local got=tonumber(C.nuppFileRead(file._handle,data+offset,count));if got<0 then return nil,native.error()end;if offset+got>length then rawset(destination,"_length",offset+got)end;return got end function Reader:transferTo(destination)local file,reason=usable(self);if not file then return nil,reason end;local total=0;while true do local chunk,why=self:read(READ_SIZE);if chunk==nil then return nil,why end;if chunk==""then return total end;local wrote,failure=destination:write(chunk);if not wrote then return nil,failure end;total=total+#chunk end end function Reader:close()self._closed=true;self._scratch=nil;self._capacity=0;return true end local function writable(self)if self._closed then return nil,"the writer is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Writer:write(bytes)local file,reason=writable(self);if not file then return false,reason end;if type(bytes)~="string"then error("nupp: io.files Writer:write needs a string",2)end;if C.nuppFileWrite(file._handle,bytes,#bytes)<0 then return false,native.error()end;return true end function Writer:writeFrom(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeFrom offset",2);count=counted(count==nil and length-offset or count,"Writer:writeFrom count",2);if offset+count>length then error("nupp: io.files Writer:writeFrom range is past the end",2)end;if count==0 then return 0 end;local data=rawget(source,"_data");if data==nil then local wrote,failure=self:write(source:getString(offset,count));if not wrote then return nil,failure end;return count end;if C.nuppFileWrite(file._handle,data+offset,count)<0 then return nil,native.error()end;return count end function Writer:writeView(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeView offset",2);count=counted(count==nil and length-offset or count,"Writer:writeView count",2);if offset+count>length then error("nupp: io.files Writer:writeView range is past the end",2)end;local wrote,failure=self:write(source:getString():sub(offset+1,offset+count));if not wrote then return nil,failure end;return count end function Writer:flush()local file,reason=writable(self);if not file then return false,reason end;return file:flush()end function Writer:close()self._closed=true;return true end function files.info(path)local found=described(path,true,2);if not found then return nil,native.error()end;return{kind=KINDS[tonumber(found.kind)]or"other",size=tonumber(found.size),modified=found.modified,readOnly=found.readOnly}end function files.exists(path)return described(path,true,2)~=nil end function files.isFile(path)local found=described(path,true,2);return found~=nil and found.kind==1 end function files.isDirectory(path)local found=described(path,true,2);return found~=nil and found.kind==2 end function files.isSymlink(path)local found=described(path,false,2);return found~=nil and found.kind==4 end function files.readLink(path)local text=named(path,"path",2);return answer(C.nuppFilesReadLink(text,#text))end function files.createSymlink(target,link,kind)local to=named(target,"symlink target",2);local at=named(link,"symlink path",2);if kind~=nil and kind~="file"and kind~="directory"then error("nupp: io.files symlink kind must be 'file' or 'directory'",2)end;return done(C.nuppFilesCreateSymlink(to,#to,at,#at,kind=="directory"))end function files.setReadOnly(path,readOnly)local text=named(path,"path",2);return done(C.nuppFilesSetReadOnly(text,#text,readOnly and true or false))end function files.createDirectory(path)local text=named(path,"path",2);return done(C.nuppFilesCreateDirectory(text,#text))end function files.remove(path,recursive)local text=named(path,"path",2);return done(C.nuppFilesRemove(text,#text,recursive and true or false))end function files.rename(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return done(C.nuppFilesRename(source,#source,destination,#destination))end function files.list(path)local text=named(path,"path",2);local handle=C.nuppFilesList(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local entries,at={},1;while at<=#blob do local stop=blob:find("\0",at+1,true);entries[#entries+1]={kind=ENTRIES[blob:sub(at,at)]or"other",name=blob:sub(at+1,stop-1)};at=stop+1 end;return entries end function files.glob(pattern)local text=named(pattern,"glob pattern",2);local handle=C.nuppFilesGlob(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local matches,at={},1;while at<=#blob do local stop=blob:find("\0",at,true);if not stop then matches[#matches+1]=blob:sub(at);break end;matches[#matches+1]=blob:sub(at,stop-1);at=stop+1 end;return matches end local Temporary={};Temporary.__index=Temporary;Temporary.__tostring=function(self)return self._text end function Temporary:toString()return self._text end function Temporary:isReleased()return self._closed end function Temporary:persist(destination)if self._closed then return false,"the temporary path is released"end;local to=named(destination,"destination path",2);local moved,reason=done(C.nuppFilesRename(self._text,#self._text,to,#to));if not moved then return false,reason end;self._closed=true;return true end function Temporary:close()if self._closed then return true end;self._closed=true;return done(C.nuppFilesRemove(self._text,#self._text,self._directory))end function files.createTemporaryFile(options)local text,reason=temporary(options,false,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=false,_closed=false},Temporary)end function files.createTemporaryDirectory(options)local text,reason=temporary(options,true,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=true,_closed=false},Temporary)end function files.read(path)local text=named(path,"path",2);return fetched(C.nuppFsSubmitRead(text,#text))end function files.write(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,0))end function files.append(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,1))end function files.writeAtomic(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,2))end function files.copy(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return transferred(C.nuppFsSubmitCopy(source,#source,destination,#destination))end function files.pendingTransfers()return tonumber(C.nuppFsPending())end function files.open(path,mode)local text=named(path,"path",2);local selected=MODES[mode or"r"];if selected==nil then error("nupp: io.files has no mode named "..tostring(mode),2)end;local handle=C.nuppFileOpen(text,#text,selected);if handle==nil then return nil,native.error()end;return setmetatable({_handle=handle,_closed=false},File)end function files.lines(path)local file,reason=files.open(path,"r");if not file then return nil,reason end;local reader=file:newReader();local held,finished="",false;local function trimmed(line)if line:sub(-1)=="\r"then return line:sub(1,-2)end;return line end;return function()if finished then return nil end;while true do local stop=held:find("\n",1,true);if stop then local line=held:sub(1,stop-1);held=held:sub(stop+1);return trimmed(line)end;local chunk=reader:read(READ_SIZE);if chunk==nil or chunk==""then finished=true;file:close();if #held>0 then local line=held;held="";return trimmed(line)end;return nil end;held=held..chunk end end end function files.currentDirectory()return answer(C.nuppFilesCurrentDirectory())end function files.userFolder(which)local index=FOLDERS[which];if index==nil then error("nupp: io.files has no user folder named "..tostring(which),2)end;return answer(C.nuppFilesUserFolder(index))end return files end);
 
 
 
@@ -43120,6 +44868,21 @@ end
 
 
 
+local function removeReplaced ( path )
+for attempt = 1 , 20 do
+local removed = nupp . io . files . remove ( path )
+if removed then
+return
+end
+local deadline = os . clock ( ) + 0.1
+while os . clock ( ) < deadline do
+end
+end
+end
+
+
+
+
 
 local function reconcileSiteFiles ( output , written )
 local statePath = join ( output , ".nupp-doc-files.json" )
@@ -43138,10 +44901,10 @@ end
 for _ , path in ipairs ( previous ) do
 path = normalize ( path )
 if not current [ path ] and path : sub ( 1 , # output + 1 ) == output .. "/" then
-os . remove ( path )
+removeReplaced ( path )
 local directory = dirname ( path )
 while directory ~= output and directory : sub ( 1 , # output + 1 ) == output .. "/" do
-os . remove ( directory )
+removeReplaced ( directory )
 directory = dirname ( directory )
 end
 end
@@ -44118,7 +45881,7 @@ return nil
 end
 
 local function fence ( caption , source )
-return "```nupp:static [" .. caption .. "]\n" .. source : gsub ( "%s+$" , "" ) .. "\n```"
+return "```nupp [" .. caption .. "]\n" .. source : gsub ( "%s+$" , "" ) .. "\n```"
 end
 
 local function section (
@@ -46257,6 +48020,10 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 
+
+
+
+
 local stringsMod = require ( "nupp.compiler.doc.strings" )
 local highlightMod = require ( "nupp.compiler.doc.highlight" )
 local urlsMod = require ( "nupp.compiler.doc.urls" )
@@ -46379,11 +48146,18 @@ trimmed ~= "" and ' data-source="' .. urlFragmentEscape ( trimmed ) .. '"' or ""
 ) .. ">" .. fallback .. "</nupp-playground>"
 end
 
-local function renderedCodeBlockHtml ( block , links )
+
+
+
+local function isPlayground ( block )
 if block . language == "playground" then
-return playgroundHtml ( block . source , block . caption )
+return true
 end
-if block . language == "nupp" and not block . static and not block . firstLine then
+return block . language == "nupp" and block . playground == true and not block . firstLine
+end
+
+local function renderedCodeBlockHtml ( block , links )
+if isPlayground ( block ) then
 return playgroundHtml ( block . source , block . caption )
 end
 return codeBlockHtml ( block . source , block . language , links , block . firstLine )
@@ -46463,7 +48237,7 @@ return {
 language = language ~= "" and language or "text" ,
 caption = options : match ( "%[([^%]]+)%]" ) ,
 firstLine = lineNumberStart ( options ) ,
-static = options : find ( ":static" , 1 , true ) ~= nil ,
+playground = options : find ( ":playground" , 1 , true ) ~= nil ,
 source = table . concat ( code , "\n" ) ,
 } , index + 1
 end
@@ -46539,10 +48313,7 @@ end
 elseif lines [ index ] : match ( "^```" ) then
 local block , after = readFence ( lines , index )
 index = after - 1
-local interactive = block . language == "playground" or (
-block . language == "nupp" and not block . static and not block . firstLine
-)
-if interactive then
+if isPlayground ( block ) then
 placeholder ( renderedCodeBlockHtml ( block , links ) )
 else
 local markup = renderedCodeBlockHtml ( block , links )
@@ -47463,12 +49234,11 @@ out [
 # out + 1
 ] = '<img src="' .. htmlEscape ( feature . image ) .. '" alt="' .. htmlEscape ( feature . imageAlt or "" ) .. '">'
 elseif feature . code then
+
+
+
 local language = feature . codeLanguage or "nupp"
-
-
-
-local fence = language == "nupp" and "nupp:static" or language
-out [ # out + 1 ] = markdownHtml ( "```" .. fence .. "\n" .. feature . code .. "\n```" , links )
+out [ # out + 1 ] = markdownHtml ( "```" .. language .. "\n" .. feature . code .. "\n```" , links )
 elseif feature . icon then
 out [
 # out + 1
@@ -47791,17 +49561,6 @@ return not ( item . kind == "variable" and types [ item . signature : match ( ":
 end )
 end
 
-
-
-
-
-
-local function staticFences ( markdown )
-local marked = ( "\n" .. markdown ) : gsub ( "\n```nupp(\r?\n)" , "\n```nupp:static%1" )
-
-return marked : sub ( 2 )
-end
-
 local function section ( out , title , text , items )
 if items and # items == 0 then
 return
@@ -47873,7 +49632,11 @@ section ( out , "Reflection" , REFLECTION , only ( types , isReflection ) )
 return {
 path = settings . path or "luajit" ,
 title = title ,
-markdown = staticFences ( table . concat ( out , "\n" ) )
+
+
+
+
+markdown = table . concat ( out , "\n" )
 }
 end
 
@@ -48446,6 +50209,7 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 local parser = require ( "nupp.compiler.parser" )
 local check = require ( "nupp.compiler.check" )
+local diagnostics = require ( "nupp.compiler.diagnostics" )
 local cst = require ( "nupp.compiler.cst" )
 local T = require ( "nupp.compiler.types" )
 local annotationMod = require ( "nupp.compiler.annotations" )
@@ -49849,7 +51613,14 @@ assert (
 "internal error: prelude has syntax errors: " .. ( result . errors [ 1 ] and result . errors [ 1 ] . msg or "?" )
 )
 local diags = check . check ( result , preludePath , env , { declareGlobals = true } )
-assert ( # diags == 0 , "internal error: prelude has type errors: " .. ( diags [ 1 ] and diags [ 1 ] . msg or "?" ) )
+local fatal = nil
+for _ , diagnostic in ipairs ( diags ) do
+if diagnostics . isFatal ( diagnostic ) then
+fatal = diagnostic
+break
+end
+end
+assert ( not fatal , "internal error: prelude has type errors: " .. ( fatal and fatal . msg or "?" ) )
 annotationMod . bindBuiltinDeclarations ( env . annotations , env . globalTypes , env . globalTypeDefs )
 local strlib = env . globals [ "string" ]
 env . stringLib = strlib and strlib . t or nil
@@ -50086,6 +51857,15 @@ summary = "Formatting could not safely produce the result" ,
 rule = "The formatter declines to rewrite source it cannot prove it "
 .. "would preserve. Formatting is never allowed to change meaning." ,
 docs = "docs/diagnostics.md#code-families"
+} ,
+{
+prefix = "NUPP5" ,
+title = "Development runtime" ,
+summary = "A development-time change requires a restart" ,
+rule = "The running program cannot apply this change without replacing "
+.. "state or callable structure that hot reload promises to preserve. "
+.. "Restart it so the new program can initialize that state normally." ,
+docs = "docs/tooling/hot-reload.md#changes-that-require-restart"
 } ,
 {
 prefix = "OPT" ,
@@ -52784,17 +54564,65 @@ local function basename ( path )
 return normalize ( path ) : match ( "([^/]+)$" ) or path
 end
 
+
+
+
+local function absolute ( path )
+path = normalize ( path )
+if path : sub ( 1 , 1 ) ~= "/" and not path : match ( "^[A-Za-z]:/" ) then
+local cwd = nupp . io . files . currentDirectory ( )
+path = join ( cwd or "." , path )
+end
+local prefix = path : match ( "^([A-Za-z]:)/" ) or ( path : sub ( 1 , 1 ) == "/" and "/" or "" )
+local rest = prefix == "/" and path : sub ( 2 ) or path : gsub ( "^[A-Za-z]:/" , "" )
+local parts = { }
+for part in rest : gmatch ( "[^/]+" ) do
+if part == ".." then
+if # parts > 0 then
+table . remove ( parts )
+end
+elseif part ~= "." and part ~= "" then
+parts [ # parts + 1 ] = part
+end
+end
+local separator = prefix == "/" and "" or ( # parts > 0 and "/" or "" )
+
+return prefix .. separator .. table . concat ( parts , "/" )
+end
+
+
+
+local function canonical ( path )
+local fallback = absolute ( path )
+if package . config : sub ( 1 , 1 ) ~= "\\" then
+local code , output = require ( "nupp.compiler.build.process" ) . capture ( { "realpath" , fallback } )
+if code == 0 then
+local resolved = output : match ( "([^\r\n]+)" )
+if resolved then
+return normalize ( resolved )
+end
+end
+end
+
+return fallback
+end
+
 local function readFile ( path )
 local f , err = io . open ( path , "rb" )
 if not f then
+
+
+
+
+
+if nupp . io . files . isDirectory ( path ) then
+return nil , path .. " is a directory"
+end
+
 return nil , err
 end
 local text = f : read ( "*a" )
 f : close ( )
-
-
-
-
 if not text then
 if nupp . io . files . isDirectory ( path ) then
 return nil , path .. " is a directory"
@@ -52926,6 +54754,8 @@ fs . normalize = normalize
 fs . join = join
 fs . dirname = dirname
 fs . basename = basename
+fs . absolute = absolute
+fs . canonical = canonical
 fs . readFile = readFile
 fs . exists = exists
 fs . mkdir = mkdir
@@ -53163,8 +54993,10 @@ margin = indent
 else
 local length = math . min ( # margin , # indent )
 local shared = 0
-while shared < length and margin : sub ( shared + 1 , shared + 1 )
-== indent : sub ( shared + 1 , shared + 1 ) do
+while shared < length and margin : sub (
+shared + 1 ,
+shared + 1
+) == indent : sub ( shared + 1 , shared + 1 ) do
 shared = shared + 1
 end
 margin = margin : sub ( 1 , shared )
@@ -53179,11 +55011,13 @@ return line : sub ( # margin + 1 )
 end
 return line
 end
+
 local first = body : match ( "^[^\n]*" ) or ""
 body = strip ( first ) .. body : sub ( # first + 1 ) : gsub ( "\n([^\n]+)" , function ( line )
 return "\n" .. strip ( line )
 end )
 end
+
 return body
 end
 
@@ -53249,10 +55083,30 @@ end
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function gen . generate (
 result ,
 filename ,
-coverage
+coverage ,
+hot
 )
 local out = { }
 local curLine = 1
@@ -53457,6 +55311,20 @@ local coverageSites = nil
 local coverageSiteCount = 0
 local coverageName
 
+
+local hotState = hot and {
+mode = hot . mode ,
+module = hot . module or result . moduleName or filename or "<chunk>" ,
+baseGeneration = hot . baseGeneration ,
+functions = { } ,
+byNode = setmetatable ( { } , { __mode = "k" } ) ,
+allByNode = setmetatable ( { } , { __mode = "k" } ) ,
+captures = { } ,
+only = hot . only ,
+structure = { } ,
+libraries = hot . libraries or { } ,
+} or nil
+
 local function reservedName ( preferred )
 if not usedNames [ preferred ] then
 usedNames [ preferred ] = true
@@ -53465,6 +55333,276 @@ end
 
 return nextTemp ( )
 end
+
+local function compactSource ( node )
+if not node then
+return ""
+end
+return ( cst . textOf ( node ) : gsub ( "%s+" , "" ) )
+end
+
+local function hotSignature ( body , implicitSelf )
+local parts = { implicitSelf and "method(" or "function(" }
+for index , param in ipairs ( body and body . params or { } ) do
+if index > 1 then
+parts [ # parts + 1 ] = ","
+end
+parts [ # parts + 1 ] = compactSource ( param )
+end
+parts [ # parts + 1 ] = "):"
+parts [ # parts + 1 ] = compactSource ( body and body . returnPack )
+
+return table . concat ( parts )
+end
+
+local function hotFunctionName ( node )
+if node . kind == "localFuncStmt" and node . name then
+return node . name . text
+elseif node . kind == "funcStmt" and node . name then
+return compactSource ( node . name )
+elseif node . kind == "inlineMethod" and node . name then
+return node . overloadMember or node . name . text
+end
+
+return nil
+end
+
+local function hotSelfReference ( node )
+local definition = node . kind == "localFuncStmt" and node . name and node . name . definition or nil
+if not definition then
+return false
+end
+local found = false
+local function walk ( child )
+if found or not child or cst . isToken ( child ) then
+return
+end
+if child . kind == "name" and child . token and child . token . definition == definition then
+found = true
+return
+end
+for _ , nested in ipairs ( child ) do
+walk ( nested )
+end
+end
+
+walk ( node . body and node . body . body )
+
+return found
+end
+
+local function hotOuterCaptures ( node )
+local captures = { }
+local first = cst . firstToken ( node )
+local last = cst . lastToken ( node )
+local firstOffset = first and first . offset or 0
+local lastOffset = last and last . offset or firstOffset
+local own = node . kind == "localFuncStmt" and node . name and node . name . definition or nil
+local function walk ( child )
+if not child or cst . isToken ( child ) then
+return
+end
+if child . kind == "name" and child . token and child . token . definition then
+local definition = child . token . definition
+local token = definition . token
+if definition ~= own and token and token . line ~= 0 and (
+token . offset < firstOffset or token . offset > lastOffset
+) then
+captures [ token . text ] = true
+end
+end
+for _ , nested in ipairs ( child ) do
+walk ( nested )
+end
+end
+
+walk ( node . body )
+local names = { }
+for name in pairs ( captures ) do
+names [ # names + 1 ] = name
+end
+table . sort ( names )
+
+return names
+end
+
+
+
+
+local function hotCUses ( node )
+local used , unknown = { } , false
+local function walk ( child )
+if not child or cst . isToken ( child ) then
+return
+end
+if child . cdefIdentity then
+used [ child . cdefIdentity ] = true
+elseif child . kind == "name"
+and child . token
+and child . token . definition
+and child . token . definition . cdefIdentity
+then
+used [ child . token . definition . cdefIdentity ] = true
+elseif child . cdefCall or child . cdefDeclarationBlock or child . cheaderCdef then
+unknown = true
+end
+if ( child . kind == "cdefFunc" or child . kind == "cdefStruct" ) and child . cdefIdentity then
+used [ child . cdefIdentity ] = true
+end
+for _ , nested in ipairs ( child ) do
+walk ( nested )
+end
+end
+
+walk ( node . body )
+local identities = { }
+for identity in pairs ( used ) do
+identities [ # identities + 1 ] = identity
+end
+table . sort ( identities )
+
+return identities , unknown
+end
+
+local function planHotFunction ( node , owner )
+if not hotState or not node . body or hotState . allByNode [ node ] then
+return
+end
+local name = hotFunctionName ( node )
+if not name then
+return
+end
+local implicitSelf = node . kind == "funcStmt"
+and node . name
+and node . name . method ~= nil
+or node . kind == "inlineMethod"
+and not node . inlineStatic
+local slot = # hotState . functions + 1
+local kind = node . kind == "localFuncStmt" and "local" or node . kind == "inlineMethod" and "inline" or "field"
+local id = table . concat ( { hotState . module , owner or "module" , kind , name } , "/" )
+local captures = hotOuterCaptures ( node )
+local affine = node . affineInitializer ~= nil or node . body and # ( node . body . takenCaptures or { } ) > 0
+local affineCapture = affine and node . body and node . body . takenCaptures and node . body . takenCaptures [
+1
+] and node . body . takenCaptures [ 1 ] . name or nil
+local cUses , cUnknown = hotCUses ( node )
+local planned = {
+node = node ,
+slot = slot ,
+id = id ,
+name = node . hotRuntimeName or name ,
+authoredName = name ,
+selfName = node . kind == "localFuncStmt" and name or nil ,
+selfRecursive = hotSelfReference ( node ) ,
+signature = hotSignature ( node . body , implicitSelf ) ,
+implicitSelf = implicitSelf ,
+captures = captures ,
+implementation = compactSource ( node . body and node . body . body ) ,
+patchable = not affine ,
+affineCapture = affineCapture ,
+cUses = cUses ,
+cUnknown = cUnknown ,
+}
+hotState . functions [ slot ] = planned
+hotState . allByNode [ node ] = planned
+if planned . patchable then
+hotState . byNode [ node ] = planned
+end
+for _ , capture in ipairs ( captures ) do
+hotState . captures [ capture ] = true
+end
+end
+
+local function planHotRoot ( )
+if not hotState then
+return
+end
+local function rootStatement ( node )
+if node and node . kind == "pragmaStmt" then
+node = node . stat
+end
+if node and ( node . kind == "localFuncStmt" or node . kind == "funcStmt" ) then
+if node . kind == "funcStmt" and node . structOwner and node . memberName then
+node . hotRuntimeName = "__nuppMt_" .. node . structOwner .. ".__index" .. (
+node . name and node . name . method and ":" or "."
+) .. node . memberName
+end
+planHotFunction ( node , "module" )
+elseif node and node . kind == "recordDecl" then
+local runtimeOwner = declPath ( node ) or node . name and node . name . text
+if node . declKind == "struct" then
+runtimeOwner = "__nuppMt_" .. node . name . text .. ".__index"
+end
+for _ , entry in ipairs ( node . entries or { } ) do
+if entry . kind == "inlineMethod" then
+local member = entry . overloadMember or entry . name . text
+entry . hotRuntimeName = runtimeOwner .. ( entry . inlineStatic and "." or ":" ) .. member
+planHotFunction ( entry , "record:" .. tostring ( runtimeOwner ) )
+end
+end
+end
+end
+
+for _ , node in ipairs ( result . root ) do
+if not cst . isToken ( node ) then
+if node . kind == "block" then
+for _ , statement in ipairs ( node . stats or node ) do
+if not cst . isToken ( statement ) then
+rootStatement ( statement )
+end
+end
+else
+rootStatement ( node )
+end
+end
+end
+for _ , node in ipairs ( result . root ) do
+if not cst . isToken ( node ) then
+local statements = node . kind == "block" and ( node . stats or node ) or { node }
+for _ , statement in ipairs ( statements ) do
+if not cst . isToken ( statement ) then
+local actual = statement . kind == "pragmaStmt" and statement . stat or statement
+local planned = actual and hotState . allByNode [ actual ]
+local structural = actual
+while structural and structural . kind == "pragmaStmt" do
+structural = structural . stat
+end
+if planned then
+hotState . structure [ # hotState . structure + 1 ] = "function\0" .. planned . id
+elseif structural
+and ( structural . kind == "cdefFunc" or structural . kind == "cdefStruct" )
+then
+
+
+
+
+else
+local shape = compactSource ( statement )
+local first , last = cst . firstToken ( statement ) , cst . lastToken ( statement )
+for _ , nested in ipairs ( hotState . functions ) do
+local nestedFirst , nestedLast = cst . firstToken ( nested . node ) , cst . lastToken ( nested . node )
+if first
+and last
+and nestedFirst
+and nestedLast
+and nestedFirst . offset >= first . offset
+and nestedLast . offset <= last . offset
+and nested . implementation ~= ""
+then
+local pattern = nested . implementation : gsub ( "([^%w])" , "%%%1" )
+shape = shape : gsub ( pattern , "<body>" , 1 )
+end
+end
+hotState . structure [ # hotState . structure + 1 ] = shape
+end
+end
+end
+end
+end
+hotState . slotsExpr = reservedName ( "__nuppHotSlots" )
+end
+
+planHotRoot ( )
 
 local helpers = { byBody = { } , order = { } }
 
@@ -53832,8 +55970,7 @@ end
 
 
 
-local pluck = { plans = { } , statementActive = { } , helpers = helpers , declareHelper = declareHelper , loweredFunction = loweredFunction , emitDerivedMembers = emitDerivedMembers ,
-quote = literal . quote , renderData = literal . renderData ,
+local pluck = { plans = { } , statementActive = { } , helpers = helpers , declareHelper = declareHelper , loweredFunction = loweredFunction , emitDerivedMembers = emitDerivedMembers , quote = literal . quote , renderData = literal . renderData , hotLibraries = hot and hot . libraries or { } ,
 
 
 
@@ -54202,6 +56339,98 @@ return node . declKind == "record" or node . declKind == "struct"
 end
 
 return COVERAGE_STATEMENTS [ node . kind ] == true
+end
+
+local function hotEmitImplementation ( planned )
+local body = planned . node . body
+local names = { }
+if planned . implicitSelf then
+names [ # names + 1 ] = "self"
+end
+for index , param in ipairs ( body . params or { } ) do
+if not ( planned . implicitSelf and index == 1 and param . name and param . name . text == "self" ) then
+if param . namedVararg then
+names [ # names + 1 ] = "..."
+elseif param . name then
+names [ # names + 1 ] = param . name . text
+elseif param [ 1 ] and cst . isToken ( param [ 1 ] ) and param [ 1 ] . kind == "..." then
+names [ # names + 1 ] = "..."
+end
+end
+end
+local line = sourceLine ( planned . node )
+e ( "function(" .. table . concat ( names , "," ) .. ")" , line )
+if body . varargParam then
+e ( ( "const %s={n=select(\"#\",...),...}" ) : format ( body . varargParam . name . text ) )
+end
+emitDepth . fn = emitDepth . fn + 1
+if coverageOn then
+coverageHit ( "function" , body )
+end
+if body . body then
+emit ( body . body )
+end
+emitDepth . fn = emitDepth . fn - 1
+local endToken
+for index = # body , 1 , - 1 do
+local child = body [ index ]
+if cst . isToken ( child ) and child . kind == "end" then
+endToken = child
+break
+end
+end
+e ( "end" , endToken and endToken . line or nil )
+end
+
+local function hotDefinePrefix ( planned )
+return (
+"_G.__nuppHotReload.define(%s,%d,%q,%q,%s,"
+) : format (
+hotState . slotsExpr ,
+planned . slot ,
+planned . id ,
+planned . signature ,
+planned . selfName and string . format ( "%q" , planned . selfName ) or "nil"
+)
+end
+
+local function hotEmitFunction ( planned )
+local node = planned . node
+local line = sourceLine ( node )
+if node . kind == "localFuncStmt" then
+if hotState . mode == "initial" or planned . selfRecursive then
+e ( "local " .. planned . name .. ";" , line )
+end
+e ( hotDefinePrefix ( planned ) , line )
+hotEmitImplementation ( planned )
+e ( ")" )
+if hotState . mode == "initial" then
+e ( ( ";%s=function(...) return %s[%d](...) end" ) : format ( planned . name , hotState . slotsExpr , planned . slot ) )
+end
+else
+e ( hotDefinePrefix ( planned ) , line )
+hotEmitImplementation ( planned )
+e ( ")" )
+if hotState . mode == "initial" then
+local forwarded = planned . implicitSelf and "self,..." or "..."
+e (
+(
+";function %s(...) return %s[%d](%s) end"
+) : format ( planned . name , hotState . slotsExpr , planned . slot , forwarded )
+)
+end
+end
+end
+
+local function hotSelected ( planned )
+return planned . patchable and ( not hotState . only or hotState . only [ planned . id ] == true )
+end
+
+
+
+
+if hotState then
+pluck . hotDispatch = { byNode = hotState . byNode , emit = hotEmitFunction }
 end
 
 local emitAutomaticBlock
@@ -54745,6 +56974,17 @@ end
 e ( ")" )
 return
 end
+if kind == "call" and x . ffiLoadLib and pluck . hotLibraries [ x . ffiLoadLib ] then
+emit ( x . obj )
+e ( "(" .. ( "%q" ) : format ( pluck . hotLibraries [ x . ffiLoadLib ] ) )
+local arguments = x . args and x . args . exprs or { }
+for index = 2 , # arguments do
+e ( "," )
+emit ( arguments [ index ] )
+end
+e ( ")" )
+return
+end
 if kind == "call" and x . staticCallee then
 e ( x . staticCallee , sourceLine ( x ) )
 if x . args then
@@ -55081,7 +57321,9 @@ local line = first and cst . isToken ( first ) and first . line or nil
 local ns = "__nuppFfi.C"
 if x . fromLib then
 needsLibs = true
-ns = ( "__nuppLib(%s)" ) : format ( x . fromLib . text )
+local authored = x . fromLib . text : match ( '^"(.*)"$' ) or x . fromLib . text : match ( "^'(.*)'$" )
+local mapped = authored and pluck . hotLibraries [ authored ] or nil
+ns = mapped and ( "__nuppLib(%q)" ) : format ( mapped ) or ( "__nuppLib(%s)" ) : format ( x . fromLib . text )
 end
 if x . countedAbi then
 local rawName = nextTemp ( )
@@ -55810,7 +58052,8 @@ elseif kind == "call" and x . cheaderCdef then
 needsFfi = true
 local first = x [ 1 ]
 local line = first and cst . isToken ( first ) and first . line or nil
-local ns = x . cheaderLib and ( "__nuppFfi.load(%q)" ) : format ( x . cheaderLib ) or "__nuppFfi.C"
+local library = x . cheaderLib and ( pluck . hotLibraries [ x . cheaderLib ] or x . cheaderLib ) or nil
+local ns = library and ( "__nuppFfi.load(%q)" ) : format ( library ) or "__nuppFfi.C"
 
 
 pluck . loweredFunction (
@@ -55967,7 +58210,9 @@ local first = x [ 1 ]
 local line = first and cst . isToken ( first ) and first . line or nil
 e ( x . structConstruct .. "(" , line )
 for index , binding in ipairs ( x . recordFields or { } ) do
-if index > 1 then e ( ", " ) end
+if index > 1 then
+e ( ", " )
+end
 if binding . isDefault then
 e ( pluck . renderData ( binding . defaultValue ) )
 else
@@ -56032,8 +58277,11 @@ local nominal = x . ownerNominal
 for _ , field in ipairs ( nominal and nominal . fieldOrder or { } ) do
 local default = nominal . fieldDefaults and nominal . fieldDefaults [ field ] or nil
 if default then
-seeded [ # seeded + 1 ] = ( cst . identifier ( field ) and ( field .. " = " ) or ( "[%q] = " ) : format ( field ) )
-.. pluck . renderData ( default . value )
+seeded [
+# seeded + 1
+] = (
+cst . identifier ( field ) and ( field .. " = " ) or ( "[%q] = " ) : format ( field )
+) .. pluck . renderData ( default . value )
 end
 end
 e (
@@ -56068,6 +58316,12 @@ e ( "return self end" , endTok and endTok . line or nil )
 return
 
 elseif kind == "inlineMethod" and x . inlineRuntimeOwner then
+local dispatch = pluck . hotDispatch
+local planned = dispatch and dispatch . byNode [ x ] or nil
+if dispatch and planned then
+dispatch . emit ( planned )
+return
+end
 local body = x . body
 local first = x [ 1 ]
 local line = first and cst . isToken ( first ) and first . line or nil
@@ -56128,6 +58382,12 @@ e ( "end" , endTok and endTok . line or nil )
 return
 
 elseif kind == "funcStmt" and x . structOwner and x . memberName then
+local dispatch = pluck . hotDispatch
+local planned = dispatch and dispatch . byNode [ x ] or nil
+if dispatch and planned then
+dispatch . emit ( planned )
+return
+end
 needsFfi = true
 local first = x [ 1 ]
 local line = first and cst . isToken ( first ) and first . line or nil
@@ -56717,24 +58977,30 @@ end
 emitDepth . fn = emitDepth . fn - 1
 
 elseif kind == "localFuncStmt" then
+local dispatch = pluck . hotDispatch
+local planned = dispatch and dispatch . byNode [ x ] or nil
+if dispatch and planned then
+dispatch . emit ( planned )
+else
 emitChildren ( x )
+end
 for _ , registration in ipairs ( x . name and x . name . cleanupRegistrations or { } ) do
 local cleanup = registration . cleanup
-e (
-( ";%s[%q]=%s" ) : format ( cleanupRegistry ( ) , cleanup . key , cleanup . name ) ,
-sourceLine ( x )
-)
+e ( ( ";%s[%q]=%s" ) : format ( cleanupRegistry ( ) , cleanup . key , cleanup . name ) , sourceLine ( x ) )
 end
 
 elseif kind == "funcStmt" then
+local dispatch = pluck . hotDispatch
+local planned = dispatch and dispatch . byNode [ x ] or nil
+if dispatch and planned then
+dispatch . emit ( planned )
+else
 emitChildren ( x )
+end
 local name = x . name and x . name . base or nil
 for _ , registration in ipairs ( name and name . cleanupRegistrations or { } ) do
 local cleanup = registration . cleanup
-e (
-( ";%s[%q]=%s" ) : format ( cleanupRegistry ( ) , cleanup . key , cleanup . name ) ,
-sourceLine ( x )
-)
+e ( ( ";%s[%q]=%s" ) : format ( cleanupRegistry ( ) , cleanup . key , cleanup . name ) , sourceLine ( x ) )
 end
 
 elseif kind == "pragmaStmt" then
@@ -56853,8 +59119,32 @@ end
 end
 
 planStructTags ( )
+if hotState and hotState . mode == "patch" then
+local captured = { }
+for _ , planned in ipairs ( hotState . functions ) do
+if hotSelected ( planned ) then
+for _ , name in ipairs ( planned . captures ) do
+captured [ name ] = true
+end
+end
+end
+local captures = { }
+for name in pairs ( captured ) do
+captures [ # captures + 1 ] = name
+end
+table . sort ( captures )
+if # captures > 0 then
+e ( "local " .. table . concat ( captures , "," ) .. ";" , 1 )
+end
+for _ , planned in ipairs ( hotState . functions ) do
+if hotSelected ( planned ) then
+hotEmitFunction ( planned )
+end
+end
+else
 for _ , child in ipairs ( result . root ) do
 emit ( child )
+end
 end
 raw ( "\n" )
 
@@ -56922,7 +59212,7 @@ code = (
 "const %s = _G.nupp.log.forModule(%q); "
 ) : format ( compilerModules [ "nupp.log" ] , result . moduleName or filename or "?" ) .. code
 end
-local nativeBootstrap = stdlib . bootstrap ( runtimeEffects )
+local nativeBootstrap = stdlib . bootstrap ( runtimeEffects , hotState ~= nil )
 if nativeBootstrap ~= "" then
 code = nativeBootstrap .. code
 else
@@ -57118,7 +59408,38 @@ coverageName ,
 coverageName
 ) .. code
 end
+if hotState then
+code = ( "local %s=_G.__nuppHotReload.module(%q); " ) : format ( hotState . slotsExpr , hotState . module ) .. code
+end
 local metadata = coverageOn and { path = coveragePath , sites = ( coverageSites or { } ) } or nil
+local hotMetadata = nil
+if hotState then
+local functions = { }
+for _ , planned in ipairs ( hotState . functions ) do
+functions [
+# functions + 1
+] = {
+slot = planned . slot ,
+id = planned . id ,
+name = planned . name ,
+signature = planned . signature ,
+selfName = planned . selfName ,
+captures = planned . captures ,
+implementation = planned . implementation ,
+patchable = planned . patchable ,
+affineCapture = planned . affineCapture ,
+cUses = planned . cUses ,
+cUnknown = planned . cUnknown ,
+}
+end
+hotMetadata = {
+module = hotState . module ,
+mode = hotState . mode ,
+baseGeneration = hotState . baseGeneration ,
+functions = functions ,
+structure = table . concat ( hotState . structure , "\1" ) ,
+}
+end
 
 
 
@@ -57167,7 +59488,7 @@ diag ( { line = line , col = 1 , offset = 0 , text = "" } , "NUPP3005" , message
 end
 end
 
-return code , diags , metadata , emittedFeatureEffects
+return code , diags , metadata , emittedFeatureEffects , hotMetadata
 end
 
 return gen
@@ -57432,7 +59753,7 @@ return T . constOf ( substWith ( t . inner , map , unmapped ) )
 elseif tag == "ctype" then
 return T . ctype ( substWith ( t . of , map , unmapped ) )
 elseif tag == "owned" then
-return T . owned ( substWith ( t . inner , map , unmapped ) , t . cleanups )
+return T . owned ( substWith ( t . inner , map , unmapped ) , t . cleanups , t . opaque )
 elseif tag == "borrowed" then
 return T . borrowed ( substWith ( t . inner , map , unmapped ) )
 elseif tag == "pinned" then
@@ -58283,7 +60604,7 @@ local inner
 inner , err = normalize ( t . inner , memo , budget )
 if not err then
 if t . tag == "owned" then
-out = T . owned ( inner , t . cleanups )
+out = T . owned ( inner , t . cleanups , t . opaque )
 elseif t . tag == "borrowed" then
 out = T . borrowed ( inner )
 else
@@ -58910,7 +61231,7 @@ if param . readable and arg . readable then
 generics . unify ( param . key , arg . key , map )
 generics . unify ( param . value , arg . value , map )
 end
-if param . writeKey and arg . writeKey then
+if param . writeKey and param . writeValue and arg . writeKey and arg . writeValue then
 generics . unify ( param . writeKey , arg . writeKey , map )
 generics . unify ( param . writeValue , arg . writeValue , map )
 end
@@ -59176,7 +61497,9 @@ borrowsParams
 and borrowsParams
 or nil , ft . ffiOut , ft . varargType , ft . noreturn , paramPack , ft . retPack , ft . packParams , ft . yieldPack , ft . resumePack ,
 
-ft . noYield , names , next ( preserves ) and preserves or nil , ft . foreign , ft . constParams , ft . paramKinds , ft . partitionResults )
+ft . noYield , names , next (
+preserves
+) and preserves or nil , ft . foreign , ft . constParams , ft . paramKinds , ft . partitionResults )
 end
 
 return ft
@@ -59227,6 +61550,936 @@ end ) ( ) , ft . foreign , ft . constParams , ft . paramKinds , ft . partitionRe
 end
 
 return generics
+
+end
+package.preload["nupp.compiler.hot_session"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+
+
+
+
+local incremental = require ( "nupp.compiler.incremental" )
+local diagnostics = require ( "nupp.compiler.diagnostics" )
+local buildModules = require ( "nupp.compiler.build.modules" )
+local hash = require ( "nupp.compiler.build.hash" )
+local cache = require ( "nupp.compiler.build.cache" )
+local cst = require ( "nupp.compiler.cst" )
+local envMod = require ( "nupp.compiler.env" )
+local gen = require ( "nupp.compiler.gen" )
+local fs = require ( "nupp.compiler.fs" )
+local cheader = require ( "nupp.compiler.cheader" )
+
+local hotSession = { }
+local Session = { }
+Session . __index = Session
+
+local function fatalIn ( values )
+for _ , value in ipairs ( values or { } ) do
+if diagnostics . isFatal ( value ) then
+return true
+end
+end
+
+return false
+end
+
+local function copyManifest ( metadata , path , abi )
+local functions = { }
+for _ , fn in ipairs ( metadata . functions or { } ) do
+local captures = { }
+for index , capture in ipairs ( fn . captures or { } ) do
+captures [ index ] = capture
+end
+functions [
+# functions + 1
+] = {
+id = fn . id ,
+slot = fn . slot ,
+name = fn . name ,
+signature = fn . signature ,
+selfName = fn . selfName ,
+captures = captures ,
+implementation = fn . implementation ,
+patchable = fn . patchable ,
+affineCapture = fn . affineCapture ,
+cUses = fn . cUses or { } ,
+cUnknown = fn . cUnknown == true ,
+}
+end
+
+return {
+schema = 1 ,
+module = metadata . module ,
+path = path ,
+optimization = 0 ,
+structure = metadata . structure ,
+functions = functions ,
+abi = abi ,
+unverifiedLibraries = abi . unverifiedLibraries or { } ,
+}
+end
+
+local function sameCaptures ( left , right )
+if # left ~= # right then
+return false
+end
+for index , capture in ipairs ( left ) do
+if capture ~= right [ index ] then
+return false
+end
+end
+
+return true
+end
+
+local function indexed ( manifest )
+local byID = { }
+for _ , fn in ipairs ( manifest . functions or { } ) do
+byID [ fn . id ] = fn
+end
+
+return byID
+end
+
+local function restart ( path , message , reason )
+local help = "restart the program to apply this structural change"
+if reason and reason . kind == "native-artifact" then
+help = "restart the process; loaded cdata, callbacks, function pointers, and native state cannot be rebound"
+end
+
+return {
+kind = "restart-required" ,
+reason = reason ,
+diagnostics = {
+{ filename = path , line = 1 , col = 1 , offset = 0 , length = 0 , code = "NUPP5001" , msg = message , help = help , }
+} ,
+}
+end
+
+local function diagnosticsFailure ( values )
+return { kind = "diagnostics" , diagnostics = values }
+end
+
+local function exportDeprecationsFingerprint ( exports )
+local items = { }
+for _ , field in ipairs ( { "typeDefs" , "valueDefs" } ) do
+for name , definition in pairs ( exports and exports [ field ] or { } ) do
+local deprecated = definition . deprecated
+if deprecated then
+items [
+# items + 1
+] = field .. ":" .. name .. ":" .. cache . stable (
+deprecated . reason
+) .. ":" .. cache . stable ( deprecated . replacement )
+end
+end
+end
+table . sort ( items )
+
+return table . concat ( items , "\0" )
+end
+
+
+
+
+local function cdefFingerprint ( parsed )
+local parts = { }
+local function wrapsCdef ( node )
+while type ( node ) == "table" and node . kind == "pragmaStmt" do
+node = node . stat
+end
+return type ( node ) == "table" and ( node . kind == "cdefStruct" or node . kind == "cdefFunc" )
+end
+
+local function beginsCdef ( node )
+return node . kind == "cdefStruct"
+or node . kind == "cdefFunc"
+or node . cdefDeclarationBlock
+or node . cheaderCdef
+or node . kind == "pragmaStmt" and wrapsCdef ( node )
+end
+
+local function visit ( node , inside )
+if type ( node ) ~= "table" then
+return
+end
+if cst . isToken ( node ) then
+if inside then
+parts [ # parts + 1 ] = tostring ( node . kind ) .. ":" .. tostring ( node . text )
+end
+return
+end
+local begins = beginsCdef ( node )
+local active = inside or begins
+if begins then
+parts [ # parts + 1 ] = "begin:" .. node . kind
+if node . cheaderCdef then
+parts [ # parts + 1 ] = "cheader:" .. tostring ( node . cheaderCdef )
+end
+end
+for _ , child in ipairs ( node ) do
+visit ( child , active )
+end
+if begins then
+parts [ # parts + 1 ] = "end:" .. node . kind
+end
+end
+
+visit ( parsed and parsed . root , false )
+
+return table . concat ( parts , "\0" )
+end
+
+
+
+
+
+local function cDeclarations ( parsed )
+local declarations = { }
+local function visit ( node , functionDepth )
+if type ( node ) ~= "table" or cst . isToken ( node ) then
+return
+end
+local isFunction = node . kind == "localFuncStmt"
+or node . kind == "funcStmt"
+or node . kind == "inlineMethod"
+or node . kind == "funcExpr"
+or node . kind == "shortfn"
+local depth = functionDepth + ( isFunction and 1 or 0 )
+if ( node . kind == "cdefStruct" or node . kind == "cdefFunc" ) and node . cdefIdentity then
+local prior = declarations [ node . cdefIdentity ]
+local semantic = node . cdefSemantic or cst . textOf ( node ) : gsub ( "%s+" , "" )
+if prior and prior . semantic ~= semantic then
+semantic = prior . semantic .. "\0duplicate\0" .. semantic
+end
+declarations [
+node . cdefIdentity
+] = {
+identity = node . cdefIdentity ,
+semantic = semantic ,
+name = node . name and node . name . text or node . cdefIdentity ,
+kind = node . kind == "cdefStruct" and "aggregate" or "function" ,
+runtimeBinding = depth == 0 or prior and prior . runtimeBinding or false ,
+}
+end
+for _ , child in ipairs ( node ) do
+visit ( child , depth )
+end
+end
+
+visit ( parsed and parsed . root , 0 )
+
+return declarations
+end
+
+local function interfaceFingerprint ( moduleType , exports )
+exports = exports or { }
+return hash . digest (
+buildModules . typeFingerprint (
+moduleType
+) .. "\0deprecated\0" .. exportDeprecationsFingerprint (
+exports
+) .. "\0nominal-callables:" .. (
+exports . nominalEffectFingerprint or ""
+) .. "\0derives:" .. (
+exports . deriveInterfaceFingerprint or ""
+) .. "\0comptime-functions:" .. (
+exports . comptimeFunctionFingerprint or ""
+)
+)
+end
+
+local function applyCMetadata ( snapshot , metadata )
+local module = metadata and snapshot . modules [ metadata . module ]
+if not module then
+return
+end
+local uses , functions = { } , { }
+local unknown = false
+for _ , fn in ipairs ( metadata . functions or { } ) do
+local own = { }
+for _ , identity in ipairs ( fn . cUses or { } ) do
+uses [ identity ] = true
+own [ identity ] = true
+end
+functions [ fn . id ] = own
+unknown = unknown or fn . cUnknown == true
+end
+module . cUses = uses
+module . cFunctionUses = functions
+module . cUnknown = unknown
+end
+
+local function carryCMetadata ( previous , candidate )
+for identity , current in pairs ( candidate . modules or { } ) do
+local old = previous . modules and previous . modules [ identity ]
+if old then
+current . cUses = current . cUses or old . cUses
+current . cFunctionUses = current . cFunctionUses or old . cFunctionUses
+if current . cUnknown == nil then
+current . cUnknown = old . cUnknown
+end
+end
+end
+end
+
+local function cDeclarationChange ( old , current )
+local oldDeclarations = old . cDeclarations or { }
+local nextDeclarations = current . cDeclarations or { }
+local oldUses = old . cUses or { }
+local nextUses = current . cUses or oldUses
+local identities = { }
+for identity in pairs ( oldDeclarations ) do identities [ identity ] = true end
+for identity in pairs ( nextDeclarations ) do identities [ identity ] = true end
+for identity in pairs ( nextUses ) do
+local declaration = nextDeclarations [ identity ] or oldDeclarations [ identity ]
+if not oldUses [ identity ] and declaration and not declaration . runtimeBinding then
+return declaration , "new-use"
+end
+end
+local ordered = { }
+for identity in pairs ( identities ) do ordered [ # ordered + 1 ] = identity end
+table . sort ( ordered )
+for _ , identity in ipairs ( ordered ) do
+local before , after = oldDeclarations [ identity ] , nextDeclarations [ identity ]
+local changed = not before or not after or before . semantic ~= after . semantic
+local relevant = before and before . runtimeBinding
+or after and after . runtimeBinding
+or oldUses [ identity ]
+or nextUses [ identity ]
+if changed and relevant then
+return before or after , not before and "added" or not after and "removed" or "changed"
+end
+end
+if old . cFingerprint ~= current . cFingerprint and ( old . cUnknown or current . cUnknown ) then
+return { name = old . label or current . label , identity = "<module-wide C fallback>" } , "fallback"
+end
+
+return nil
+end
+
+local function snapshotChanged ( previous , candidate , consumer )
+local function keys ( values )
+local out = { }
+for identity in pairs ( values or { } ) do
+out [ # out + 1 ] = identity
+end
+table . sort ( out )
+
+return out
+end
+
+local moduleKeys = keys ( previous . modules )
+for _ , identity in ipairs ( keys ( previous . inputs ) ) do
+local old = previous . inputs [ identity ]
+local current = candidate . inputs [ identity ]
+if not current or current . fingerprint ~= old . fingerprint then
+local kind = old . binary and "native-artifact"
+or old . kind == "header" and "header-abi"
+or old . kind == "provider-file" and "provider-input"
+or "semantic-input"
+return {
+kind = kind ,
+dependencyKind = old . kind ,
+dependency = old . display ,
+identity = identity ,
+path = old . paths and old . paths [ 1 ] or nil ,
+paths = old . paths ,
+consumer = old . consumer ,
+binary = old . binary ,
+}
+end
+end
+for _ , identity in ipairs ( moduleKeys ) do
+local old = previous . modules [ identity ]
+local current = candidate . modules [ identity ]
+local declaration , disposition = current and cDeclarationChange ( old , current ) or nil
+if declaration then
+return {
+kind = "c-declaration" ,
+dependencyKind = "C declarations" ,
+dependency = declaration . name or old . label ,
+identity = declaration . identity or identity ,
+path = old . path ,
+disposition = disposition ,
+}
+end
+end
+for _ , identity in ipairs ( keys ( previous . declarations ) ) do
+local old = previous . declarations [ identity ]
+local current = candidate . declarations [ identity ]
+if current and current . fingerprint ~= old . fingerprint then
+return {
+kind = "project-declaration" ,
+dependencyKind = old . query ,
+dependency = old . label ,
+identity = identity ,
+path = old . paths and old . paths [ 1 ] or nil ,
+paths = old . paths ,
+}
+end
+end
+
+
+
+
+for _ , identity in ipairs ( moduleKeys ) do
+local old = previous . modules [ identity ]
+local current = candidate . modules [ identity ]
+if identity ~= consumer and current and current . fingerprint ~= old . fingerprint then
+return {
+kind = "module-interface" ,
+dependencyKind = "module" ,
+dependency = old . label ,
+identity = identity ,
+path = old . path ,
+}
+end
+end
+local old = previous . modules and previous . modules [ consumer ]
+local current = candidate . modules and candidate . modules [ consumer ]
+if old and current and current . fingerprint ~= old . fingerprint then
+return {
+kind = "module-interface" ,
+dependencyKind = "module" ,
+dependency = old . label ,
+identity = consumer ,
+path = old . path ,
+}
+end
+
+return nil
+end
+
+local function dependencyChangeMessage ( change , consumer , consumerPath )
+local subject
+if change . kind == "c-declaration" then
+subject = "C declarations in module " .. change . dependency
+elseif change . kind == "header-abi" then
+subject = "header " .. change . dependency
+elseif change . kind == "native-artifact" then
+subject = "native artifact for " .. change . dependency
+elseif change . kind == "provider-input" then
+subject = "provider input " .. change . dependency
+elseif change . kind == "module-interface" then
+subject = "module interface " .. change . dependency
+else
+local labels = {
+projectEntries = "project declaration" ,
+projectPathEntries = "project path declaration" ,
+projectModulePath = "module resolution" ,
+projectModuleBasenames = "module basename resolution" ,
+projectAnnotations = "project annotation" ,
+}
+subject = ( labels [ change . dependencyKind ] or "semantic dependency" ) .. " " .. change . dependency
+end
+if change . path then
+subject = subject .. " at " .. change . path
+end
+local required = "required by " .. consumer
+if consumerPath then
+required = required .. " at " .. consumerPath
+end
+
+return subject .. " changed (" .. required .. ")"
+end
+
+function hotSession . new ( root , opts )
+local self = setmetatable ( { } , Session )
+self . inc = incremental . new ( root or "." , opts or { } )
+self . generation = 1
+self . running = { }
+self . prepared = { }
+self . noticedLibraries = { }
+self . observedInputs = { }
+self . libraryPaths = { }
+self . libraryConfiguredPaths = { }
+local configured = self . inc . env . config and self . inc . env . config . hotreload
+if configured ~= nil and type ( configured ) ~= "table" then
+error ( "hotreload must be a table" , 2 )
+end
+local libraries = configured and configured . libraries or nil
+if libraries ~= nil and type ( libraries ) ~= "table" then
+error ( "hotreload.libraries must be a table of loader names to paths" , 2 )
+end
+for name , path in pairs ( libraries or { } ) do
+if type ( name ) ~= "string" or name == "" or type ( path ) ~= "string" or path == "" then
+error ( "hotreload.libraries must map non-empty string names to non-empty paths" , 2 )
+end
+local configuredPath = fs . absolute ( fs . join ( self . inc . env . rootDir , path ) )
+self . libraryConfiguredPaths [ name ] = configuredPath
+self . libraryPaths [ name ] = fs . canonical ( configuredPath )
+end
+
+return self
+end
+
+local function stringLiteral ( text )
+if type ( text ) ~= "string" then
+return nil
+end
+return text : match ( '^"(.*)"$' ) or text : match ( "^'(.*)'$" ) or text : match ( "^%[=+%[(.*)%]=+%]$" )
+end
+
+local function nativeUses ( parsed )
+local uses = { }
+local function add ( name , dynamic , node )
+local first = node and node [ 1 ]
+local line = first and cst . isToken ( first ) and first . line or 1
+uses [ # uses + 1 ] = { name = name , dynamic = dynamic , line = line }
+end
+
+local function visit ( node )
+if type ( node ) ~= "table" or cst . isToken ( node ) then
+return
+end
+if ( node . kind == "cdefFunc" or node . kind == "cdefStruct" ) and node . fromLib then
+add ( stringLiteral ( node . fromLib . text ) , false , node )
+elseif node . cheaderLib then
+add ( node . cheaderLib , false , node )
+elseif node . ffiLoadLib then
+add ( node . ffiLoadLib , false , node )
+elseif node . ffiLoadDynamic then
+add ( nil , true , node )
+end
+for _ , child in ipairs ( node ) do
+visit ( child )
+end
+end
+
+visit ( parsed and parsed . root )
+
+return uses
+end
+
+local function addInput ( snapshot , input , module )
+local identity = input . identity .. "\0consumer=" .. module .. "\0" .. tostring ( input . consumer or "" )
+snapshot . inputs [ identity ] = input
+end
+
+function Session : diskChanged ( path , changeType )
+self . inc . diskChanged ( path , changeType )
+end
+
+
+
+
+function Session : semanticSnapshot ( path , checked , module )
+local snapshot = { modules = { } , declarations = { } , inputs = { } , unverifiedLibraries = { } }
+local visited = { }
+
+local function visit ( currentPath , currentChecked , currentModule )
+if visited [ currentPath ] then
+return true
+end
+visited [ currentPath ] = true
+
+local result = currentChecked or self . inc . checkFile ( currentPath )
+if fatalIn ( result . diags ) then
+return nil , diagnosticsFailure ( result . diags )
+end
+local cFingerprint = cdefFingerprint ( result . result )
+local declarations = cDeclarations ( result . result )
+snapshot . modules [
+currentModule
+] = {
+fingerprint = interfaceFingerprint ( result . moduleType , result . exports ) ,
+label = currentModule ,
+path = currentPath ,
+cFingerprint = cFingerprint ,
+cDeclarations = declarations ,
+}
+for _ , input in ipairs ( result . result and result . result . externalInputs or { } ) do
+addInput ( snapshot , input , currentModule )
+end
+for _ , use in ipairs ( nativeUses ( result . result ) ) do
+local name = use . name
+local mapped = name and self . libraryPaths [ name ] or nil
+if mapped then
+local configuredPath = self . libraryConfiguredPaths [ name ]
+local resolved = fs . canonical ( configuredPath )
+local bytes = self . inc . externalFile ( configuredPath )
+if resolved ~= configuredPath then
+self . inc . externalFile ( resolved )
+end
+if mapped ~= configuredPath and mapped ~= resolved then
+self . inc . externalFile ( mapped )
+end
+local paths = { configuredPath }
+if resolved ~= configuredPath then
+paths [ # paths + 1 ] = resolved
+end
+if mapped ~= configuredPath and mapped ~= resolved then
+paths [ # paths + 1 ] = mapped
+end
+addInput (
+snapshot ,
+{
+identity = "native-artifact\0" .. name ,
+kind = "native-artifact" ,
+display = name ,
+paths = paths ,
+fingerprint = hash . digest (
+table . concat (
+{
+"native-artifact-v1" ,
+configuredPath ,
+mapped ,
+resolved ,
+jit . os ,
+jit . arch ,
+bytes and ( "present\0" .. bytes ) or "missing" ,
+} ,
+"\0"
+)
+) ,
+consumer = currentModule .. ":" .. tostring ( use . line ) ,
+binary = true ,
+} ,
+currentModule
+)
+else
+local label = use . dynamic and "<dynamic ffi.load>" or tostring ( name )
+snapshot . unverifiedLibraries [ label ] = true
+end
+end
+for _ , dependency in ipairs ( self . inc . projectDependencies ( currentPath ) ) do
+local identity = dependency . name .. "\0" .. tostring ( dependency . key )
+snapshot . declarations [
+identity
+] = {
+fingerprint = dependency . fingerprint ,
+label = tostring ( dependency . key ) ,
+query = dependency . name ,
+paths = self . inc . projectDependencyPaths ( dependency . name , dependency . key ) ,
+}
+end
+for _ , dependency in ipairs ( self . inc . moduleDependencies ( currentPath ) ) do
+local dependencyPath = self . inc . modulePath ( dependency )
+if dependencyPath then
+local ok , failure = visit ( dependencyPath , nil , dependency )
+if not ok then
+return nil , failure
+end
+else
+local bundled = self . inc . env . bundled and self . inc . env . bundled [ dependency ]
+if bundled then
+snapshot . modules [
+dependency
+] = { fingerprint = interfaceFingerprint ( bundled . type , bundled . exports ) , label = dependency , }
+end
+end
+end
+
+return true
+end
+
+local ok , failure = visit ( path , checked , module )
+if not ok then
+return nil , failure
+end
+
+for identity , input in pairs ( snapshot . inputs ) do
+self . observedInputs [ identity ] = input
+end
+
+return snapshot
+end
+
+function Session : compile ( path , mode , module , only )
+local checked = self . inc . checkFile ( path )
+if fatalIn ( checked . diags ) then
+return nil , diagnosticsFailure ( checked . diags )
+end
+local abi , abiFailure = self : semanticSnapshot ( path , checked , module )
+if not abi then
+return nil , abiFailure
+end
+local code , generated , _ , _ , metadata = gen . generate (
+checked . result ,
+path ,
+nil ,
+{
+mode = mode ,
+module = module ,
+baseGeneration = mode == "patch" and self . generation or nil ,
+only = only ,
+libraries = self . libraryPaths ,
+}
+)
+if fatalIn ( generated ) then
+return nil , diagnosticsFailure ( generated )
+end
+applyCMetadata ( abi , metadata )
+
+return { code = code , manifest = copyManifest ( metadata , path , abi ) }
+end
+
+function Session : initial ( entries )
+local path = entries and entries [ 1 ]
+if not path then
+error ( "hot reload initial build needs one entry" , 2 )
+end
+local module = envMod . moduleNameForPath ( self . inc . env , path ) or path
+local built , failure = self : compile ( path , "initial" , module )
+if not built then
+return failure
+end
+
+return { kind = "initial" , generation = self . generation , entryCode = built . code , entryManifest = built . manifest , }
+end
+
+function Session : loaded ( module , generation , manifest )
+if generation ~= self . generation then
+error ( "hot reload loaded acknowledgement names an unknown generation" , 2 )
+end
+if self . running [ module ] then
+error ( "hot reload module " .. module .. " was acknowledged twice" , 2 )
+end
+if type ( manifest ) ~= "table" or manifest . schema ~= 1 or manifest . module ~= module then
+error ( "hot reload loaded acknowledgement has a mismatched manifest" , 2 )
+end
+self . running [ module ] = manifest
+self . observedInputs = { }
+
+return self : unverifiedNotices ( { [ module ] = manifest } )
+end
+
+function Session : unverifiedNotices ( manifests )
+local notices = { }
+for _ , manifest in pairs ( manifests or { } ) do
+for name in pairs ( manifest . unverifiedLibraries or { } ) do
+if not self . noticedLibraries [ name ] then
+self . noticedLibraries [ name ] = true
+notices [ # notices + 1 ] = name
+end
+end
+end
+table . sort ( notices )
+
+return { unverifiedLibraries = notices }
+end
+
+function Session : watchedInputs ( )
+local byPath = { }
+for _ , path in ipairs ( envMod . listProjectFiles ( self . inc . env ) ) do
+byPath [ path ] = { path = path , kind = "source" }
+end
+for _ , manifest in pairs ( self . running ) do
+for _ , input in pairs ( manifest . abi and manifest . abi . inputs or { } ) do
+for _ , path in ipairs ( input . paths or { } ) do
+local prior = byPath [ path ]
+if not prior or input . binary then
+byPath [ path ] = { path = path , kind = input . kind }
+end
+end
+end
+end
+for _ , input in pairs ( self . observedInputs ) do
+for _ , path in ipairs ( input . paths or { } ) do
+local prior = byPath [ path ]
+if not prior or input . binary then
+byPath [ path ] = { path = path , kind = input . kind }
+end
+end
+end
+local out = { }
+for _ , input in pairs ( byPath ) do
+out [ # out + 1 ] = input
+end
+table . sort ( out , function ( left , right )
+return left . path < right . path
+end )
+
+return out
+end
+
+function Session : prepare ( paths )
+self . observedInputs = { }
+local patches , candidate = { } , { }
+for module , manifest in pairs ( self . running ) do
+candidate [ module ] = manifest
+end
+
+
+local loaded = { }
+for module in pairs ( self . running ) do
+loaded [ # loaded + 1 ] = module
+end
+table . sort ( loaded )
+
+
+
+for _ , module in ipairs ( loaded ) do
+local live = self . running [ module ]
+for _ , input in pairs ( live . abi and live . abi . inputs or { } ) do
+if input . kind == "header" then
+local observed = cheader . provenance ( input . sourcePath or input . paths [ 1 ] , { preprocess = input . preprocess } )
+if observed and observed . semanticFingerprint ~= input . fingerprint then
+local change = {
+kind = "header-abi" ,
+dependencyKind = "header" ,
+dependency = input . display ,
+identity = input . identity ,
+path = input . paths [ 1 ] ,
+paths = input . paths ,
+consumer = input . consumer or module ,
+}
+return restart ( live . path , dependencyChangeMessage ( change , module , live . path ) , change )
+end
+end
+end
+end
+for _ , module in ipairs ( loaded ) do
+local live = self . running [ module ]
+local checked = self . inc . checkFile ( live . path )
+if fatalIn ( checked . diags ) then
+return diagnosticsFailure ( checked . diags )
+end
+local abi , failure = self : semanticSnapshot ( live . path , checked , module )
+if not abi then
+return failure
+end
+local change = snapshotChanged ( live . abi or { } , abi , module )
+if change then
+change . consumer = module
+change . consumerPath = live . path
+return restart ( live . path , dependencyChangeMessage ( change , module , live . path ) , change )
+end
+carryCMetadata ( live . abi or { } , abi )
+local refreshed = { }
+for key , value in pairs ( live ) do
+refreshed [ key ] = value
+end
+refreshed . abi = abi
+refreshed . unverifiedLibraries = abi . unverifiedLibraries or { }
+candidate [ module ] = refreshed
+end
+local changedCount = 0
+for _ , path in ipairs ( paths or { } ) do
+local module = envMod . moduleNameForPath ( self . inc . env , path ) or path
+local live = self . running [ module ]
+if live then
+local compiled , failure = self : compile ( path , "patch" , module )
+if not compiled then
+return failure
+end
+local nextManifest = compiled . manifest
+local abiChange = snapshotChanged ( live . abi or { } , nextManifest . abi or { } , module )
+if abiChange then
+abiChange . consumer = module
+abiChange . consumerPath = path
+return restart ( path , dependencyChangeMessage ( abiChange , module , path ) , abiChange )
+end
+if live . structure ~= nextManifest . structure then
+return restart (
+path ,
+"top-level structure changed in " .. module ,
+{ kind = "source-structure" , dependency = module , path = path , consumer = module , }
+)
+end
+local oldByID , nextByID = indexed ( live ) , indexed ( nextManifest )
+local only = { }
+for id , old in pairs ( oldByID ) do
+local nextFn = nextByID [ id ]
+if not nextFn or nextFn . slot ~= old . slot then
+return restart (
+path ,
+"reloadable declaration changed: " .. id ,
+{ kind = "reloadable-declaration" , dependency = id , path = path , consumer = module , }
+)
+end
+if nextFn . signature ~= old . signature then
+return restart (
+path ,
+"callable signature changed: " .. id ,
+{ kind = "callable-abi" , dependency = id , path = path , consumer = module , }
+)
+end
+if not sameCaptures ( old . captures , nextFn . captures ) then
+return restart (
+path ,
+"captured bindings changed: " .. id ,
+{ kind = "capture-set" , dependency = id , path = path , consumer = module , }
+)
+end
+if nextFn . implementation ~= old . implementation then
+if not old . patchable then
+return restart (
+path ,
+"capture " .. tostring (
+old . affineCapture
+) .. " owns a cleanup, so replacing " .. old . id .. " requires restart" ,
+{
+kind = "affine-capture" ,
+dependency = old . id ,
+path = path ,
+consumer = module ,
+capture = old . affineCapture ,
+}
+)
+end
+only [ id ] = true
+changedCount = changedCount + 1
+end
+end
+for id in pairs ( nextByID ) do
+if not oldByID [ id ] then
+return restart (
+path ,
+"reloadable declaration was added: " .. id ,
+{ kind = "reloadable-declaration" , dependency = id , path = path , consumer = module , }
+)
+end
+end
+if next ( only ) then
+local selected , selectedFailure = self : compile ( path , "patch" , module , only )
+if not selected then
+return selectedFailure
+end
+patches [ # patches + 1 ] = selected . code
+end
+candidate [ module ] = nextManifest
+end
+end
+if changedCount == 0 then
+self . running = candidate
+self . observedInputs = { }
+return { kind = "no-change" , generation = self . generation }
+end
+local generation = self . generation + 1
+local result = {
+kind = "prepared" ,
+patch = table . concat ( patches , "\n" ) ,
+baseGeneration = self . generation ,
+generation = generation ,
+}
+self . prepared [ generation ] = { result = result , manifests = candidate }
+
+return result
+end
+
+function Session : committed ( generation )
+local pending = self . prepared [ generation ]
+if not pending or generation ~= self . generation + 1 then
+error ( "hot reload commit acknowledgement is unknown or stale" , 2 )
+end
+self . generation = generation
+self . running = pending . manifests
+self . prepared = { }
+self . observedInputs = { }
+
+return self : unverifiedNotices ( self . running )
+end
+
+function Session : persist ( )
+self . inc . persist ( )
+end
+
+return hotSession
 
 end
 package.preload["nupp.compiler.importc"] = function(...)
@@ -59940,6 +63193,12 @@ incremental.Inc = {} incremental.Inc.__index = incremental.Inc
 
 
 
+
+
+
+
+
+
 function incremental . new ( rootDir , opts )
 opts = opts or { }
 local env = envMod . new ( rootDir , opts )
@@ -59981,6 +63240,17 @@ end
 updateProjectFiles ( )
 
 q : define ( "fileText" , function ( _ , path )
+local f = io . open ( path , "rb" )
+if not f then
+return nil
+end
+local s = f : read ( "*a" )
+f : close ( )
+
+return s
+end )
+
+q : define ( "externalFile" , function ( _ , path )
 local f = io . open ( path , "rb" )
 if not f then
 return nil
@@ -60153,6 +63423,7 @@ if # result . errors > 0 then
 return { diags = result . errors , moduleType = nil , syntax = true , result = result }
 end
 
+result . externalInputs = { }
 local qenv = setmetatable ( { resolveModule = function ( _ , name )
 local interface = self : get ( "moduleInterface" , name )
 return interface and interface . type or nil
@@ -60168,6 +63439,13 @@ end , projectModuleBasenames = function ( _ , short )
 return self : get ( "projectModuleBasenames" , short )
 end , projectAnnotations = function ( _ , name )
 return self : get ( "projectAnnotations" , name )
+end , externalFile = function ( _ , externalPath )
+return self : get ( "externalFile" , externalPath )
+end , observeExternalInput = function ( _ , input )
+for _ , externalPath in ipairs ( input . paths or { } ) do
+self : get ( "externalFile" , externalPath )
+end
+result . externalInputs [ # result . externalInputs + 1 ] = input
 end , openTypeFunctionStore = function ( )
 
 
@@ -60322,6 +63600,7 @@ end
 if not openPaths [ path ] then
 q : clearInput ( "fileText" , path )
 end
+q : clearInput ( "externalFile" , path )
 if existed ~= ( diskPaths [ path ] and true or false ) then
 updateProjectFiles ( )
 end
@@ -60346,6 +63625,10 @@ end
 
 function inc . fileText ( path )
 return q : get ( "fileText" , path )
+end
+
+function inc . externalFile ( path )
+return q : get ( "externalFile" , path )
 end
 
 function inc . projectHeader ( path )
@@ -60393,6 +63676,37 @@ end
 return hash . digest ( stable ( value ) )
 end
 
+local function projectDependencyPaths ( name , key )
+local value = q : get ( name , key )
+local paths , seen = { } , { }
+local function add ( path )
+if type ( path ) == "string" and not seen [ path ] then
+seen [ path ] = true
+paths [ # paths + 1 ] = path
+end
+end
+
+if name == "projectModulePath" then
+add ( value )
+elseif name == "projectPathEntries" then
+add ( key )
+for _ , entry in ipairs ( value or { } ) do
+add ( entry . path )
+end
+elseif name == "projectEntries" or name == "projectAnnotations" then
+for _ , entry in ipairs ( value or { } ) do
+add ( entry . path )
+end
+elseif name == "projectModuleBasenames" then
+for _ , module in ipairs ( value or { } ) do
+add ( q : get ( "projectModulePath" , module ) )
+end
+end
+table . sort ( paths )
+
+return paths
+end
+
 function inc . projectDependencies ( path )
 q : get ( "checkModule" , path )
 local byPath = q . memo . checkModule
@@ -60421,6 +63735,13 @@ if not PROJECT_QUERY [ name ] then
 return nil
 end
 return projectFingerprint ( name , key )
+end
+
+function inc . projectDependencyPaths ( name , key )
+if not PROJECT_QUERY [ name ] then
+return { }
+end
+return projectDependencyPaths ( name , key )
 end
 
 function inc . persist ( )
@@ -61243,6 +64564,13 @@ lints . all = { setmetatable({ name =
 "use of an API marked deprecated" }, lints.Lint)
 , setmetatable({ name =
 
+"owned-annotation" ,  code =
+"NUPP2515" ,  category =
+"migration" ,  level =
+"warning" ,  summary =
+"an owning result stated above the signature rather than in it" }, lints.Lint)
+, setmetatable({ name =
+
 "jit-boundary" ,  code =
 "NUPP2514" ,  category =
 "suspicious" ,  level =
@@ -61269,6 +64597,7 @@ correctness = "the program is very likely wrong" ,
 suspicious = "legal, and probably not meant" ,
 style = "it works and reads badly" ,
 performance = "a declaration is paying for something it does not use" ,
+migration = "a construct a newer spelling replaces" ,
 }
 
 
@@ -61285,7 +64614,10 @@ local LEVELS = { off = true , note = true , warning = true , error = true , }
 
 
 
-local OPT_IN = { performance = true }
+
+
+
+local OPT_IN = { performance = true , migration = true }
 
 
 lints . categories = CATEGORIES
@@ -66927,6 +70259,21 @@ return nil , failure ( "NUPP2810" , "derive.array needs an array of argument rec
 end
 return opaque ( "derive" , "Argument" , { kind = "array" , values = args [ 1 ] } , provenance ( at , "array" ) )
 end )
+install ( "file" , function ( _ , args )
+local path = args [ 1 ]
+if args . n ~= 1 or type ( path ) ~= "string" or path == "" then
+return nil , failure ( "NUPP2810" , "derive.file needs one non-empty project-relative path" )
+end
+local value = state . deriveFiles and state . deriveFiles [ path ]
+if type ( value ) ~= "string" then
+return nil , failure (
+"NUPP2810" ,
+"derive.file path was not statically admitted by the compiler: " .. path
+)
+end
+
+return value
+end )
 install ( "helper" , function ( at , args )
 local moduleName , member
 if args . n == 1 and type ( args [ 1 ] ) == "string" then
@@ -67075,6 +70422,8 @@ fingerprint = input . fingerprint ,
 providerIdentity = input . providerIdentity ,
 ownerIdentity = input . ownerIdentity ,
 }
+state . deriveFiles = input . providerFiles or { }
+state . deriveInputDescriptors = input . providerInputDescriptors or { }
 local references , views = { } , { }
 local view
 view = function ( value )
@@ -67409,7 +70758,7 @@ if not statics then
 return nil , staticsFailure
 end
 local payload = {
-version = "nupp.derive.result.v2" ,
+version = "nupp.derive.result.v3" ,
 requestFingerprint = state . deriveRequest and state . deriveRequest . fingerprint ,
 providerIdentity = state . deriveRequest and state . deriveRequest . providerIdentity ,
 ownerIdentity = state . deriveRequest and state . deriveRequest . ownerIdentity ,
@@ -67417,6 +70766,7 @@ methods = methods ,
 statics = statics ,
 data = { } ,
 effects = rootEntry . payload . effects or { } ,
+inputs = state . deriveInputDescriptors or { } ,
 }
 for name , value in pairs ( rootEntry . payload . data or { } ) do
 if type ( name ) ~= "string" or name == "" then
@@ -67442,7 +70792,7 @@ provider = "derive" ,
 schema = 1 ,
 family = "Result" ,
 payload = payload ,
-fingerprint = hash . sha256 ( "nupp.derive.result\0v2\0" .. canonical ) ,
+fingerprint = hash . sha256 ( "nupp.derive.result\0v3\0" .. canonical ) ,
 }
 end
 
@@ -71208,7 +74558,8 @@ return made
 end
 
 local function installIntrinsic ( state , library , name , implementation )
-local token = function ( ) end
+local token = function ( )
+end
 state . intrinsics [ token ] = implementation
 library [ name ] = token
 end
@@ -71229,13 +74580,18 @@ end
 installIntrinsic ( state , library , "literal" , function ( at , args )
 local value = args [ 1 ]
 local valueKind = type ( value )
-if valueKind ~= "string" and valueKind ~= "boolean"
-and ( valueKind ~= "number" or value ~= math . floor ( value ) ) then
+if valueKind ~= "string" and valueKind ~= "boolean" and (
+valueKind ~= "number" or value ~= math . floor ( value )
+) then
 return nil , failure ( "NUPP2415" , "nupp.types.literal needs a string, boolean, or exact integer" )
 end
-local base = valueKind == "string" and library . string
-or valueKind == "boolean" and library . boolean or library . integer
+local base = valueKind == "string"
+and library . string
+or valueKind == "boolean"
+and library . boolean
+or library . integer
 local encoded = valueKind .. ":" .. tostring ( value )
+
 return make (
 state ,
 opaque ,
@@ -71250,6 +74606,7 @@ local element = entry ( state , args [ 1 ] , "Type" )
 if not element then
 return nil , failure ( "NUPP2415" , "nupp.types.array needs one type handle" )
 end
+
 return make (
 state ,
 opaque ,
@@ -71261,9 +74618,14 @@ end )
 
 installIntrinsic ( state , library , "tuple" , function ( at , args )
 local members , why = memberArray ( state , args [ 1 ] , "Type" , "nupp.types.tuple" )
-if not members then return nil , why end
+if not members then
+return nil , why
+end
 local keys = { }
-for index , member in ipairs ( members ) do keys [ index ] = keyOf ( state , member ) end
+for index , member in ipairs ( members ) do
+keys [ index ] = keyOf ( state , member )
+end
+
 return make (
 state ,
 opaque ,
@@ -71275,14 +74637,23 @@ end )
 
 installIntrinsic ( state , library , "union" , function ( at , args )
 local members , why = memberArray ( state , args [ 1 ] , "Type" , "nupp.types.union" )
-if not members then return nil , why end
+if not members then
+return nil , why
+end
 local byKey = { }
-for _ , member in ipairs ( members ) do byKey [ keyOf ( state , member ) ] = member end
+for _ , member in ipairs ( members ) do
+byKey [ keyOf ( state , member ) ] = member
+end
 local keys = { }
-for key in pairs ( byKey ) do keys [ # keys + 1 ] = key end
+for key in pairs ( byKey ) do
+keys [ # keys + 1 ] = key
+end
 table . sort ( keys )
 local canonical = { }
-for index , key in ipairs ( keys ) do canonical [ index ] = byKey [ key ] end
+for index , key in ipairs ( keys ) do
+canonical [ index ] = byKey [ key ]
+end
+
 return make (
 state ,
 opaque ,
@@ -71294,14 +74665,23 @@ end )
 
 installIntrinsic ( state , library , "intersection" , function ( at , args )
 local members , why = memberArray ( state , args [ 1 ] , "Type" , "nupp.types.intersection" )
-if not members then return nil , why end
+if not members then
+return nil , why
+end
 local byKey = { }
-for _ , member in ipairs ( members ) do byKey [ keyOf ( state , member ) ] = member end
+for _ , member in ipairs ( members ) do
+byKey [ keyOf ( state , member ) ] = member
+end
 local keys = { }
-for key in pairs ( byKey ) do keys [ # keys + 1 ] = key end
+for key in pairs ( byKey ) do
+keys [ # keys + 1 ] = key
+end
 table . sort ( keys )
 local canonical = { }
-for index , key in ipairs ( keys ) do canonical [ index ] = byKey [ key ] end
+for index , key in ipairs ( keys ) do
+canonical [ index ] = byKey [ key ]
+end
+
 return make (
 state ,
 opaque ,
@@ -71320,7 +74700,10 @@ local nilHandle = library . nil_
 local members = { args [ 1 ] , nilHandle }
 local keys = { inner . payload . key , keyOf ( state , nilHandle ) }
 table . sort ( keys )
-if keys [ 1 ] ~= inner . payload . key then members = { nilHandle , args [ 1 ] } end
+if keys [ 1 ] ~= inner . payload . key then
+members = { nilHandle , args [ 1 ] }
+end
+
 return make (
 state ,
 opaque ,
@@ -71333,7 +74716,10 @@ end )
 local function unary ( name , kind )
 installIntrinsic ( state , library , name , function ( at , args )
 local inner = entry ( state , args [ 1 ] , "Type" )
-if not inner then return nil , failure ( "NUPP2415" , "nupp.types." .. name .. " needs one type handle" ) end
+if not inner then
+return nil , failure ( "NUPP2415" , "nupp.types." .. name .. " needs one type handle" )
+end
+
 return make (
 state ,
 opaque ,
@@ -71343,6 +74729,7 @@ provenance ( at , kind )
 )
 end )
 end
+
 unary ( "pointer" , "ptr" )
 unary ( "constof" , "const" )
 unary ( "borrowed" , "borrowed" )
@@ -71352,15 +74739,23 @@ unary ( "owned" , "owned" )
 installIntrinsic ( state , library , "carray" , function ( at , args )
 local element = entry ( state , args [ 1 ] , "Type" )
 local count = args [ 2 ]
-if not element then return nil , failure ( "NUPP2415" , "nupp.types.carray needs an element type" ) end
+if not element then
+return nil , failure ( "NUPP2415" , "nupp.types.carray needs an element type" )
+end
 if count ~= nil and ( type ( count ) ~= "number" or count ~= math . floor ( count ) or count < 0 ) then
 return nil , failure ( "NUPP2415" , "nupp.types.carray count must be a non-negative exact integer" )
 end
+
 return make (
 state ,
 opaque ,
 "Type" ,
-{ kind = "carray" , element = args [ 1 ] , count = count , key = "carray:" .. element . payload . key .. ":" .. tostring ( count ) } ,
+{
+kind = "carray" ,
+element = args [ 1 ] ,
+count = count ,
+key = "carray:" .. element . payload . key .. ":" .. tostring ( count )
+} ,
 provenance ( at , "carray" )
 )
 end )
@@ -71379,12 +74774,22 @@ if args [ 1 ] == nil and args [ 3 ] == nil then
 return nil , failure ( "NUPP2415" , "nupp.types.indexer needs a read or write capability" )
 end
 local keys = { }
-for index = 1 , 4 do keys [ index ] = args [ index ] and keyOf ( state , args [ index ] ) or "-" end
+for index = 1 , 4 do
+keys [ index ] = args [ index ] and keyOf ( state , args [ index ] ) or "-"
+end
+
 return make (
 state ,
 opaque ,
 "Type" ,
-{ kind = "indexer" , readKey = args [ 1 ] , readValue = args [ 2 ] , writeKey = args [ 3 ] , writeValue = args [ 4 ] , key = table . concat ( keys , ":" ) } ,
+{
+kind = "indexer" ,
+readKey = args [ 1 ] ,
+readValue = args [ 2 ] ,
+writeKey = args [ 3 ] ,
+writeValue = args [ 4 ] ,
+key = table . concat ( keys , ":" )
+} ,
 provenance ( at , "indexer" )
 )
 end )
@@ -71394,14 +74799,25 @@ local readKey , readValue = entry ( state , args [ 1 ] , "Type" ) , entry ( stat
 local writeKey = args [ 3 ] ~= nil and entry ( state , args [ 3 ] , "Type" ) or readKey
 local writeValue = args [ 4 ] ~= nil and entry ( state , args [ 4 ] , "Type" ) or readValue
 if not readKey or not readValue or not writeKey or not writeValue then
-return nil , failure ( "NUPP2415" , "nupp.types.map needs read key/value handles and optional write key/value handles" )
+return nil , failure (
+"NUPP2415" ,
+"nupp.types.map needs read key/value handles and optional write key/value handles"
+)
 end
 local keys = { readKey . payload . key , readValue . payload . key , writeKey . payload . key , writeValue . payload . key }
+
 return make (
 state ,
 opaque ,
 "Type" ,
-{ kind = "indexer" , readKey = args [ 1 ] , readValue = args [ 2 ] , writeKey = args [ 3 ] or args [ 1 ] , writeValue = args [ 4 ] or args [ 2 ] , key = table . concat ( keys , ":" ) } ,
+{
+kind = "indexer" ,
+readKey = args [ 1 ] ,
+readValue = args [ 2 ] ,
+writeKey = args [ 3 ] or args [ 1 ] ,
+writeValue = args [ 4 ] or args [ 2 ] ,
+key = table . concat ( keys , ":" )
+} ,
 provenance ( at , "map" )
 )
 end )
@@ -71420,35 +74836,57 @@ end
 local fields , seen = { } , { }
 for position , field in ipairs ( supplied ) do
 if type ( field ) ~= "table" or type ( field . name ) ~= "string" or field . name == "" or seen [ field . name ] then
-return nil , failure ( "NUPP2415" , "nupp.types.shape has an invalid or repeated field at " .. tostring ( position ) )
+return nil , failure (
+"NUPP2415" ,
+"nupp.types.shape has an invalid or repeated field at " .. tostring ( position )
+)
 end
 local read , write = field . read , field . write
-if read == nil and write == nil or read ~= nil and not entry ( state , read , "Type" )
-or write ~= nil and not entry ( state , write , "Type" ) then
-return nil , failure ( "NUPP2415" , "nupp.types.shape field " .. field . name .. " needs a read or write type" )
+if read == nil and write == nil or read ~= nil and not entry (
+state ,
+read ,
+"Type"
+) or write ~= nil and not entry ( state , write , "Type" ) then
+return nil , failure (
+"NUPP2415" ,
+"nupp.types.shape field " .. field . name .. " needs a read or write type"
+)
 end
 seen [ field . name ] = true
 fields [ # fields + 1 ] = { name = field . name , read = read , write = write }
 end
-table . sort ( fields , function ( left , right ) return left . name < right . name end )
+table . sort ( fields , function ( left , right )
+return left . name < right . name
+end )
 local keys = { }
 for position , field in ipairs ( fields ) do
-keys [ position ] = field . name .. ":" .. ( field . read and keyOf ( state , field . read ) or "-" )
-.. ":" .. ( field . write and keyOf ( state , field . write ) or "-" )
+keys [
+position
+] = field . name .. ":" .. (
+field . read and keyOf ( state , field . read ) or "-"
+) .. ":" .. ( field . write and keyOf ( state , field . write ) or "-" )
 end
 local indexKey = indexer and keyOf ( state , indexer ) or "-"
+
 return make (
 state ,
 opaque ,
 "Type" ,
-{ kind = "shape" , fields = fields , indexer = indexer , key = table . concat ( keys , "," ) .. "[" .. indexKey .. "]" } ,
+{
+kind = "shape" ,
+fields = fields ,
+indexer = indexer ,
+key = table . concat ( keys , "," ) .. "[" .. indexKey .. "]"
+} ,
 provenance ( at , "shape" )
 )
 end )
 
 installIntrinsic ( state , library , "pack" , function ( at , args )
 local head , why = memberArray ( state , args [ 1 ] or { } , "Type" , "nupp.types.pack" )
-if not head then return nil , why end
+if not head then
+return nil , why
+end
 local tail = args [ 2 ]
 if tail ~= nil and not entry ( state , tail , "Type" ) then
 return nil , failure ( "NUPP2415" , "nupp.types.pack tail must be a type handle" )
@@ -71467,11 +74905,18 @@ copiedModes [ index ] = mode
 keys [ index ] = mode .. ":" .. keyOf ( state , member )
 end
 local tailKey = tail and keyOf ( state , tail ) or "-"
+
 return make (
 state ,
 opaque ,
 "Pack" ,
-{ kind = "pack" , head = head , tail = tail , modes = copiedModes , key = table . concat ( keys , "," ) .. "..." .. tailKey } ,
+{
+kind = "pack" ,
+head = head ,
+tail = tail ,
+modes = copiedModes ,
+key = table . concat ( keys , "," ) .. "..." .. tailKey
+} ,
 provenance ( at , "pack" )
 )
 end )
@@ -71481,11 +74926,17 @@ local parameters , results = entry ( state , args [ 1 ] , "Pack" ) , entry ( sta
 if not parameters or not results then
 return nil , failure ( "NUPP2415" , "nupp.types.function_ needs parameter and result type packs" )
 end
+
 return make (
 state ,
 opaque ,
 "Type" ,
-{ kind = "function" , parameters = args [ 1 ] , results = args [ 2 ] , key = parameters . payload . key .. "->" .. results . payload . key } ,
+{
+kind = "function" ,
+parameters = args [ 1 ] ,
+results = args [ 2 ] ,
+key = parameters . payload . key .. "->" .. results . payload . key
+} ,
 provenance ( at , "function" )
 )
 end )
@@ -71495,6 +74946,7 @@ local found = entry ( state , args [ 1 ] , "Type" )
 if not found or found . payload . kind ~= "function" then
 return nil , failure ( "NUPP2415" , "nupp.types.parameters needs a function type" )
 end
+
 return found . payload . parameters
 end )
 
@@ -71503,19 +74955,26 @@ local found = entry ( state , args [ 1 ] , "Type" )
 if not found or found . payload . kind ~= "function" then
 return nil , failure ( "NUPP2415" , "nupp.types.results needs a function type" )
 end
+
 return found . payload . results
 end )
 
 installIntrinsic ( state , library , "kind" , function ( _ , args )
 local found = entry ( state , args [ 1 ] )
-if not found then return nil , failure ( "NUPP2415" , "nupp.types.kind needs a type or type-pack handle" ) end
+if not found then
+return nil , failure ( "NUPP2415" , "nupp.types.kind needs a type or type-pack handle" )
+end
+
 return found . payload . kind
 end )
 
 installIntrinsic ( state , library , "describe" , function ( _ , args )
 local found = entry ( state , args [ 1 ] )
-if not found then return nil , failure ( "NUPP2415" , "nupp.types.describe needs a type or type-pack handle" ) end
+if not found then
+return nil , failure ( "NUPP2415" , "nupp.types.describe needs a type or type-pack handle" )
+end
 local payload = found . payload
+
 return {
 kind = payload . kind ,
 sourceKind = payload . sourceKind ,
@@ -71541,12 +75000,25 @@ end )
 
 installIntrinsic ( state , library , "elements" , function ( _ , args )
 local found = entry ( state , args [ 1 ] , "Type" )
-if not found then return nil , failure ( "NUPP2415" , "nupp.types.elements needs a type handle" ) end
+if not found then
+return nil , failure ( "NUPP2415" , "nupp.types.elements needs a type handle" )
+end
 local payload = found . payload
-if payload . kind == "array" or payload . kind == "carray" then return { payload . element } end
-if payload . kind == "ptr" or payload . kind == "const" or payload . kind == "borrowed"
-or payload . kind == "pinned" or payload . kind == "owned" then return { payload . inner } end
-if payload . kind == "tuple" or payload . kind == "union" or payload . kind == "intersection" then return payload . members end
+if payload . kind == "array" or payload . kind == "carray" then
+return { payload . element }
+end
+if payload . kind == "ptr"
+or payload . kind == "const"
+or payload . kind == "borrowed"
+or payload . kind == "pinned"
+or payload . kind == "owned"
+then
+return { payload . inner }
+end
+if payload . kind == "tuple" or payload . kind == "union" or payload . kind == "intersection" then
+return payload . members
+end
+
 return nil , failure ( "NUPP2415" , "nupp.types.elements cannot inspect " .. tostring ( payload . kind ) )
 end )
 
@@ -71559,6 +75031,7 @@ local fields = { }
 for position , field in ipairs ( found . payload . fields or { } ) do
 fields [ position ] = { name = field . name , read = field . read , write = field . write }
 end
+
 return fields
 end )
 
@@ -71571,34 +75044,59 @@ local keys = { }
 for _ , field in ipairs ( found . payload . fields or { } ) do
 if field [ capability ] then
 local value = field . name
-keys [ # keys + 1 ] = make ( state , opaque , "Type" , {
-kind = "literal" , value = value , base = library . string ,
-key = "literal:string:" .. value ,
-} , nil )
+keys [
+# keys + 1
+] = make (
+state ,
+opaque ,
+"Type" ,
+{ kind = "literal" , value = value , base = library . string , key = "literal:string:" .. value , } ,
+nil
+)
 end
 end
 local indexer = found . payload . kind == "indexer" and found or entry ( state , found . payload . indexer , "Type" )
 local indexKey = indexer and indexer . payload [ capability .. "Key" ] or nil
-if indexKey then keys [ # keys + 1 ] = indexKey end
+if indexKey then
+keys [ # keys + 1 ] = indexKey
+end
+
 return keys
 end
-installIntrinsic ( state , library , "readKeys" , function ( _ , args ) return keysFor ( args , "read" ) end )
-installIntrinsic ( state , library , "writeKeys" , function ( _ , args ) return keysFor ( args , "write" ) end )
+
+installIntrinsic ( state , library , "readKeys" , function ( _ , args )
+return keysFor ( args , "read" )
+end )
+installIntrinsic ( state , library , "writeKeys" , function ( _ , args )
+return keysFor ( args , "write" )
+end )
 
 local function atFor ( args , capability )
 local found , key = entry ( state , args [ 1 ] , "Type" ) , entry ( state , args [ 2 ] , "Type" )
-if not found or not key then return nil , failure ( "NUPP2415" , "nupp.types." .. capability .. "At needs type handles" ) end
+if not found or not key then
+return nil , failure ( "NUPP2415" , "nupp.types." .. capability .. "At needs type handles" )
+end
 if key . payload . kind == "literal" and type ( key . payload . value ) == "string" then
 for _ , field in ipairs ( found . payload . fields or { } ) do
-if field . name == key . payload . value and field [ capability ] then return field [ capability ] end
+if field . name == key . payload . value and field [ capability ] then
+return field [ capability ]
+end
 end
 end
 local indexer = found . payload . kind == "indexer" and found or entry ( state , found . payload . indexer , "Type" )
-if indexer and indexer . payload [ capability .. "Value" ] then return indexer . payload [ capability .. "Value" ] end
+if indexer and indexer . payload [ capability .. "Value" ] then
+return indexer . payload [ capability .. "Value" ]
+end
+
 return nil , failure ( "NUPP2420" , "type has no " .. capability .. " capability at the requested key" )
 end
-installIntrinsic ( state , library , "readAt" , function ( _ , args ) return atFor ( args , "read" ) end )
-installIntrinsic ( state , library , "writeAt" , function ( _ , args ) return atFor ( args , "write" ) end )
+
+installIntrinsic ( state , library , "readAt" , function ( _ , args )
+return atFor ( args , "read" )
+end )
+installIntrinsic ( state , library , "writeAt" , function ( _ , args )
+return atFor ( args , "write" )
+end )
 
 installIntrinsic ( state , library , "error" , function ( _ , args )
 if type ( args [ 1 ] ) ~= "string" then
@@ -71612,6 +75110,7 @@ if type ( args [ 1 ] ) ~= "string" then
 return { arguments = { } , }
 end
 local parsed , why = luaFormat . analyze ( args [ 1 ] )
+
 return { arguments = parsed and parsed . arguments or { } , error = why , }
 end )
 
@@ -71620,6 +75119,7 @@ if type ( args [ 1 ] ) ~= "string" then
 return { captures = { } , }
 end
 local captures , why = luaPattern . captureKinds ( args [ 1 ] )
+
 return { captures = captures or { } , error = why , }
 end )
 
@@ -71633,13 +75133,16 @@ descriptor ,
 source ,
 referencePrefix
 )
-if type ( descriptor ) ~= "table" or type ( descriptor . types ) ~= "table"
-or type ( descriptor . root ) ~= "number" or not state . typeHandles then
+if type (
+descriptor
+) ~= "table" or type ( descriptor . types ) ~= "table" or type ( descriptor . root ) ~= "number" or not state . typeHandles then
 return nil , failure ( "NUPP2415" , "type-function input has a malformed semantic descriptor" )
 end
 local nodes , built , active = descriptor . types , { } , { }
 local opaque = state . typeOpaque
-if not opaque then return nil , failure ( "NUPP2415" , "the type provider is not installed" ) end
+if not opaque then
+return nil , failure ( "NUPP2415" , "the type provider is not installed" )
+end
 local import
 local function list ( indices , label )
 if type ( indices ) ~= "table" or # indices > typeprovider . MAX_MEMBERS then
@@ -71648,31 +75151,43 @@ end
 local values = { }
 for position , index in ipairs ( indices ) do
 values [ position ] = import ( index )
-if not values [ position ] then return nil , failure ( "NUPP2415" , label .. " has an invalid edge" ) end
+if not values [ position ] then
+return nil , failure ( "NUPP2415" , label .. " has an invalid edge" )
 end
+end
+
 return values , nil
 end
+
 import = function ( index )
-if built [ index ] then return built [ index ] end
-if active [ index ] or type ( index ) ~= "number" or type ( nodes [ index ] ) ~= "table" then return nil end
+if built [ index ] then
+return built [ index ]
+end
+if active [ index ] or type ( index ) ~= "number" or type ( nodes [ index ] ) ~= "table" then
+return nil
+end
 active [ index ] = true
 local node = nodes [ index ]
 local kind = node . kind
 local made
-local referencedSource = descriptor . sources and descriptor . sources [ index ]
-or index == descriptor . root and source
-or nil
+local referencedSource = descriptor . sources and descriptor . sources [
+index
+] or index == descriptor . root and source or nil
 if node . nominal and ( referencedSource or referencePrefix ) then
-local referenceFingerprint = node . referenceFingerprint
-or referencedSource and require ( "nupp.compiler.reflection" ) . describe ( referencedSource ) . fingerprint
-or nil
-if type ( referenceFingerprint ) ~= "string" then return nil end
+local referenceFingerprint = node . referenceFingerprint or referencedSource and require (
+"nupp.compiler.reflection"
+) . describe ( referencedSource ) . fingerprint or nil
+if type ( referenceFingerprint ) ~= "string" then
+return nil
+end
 local payload = {
-kind = "reference" , source = referencedSource ,
+kind = "reference" ,
+source = referencedSource ,
 referenceId = referencePrefix and referencePrefix .. ":" .. tostring ( index ) or nil ,
 fingerprint = referenceFingerprint ,
-key = "reference:" .. ( referencePrefix and referencePrefix .. ":" .. tostring ( index )
-or referenceFingerprint ) ,
+key = "reference:" .. (
+referencePrefix and referencePrefix .. ":" .. tostring ( index ) or referenceFingerprint
+) ,
 }
 made = make ( state , opaque , "Type" , payload , nil )
 built [ index ] = made
@@ -71686,7 +75201,9 @@ supertypes = { } ,
 }
 payload . nominal = reflected
 for position , field in ipairs ( node . fields or { } ) do
-reflected . fields [ position ] = {
+reflected . fields [
+position
+] = {
 name = field . name ,
 read = field . read and import ( field . read ) or nil ,
 write = field . write and import ( field . write ) or nil ,
@@ -71705,41 +75222,76 @@ made = make ( state , opaque , "Type" , { kind = "primitive" , name = kind , key
 elseif kind == "literal" then
 local base = import ( node . base )
 if base then
-made = make ( state , opaque , "Type" , {
-kind = "literal" , value = node . value , base = base ,
+made = make (
+state ,
+opaque ,
+"Type" ,
+{
+kind = "literal" ,
+value = node . value ,
+base = base ,
 key = "literal:" .. type ( node . value ) .. ":" .. tostring ( node . value ) ,
-} , nil )
+} ,
+nil
+)
 end
 elseif kind == "typevar" or kind == "typeHandle" then
 made = import ( node . bound )
 elseif kind == "array" then
 local element = import ( node . element )
-if element then made = make ( state , opaque , "Type" , { kind = "array" , element = element , key = "array:" .. keyOf ( state , element ) } , nil ) end
+if element then
+made = make (
+state ,
+opaque ,
+"Type" ,
+{ kind = "array" , element = element , key = "array:" .. keyOf ( state , element ) } ,
+nil
+)
+end
 elseif kind == "map" then
 local readKey = node . readKey and import ( node . readKey ) or nil
 local readValue = node . readValue and import ( node . readValue ) or nil
 local writeKey = node . writeKey and import ( node . writeKey ) or nil
 local writeValue = node . writeValue and import ( node . writeValue ) or nil
-if ( readKey == nil ) == ( readValue == nil ) and ( writeKey == nil ) == ( writeValue == nil )
-and ( readKey or writeKey ) then
+if (
+readKey == nil
+) == ( readValue == nil ) and ( writeKey == nil ) == ( writeValue == nil ) and ( readKey or writeKey ) then
 local keys = {
-readKey and keyOf ( state , readKey ) or "-" , readValue and keyOf ( state , readValue ) or "-" ,
-writeKey and keyOf ( state , writeKey ) or "-" , writeValue and keyOf ( state , writeValue ) or "-" ,
+readKey and keyOf ( state , readKey ) or "-" ,
+readValue and keyOf ( state , readValue ) or "-" ,
+writeKey and keyOf ( state , writeKey ) or "-" ,
+writeValue and keyOf ( state , writeValue ) or "-" ,
 }
-made = make ( state , opaque , "Type" , {
-kind = "indexer" , readKey = readKey , readValue = readValue ,
-writeKey = writeKey , writeValue = writeValue , sourceKind = "map" , key = table . concat ( keys , ":" ) ,
-} , nil )
+made = make (
+state ,
+opaque ,
+"Type" ,
+{
+kind = "indexer" ,
+readKey = readKey ,
+readValue = readValue ,
+writeKey = writeKey ,
+writeValue = writeValue ,
+sourceKind = "map" ,
+key = table . concat ( keys , ":" ) ,
+} ,
+nil
+)
 end
 elseif kind == "shape" then
 local fields , keys = { } , { }
 for position , field in ipairs ( node . fields or { } ) do
 local read = field . read and import ( field . read ) or nil
 local write = field . write and import ( field . write ) or nil
-if not read and not write then return nil end
+if not read and not write then
+return nil
+end
 fields [ position ] = { name = field . name , read = read , write = write }
-keys [ position ] = field . name .. ":" .. ( read and keyOf ( state , read ) or "-" )
-.. ":" .. ( write and keyOf ( state , write ) or "-" )
+keys [
+position
+] = field . name .. ":" .. (
+read and keyOf ( state , read ) or "-"
+) .. ":" .. ( write and keyOf ( state , write ) or "-" )
 end
 local reflected = node . index or { }
 local readKey = reflected . readKey and import ( reflected . readKey ) or nil
@@ -71749,34 +75301,86 @@ local writeValue = reflected . writeValue and import ( reflected . writeValue ) 
 local indexer
 if readKey or writeKey then
 local indexKeys = {
-readKey and keyOf ( state , readKey ) or "-" , readValue and keyOf ( state , readValue ) or "-" ,
-writeKey and keyOf ( state , writeKey ) or "-" , writeValue and keyOf ( state , writeValue ) or "-" ,
+readKey and keyOf ( state , readKey ) or "-" ,
+readValue and keyOf ( state , readValue ) or "-" ,
+writeKey and keyOf ( state , writeKey ) or "-" ,
+writeValue and keyOf ( state , writeValue ) or "-" ,
 }
-indexer = make ( state , opaque , "Type" , {
-kind = "indexer" , readKey = readKey , readValue = readValue ,
-writeKey = writeKey , writeValue = writeValue , key = table . concat ( indexKeys , ":" ) ,
-} , nil )
+indexer = make (
+state ,
+opaque ,
+"Type" ,
+{
+kind = "indexer" ,
+readKey = readKey ,
+readValue = readValue ,
+writeKey = writeKey ,
+writeValue = writeValue ,
+key = table . concat ( indexKeys , ":" ) ,
+} ,
+nil
+)
 end
-made = make ( state , opaque , "Type" , {
-kind = "shape" , fields = fields , indexer = indexer ,
+made = make (
+state ,
+opaque ,
+"Type" ,
+{
+kind = "shape" ,
+fields = fields ,
+indexer = indexer ,
 key = table . concat ( keys , "," ) .. "[" .. ( indexer and keyOf ( state , indexer ) or "-" ) .. "]" ,
-} , nil )
+} ,
+nil
+)
 elseif kind == "tuple" or kind == "union" or kind == "intersection" then
 local members = list ( node . members , kind )
 if members then
 local keys = { }
-for position , member in ipairs ( members ) do keys [ position ] = keyOf ( state , member ) end
-made = make ( state , opaque , "Type" , { kind = kind , members = members , key = kind .. ":" .. table . concat ( keys , "," ) } , nil )
+for position , member in ipairs ( members ) do
+keys [ position ] = keyOf ( state , member )
+end
+made = make (
+state ,
+opaque ,
+"Type" ,
+{ kind = kind , members = members , key = kind .. ":" .. table . concat ( keys , "," ) } ,
+nil
+)
 end
 elseif kind == "ptr" or kind == "const" or kind == "borrowed" or kind == "pinned" or kind == "owned" then
 local inner = import ( node . element )
-if inner then made = make ( state , opaque , "Type" , { kind = kind , inner = inner , key = kind .. ":" .. keyOf ( state , inner ) } , nil ) end
+if inner then
+local intentionalOpaque = kind == "owned" and node . opaque == true
+made = make (
+state ,
+opaque ,
+"Type" ,
+{
+kind = kind ,
+inner = inner ,
+opaque = intentionalOpaque ,
+key = kind .. ( intentionalOpaque and ":opaque" or "" ) .. ":" .. keyOf ( state , inner ) ,
+} ,
+nil
+)
+end
 elseif kind == "carray" then
 local element = import ( node . element )
-if element then made = make ( state , opaque , "Type" , {
-kind = "carray" , element = element , count = node . count ,
+if element then
+made = make (
+state ,
+opaque ,
+"Type" ,
+{
+kind = "carray" ,
+element = element ,
+count = node . count ,
 key = "carray:" .. keyOf ( state , element ) .. ":" .. tostring ( node . count ) ,
-} , nil ) end
+} ,
+nil
+)
+end
 elseif kind == "pack" then
 local headIndices , modes = { } , { }
 for position , member in ipairs ( node . head or { } ) do
@@ -71787,34 +75391,60 @@ local head = list ( headIndices , "pack" )
 local tail = node . tail and node . tail . type and import ( node . tail . type ) or nil
 if head then
 local keys = { }
-for position , member in ipairs ( head ) do keys [ position ] = modes [ position ] .. ":" .. keyOf ( state , member ) end
-made = make ( state , opaque , "Pack" , {
-kind = "pack" , head = head , modes = modes , tail = tail ,
+for position , member in ipairs ( head ) do
+keys [ position ] = modes [ position ] .. ":" .. keyOf ( state , member )
+end
+made = make (
+state ,
+opaque ,
+"Pack" ,
+{
+kind = "pack" ,
+head = head ,
+modes = modes ,
+tail = tail ,
 key = table . concat ( keys , "," ) .. "..." .. ( tail and keyOf ( state , tail ) or "-" ) ,
-} , nil )
+} ,
+nil
+)
 end
 elseif kind == "func" then
 local parameters = node . parameterPack and import ( node . parameterPack )
 local results = node . returnPack and import ( node . returnPack )
-if parameters and results then made = make ( state , opaque , "Type" , {
-kind = "function" , parameters = parameters , results = results ,
+if parameters and results then
+made = make (
+state ,
+opaque ,
+"Type" ,
+{
+kind = "function" ,
+parameters = parameters ,
+results = results ,
 key = keyOf ( state , parameters ) .. "->" .. keyOf ( state , results ) ,
-} , nil ) end
+} ,
+nil
+)
+end
 end
 active [ index ] = nil
 built [ index ] = made
+
 return made
 end
 local root = import ( descriptor . root )
 if not root then
 return nil , failure ( "NUPP2415" , "type-function input uses a semantic kind the type provider cannot import" )
 end
+
 return root , nil
 end
 
 function typeprovider . opaqueKind ( state , value )
 local found = entry ( state , value )
-if not found then return nil end
+if not found then
+return nil
+end
+
 return found . family == "Pack" and "typepack" or "type"
 end
 
@@ -71825,7 +75455,10 @@ return nil , failure ( "NUPP2411" , "this operator is unavailable for type handl
 end
 local other = entry ( state , right )
 local equal = other ~= nil and found . family == other . family and found . payload . key == other . payload . key
-if op == "==" then return equal , nil end
+if op == "==" then
+return equal , nil
+end
+
 return not equal , nil
 end
 
@@ -71835,7 +75468,9 @@ local failed
 
 local function intern ( handle )
 local prior = indices [ handle ]
-if prior then return prior end
+if prior then
+return prior
+end
 if # nodes >= typeprovider . MAX_NODES then
 failed = failure ( "NUPP2416" , "type blueprint exceeds the 10000-node limit" )
 return 0
@@ -71856,23 +75491,30 @@ elseif payload . kind == "reference" then
 node . reference = # references + 1
 node . referenceId = payload . referenceId
 node . fingerprint = payload . fingerprint
-references [ node . reference ] = {
-source = payload . source ,
-referenceId = payload . referenceId ,
-fingerprint = payload . fingerprint ,
-}
+references [
+node . reference
+] = { source = payload . source , referenceId = payload . referenceId , fingerprint = payload . fingerprint , }
 elseif payload . kind == "literal" then
 node . value = payload . value
 node . base = intern ( payload . base )
 elseif payload . kind == "array" or payload . kind == "carray" then
 node . element = intern ( payload . element )
 node . count = payload . count
-elseif payload . kind == "ptr" or payload . kind == "const" or payload . kind == "borrowed"
-or payload . kind == "pinned" or payload . kind == "owned" then
+elseif payload . kind == "ptr"
+or payload . kind == "const"
+or payload . kind == "borrowed"
+or payload . kind == "pinned"
+or payload . kind == "owned"
+then
 node . inner = intern ( payload . inner )
+if payload . kind == "owned" then
+node . opaque = payload . opaque == true
+end
 elseif payload . kind == "tuple" or payload . kind == "union" or payload . kind == "intersection" then
 node . members = { }
-for position , member in ipairs ( payload . members or { } ) do node . members [ position ] = intern ( member ) end
+for position , member in ipairs ( payload . members or { } ) do
+node . members [ position ] = intern ( member )
+end
 elseif payload . kind == "indexer" then
 node . readKey = payload . readKey and intern ( payload . readKey ) or nil
 node . readValue = payload . readValue and intern ( payload . readValue ) or nil
@@ -71881,7 +75523,9 @@ node . writeValue = payload . writeValue and intern ( payload . writeValue ) or 
 elseif payload . kind == "shape" then
 node . fields = { }
 for position , field in ipairs ( payload . fields or { } ) do
-node . fields [ position ] = {
+node . fields [
+position
+] = {
 name = field . name ,
 read = field . read and intern ( field . read ) or nil ,
 write = field . write and intern ( field . write ) or nil ,
@@ -71893,18 +75537,24 @@ node . parameters = intern ( payload . parameters )
 node . results = intern ( payload . results )
 elseif payload . kind == "pack" then
 node . head , node . modes = { } , payload . modes
-for position , member in ipairs ( payload . head or { } ) do node . head [ position ] = intern ( member ) end
+for position , member in ipairs ( payload . head or { } ) do
+node . head [ position ] = intern ( member )
+end
 node . tail = payload . tail and intern ( payload . tail ) or nil
 else
 failed = failure ( "NUPP2415" , "type blueprint uses unsupported kind " .. tostring ( payload . kind ) )
 end
+
 return index
 end
 
 local rootIndex = intern ( root )
-if failed then return nil , failed end
+if failed then
+return nil , failed
+end
 local payload = { root = rootIndex , nodes = nodes }
 local fingerprint = hash . sha256 ( "nupp.types\0v1\0" .. stable ( payload ) )
+
 return {
 kind = "type-blueprint" ,
 provider = "types" ,
@@ -72655,7 +76305,7 @@ local isA = ( relations
 function narrowing . subtract ( t , rem )
 if t . tag == "owned" then
 local inner = narrowing . subtract ( t . inner , rem )
-return inner == t . inner and t or T . owned ( inner , t . cleanups )
+return inner == t . inner and t or T . owned ( inner , t . cleanups , t . opaque )
 elseif t . tag == "borrowed" then
 local inner = narrowing . subtract ( t . inner , rem )
 return inner == t . inner and t or T . borrowed ( inner )
@@ -72877,6 +76527,13 @@ globals = { "nupp.io.newBuffer" , "nupp.io.newStringReader" } ,
 ] = {
 name = "math" ,
 globals = { "nupp.math" } ,
+} , [
+"stdlib.bitset"
+] = {
+name = "bitset" ,
+globals = { "nupp.data.bitset" } ,
+
+
 } , [
 "stdlib.log"
 ] = {
@@ -79058,8 +82715,8 @@ owned, not only the first. A known local is destroyed at scope exit. Drop,
 `takes`, an owning return, or `intoRaw` ends or transfers it once. An unresolved
 owner needs an explicit terminal; forgetting is an error, not a leak.
 
-`@owned(cleanup)` says the same of a first result, and is what a type carrying no
-`@drop` of its own still uses to name a terminal.
+`Owned<T, opaque>` makes the absence of a terminal deliberate: the value may be
+transferred or converted into a raw value, but cannot be destroyed locally.
 
 Parameter modes describe calls: `takes` consumes; `borrows` is call-scoped;
 `exclusive` also requires sole access; `retains`/`releases` describe C holding a
@@ -79070,8 +82727,8 @@ generic narrowing. `T borrows (source)` ties a result or nominal field to a
 root. Closures borrow captured owners by default; `borrows (source)` declares
 that relation. `takes (source)` moves an owner into an affine, single-shot
 closure whose call or drop discharges it. A `scoped` callback proves borrowed
-captures cannot escape. `@owned(cleanup)` on a callable field declares a fresh
-owning result.
+captures cannot escape. `Owned<T>` in a callable field declares a fresh owning
+result.
 
 Affine nominal fields have path-sensitive state. `nupp.resources.Set` holds
 dynamic owners. `nupp.span` gives sealed, private-implementation `Span<T>` and
@@ -79107,8 +82764,7 @@ end
 --- @param path where to read from
 --- @return an owned handle
 --- @raises when the file cannot be opened
-@owned(closeFile)
-function m.open(path: string): LuaFile
+function m.open(path: string): Owned<LuaFile, closeFile>
     local file = io.open(path, "r")
     if not file then
         error("cannot open " .. path)
@@ -79276,21 +82932,21 @@ return m
 "Modules" ,  codes =
 { "NUPP2120" , "NUPP2101" } ,  body =
 [=[
-Modules are Lua's: a file returns a value and `require` gets it. A module's type
-is whatever the file returned, and a declaration with a runtime value puts
-itself on that table, so nothing is merged in behind your back. Another file
-reaches a member through the module it was attached to, and a module path also
-names a type directly, as in `models.user.User`.
+A module is a Lua file: `require` gets the value it returns. Runtime
+declarations attach to a returned table and determine its type; paths such as
+`models.user.User` may also name types.
 
-The returned local already identifies the module table; there is no `module`
-keyword. Use `const M.field = value` to make an export slot immutable. A fresh
-table can mark individual named slots with `const name = value`, or use
-`const... M.field = {...}` to mark all of its named slots recursively. These
-guarantees are checked in Nupp and preserve exact primitive literals for
-constant propagation in consumers.
+An annotated `function M.name(...)` signature is visible to sibling bodies in
+either source order. Assignments, local functions and runtime writes remain
+source-ordered.
 
-A `.d.nupp` declaration file is the exception: it describes an interface it does
-not own and returns no table, so a bare declaration there is that interface.
+The returned local names the module; there is no `module` keyword. `const
+M.field = value` makes one export immutable; on a fresh table, `const` marks one
+named slot and `const...` marks them all. Primitive literal types survive in
+consumers.
+
+A `.d.nupp` file returns no table; its bare declarations describe an external
+interface.
 ]=] ,  context =
 {
 [ "models.nupp" ] = [=[
@@ -80195,8 +83851,9 @@ write = intern ( write ) ,
 readable = read ~= nil ,
 writable = write ~= nil ,
 hasDefault = t . fieldDefaults and t . fieldDefaults [ field . name ] ~= nil or false ,
-defaultValue = t . fieldDefaults and t . fieldDefaults [ field . name ]
-and t . fieldDefaults [ field . name ] . value ,
+defaultValue = t . fieldDefaults and t . fieldDefaults [
+field . name
+] and t . fieldDefaults [ field . name ] . value ,
 annotations = reflectedAnnotations ( field . annotations ) ,
 }
 end
@@ -80380,10 +84037,9 @@ out . arguments [ position ] = { kind = "type" , type = intern ( argument . valu
 elseif argument . kind == "typepack" then
 out . arguments [ position ] = { kind = "typepack" , pack = intern ( argument . value ) }
 else
-out . arguments [ position ] = {
-kind = "const" , value = argument . value . value ,
-domain = argument . value . domain ,
-}
+out . arguments [
+position
+] = { kind = "const" , value = argument . value . value , domain = argument . value . domain , }
 end
 end
 out . bound = intern ( t . comptimeBound )
@@ -80424,6 +84080,7 @@ or tag == "const"
 then
 out . element = intern ( t . elem or t . inner )
 if tag == "owned" then
+out . opaque = t . opaque == true
 out . cleanups = { }
 for position , cleanup in ipairs ( t . cleanups or { } ) do
 out . cleanups [
@@ -82099,11 +85756,15 @@ local runtime = { }
 
 function runtime . install (
 env ,
-compile
+compile ,
+loaded
 )
 local loaders = package . loaders
 assert ( loaders , "this Lua runtime does not expose package loaders" )
 assert ( type ( compile ) == "function" , "compile callback must be a function" )
+local function pack ( ... )
+return { n = select ( "#" , ... ) , ... }
+end
 
 local function loadLjppModule ( name )
 local path = envMod . findRuntimeModulePath ( env , name )
@@ -82130,7 +85791,25 @@ if not chunk then
 error ( ( "error loading project module '%s' " .. "from '%s': %s" ) : format ( name , path , tostring ( loadErr ) ) , 0 )
 end
 
+if not loaded or not path : match ( "%.nupp$" ) then
 return chunk
+end
+
+
+
+
+return function ( ... )
+local args = { n = select ( "#" , ... ) , ... }
+local result
+local ok , failure = pcall ( function ( )
+result = pack ( chunk ( unpack ( args , 1 , args . n ) ) )
+end )
+loaded ( name , path , ok )
+if not ok then
+error ( failure , 0 )
+end
+return unpack ( result , 1 , result . n )
+end
 end
 
 
@@ -82173,6 +85852,17 @@ local BASE = compact (
 [=[
 local __nupp=_G.nupp or {};_G.nupp=__nupp
 local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
+]=]
+)
+
+
+
+
+
+local HOT_BASE = compact (
+[=[
+local __nupp=_G.nupp or {};_G.nupp=__nupp
+local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);rawset(__nupp,"math",rawget(__nupp,"math")or{})
 ]=]
 )
 
@@ -83359,14 +87049,23 @@ end
 ]=]
 )
 
+
+
+
+local BITSET = compact (
+[=[
+__nuppLazy(__nuppData,"bitset",function()return require("nupp.bitsetimpl")end)
+]=]
+)
+
 local SHA256 = compact (
 [=[
 __nuppLazy(__nuppData,"sha256",function()local native=__nuppNative();return function(value)local bytes=type(value)=="string"and value or value:getString();local output=native.ffi.new("char[65]");if not native.C.nuppSha256(bytes,#bytes,output)then error("nupp: SHA-256 input is invalid",2)end;return native.ffi.string(output)end end)
 ]=]
 )
 
-function stdlib . bootstrap ( effects )
-local out = { BASE }
+function stdlib . bootstrap ( effects , watch )
+local out = { watch and HOT_BASE or BASE }
 if effects and next ( effects ) then
 out [ # out + 1 ] = LAZY
 end
@@ -83381,7 +87080,7 @@ if effects [ "native.lua_utf8" ] then
 out [ # out + 1 ] = UTF8
 end
 if effects [ "stdlib.math" ] then
-out [ # out + 1 ] = MATH
+out [ # out + 1 ] = watch and MATH : gsub ( "local m=__nuppMath" , "local m=_G.nupp.math" , 1 ) or MATH
 end
 if effects [ "stdlib.log" ] then
 out [ # out + 1 ] = LOG
@@ -83403,6 +87102,9 @@ out [ # out + 1 ] = FIELDCODEC
 end
 if effects [ "stdlib.derives" ] then
 out [ # out + 1 ] = DERIVES
+end
+if effects [ "stdlib.bitset" ] then
+out [ # out + 1 ] = BITSET
 end
 local hasNative = effects [
 "native.path"
@@ -83716,16 +87418,25 @@ return { code = "NUPP2415" , message = message }
 end
 
 function typeblueprint . validate ( envelope , permittedReferences )
-if type ( envelope ) ~= "table" or envelope . kind ~= "type-blueprint"
-or envelope . provider ~= "types" or envelope . schema ~= typeblueprint . SCHEMA
-or envelope . family ~= "Type" and envelope . family ~= "Pack"
-or type ( envelope . payload ) ~= "table" or type ( envelope . fingerprint ) ~= "string" then
+if type (
+envelope
+) ~= "table"
+or envelope . kind ~= "type-blueprint"
+or envelope . provider ~= "types"
+or envelope . schema ~= typeblueprint . SCHEMA
+or envelope . family ~= "Type"
+and envelope . family ~= "Pack"
+or type (
+envelope . payload
+) ~= "table" or type ( envelope . fingerprint ) ~= "string" then
 return nil , failure ( "the comptime worker returned a malformed type blueprint envelope" )
 end
 local payload , nodes = envelope . payload , envelope . payload . nodes
-if type ( nodes ) ~= "table" or # nodes < 1 or # nodes > typeblueprint . MAX_NODES
-or type ( payload . root ) ~= "number" or payload . root ~= math . floor ( payload . root )
-or payload . root < 1 or payload . root > # nodes then
+if type (
+nodes
+) ~= "table" or # nodes < 1 or # nodes > typeblueprint . MAX_NODES or type (
+payload . root
+) ~= "number" or payload . root ~= math . floor ( payload . root ) or payload . root < 1 or payload . root > # nodes then
 return nil , failure ( "type blueprint has an invalid graph root or node count" )
 end
 local expectedFingerprint = hash . sha256 ( "nupp.types\0v1\0" .. stable ( payload ) )
@@ -83741,6 +87452,7 @@ return nil , label .. " has an invalid type edge"
 end
 return build ( index )
 end
+
 local function edgeArray ( values , label )
 if type ( values ) ~= "table" or # values > typeblueprint . MAX_MEMBERS then
 return nil , label .. " has an invalid or oversized member array"
@@ -83748,16 +87460,25 @@ end
 local out = { }
 for position , index in ipairs ( values ) do
 local value , why = edge ( index , label .. " member " .. tostring ( position ) )
-if not value then return nil , why end
-if value . tag == "pack" then return nil , label .. " contains a type pack where a type is required" end
+if not value then
+return nil , why
+end
+if value . tag == "pack" then
+return nil , label .. " contains a type pack where a type is required"
+end
 out [ position ] = value
 end
+
 return out , nil
 end
 
 build = function ( index )
-if built [ index ] then return built [ index ] end
-if active [ index ] then return nil , "type blueprint contains a structural cycle" end
+if built [ index ] then
+return built [ index ]
+end
+if active [ index ] then
+return nil , "type blueprint contains a structural cycle"
+end
 local node = nodes [ index ]
 if type ( node ) ~= "table" or type ( node . kind ) ~= "string" then
 return nil , "type blueprint node " .. tostring ( index ) .. " has no kind"
@@ -83766,12 +87487,15 @@ active [ index ] = true
 local value , why
 if node . kind == "primitive" then
 value = PRIMITIVES [ node . name ]
-if not value then why = "type blueprint names an unknown primitive " .. tostring ( node . name ) end
+if not value then
+why = "type blueprint names an unknown primitive " .. tostring ( node . name )
+end
 elseif node . kind == "reference" then
 local reference = type ( envelope . references ) == "table" and envelope . references [ node . reference ] or nil
 local explicitlyPermitted = false
-if ( type ( reference ) ~= "table" or not reference . source )
-and type ( node . referenceId ) == "string" and type ( permittedReferences ) == "table" then
+if (
+type ( reference ) ~= "table" or not reference . source
+) and type ( node . referenceId ) == "string" and type ( permittedReferences ) == "table" then
 reference = permittedReferences [ node . referenceId ]
 explicitlyPermitted = reference ~= nil
 end
@@ -83784,17 +87508,23 @@ break
 end
 end
 end
-if type ( node . fingerprint ) ~= "string" or type ( reference ) ~= "table"
-or type ( reference . fingerprint ) ~= "string" or not reference . source
-or node . fingerprint ~= reference . fingerprint then
-why = "type blueprint names an invalid permitted input reference "
-.. tostring ( node . referenceId or node . reference )
+if type (
+node . fingerprint
+) ~= "string" or type (
+reference
+) ~= "table" or type (
+reference . fingerprint
+) ~= "string" or not reference . source or node . fingerprint ~= reference . fingerprint then
+why = "type blueprint names an invalid permitted input reference " .. tostring (
+node . referenceId or node . reference
+)
 else
 local reflection = require ( "nupp.compiler.reflection" )
 local described = reflection . describe ( reference . source )
 if not explicitlyPermitted and described . fingerprint ~= reference . fingerprint then
-why = "type blueprint input reference fingerprint is stale "
-.. tostring ( node . referenceId or node . reference )
+why = "type blueprint input reference fingerprint is stale " .. tostring (
+node . referenceId or node . reference
+)
 else
 value = reference . source
 end
@@ -83802,11 +87532,14 @@ end
 elseif node . kind == "literal" then
 local base
 base , why = edge ( node . base , "literal base" )
-if base and base . tag == "pack" then why , base = "literal base is a type pack" , nil end
+if base and base . tag == "pack" then
+why , base = "literal base is a type pack" , nil
+end
 if base then
 local kind = type ( node . value )
-if kind ~= "string" and kind ~= "boolean"
-and ( kind ~= "number" or node . value ~= math . floor ( node . value ) ) then
+if kind ~= "string" and kind ~= "boolean" and (
+kind ~= "number" or node . value ~= math . floor ( node . value )
+) then
 why = "type blueprint literal is not a string, boolean, or exact integer"
 else
 value = T . literal ( node . value , base )
@@ -83815,43 +87548,68 @@ end
 elseif node . kind == "array" then
 local element
 element , why = edge ( node . element , "array element" )
-if element and element . tag ~= "pack" then value = T . array ( element )
-elseif element then why = "array element is a type pack" end
+if element and element . tag ~= "pack" then
+value = T . array ( element )
+elseif element then
+why = "array element is a type pack"
+end
 elseif node . kind == "carray" then
 local element
 element , why = edge ( node . element , "C-array element" )
-if element and element . tag == "pack" then why , element = "C-array element is a type pack" , nil end
+if element and element . tag == "pack" then
+why , element = "C-array element is a type pack" , nil
+end
 if element then
-if node . count ~= nil and ( type ( node . count ) ~= "number" or node . count ~= math . floor ( node . count ) or node . count < 0 ) then
+if node . count ~= nil and (
+type ( node . count ) ~= "number" or node . count ~= math . floor ( node . count ) or node . count < 0
+) then
 why = "C-array count is not a non-negative exact integer"
 else
 value = T . carray ( element , node . count )
 end
 end
-elseif node . kind == "ptr" or node . kind == "const" or node . kind == "borrowed"
-or node . kind == "pinned" or node . kind == "owned" then
+elseif node . kind == "ptr"
+or node . kind == "const"
+or node . kind == "borrowed"
+or node . kind == "pinned"
+or node . kind == "owned"
+then
 local inner
 inner , why = edge ( node . inner , node . kind .. " inner type" )
-if inner and inner . tag == "pack" then why , inner = node . kind .. " inner value is a type pack" , nil end
+if inner and inner . tag == "pack" then
+why , inner = node . kind .. " inner value is a type pack" , nil
+end
 if inner then
-if node . kind == "ptr" then value = T . ptr ( inner )
-elseif node . kind == "const" then value = T . constOf ( inner )
-elseif node . kind == "borrowed" then value = T . borrowed ( inner )
-elseif node . kind == "pinned" then value = T . pinned ( inner )
-else value = T . owned ( inner ) end
+if node . kind == "ptr" then
+value = T . ptr ( inner )
+elseif node . kind == "const" then
+value = T . constOf ( inner )
+elseif node . kind == "borrowed" then
+value = T . borrowed ( inner )
+elseif node . kind == "pinned" then
+value = T . pinned ( inner )
+else
+value = T . owned ( inner , nil , node . opaque == true )
+end
 end
 elseif node . kind == "tuple" then
 local members
 members , why = edgeArray ( node . members , "tuple" )
-if members then value = T . tuple ( members ) end
+if members then
+value = T . tuple ( members )
+end
 elseif node . kind == "union" then
 local members
 members , why = edgeArray ( node . members , "union" )
-if members then value = T . union ( members ) end
+if members then
+value = T . union ( members )
+end
 elseif node . kind == "intersection" then
 local members
 members , why = edgeArray ( node . members , "intersection" )
-if members then value = T . intersection ( members ) end
+if members then
+value = T . intersection ( members )
+end
 elseif node . kind == "indexer" then
 local values , labels = { } , { "read key" , "read value" , "write key" , "write value" }
 local edges = { node . readKey , node . readValue , node . writeKey , node . writeValue }
@@ -83866,8 +87624,11 @@ end
 end
 end
 if not why then
-if ( values [ 1 ] == nil ) ~= ( values [ 2 ] == nil ) or ( values [ 3 ] == nil ) ~= ( values [ 4 ] == nil )
-or values [ 1 ] == nil and values [ 3 ] == nil then
+if (
+values [ 1 ] == nil
+) ~= (
+values [ 2 ] == nil
+) or ( values [ 3 ] == nil ) ~= ( values [ 4 ] == nil ) or values [ 1 ] == nil and values [ 3 ] == nil then
 why = "indexer capabilities do not contain complete key/value pairs"
 else
 value = T . indexer ( values [ 1 ] , values [ 2 ] , values [ 3 ] , values [ 4 ] )
@@ -83879,14 +87640,27 @@ why = "shape has an invalid or oversized field array"
 else
 local fields , seen = { } , { }
 for position , field in ipairs ( node . fields ) do
-if type ( field ) ~= "table" or type ( field . name ) ~= "string" or field . name == "" or seen [ field . name ] then
+if type (
+field
+) ~= "table" or type ( field . name ) ~= "string" or field . name == "" or seen [ field . name ] then
 why = "shape has an invalid or repeated field at " .. tostring ( position )
 break
 end
 local read , write
-if field . read ~= nil then read , why = edge ( field . read , "shape read field " .. field . name ) end
-if not why and field . write ~= nil then write , why = edge ( field . write , "shape write field " .. field . name ) end
-if why or read and read . tag == "pack" or write and write . tag == "pack" or not read and not write then
+if field . read ~= nil then
+read , why = edge ( field . read , "shape read field " .. field . name )
+end
+if not why and field . write ~= nil then
+write , why = edge ( field . write , "shape write field " .. field . name )
+end
+if why
+or read
+and read . tag == "pack"
+or write
+and write . tag == "pack"
+or not read
+and not write
+then
 why = why or "shape field " .. field . name .. " has invalid capabilities"
 break
 end
@@ -83896,21 +87670,28 @@ end
 local indexer
 if not why and node . indexer ~= nil then
 indexer , why = edge ( node . indexer , "shape indexer" )
-if indexer and indexer . tag ~= "map" then why , indexer = "shape indexer is not an indexer" , nil end
+if indexer and indexer . tag ~= "map" then
+why , indexer = "shape indexer is not an indexer" , nil
+end
 end
 if not why then
-value = T . shape ( fields , indexer and {
+value = T . shape (
+fields ,
+indexer and {
 readKey = indexer . readable and indexer . key or nil ,
 readValue = indexer . readable and indexer . value or nil ,
 writeKey = indexer . writeKey ,
 writeValue = indexer . writeValue ,
-} or nil )
+} or nil
+)
 end
 end
 elseif node . kind == "function" then
 local parameters , results
 parameters , why = edge ( node . parameters , "function parameters" )
-if not why then results , why = edge ( node . results , "function results" ) end
+if not why then
+results , why = edge ( node . results , "function results" )
+end
 if not why and ( parameters . tag ~= "pack" or results . tag ~= "pack" ) then
 why = "function parameters and results must be type packs"
 elseif not why then
@@ -83953,7 +87734,9 @@ end
 local tail
 if not why and node . tail ~= nil then
 tail , why = edge ( node . tail , "pack tail" )
-if tail and tail . tag == "pack" then why , tail = "pack tail is a type pack" , nil end
+if tail and tail . tag == "pack" then
+why , tail = "pack tail is a type pack" , nil
+end
 end
 if not why then
 value = T . pack ( head , tail and { kind = "homogeneous" , type = tail } or nil , copiedModes )
@@ -83964,13 +87747,18 @@ else
 why = "type blueprint uses unsupported kind " .. tostring ( node . kind )
 end
 active [ index ] = nil
-if not value then return nil , why end
+if not value then
+return nil , why
+end
 built [ index ] = value
+
 return value
 end
 
 local result , why = build ( payload . root )
-if not result then return nil , failure ( why ) end
+if not result then
+return nil , failure ( why )
+end
 if envelope . family == "Pack" and result . tag ~= "pack" then
 return nil , failure ( "type blueprint claims a pack but returns a type" )
 elseif envelope . family == "Type" and result . tag == "pack" then
@@ -84200,6 +87988,9 @@ types.Cleanup = {} types.Cleanup.__index = types.Cleanup
 
 
 types.Owned = {} types.Owned.__index = types.Owned
+
+
+
 
 
 
@@ -84592,6 +88383,9 @@ types.AssociatedLookup = {} types.AssociatedLookup.__index = types.AssociatedLoo
 
 
 types.Nominal = {} types.Nominal.__index = types.Nominal
+
+
+
 
 
 
@@ -85399,7 +89193,10 @@ end
 
 
 
-function types . owned ( t , cleanups )
+
+
+
+function types . owned ( t , cleanups , opaque )
 local list = { }
 local ids = { }
 for j , cleanup in ipairs ( cleanups or { } ) do
@@ -85407,10 +89204,10 @@ list [ j ] = cleanup
 ids [ j ] = cleanup . id
 end
 
-local internKey = "owned(" .. table . concat ( ids , "," ) .. ":" .. t . id .. ")"
+local internKey = "owned(" .. table . concat ( ids , "," ) .. ":" .. t . id .. ( opaque and ":opaque" or "" ) .. ")"
 
 return interned ( internKey ) or intern ( internKey , function ( )
-return setmetatable({ tag =  "owned" ,  inner =  t ,  cleanups =  list }, types.Owned)
+return setmetatable({ tag =  "owned" ,  inner =  t ,  cleanups =  list ,  opaque =  opaque == true }, types.Owned)
 end )
 end
 
@@ -86368,30 +90165,42 @@ return types . hasTypevar ( t . elem )
 elseif tag == "typeHandle" then
 return types . hasTypevar ( t . bound )
 elseif tag == "map" then
-return ( t . key and types . hasTypevar ( t . key ) )
-or ( t . value and types . hasTypevar ( t . value ) )
-or ( t . writeKey and types . hasTypevar ( t . writeKey ) )
-or ( t . writeValue and types . hasTypevar ( t . writeValue ) )
-or false
+return (
+t . key and types . hasTypevar ( t . key )
+) or (
+t . value and types . hasTypevar ( t . value )
+) or ( t . writeKey and types . hasTypevar ( t . writeKey ) ) or ( t . writeValue and types . hasTypevar ( t . writeValue ) ) or false
 elseif tag == "tuple" then
 for _ , member in ipairs ( t . elems ) do
-if types . hasTypevar ( member ) then return true end
+if types . hasTypevar ( member ) then
+return true
+end
 end
 elseif tag == "shape" then
 for _ , field in ipairs ( t . fields ) do
-if field . read and types . hasTypevar ( field . read ) then return true end
-if field . write and types . hasTypevar ( field . write ) then return true end
+if field . read and types . hasTypevar ( field . read ) then
+return true
+end
+if field . write and types . hasTypevar ( field . write ) then
+return true
+end
 end
 elseif tag == "union" or tag == "intersection" then
 for _ , member in ipairs ( t . members ) do
-if types . hasTypevar ( member ) then return true end
+if types . hasTypevar ( member ) then
+return true
+end
 end
 elseif tag == "func" then
 for _ , member in ipairs ( t . params ) do
-if types . hasTypevar ( member ) then return true end
+if types . hasTypevar ( member ) then
+return true
+end
 end
 for _ , member in ipairs ( t . rets ) do
-if types . hasTypevar ( member ) then return true end
+if types . hasTypevar ( member ) then
+return true
+end
 end
 end
 
@@ -86542,7 +90351,7 @@ elem = "(" .. elem .. ")"
 end
 return elem .. "*"
 elseif tag == "owned" then
-return "Owned<" .. types . tostring ( t . inner ) .. ">"
+return "Owned<" .. types . tostring ( t . inner ) .. ( t . opaque and ", opaque" or "" ) .. ">"
 elseif tag == "borrowed" then
 return "Borrowed<" .. types . tostring ( t . inner ) .. ">"
 elseif tag == "pinned" then
@@ -87131,7 +90940,6 @@ heap.Array = {} heap.Array.__index = heap.Array
 
 
 
-
 function heap . Array . read ( self )
 return span . fromCarray ( self . pointer , self . count )
 end
@@ -87140,13 +90948,11 @@ function heap . Array . close ( self )
 finish_array_nosuspend ( self )
 end
 
-
 function heap . Array . write (
 self
 )
 return span . writeCarray ( self . pointer , self . count )
 end
-
 
 
 
@@ -87183,6 +90989,283 @@ end
 end
 
 return heap
+
+end
+package.preload["nupp.hotreload"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+
+
+
+
+
+
+
+
+
+
+local hotreload = { }
+local debugAny = debug
+
+local STATE_KEY = "__nuppHotReloadState"
+local API_KEY = "__nuppHotReload"
+
+local state = _G [ STATE_KEY ]
+if not state then
+state = {
+generation = 1 ,
+modules = { } ,
+bySlots = setmetatable ( { } , { __mode = "k" } ) ,
+staging = nil ,
+preparedSerial = 0 ,
+}
+_G [ STATE_KEY ] = state
+end
+
+local function upvalues ( fn , selfName )
+local byName , order = { } , { }
+local index = 1
+while true do
+local name = debug . getupvalue ( fn , index )
+if not name then
+break
+end
+if name ~= selfName then
+if byName [ name ] then
+error ( "nupp hot reload: duplicate upvalue " .. name , 3 )
+end
+byName [ name ] = index
+order [ # order + 1 ] = name
+end
+index = index + 1
+end
+table . sort ( order )
+
+return { byName = byName , order = order }
+end
+
+local function sameNames ( left , right )
+if # left ~= # right then
+return false
+end
+for index = 1 , # left do
+if left [ index ] ~= right [ index ] then
+return false
+end
+end
+
+return true
+end
+
+
+
+
+
+local function detachSelf ( fn , selfName )
+if not selfName then
+return
+end
+local index = 1
+while true do
+local name = debug . getupvalue ( fn , index )
+if not name then
+return
+end
+if name == selfName then
+local value = fn
+local function anchor ( )
+return value
+end
+debugAny . upvaluejoin ( fn , index , anchor , 1 )
+return
+end
+index = index + 1
+end
+end
+
+local function moduleForSlots ( slots )
+local module = state . bySlots [ slots ]
+if not module then
+error ( "nupp hot reload: an implementation used an unknown slot array" , 3 )
+end
+
+return module
+end
+
+
+
+
+function hotreload . module ( name )
+local module = state . modules [ name ]
+if module then
+if state . staging and not module . loaded then
+error ( "nupp hot reload: patch names unloaded module " .. name , 2 )
+end
+return module . slots
+end
+if state . staging then
+error ( "nupp hot reload: patch names unloaded module " .. name , 2 )
+end
+module = { name = name , slots = { } , definitions = { } , loaded = false }
+state . modules [ name ] = module
+state . bySlots [ module . slots ] = module
+
+return module . slots
+end
+
+
+
+function hotreload . seal ( name )
+local module = state . modules [ name ]
+if not module or module . loaded then
+error ( "nupp hot reload: cannot seal unknown or loaded module " .. name , 2 )
+end
+module . loaded = true
+end
+
+
+function hotreload . abort ( name )
+local module = state . modules [ name ]
+if not module or module . loaded then
+return
+end
+state . bySlots [ module . slots ] = nil
+state . modules [ name ] = nil
+end
+
+
+
+
+function hotreload . define (
+slots ,
+index ,
+id ,
+signature ,
+selfName ,
+implementation
+)
+local module = moduleForSlots ( slots )
+detachSelf ( implementation , selfName )
+local captures = upvalues ( implementation , selfName )
+local staging = state . staging
+if not staging then
+if module . definitions [ index ] then
+error ( "nupp hot reload: slot " .. tostring ( index ) .. " was defined twice" , 2 )
+end
+module . definitions [ index ] = {
+id = id ,
+signature = signature ,
+selfName = selfName ,
+captures = captures ,
+}
+slots [ index ] = implementation
+return
+end
+
+local live = module . definitions [ index ]
+if not live or live . id ~= id then
+error ( "nupp hot reload: stable function identity changed for " .. id , 2 )
+end
+if live . signature ~= signature then
+error ( "nupp hot reload: signature changed for " .. id .. "; restart required" , 2 )
+end
+if live . selfName ~= selfName then
+error ( "nupp hot reload: recursive binding changed for " .. id .. "; restart required" , 2 )
+end
+if not sameNames ( live . captures . order , captures . order ) then
+error ( "nupp hot reload: captured bindings changed for " .. id .. "; restart required" , 2 )
+end
+for _ , name in ipairs ( captures . order ) do
+debugAny . upvaluejoin ( implementation , captures . byName [ name ] , slots [ index ] , live . captures . byName [ name ] )
+end
+local key = module . name .. "\0" .. tostring ( index )
+if staging . byKey [ key ] then
+error ( "nupp hot reload: patch defines " .. id .. " twice" , 2 )
+end
+local candidate = { module = module , index = index , implementation = implementation }
+staging . byKey [ key ] = candidate
+staging . candidates [ # staging . candidates + 1 ] = candidate
+end
+
+
+
+
+function hotreload . stage ( source , baseGeneration )
+if state . staging then
+return nil , "another patch is already staging"
+end
+if baseGeneration ~= state . generation then
+return nil , "stale generation"
+end
+local chunk , loadError = loadstring ( source , "@nupp-hot-patch" )
+if not chunk then
+return nil , tostring ( loadError )
+end
+local staging = { baseGeneration = baseGeneration , candidates = { } , byKey = { } }
+state . staging = staging
+local ok , reason = pcall ( chunk )
+state . staging = nil
+if not ok then
+return nil , tostring ( reason )
+end
+state . preparedSerial = state . preparedSerial + 1
+
+return {
+baseGeneration = baseGeneration ,
+generation = baseGeneration + 1 ,
+serial = state . preparedSerial ,
+candidates = staging . candidates ,
+committed = false ,
+}
+end
+
+
+
+
+function hotreload . commit ( prepared )
+if type ( prepared ) ~= "table" or prepared . committed then
+return nil , "patch was already committed or is invalid"
+end
+if prepared . baseGeneration ~= state . generation then
+return nil , "stale generation"
+end
+
+
+for _ , candidate in ipairs ( prepared . candidates ) do
+candidate . module . slots [ candidate . index ] = candidate . implementation
+end
+prepared . committed = true
+state . generation = prepared . generation
+jit . flush ( )
+
+return state . generation
+end
+
+
+function hotreload . generation ( )
+return state . generation
+end
+
+
+function hotreload . loaded ( name )
+local module = state . modules [ name ]
+return module ~= nil and module . loaded == true
+end
+
+
+function hotreload . resetForTesting ( )
+state . generation = 1
+state . modules = { }
+state . bySlots = setmetatable ( { } , { __mode = "k" } )
+state . staging = nil
+state . preparedSerial = 0
+end
+
+_G [ API_KEY ] = hotreload
+
+return hotreload
 
 end
 package.preload["nupp.io.http"] = function(...)
@@ -87593,9 +91676,8 @@ body . _closed = true
 local transfer = body . _transfer
 transfer : close ( )
 end
-end ;__nuppCleanups["nupp.io.http#destroyBody"]=destroyBody
+end ;__nuppCleanups["nupp.io.http#destroyBody"]=destroyBody ;__nuppCleanups["nupp.io.http#destroyBody"]=destroyBody
 
-__nuppCleanups["nupp.io.http#destroyBody"]=destroyBody;
 local function makeBody ( client , transfer )
 return setmetatable({ _client =  client ,  _transfer =  transfer ,  _closed =  false ,  _reading =  false }, http.Body)
 end
@@ -87731,7 +91813,6 @@ return true
 end
 
 
-
 local function makeResponse (
 status ,
 version ,
@@ -87770,7 +91851,6 @@ self . _source : release ( )
 self . _source = nil
 end
 end
-
 
 
 function http . Client : send ( request )
@@ -88052,7 +92132,6 @@ if type ( path ) ~= "string" and type ( ( path ) . toString ) ~= "function" then
 if contentType ~= nil and type ( contentType ) ~= "string" then error ( "nupp: HTTP content type must be a string" , 2 ) end
 return setmetatable({ path =  path ,  contentType =  contentType }, http.FileBody)
 end
-
 
 function http . newClient ( options )
 local copied = copiedOptions ( options )
@@ -89254,7 +93333,6 @@ end
 end
 
 
-
 local function fromSpawn (
 backend ,
 options ,
@@ -89284,6 +93362,7 @@ end
 
 
 
+
 function process . spawnOn ( backend , options )
 validateOptions ( options )
 local handle , inHandle , outHandle , errHandle , pid , problem = backend : spawn ( options )
@@ -89293,7 +93372,6 @@ end
 
 return fromSpawn ( backend , options , handle , inHandle , outHandle , errHandle , pid )
 end
-
 
 
 
@@ -90666,7 +94744,6 @@ end
 
 
 
-
 function resources . set ( label )
 return setmetatable({ label =  label or "resource" ,  _entries =  { } ,  _closed =  false }, resources.Set)
 end
@@ -90676,7 +94753,7 @@ local ok , reason = file : close ( )
 if not ok then
 error ( reason or "file close failed" )
 end
-end
+end ;__nuppCleanups["nupp.resources#close_file"]=close_file
 
 
 
@@ -90687,7 +94764,6 @@ end
 
 
 
-__nuppCleanups["nupp.resources#close_file"]=close_file;
 function resources . openFile ( path , mode )
 local file , reason = io . open ( path , mode )
 if not file then
@@ -90706,7 +94782,6 @@ end
 
 
 
-__nuppCleanups["nupp.resources#close_file"]=close_file;
 function resources . openProcess ( command , mode )
 local file , reason = io . popen ( command , mode )
 if not file then
@@ -90723,7 +94798,6 @@ end
 
 
 
-__nuppCleanups["nupp.resources#close_file"]=close_file;
 function resources . temporaryFile ( )
 local file = io . tmpfile ( )
 if not file then
@@ -91065,14 +95139,12 @@ end
 
 
 
-
 function span . writeCarray ( source , count )
 if count < 0 then
 error ( "write span count cannot be negative" , 2 )
 end
 return ( setmetatable({ anchor =  source ,  pointer =  source ,  offset =  0 ,  count =  count }, WriteSpanImpl) )
 end
-
 
 
 
@@ -91735,7 +95807,6 @@ error (
 end
 self . released = true
 end
-
 
 
 
@@ -92653,6 +96724,7 @@ end
 end
 end
 end
+
 
 
 
@@ -93706,6 +97778,9 @@ local nupp: {
     --- Leveled logging over a swappable destination.
     log: nupp.log,
 
+    --- Cooperative development hot reload, installed by `nupp run --watch`.
+    hotreload: nupp.HotReload,
+
     --- Compile and run byte-oriented parsing-expression grammars.
     --- @namespace
     peg: nupp.peg,
@@ -93736,6 +97811,16 @@ local nupp: {
     --- @internal
     __materializationTest: nupp.__MaterializationTestAPI
 }
+
+--- Cooperative hot reload installed only while `nupp run --watch` is active.
+--- @internal
+record nupp.HotReload
+    --- Returns the currently committed implementation generation.
+    generation: nosuspend function(): integer
+
+    --- Detects source edits and commits a compatible patch at this host boundary.
+    poll: function(): any
+end
 
 --- A compile-time-only graph handle used by the compiler's materialization tests.
 --- @internal
@@ -94084,6 +98169,17 @@ record nupp.derive
     --- @param specification a table with optional `methods` and `statics` maps
     --- @return the recipe, as this provider's `Result<I>`
     implement: function(specification: any): any
+
+    --- Reads one immutable filesystem input admitted to this provider invocation.
+    ---
+    --- The path must be a string literal in the provider's checked source. It resolves
+    --- from the consumer project root, becomes an incremental query dependency, and is
+    --- included in the provider recipe fingerprint. Watch mode therefore observes the
+    --- file and rechecks only modules that consume the provider.
+    ---
+    --- @param path project-relative path written as a literal
+    --- @return the file's bytes
+    file: function(path: string): string
 
     --- Refuses the declaration with a diagnostic instead of returning a recipe.
     ---
@@ -94860,6 +98956,143 @@ record nupp.data
     --- @param previous a previous CRC-32 value, or 0 to start
     --- @return the unsigned 32-bit checksum
     crc32: function(value: string | nupp.io.ByteView, previous: integer?): integer
+
+    --- Multi-word bitsets over 32-bit words.
+    --- @namespace
+    record bitset
+        --- How many bits one stored word holds. Derive word arithmetic from this
+        --- rather than assuming a width.
+        WORD_BITS: integer
+
+        --- A growable set of bit positions counting from 0.
+        ---
+        --- Reading, clearing and testing a position past the end are defined and
+        --- cheap. Setting one grows. Storage is private, so no caller can hold a
+        --- pointer across the growth that replaces it.
+        interface Bitset
+            --- Grows storage so at least `bits` bits fit. Only grows, and never
+            --- returns storage.
+            --- @param bits how many bits must fit
+            reserve: function(self, bits: integer): nil
+
+            --- Adds a bit, growing when it is past the end.
+            --- @param index the bit position, counting from 0
+            --- @raises when index is negative
+            set: function(self, index: integer): nil
+
+            --- Removes a bit. Constant-time whichever bit it was.
+            --- @param index the bit position, counting from 0. One past the end,
+            ---     a negative one included, does nothing.
+            clear: function(self, index: integer): nil
+
+            --- Whether a bit is set.
+            --- @param index the bit position, counting from 0
+            --- @return false for any position past the end
+            get: function(self, index: integer): boolean
+
+            --- Adds every bit in the inclusive range, one word-mask write per
+            --- word rather than one operation per bit.
+            --- @param low the first position added, counting from 0
+            --- @param high the last position added. Below `low` adds nothing.
+            --- @raises when low is negative
+            setRange: function(self, low: integer, high: integer): nil
+
+            --- How many bits are set. Resolves a pending recount, so a caller
+            --- that never reads it never pays for one.
+            --- @return the number of set bits
+            count: function(self): integer
+
+            --- Whether nothing is set. Says nothing about capacity.
+            --- @return true when no bit is set
+            isEmpty: function(self): boolean
+
+            --- Removes every bit, keeping capacity.
+            clearAll: function(self): nil
+
+            --- Removes every bit, then adds exactly one.
+            --- @param index the one position left set, counting from 0
+            --- @raises when index is negative
+            setOnly: function(self, index: integer): nil
+
+            --- An upper bound on the words that may hold a set bit. Every word
+            --- at or above it is zero, and it may exceed the exact high-water
+            --- mark.
+            --- @return the number of words a word-at-a-time walk must visit
+            wordCount: function(self): integer
+
+            --- One stored word, lowest position first.
+            --- @param index a word index counting from 0, bounded by `wordCount`
+            --- @return the word as a signed value, and 0 for any index outside
+            ---     the bound
+            wordAt: function(self, index: integer): integer
+
+            --- The lowest set position at or after `from`. Stateless, so nested
+            --- walks do not interfere.
+            --- @param from the lowest position that may be returned
+            --- @return that position, or -1 when there is none
+            nextSetBit: function(self, from: integer): integer
+
+            --- Writes every set position at or after `from` into `target`, lowest
+            --- first. One call rather than one per position, which is most of what
+            --- a walk over a few thousand of them costs. `target` is a pointer and
+            --- a count because that is what a native kernel takes.
+            --- @param target where positions are written, indexed from 0
+            --- @param capacity how many positions `target` holds
+            --- @param from the lowest position that may be written
+            --- @return how many were written, and the position to resume from when
+            ---     `target` filled first, or -1 when the set is exhausted
+            --- @raises when capacity is negative
+            positionsInto: function(
+                self,
+                target: int32[?],
+                capacity: integer,
+                from: integer
+            ): (integer, integer)
+
+            --- Whether every bit set in `other` is also set here.
+            --- @param other read and not modified
+            --- @return true when `other` is a subset
+            containsAll: function(self, other: Bitset): boolean
+
+            --- Whether at least one bit is set in both. Early-exiting.
+            --- @param other read and not modified, as is the receiver
+            --- @return true when the two share a set bit
+            overlaps: function(self, other: Bitset): boolean
+
+            --- Whether the two share no set bit.
+            --- @param other read and not modified, as is the receiver
+            --- @return the negation of `overlaps`
+            disjoint: function(self, other: Bitset): boolean
+
+            --- Replaces these bits with a copy of `other`'s.
+            --- @param other read and not modified
+            copyFrom: function(self, other: Bitset): nil
+
+            --- Adds every bit set in `other`.
+            --- @param other read and not modified
+            orWith: function(self, other: Bitset): nil
+
+            --- Keeps only the bits also set in `other`.
+            --- @param other read and not modified. Words beyond the ones it uses
+            ---     are cleared, so an empty `other` empties the receiver.
+            andWith: function(self, other: Bitset): nil
+
+            --- Removes every bit set in `other`.
+            --- @param other read and not modified. An empty `other` changes
+            ---     nothing.
+            andNotWith: function(self, other: Bitset): nil
+
+            --- Keeps only the bits set in exactly one of the two.
+            --- @param other read and not modified
+            xorWith: function(self, other: Bitset): nil
+        end
+
+        --- Creates an empty set.
+        --- @param capacityBits how many bits to allocate for. A starting size
+        ---     only: setting a position past it grows rather than failing.
+        --- @return a set with nothing in it
+        create: function(capacityBits: integer?): Bitset
+    end
 end
 
 --- UTF-8 codepoint operations over strings and immutable byte views.
@@ -94881,9 +99114,7 @@ record nupp.io
         --- Opens a reader over this snapshot.
         --- @param self this byte view
         --- @return the new reader
-        @owned
-
-        newReader: function(self: ByteView): Reader
+        newReader: function(self: ByteView): Owned<Reader>
 
         --- Reports the number of bytes in this snapshot.
         --- @param self this byte view
@@ -94900,9 +99131,7 @@ record nupp.io
         --- @param offset the zero-based start, or zero when omitted
         --- @param count the number of bytes, or the rest of the view when omitted
         --- @return the retained subrange
-        @owned
-
-        view: function(self: ByteView, offset: integer?, count: integer?): ByteView
+        view: function(self: ByteView, offset: integer?, count: integer?): Owned<ByteView>
 
         --- Reports whether this snapshot has been released.
         --- @param self this byte view
@@ -95014,16 +99243,12 @@ record nupp.io
         --- Opens a reader over a snapshot of the current bytes.
         --- @param self this buffer
         --- @return the new reader
-        @owned
-
-        newReader: function(self: Buffer): Reader
+        newReader: function(self: Buffer): Owned<Reader>
 
         --- Clears the buffer and opens a writer that targets it.
         --- @param self this buffer
         --- @return the new writer
-        @owned
-
-        newWriter: function(self: Buffer): Writer
+        newWriter: function(self: Buffer): Owned<Writer>
 
         --- Reports the logical byte length.
         --- @param self this buffer
@@ -95067,9 +99292,7 @@ record nupp.io
         --- @param offset the zero-based start, or zero when omitted
         --- @param count the number of bytes, or the rest of the buffer when omitted
         --- @return the retained byte view
-        @owned
-
-        view: function(self: Buffer, offset: integer?, count: integer?): ByteView
+        view: function(self: Buffer, offset: integer?, count: integer?): Owned<ByteView>
 
         --- Reports whether this buffer has been released.
         --- @param self this buffer
@@ -95335,16 +99558,12 @@ record nupp.io
             --- Opens a forward-only reader at the file's current position.
             --- @param self this file
             --- @return the new reader
-            @owned
-
-            newReader: nosuspend function(self: File): nupp.io.Reader
+            newReader: nosuspend function(self: File): Owned<nupp.io.Reader>
 
             --- Opens a forward-only writer at the file's current position.
             --- @param self this file
             --- @return the new writer
-            @owned
-
-            newWriter: nosuspend function(self: File): nupp.io.Writer
+            newWriter: nosuspend function(self: File): Owned<nupp.io.Writer>
 
             --- Answers the file's byte length without moving the cursor.
             --- @param self this file
@@ -95615,9 +99834,7 @@ record nupp.io
             --- @param mode how it may be used, defaulting to reading
             --- @return the open file, or nil on failure
             --- @return a failure reason, when unsuccessful
-            @owned
-
-            open: function(path: string | nupp.io.Path, mode: Mode?): (File?, string?)
+            open: function(path: string | nupp.io.Path, mode: Mode?): (Owned<File?>, string?)
 
             --- Iterates a file's lines, closing it at the end.
             ---
@@ -95637,18 +99854,14 @@ record nupp.io
             --- @param options where to create it and how to name it
             --- @return the created path, or nil on failure
             --- @return a failure reason, when unsuccessful
-            @owned
-
-            createTemporaryFile: nosuspend function(options: TemporaryOptions?): (TemporaryPath?, string?)
+            createTemporaryFile: nosuspend function(options: TemporaryOptions?): (Owned<TemporaryPath?>, string?)
 
             --- Creates a uniquely named empty directory and hands over the
             --- obligation to remove or persist it.
             --- @param options where to create it and how to name it
             --- @return the created path, or nil on failure
             --- @return a failure reason, when unsuccessful
-            @owned
-
-            createTemporaryDirectory: nosuspend function(options: TemporaryOptions?): (TemporaryPath?, string?)
+            createTemporaryDirectory: nosuspend function(options: TemporaryOptions?): (Owned<TemporaryPath?>, string?)
 
             --- Reads the process's current working directory.
             --- @return the current directory, or nil on failure
@@ -95954,16 +100167,12 @@ record nupp.io
     --- @param initial initial bytes, an initial capacity, or nothing for an empty
     ---     buffer
     --- @return the new buffer
-    @owned
-
-    newBuffer: function(initial: integer | string?): Buffer
+    newBuffer: function(initial: integer | string?): Owned<Buffer>
 
     --- Creates a forward-only reader over a string.
     --- @param text the bytes to read
     --- @return the new reader
-    @owned
-
-    newStringReader: function(text: string): Reader
+    newStringReader: function(text: string): Owned<Reader>
 
     --- Creates a forward-only reader that consumes a byte queue, which is how a
     --- LuaJIT `string.buffer` joins this layer without a copy of everything in it.
@@ -95980,11 +100189,9 @@ record nupp.io
     ---
     --- @param source the bytes, snapshot, buffer, reader or queue to read
     --- @return the new reader
-    @owned
-
-    newScalarReader: function(source: string | ByteQueue): ScalarReader
-        & function(borrows source: ByteView | Buffer): ScalarReader
-        & function(takes source: Reader): ScalarReader
+    newScalarReader: function(source: string | ByteQueue): Owned<ScalarReader>
+        & function(borrows source: ByteView | Buffer): Owned<ScalarReader>
+        & function(takes source: Reader): Owned<ScalarReader>
 
     --- Creates a cursor for sized integer and float writes.
     ---
@@ -95995,11 +100202,9 @@ record nupp.io
     --- @param destination the buffer or writer to append to, or nothing for a fresh
     ---     buffer
     --- @return the new writer
-    @owned
-
-    newScalarWriter: function(): ScalarWriter
-        & function(borrows destination: Buffer): ScalarWriter borrows(destination)
-        & function(takes destination: Writer): ScalarWriter
+    newScalarWriter: function(): Owned<ScalarWriter>
+        & function(borrows destination: Buffer): Owned<ScalarWriter> borrows(destination)
+        & function(takes destination: Writer): Owned<ScalarWriter>
 
     --- Filesystem metadata, directory contents, and the operations that move
     --- names rather than bytes.
@@ -97487,6 +101692,14 @@ local debug: {
     --- @return the upvalue's name, or nil past the last one
     setupvalue: function(f: any, idx: number, v: any): string?,
 
+    --- Makes one function's upvalue refer to the same lexical cell as another's.
+    ---
+    --- @param f the function whose upvalue is replaced
+    --- @param idx its 1-based upvalue index
+    --- @param source the function providing the cell
+    --- @param sourceIdx its 1-based upvalue index
+    upvaluejoin: function(f: any, idx: number, source: any, sourceIdx: number),
+
     --- Returns the metatable of `v`, ignoring any `__metatable` field.
     ---
     --- @param v the value to inspect
@@ -98129,8 +102342,7 @@ record heap.Array<T>
     read: function(borrows self: Array<T>): span.Span<T> borrows (self)
 
     --- Borrows the whole allocation as an affine checked write span.
-    @owned
-    write: function(exclusive self: Array<T>): span.WriteSpan<T> borrows (self)
+    write: function(exclusive self: Array<T>): Owned<span.WriteSpan<T>> borrows (self)
 end
 
 function heap.Array.read<T>(borrows self: heap.Array<T>): span.Span<T> borrows (self)
@@ -98141,10 +102353,9 @@ function heap.Array.close<T>(takes self: heap.Array<T>): nil
     finish_array_nosuspend(self)
 end
 
-@owned
 function heap.Array.write<T>(
     exclusive self: heap.Array<T>
-): span.WriteSpan<T> borrows (self)
+): Owned<span.WriteSpan<T>> borrows (self)
     return span.writeCarray(self.pointer, self.count)
 end
 
@@ -98152,8 +102363,7 @@ end
 --- limit. The result owns the allocation and is automatically freed.
 --- @export
 --- @raises when count is negative, the byte size overflows a Lua integer, or malloc fails
-@owned
-function heap.allocate<T>(element: ctype<T>, count: integer): heap.Array<T>
+function heap.allocate<T>(element: ctype<T>, count: integer): Owned<heap.Array<T>>
     if count < 0 then
         error("heap array count cannot be negative", 2)
     end
@@ -98595,8 +102805,7 @@ local function destroyBody(takes body: http.Body): nil
     end
 end
 
-@owned(destroyBody)
-local function makeBody(client: any, transfer: any): http.Body
+local function makeBody(client: any, transfer: any): Owned<http.Body, destroyBody>
     return new http.Body(_client = client, _transfer = transfer, _closed = false, _reading = false)
 end
 
@@ -98731,14 +102940,13 @@ record http.Response
     end
 end
 
-@owned
 local function makeResponse(
     status: integer,
     version: http.Version,
     url: nupp.io.URI,
     takes body: http.Body,
     packed: string
-): http.Response
+): Owned<http.Response>
     return new http.Response(status = status, version = version, url = url, body = body,
         _packed = packed, _values = nil, _headers = nil, _closed = false)
 end
@@ -98772,8 +102980,7 @@ record http.Client
     end
 end
 
-@owned
-function http.Client:send(request: http.Request): (http.Response?, string?)
+function http.Client:send(request: http.Request): (Owned<http.Response?>, string?)
         if self._closed then
             return nil, "the HTTP client is closed"
         end
@@ -99053,8 +103260,7 @@ function http.file(path: string | nupp.io.Path, contentType: string?): http.File
     return new http.FileBody(path = path, contentType = contentType)
 end
 
-@owned
-function http.newClient(options: http.Options?): (http.Client?, string?)
+function http.newClient(options: http.Options?): (Owned<http.Client?>, string?)
     local copied = copiedOptions(options)
     local backend, reason = native.newClient(copied)
     if backend == nil then
@@ -100253,7 +104459,6 @@ local function validateOptions(options: processtypes.Options): nil
 end
 
 --- Builds the owned state after the platform has successfully spawned.
-@owned
 local function fromSpawn(
     backend: processtypes.Backend,
     options: processtypes.Options,
@@ -100262,7 +104467,7 @@ local function fromSpawn(
     outHandle: any?,
     errHandle: any?,
     pid: integer
-): process.Process
+): Owned<process.Process>
     local self = new process.Process(stdin = nil, stdout = nil, stderr = nil, backend = backend, handle = handle, exit = nil, reaped = false, childReleased = false, closing = false, closingBy = nil, pump = nil, timedOut = false, pid = pid,
         -- Measured from the start, not from the first wait: a caller that spawns, works
         -- and then waits should not get a deadline counted from whenever it asked.
@@ -100282,8 +104487,9 @@ end
 --- @param backend the platform that runs it
 --- @param options what to run and how to connect it
 --- @return the child, which must be closed
-@owned
-function process.spawnOn(backend: processtypes.Backend, options: processtypes.Options): process.Process
+--- @raises when the options do not describe a runnable child, or the backend cannot
+--- start one
+function process.spawnOn(backend: processtypes.Backend, options: processtypes.Options): Owned<process.Process>
     validateOptions(options)
     local handle, inHandle, outHandle, errHandle, pid, problem = backend:spawn(options)
     if handle == nil then
@@ -100297,8 +104503,7 @@ end
 ---
 --- @param options what to run and how to connect it
 --- @return the child, which must be closed
-@owned
-function process.new(options: processtypes.Options): (process.Process?, string?)
+function process.new(options: processtypes.Options): (Owned<process.Process?>, string?)
     validateOptions(options)
     local backend = defaultBackend
     if backend == nil then
@@ -101662,8 +105867,7 @@ end
 --- @export
 --- @param label what the set is for, in diagnostics; omitted names it "resource"
 --- @return the empty set, owned by the caller
-@owned
-function resources.set(label: string?): resources.Set
+function resources.set(label: string?): Owned<resources.Set>
     return new resources.Set(label = label or "resource", _entries = {}, _closed = false)
 end
 
@@ -101683,8 +105887,7 @@ end
 --- @param mode the Lua file mode; omitted uses the Lua default
 --- @return the open file handle, owned by the caller
 --- @raises when the file cannot be opened
-@owned(close_file)
-function resources.openFile(path: string, mode: string?): LuaFile
+function resources.openFile(path: string, mode: string?): Owned<LuaFile, close_file>
     local file, reason = io.open(path, mode)
     if not file then
         error(reason or "file open failed")
@@ -101702,8 +105905,7 @@ end
 --- @param mode the Lua pipe mode; omitted uses the Lua default
 --- @return the process pipe, owned by the caller
 --- @raises when the process pipe cannot be opened
-@owned(close_file)
-function resources.openProcess(command: string, mode: string?): LuaFile
+function resources.openProcess(command: string, mode: string?): Owned<LuaFile, close_file>
     local file, reason = io.popen(command, mode)
     if not file then
         error(reason or "process open failed")
@@ -101719,8 +105921,7 @@ end
 --- @export
 --- @return the open temporary file handle, owned by the caller
 --- @raises when the temporary file cannot be created
-@owned(close_file)
-function resources.temporaryFile(): LuaFile
+function resources.temporaryFile(): Owned<LuaFile, close_file>
     local file = io.tmpfile()
     if not file then
         error("temporary file creation failed")
@@ -102060,8 +106261,7 @@ end
 --- committed.
 --- @export
 --- @raises when count is negative
-@owned
-function span.writeCarray<T>(exclusive source: T[?], count: integer): span.WriteSpan<T> borrows(source)
+function span.writeCarray<T>(exclusive source: T[?], count: integer): Owned<span.WriteSpan<T>> borrows(source)
     if count < 0 then
         error("write span count cannot be negative", 2)
     end
@@ -102071,11 +106271,10 @@ end
 --- Creates a fixed affine write span without a runtime length check. The source array
 --- type and literal count must name the same `N`.
 --- @export
-@owned
 function span.writeFixedCarray<T, const N: integer>(
     exclusive source: T[N],
     count: N
-): span.FixedWriteSpan<T, N> borrows(source)
+): Owned<span.FixedWriteSpan<T, N>> borrows(source)
     return (
         new FixedWriteSpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)
     ) as span.FixedWriteSpan<T, N>
@@ -102749,8 +106948,7 @@ end
 ---
 --- @param handler what answers suspensions inside the scope
 --- @return the installation, which must be released
-@owned
-function suspension.install(handler: suspension.Handler): suspension.Installed
+function suspension.install(handler: suspension.Handler): Owned<suspension.Installed>
     local co = running()
     local previous
     if co == nil then
@@ -103649,8 +107847,9 @@ end
 
 --- Starts `entry` in a fresh LuaJIT state.
 --- @return an owned worker that is stopped on every structured exit
-@owned
-function workers.spawn(entry: string): workers.Worker
+--- @raises when the entry is not a nonempty module name, or the worker state cannot
+--- be started
+function workers.spawn(entry: string): Owned<workers.Worker>
     if type(entry) ~= "string" or entry == "" then
         error("nupp: a worker entry must be a nonempty module name", 2)
     end

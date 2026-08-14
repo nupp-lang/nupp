@@ -287,8 +287,7 @@ end
 
 --- Starts the same bounded child used by `captureIsolated`, but leaves its framed
 --- stdin/stdout open for a session service. The caller owns and must close it.
-@owned(opaque = true)
-function process.startIsolated(argv: {string}, opts: process.Options?): (process.IsolatedProcess?, string?)
+function process.startIsolated(argv: {string}, opts: process.Options?): (Owned<process.IsolatedProcess?, opaque>, string?)
     opts = (opts or {}) as process.Options
     local args = isolatedArgs(argv)
     if opts.memoryMb and not windows then

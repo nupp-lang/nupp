@@ -1551,9 +1551,7 @@ record nupp.io
         --- Opens a reader over this snapshot.
         --- @param self this byte view
         --- @return the new reader
-        @owned
-
-        newReader: function(self: ByteView): Reader
+        newReader: function(self: ByteView): Owned<Reader>
 
         --- Reports the number of bytes in this snapshot.
         --- @param self this byte view
@@ -1570,9 +1568,7 @@ record nupp.io
         --- @param offset the zero-based start, or zero when omitted
         --- @param count the number of bytes, or the rest of the view when omitted
         --- @return the retained subrange
-        @owned
-
-        view: function(self: ByteView, offset: integer?, count: integer?): ByteView
+        view: function(self: ByteView, offset: integer?, count: integer?): Owned<ByteView>
 
         --- Reports whether this snapshot has been released.
         --- @param self this byte view
@@ -1684,16 +1680,12 @@ record nupp.io
         --- Opens a reader over a snapshot of the current bytes.
         --- @param self this buffer
         --- @return the new reader
-        @owned
-
-        newReader: function(self: Buffer): Reader
+        newReader: function(self: Buffer): Owned<Reader>
 
         --- Clears the buffer and opens a writer that targets it.
         --- @param self this buffer
         --- @return the new writer
-        @owned
-
-        newWriter: function(self: Buffer): Writer
+        newWriter: function(self: Buffer): Owned<Writer>
 
         --- Reports the logical byte length.
         --- @param self this buffer
@@ -1737,9 +1729,7 @@ record nupp.io
         --- @param offset the zero-based start, or zero when omitted
         --- @param count the number of bytes, or the rest of the buffer when omitted
         --- @return the retained byte view
-        @owned
-
-        view: function(self: Buffer, offset: integer?, count: integer?): ByteView
+        view: function(self: Buffer, offset: integer?, count: integer?): Owned<ByteView>
 
         --- Reports whether this buffer has been released.
         --- @param self this buffer
@@ -2005,16 +1995,12 @@ record nupp.io
             --- Opens a forward-only reader at the file's current position.
             --- @param self this file
             --- @return the new reader
-            @owned
-
-            newReader: nosuspend function(self: File): nupp.io.Reader
+            newReader: nosuspend function(self: File): Owned<nupp.io.Reader>
 
             --- Opens a forward-only writer at the file's current position.
             --- @param self this file
             --- @return the new writer
-            @owned
-
-            newWriter: nosuspend function(self: File): nupp.io.Writer
+            newWriter: nosuspend function(self: File): Owned<nupp.io.Writer>
 
             --- Answers the file's byte length without moving the cursor.
             --- @param self this file
@@ -2285,9 +2271,7 @@ record nupp.io
             --- @param mode how it may be used, defaulting to reading
             --- @return the open file, or nil on failure
             --- @return a failure reason, when unsuccessful
-            @owned
-
-            open: function(path: string | nupp.io.Path, mode: Mode?): (File?, string?)
+            open: function(path: string | nupp.io.Path, mode: Mode?): (Owned<File?>, string?)
 
             --- Iterates a file's lines, closing it at the end.
             ---
@@ -2307,18 +2291,14 @@ record nupp.io
             --- @param options where to create it and how to name it
             --- @return the created path, or nil on failure
             --- @return a failure reason, when unsuccessful
-            @owned
-
-            createTemporaryFile: nosuspend function(options: TemporaryOptions?): (TemporaryPath?, string?)
+            createTemporaryFile: nosuspend function(options: TemporaryOptions?): (Owned<TemporaryPath?>, string?)
 
             --- Creates a uniquely named empty directory and hands over the
             --- obligation to remove or persist it.
             --- @param options where to create it and how to name it
             --- @return the created path, or nil on failure
             --- @return a failure reason, when unsuccessful
-            @owned
-
-            createTemporaryDirectory: nosuspend function(options: TemporaryOptions?): (TemporaryPath?, string?)
+            createTemporaryDirectory: nosuspend function(options: TemporaryOptions?): (Owned<TemporaryPath?>, string?)
 
             --- Reads the process's current working directory.
             --- @return the current directory, or nil on failure
@@ -2624,16 +2604,12 @@ record nupp.io
     --- @param initial initial bytes, an initial capacity, or nothing for an empty
     ---     buffer
     --- @return the new buffer
-    @owned
-
-    newBuffer: function(initial: integer | string?): Buffer
+    newBuffer: function(initial: integer | string?): Owned<Buffer>
 
     --- Creates a forward-only reader over a string.
     --- @param text the bytes to read
     --- @return the new reader
-    @owned
-
-    newStringReader: function(text: string): Reader
+    newStringReader: function(text: string): Owned<Reader>
 
     --- Creates a forward-only reader that consumes a byte queue, which is how a
     --- LuaJIT `string.buffer` joins this layer without a copy of everything in it.
@@ -2650,11 +2626,9 @@ record nupp.io
     ---
     --- @param source the bytes, snapshot, buffer, reader or queue to read
     --- @return the new reader
-    @owned
-
-    newScalarReader: function(source: string | ByteQueue): ScalarReader
-        & function(borrows source: ByteView | Buffer): ScalarReader
-        & function(takes source: Reader): ScalarReader
+    newScalarReader: function(source: string | ByteQueue): Owned<ScalarReader>
+        & function(borrows source: ByteView | Buffer): Owned<ScalarReader>
+        & function(takes source: Reader): Owned<ScalarReader>
 
     --- Creates a cursor for sized integer and float writes.
     ---
@@ -2665,11 +2639,9 @@ record nupp.io
     --- @param destination the buffer or writer to append to, or nothing for a fresh
     ---     buffer
     --- @return the new writer
-    @owned
-
-    newScalarWriter: function(): ScalarWriter
-        & function(borrows destination: Buffer): ScalarWriter borrows(destination)
-        & function(takes destination: Writer): ScalarWriter
+    newScalarWriter: function(): Owned<ScalarWriter>
+        & function(borrows destination: Buffer): Owned<ScalarWriter> borrows(destination)
+        & function(takes destination: Writer): Owned<ScalarWriter>
 
     --- Filesystem metadata, directory contents, and the operations that move
     --- names rather than bytes.

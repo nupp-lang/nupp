@@ -40,8 +40,7 @@ record heap.Array<T>
     read: function(borrows self: Array<T>): span.Span<T> borrows (self)
 
     --- Borrows the whole allocation as an affine checked write span.
-    @owned
-    write: function(exclusive self: Array<T>): span.WriteSpan<T> borrows (self)
+    write: function(exclusive self: Array<T>): Owned<span.WriteSpan<T>> borrows (self)
 end
 
 function heap.Array.read<T>(borrows self: heap.Array<T>): span.Span<T> borrows (self)
@@ -52,10 +51,9 @@ function heap.Array.close<T>(takes self: heap.Array<T>): nil
     finish_array_nosuspend(self)
 end
 
-@owned
 function heap.Array.write<T>(
     exclusive self: heap.Array<T>
-): span.WriteSpan<T> borrows (self)
+): Owned<span.WriteSpan<T>> borrows (self)
     return span.writeCarray(self.pointer, self.count)
 end
 
@@ -63,8 +61,7 @@ end
 --- limit. The result owns the allocation and is automatically freed.
 --- @export
 --- @raises when count is negative, the byte size overflows a Lua integer, or malloc fails
-@owned
-function heap.allocate<T>(element: ctype<T>, count: integer): heap.Array<T>
+function heap.allocate<T>(element: ctype<T>, count: integer): Owned<heap.Array<T>>
     if count < 0 then
         error("heap array count cannot be negative", 2)
     end

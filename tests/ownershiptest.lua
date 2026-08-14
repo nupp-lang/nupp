@@ -2503,6 +2503,18 @@ function M.ownedCallableFieldInheritsALaterNestedDropOperation()
    assertEq(#after, 0, after[1] and after[1].msg or "nested terminal")
 end
 
+function M.ownedBorrowingCallableFieldKeepsItsDischargeObligation()
+   assertClean(table.concat({
+      MIGRATABLE_SESSION,
+      "local record Pool",
+      "   open: function(exclusive self: Pool): Owned<Session> borrows(self)",
+      "end",
+      "local pool: Pool = nil as any",
+      "local session = pool:open()",
+      "drop(session)",
+   }, "\n"))
+end
+
 -- The same fix without the ownership: a qualified function is a typed function,
 -- so its argument and its result are checked at the call.
 function M.aQualifiedFunctionIsTypedAtItsCallSite()

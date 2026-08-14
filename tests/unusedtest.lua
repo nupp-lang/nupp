@@ -164,8 +164,7 @@ local function close(value: Handle)
    print(value.name)
 end
 
-@owned(close)
-local function open(name: string): Handle
+local function open(name: string): Owned<Handle, close>
    return new Handle(name = name)
 end
 

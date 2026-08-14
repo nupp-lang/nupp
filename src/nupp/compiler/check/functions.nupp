@@ -935,7 +935,10 @@ function functions.install(c: state.Checker): state.StatHandlers
         -- An owning result that borrows keeps its owned type: it still has to be
         -- discharged, and the borrow it holds is tracked on the value rather than in
         -- the type, the way a lexical borrow is.
-        if (borrowsParam or borrowsSelf or borrowsParams) and rets[1] and not body.ownCleanups then
+        if (borrowsParam or borrowsSelf or borrowsParams)
+            and rets[1]
+            and rets[1].tag ~= "owned"
+        then
             rets[1] = T.borrowed(rawType(rets[1]))
         end
         if body.returnPack and not retPack.alternatives then

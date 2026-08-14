@@ -326,8 +326,7 @@ end
 --- committed.
 --- @export
 --- @raises when count is negative
-@owned
-function span.writeCarray<T>(exclusive source: T[?], count: integer): span.WriteSpan<T> borrows(source)
+function span.writeCarray<T>(exclusive source: T[?], count: integer): Owned<span.WriteSpan<T>> borrows(source)
     if count < 0 then
         error("write span count cannot be negative", 2)
     end
@@ -337,11 +336,10 @@ end
 --- Creates a fixed affine write span without a runtime length check. The source array
 --- type and literal count must name the same `N`.
 --- @export
-@owned
 function span.writeFixedCarray<T, const N: integer>(
     exclusive source: T[N],
     count: N
-): span.FixedWriteSpan<T, N> borrows(source)
+): Owned<span.FixedWriteSpan<T, N>> borrows(source)
     return (
         new FixedWriteSpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)
     ) as span.FixedWriteSpan<T, N>

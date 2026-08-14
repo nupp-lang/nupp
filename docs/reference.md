@@ -851,8 +851,8 @@ owned, not only the first. A known local is destroyed at scope exit. Drop,
 `takes`, an owning return, or `intoRaw` ends or transfers it once. An unresolved
 owner needs an explicit terminal; forgetting is an error, not a leak.
 
-`@owned(cleanup)` says the same of a first result, and is what a type carrying no
-`@drop` of its own still uses to name a terminal.
+`Owned<T, opaque>` makes the absence of a terminal deliberate: the value may be
+transferred or converted into a raw value, but cannot be destroyed locally.
 
 Parameter modes describe calls: `takes` consumes; `borrows` is call-scoped;
 `exclusive` also requires sole access; `retains`/`releases` describe C holding a
@@ -863,8 +863,8 @@ generic narrowing. `T borrows (source)` ties a result or nominal field to a
 root. Closures borrow captured owners by default; `borrows (source)` declares
 that relation. `takes (source)` moves an owner into an affine, single-shot
 closure whose call or drop discharges it. A `scoped` callback proves borrowed
-captures cannot escape. `@owned(cleanup)` on a callable field declares a fresh
-owning result.
+captures cannot escape. `Owned<T>` in a callable field declares a fresh owning
+result.
 
 Affine nominal fields have path-sensitive state. `nupp.resources.Set` holds
 dynamic owners. `nupp.span` gives sealed, private-implementation `Span<T>` and
@@ -900,8 +900,7 @@ end
 --- @param path where to read from
 --- @return an owned handle
 --- @raises when the file cannot be opened
-@owned(closeFile)
-function m.open(path: string): LuaFile
+function m.open(path: string): Owned<LuaFile, closeFile>
     local file = io.open(path, "r")
     if not file then
         error("cannot open " .. path)
@@ -1546,7 +1545,7 @@ says more.
  else-if                         NUPP2510  style        warning
  positional-record-construction  NUPP2512  style        warning
  deprecated                      NUPP2513  suspicious   warning
- owned-annotation                NUPP2515  migration    off
+ owned-annotation                NUPP2515  migration    warning
  jit-boundary                    NUPP2514  suspicious   warning
 ```
 

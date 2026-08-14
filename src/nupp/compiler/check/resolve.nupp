@@ -1252,7 +1252,12 @@ function resolve.install(c: state.Checker): nil
                     borrowsParam, borrowsParams = borrowsParams[1], nil
                 end
                 if rets[1] then
-                    rets[1] = T.borrowed(T.unwrapOwnership(rets[1]))
+                    -- Borrow provenance lives on the callable and is attached to the
+                    -- produced value at the call. Do not replace an owning result's
+                    -- discharge obligation with the borrow relation it also carries.
+                    if rets[1].tag ~= "owned" then
+                        rets[1] = T.borrowed(T.unwrapOwnership(rets[1]))
+                    end
                     retPack = T.pack(rets, retPack.tail, retPack.modes)
                 end
             end

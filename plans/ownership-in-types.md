@@ -2,9 +2,9 @@
 
 > **Status: partly implemented.** A result written `Owned<T>` inherits that type's
 > `@drop` wherever a signature is built, `Owned<T, cleanup>` names a terminal, and
-> `Owned<T, opaque>` says an owner is deliberately transfer-only. What remains is
-> the migration of the remaining `@owned` sites, the cdef contract, and removing
-> the annotation.
+> `Owned<T, opaque>` says an owner is deliberately transfer-only. Nupp functions
+> and callable fields have been migrated. What remains is the cdef contract, the
+> ordered-cleanup helper, the documentation pipeline, and removing the annotation.
 
 ## Decision
 

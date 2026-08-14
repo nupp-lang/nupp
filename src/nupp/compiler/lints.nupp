@@ -142,7 +142,7 @@ lints.all = {
         name = "owned-annotation",
         code = "NUPP2515",
         category = "migration",
-        level = "off",
+        level = "warning",
         summary = "an owning result stated above the signature rather than in it"
     ),
     new lints.Lint(

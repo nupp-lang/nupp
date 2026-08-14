@@ -1184,7 +1184,6 @@ local function validateOptions(options: processtypes.Options): nil
 end
 
 --- Builds the owned state after the platform has successfully spawned.
-@owned
 local function fromSpawn(
     backend: processtypes.Backend,
     options: processtypes.Options,
@@ -1193,7 +1192,7 @@ local function fromSpawn(
     outHandle: any?,
     errHandle: any?,
     pid: integer
-): process.Process
+): Owned<process.Process>
     local self = new process.Process(stdin = nil, stdout = nil, stderr = nil, backend = backend, handle = handle, exit = nil, reaped = false, childReleased = false, closing = false, closingBy = nil, pump = nil, timedOut = false, pid = pid,
         -- Measured from the start, not from the first wait: a caller that spawns, works
         -- and then waits should not get a deadline counted from whenever it asked.
@@ -1215,8 +1214,7 @@ end
 --- @return the child, which must be closed
 --- @raises when the options do not describe a runnable child, or the backend cannot
 --- start one
-@owned
-function process.spawnOn(backend: processtypes.Backend, options: processtypes.Options): process.Process
+function process.spawnOn(backend: processtypes.Backend, options: processtypes.Options): Owned<process.Process>
     validateOptions(options)
     local handle, inHandle, outHandle, errHandle, pid, problem = backend:spawn(options)
     if handle == nil then
@@ -1230,8 +1228,7 @@ end
 ---
 --- @param options what to run and how to connect it
 --- @return the child, which must be closed
-@owned
-function process.new(options: processtypes.Options): (process.Process?, string?)
+function process.new(options: processtypes.Options): (Owned<process.Process?>, string?)
     validateOptions(options)
     local backend = defaultBackend
     if backend == nil then

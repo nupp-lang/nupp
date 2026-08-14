@@ -663,8 +663,7 @@ end
 ---
 --- @param handler what answers suspensions inside the scope
 --- @return the installation, which must be released
-@owned
-function suspension.install(handler: suspension.Handler): suspension.Installed
+function suspension.install(handler: suspension.Handler): Owned<suspension.Installed>
     local co = running()
     local previous
     if co == nil then
