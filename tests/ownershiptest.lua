@@ -1924,6 +1924,110 @@ function M.rebindingTheNameToItselfIsStillTheLibrary()
       "end",
    }, "\n")), "NUPP2603")
 end
+-- A C function states ownership in the type: `Owned<T, cleanup>` on the slot an
+-- `out` parameter writes, and `Success<T, N>` on the return saying which status
+-- means those slots hold values. The ABI is unchanged -- the wrapper says who
+-- discharges the value, not how it is passed.
+function M.cdefOwnedOutputsBecomeLuaReturns()
+   local source = table.concat({
+      "cdef function free(takes value: voidptr)",
+      "cdef function posix_memalign(out result: Owned<voidptr, free>*,"
+         .. " alignment: uint64, size: uint64): Success<int32, 0>",
+      "local status, pointer = posix_memalign(16, 64)",
+      "if pointer then drop(pointer) end",
+      "return status == 0",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-test")
+   assertEq(#genDiags, 0)
+   assert(code:find('__nuppFfi.new("void *[1]")', 1, true),
+      "allocates the logical out slot")
+   assert(code:find("const posix_memalign = __nuppFfi.C.posix_memalign", 1, true), code)
+   if require("ffi").os == "Windows" then return end
+   local chunk, loadErr = loadstring(code, "@ownership-cdef-out")
+   assert(chunk, tostring(loadErr) .. "\n" .. code)
+   assertEq(chunk(), true, "owned out pointer is returned and dropped")
+end
+
+function M.failedOwnedOutputsAreNil()
+   if require("ffi").os == "Windows" then return end
+   local source = table.concat({
+      "cdef function free(takes value: voidptr)",
+      "cdef function posix_memalign(out result: Owned<voidptr, free>*,"
+         .. " alignment: uint64, size: uint64): Success<int32, 0>",
+      "local status, pointer = posix_memalign(3, 64)",
+      "local failed = pointer == nil",
+      "if pointer then drop(pointer) end",
+      "return status ~= 0 and failed",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code = gen.generate(result, "ownership-test")
+   local chunk, loadErr = loadstring(code, "@ownership-cdef-out-failure")
+   assert(chunk, tostring(loadErr) .. "\n" .. code)
+   assertEq(chunk(), true, "failed output is nil")
+end
+
+function M.ignoredOwnedOutputsAreRejected()
+   assertEq(codes(table.concat({
+      "cdef function free(takes value: voidptr)",
+      "cdef function posix_memalign(out result: Owned<voidptr, free>*,"
+         .. " alignment: uint64, size: uint64): Success<int32, 0>",
+      "posix_memalign(16, 64)",
+   }, "\n")), "NUPP2605")
+end
+
+-- `Failure<T, N>` is the other direction: every status but N means the outputs
+-- hold values. One statement on the return covers both of them, where two
+-- contracts could disagree about the same call.
+function M.multipleOwnedOutputsPreserveCAndLuaOrder()
+   local source = table.concat({
+      "cdef function free(takes value: voidptr)",
+      "cdef function make_pair(out first: Owned<voidptr, free>*, seed: int32,"
+         .. " out second: Owned<voidptr, free>*): Success<int32, 7>",
+      "local status, first, second = make_pair(1)",
+      "if second then drop(second) end",
+      "if first then drop(first) end",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-test")
+   assertEq(#genDiags, 0)
+   -- The call is made inside the declared sequence, so the C order is read there: the two
+   -- cells sit at the positions the declaration gave them, with the seed between them.
+   assert(code:find("__nuppFn(__nuppH1,__nuppA1,__nuppH2)", 1, true),
+      "holders remain in their declared C parameter positions\n" .. code)
+   assert(code:find("==7 and", 1, true),
+      "the return's success predicate guards every output")
+end
+
+-- An owning C return is the same statement in the same place: the wrapper is on
+-- the result type, so a caller's obligation begins where the pointer arrives.
+function M.cdefReturnsMayOwnTheirResult()
+   assertClean(table.concat({
+      "cdef function free(takes value: voidptr)",
+      "cdef function malloc(size: uint64): Owned<voidptr, free>",
+      "local value = malloc(8)",
+      "drop(value)",
+   }, "\n"))
+   assertEq(codes(table.concat({
+      "cdef function free(takes value: voidptr)",
+      "cdef function malloc(size: uint64): Owned<voidptr, free>",
+      "malloc(8)",
+   }, "\n")), "NUPP2605")
+end
+
+-- A status wrapper is about a C call's outputs, so it says nothing anywhere else.
+function M.statusWrappersBelongOnACdefReturn()
+   assertEq(codes(table.concat({
+      "local function make(): Success<integer, 0>",
+      "   return 0",
+      "end",
+      "return make",
+   }, "\n")), "NUPP2602")
+end
+
 -- LuaJIT does not record `FNEW`. A loop containing one aborts recording, is blacklisted
 -- after enough attempts, and then never compiles -- so a function built where it is used
 -- costs the whole enclosing loop its trace. These lowerings all sat inside loops and all

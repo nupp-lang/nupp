@@ -284,13 +284,17 @@ function M.cdefBindingsAndHelpersUseConstWherePossible()
    assert(libraryCode:find("local l = __nuppLibCache[n]", 1, true), libraryCode)
 end
 
--- A cdef states no ownership of its own, so a pointer return is an ordinary C type
--- and the wrapper that owns it is written in Nupp.
-function M.pointerReturnsNeedNoOwnershipContract()
+-- Ownership is optional on a C return, and what it wraps still has to be a C
+-- pointer: an owned `int32` is nothing the caller could discharge.
+function M.ownershipOnACdefReturnRequiresAPointer()
    assertClean("cdef function good(): voidptr")
    assertClean("cdef struct blob\n   n: int32\nend\n"
-      .. "cdef function mk(): blob*\n"
-      .. "cdef function release(b: blob*)")
+      .. "cdef function release(takes b: blob*)\n"
+      .. "cdef function mk(): Owned<blob*, release>")
+   -- Not a pointer, and so nothing `free` could accept either.
+   assertEq((diagsOf(
+      "cdef function free(takes value: voidptr)\n"
+      .. "cdef function bad(): Owned<int32, free>")), "NUPP2203:2 NUPP2615:2")
 end
 
 function M.stringToCstringConversion()

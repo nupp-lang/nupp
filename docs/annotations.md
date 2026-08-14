@@ -241,9 +241,11 @@ type's own `@drop` operation, or `Owned<T, cleanup>`, which names a terminal.
 safety](ownership.md).
 
 On a C function, `@borrowed(out = view, from = source, success = zero)`
-describes a logical output tied to a `borrows` input. It allocates and positions
-the C output holder while presenting an ordinary Lua multiple return. There is
-currently no contract for an *owned* C output.
+describes a logical output tied to a `borrows` input. An *owned* output needs no
+annotation: `out p: Owned<T, cleanup>*` says it in the slot's own type, and
+`Success<T, N>` or `Failure<T, N>` on the return says which status means the
+outputs hold values. Both forms allocate and position the C output holder while
+presenting an ordinary Lua multiple return.
 
 A declaration that never comes back, because it raises, exits, or loops forever,
 says so with `never` as its return type, not an annotation; see

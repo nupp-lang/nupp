@@ -743,7 +743,7 @@ invalidating input exclusive
 stored input       retains
 unregistered input releases
 derived output     @borrowed(... from ...)
-fresh output       (no spelling yet)
+fresh output       out p: Owned<T, cleanup>*
 ```
 
 Complete the following gaps:

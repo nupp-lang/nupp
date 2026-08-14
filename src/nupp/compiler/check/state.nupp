@@ -264,6 +264,10 @@ record state.Checker
     --- recurring forever.
     resolvingAlias: any
 
+    --- Set while a cdef function's return type is being resolved. `Success<T, N>` is a
+    --- statement about a C call's outputs, so it is legal only there.
+    cdefReturn: boolean?
+
     --- Every value the last call returned, so a multi-value expansion can reach past
     --- the first.
     lastCallRets: {Type}?

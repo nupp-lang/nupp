@@ -604,7 +604,9 @@ return res
 ]],
    }, function(dir)
       local diags = checkFile(projectEnv(dir), dir .. "/src/res.g.nupp")
-      assertEq(diags[1] and diags[1].code, "NUPP2615",
+      -- The terminal is a const function argument of the result type, so an
+      -- undeclared name is caught resolving that argument, where it is written.
+      assertEq(diags[1] and diags[1].code, "NUPP2131",
          "an unresolvable cleanup is still caught where it is written")
    end)
 end

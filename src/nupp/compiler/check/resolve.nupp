@@ -24,6 +24,12 @@ local resolve = {}
 --- The ownership type constructors, by the name each is written with.
 local ownershipConstructors: {[string]: string} = {Owned = "owned", Borrowed = "borrowed", Pinned = "pinned",}
 
+-- The C status constructors. `Success<T, N>` says the call succeeded when it
+-- returned N, `Failure<T, N>` says it succeeded when it returned anything else.
+-- Both are about a C function's outputs rather than about T, so they are legal
+-- only on a cdef return and resolve to the status type itself.
+local statusConstructors: {[string]: string} = {Success = "equals", Failure = "notequals"}
+
 local instantiateNominal = generics.instantiate
 
 --- A type, as nupp.compiler.types builds them.
@@ -730,6 +736,27 @@ function resolve.install(c: state.Checker): nil
             -- A compiler that reads `Owned` has to be built by one that does not, so
             -- its own sources cannot say `Owned` until a bootstrap that reads it
             -- exists. The lowercase spellings go once that bootstrap is regenerated.
+            local status = statusConstructors[name]
+            if status and node.typeArgs and node.typeArgs[1] and not c.lookupType(name) then
+                if not c.cdefReturn then
+                    c.diag(
+                        "NUPP2602",
+                        node,
+                        ("%s<T, N> states when a C call succeeded, so it belongs on a cdef return"):format(name)
+                    )
+                end
+                local inner = c.resolveType(node.typeArgs[1])
+                local statusValue = constArgument(
+                    node.typeArgs[2],
+                    {name = "status", domain = "integer"},
+                    node
+                )
+                if statusValue and statusValue.tag == "constLiteral" then
+                    node.cdefSuccess = status .. ":" .. tostring(statusValue.value)
+                end
+
+                return inner
+            end
             local ownership = ownershipConstructors[name]
             if ownership and node.typeArgs and node.typeArgs[1] and not c.lookupType(name) then
                 local inner = c.resolveType(node.typeArgs[1])

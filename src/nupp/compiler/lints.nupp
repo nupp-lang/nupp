@@ -165,7 +165,6 @@ local CATEGORIES: {
     suspicious = "legal, and probably not meant",
     style = "it works and reads badly",
     performance = "a declaration is paying for something it does not use",
-    migration = "a construct a newer spelling replaces",
 }
 
 -- The levels a lint may be configured to. `off` is a lint's alone: a type error is not
@@ -185,7 +184,7 @@ local LEVELS: {[string]: boolean} = {off = true, note = true, warning = true, er
 --
 -- Migration lints report spellings that remain correct while a replacement is being
 -- adopted. Migration tooling opts in to find them without adding noise to every build.
-local OPT_IN: {[string]: boolean} = {performance = true, migration = true}
+local OPT_IN: {[string]: boolean} = {performance = true}
 
 --- What each category is for, keyed by its name.
 lints.categories = CATEGORIES

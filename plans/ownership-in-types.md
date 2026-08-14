@@ -1,17 +1,19 @@
 # Ownership in the type, not above the signature
 
-> **Status: implemented for Nupp, unimplemented for C.** A result written
-> `Owned<T>` inherits that type's `@drop` wherever a signature is built,
-> `Owned<T, cleanup>` names a terminal, and `Owned<T, opaque>` says an owner is
-> deliberately transfer-only. That is the only way to state ownership.
+> **Status: implemented.** A result written `Owned<T>` inherits that type's
+> `@drop` wherever a signature is built, `Owned<T, cleanup>` names a terminal,
+> and `Owned<T, opaque>` says an owner is deliberately transfer-only. A `cdef`
+> return says the same thing the same way, an `out` parameter writes
+> `out p: Owned<T, cleanup>*`, and `Success<T, N>` or `Failure<T, N>` on the
+> return says which C status means those outputs hold values.
 >
-> Two contracts have no spelling at all. A `cdef` declaration cannot say that it
-> produces an owner, or that an `out` parameter is one: the C section below is
-> unimplemented, and an owning C function is bound by wrapping the call in a Nupp
-> function. An ordered cleanup list has none either, and one terminal calling
-> several operations is not equivalent to it, for the reason the rejected
-> alternatives give. What remains is the cdef contract, the ordered-cleanup
-> helper, and the documentation pipeline.
+> The C spelling differs from the sketch below: the `out` parameter keeps its
+> physical pointer-to-pointer type and the wrapper sits on the slot, which leaves
+> the ABI, the emitted prototype, and the borrowed-output spelling untouched.
+>
+> One gap remains. An ordered cleanup list has no spelling, and one terminal
+> calling several operations is not equivalent to it, for the reason the rejected
+> alternatives give; it waits on `nupp.cleanup.attemptAll`.
 
 ## Decision
 
@@ -102,6 +104,12 @@ first failure is the primary and later ones are reported as suppressed, and
 migration writes an ordinary terminal that calls it.
 
 ## Open
+
+- Whether a terminal named in a type may be declared below the result that names
+  it. A const function argument resolves where the type does, so `Owned<T, f>`
+  needs `f` above it, where the retired annotation resolved lazily and did not.
+  This is the layer inversion the rejected const-generic alternative describes,
+  met from the other side.
 
 - Whether an unresolvable terminal is an error or means opaque. `Owned<voidptr>`
   currently checks clean and behaves transfer-only, where a bare `Owned<T>` reports

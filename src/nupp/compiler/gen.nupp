@@ -95,6 +95,14 @@ local function cdefCType(t)
         elseif name == "voidptr" then
             return "void *"
         end
+        -- An ownership or status wrapper says who discharges the value and when it is
+        -- valid. Neither changes the ABI, so the C spelling is the type inside it.
+        if (name == "Owned" or name == "Success" or name == "Failure")
+            and t.typeArgs
+            and t.typeArgs[1]
+        then
+            return cdefCType(t.typeArgs[1])
+        end
         if t.cdefName then
             return (t.cdefKind or "struct") .. " " .. t.cdefName
         end
@@ -3078,6 +3086,9 @@ function gen.generate(
                     results[#results + 1] = ("(%s==0 and %s[0] or nil)"):format(status, holders[j])
                 elseif output.success == "nonzero" then
                     results[#results + 1] = ("(%s~=0 and %s[0] or nil)"):format(status, holders[j])
+                elseif output.success:match("^notequals:") then
+                    local literal = output.success:sub(#"notequals:" + 1)
+                    results[#results + 1] = ("(%s~=%s and %s[0] or nil)"):format(status, literal, holders[j])
                 elseif output.success:match("^equals:") then
                     local literal = output.success:sub(#"equals:" + 1)
                     results[#results + 1] = ("(%s==%s and %s[0] or nil)"):format(status, literal, holders[j])

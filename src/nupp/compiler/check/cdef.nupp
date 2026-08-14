@@ -7,9 +7,11 @@ asserted, and the assertion has to be one LuaJIT's FFI can honour. Every field
 must be laid out in C memory and every parameter must be a C type, which is what
 the reifiability test enforces.
 
-The ownership annotations matter more here than anywhere: a C function that
-returns a resource is the one place the checker cannot see the cleanup for
-itself.
+Ownership matters more here than anywhere: a C function that produces a resource
+is the one place the checker cannot see the cleanup for itself. It is stated in
+the type -- `Owned<T, cleanup>` on the return, `out p: Owned<T, cleanup>*` on an
+output slot -- and `Success<T, N>` on the return says which status means those
+outputs hold values.
 ]]
 
 local T = require("nupp.compiler.types")
@@ -49,7 +51,8 @@ function cdef.install(
 ): state.StatHandlers
     local own = c.own
     local registerDefaultDropOperation = own.registerDefaultDropOperation
-    local pointerShaped = c.pointerShaped
+    local resolvedOwnedCleanups = own.resolvedOwnedCleanups
+    local pointerShaped, validateCleanups = c.pointerShaped, c.validateCleanups
 
     local handlers = {}
 
@@ -186,7 +189,7 @@ function cdef.install(
                     #abiParams + 1
                 ] = {
                     name = pname and pname.text or ("arg" .. tostring(parameterIndex)),
-                    type = pt,
+                    type = T.unwrapOwnership(pt),
                     mode = mode,
                     countedBy = abiCountedBy and abiCountedBy.text or nil,
                 }
@@ -198,24 +201,40 @@ function cdef.install(
                     if countedBy then
                         c.diag("NUPP2630", countedBy, "countedBy does not support out parameters")
                     end
-                    local output = outputByName[pname and pname.text or ""]
+                    local named = pname and pname.text or ""
+                    local output = outputByName[named]
+                    local slot = pt.tag == "ptr" and pt.elem or nil
+                    -- `out p: Owned<T, cleanup>*` is the slot the callee writes,
+                    -- holding a value the caller then owns. The contract is on the
+                    -- slot's type rather than above the signature, so it sits where
+                    -- the value it describes does and the ABI is unchanged.
+                    if slot and slot.tag == "owned" and not output then
+                        output = {
+                            kind = "owned",
+                            name = named,
+                            cleanups = slot.cleanups,
+                            opaque = slot.opaque,
+                            at = p,
+                        }
+                    end
                     if not output then
-                        c.diag("NUPP2602", p, "out parameter needs a @borrowed(out = ...) contract")
-                    elseif pt.tag ~= "ptr" then
-                        c.diag("NUPP2602", p, "out parameter must have pointer-to-pointer type")
-                    elseif not pointerShaped(pt.elem) then
+                        c.diag(
+                            "NUPP2602",
+                            p,
+                            "an out parameter is written `out p: Owned<T, cleanup>*`, "
+                            .. "or given a @borrowed(out = ...) contract"
+                        )
+                    elseif not slot or not pointerShaped(T.unwrapOwnership(slot)) then
                         c.diag("NUPP2602", p, "out parameter must have pointer-to-pointer type")
                     else
                         output.typeNode = declared
-                        output.valueType = pt.elem
+                        output.valueType = T.unwrapOwnership(slot)
                         output.cIndex = parameterIndex
                         output.hasStatus = stat.ret ~= nil
-                        if output.success ~= "always" and not stat.ret then
-                            c.diag("NUPP2602", output.at or p, "conditional output needs a C status return")
-                        end
+                        output.success = output.success or "pending"
                         ffiOut[#ffiOut + 1] = output
                     end
-                    outputByName[pname and pname.text or ""] = nil
+                    outputByName[named] = nil
                 else
                     params[#params + 1] = pt
                     paramModes[#params] = mode
@@ -232,29 +251,71 @@ function cdef.install(
         local rets = {}
         local abiResult = nil
         if stat.ret then
+            c.cdefReturn = true
             local rt = c.resolveType(stat.ret)
-            abiResult = rt
+            c.cdefReturn = nil
             rets[1] = rt
-            if not (reifiableField(rt, true) or rt == T.number) then
-                c.diag("NUPP2203", stat.ret, ("cdef return: %s is not a C type"):format(T.tostring(rt)))
+            -- An ownership wrapper says who discharges the result. It does not change
+            -- the ABI, so what has to be a C type -- and what the ABI record carries --
+            -- is the type inside it.
+            local raw = T.unwrapOwnership(rt)
+            abiResult = raw
+            if rt.tag == "owned" then
+                if not pointerShaped(raw) and raw ~= T.cstring then
+                    c.diag("NUPP2203", stat.ret, "an owned cdef return must be a pointer")
+                end
+                local cleanups = resolvedOwnedCleanups(raw, rt.cleanups, rt.opaque, stat.ret, nil)
+                local owner = T.owned(raw, cleanups)
+                rets[1] = owner
+                validateCleanups(owner, cleanups, stat.ret, "NUPP2615")
+            end
+            if not (reifiableField(raw, true) or raw == T.number) then
+                c.diag("NUPP2203", stat.ret, ("cdef return: %s is not a C type"):format(T.tostring(raw)))
             end
             if rt.tag == "nominal" and rt.declKind == "struct" and not rt.cdefName then
                 c.diag("NUPP2203", stat.ret, "an ordinary Nupp struct crosses a C boundary by pointer, not by value")
             end
         end
+        -- Which C status means the call succeeded, and so whether each output holds a
+        -- value. `Success<T, N>` and `Failure<T, N>` say it once on the return, where
+        -- two outputs cannot disagree; a bare status type means every call succeeded.
+        local success = stat.ret and (stat.ret as any).cdefSuccess or "always"
         for _, output in ipairs(ffiOut) do
-            local valueType = output.success == "always" and output.valueType or T.optional(output.valueType)
-            output.sourceParam = logicalByName[output.source]
-            if not output.sourceParam then
-                c.diag(
-                    "NUPP2602",
-                    output.at or stat,
-                    ("borrowed output source %q is not an input parameter"):format(output.source)
-                )
-            elseif paramModes[output.sourceParam] ~= "borrows" then
-                c.diag("NUPP2602", output.at or stat, "a borrowed output source must be a borrows parameter")
+            if output.success == "pending" then
+                output.success = success
             end
-            rets[#rets + 1] = T.borrowed(valueType)
+            if output.success ~= "always" and not stat.ret then
+                c.diag("NUPP2602", output.at or stat, "conditional output needs a C status return")
+            end
+            local valueType = output.success == "always" and output.valueType or T.optional(output.valueType)
+            if output.kind == "owned" then
+                output.cleanups = resolvedOwnedCleanups(
+                    output.valueType,
+                    output.cleanups,
+                    output.opaque,
+                    output.at or stat,
+                    nil
+                )
+                validateCleanups(
+                    T.owned(output.valueType, output.cleanups),
+                    output.cleanups,
+                    output.at or stat,
+                    "NUPP2615"
+                )
+                rets[#rets + 1] = T.owned(valueType, output.cleanups)
+            else
+                output.sourceParam = logicalByName[output.source]
+                if not output.sourceParam then
+                    c.diag(
+                        "NUPP2602",
+                        output.at or stat,
+                        ("borrowed output source %q is not an input parameter"):format(output.source)
+                    )
+                elseif paramModes[output.sourceParam] ~= "borrows" then
+                    c.diag("NUPP2602", output.at or stat, "a borrowed output source must be a borrows parameter")
+                end
+                rets[#rets + 1] = T.borrowed(valueType)
+            end
             output.returnIndex = #rets
         end
         local cdefType = T.func(

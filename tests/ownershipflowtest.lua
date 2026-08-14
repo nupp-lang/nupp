@@ -9,13 +9,12 @@ local T = require("nupp.compiler.types")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
+-- A terminal named in a type is resolved where the type is, so it has to be
+-- declared above the result that names it.
 local RESOURCE = table.concat({
    "cdef struct flow_resource value: int32 end",
-   "cdef function flow_open_c(): flow_resource*",
-   "local function flow_open(): Owned<flow_resource*, flow_close>",
-   "   return flow_open_c()",
-   "end",
    "cdef function flow_close(takes value: flow_resource*)",
+   "cdef function flow_open(): Owned<flow_resource*, flow_close>",
 }, "\n")
 
 local function diagnostics(source)

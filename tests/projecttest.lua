@@ -1281,10 +1281,12 @@ return {
    remove(dir)
 end
 
-function M.ownCleanupListsInvalidateIncrementalInterfaces()
+function M.namedCleanupsInvalidateIncrementalInterfaces()
    local function library(cleanup)
       return table.concat({
          "cdef function create_c(): voidptr",
+         "cdef function first_cleanup(takes value: voidptr)",
+         "cdef function second_cleanup(takes value: voidptr)",
          "local function create(): Owned<voidptr, " .. cleanup .. ">",
          "   return create_c()",
          "end",

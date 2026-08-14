@@ -168,8 +168,8 @@ end
 -- An annotation decorates the statement below it; that statement is still a
 -- statement, not a continuation line.
 function M.annotatedStatementKeepsItsDepth()
-   assertEq(fmt1("@allow(unused-binding)\nfunction f(): T\nreturn g()\nend"),
-      "@allow(unused-binding)\nfunction f(): T\n    return g()\nend\n")
+   assertEq(fmt1("@allow(NUPP2507)\nfunction f(): T\nreturn g()\nend"),
+      "@allow(NUPP2507)\nfunction f(): T\n    return g()\nend\n")
    assertEq(fmt1("@a\n@b\nlocal function f()\nend"),
       "@a\n@b\nlocal function f()\nend\n")
 end

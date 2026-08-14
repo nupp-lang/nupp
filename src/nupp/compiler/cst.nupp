@@ -1970,6 +1970,10 @@ record cst.Tname is cst.Hints
 
     --- Type arguments of a generic application.
     typeArgs: {cst.Node}?
+
+    --- Which C status means the call succeeded, read off `Success<T, N>` or
+    --- `Failure<T, N>` on a cdef return and applied to that function's outputs.
+    cdefSuccess: string?
 end
 
 --- A closed or deferred `@comptime` function call in type position.

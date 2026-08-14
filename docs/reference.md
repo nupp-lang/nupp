@@ -1674,7 +1674,6 @@ says more.
  else-if                         NUPP2510  style        warning
  positional-record-construction  NUPP2512  style        warning
  deprecated                      NUPP2513  suspicious   warning
- owned-annotation                NUPP2515  migration    warning
  jit-boundary                    NUPP2514  suspicious   warning
 ```
 

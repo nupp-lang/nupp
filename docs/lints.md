@@ -515,7 +515,7 @@ help: use current instead
 
 ## Categories
 
-Every lint declares one of five, which is what a project
+Every lint declares one of four, which is what a project
 configures when it wants to move a group of them at once:
 
 - **correctness**: the program is very likely wrong. A project rarely turns

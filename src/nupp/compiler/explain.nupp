@@ -637,15 +637,11 @@ local ENTRIES: {
     .. "matching ownership contract, or explicitly converted to raw form. "
     .. "Borrows likewise stay within the lifetime and suspension boundaries "
     .. "their provenance permits.",
-    wrong = "local record Resource\nend\n"
-    .. "local function acquire(): Owned<Resource, opaque>\n"
-    .. "    return new Resource()\nend\n"
-    .. "local value = acquire()\nreturn 0\n",
-    right = "local record Resource\nend\n"
-    .. "local function release(takes value: Resource): nil\nend\n"
-    .. "local function acquire(): Owned<Resource, opaque>\n"
-    .. "    return new Resource()\nend\n"
-    .. "local value = acquire()\nrelease(value)\nreturn 0\n",
+    wrong = "cdef function begin_request(): Owned<voidptr, opaque>\n"
+    .. "local request = begin_request()\nreturn 0\n",
+    right = "cdef function begin_request(): Owned<voidptr, opaque>\n"
+    .. "cdef function submit_request(takes request: voidptr)\n"
+    .. "local request = begin_request()\nsubmit_request(request)\nreturn 0\n",
     related = {"NUPP2601", "NUPP2602", "NUPP2605"},
     docs = "docs/reference.md#owned-resources",
 }, {

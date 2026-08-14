@@ -168,8 +168,8 @@ makes `drop(x)` an ordinary call.
 
 ## Owned results and deterministic cleanup
 
-A named terminal is the clearest C-boundary contract. A `cdef` declaration
-cannot state one, so the wrapper that returns the pointer carries it:
+A named terminal is the clearest C-boundary contract, and a `cdef` return states
+one directly:
 
 ```nupp
 cdef struct widget
@@ -179,16 +179,12 @@ end
 cdef function widget_stop(borrows value: widget*)
 cdef function widget_free(takes value: widget*)
 
-cdef function widget_create(): widget*
-
 local function widget_end(takes value: widget*)
     widget_stop(value)
     widget_free(value)
 end
 
-local function widget_new(): Owned<widget*, widget_end>
-    return widget_create()
-end
+cdef function widget_new(): Owned<widget*, widget_end>
 
 local value = widget_new()
 print(value.value)
@@ -687,10 +683,37 @@ changing the ABI.
 
 ### Owned outputs
 
-There is no contract for one: an `out` parameter must be `@borrowed`. A C
-function that allocates through `T **` is bound by declaring the raw signature
-and wrapping the call in a Nupp function whose own result is
-`Owned<T, cleanup>`.
+```nupp
+cdef function free(takes value: voidptr)
+
+cdef function posix_memalign(
+    out result: Owned<voidptr, free>*,
+    alignment: uint64,
+    size: uint64
+): Success<int32, 0>
+
+local status, pointer = posix_memalign(16, 4096)
+if pointer then
+    nupp.drop(pointer)
+end
+```
+
+`out result: Owned<voidptr, free>*` is the slot C writes: a pointer to a place
+that will hold a `voidptr` the caller then owns, discharged by `free`. The
+wrapper is on the slot's type rather than above the signature, so the ABI is
+unchanged and the contract sits where the value it describes does.
+
+`Success<T, N>` on the return says the call succeeded when it returned `N`, and
+`Failure<T, N>` says it succeeded when it returned anything else. One statement
+covers every output, where two contracts could disagree about the same call. A
+bare status type means every call succeeded and every output holds a value; a
+conditional output is `nil` on failure, and needs a status return to be
+conditional on.
+
+The generated call allocates the output slot, passes it in its original C
+parameter position, calls C once, and appends the logical output to the Lua
+return list. Multiple outputs preserve both C argument order and Lua return
+order.
 
 ### Borrowed outputs
 
