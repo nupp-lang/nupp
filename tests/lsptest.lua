@@ -930,7 +930,7 @@ function M.languageFeaturesAndCdefTooling()
       semanticAt[semanticLine .. ":" .. semanticCharacter] =
          tokenTypes[semantic[index + 3] + 1]
    end
-   assert(semanticAt["1:0"] == "keyword", "semantic cdef keyword")
+   assert(semanticAt["1:0"] == "nuppKeyword", "semantic cdef keyword")
    assert(semanticAt["1:14"] == "function", "semantic C function")
    assert(semanticAt["2:12"] == "struct",
       "semantic C struct: " .. tostring(semanticAt["2:12"]))
@@ -940,7 +940,7 @@ function M.languageFeaturesAndCdefTooling()
       "contextual cdef identifier remains a variable")
    assert(semanticAt["11:6"] == "variable",
       "contextual own identifier remains a variable")
-   assert(semanticAt["12:6"] == "keyword", "semantic type keyword")
+   assert(semanticAt["12:6"] == "nuppKeyword", "semantic type keyword")
    local definition = responseWithId(out, 17).result
    assert(definition.range.start.line == 3
       and definition.range.start.character == 3, "C struct field definition")
@@ -991,15 +991,15 @@ function M.contractSyntaxSemanticTokens()
       at[line .. ":" .. character] = types[data[index + 3] + 1]
    end
    assert(at["0:2"] == "decorator", "inner annotation name is a decorator")
-   assert(at["3:19"] == "keyword", "generic bound is keyword")
-   assert(at["3:29"] == "keyword", "contract inclusion is keyword")
-   assert(at["3:38"] == "keyword", "where is keyword")
-   assert(at["4:3"] == "keyword", "metamethod introducer is keyword")
+   assert(at["3:19"] == "nuppKeyword", "generic bound is keyword")
+   assert(at["3:29"] == "nuppKeyword", "contract inclusion is keyword")
+   assert(at["3:38"] == "nuppKeyword", "where is keyword")
+   assert(at["4:3"] == "nuppKeyword", "metamethod introducer is keyword")
    assert(at["4:14"] == "method", "metamethod name is method")
-   assert(at["5:3"] == "keyword", "inline function is keyword")
+   assert(at["5:3"] == "nuppKeyword", "inline function is keyword")
    assert(at["5:12"] == "method", "inline method name is method")
-   assert(at["6:6"] == "keyword", "yields is keyword")
-   assert(at["6:22"] == "keyword", "resumes is keyword")
+   assert(at["6:6"] == "nuppKeyword", "yields is keyword")
+   assert(at["6:22"] == "nuppKeyword", "resumes is keyword")
 end
 
 function M.unsafeAndNosuspendAreSemanticKeywords()
@@ -1032,10 +1032,10 @@ function M.unsafeAndNosuspendAreSemanticKeywords()
          and character + data[index + 1] or data[index + 1]
       at[line .. ":" .. character] = types[data[index + 3] + 1]
    end
-   assert(at["0:0"] == "keyword", "unsafe is a keyword")
-   assert(at["1:0"] == "keyword", "nosuspend block is a keyword")
-   assert(at["2:16"] == "keyword", "nosuspend function type is a keyword")
-   assert(at["3:26"] == "keyword", "as cast is a keyword")
+   assert(at["0:0"] == "nuppKeyword", "unsafe is a keyword")
+   assert(at["1:0"] == "nuppKeyword", "nosuspend block is a keyword")
+   assert(at["2:16"] == "nuppKeyword", "nosuspend function type is a keyword")
+   assert(at["3:26"] == "nuppKeyword", "as cast is a keyword")
 end
 
 function M.embeddedStringSyntaxLeavesTheLiteralToTheTextMateGrammar()
@@ -1181,7 +1181,7 @@ function M.constEditorSemantics()
          modifiers = data[index + 4],
       }
    end
-   assert(semanticAt["0:0"].kind == "keyword", "const keyword semantic token")
+   assert(semanticAt["0:0"].kind == "nuppKeyword", "const keyword semantic token")
    assert(semanticAt["0:6"].modifiers == 3,
       "const declaration is declaration + readonly")
    assert(semanticAt["1:13"].modifiers == 2, "const use is readonly")
@@ -1279,7 +1279,7 @@ function M.borrowReturnIsAKeyword()
       semanticAt[line .. ":" .. character] =
          tokenTypes[data[index + 3] + 1]
    end
-   assert(semanticAt["3:43"] == "keyword",
+   assert(semanticAt["3:43"] == "nuppKeyword",
       "borrows in a return annotation is a keyword")
 end
 
@@ -1315,7 +1315,7 @@ function M.predicateReturnIsAKeyword()
       semanticAt[line .. ":" .. character] =
          tokenTypes[data[index + 3] + 1]
    end
-   assert(semanticAt["1:45"] == "keyword",
+   assert(semanticAt["1:45"] == "nuppKeyword",
       "predicate-return is is a keyword")
    assert(semanticAt["2:16"] == "operator",
       "expression is remains an operator")
