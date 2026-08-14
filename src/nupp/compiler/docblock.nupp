@@ -13,6 +13,7 @@ never needed a type to render a page.
 
 local cst = require("nupp.compiler.cst")
 local lexer = require("nupp.compiler.lexer")
+local syntax = require("nupp.compiler.doc.syntax")
 
 local docblock = {}
 
@@ -78,8 +79,9 @@ function docblock.linesOf(node: cst.Child?): {string}
     for index = 1, token and token.triviaCount or 0 do
         local kind = lexer.triviaKind(token, index)
         local text = lexer.triviaText(token, index)
-        if kind == "comment" and text:match("^%-%-%-") then
-            pending[#pending + 1] = text:gsub("^%-%-%- ?", "", 1):gsub("\r$", "")
+        local body = kind == "comment" and syntax.docComment:match(text) or nil
+        if body ~= nil then
+            pending[#pending + 1] = body:gsub("\r$", "")
         elseif kind == "comment" then
             pending = {}
         elseif kind == "whitespace" then
@@ -126,20 +128,13 @@ function docblock.parse(lines: {string}): docblock.Doc
     -- one would both invent a tag and delete the line from the example it documents.
     local fence: string? = nil
     for _, line in ipairs(lines) do
-        local marker, rest = line:match("^%s*(```+)(.*)$")
-        if not marker then
-            marker, rest = line:match("^%s*(~~~+)(.*)$")
-        end
+        local marker, rest
+        fence, marker, rest = syntax.fenceState(line, fence)
         local tag, value = nil, nil
         if not marker and not fence then
-            tag, value = line:match("^@([%w_-]+)%s*(.*)$")
+            tag, value = syntax.tag:match(line)
         end
         if marker then
-            if not fence then
-                fence = marker
-            elseif marker:sub(1, 1) == fence:sub(1, 1) and #marker >= #fence and trim(rest or "") == "" then
-                fence = nil
-            end
             active, activeName = nil, nil
             body[#body + 1] = line
         elseif fence then
@@ -150,7 +145,7 @@ function docblock.parse(lines: {string}): docblock.Doc
             active, activeName = tag, nil
             local into, list = named[tag], listed[tag]
             if into then
-                local name, description = text:match("^(%S+)%s*(.*)$")
+                local name, description = syntax.nameValue:match(text)
                 if name then
                     activeName = name
                     into[name] = description or ""
@@ -160,7 +155,7 @@ function docblock.parse(lines: {string}): docblock.Doc
             else
                 tags[tag] = text ~= "" and text or true
             end
-        elseif active and line:match("^%s+") then
+        elseif active and syntax.indented:match(line) then
             local continuation = trim(line)
             local into, list = named[active], listed[active]
             if list then

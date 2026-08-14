@@ -18,6 +18,7 @@ local cdecl = require("nupp.compiler.cdecl")
 local fs = require("nupp.compiler.fs")
 local hash = require("nupp.compiler.build.hash")
 local process = require("nupp.compiler.build.process")
+local buildSyntax = require("nupp.compiler.build.syntax")
 
 local cheader = {}
 
@@ -239,38 +240,14 @@ local function compilerArgv(opts, ...)
     return argv
 end
 
---- GCC and Clang write Makefile syntax. Continuations and escaped whitespace are
---- the only pieces needed for dependency paths; the target ends at the first colon.
 local function dependencyPaths(text, sourcePath)
-    text = text:gsub("\\\r?\n", " ")
-    text = text:match("^[^:]*:%s*(.*)$") or ""
-    local paths, word, escaped = {}, {}, false
-    local function finish()
-        if #word > 0 then
-            paths[#paths + 1] = fs.canonical(table.concat(word))
-            word = {}
-        end
-    end
-
-    for index = 1, #text do
-        local ch = text:sub(index, index)
-        if escaped then
-            word[#word + 1] = ch
-            escaped = false
-        elseif ch == "\\" then
-            escaped = true
-        elseif ch:match("%s") then
-            finish()
-        else
-            word[#word + 1] = ch
-        end
-    end
-    finish()
+    local paths = buildSyntax.depfile:match(text) or {}
     if #paths == 0 then
         paths[1] = sourcePath
     end
     local unique, out = {}, {}
     for _, path in ipairs(paths) do
+        path = fs.canonical(path)
         if not unique[path] then
             unique[path] = true
             out[#out + 1] = path

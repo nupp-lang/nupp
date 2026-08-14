@@ -303,6 +303,9 @@ Fetched Git trees live under `.nupp/deps` and require an explicit revision.
 C builds emit a `.so`, `.dylib`, or `.dll` under `outDir/lib`. A configured
 header is passed through `import-c`, and the resulting NUPP module is placed
 under `outDir/generated` so it participates in normal module resolution.
+`sources` and `headers` are path globs: `*` and `?` stay inside one component,
+while `**/` matches zero or more directories. `pkg-config` output honors shell
+quotes and backslash escapes, but is never expanded or executed by a shell.
 
 ## Rust dependencies
 

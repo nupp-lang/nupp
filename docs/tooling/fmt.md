@@ -81,7 +81,8 @@ goes, and a file ends with exactly one newline.
 
 Docblocks are reflowed and set off with a blank line. `@tag` lines are
 recognized, continuations indent by five spaces, and fenced or indented
-verbatim blocks are left alone.
+verbatim blocks are left alone. Backtick and tilde fences close only on a run
+of the same character at least as long as their opener.
 
 `@!nofmt` is a leading inner annotation that leaves one whole file untouched:
 

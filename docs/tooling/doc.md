@@ -167,6 +167,9 @@ there is not privacy. Its bindings are the interface it describes. Mark one
 A docs target can carry handwritten pages alongside the generated API. Beyond
 ordinary Markdown, five things are available in a fenced block. Every fence is
 highlighted, static code until one asks to be an editor.
+Backtick and tilde fences are both accepted. A closer uses the same character
+and at least as many of it as the opener, so a longer fence can show a shorter
+one literally.
 
 **A caption**, which also becomes a tab label:
 

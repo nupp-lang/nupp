@@ -51,6 +51,7 @@ local parser = require("nupp.compiler.parser")
 local lexer = require("nupp.compiler.lexer")
 local cst = require("nupp.compiler.cst")
 local displayWidth = require("nupp.compiler.fmt.displaywidth")
+local docSyntax = require("nupp.compiler.doc.syntax")
 
 local fmt = {}
 
@@ -605,19 +606,18 @@ end
 -- Blocks are { kind = "text"|"annot"|"blank"|"verbatim", text = ? }.
 local function parseDoc(rawLines)
     local blocks = {}
-    local fenced = false
+    local fenced: string? = nil
     for _, raw in ipairs(rawLines) do
-        local body = raw:gsub("^%-%-+", "")
-        body = body:gsub("^ ", "")
-        local fence = body:match("^%s*```")
-        if fence then
-            fenced = not fenced
-        end
-        if fenced or fence or (not fenced and body:match("^    %S")) then
+        local body = docSyntax.comment:match(raw) or raw
+        local wasFenced = fenced ~= nil
+        local marker
+        fenced, marker = docSyntax.fenceState(body, fenced)
+        local annotation = not wasFenced and not marker and docSyntax.tag:match(body) ~= nil
+        if wasFenced or marker or (not fenced and docSyntax.codeIndented:match(body)) then
             blocks[#blocks + 1] = {kind = "verbatim", text = body}
-        elseif body:match("^%s*$") then
+        elseif docSyntax.blank:match(body) then
             blocks[#blocks + 1] = {kind = "blank"}
-        elseif body:match("^@[%w_]+%s") then
+        elseif annotation then
             blocks[#blocks + 1] = {kind = "annot", text = body}
         else
             blocks[#blocks + 1] = {kind = "text", text = body}

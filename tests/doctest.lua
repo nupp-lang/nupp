@@ -110,6 +110,15 @@ function M.aFencedExampleKeepsAnAnnotationRatherThanReadingItAsATag()
       "a tag written after the fence is still read")
 end
 
+function M.tildeDocFencesSuspendTagParsingUntilTheirMatchingCloser()
+   local parsed = require("nupp.compiler.docblock").parse({
+      "Example:", "~~~~nupp", "@raises shown, not declared", "~~~", "~~~~",
+      "@raises declared",
+   })
+   assert(parsed.text:find("@raises shown, not declared", 1, true), parsed.text)
+   assert(#parsed.raises == 1 and parsed.raises[1] == "declared")
+end
+
 local DECLARATIONS = table.concat({
    "--[[",
    "# Numbers",
@@ -2306,6 +2315,19 @@ function M.fencedBlocksKeepTheirOptions()
    assert(group:find(">two</label>", 1, true), group)
    -- and the prose on the far side of the block is still prose
    assert(group:find("<p>after</p>", 1, true), group)
+
+   local tilde = html.markdownHtml(
+      "~~~lua [tilde.lua] :line-numbers=7\nprint(7)\n~~~", {})
+   assert(tilde:find("<figcaption>tilde.lua</figcaption>", 1, true), tilde)
+   assert(tilde:find("<span>7</span>", 1, true), tilde)
+
+   local nearMiss = html.markdownHtml(
+      "```lua :line-numbers-extra\nprint(1)\n```", {})
+   assert(not nearMiss:find("has-line-numbers", 1, true), nearMiss)
+   local laterOption = html.markdownHtml(
+      "```lua [] [good.lua] :line-numbers-extra :line-numbers=9\nprint(1)\n```", {})
+   assert(laterOption:find("<figcaption>good.lua</figcaption>", 1, true), laterOption)
+   assert(laterOption:find("<span>9</span>", 1, true), laterOption)
 end
 
 -- A Nupp example is highlighted text until it asks for an editor, and a request to

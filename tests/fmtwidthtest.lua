@@ -463,6 +463,15 @@ function M.docblockCodeBlocksStayVerbatim()
    assertEq(fmt1(got), got, "verbatim idempotency")
 end
 
+function M.tildeDocFencesKeepTagShapedExamplesVerbatim()
+   local example = "@param this line is example source and stays exactly as authored"
+   local src = lines("--- Example:", "--- ~~~~nupp", "--- " .. example,
+      "--- ~~~", "--- ~~~~", "local x = 1")
+   local got = fmt1(src)
+   assert(got:find("--- " .. example, 1, true), got)
+   assertEq(fmt1(got), got, "tilde fence idempotency")
+end
+
 function M.plainCommentLinesArePreserved()
    local src = "-- This ordinary comment is deliberately split by its author.\n"
       .. "-- Its second source line must remain a separate line.\nlocal x = 1\n"

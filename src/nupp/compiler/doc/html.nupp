@@ -32,6 +32,7 @@ the anchor link the site's stylesheet expects.
 local stringsMod = require("nupp.compiler.doc.strings")
 local highlightMod = require("nupp.compiler.doc.highlight")
 local urlsMod = require("nupp.compiler.doc.urls")
+local syntax = require("nupp.compiler.doc.syntax")
 
 local trim, htmlEscape = stringsMod.trim, stringsMod.htmlEscape
 local headingId = stringsMod.headingId
@@ -67,13 +68,13 @@ local function tableHtml(headers: {string}, rows: {{string}}): string
 end
 
 local function markdownOutline(text: string?): {html.Heading}
-    local out, fenced = {}, false
-    for line in (tostring(text or "") .. "\n"):gmatch("(.-)\n") do
-        if line:match("^```") then
-            fenced = not fenced
-        elseif not fenced then
-            local hashes, heading = line:match("^(#+)%s+(.+)$")
-            if hashes and #hashes <= 3 then
+    local out, fenced = {}, nil
+    for _, line in ipairs(syntax.lines:match(tostring(text or "")) or {}) do
+        local marker
+        fenced, marker = syntax.fenceState(line, fenced, true)
+        if not marker and not fenced then
+            local hashes, heading = syntax.heading:match(line)
+            if hashes and heading and #hashes <= 3 then
                 out[#out + 1] = {path = headingId(heading), name = heading:gsub("[`*_]", ""), level = #hashes}
             end
         end
@@ -90,10 +91,8 @@ local ADMONITION_TITLES = {note = "Note", info = "Info", tip = "Tip", warning = 
 -- `:line-numbers` on the fence, optionally `:line-numbers=12` when the excerpt starts
 -- somewhere other than the top of a file.
 local function lineNumberStart(options)
-    if not options or not options:find(":line-numbers", 1, true) then
-        return nil
-    end
-    return tonumber(options:match(":line%-numbers=(%d+)")) or 1
+    local start = options and syntax.lineNumber:match(options)
+    return start and (tonumber(start) as integer?) or nil
 end
 
 -- A gutter beside the code rather than numbers woven into it: a highlighted token can
@@ -222,15 +221,18 @@ end
 -- fenced block: four backticks around three. Closing on any run of three instead ends
 -- the outer block at the inner one's first line and leaves its closer opening a block
 -- that swallows the rest of the page.
-local function readFence(lines, index)
-    local fence, language, options = lines[index]:match("^(```+)%s*([%w_+-]*)%s*(.-)%s*$")
+local function readFence(lines: {string}, index: integer): (any?, integer)
+    local _, fence, rest = syntax.markdownFence:match(lines[index])
     if not fence then
         return nil, index
     end
+    local language, options = syntax.fenceInfo:match(rest or "")
+    options = trim(options or "")
     local function closes(line)
-        local closer = line:match("^(```+)%s*$")
-        return closer ~= nil and #closer >= #fence
+        local _, closer, closerRest = syntax.markdownFence:match(line)
+        return syntax.closes(fence, closer, closerRest)
     end
+
     local code = {}
     index = index + 1
     while index <= #lines and not closes(lines[index]) do
@@ -240,9 +242,9 @@ local function readFence(lines, index)
 
     return {
         language = language ~= "" and language or "text",
-        caption = options:match("%[([^%]]+)%]"),
+        caption = syntax.caption:match(options),
         firstLine = lineNumberStart(options),
-        playground = options:find(":playground", 1, true) ~= nil,
+        playground = syntax.playground:match(options) ~= nil,
         source = table.concat(code, "\n"),
     }, index + 1
 end
@@ -250,14 +252,14 @@ end
 -- Reads a `:::` region while respecting nested containers and fenced code. The inner
 -- source is handed back to markdownHtml, so an admonition does not create a second,
 -- less capable Markdown dialect.
-local function readContainer(lines, index)
-    local body, depth, fenced = {}, 1, false
+local function readContainer(lines: {string}, index: integer): (string?, integer)
+    local body, depth, fenced = {}, 1, nil
     index = index + 1
     while index <= #lines do
         local line = lines[index]
-        if line:match("^```") then
-            fenced = not fenced
-        elseif not fenced then
+        local marker
+        fenced, marker = syntax.fenceState(line, fenced, true)
+        if not marker and not fenced then
             local marker = trim(line)
             if marker == ":::" then
                 depth = depth - 1
@@ -279,10 +281,8 @@ end
 -- in its place. Markdown has nothing to say about a comment, so it arrives in the
 -- output untouched and is swapped back for the block.
 local function extractBlocks(text, links, rendered)
-    local lines, out, index = {}, {}, 1
-    for line in (text .. "\n"):gmatch("(.-)\n") do
-        lines[#lines + 1] = line
-    end
+    local lines, out = syntax.lines:match(text) or {}, {}
+    local index: integer = 1
     local function placeholder(markup)
         rendered[#rendered + 1] = markup
         out[#out + 1] = ""
@@ -293,7 +293,8 @@ local function extractBlocks(text, links, rendered)
     while index <= #lines do
         local line = lines[index]
         local marker = trim(line)
-        local directive, title = marker:match("^:::%s+([%w-]+)%s*(.-)%s*$")
+        local directive, title = syntax.directive:match(line)
+        title = trim(title or "")
         if marker == "::: code-group" then
             local blocks = {}
             index = index + 1
@@ -315,7 +316,7 @@ local function extractBlocks(text, links, rendered)
             else
                 out[#out + 1] = line
             end
-        elseif lines[index]:match("^```") then
+        elseif syntax.markdownFence:match(lines[index]) then
             local block, after = readFence(lines, index)
             index = after - 1
             if isPlayground(block) then

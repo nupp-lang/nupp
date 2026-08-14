@@ -1,0 +1,72 @@
+--[[
+The three tiny languages emitted or consumed by native builds. Keeping their
+grammars here makes quoting, escaping, and wildcard boundaries one definition
+instead of three character loops spread across the build pipeline.
+]]
+
+local lpeg = require("lpeg")
+
+local P, S, V, C, Ct, Cs = lpeg.P, lpeg.S, lpeg.V, lpeg.C, lpeg.Ct, lpeg.Cs
+local syntax: {[string]: any} = {}
+
+local globTokens = Ct((C(P("**/")) + C(P("**")) + C(P("*")) + C(P("?")) + C((1 - S("*?")) ^ 1)) ^ 0 * -P(1))
+local globCache = setmetatable({}, {__mode = "v"})
+
+--- Compile a path glob. `*` and `?` stay within one path segment, while `**/`
+--- also matches zero directories, as it does in Git and common glob tools.
+local function compileGlob(glob: string): any
+    local cached = globCache[glob]
+    if cached then
+        return cached
+    end
+    local tokens = assert(globTokens:match(glob))
+    local slash, segment = P("/"), 1 - P("/")
+    local rules: {[string | integer]: any} = {done = -P(1)}
+    local nextRule = "done"
+    for index = #tokens, 1, -1 do
+        local token = tokens[index]
+        local rule = "part" .. tostring(index)
+        if token == "**/" then
+            rules[rule] = V(nextRule) + segment ^ 1 * slash * V(rule)
+        elseif token == "**" then
+            rules[rule] = V(nextRule) + P(1) * V(rule)
+        elseif token == "*" then
+            rules[rule] = V(nextRule) + segment * V(rule)
+        elseif token == "?" then
+            rules[rule] = segment * V(nextRule)
+        else
+            rules[rule] = P(token) * V(nextRule)
+        end
+        nextRule = rule
+    end
+    rules[1] = nextRule
+    local pattern = P(rules)
+    globCache[glob] = pattern
+
+    return pattern
+end
+
+local whitespace = S(" \t\r\n") ^ 1
+local escaped = P("\\") / "" * C(P(1))
+local singleQuoted = P("'") * C((1 - P("'")) ^ 0) * P("'")
+local doubleQuoted = P('"') * Cs((escaped + (1 - S('"\\'))) ^ 0) * P('"')
+local unquoted = Cs((escaped + (1 - S(" \t\r\n\\'\""))) ^ 1)
+local shellWord = Ct((singleQuoted + doubleQuoted + unquoted) ^ 1) / table.concat
+local shellWords = Ct(whitespace ^ 0 * (shellWord * whitespace ^ 0) ^ 0 * -P(1))
+
+local continuation = P("\\") * P("\r") ^ -1 * P("\n")
+local depSpace = (S(" \t\r\n") + continuation) ^ 1
+local depEscaped = P("\\") / "" * C(1 - S("\r\n"))
+local depWord = Cs((depEscaped + (1 - S(" \t\r\n\\#"))) ^ 1)
+local targetEscaped = P("\\") * P(1)
+local depfile = (
+    targetEscaped + (1 - P(":"))
+) ^ 0 * P(
+    ":"
+) * depSpace ^ 0 * Ct((depWord * depSpace ^ 0) ^ 0) * (P("#") * (1 - S("\r\n")) ^ 0 * S("\r\n") ^ -1) ^ -1 * -P(1)
+
+syntax.glob = compileGlob
+syntax.shellWords = shellWords
+syntax.depfile = depfile
+
+return syntax

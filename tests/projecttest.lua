@@ -7,6 +7,7 @@ local nativeStage = require("nupp.compiler.build.native")
 local fs = require("nupp.compiler.fs")
 local compilerEnv = require("nupp.compiler.env")
 local json = require("cjson").new()
+local buildSyntax = require("nupp.compiler.build.syntax")
 
 local function assertEq(got, want, label)
    if got ~= want then
@@ -1694,6 +1695,37 @@ return {include = {"src"}, tasks = {greet = {argv = {"echo", "hi"}}}}
    io.stderr = originalStderr
    os.remove(errorPath)
    assertEq(status, 1, "an unconfigured task name fails rather than running nothing quietly")
+   remove(dir)
+end
+
+function M.pkgConfigFlagsUseShellWordQuotingWithoutRunningAShell()
+   local words = assert(buildSyntax.shellWords:match(
+      [[-I"include dir" '-DNAME=two words' plain\ flag "" ab"cd"'ef']]))
+   assertEq(table.concat(words, "\0"),
+      table.concat({"-Iinclude dir", "-DNAME=two words", "plain flag", "", "abcdef"}, "\0"))
+   local malformed = buildSyntax.shellWords:match([["unclosed]])
+   assertEq(malformed, nil)
+end
+
+function M.makeDepfilesPreserveEscapedPathsAndContinuations()
+   local paths = assert(buildSyntax.depfile:match(
+      "nupp_header: one.h two\\ three.h \\\n four\\#five.h one.h # ignored\n"))
+   assertEq(table.concat(paths, "\0"),
+      table.concat({"one.h", "two three.h", "four#five.h", "one.h"}, "\0"))
+   assertEq(buildSyntax.depfile:match("not a depfile"), nil)
+end
+
+function M.buildGlobsTreatDoubleStarAsZeroOrMoreDirectories()
+   local dir = tempProject({
+      ["src/root.nupp"] = "return 1\n",
+      ["src/nested/child.nupp"] = "return 2\n",
+      ["src/nested/child.lua"] = "return 3\n",
+   })
+   local matches = deps.expandGlob(dir, "src/**/*.nupp")
+   table.sort(matches)
+   assertEq(#matches, 2)
+   assertEq(matches[1], dir .. "/src/nested/child.nupp")
+   assertEq(matches[2], dir .. "/src/root.nupp")
    remove(dir)
 end
 
