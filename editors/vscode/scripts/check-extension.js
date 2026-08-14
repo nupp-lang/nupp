@@ -46,6 +46,19 @@ if (!language || language.icon?.light !== "./nupp.svg"
   || language.icon?.dark !== "./nupp.svg") {
   throw new Error("NUPP language must use nupp.svg for light and dark themes");
 }
+const grammars = manifest.contributes.grammars || [];
+if (!grammars.some(({ language, scopeName }) => language === "nupp" && scopeName === "source.nupp")) {
+  throw new Error("NUPP must register source.nupp as its primary grammar");
+}
+for (const scopeName of [
+  "source.nupp.embedded.json",
+  "source.nupp.embedded.glsl",
+  "source.nupp.embedded.lua"
+]) {
+  if (grammars.find((grammar) => grammar.scopeName === scopeName)?.language) {
+    throw new Error(`embedded grammar must not register as the NUPP language: ${scopeName}`);
+  }
+}
 const semanticScopes = manifest.contributes.semanticTokenScopes || [];
 const nuppSemanticScopes = semanticScopes.find(({ language }) => language === "nupp");
 const semanticTypes = manifest.contributes.semanticTokenTypes || [];

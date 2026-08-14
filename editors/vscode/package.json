@@ -89,17 +89,14 @@
         "path": "./syntaxes/peg.tmLanguage.json"
       },
       {
-        "language": "nupp",
         "scopeName": "source.nupp.embedded.json",
         "path": "./syntaxes/json.tmLanguage.json"
       },
       {
-        "language": "nupp",
         "scopeName": "source.nupp.embedded.glsl",
         "path": "./syntaxes/glsl.tmLanguage.json"
       },
       {
-        "language": "nupp",
         "scopeName": "source.nupp.embedded.lua",
         "path": "./syntaxes/lua.tmLanguage.json"
       }
