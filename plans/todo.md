@@ -26,7 +26,36 @@ work makes sense in.
         per call site on the Nupp side, not in the host
   - [ ] cross-target stub selection and shipped per-platform stubs; a binary
         target still has no target list or cross-build selection
-- [ ] Hot-reload typing; the `nupp-cargo` Rust helper.
+- [ ] **The `nupp-cargo` helper is a manifest provider now, and what is left of
+      it is two promises it does not keep.** `kind = "cargo"` builds a crate's
+      cdylib into an isolated target directory, forwards `target`, `profile`,
+      `features`, `locked` and `offline`, reads cargo's JSON artifact messages,
+      copies the library into `outDir/lib`, runs cbindgen when
+      `bindings.cbindgen` is set, and passes the header through `import-c`
+      (`src/nupp/compiler/build/deps.nupp:312`, documented in
+      `docs/tooling/build.md`). That was the whole of what a separate command
+      was for, so the command itself is not wanted. What remains is a `Box<T>`
+      return, which ejects as a raw pointer where the design said it should
+      carry `Owned<T*, crate_destroy>` — cbindgen erases the box, so this needs
+      a convention or a per-symbol mapping rather than a port. And the cbindgen
+      path has no test: `tests/projecttest.lua:1351` asserts only that the
+      cdylib was copied, and every binding assertion sits on the C provider.
+- [ ] **Hot reload is the one part of the compiler that runs untyped.**
+      `src/nupp/hotreload.g.nupp` and `src/nupp/compiler/hot_session.g.nupp` are
+      the only two `.g.nupp` files under `src`, so the machinery deciding
+      whether an edit may reach a running program is the machinery outside the
+      strict floor. `--strict` names five exported functions with no
+      annotation — `module`, `define`, `stage`, `commit` and `hotSession.new` —
+      and the public surface says as little: `nupp.HotReload.poll` is declared
+      as returning `any` (`src/nupp/compiler/decls/prelude.d.nupp:251`), and the
+      CLI's own host loop reads its `kind` strings untyped
+      (`src/nupp/compiler/cli/run.nupp:123`).
+      The types were specified and never written: `hot-reload.md:106` gives
+      `Result = Prepared | Rejected | Restart | Unchanged`, `InitialBuild` and
+      the `Session` record. Writing those, renaming both files to `.nupp` and
+      widening `poll` closes this. The slot vectors, `debug.upvaluejoin` and the
+      loaded patch chunk stay `any` by nature; the results and the manifests are
+      where the typing is worth having.
 - [ ] **Investigate `@native` compilation for Nupp-authored tight loops.** This
       is a separate project from checked external kernels and
       `countedBy(count)`. Define the restricted whole-function contract over
