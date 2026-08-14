@@ -1,16 +1,16 @@
-# Checked native functions
+# Checked AOT functions
 
-Status: planned; supersedes the `@kernel` spelling
+Status: planned; supersedes the `@kernel` and `@native` spellings
 
 ## Decision
 
-Use `@native` for the explicit contract that a Nupp function must compile as
-one checked native unit:
+Use `@aot` for the explicit contract that a Nupp function must compile as
+one checked ahead-of-time unit:
 
 ```nupp
 local span = require("nupp.span")
 
-@native
+@aot
 local function scaleAdd(
     exclusive output: span.WriteSpan<float>,
     borrows input: span.Span<float>,
@@ -26,28 +26,29 @@ local function scaleAdd(
 end
 ```
 
-`@native` means the complete function is eligible for Nupp's checked native IR.
-In a native-required build it must compile for every selected target or the
-build reports why. In a native-disabled build the annotation is dormant and the
+`@aot` means the complete function is eligible for Nupp's checked AOT IR.
+In an AOT-required build it must compile for every selected target or the
+build reports why. In an AOT-disabled build the annotation is dormant and the
 same ordinary Nupp body is emitted. It does not mean operating-system code,
 imply a GPU, promise SIMD, or permit unsafe operations.
 
-The initial backend is generated private C compiled by a pinned Clang. Native
-IR remains the safety boundary and the stable compiler architecture; C is a
+The initial backend is generated private C compiled by a pinned Clang. AOT IR
+remains the safety boundary and the stable compiler architecture; C is a
 deterministic backend representation. Direct machine-code emission is deferred
 unless measured toolchain, latency, packaging, or specialization requirements
 show that generated C cannot meet the release gates.
 
-The earlier working name `@kernel` is rejected for the public annotation. In
-numeric computing, a kernel is a small bulk operation, but the word also
-suggests an operating-system kernel, GPU dispatch, implicit parallelism, SIMD,
-and a separate language. None is the defining promise. “Native” names the one
-observable contract: this function is compiled by Nupp's native backend rather
-than emitted as an ordinary Lua function.
+The earlier working names `@kernel` and `@native` are rejected for the public
+annotation. `@kernel` suggests an operating-system kernel, GPU dispatch,
+implicit parallelism, SIMD, and a separate language. `@native` conflates
+compiler-generated code with FFI, handwritten C, and the output representation.
+`@aot` names the execution choice users make: compile this ordinary Nupp body
+during the build rather than depend on LuaJIT to compile it while it runs. The
+term remains accurate if generated C is replaced by another AOT backend.
 
 Internal documents may still call a benchmark workload or a foreign bulk
 routine a native kernel. The compiler representation, commands, diagnostics,
-and user-facing annotation use “native function” and “native IR.”
+and user-facing annotation use “AOT function” and “AOT IR.”
 
 ## Goal
 
@@ -66,17 +67,17 @@ The feature provides a safe native boundary for:
 - scalar native work that does not benefit from SIMD.
 
 The first implementation is intentionally a whole-function compiler. Region
-outlining and transparent native compilation are later, separate optimizations.
-They must not be prerequisites for an explicit `@native` contract to be
+outlining and transparent AOT compilation are later, separate optimizations.
+They must not be prerequisites for an explicit `@aot` contract to be
 understandable.
 
 ## Non-goals
 
 - Do not embed C, C++, assembly, LLVM IR, or machine-code bytes in Nupp source.
 - Do not maintain a private fork of LuaJIT.
-- Do not treat `@native` as `unsafe`; an unsafe operation remains unsafe and is
-  initially rejected inside a native function.
-- Do not promise SIMD merely because a function is native. A scalar lowering
+- Do not treat `@aot` as `unsafe`; an unsafe operation remains unsafe and is
+  initially rejected inside an AOT function.
+- Do not promise SIMD merely because a function is AOT-compiled. A scalar lowering
   satisfies the contract.
 - Do not promise automatic vectorization of every scalar loop. It is a backend
   optimization whose success must be inspectable.
@@ -84,7 +85,7 @@ understandable.
   runtime under this annotation.
 - Do not admit arbitrary Lua calls, tables, strings, allocation, callbacks,
   coroutines, or dynamic dispatch in the first subset.
-- Do not silently fall back per function when native compilation is required.
+- Do not silently fall back per function when AOT compilation is required.
   Selecting an ordinary-only build is an explicit whole-build policy.
 - Do not change numeric answers to obtain faster code. Relaxed floating-point
   behavior requires a separate explicit contract.
@@ -94,11 +95,11 @@ understandable.
 
 The body is ordinary Nupp. It uses the existing parser, name resolution, type
 system, operators, loops, structs, spans, diagnostics, and source positions.
-`@native` adds a compilation and effect constraint after ordinary checking; it
+`@aot` adds a compilation and effect constraint after ordinary checking; it
 does not reinterpret the body.
 
-Removing `@native` may change performance and generated artifacts, but not the
-function's source-level result. Adding it may reject constructs the native
+Removing `@aot` may change performance and generated artifacts, but not the
+function's source-level result. Adding it may reject constructs the AOT
 backend cannot represent, but may not make an otherwise invalid operation
 valid. This is the same shape as `@jit`: an annotation can make an execution
 property a checked requirement without inventing new expression semantics.
@@ -106,42 +107,42 @@ property a checked requirement without inventing new expression semantics.
 Eligibility is a versioned compatibility promise. Within a supported language
 line, a source function accepted for a target remains accepted; the admitted
 subset may widen but does not silently narrow. A backend regression is a build
-error and compiler defect in native-required mode, never permission to fall
-back just that function. The programmer can remove `@native` or explicitly
+error and compiler defect in AOT-required mode, never permission to fall
+back just that function. The programmer can remove `@aot` or explicitly
 select an ordinary-only build to choose ordinary execution.
 
 ### Build policy and portability
 
-The build selects one policy before checking native eligibility:
+The build selects one policy before checking AOT eligibility:
 
-- `native=off` checks and emits every body as ordinary Nupp. It does not run the
-  native subset checker, find a C compiler, generate C, or package native code.
-- `native=require` lowers every `@native` body and fails if the source subset,
+- `aot=off` checks and emits every body as ordinary Nupp. It does not run the
+  AOT subset checker, find a C compiler, generate C, or package native code.
+- `aot=require` lowers every `@aot` body and fails if the source subset,
   target backend, compiler, SDK, or artifact validation is unavailable.
-- `native=emit-c` verifies native IR and emits private target C without running
+- `aot=emit-c` verifies AOT IR and emits private target C without running
   it. A platform build can hand that C to its vendor compiler.
 
-There is deliberately no `auto` mode that quietly mixes successful native
-functions with accidental ordinary fallbacks. A build artifact records its one
+There is deliberately no `auto` mode that quietly mixes successfully compiled
+AOT functions with accidental ordinary fallbacks. A build artifact records one
 policy. Disabling compilation changes performance and packaging only; the
 ordinary body remains the semantic implementation and differential oracle.
 
 Cross-compilation runs the same front end and IR verifier with the selected
 target layout, then invokes the selected target C compiler/sysroot or exports C
 for a vendor build. It never probes target CPU features by executing target
-code. Consoles may use `require` with their SDK or `off` when native integration
+code. Consoles may use `require` with their SDK or `off` when AOT integration
 has not been enabled for that platform.
 
 The annotation applies to local and named functions with visible Nupp bodies.
 It is rejected on constructors, inline interface requirements, bodyless
 declarations, `cdef` functions, and arbitrary function-typed bindings in the
 first release. A later declaration file may describe a previously compiled
-native implementation, but that is a packaging contract rather than the source
+AOT implementation, but that is a packaging contract rather than the source
 feature.
 
 At runtime the declaration still denotes a Lua-callable wrapper. Taking its
 function value, storing it, comparing it, and calling it dynamically use that
-wrapper. Statically resolved calls from one native function to another may use
+wrapper. Statically resolved calls from one AOT function to another may use
 a private direct convention without changing the public function value.
 
 ## Relationship to existing features
@@ -149,43 +150,43 @@ a private direct convention without changing the public function value.
 ### `@jit`
 
 `@jit` checks that a function avoids known LuaJIT trace-unsafe FFI boundaries.
-`@native` bypasses LuaJIT for the function body. They are mutually exclusive:
+`@aot` bypasses LuaJIT for the function body. They are mutually exclusive:
 stacking them is an error because the two contracts name different compilers
 for the same body.
 
 The existing `nupp bc --check` command continues to answer LuaJIT traceability.
-Native functions receive separate IR and machine-code inspection commands.
+AOT functions receive separate IR and machine-code inspection commands.
 
 ### C interop and checked external kernels
 
 `cdef`, `cheader`, and `countedBy(count)` describe code implemented outside
 Nupp. Their implementation is trusted even when their pointer/count boundary is
-checked. `@native` instead compiles visible checked Nupp source. It needs no
+checked. `@aot` instead compiles visible checked Nupp source. It needs no
 duplicated C struct, header, handwritten wrapper, or foreign library declaration.
 
 The checked native-kernel spike remains valuable evidence and a performance
 baseline. Its `countedBy` wrapper proves the desired one-call ABI; its C and
-DynASM bodies do not become the safety model for `@native`.
+DynASM bodies do not become the safety model for `@aot`.
 
 ### Portable vectors
 
 The [portable-vector plan](portable-vectors.md) asks whether vectors and masks
-should have complete boxed Lua semantics and trigger transparent native
-compilation in otherwise ordinary functions. `@native` asks a narrower question:
-where can Nupp promise one complete native compilation unit?
+should have complete boxed Lua semantics and trigger transparent AOT
+compilation in otherwise ordinary functions. `@aot` asks a narrower question:
+where can Nupp promise one complete AOT compilation unit?
 
-They can share vector types, native IR, target lowering, dispatch, caches, and
+They can share vector types, AOT IR, target lowering, dispatch, caches, and
 inspection. The public choices remain distinct:
 
-1. Vector values work everywhere, while `@native` optionally turns fallback
+1. Vector values work everywhere, while `@aot` optionally turns fallback
    into a compile-time error for one function.
-2. Vector values begin inside `@native`, avoiding boxed escape until the
+2. Vector values begin inside `@aot`, avoiding boxed escape until the
    ordinary-value model proves worthwhile.
-3. Scalar `@native` lands without public explicit vectors and initially relies
+3. Scalar `@aot` lands without public explicit vectors and initially relies
    on backend auto-vectorization.
 
-The first mechanism spike must compare all three. Do not make `@native` mean
-“SIMD function”; doing so would exclude useful scalar native work and make the
+The first mechanism spike must compare all three. Do not make `@aot` mean
+“SIMD function”; doing so would exclude useful scalar AOT work and make the
 annotation's name dishonest.
 
 ### Embedded C
@@ -194,7 +195,7 @@ Literal C is not a competing safe implementation. Nupp can validate its ABI
 and inspect a Clang AST, but arbitrary C retains pointer provenance, undefined
 behavior, preprocessor, promotion, cast, and toolchain-version hazards. A C
 subset restricted enough to recover the guarantees below is a second spelling
-of the native IR with worse diagnostics.
+of the AOT IR with worse diagnostics.
 
 Use generated C as a private backend experiment and ordinary C dependencies as
 an explicit foreign escape hatch. Do not add `native do` or
@@ -206,8 +207,8 @@ an explicit foreign escape hatch. Do not add `native do` or
 
 The first subset admits:
 
-- `nil`, `boolean`, fixed C numeric types, and integers where their exact
-  native semantics are specified;
+- `nil`, `boolean`, basic binary64 `number` operations, fixed C numeric storage
+  types, and integers where their exact AOT semantics are specified;
 - mutable local scalar bindings, multiple assignment, and immutable compile-time
   constants;
 - reified Nupp structs containing admitted fields;
@@ -218,15 +219,15 @@ The first subset admits:
 
 It declines:
 
-- `any`, `unknown`, Lua `number` until its exact native contract is selected,
-  `string`, `table`, ordinary records, threads, and userdata;
+- `any`, `unknown`, unsupported `number` operations, `string`, `table`, ordinary
+  records, threads, and userdata;
 - GC-managed or dynamically sized fields;
 - raw pointers, variable C arrays, cdata of unknown layout, and arbitrary FFI;
 - owned, pinned, retained, or dynamically registered resources;
 - closures, upvalues other than quotable immutable constants, and varargs;
 - mutable globals or replaceable module fields.
 
-"Declines" means a stable `@native` diagnostic when compilation is required.
+"Declines" means a stable `@aot` diagnostic when compilation is required.
 The ordinary body is still available only through the explicit ordinary build
 policy; it never excuses one unsupported function inside a required build.
 
@@ -234,7 +235,7 @@ policy; it never excuses one unsupported function inside a required build.
 
 Admit structured conditionals, numeric loops, `while`, `repeat`, `break`,
 `continue`, ordinary returns, and statically resolved calls within a bounded
-native helper graph. `goto` waits until native IR source maps and cleanup edges
+AOT helper graph. `goto` waits until AOT IR source maps and cleanup edges
 can represent every existing rule without a special case.
 
 Recursion, protected calls, yields, suspension handling, unknown callbacks,
@@ -247,10 +248,10 @@ its function effects; the user need not stack `nosuspend` syntax around it.
 
 ### Calls
 
-A native body may call:
+An AOT body may call:
 
-- another statically resolved `@native` function;
-- a private native helper generated from an eligible visible Nupp body;
+- another statically resolved `@aot` function;
+- a private AOT helper generated from an eligible visible Nupp body;
 - a closed compiler-owned set of pure numeric and layout intrinsics;
 - span operations whose semantics are lowered directly rather than dispatched
   through Lua.
@@ -258,19 +259,19 @@ A native body may call:
 It may not call arbitrary C merely because the C function is declared. Foreign
 calls need target ABI, unwind, alias, retention, callback, and side-effect
 analysis of their own. A later phase may admit a small leaf allowlist with
-complete contracts, but no unknown symbol enters native IR.
+complete contracts, but no unknown symbol enters AOT IR.
 
 Calling an ordinary visible Nupp helper does not silently clone it into the
-native graph. Either mark it `@native`, make it a compiler-recognized intrinsic,
+AOT graph. Either mark it `@aot`, make it a compiler-recognized intrinsic,
 or inline it through a future explicitly documented rule. This keeps code-size
 growth and cross-module invalidation visible.
 
 ### Tecs 80% slice
 
 The ordinary language facilities this slice should consume are planned in
-[Independent foundations for native lowering](native-independent-foundations.md).
-They land and are accepted without `@native`; this plan owns only their later
-consumption by native verification and lowering.
+[Independent foundations for AOT lowering](aot-independent-foundations.md).
+They land and are accepted without `@aot`; this plan owns only their later
+consumption by AOT verification and lowering.
 
 The first Tecs-oriented slice is an archetype-range function, not a whole ECS
 system. Query selection, scheduling, structural changes, events, dirty tracking,
@@ -281,13 +282,13 @@ Its required source coverage is:
 
 1. A readable exclusive span plus a bounds-checked mutable element reference
    tied to the writer. `WriteSpan.getMut` and `set` provide this without
-   native-only syntax.
+   AOT-only syntax.
 2. Reified component structs, field loads/stores, and a target layout witness
    covering size, alignment, field offsets, and field C types.
 3. Inclusive ranged iteration and ordinary span slices, including empty ranges
    and nonzero underlying offsets.
 4. `int32`/`uint32` component fields, conversions, comparisons, bit operations,
-   and shifts with the ordinary LuaJIT semantics written into native IR.
+   and shifts with the ordinary LuaJIT semantics written into AOT IR.
 5. Mutable initialized locals and simultaneous multiple assignment. The first
    structured IR may model verified mutable slots; production SSA construction
    must add dominance and phi verification before optimization.
@@ -299,7 +300,7 @@ Its required source coverage is:
    eligible; a transcendental call may inhibit SIMD and inspection must say so.
 
 The current spike exercises all seven in ordinary Nupp source and generated C.
-It also exposed two language/library prerequisites that belong below the native
+It also exposed two language/library prerequisites that belong below the AOT
 pass: forwarding an exclusive parameter through a checked wrapper when no
 derived borrow is live, and a checked mutable element borrow from `WriteSpan`.
 
@@ -308,26 +309,26 @@ must supply the canonical C description and typed ordinary-struct pointer
 bridge. Ordinary structs remain anonymous LuaJIT ctypes; generated headers and
 generated C share the one canonical named aggregate, while compiler-owned glue
 may erase a physical pointer slot internally after source typing and layout
-verification. The spike's ad hoc `void*` binding is evidence only. The native
+verification. The spike's ad hoc `void*` binding is evidence only. The AOT
 pass must consume Track A rather than invent another struct name or bridge.
 
 ## Memory safety and ownership
 
 ### Spans are the public memory boundary
 
-Native functions do not accept a naked pointer/count pair from checked source.
+AOT functions do not accept a naked pointer/count pair from checked source.
 A shared span projects a const pointer for the duration of the call. A writable
 span projects a mutable pointer only under an exclusive borrow. The wrapper
 applies the span's private offset, carries its count, and performs all required
-width conversions before native entry.
+width conversions before AOT entry.
 
-Loads and stores retain Nupp's one-based span indexing. The native IR contains
+Loads and stores retain Nupp's one-based span indexing. The AOT IR contains
 the logical index, span length, access width, source site, and region identity.
 It never treats a projected address as proof of a bound.
 
 The checker or IR verifier must prove an access in range or emit a modeled
 check. An unchecked access, pointer cast, integer-to-pointer conversion, or
-unknown pointer arithmetic has no native IR opcode in the safe subset.
+unknown pointer arithmetic has no AOT IR opcode in the safe subset.
 
 ### Aliasing
 
@@ -340,38 +341,51 @@ The IR preserves these facts explicitly. A backend may emit C `restrict`,
 reorder memory operations, or eliminate loads only for regions Nupp proved
 disjoint. Constness alone never implies non-aliasing.
 
-Native helpers receive the same region identities through their call edges.
-Erasing a value through gradual or unsafe code prevents native compilation; it
+AOT helpers receive the same region identities through their call edges.
+Erasing a value through gradual or unsafe code prevents AOT compilation; it
 never manufactures a stronger alias fact.
 
 ### Ownership and cleanup
 
-The first subset accepts no live owner at native entry and creates none inside.
-That excludes allocation and cleanup rather than trying to unwind native frames
+The first subset accepts no live owner at AOT entry and creates none inside.
+That excludes allocation and cleanup rather than trying to unwind AOT frames
 through LuaJIT. A span borrowing an owner may enter because the wrapper keeps
 the root and borrow live until the call returns.
 
 Owned values, automatic destruction, `takes` parameters, affine closures, and
-resource sets may be admitted later only after native IR models every normal,
+resource sets may be admitted later only after AOT IR models every normal,
 error, and cancellation exit. `unsafe do` does not bypass this staging rule.
 
 ## Numeric semantics
 
-Native scalar operations owe the same specified result as their ordinary Nupp
-counterparts. The native compiler must not inherit whatever overflow, shift,
+AOT-lowered scalar operations owe the same specified result as their ordinary
+Nupp counterparts. The AOT compiler must not inherit whatever overflow, shift,
 NaN, contraction, denormal, or fast-math behavior a C compiler happens to use.
 
-Fixed C storage types do not imply same-width expression arithmetic. In
-ordinary Nupp today, loading a `float` cdata slot widens to Lua's binary64
-`number`, local type annotations erase, and storing into a `float` slot narrows
-the final result. Native IR must represent those conversions and binary64
-intermediates explicitly. Treating every operation between `float`-typed
-values as binary32 changes answers and violates the annotation invariant. A
-future binary32-per-operation intrinsic or relaxed numeric mode must have
-ordinary Nupp semantics of its own; `@native` cannot introduce it implicitly.
+### AOT v1 preserves the current numeric tower
 
-The first release starts with fixed C storage types because their widths are
-explicit. For each admitted operator, the native IR states:
+Fixed C storage types do not currently imply same-width expression arithmetic.
+Loading a `float` cdata slot produces a Lua number containing the stored
+binary32 value, ordinary operators compute with LuaJIT binary64 semantics, and
+storing into a `float` slot narrows the final result. Local fixed-width
+annotations do not turn those operators into binary32 or wrapping integer
+operations. AOT IR must represent the same loads, conversions, binary64
+intermediates, and stores explicitly.
+
+This means the initial AOT subset must support basic `number` arithmetic; it
+cannot decline `number` while claiming to compile an ordinary expression over
+float struct fields. Start with binary64 `+`, `-`, `*`, `/`, comparisons, and
+explicit store narrowing. Add remainder and each `math` operation only after
+its LuaJIT result and failure behavior have a target-independent lowering or a
+tested runtime call. Do not contract `a * b + c`, reassociate expressions, or
+silently replace binary64 work with binary32 to gain more SIMD lanes.
+
+The released `nupp.math.i32`, `nupp.math.u32`, and `nupp.math.f32` operations
+remain the explicit ordinary semantics for wrapping 32-bit and per-operation
+binary32 work. AOT IR recognizes their canonical intrinsic identities and may
+lower them directly. Their Lua implementations remain the differential oracle.
+
+For each admitted operation, the AOT IR states:
 
 - signed or unsigned interpretation;
 - result width and overflow behavior;
@@ -382,7 +396,7 @@ explicit. For each admitted operator, the native IR states:
 - whether one fused rounding was explicitly requested.
 
 Default floating expressions are not reassociated and `a * b + c` is not
-contracted implicitly. An explicit future `fma` intrinsic requests a fused
+contracted implicitly. `nupp.math.f32.fma` requests one fused binary32
 operation. Reductions state their lane order. No backend uses `-ffast-math` or
 an equivalent flag under the default contract.
 
@@ -393,9 +407,87 @@ facts plus verified region relationships. Reductions remain source-ordered by
 default; a vector tree reduction needs a separately named fixed-tree or relaxed
 contract because reassociation changes floating-point answers.
 
-Lua `number` and Nupp `integer` wait where ordinary LuaJIT semantics do not map
-cleanly to one target operation. Admitting them requires differential tests and
-a written exactness rule, not a convenient host cast.
+Nupp `integer` operations continue to widen exactly where ordinary checking and
+LuaJIT do. Any operation whose ordinary semantics do not map cleanly to one
+target operation waits for differential tests and a written exactness rule,
+not a convenient host cast.
+
+### Do not scope arithmetic semantics to structs
+
+Structs remain storage and layout declarations. They are not numeric execution
+contexts. None of these rules is acceptable:
+
+- a fixed-width operator applies only when its operand was loaded from a struct;
+- arithmetic inside a struct method differs from the same arithmetic in a free
+  function;
+- assigning a field to a local widens or changes its operator semantics;
+- a scalar is wrapped in a one-field cdata struct to obtain FFI metamethods.
+
+The first three make refactoring change answers. The fourth changes the C ABI,
+creates boxed aggregate intermediates, cannot provide LuaJIT 2.1 bit-operator
+metamethods, and sabotages both fallback and AOT optimization. A value's
+numeric semantics must follow its static value type through parameters, locals,
+returns, fields, arrays, and spans. Container origin and lexical location may
+not participate.
+
+For example, these must never differ merely because one field was named:
+
+```nupp
+local direct = particle.velocity * scale
+local velocity = particle.velocity
+local extracted = velocity * scale
+```
+
+If `direct` is binary32, `extracted` must be binary32 too. If both use ordinary
+binary64 operators, assigning the field to a local must not opt into another
+numeric mode.
+
+Struct fields already provide the safe limited feature: `float`, `int32`, and
+`uint32` specify storage layout and narrow when written. That is useful for C
+interop and compact component columns, but it is not fixed-width expression
+arithmetic and must not be presented as such.
+
+### Future computed-width value types
+
+Do not add parallel `f32`, `i32`, or `u32` types while `float`, `int32`, and
+`uint32` remain lookalike storage-only types. Under the one-way rule, the only
+coherent expansion candidate is to promote the existing fixed-width names to
+true semantic value types everywhere:
+
+- fixed-width assignment and explicit conversion establish a canonical value;
+- operators over two values of the same fixed-width type return that type;
+- integer results wrap with specified signed or unsigned interpretation;
+- `float` operators round each result to binary32;
+- representable numeric literals may be contextually converted;
+- mixing `number` with a fixed-width value requires one explicit conversion;
+- the Lua fallback keeps unboxed canonical Lua numbers and uses static
+  compiler lowering, never scalar cdata wrappers or metatable dispatch;
+- the AOT backend maps the same typed operations directly to verified scalar or
+  vector IR.
+
+This would be a language-version change, not an AOT feature. It changes answers
+for existing expressions over struct fields and can slow exact binary32 work in
+the LuaJIT fallback because LuaJIT has no native scalar-float arithmetic. Do not
+implement it until all of these gates pass:
+
+1. Audit existing Nupp and Tecs source to quantify changed expressions and
+   distinguish intentional storage annotations from intended computation.
+2. Specify conversion, mixed-expression, overflow, shift, comparison, NaN,
+   signed-zero, subnormal, and contraction behavior before changing checking.
+3. Measure traced and interpreted fallback loops, including field-heavy Tecs
+   workloads, against current binary64 operators and the released intrinsics.
+4. Demonstrate that ordinary `number` code is byte-for-byte and
+   performance-neutral when it never names a fixed-width type.
+5. Decide explicitly whether the compatibility and fallback costs are
+   acceptable. If not, retain the current storage/computation split rather than
+   landing a second near-duplicate numeric tower.
+
+If promotion is selected, operator-shaped public members such as
+`nupp.math.f32.add` and `nupp.math.u32.mul` are removed in the same language
+version. Their implementations and intrinsic identities become compiler/runtime
+machinery, while only non-operator operations such as `fma`, `sqrt`, bit
+reinterpretation, and rotation remain public. There is never a permanent
+function spelling beside an operator spelling for the same operation.
 
 ## Errors and observable behavior
 
@@ -416,11 +508,11 @@ Dynamic error values, arbitrary error levels, `pcall`, user metamethods, and
 cleanup during unwinding remain outside the first subset.
 
 The function preserves Nupp's observable guarantees by default. Inlining a
-native helper may remove a frame only when the existing `frames` guarantee is
+AOT helper may remove a frame only when the existing `frames` guarantee is
 relaxed. Hoisting a check may move an error site only when `error-site` is
-relaxed. Native compilation itself does not silently grant either permission.
+relaxed. AOT compilation itself does not silently grant either permission.
 
-## Native IR
+## AOT IR
 
 The compiler lowers the checked body into a typed, source-independent,
 static-single-assignment IR. It is deliberately smaller than Nupp and target
@@ -465,12 +557,12 @@ Initial optimization is deliberately restrained:
 
 ## Backend decision
 
-The safe language contract stops at verified native IR. Backend selection must
+The safe language contract stops at verified AOT IR. Backend selection must
 not change which source is admitted or which answer it produces.
 
 ### Generated C and Clang
 
-An AOT experiment emits private C from native IR, compiles it with pinned flags,
+An AOT experiment emits private C from AOT IR, compiles it with pinned flags,
 and loads or links the resulting object. Users never write or edit this C. The
 experiment benefits from Clang's optimizer, register allocator, auto-vectorizer,
 debug information, and mature target coverage.
@@ -486,7 +578,7 @@ It must still validate:
 - diagnostics mapped back through generated line tables to Nupp source.
 
 Generated C is a backend representation, not a new trust boundary. The emitter
-must avoid undefined C expressions even where native IR has well-defined wrap
+must avoid undefined C expressions even where AOT IR has well-defined wrap
 semantics.
 
 The disadvantage is toolchain availability and cache reproducibility. A build
@@ -494,10 +586,10 @@ requiring a host Clang is not the final zero-setup experience unless Nupp ships
 or prebuilds every required target artifact.
 
 During the generated-C experiment, Clang is a conditional dependency only for
-`native=require`. `native=off` does not probe for it, and `native=emit-c` stops
+`aot=require`. `aot=off` does not probe for it, and `aot=emit-c` stops
 before compilation. Production must either ship the supported toolchain,
 integrate each target vendor compiler, validate prebuilt artifacts, or choose
-direct emission. A required native function never falls back merely because a
+direct emission. A required AOT function never falls back merely because a
 compiler is absent.
 
 ### Direct DynASM emission
@@ -520,7 +612,7 @@ its license; they do not fetch it while compiling a program.
 
 ### Backend review gate
 
-Use one native IR corpus and retain direct-emission spikes as independent code
+Use one AOT IR corpus and retain direct-emission spikes as independent code
 shape evidence where useful. Reconsider the generated-C decision only after
 measuring:
 
@@ -532,7 +624,7 @@ measuring:
 - executable-memory policy and packaging complexity;
 - ongoing instruction and ABI maintenance.
 
-It is valid to replace generated C later when the same verified native IR and
+It is valid to replace generated C later when the same verified AOT IR and
 numeric contracts feed the replacement. It is not valid to expose
 backend-specific source semantics and call that migration compatible.
 
@@ -540,7 +632,7 @@ backend-specific source semantics and call that migration compatible.
 
 ### Lua wrapper
 
-Every public native function has one generated Lua wrapper. Before entry it:
+Every public AOT function has one generated Lua wrapper. Before entry it:
 
 1. checks relationships not already proved at the call site;
 2. projects span pointers with their private offsets and counts;
@@ -559,14 +651,14 @@ checks that every result is initialized before exposing it. Vector arguments
 and results use private ABI slots rather than promising a platform vector ABI
 to user code.
 
-### Native-to-native calls
+### AOT-to-AOT calls
 
-Known native callees use a private direct convention and propagate status
+Known AOT callees use a private direct convention and propagate status
 without returning through Lua between calls. The compiled call graph records
 callee fingerprints and CPU requirements. Unknown or dynamic callees are not
 admitted.
 
-Cross-module calls may consume semantic native IR from a module summary, but an
+Cross-module calls may consume semantic AOT IR from a module summary, but an
 implementation-body edit should not invalidate unrelated dependants merely to
 inline it. Direct linking and bounded cross-module inlining have separate cache
 edges.
@@ -586,14 +678,14 @@ Start with:
 - AVX2 256 and FMA as later independent feature tiers.
 
 One source artifact may contain or cache several versions. A target without an
-implementation fails a native-required build; an explicitly ordinary-only
-target emits the ordinary body for every native annotation.
+implementation fails an AOT-required build; an explicitly ordinary-only
+target emits the ordinary body for every AOT annotation.
 
 ## Artifacts, executable memory, and workers
 
-Native cache keys include:
+AOT cache keys include:
 
-- semantic native IR and version;
+- semantic AOT IR and version;
 - target triple, data layout, ABI, and CPU feature tier;
 - numeric-contract version;
 - backend and pinned tool revision;
@@ -608,7 +700,7 @@ relocate, flush the instruction cache where required, then make it executable.
 Hardened Apple hosts require `MAP_JIT` and the platform JIT write-protection
 policy integrated with the Nupp host. The compiler may not silently weaken
 W^X. A platform that cannot satisfy the policy cannot build or run the
-corresponding `@native` artifact.
+corresponding `@aot` artifact.
 
 Machine code and immutable metadata may be shared across worker states. Lua
 wrappers, cdata boxes, roots, errors, and anchors remain state-local. Generated
@@ -623,19 +715,19 @@ explicitly designed.
 
 ## Inspection and diagnostics
 
-Native compilation must never be a silent performance story. Add:
+AOT compilation must never be a silent performance story. Add:
 
 ```sh
-./bin/nupp native inspect FILE LINE COLUMN
-./bin/nupp native ir FILE FUNCTION
-./bin/nupp native code FILE FUNCTION --target=aarch64-neon
+./bin/nupp aot inspect FILE LINE COLUMN
+./bin/nupp aot ir FILE FUNCTION
+./bin/nupp aot code FILE FUNCTION --target=aarch64-neon
 ```
 
 `inspect` reports the selected source function, admitted types and effects,
 wrapper checks, direct callees, backend, target versions, code-cache state,
 vectorization or scalarization, and the first reason compilation failed.
 
-`ir` prints source-attributed checked native IR. `code` prints decoded machine
+`ir` prints source-attributed checked AOT IR. `code` prints decoded machine
 instructions beside source lines and feature requirements. Tests assert decoded
 instructions, not byte substrings alone. These commands inspect rather than
 benchmark, so their structural answer is deterministic.
@@ -643,26 +735,26 @@ benchmark, so their structural answer is deterministic.
 Reserve a diagnostic family after the repository-wide code inventory. It must
 cover at least:
 
-- `@native` on an invalid target or bodyless declaration;
+- `@aot` on an invalid target or bodyless declaration;
 - an unsupported value, operation, call, effect, capture, or control edge;
 - a live ownership or suspension obligation at the native boundary;
 - a target layout or ABI mismatch;
-- a native call graph cycle or generation resource limit;
-- an invalid, stale, corrupt, or over-limit native IR artifact;
+- an AOT call graph cycle or generation resource limit;
+- an invalid, stale, corrupt, or over-limit AOT IR artifact;
 - unavailable target backend or executable-memory policy;
 - a backend failure with mapped Nupp source context;
-- `@native` combined with `@jit` or a conflicting future contract.
+- `@aot` combined with `@jit` or a conflicting future contract.
 
 Every diagnostic explains whether the source can be rewritten, the annotation
 removed, or the missing target support selected. No diagnostic suggests
-`unsafe` as a way to bypass native eligibility.
+`unsafe` as a way to bypass AOT eligibility.
 
 ## Delivery
 
 ### N0: Semantics and backend spike
 
 Keep the surface test-only. Lower structured scalar span loops to a minimal
-native IR and generated C/Clang. Cover multiple disjoint outputs, potentially
+AOT IR and generated C/Clang. Cover multiple disjoint outputs, potentially
 aliasing inputs, locals, branches, pure static helpers, and closed math
 intrinsics. Add x86-64 execution on an actual x86 runner rather than
 extrapolating from cross-compiled code.
@@ -677,7 +769,7 @@ deliberate length and bounds failures.
   failures, and loop lengths.
 - Each complete workload makes one Lua/native transition and no allocation per
   iteration.
-- Native IR contains no unbounded address operation or unmodeled call.
+- AOT IR contains no unbounded address operation or unmodeled call.
 - Decoded output contains the expected scalar or vector operations and no
   per-lane helper calls.
 - The spike records compile time, warm cache time, code size, wrapper cost, and
@@ -685,13 +777,13 @@ deliberate length and bounds failures.
 - Optimized code shape is inspected and every discrepancy from the scalar
   oracle is explained before widening the admitted subset.
 
-Nothing public lands if N0 cannot keep native IR independent of its backend.
+Nothing public lands if N0 cannot keep AOT IR independent of its backend.
 
 ### N1: Annotation and checker contract
 
-Reserve `@native` as a no-argument function annotation. Implement target
+Reserve `@aot` as a no-argument function annotation. Implement target
 validation, mutual exclusion with `@jit`, admitted types and effects, helper
-graph checking, deterministic native IR, verification, diagnostics, formatting,
+graph checking, deterministic AOT IR, verification, diagnostics, formatting,
 reference generation, documentation, semantic tokens, completion, hover,
 module summaries, and incremental hashes.
 
@@ -705,8 +797,8 @@ function.
   declaration, raw pointer, or duplicated struct.
 - Every unsupported construct receives one source-local diagnostic before a
   backend runs.
-- Removing `@native` from accepted source preserves its ordinary Nupp answer.
-- Equivalent functions produce byte-identical native IR and hashes.
+- Removing `@aot` from accepted source preserves its ordinary Nupp answer.
+- Equivalent functions produce byte-identical AOT IR and hashes.
 - Module summaries never expose private ABI layouts as public type promises.
 
 ### N2: Spans, structs, and failures
@@ -719,7 +811,7 @@ attributed status returns.
 #### N2 exit criteria
 
 - Checked source cannot forge a pointer, count, region, layout, or mutable
-  alias accepted by native IR.
+  alias accepted by AOT IR.
 - Every access is proved or checked, including zero length and the last valid
   and first invalid element.
 - The wrapper keeps all roots and exclusive barriers live through the physical
@@ -748,18 +840,18 @@ sequences.
 - Corrupt or incompatible cache entries never become executable.
 - Concurrent compile, call, reload, and retirement tests execute no freed code
   and share no Lua state.
-- Machine-code inspection explains every target version and native call edge.
+- Machine-code inspection explains every target version and AOT call edge.
 
-### N4: Native helper graphs and optimization
+### N4: AOT helper graphs and optimization
 
-Add statically resolved native-to-native calls, bounded inlining, loop
+Add statically resolved AOT-to-AOT calls, bounded inlining, loop
 optimization, alias-aware load elimination, and target auto-vectorization or
 explicit vector lowering. Preserve observable guarantee checks for frames,
 errors, and numeric transformations.
 
 #### N4 exit criteria
 
-- Direct native calls do not bounce through Lua and propagate modeled status
+- Direct AOT calls do not bounce through Lua and propagate modeled status
   correctly.
 - Inlining and specialization have per-function and process limits.
 - An implementation edit invalidates only the cache edges that consumed it.
@@ -770,12 +862,12 @@ errors, and numeric transformations.
 
 Use the shared implementation to run the decision gate in
 [portable-vectors.md](portable-vectors.md). Compare vectors confined to
-`@native`, vectors with boxed ordinary semantics, and scalar source relying on
+`@aot`, vectors with boxed ordinary semantics, and scalar source relying on
 auto-vectorization.
 
-If boxed portable vectors win, `@native` remains the explicit compilation
+If boxed portable vectors win, `@aot` remains the explicit compilation
 contract: it turns a transparent-lowering decline into a diagnostic. If they do
-not, keep vector temporaries native-only and say so plainly. Do not ship two
+not, keep vector temporaries AOT-only and say so plainly. Do not ship two
 lookalike vector APIs whose difference is accidental boxing.
 
 ### N6: Carefully widen the subset
@@ -798,7 +890,7 @@ documentation, worker, hot-reload, build, package, and host tests as applicable;
 then the full suite. Every compiler change runs `./bin/nupp fixpoint` and
 requires a byte-identical second build.
 
-Differential native tests cover:
+Differential AOT tests cover:
 
 - optimization levels zero and one;
 - every executable target feature tier and scalar lowering;
@@ -810,12 +902,12 @@ Differential native tests cover:
   and subnormal inputs for every admitted numeric operation;
 - first and last valid access and the first invalid access on either side;
 - every structured exit and modeled failure;
-- calls from Lua, native-to-native calls, and dynamic wrapper values;
+- calls from Lua, AOT-to-AOT calls, and dynamic wrapper values;
 - clean cache, warm cache, corrupt cache, cache pressure, and forced allocation
   or executable-memory failure;
 - worker concurrency, hot reload, and code retirement.
 
-Fuzz native IR before emission and independently validate instruction streams
+Fuzz AOT IR before emission and independently validate instruction streams
 where practical. A native crash, hang, unmodeled signal, or memory-sanitizer
 failure is a compiler defect, never accepted behavior for checked source.
 
@@ -832,11 +924,11 @@ Measure:
 - a reduction and a branch-heavy loop;
 - the Tecs-shaped 28-byte strided field case;
 - short counts from zero through twice the widest vector tier;
-- one direct native helper graph;
+- one direct AOT helper graph;
 - one error-free wrapper and one modeled failing call;
 - cold compile, warm cache lookup, code size, and process cache growth.
 
-Before making `@native` supported rather than experimental:
+Before making `@aot` supported rather than experimental:
 
 - large contiguous workloads must be within 1.10x of equivalent optimized
   C/Clang and no slower than the existing hand-emitted spike outside
@@ -845,9 +937,9 @@ Before making `@native` supported rather than experimental:
   `countedBy` wrapper on its existing performance matrix;
 - each bulk call must make one Lua/native transition and allocate nothing per
   iteration;
-- scalar-native code must not regress against an equivalent traced LuaJIT loop
+- scalar AOT code must not regress against an equivalent traced LuaJIT loop
   without an inspection-visible reason;
-- code with no `@native` declaration must have no measurable startup, runtime,
+- code with no `@aot` declaration must have no measurable startup, runtime,
   artifact-size, or dependency-selection regression;
 - cold compilation and cache budgets must be fixed from N0 measurements before
   choosing the production backend.
@@ -860,9 +952,9 @@ or weakening W^X fails the design.
 
 The first complete release has:
 
-- the `@native` spelling everywhere in the public language and tooling;
+- the `@aot` spelling everywhere in the public language and tooling;
 - ordinary Nupp source with no embedded C or raw machine code;
-- one verified native IR independent of its production emitter;
+- one verified AOT IR independent of its production emitter;
 - whole-function compilation or a source-local build diagnostic, never silent
   fallback;
 - span- and ownership-preserving wrappers with one physical call;
@@ -871,5 +963,5 @@ The first complete release has:
   source-attributed inspection;
 - differential correctness and performance gates on both supported
   architectures;
-- documentation that “native” promises compilation, not SIMD, parallelism,
+- documentation that “AOT” promises build-time compilation, not SIMD, parallelism,
   safety bypass, GPU execution, or a stable foreign ABI.

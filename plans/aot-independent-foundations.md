@@ -1,6 +1,6 @@
-# Independent foundations for native lowering
+# Independent foundations for AOT lowering
 
-Status: implemented; each track ships without `@native`
+Status: implemented; each track ships without `@aot`
 
 ## Landed scope
 
@@ -20,19 +20,19 @@ Status: implemented; each track ships without `@native`
 
 S2 is deliberately omitted. The available ordinary non-native examples did
 not justify a permanent public strided-span API, and copy-based alternatives
-were already out of scope. Future native IR may keep field stride and offset
+were already out of scope. Future AOT IR may keep field stride and offset
 projection internal unless an independent ordinary use establishes a final
 safe surface.
 
 The acceptance fixture is
 `tests/fixtures/native_foundations.nupp`. It uses every landed ordinary
-foundation with no native annotation or generated native code and is exercised
+foundation with no AOT annotation or generated native code and is exercised
 with the JIT enabled and disabled. `tests/clitest.lua` independently compiles
 the exported header and calls C through the typed pointer bridge.
 
 ## Decision
 
-Land four ordinary Nupp capabilities before making native function lowering a
+Land four ordinary Nupp capabilities before making AOT function lowering a
 production language feature:
 
 1. canonical C identities and header export for reified structs;
@@ -40,11 +40,11 @@ production language feature:
 3. richer checked span views;
 4. transported allocation and raising guarantees.
 
-Each capability must be useful and testable with native compilation disabled.
-The native compiler may consume it later, but native eligibility is not its
+Each capability must be useful and testable with AOT compilation disabled.
+The AOT compiler may consume it later, but AOT eligibility is not its
 public meaning and is not an acceptance criterion for landing it.
 
-This preserves the central invariant of the native design: an annotated body
+This preserves the central invariant of the AOT design: an annotated body
 is ordinary Nupp with the same result, memory behavior, failures, and effects.
 These foundations make those ordinary semantics more precise; they do not
 introduce a second expression language.
@@ -75,7 +75,7 @@ The work below extends those surfaces. It does not replace them.
 
 ## Shared rules
 
-- Native compilation may not affect whether any ordinary example in this plan
+- AOT compilation may not affect whether any ordinary example in this plan
   runs. `export-c` emits text without invoking a compiler; its independent
   acceptance fixture compiles that text because C interoperation is the feature.
 - New guarantees are positive proofs. Unknown code loses an optimization or is
@@ -88,7 +88,7 @@ The work below extends those surfaces. It does not replace them.
   `restrict`, `noalias`, unchecked stride construction, or a vectorization
   assertion in source.
 - Each feature gets its own diagnostics, reference text, focused tests, and
-  changelog entry. Native lowering consumes only released behavior, never an
+  changelog entry. AOT lowering consumes only released behavior, never an
   internal prototype shape.
 
 ## No transitional implementations
@@ -131,12 +131,12 @@ whose purpose is to be replaced by the next milestone.
 
 Give every reified ordinary struct one deterministic, target-aware C
 description, and expose it through an ordinary `nupp export-c` command. The
-same declaration emitter may later serve native lowering, but its first
+same declaration emitter may later serve AOT lowering, but its first
 consumer is handwritten C interoperating with Nupp structs.
 
-This is the one hard native prerequisite among the four tracks. It ships first
-as an independent C-interoperation feature with no `@native` annotation and no
-native-generated function body.
+This is the one hard AOT prerequisite among the four tracks. It ships first
+as an independent C-interoperation feature with no `@aot` annotation and no
+AOT-generated function body.
 
 ### Representation decision
 
@@ -296,7 +296,7 @@ specific diagnostic; the emitter does not ask the build host and guess.
 
 Add ordinary, portable operations whose names state the width and rounding
 contract. They provide useful binary and buffer manipulation on their own and
-give future scalar, SIMD, and native backends operations that can lower one for
+give future scalar, SIMD, and AOT backends operations that can lower one for
 one without changing the meaning of `+`, `*`, or a `float` annotation.
 
 ### Public surface and representation
@@ -428,7 +428,7 @@ fallback to rescue it.
 - Mark the released standard functions with canonical operation identifiers.
 - Teach constant folding and inspection to consume those identifiers where the
   exact semantics are implemented.
-- Native and vector backends may consume the same identifiers later in separate
+- AOT and vector backends may consume the same identifiers later in separate
   changes.
 
 ### Tests and exit criteria
@@ -443,7 +443,7 @@ fallback to rescue it.
 - Calls allocate nothing in a hot loop after module initialization.
 - `./bin/nupp bc --check` accepts representative integer and binary32 loops and
   reports no operation introduced by this surface that aborts trace recording.
-- The ordinary implementation has a benchmark budget before any native
+- The ordinary implementation has a benchmark budget before any AOT
   lowering exists.
 - Existing arithmetic and casts remain byte-identical when the namespaces are not
   used.
@@ -548,10 +548,10 @@ bounds witness.
 Make this decision from source sketches and the existing Tecs 28-byte-stride,
 vertex, and padded-image measurements before implementing a public type. The
 question is whether a strided view materially improves safe ordinary Nupp code
-with native compilation disabled.
+with AOT compilation disabled.
 
 If the answer is no, omit S2 entirely and keep target field projections inside
-future native IR. Do not land an experimental `StridedSpan`, unsafe stride
+future AOT IR. Do not land an experimental `StridedSpan`, unsafe stride
 constructor, or provisional `span.field` API.
 
 If the answer is yes, land the final surface below once.
@@ -601,7 +601,7 @@ interleaved storage is not admitted in this track.
 - Overflow in `offset + (count - 1) * stride + fieldSize` is checked before a
   view is constructed.
 - Range and slice failures are attributed to the construction call, not a later
-  native boundary.
+  AOT boundary.
 - Fixed spans discharge static range checks and preserve their count refinement
   through field projections. Writable slices deliberately return the one
   dynamic child type.
@@ -751,11 +751,11 @@ expressed without them.
 The tracks can be reviewed independently, but use this landing order:
 
 1. **A0–A2**, completing the one ordinary C-header and typed-pointer path before
-   any native consumer uses it.
+   any AOT consumer uses it.
 2. **N0–N1**, fixing representation and landing the final allocation-free
    integer surface before any optimizer recognizes it.
 3. **S0–S1**, which are small ordinary span improvements and exercise the
-   ownership facts native wrappers need.
+   ownership facts AOT wrappers need.
 4. **E0–E1**, reusing the existing effect engine and making cross-module helper
    guarantees real without broadening interface invalidation.
 5. **N2**, only when the final allocation-free, trace-recordable binary32 path
@@ -767,11 +767,11 @@ The tracks can be reviewed independently, but use this landing order:
 
 Parallel work is safe between Track N, S0/S1, and E0 as long as each changes its
 own compiler schema version and rebases before integration. Track S2 depends on
-Track A. No track depends on `@native`.
+Track A. No track depends on `@aot`.
 
-## Integration with native lowering
+## Integration with AOT lowering
 
-After all four tracks have passed their independent exit criteria, native
+After all four tracks have passed their independent exit criteria, AOT
 lowering may consume them in separate work:
 
 - Track A supplies typed C declarations and layout assertions;
@@ -781,7 +781,7 @@ lowering may consume them in separate work:
 - Track E admits closed helper graphs without inspecting every implementation
   in the caller's file.
 
-Consumption is one-way. Removing or disabling native compilation leaves every
+Consumption is one-way. Removing or disabling AOT compilation leaves every
 program using these features valid and semantically unchanged.
 
 ## Whole-plan acceptance
@@ -789,7 +789,7 @@ program using these features valid and semantically unchanged.
 Before this plan is complete:
 
 - one ordinary Tecs-shaped system uses the fixed-width numeric namespaces,
-  writable slices, and a non-allocating/non-raising helper contract with native
+  writable slices, and a non-allocating/non-raising helper contract with AOT
   compilation disabled; it also uses the checked common range if S1 lands;
 - the same source passes with JIT enabled and disabled;
 - `nupp export-c` emits the only C declaration of its ordinary structs, and an
@@ -803,12 +803,12 @@ Before this plan is complete:
 - `./bin/nupp bc --check` accepts the header wrapper, numeric loop, span loop,
   and checked-effect loop;
 - `./bin/nupp test` and `./bin/nupp fixpoint` pass after every compiler milestone;
-- no acceptance test refers to `@native`, generated native IR, SIMD assembly, or
-  a native performance number;
+- no acceptance test refers to `@aot`, generated AOT IR, SIMD assembly, or
+  an AOT performance number;
 - no accepted feature has a deprecated alternate API, temporary runtime
   representation, or fallback scheduled for removal.
 
-Only after that baseline lands should the native-functions plan replace its
+Only after that baseline lands should the AOT-functions plan replace its
 prototype-specific layout, numeric, span-range, and helper-effect logic with
 these released facilities. Track A's compiler-owned physical pointer erasure is
 the final typed-pointer bridge, not prototype logic to replace again.

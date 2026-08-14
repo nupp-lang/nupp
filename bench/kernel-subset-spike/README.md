@@ -1,13 +1,13 @@
 # Checked native-C Tecs subset spike
 
 This spike compiles a Tecs-shaped function written as ordinary Nupp into a
-verified native IR and private scalar C. Clang chooses unrolling, vector width,
+verified AOT IR and private scalar C. Clang chooses unrolling, vector width,
 instruction selection, register allocation, and tail handling. `@kernel` is a
-test-only annotation; the production design calls the contract `@native`.
+test-only annotation; the production design calls the contract `@aot`.
 
-The source remains the semantic implementation. Turning native compilation off
-builds that same function through the ordinary Nupp backend. Turning it on
-makes every unsupported annotated construct a build error.
+The source remains the semantic implementation. Turning AOT compilation off
+builds that same function through the ordinary Nupp backend. Enabling AOT
+compilation makes every unsupported annotated construct a build error.
 
 ## Build modes
 
@@ -29,7 +29,7 @@ bench/kernel-subset-spike/build.sh
 ```
 
 `object` never executes target-built code. A console build can feed the C to
-its vendor compiler, while a console configuration with native compilation
+its vendor compiler, while a console configuration with AOT compilation
 disabled retains the ordinary Nupp implementation. This spike does not pretend
 to know any console SDK's linker or packaging rules.
 

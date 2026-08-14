@@ -20,7 +20,7 @@ build_fallback() {
 mkdir -p "$OUT"
 if [ "$MODE" = off ]; then
     build_fallback
-    echo "kernel-subset-spike: native compilation disabled; ordinary Nupp built"
+    echo "kernel-subset-spike: AOT compilation disabled; ordinary Nupp built"
     exit 0
 fi
 

@@ -1,6 +1,6 @@
 local span = require("nupp.span")
 
--- Test-only spelling: the production design currently calls this `@native`.
+-- Test-only spelling: the production design currently calls this `@aot`.
 @annotation(targets = {"function"})
 record kernel
 end

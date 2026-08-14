@@ -1,12 +1,12 @@
 # Portable SIMD vectors
 
-Status: competing scope for `@native`, not selected
+Status: competing scope for `@aot`, not selected
 
 ## Decision to make
 
 Decide whether Nupp should expose ordinary portable vector values and compile
 the functions that use them transparently, or initially confine unboxed vector
-values to the explicit [`@native`](native-functions.md) function boundary.
+values to the explicit [`@aot`](aot-functions.md) function boundary.
 
 The proposal is deliberately stronger than a vector-shaped library over FFI.
 A vector operation has a complete scalar meaning in ordinary generated Lua,
@@ -22,10 +22,10 @@ Nupp source
     `-- vector lowering ----> checked vector IR --> native code
 ```
 
-The explicit `@native` design starts from a required whole-function native
+The explicit `@aot` design starts from a required whole-function AOT
 boundary and may permit vector operations inside it. This design starts from
-first-class vector values and discovers the largest native unit that preserves
-their ordinary semantics. They share native IR and emitters, but make different
+first-class vector values and discovers the largest AOT unit that preserves
+their ordinary semantics. They share AOT IR and emitters, but make different
 promises about fallback, boxing, and whether the boundary is written or
 inferred. Those promises should not both become public before the comparison in
 this plan has been measured.
@@ -70,7 +70,7 @@ local function scaleAdd(
 end
 ```
 
-The compiler may replace this function with one checked native call. If it
+The compiler may replace this function with one checked AOT call. If it
 does not, the same source executes the same loads, operations, mask, and stores
 through the Lua fallback.
 
@@ -80,8 +80,8 @@ through the Lua fallback.
   backends, and do not maintain a Nupp fork of LuaJIT.
 - Do not promise that scalar loops are automatically vectorized. Explicit
   vector operations are the portable performance contract.
-- Do not make every ordinary Nupp construct native-compilable. Unsupported
-  constructs stay in Lua and may bound an outlined native region.
+- Do not make every ordinary Nupp construct AOT-compilable. Unsupported
+  constructs stay in Lua and may bound an outlined AOT region.
 - Do not expose architecture registers, instruction mnemonics, or raw opcodes
   through the portable API.
 - Do not make a vector an aliasing view over memory. Spans are views; vectors
@@ -94,29 +94,29 @@ through the Lua fallback.
 - Do not use one FFI call per vector operation. That is a correct fallback
   experiment, not an acceptable optimized implementation.
 
-## Why this competes with an explicit-only native boundary
+## Why this competes with an explicit-only AOT boundary
 
 Both designs need checked memory boundaries, a portable numeric IR, target
 lowering, CPU dispatch, executable-memory policy, and performance gates. Their
-difference is where the language draws the native boundary:
+difference is where the language draws the AOT boundary:
 
-| Question | Portable vectors | Explicit `@native` |
+| Question | Portable vectors | Explicit `@aot` |
 | --- | --- | --- |
 | What is public? | vector and mask values | a required whole-function contract |
-| What changes semantics? | nothing; native lowering is optional | nothing; the annotation adds a compilation requirement |
-| What happens when lowering fails? | execute the scalar fallback | report that the native function cannot compile |
+| What changes semantics? | nothing; AOT lowering is optional | nothing; the annotation adds a compilation requirement |
+| What happens when lowering fails? | execute the scalar fallback | report that the AOT function cannot compile |
 | May a vector escape? | yes, boxed at a boundary | normally no |
 | May ordinary Lua work surround it? | yes, with outlining or fallback | no, unless outside the call |
-| Where is the native boundary? | inferred function or region | written function boundary |
+| Where is the AOT boundary? | inferred function or region | written function boundary |
 | Main advantage | Java-like ordinary language model | simple, explicit performance boundary |
 | Main cost | boxing, outlining, and fallback complexity | an annotation and smaller admitted subset |
 
-`@native` makes performance failures easier to diagnose because the user chose
-one all-native unit. Portable vectors make the annotation optional: there is
-one ordinary language, and native compilation can be an implementation strategy.
+`@aot` makes performance failures easier to diagnose because the user chose
+one all-AOT unit. Portable vectors make the annotation optional: there is
+one ordinary language, and AOT compilation can be an implementation strategy.
 
-The transparent vector design wins only if it can retain `@native`'s essential
-performance property: one native transition around a useful amount of work,
+The transparent vector design wins only if it can retain `@aot`'s essential
+performance property: one AOT transition around a useful amount of work,
 with intermediate vectors never materialized. If a common expression becomes
 four FFI calls and three cdata temporaries, the design has failed even though
 its answer is correct.
@@ -125,7 +125,7 @@ its answer is correct.
 
 The exact scalar lane operations shared by the fallback and future vector IR
 are planned independently in
-[Independent foundations for native lowering](native-independent-foundations.md#track-n-explicit-fixed-width-scalar-arithmetic).
+[Independent foundations for AOT lowering](aot-independent-foundations.md#track-n-explicit-fixed-width-scalar-arithmetic).
 Portable vectors must consume that contract rather than define a second set of
 rounding, overflow, shift, or conversion rules.
 
@@ -182,7 +182,7 @@ end
 `simd.preferred<T>()` returns one process-stable species selected from CPU
 features. Every operation requiring two vectors or a vector and mask requires
 equal species. The checker proves equality when all operands derive from one
-species binding; the fallback checks it otherwise. Native specialization makes
+species binding; the fallback checks it otherwise. AOT specialization makes
 the species a compile-time constant inside each generated version and removes
 the check.
 
@@ -238,7 +238,7 @@ flowed through gradual Lua.
 
 Vectors may cross functions, be returned, enter a table, or flow through
 `any`. Those operations box an unboxed value or retain an already boxed one.
-Unboxing occurs when an eligible native region consumes it. Box identity is
+Unboxing occurs when an eligible AOT region consumes it. Box identity is
 not observable: equality compares lane type, species, and lane values rather
 than cdata address.
 
@@ -286,7 +286,7 @@ receives a machine instruction.
 The default vector operators preserve the corresponding lane operation and do
 not reassociate expressions. `fma(a, b, c)` explicitly requests one fused
 rounding; `a * b + c` does not silently contract. Reductions use increasing
-lane order in the fallback and native implementation even when a tree would be
+lane order in the fallback and AOT implementation even when a tree would be
 faster.
 
 If relaxed vector arithmetic is later justified, add a distinct numeric
@@ -304,13 +304,13 @@ An unmasked access requires `first >= 1` and
 `1 <= first <= count + 1` and every active lane's corresponding span index to
 be in range. `count + 1` is therefore valid only for an all-inactive mask.
 `loopBound(count)` returns the greatest multiple of the species lane count no
-larger than `count`. The native wrapper hoists checks when it can prove the loop
+larger than `count`. The AOT wrapper hoists checks when it can prove the loop
 shape; otherwise the generated body returns a small status identifying the
 source operation and Lua raises the ordinary error after the call.
 
 Loads borrow a `Span<T>`. Stores require exclusive access to a
 `WriteSpan<T>`. Passing sibling write regions remains valid through the
-existing partition provenance. A native region receives projected pointers
+existing partition provenance. An AOT region receives projected pointers
 only after all checks and retains them only for the call.
 
 ## Two execution modes, one meaning
@@ -326,10 +326,10 @@ disabled and on a target with no supported SIMD instructions.
 
 The fallback is load-bearing:
 
-- it defines semantics before a native backend exists;
-- it runs cold functions for which native compilation is not worthwhile;
+- it defines semantics before an AOT backend exists;
+- it runs cold functions for which AOT compilation is not worthwhile;
 - it handles vectors that cross a dynamic Lua boundary;
-- it is the differential oracle for every native test;
+- it is the differential oracle for every AOT test;
 - it lets an unsupported operation remain correct instead of disappearing
   from the language on one CPU.
 
@@ -337,7 +337,7 @@ No performance claim is made for a chain of fallback vector operations. The
 documentation must say that reliable SIMD requires a successfully compiled
 function or region, and tooling must say whether that happened.
 
-### Native versions
+### AOT versions
 
 The Nupp compiler recognizes the sealed vector operations by resolved identity,
 not by a replaceable module field spelling. It lowers an eligible function to
@@ -354,17 +354,17 @@ scaleAdd
 ```
 
 The first call selects a version from process CPU features and caches it. Each
-native version covers a whole function or outlined loop and crosses the
+AOT version covers a whole function or outlined loop and crosses the
 Lua/native boundary once. Scalar parameters pass directly; spans project
 checked pointers and counts; vector arguments and results use private ABI
 slots so their public representation is not an ABI promise.
 
-Native-to-native calls use a private direct convention when both definitions
+AOT-to-AOT calls use a private direct convention when both definitions
 are known. Otherwise the call ends the region, boxes live vectors, and resumes
-through Lua. A first release may reject the whole native candidate rather than
+through Lua. A first release may reject the whole AOT candidate rather than
 outline around such a call.
 
-### Native eligibility
+### AOT eligibility
 
 The first compiler accepts complete functions containing:
 
@@ -388,7 +388,7 @@ The first compiler declines functions reaching:
 - an operation the selected target cannot scalarize correctly.
 
 Declining is not a type error. The Lua version runs and tooling records the
-reason. This differs intentionally from explicit `@native`.
+reason. This differs intentionally from explicit `@aot`.
 
 After full-function compilation works, region outlining may admit a Lua prefix
 and suffix around one eligible loop. It must preserve evaluation order, error
@@ -411,7 +411,7 @@ than either Nupp or a target instruction set. It contains:
 - no Lua object, table, string, GC, coroutine, or exception operation.
 
 The checked IR serializer is versioned and included in module and build hashes.
-The native service validates every opcode, type, block edge, register class,
+The AOT service validates every opcode, type, block edge, register class,
 memory access, and resource limit before allocating executable memory. The
 serialized form is not a trusted instruction stream.
 
@@ -452,7 +452,7 @@ than unwinding through LuaJIT FFI.
 
 ### CPU dispatch
 
-The native host reports one immutable feature set per process. Selection is by
+The AOT host reports one immutable feature set per process. Selection is by
 required feature set, not architecture name alone:
 
 - AArch64 baseline: scalar and NEON 128;
@@ -473,23 +473,23 @@ distort the first API before the fixed-width design has evidence.
 The code cache follows W^X: write, relocate, flush the instruction cache where
 required, then execute. Hardened Apple hosts need `MAP_JIT` and the platform JIT
 write-protection policy integrated with the Nupp host. A failure to obtain
-executable memory selects the Lua fallback unless a future explicit native
+executable memory selects the Lua fallback unless a future explicit AOT
 contract requires compilation.
 
 Generated code contains no pointer into a Lua heap object after its call ends.
 Machine code and immutable metadata may be process-shared; Lua dispatch
 closures and boxed constants remain state-local. Workers must not share cdata
-or Lua anchors merely because they share a native body. Code-cache retirement
+or Lua anchors merely because they share an AOT body. Code-cache retirement
 waits until no thread can execute the body.
 
 A generated Lua artifact continues to run on a compatible stock LuaJIT. When
-the Nupp native service is absent it selects the boxed fallback. Native vector
+the Nupp AOT service is absent it selects the boxed fallback. AOT vector
 compilation is an acceleration supplied by the Nupp host, not a new undeclared
 runtime dependency of every emitted Lua module.
 
 ### Errors, debugging, and inspection
 
-A native body cannot throw through an arbitrary FFI frame. Checks return a
+An AOT body cannot throw through an arbitrary FFI frame. Checks return a
 status plus source-site identifier; the wrapper raises the same Nupp error at
 the boundary. Operations with possible user code or cleanup are not admitted
 until a stronger unwind design exists.
@@ -508,7 +508,7 @@ output retain source lines. Machine-code inspection must not require timing a
 benchmark, and tests search decoded instructions rather than byte strings
 alone.
 
-Hot reload fingerprints the semantic vector body and invalidates its native
+Hot reload fingerprints the semantic vector body and invalidates its AOT
 versions before installing the new Lua function. A stale dispatcher may finish
 an already-entered call but may not receive a later one.
 
@@ -526,8 +526,8 @@ resolved intrinsic identities, helper eligibility, and IR fingerprints without
 copying machine code into dependants.
 
 `nupp bc --check` continues to describe LuaJIT trace limitations in the Lua
-fallback. Native-vector inspection is separate because its answer comes from
-the Nupp native compiler, not LuaJIT bytecode.
+fallback. AOT-vector inspection is separate because its answer comes from
+the Nupp AOT compiler, not LuaJIT bytecode.
 
 Reserve one diagnostic family only after the repository-wide code inventory.
 It must cover at least:
@@ -537,9 +537,9 @@ It must cover at least:
 - out-of-range fixed lane index;
 - invalid conversion or bit reinterpretation;
 - a vector intrinsic reached through a replaceable or gradual binding;
-- native compilation declined, as performance information rather than an
+- AOT compilation declined, as performance information rather than an
   ordinary type error;
-- native compilation required by a future contract and unavailable;
+- AOT compilation required by a future contract and unavailable;
 - invalid or over-limit serialized vector IR.
 
 ## Overuse and performance guidance
@@ -557,11 +557,11 @@ error. Likely losing cases include:
   scalarization.
 
 The preferred shape is still one ordinary function containing a complete bulk
-operation. The difference from `@native` is that the compiler discovers and
+operation. The difference from `@aot` is that the compiler discovers and
 reports that unit rather than making it part of the program's validity.
 
 Performance diagnostics must be factual. Report an observed box, fallback,
-unsupported operation, native transition, or scalarized instruction. Do not
+unsupported operation, AOT transition, or scalarized instruction. Do not
 warn merely because a function is small or a branch looks unpredictable.
 
 ## Delivery
@@ -577,13 +577,13 @@ The spike must answer:
 
 1. Can the compiler recognize a chain of ordinary vector operations without
    using replaceable names or per-operation FFI calls?
-2. Can one generated wrapper project spans, call one native body, and reproduce
+2. Can one generated wrapper project spans, call one AOT body, and reproduce
    the fallback's errors and tail behavior?
 3. Can vector arguments remain in registers across at least ten dependent
    operations without accidental boxes?
 4. Can a vector value escape, run through the fallback, and re-enter a later
-   native function with identical lanes and bits?
-5. Can a failed native compilation select the fallback without changing an
+   AOT function with identical lanes and bits?
+5. Can a failed AOT compilation select the fallback without changing an
    error, borrow lifetime, or visible call count?
 
 Use the existing integrate workload plus arithmetic-heavy, branch/mask-heavy,
@@ -598,7 +598,7 @@ twice the widest tested lane count so every tail executes.
   loop and no allocation per iteration.
 - Decoded native output contains the expected vector loads, arithmetic, and
   stores and no scalar call per lane.
-- The fallback works with JIT disabled and native compilation forced off.
+- The fallback works with JIT disabled and AOT compilation forced off.
 - The experiment records compile time, code size, warm-call cost, and boxing
   cost rather than only steady-state throughput.
 
@@ -608,7 +608,7 @@ Nothing public lands if V0 cannot meet these criteria.
 
 Add `nupp.simd` with sealed `Species<T>`, `Vector<T>`, and `Mask<T>`, preferred
 and fixed-128 species, the initial operation set, and complete scalar
-semantics. Keep native compilation experimental behind a build flag during
+semantics. Keep AOT compilation experimental behind a build flag during
 this slice.
 
 Implement checker-owned intrinsic identity, vector operators, species
@@ -629,9 +629,9 @@ diagnostics. The private cdata layout is versioned runtime detail.
 - There is no public pointer, mutable lane storage, finalizer, or observable
   box identity.
 
-### V2: Whole-function native compilation
+### V2: Whole-function AOT compilation
 
-Lower eligible complete functions to validated vector IR. Add scalar-native,
+Lower eligible complete functions to validated vector IR. Add scalar AOT,
 NEON 128, and SSE2 128 backends; CPU dispatch; one-call wrappers; status-based
 errors; code caching; source maps; and inspection commands.
 
@@ -643,9 +643,9 @@ but apply the same independent checks.
 #### V2 exit criteria
 
 - A supported function reliably selects native SIMD on AArch64 and x86-64;
-  forcing scalar-native and Lua fallback preserves every answer.
+  forcing scalar AOT and Lua fallback preserves every answer.
 - Unsupported functions explain one stable decline reason and run through Lua.
-- Native bodies make no Lua API calls, allocate no Lua or native heap object,
+- AOT bodies make no Lua API calls, allocate no Lua or native heap object,
   retain no span pointer after return, and unwind no exception through FFI.
 - Concurrent workers compile, call, invalidate, and retire code without sharing
   Lua-owned values or executing freed memory.
@@ -659,7 +659,7 @@ same public `Vector<float>` source runs at the selected width. Add explicit
 fixed-width vectors only after preferred vectors prove that their erased width
 does not damage checking or tooling.
 
-Native helper calls specialize transitively under bounded code growth. Cache
+AOT helper calls specialize transitively under bounded code growth. Cache
 keys include CPU features and numeric semantics. Cross-module summaries expose
 enough semantic IR to compile a caller without making every implementation
 edit invalidate unrelated dependants.
@@ -692,7 +692,7 @@ operation needing arbitrary Lua execution stays outside it.
   containing Lua work before and after the vector loop.
 - Every live owner and borrow has the same lexical end in fallback and outlined
   execution.
-- An outlined region makes one native transition, and inspection names every
+- An outlined region makes one AOT transition, and inspection names every
   box at its boundary.
 - When proof is incomplete the whole source uses fallback; no speculative
   outline changes behavior.
@@ -718,9 +718,9 @@ documentation, worker, hot-reload, and host tests as applicable; then the full
 suite. Compiler changes run `./bin/nupp fixpoint` and require a byte-identical
 second build.
 
-Native differential tests cover:
+AOT differential tests cover:
 
-- Lua fallback, scalar-native, and every executable SIMD tier;
+- Lua fallback, scalar AOT, and every executable SIMD tier;
 - JIT on and off;
 - optimization levels zero and one;
 - zero, shorter-than-width, exact-width, multiple-width, and tail counts;
@@ -730,7 +730,7 @@ Native differential tests cover:
 - NaNs, infinities, signed zeros, subnormals, integer extrema, and overflow;
 - errors at the first and last invalid lane;
 - boxing through locals, calls, returns, tables, and `any`;
-- module reload, worker concurrency, code-cache pressure, and forced native
+- module reload, worker concurrency, code-cache pressure, and forced AOT
   allocation failure.
 
 Fuzz vector IR before emission and validate generated instruction streams in a
@@ -748,17 +748,17 @@ sample to dominate timer noise. Report medians and distributions for:
 - short counts from zero through twice the maximum lanes;
 - one deliberate vector escape and re-entry;
 - one function declined to fallback;
-- cold native compilation and warm cache lookup.
+- cold AOT compilation and warm cache lookup.
 
-Before making native lowering the default:
+Before making AOT lowering the default:
 
 - complete-loop SIMD must be within 1.10x of equivalent optimized C/Clang on
   both supported architectures and no slower than the existing hand-emitted
   spike outside measurement noise;
 - a warm generated wrapper must be within 1.05x of a handwritten one-call FFI
   wrapper on the existing large workloads;
-- there must be zero per-iteration allocation and one native transition;
-- disabled native compilation must impose no measurable regression on code
+- there must be zero per-iteration allocation and one AOT transition;
+- disabled AOT compilation must impose no measurable regression on code
   that does not import or use `nupp.simd`;
 - cold compilation time and code-cache growth must have explicit budgets set
   from V0 measurements rather than invented in advance.
@@ -767,25 +767,25 @@ The fallback is not expected to beat a scalar LuaJIT loop. Its gate is
 correctness and bounded allocation. Tooling must prevent its accidental use
 from masquerading as successful SIMD.
 
-## Decision gate against explicit-only `@native`
+## Decision gate against explicit-only `@aot`
 
 Run one implementation spike, one public-API review, and the performance matrix
 before selecting a language direction. Prefer portable vectors when all of the
 following hold:
 
-- the ordinary fallback makes vector values genuinely usable outside native
+- the ordinary fallback makes vector values genuinely usable outside AOT
   regions rather than nominally legal but operationally incomplete;
 - full-function inference is predictable on representative code and decline
   reasons are understandable;
 - boxing and outlining rules preserve existing errors, ownership, and hot
   reload without general deoptimization;
 - generated SIMD meets the same one-call and throughput gates as an explicit
-  native function;
+  AOT function;
 - preferred species stays out of public type identity and module fingerprints;
 - implementation cost is concentrated in reusable IR/backend work rather than
   a growing imitation of LuaJIT.
 
-Prefer explicit-only `@native` when any of these instead proves true:
+Prefer explicit-only `@aot` when any of these instead proves true:
 
 - reliable performance needs restrictions that are surprising in an ordinary
   function but clear at an annotated boundary;
@@ -795,19 +795,19 @@ Prefer explicit-only `@native` when any of these instead proves true:
   deoptimization machinery comparable to changing LuaJIT;
 - the scalar fallback is too allocation-heavy to be an honest general API;
 - species-erased values make diagnostics, generics, or cross-module calls
-  materially worse than fixed native-local vectors;
-- explicit native functions fuse work or control code size substantially better.
+  materially worse than fixed AOT-local vectors;
+- explicit AOT functions fuse work or control code size substantially better.
 
 Do not decide from the existing NEON result alone. It proves that one generated
-native loop can match Clang, not that transparent native-region discovery,
+AOT loop can match Clang, not that transparent AOT-region discovery,
 boxing, fallback, and portable species can carry the Java-like language model.
 
-If portable vectors win, `@native` remains a checked performance contract: it
+If portable vectors win, `@aot` remains a checked performance contract: it
 requires compilation and turns a transparent-lowering decline into a
 diagnostic, but does not enable syntax, change results, grant relaxed
 arithmetic, or create another sublanguage.
 
-If explicit-only `@native` wins, retain the scalar vector model only if it is
-independently useful; otherwise keep vector values native-local and say so
+If explicit-only `@aot` wins, retain the scalar vector model only if it is
+independently useful; otherwise keep vector values AOT-local and say so
 plainly. Do not ship two almost-identical APIs whose difference is whether an
 optimizer happened to see them.

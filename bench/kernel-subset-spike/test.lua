@@ -14,7 +14,7 @@ local source = read(here .. "kernels.nupp")
 local first, problems = compiler.compile(source, "kernels.nupp")
 assert(first, problems[1] and compiler.renderDiagnostic(problems[1]))
 local second = assert(compiler.compile(source, "kernels.nupp"))
-assert(first.irText == second.irText, "equivalent input produced different native IR")
+assert(first.irText == second.irText, "equivalent input produced different AOT IR")
 assert(first.c == second.c, "equivalent input produced different C")
 assert(first.binding == second.binding, "equivalent input produced different checked bindings")
 

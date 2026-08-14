@@ -58,17 +58,23 @@ work makes sense in.
       widening `poll` closes this. The slot vectors, `debug.upvaluejoin` and the
       loaded patch chunk stay `any` by nature; the results and the manifests are
       where the typing is worth having.
-- [ ] **Investigate `@native` compilation for Nupp-authored tight loops.** This
+- [ ] **Investigate `@aot` compilation for Nupp-authored tight loops.** This
       is a separate project from checked external kernels and
       `countedBy(count)`. Define the restricted whole-function contract over
       ordinary Nupp structs, `Span<T>`, and `WriteSpan<T>`; lower it through a
-      checked native IR; and compare an invisible AOT C/Clang backend with
+      checked AOT IR; and compare an invisible AOT C/Clang backend with
       direct machine-code generation. The user-facing model must require no
       `cdef`, duplicated C struct, or handwritten C. Specify layout validation,
       alias assumptions, CPU dispatch, caching, diagnostics for rejected
       operations, and performance gates before choosing a backend. The full
       design and its comparison with portable vectors are in
-      [native-functions.md](native-functions.md).
+      [aot-functions.md](aot-functions.md). AOT v1 preserves current numeric
+      semantics: struct fields specify storage width while ordinary operators
+      use LuaJIT numbers. Before changing that split, reject struct-origin and
+      struct-method arithmetic modes, audit a language-wide promotion of the
+      existing fixed-width types, specify mixed expressions and conversions,
+      and measure both traced and interpreted fallback cost. Do not add a
+      parallel `f32`/`i32`/`u32` tower merely to avoid that decision.
 
 ## Dialect interop (`import-tl`)
 
