@@ -708,6 +708,13 @@ of the struct's own bytes. A `T[?]` field is refused, because a struct whose
 size depends on a count nobody wrote has none. A GC-managed type is refused too,
 so a `string` field means this wants to be a `record`; that is **NUPP2201**.
 
+A field may state a bit width after its type, which is the C bitfield it lowers
+to: `typeColon: boolean : 1` is one bit, and consecutive narrow fields share a
+word. Twenty-three `boolean` fields occupy twenty-three bytes; twenty-three
+`boolean : 1` fields occupy four. The field is still read and written as its
+declared type -- a one-bit `boolean` reads `true`, not `1` -- so packing changes
+the layout and nothing else.
+
 A struct may point at itself, which is how a linked structure is written. By
 value it cannot: that would have no size.
 

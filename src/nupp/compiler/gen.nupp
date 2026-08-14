@@ -2391,12 +2391,16 @@ function gen.generate(
                 if entry.kind == "fieldDecl" then
                     local fname = entry.name.text
                     local t = entry.type
+                    -- A declared bit width is the C bitfield it lowers to, and C allows
+                    -- one only on a scalar. The cases below that are not scalars ignore
+                    -- it, which the field rule has already refused by the time this runs.
+                    local width = entry.bitWidth and (" : " .. entry.bitWidth.text) or ""
                     -- unwrap optional wrapper (S*? has the same representation)
                     if t.kind == "topt" then
                         t = t.inner
                     end
                     if t.kind == "tname" and C_PRIM[t.base.text] then
-                        cdecl[#cdecl + 1] = C_PRIM[t.base.text] .. " " .. fname .. ";"
+                        cdecl[#cdecl + 1] = C_PRIM[t.base.text] .. " " .. fname .. width .. ";"
                     elseif t.kind == "tname" and structTag[t.base.text] then
                         cdecl[#cdecl + 1] = "struct " .. structTag[t.base.text] .. " " .. fname .. ";"
                     elseif t.kind == "tname" then

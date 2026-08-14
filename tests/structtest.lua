@@ -198,4 +198,64 @@ function M.lineCountInvariantWithStructs()
    assertEq(codeN, srcN + 1, "line count changed:\n" .. code)
 end
 
+-- A field may state a bit width, which is the C bitfield it lowers to. Twenty-three
+-- booleans cost twenty-three bytes; twenty-three one-bit booleans cost four.
+local FLAGS = [[local struct Marks
+   offset: uint32
+   missing: boolean : 1
+   typeColon: boolean : 1
+   breakOp: boolean : 1
+end
+]]
+
+function M.bitWidthReachesTheCdecl()
+   local code = compile(FLAGS .. "local m: Marks\nreturn m.offset")
+   assert(code:find("missing : 1", 1, true),
+      "the width belongs in the emitted cdecl:\n" .. code)
+end
+
+function M.bitWidthKeepsTheDeclaredType()
+   -- a one-bit boolean reads back true, not 1: packing changes the layout only
+   assertEq(run(FLAGS .. [[
+local m = new Marks(7, true, false, true)
+return m.missing]]), true)
+   assertEq(run(FLAGS .. [[
+local m = new Marks(7, true, false, true)
+return m.typeColon]]), false)
+   assertEq(run(FLAGS .. [[
+local m = new Marks(7, false, false, false)
+m.breakOp = true
+return m.breakOp]]), true)
+end
+
+-- Three flags fit in the padding after a uint32 either way, so packing is only
+-- observable once there are more of them than the padding holds.
+local MANY = {"local struct Wide\n   offset: uint32\n"}
+local MANYPACKED = {"local struct Packed\n   offset: uint32\n"}
+for j = 1, 23 do
+   MANY[#MANY + 1] = ("   f%d: boolean\n"):format(j)
+   MANYPACKED[#MANYPACKED + 1] = ("   f%d: boolean : 1\n"):format(j)
+end
+MANY[#MANY + 1] = "end\n"
+MANYPACKED[#MANYPACKED + 1] = "end\n"
+
+function M.bitWidthPacks()
+   local wide = compile(table.concat(MANY) .. "local w: Wide")
+   local packed = compile(table.concat(MANYPACKED) .. "local p: Packed")
+   local ffi = require("ffi")
+   local function sizeOf(code)
+      return ffi.sizeof(ffi.typeof(code:match('typeof%("(struct { [^"]*})"')))
+   end
+   local wideSize, packedSize = sizeOf(wide), sizeOf(packed)
+   assert(packedSize < wideSize,
+      ("23 one-bit fields should pack: %d vs %d bytes"):format(packedSize, wideSize))
+   assertEq(packedSize, 8, "one word of flags beside the uint32")
+end
+
+function M.bitWidthCheckedLikeAnyField()
+   assertClean(FLAGS .. "local m = new Marks(1, true, false, true)\nlocal b: boolean = m.missing")
+   assertEq(diagsOf(FLAGS .. "local m = new Marks(1, true, false, true)\nlocal n: number = m.missing"),
+      "NUPP2001:8")
+end
+
 return M
