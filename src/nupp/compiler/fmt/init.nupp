@@ -645,7 +645,8 @@ local function collectItems(tokens)
     end
 
     for _, tok in ipairs(tokens) do
-        for _, tr in ipairs(tok.trivia) do
+        for triviaIndex = 1, tok.triviaCount do
+            local tr = lexer.triviaRecord(tok, triviaIndex)
             if tr.kind == "whitespace" then
                 local _, n = tr.text:gsub("\n", "")
                 pending = pending + n
@@ -1222,8 +1223,8 @@ local function canonicalizeSingleValueAnnotations(result, opts)
     end
 
     local function triviaIsWhitespace(tok)
-        for _, trivia in ipairs(tok and tok.trivia or {}) do
-            if trivia.kind ~= "whitespace" then
+        for index = 1, tok and tok.triviaCount or 0 do
+            if lexer.triviaKind(tok, index) ~= "whitespace" then
                 return false
             end
         end
@@ -1281,7 +1282,9 @@ local function parenthesizeMethodCalls(result, opts)
                         offset = first.offset,
                         line = first.line,
                         col = first.col,
-                        trivia = first.trivia
+                        trivia = first.trivia,
+                        triviaFirst = first.triviaFirst,
+                        triviaCount = first.triviaCount
                     }
                     local close = {
                         kind = ")",
@@ -1289,9 +1292,11 @@ local function parenthesizeMethodCalls(result, opts)
                         offset = last.offset,
                         line = last.line,
                         col = last.col,
-                        trivia = {}
+                        trivia = last.trivia,
+                        triviaFirst = 1,
+                        triviaCount = 0
                     }
-                    first.trivia = {}
+                    first.triviaCount = 0
                     args[1], args[2], args[3] = open, sugar, close
                     before[first], after[last] = open, close
                 end

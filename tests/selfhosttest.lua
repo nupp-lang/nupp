@@ -300,7 +300,7 @@ function M.aModuleAliasResolvesTypes()
       "    return t.kind",
       "end",
       'print(kindOf({kind = "name", text = "x", offset = 1, line = 1,'
-         .. " col = 1, trivia = {}}))",
+         .. ' col = 1, trivia = L.arena(""), triviaFirst = 1, triviaCount = 0}))',
    }, "\n")
    assertEq(diagsOf(src), "")
 end

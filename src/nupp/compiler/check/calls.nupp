@@ -10,6 +10,7 @@ the difference is only what the callee turns out to be.
 ]]
 
 local T = require("nupp.compiler.types")
+local lexer = require("nupp.compiler.lexer")
 local members = require("nupp.compiler.members")
 local relations = require("nupp.compiler.relations")
 local generics = require("nupp.compiler.generics")
@@ -320,7 +321,8 @@ function calls.install(c: state.Checker): calls.Ops
         -- comment written there is the author's, and a line break is a layout this
         -- rewrite has no opinion about.
         local gap = nil
-        for _, trivia in ipairs(open.trivia or {}) do
+        for index = 1, open.triviaCount do
+            local trivia = lexer.triviaRecord(open, index)
             if trivia.kind ~= "whitespace" or trivia.text:find("\n", 1, true) then
                 gap = nil
                 break

@@ -298,11 +298,13 @@ local function highlightNuppLines(source, links, memberLinks)
     local syntaxKinds = semantic.syntaxKinds(parsed)
     local memberUrls = containerMemberUrls(parsed, memberLinks)
     for index, token in ipairs(tokens) do
-        for _, trivia in ipairs(token.trivia) do
-            if trivia.kind == "comment" or trivia.kind == "hashbang" then
-                out.append(trivia.text, "token comment nuppdoc-token-comment")
+        for index = 1, token.triviaCount do
+            local kind = lexer.triviaKind(token, index)
+            local text = lexer.triviaText(token, index)
+            if kind == "comment" or kind == "hashbang" then
+                out.append(text, "token comment nuppdoc-token-comment")
             else
-                out.append(trivia.text)
+                out.append(text)
             end
         end
         if token.kind ~= "eof" then

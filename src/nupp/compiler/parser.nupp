@@ -228,7 +228,17 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- nothing, so recovery does not disturb the round trip.
     local function missing(kind: string): Token
         local at = cur()
-        return {kind = kind, text = "", missing = true, trivia = {}, offset = at.offset, line = at.line, col = at.col}
+        return {
+            kind = kind,
+            text = "",
+            missing = true,
+            trivia = at.trivia,
+            triviaFirst = 1,
+            triviaCount = 0,
+            offset = at.offset,
+            line = at.line,
+            col = at.col
+        }
     end
 
     --- Consumes the expected token, or reports and inserts a missing one.
@@ -265,7 +275,16 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             genericCloseHalfAt = nil
             local at = cur()
 
-            return {kind = ">", text = "", trivia = {}, offset = at.offset, line = at.line, col = at.col}
+            return {
+                kind = ">",
+                text = "",
+                trivia = at.trivia,
+                triviaFirst = 1,
+                triviaCount = 0,
+                offset = at.offset,
+                line = at.line,
+                col = at.col
+            }
         end
         if cur().kind == ">>" then
             local tok = advance()

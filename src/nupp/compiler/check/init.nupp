@@ -987,7 +987,7 @@ function checkMod.check(
         end
         if tok.deprecation then
             def.deprecated = tok.deprecation
-            def.documentationTrivia = tok.deprecationTrivia
+            def.documentationToken = tok.deprecationToken
         end
         tok.definition = def
 

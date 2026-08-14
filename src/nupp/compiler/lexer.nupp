@@ -20,9 +20,92 @@ trip, which is what lets an editor keep working in a file that is mid-edit.
 ]]
 
 local lexer = {}
+local ffi = require("ffi")
+
+-- Trivia kinds as the small integers an arena record stores, and the way back.
+const TRIVIA_WHITESPACE = 1
+const TRIVIA_COMMENT = 2
+const TRIVIA_HASHBANG = 3
+const TRIVIA_BOM = 4
+const TRIVIA_KIND_NAMES = {"whitespace", "comment", "hashbang", "bom"}
+
+-- Words to an arena record: kind, offset, length, line, column.
+const TRIVIA_STRIDE = 5
+
+--- Every trivia in one file, five 32-bit words to a record, in one growable block.
+---
+--- A trivia is a kind and a span and nothing else, so it needs no object: its text is a
+--- slice of the source this holds, cut when something asks for it rather than while
+--- lexing. What a token keeps is the index of its first record and how many follow,
+--- which is two numbers where it used to be a list of tables.
+---
+--- The block belongs to one file's token stream and is reachable only from its tokens,
+--- so it is released when they are. That is what lets an index into it stand alone: an
+--- index outliving its arena would need a generation beside it to be caught, and one
+--- cannot, because there is no way to hold the index without holding a token that holds
+--- the arena.
+record lexer.TriviaArena
+    --- The file the spans index into.
+    source: string
+
+    --- Records stored.
+    count: integer
+
+    private capacity: integer
+
+    private words: uint32[?]
+
+    --- Appends one record and returns its index, counting from 1.
+    function append(
+        self,
+        kind: integer,
+        offset: integer,
+        length: integer,
+        line: integer,
+        col: integer
+    ): integer
+        if self.count >= self.capacity then
+            local grown = self.capacity > 0 ? self.capacity * 2 : 32
+            local fresh = ffi.new("uint32_t[?]", grown * TRIVIA_STRIDE) as uint32[?]
+            ffi.copy(fresh as any, self.words as any, self.count * TRIVIA_STRIDE * 4)
+            self.words = fresh
+            self.capacity = grown
+        end
+
+        local at = self.count * TRIVIA_STRIDE
+        unsafe do
+            self.words[at] = kind
+            self.words[at + 1] = offset
+            self.words[at + 2] = length
+            self.words[at + 3] = line
+            self.words[at + 4] = col
+        end
+        self.count = self.count + 1
+
+        return self.count
+    end
+end
+
+--- A file's trivia block, empty.
+function lexer.arena(source: string): lexer.TriviaArena
+    return new lexer.TriviaArena(
+        source = source,
+        count = 0,
+        capacity = 0,
+        words = ffi.new("uint32_t[?]", 0) as uint32[?]
+    )
+end
+
+--- The block a token with no trivia of its own can point at, so that every token has
+--- one and `cst.isToken` keeps its test.
+lexer.EMPTY_TRIVIA = lexer.arena("")
 
 --- A run of text that carries no meaning to the grammar but must survive the round
 --- trip: whitespace, a comment, the hashbang line, or a leading byte-order mark.
+---
+--- The lexer stores these in a `TriviaArena` rather than building them; this is the
+--- shape they take when a caller that has to hand one on as plain data asks for it
+--- through `lexer.triviaRecord`.
 type lexer.Trivia = {
     --- One of "whitespace", "comment", "hashbang", "bom".
     kind: string,
@@ -64,8 +147,15 @@ type lexer.Token = {
     --- 1-based column of the first character.
     col: integer,
 
-    --- Everything skipped to reach this token, in source order.
-    trivia: {lexer.Trivia},
+    --- The block holding everything skipped to reach this token. Shared by every token
+    --- of the file, and never nil, which is how `cst` tells a token from a node.
+    trivia: lexer.TriviaArena,
+
+    --- Index of the first of this token's trivia records, counting from 1.
+    triviaFirst: integer,
+
+    --- How many records are this token's, in source order.
+    triviaCount: integer,
 
     --- Set on a token the parser inserted to recover from a syntax error. Such a token
     --- has empty text, so it never reprints.
@@ -121,8 +211,11 @@ type lexer.Token = {
     --- Tooling-only migration detail inherited by the declaration definition.
     deprecation: any,
 
-    --- Leading trivia owned by the @deprecated wrapper rather than its declaration.
-    deprecationTrivia: {lexer.Trivia}?,
+    --- The @deprecated wrapper's own token, which owns the leading trivia the
+    --- declaration's documentation is read from. The token rather than the trivia,
+    --- because trivia is reached through the token that points into the block. A shape
+    --- cannot name itself, so this is `any` as the other token-valued marks are.
+    deprecationToken: any,
 
     --- The definition whose deprecation lint was already emitted at this token.
     deprecationReported: any,
@@ -324,6 +417,7 @@ end
 function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.LexError}
     local tokens: {lexer.Token} = {}
     local errors: {lexer.LexError} = {}
+    local arena = lexer.arena(source)
     local pos: integer = 1
     local line: integer = 1
     local lineStart: integer = 1 -- offset of the first byte of the current line
@@ -366,33 +460,30 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
         }
     end
 
-    -- Every token carries a trivia list and `cst` tells a token by having one, so a
-    -- token with no leading trivia needs a list rather than nothing. It cannot be
-    -- written to -- nothing outside this function appends to one -- so they share it.
-    local NO_TRIVIA: {lexer.Trivia} = {}
-
-    -- Collect leading trivia starting at `pos`; returns the trivia list.
-    local function scanTrivia(): {lexer.Trivia}
-        local trivia: {lexer.Trivia}? = nil
+    -- Collect leading trivia starting at `pos` into the arena; returns the index of the
+    -- first record taken and how many there were.
+    local function scanTrivia(): integer, integer
+        local first = arena.count + 1
+        local taken: integer = 0
         while pos <= len do
             local start = pos
             local l, c = line, colOf(pos)
             local ch = byte(source, pos)
-            local kind
+            local kind: integer
             if pos == 1 and sub(source, 1, 3) == "\239\187\191" then
-                kind, pos = "bom", 4
+                kind, pos = TRIVIA_BOM, 4
             elseif pos == 1 and sub(source, 1, 1) == "#" then
-                kind = "hashbang"
+                kind = TRIVIA_HASHBANG
                 local nl = find(source, "\n", pos, true)
                 pos = nl and (nl + 1) or (len + 1)
             elseif ch == 32 or ch == 9 or ch == 13 or ch == 10 or ch == 11 or ch == 12 then
-                kind = "whitespace"
+                kind = TRIVIA_WHITESPACE
                 repeat
                     pos = pos + 1
                     ch = byte(source, pos)
                 until not (ch == 32 or ch == 9 or ch == 13 or ch == 10 or ch == 11 or ch == 12)
             elseif ch == 45 and byte(source, pos + 1) == 45 then -- '--'
-                kind = "comment"
+                kind = TRIVIA_COMMENT
                 local after, terminated = scanLongBracket(source, pos + 2)
                 if after and terminated then
                     pos = after
@@ -406,14 +497,12 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
             else
                 break
             end
-            trivia = trivia or {}
-            trivia[
-                #trivia + 1
-            ] = {kind = kind, text = sub(source, start, pos - 1), offset = start, line = l, col = c}
+            arena:append(kind, start, pos - start, l, c)
+            taken = taken + 1
             advanceLines(pos)
         end
 
-        return trivia or NO_TRIVIA
+        return first, taken
     end
 
     -- Scan one short-string token starting at the quote character. Returns endpos
@@ -580,14 +669,23 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
     end
 
     while true do
-        local trivia = scanTrivia()
+        local triviaFirst, triviaCount = scanTrivia()
         if pos > len then
             if #interp > 0 then
                 addError(pos, line, colOf(pos), "unterminated interpolated string")
             end
             tokens[
                 #tokens + 1
-            ] = {kind = "eof", text = "", offset = pos, line = line, col = colOf(pos), trivia = trivia}
+            ] = {
+                kind = "eof",
+                text = "",
+                offset = pos,
+                line = line,
+                col = colOf(pos),
+                trivia = arena,
+                triviaFirst = triviaFirst,
+                triviaCount = triviaCount
+            }
             break
         end
 
@@ -686,7 +784,9 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
             offset = start,
             line = l,
             col = c,
-            trivia = trivia
+            trivia = arena,
+            triviaFirst = triviaFirst,
+            triviaCount = triviaCount
         }
         advanceLines(pos)
     end
@@ -694,12 +794,71 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
     return tokens, errors
 end
 
+-- The word a token's `index`-th trivia record starts at.
+local function triviaWordAt(tok: lexer.Token, index: integer): integer
+    return (tok.triviaFirst + index - 2) * TRIVIA_STRIDE
+end
+
+--- How many trivia precede `tok`.
+function lexer.triviaCount(tok: lexer.Token): integer
+    return tok.triviaCount
+end
+
+--- The kind of `tok`'s `index`-th trivia: "whitespace", "comment", "hashbang" or "bom".
+function lexer.triviaKind(tok: lexer.Token, index: integer): string
+    local at = triviaWordAt(tok, index)
+    local code: integer
+    unsafe do
+        code = tok.trivia.words[at] as integer
+    end
+
+    return TRIVIA_KIND_NAMES[code] as string
+end
+
+--- The bytes of `tok`'s `index`-th trivia, cut from the source when asked for.
+function lexer.triviaText(tok: lexer.Token, index: integer): string
+    local arena = tok.trivia
+    local at = triviaWordAt(tok, index)
+    local offset: integer
+    local length: integer
+    unsafe do
+        offset = arena.words[at + 1] as integer
+        length = arena.words[at + 2] as integer
+    end
+
+    return sub(arena.source, offset, offset + length - 1)
+end
+
+--- Where `tok`'s `index`-th trivia starts: offset, line and column.
+function lexer.triviaAt(tok: lexer.Token, index: integer): integer, integer, integer
+    local at = triviaWordAt(tok, index)
+    unsafe do
+        local words = tok.trivia.words
+
+        return words[at + 1] as integer, words[at + 3] as integer, words[at + 4] as integer
+    end
+end
+
+--- One trivia as an ordinary record, for a caller that has to hand it on as plain data
+--- rather than read it where it lies.
+function lexer.triviaRecord(tok: lexer.Token, index: integer): lexer.Trivia
+    local offset, line, col = lexer.triviaAt(tok, index)
+
+    return {
+        kind = lexer.triviaKind(tok, index),
+        text = lexer.triviaText(tok, index),
+        offset = offset,
+        line = line,
+        col = col
+    }
+end
+
 -- Reconstructs the exact source from a token stream (the round-trip identity).
 function lexer.textOf(tokens: {lexer.Token}): string
     local parts: {string} = {}
     for _, tok in ipairs(tokens) do
-        for _, tr in ipairs(tok.trivia) do
-            parts[#parts + 1] = tr.text
+        for index = 1, tok.triviaCount do
+            parts[#parts + 1] = lexer.triviaText(tok, index)
         end
         parts[#parts + 1] = tok.text
     end

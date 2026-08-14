@@ -7,6 +7,7 @@ documentation never invokes the checker.
 ]]
 
 local cst = require("nupp.compiler.cst")
+local lexer = require("nupp.compiler.lexer")
 local parser = require("nupp.compiler.parser")
 local docblock = require("nupp.compiler.docblock")
 local formatter = require("nupp.compiler.fmt")
@@ -241,11 +242,12 @@ local function structureSignature(node, includePrivate)
         if cst.isToken(child) then
             local triviaParts: {string} = {}
             local removedDocumentation = false
-            for _, trivia in ipairs(leading and {} or child.trivia) do
-                if trivia.kind == "comment" and trivia.text:match("^%-%-%-") then
+            for index = 1, leading and 0 or child.triviaCount do
+                local text = lexer.triviaText(child, index)
+                if lexer.triviaKind(child, index) == "comment" and text:match("^%-%-%-") then
                     removedDocumentation = true
                 else
-                    triviaParts[#triviaParts + 1] = trivia.text
+                    triviaParts[#triviaParts + 1] = text
                 end
             end
             local triviaText = table.concat(triviaParts)
@@ -1059,12 +1061,12 @@ end
 -- implementation note, and an explicit `@module` docblock still wins over both.
 local function headerDoc(root)
     local token = firstToken(root)
-    for _, trivia in ipairs(token and token.trivia or {}) do
-        if trivia.kind ~= "comment" then
+    for index = 1, token and token.triviaCount or 0 do
+        local text = lexer.triviaText(token, index)
+        if lexer.triviaKind(token, index) ~= "comment" then
         -- keep looking: only whitespace may precede the header
-        elseif trivia.text:match("^%-%-%[=*%[") then
-            local text = trivia.text:gsub("^%-%-%[=*%[", ""):gsub("%]=*%]$", "")
-            return trim(text)
+        elseif text:match("^%-%-%[=*%[") then
+            return trim((text:gsub("^%-%-%[=*%[", ""):gsub("%]=*%]$", "")))
         else
             return nil
         end

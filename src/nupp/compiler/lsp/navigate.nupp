@@ -27,6 +27,7 @@ local findDeclaration, tokenAt = tree.findDeclaration, tree.tokenAt
 local symbolKey, memberOccurrences = tree.symbolKey, tree.memberOccurrences
 local moduleMemberAt, documentationAt = tree.moduleMemberAt, tree.documentationAt
 local fromTrivia, functionSignature = tree.fromTrivia, tree.functionSignature
+local documentationOf = tree.documentationOf
 local membersOf = complete.membersOf
 
 local json = wire.json
@@ -165,7 +166,7 @@ function navigate.install(s: navigate.Session): navigate.Api
             def = {
                 token = def.generatedOrigin,
                 filename = def.generatedOrigin.filename or def.filename,
-                documentationTrivia = def.documentationTrivia,
+                documentationToken = def.documentationToken,
             }
         end
         local source = definitionSource(def)
@@ -200,10 +201,17 @@ function navigate.install(s: navigate.Session): navigate.Api
     local function documentationFor(def)
         local _, tokens, index = resolveDefinition(def)
         if not tokens then
-            return def and fromTrivia(def.documentationTrivia or def.token and def.token.trivia)
+            if not def then
+                return nil
+            end
+            if def.documentationToken then
+                return documentationOf(def.documentationToken)
+            end
+
+            return def.token and fromTrivia(def.token.trivia)
         end
 
-        return documentationAt(tokens, index) or fromTrivia(def.documentationTrivia)
+        return documentationAt(tokens, index) or documentationOf(def.documentationToken)
     end
 
     local function documentAt(params)

@@ -354,7 +354,8 @@ function semantic.install(s: semantic.Session): semantic.Api
         local syntax = syntaxKinds(doc.result)
         local embedded = embeddedStringTokens(doc.result)
         for _, tok in ipairs(doc.result.tokens or {}) do
-            for _, trivia in ipairs(tok.trivia or {}) do
+            for triviaIndex = 1, tok.triviaCount do
+                local trivia = lexer.triviaRecord(tok, triviaIndex)
                 local docComment = trivia.kind == "comment" and trivia.text:sub(
                     1,
                     3

@@ -116,21 +116,43 @@ function tree.symbolKey(def: tree.Definition?): string?
     return def.filename .. ":" .. tostring(def.token.offset)
 end
 
-function tree.fromTrivia(triviaList: {lexer.Trivia}?): string?
+local function documentationFrom(kindAt: function(integer): string, textAt: function(integer): string, count: integer): string?
     local lines = {}
-    for _, trivia in ipairs(triviaList or {}) do
-        if trivia.kind == "comment" then
-            local text = trivia.text
+    for index = 1, count do
+        local kind = kindAt(index)
+        if kind == "comment" then
+            local text = textAt(index)
             text = text:gsub("^%-%-%-?%s?", "")
             text = text:gsub("^%-%-%[=*%[", "")
             text = text:gsub("%]=*%]$", "")
             lines[#lines + 1] = text
-        elseif trivia.kind == "whitespace" and trivia.text:find("\n%s*\n") then
+        elseif kind == "whitespace" and textAt(index):find("\n%s*\n") then
             lines = {}
         end
     end
 
     return #lines > 0 and table.concat(lines, "\n") or nil
+end
+
+--- The documentation comment leading `tok`, read where its trivia lies.
+function tree.documentationOf(tok: lexer.Token?): string?
+    if not tok then
+        return nil
+    end
+
+    return documentationFrom(
+        |index| -> lexer.triviaKind(tok, index),
+        |index| -> lexer.triviaText(tok, index),
+        tok.triviaCount
+    )
+end
+
+--- The same, over trivia already copied out as plain records -- what
+--- `env.declarationToken` keeps for a definition in another file.
+function tree.fromTrivia(triviaList: {lexer.Trivia}?): string?
+    local list = triviaList or {}
+
+    return documentationFrom(|index| -> list[index].kind, |index| -> list[index].text, #list)
 end
 
 -- A docblock is trivia on the token that opens the declaration — `local` for a typed
@@ -143,7 +165,7 @@ function tree.documentationAt(tokens: {lexer.Token}, index: integer): string?
     if not tok then
         return nil
     end
-    local docs = tree.fromTrivia(tok.trivia)
+    local docs = tree.documentationOf(tok)
     if docs then
         return docs
     end
@@ -152,7 +174,7 @@ function tree.documentationAt(tokens: {lexer.Token}, index: integer): string?
         if candidate.line ~= tok.line then
             break
         end
-        docs = tree.fromTrivia(candidate.trivia)
+        docs = tree.documentationOf(candidate)
         if docs then
             return docs
         end
@@ -344,8 +366,8 @@ function tree.functionSignature(stat: cst.FuncStmt): string
         end
         if cst.isToken(node) then
             if not first then
-                for _, trivia in ipairs(node.trivia) do
-                    parts[#parts + 1] = trivia.text
+                for index = 1, node.triviaCount do
+                    parts[#parts + 1] = lexer.triviaText(node, index)
                 end
             end
             first = false

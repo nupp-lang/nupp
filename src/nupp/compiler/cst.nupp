@@ -2562,8 +2562,8 @@ function cst.textOf(x: cst.Child): string
     local parts: {string} = {}
     local function walk(y: cst.Child)
         if isToken(y) then
-            for _, tr in ipairs(y.trivia) do
-                parts[#parts + 1] = tr.text
+            for index = 1, y.triviaCount do
+                parts[#parts + 1] = lexer.triviaText(y, index)
             end
             parts[#parts + 1] = y.text
         else

@@ -137,12 +137,12 @@ end
 
 function M.triviaPreserved()
    local tokens = lexer.lex("  -- lead\nlocal x")
-   local tr = tokens[1].trivia
-   assertEq(#tr, 3, "trivia count") -- spaces, comment, newline
-   assertEq(tr[1].kind, "whitespace")
-   assertEq(tr[2].kind, "comment")
-   assertEq(tr[2].text, "-- lead")
-   assertEq(tr[3].kind, "whitespace")
+   local tok = tokens[1]
+   assertEq(tok.triviaCount, 3, "trivia count") -- spaces, comment, newline
+   assertEq(lexer.triviaKind(tok, 1), "whitespace")
+   assertEq(lexer.triviaKind(tok, 2), "comment")
+   assertEq(lexer.triviaText(tok, 2), "-- lead")
+   assertEq(lexer.triviaKind(tok, 3), "whitespace")
    local eof = tokens[#tokens]
    assertEq(eof.kind, "eof")
 end
@@ -150,8 +150,8 @@ end
 function M.trailingTriviaOnEof()
    local tokens = lexer.lex("return 1 -- done\n")
    local eof = tokens[#tokens]
-   assertEq(#eof.trivia, 3) -- space, comment, newline
-   assertEq(eof.trivia[2].kind, "comment")
+   assertEq(eof.triviaCount, 3) -- space, comment, newline
+   assertEq(lexer.triviaKind(eof, 2), "comment")
 end
 
 function M.positions()
@@ -191,7 +191,7 @@ function M.unterminatedLongComment()
    local tokens, errors = lexer.lex("--[[ open")
    assertEq(errors[1].msg, "unterminated long comment")
    assertEq(tokens[#tokens].kind, "eof")
-   assertEq(tokens[#tokens].trivia[1].kind, "comment")
+   assertEq(lexer.triviaKind(tokens[#tokens], 1), "comment")
 end
 
 function M.unexpectedCharacters()

@@ -12,6 +12,7 @@ never needed a type to render a page.
 ]]
 
 local cst = require("nupp.compiler.cst")
+local lexer = require("nupp.compiler.lexer")
 
 local docblock = {}
 
@@ -74,13 +75,15 @@ function docblock.linesOf(node: cst.Child?): {string}
     local token = firstToken(node)
     local lines: {string} = {}
     local pending: {string} = {}
-    for _, trivia in ipairs(token and token.trivia or {}) do
-        if trivia.kind == "comment" and trivia.text:match("^%-%-%-") then
-            pending[#pending + 1] = trivia.text:gsub("^%-%-%- ?", "", 1):gsub("\r$", "")
-        elseif trivia.kind == "comment" then
+    for index = 1, token and token.triviaCount or 0 do
+        local kind = lexer.triviaKind(token, index)
+        local text = lexer.triviaText(token, index)
+        if kind == "comment" and text:match("^%-%-%-") then
+            pending[#pending + 1] = text:gsub("^%-%-%- ?", "", 1):gsub("\r$", "")
+        elseif kind == "comment" then
             pending = {}
-        elseif trivia.kind == "whitespace" then
-            local _, newlines = trivia.text:gsub("\n", "")
+        elseif kind == "whitespace" then
+            local _, newlines = text:gsub("\n", "")
             if newlines > 1 then
                 pending = {}
             end

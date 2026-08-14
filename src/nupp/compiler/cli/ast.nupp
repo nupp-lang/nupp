@@ -8,6 +8,7 @@ explains the failure.
 ]]
 
 local spec = require("nupp.compiler.cli.spec")
+local lexer = require("nupp.compiler.lexer")
 local optionsMod = require("nupp.compiler.cli.options")
 
 local command = spec.command{
@@ -80,10 +81,8 @@ fails.]],
 local function syntaxTreeValue(cst: any, value: any): any
     if cst.isToken(value) then
         local trivia: {any} = {}
-        for _, item in ipairs(value.trivia) do
-            trivia[
-                #trivia + 1
-            ] = {kind = item.kind, text = item.text, offset = item.offset, line = item.line, col = item.col}
+        for index = 1, value.triviaCount do
+            trivia[#trivia + 1] = lexer.triviaRecord(value, index)
         end
         return {
             tag = "token",

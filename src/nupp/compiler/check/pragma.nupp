@@ -139,7 +139,7 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 if tok then
                     tok.deprecation = targetAny.deprecation
                     local annotationToken = cst.firstToken(stat)
-                    tok.deprecationTrivia = annotationToken and annotationToken.trivia or nil
+                    tok.deprecationToken = annotationToken or nil
                 end
             end
 
