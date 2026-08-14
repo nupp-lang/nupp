@@ -22,6 +22,22 @@ local state = require("nupp.compiler.check.state")
 
 local declare = {}
 
+-- Which reifiable primitives C admits as a bitfield base: the integer ones and
+-- `bool`. `number` and `float` lower to `double` and `float`, which have no bitfield
+-- form, and everything else with a layout carries a width of its own.
+local BITFIELD_BASE: {[string]: boolean} = {
+    boolean = true,
+    integer = true,
+    int8 = true,
+    int16 = true,
+    int32 = true,
+    int64 = true,
+    uint8 = true,
+    uint16 = true,
+    uint32 = true,
+    uint64 = true,
+}
+
 local isA = relations.isA
 -- Inheritance rebinds `self` to the inheriting declaration and names no other
 -- binder, so an inherited member's own type parameters have to survive it.
@@ -1750,6 +1766,37 @@ function declare.install(
                         n.writeFieldDefs[name] = definition
                     end
                     c.markToken(e.name, definition, ft, "property")
+                    if e.bitWidth then
+                        -- The width is the C bitfield the field lowers to, so it needs
+                        -- something with a C layout to sit in, and a base C allows one
+                        -- on. A record has no layout at all; `number` and `float` are
+                        -- reifiable but have no bitfield form; an array, a struct by
+                        -- value and a pointer carry a width of their own. Every one of
+                        -- these used to parse and then be dropped without a word.
+                        if stat.declKind ~= "struct" or stat.isAnnotationDefinition then
+                            c.diag(
+                                "NUPP2201",
+                                e.bitWidth,
+                                (
+                                    "field %q: a bit width belongs to a struct field, " .. "which is the only kind laid out in C memory"
+                                ):format(e.name.text),
+                                nil,
+                                {help = "drop the width, or declare the type a struct"}
+                            )
+                        elseif not BITFIELD_BASE[ft.tag] then
+                            c.diag(
+                                "NUPP2201",
+                                e.bitWidth,
+                                (
+                                    "struct field %q: %s carries no bit width; C allows " .. "one on an integer or boolean field only"
+                                ):format(e.name.text, T.tostring(ft)),
+                                nil,
+                                {
+                                    help = "drop the width, or give the field an " .. "integer or boolean type"
+                                }
+                            )
+                        end
+                    end
                     if stat.declKind == "struct" and not stat.isAnnotationDefinition and not reifiableField(ft) then
                         c.diag(
                             "NUPP2201",

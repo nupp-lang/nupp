@@ -258,4 +258,21 @@ function M.bitWidthCheckedLikeAnyField()
       "NUPP2001:8")
 end
 
+-- A width is the C bitfield the field lowers to, so it needs a layout to sit in and
+-- a base C allows one on. All four of these used to parse and be discarded.
+function M.bitWidthNeedsAnIntegerBase()
+   assertEq(diagsOf("local struct S\n   f: float : 1\nend"), "NUPP2201:2")
+   assertEq(diagsOf("local struct S\n   n: number : 4\nend"), "NUPP2201:2")
+   assertClean("local struct S\n   a: uint32 : 1\n   b: boolean : 1\nend")
+end
+
+function M.bitWidthNeedsAScalar()
+   assertEq(diagsOf("local struct S\n   a: uint8[4] : 2\nend"), "NUPP2201:2")
+end
+
+function M.bitWidthNeedsAStructToLiveIn()
+   -- a record is a table; there is no layout for a width to describe
+   assertEq(diagsOf("local record R\n   f: uint32 : 1\nend"), "NUPP2201:2")
+end
+
 return M
