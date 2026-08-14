@@ -41,45 +41,12 @@ work makes sense in.
 
 ## Dialect interop (`import-tl`)
 
-No design document in the tree, and nothing is implemented: no `.tl` handling
-in module resolution, no translator subcommand, no `.tl` build input mode.
-
 - [ ] source translator CLI (eject model, visible residue comments, `any`
       fallbacks), translating metamethod declarations, `record X is Y`,
       bounded generics, nested type namespaces, and `self` directly into their
       landed nupp forms
 
 ## Formatting
-
-Settled. The formatter is the specification and the tree was brought to it: 107
-of 179 sources were rewritten, `fixpoint --update-bootstrap` refreshed the
-tracked `bootstrap/nupp.lua` in the same commit, and `tests/fmttreetest.lua`
-holds the tree there. That gate runs `nupp fmt --check` through the binary
-rather than formatting the tree in process, which is the difference between a
-quarter of a second and half a minute on every test run.
-
-Four defects were fixed on the way, since a tree cannot be held to rules that
-are wrong. A docblock's trailing annotation no longer takes the blank line that
-belongs after the declaration it documents, so `@drop` stays with its field. A
-comment that is the whole of an `if` arm indents inside the arm rather than
-under the `elseif` that follows it. `borrows (p)` and a closure's `takes (a, b)`
-keep the space that says they are clauses rather than calls of a function named
-`borrows`. And a bare `;` terminates the statement before it instead of taking a
-line of its own.
-
-Two rules were added, both about lists that outgrow their line. An argument list
-now spreads one argument per line whenever it stops fitting -- by width, by a
-comment inside it, or by an argument whose own body is a block -- with the
-exception that a call's trailing function or table hugs the line that opens the
-call while what precedes its body still fits there. A table constructor spreads
-on the same terms and has nothing to hug. Both are in
-[fmt.md](../docs/tooling/fmt.md).
-
-Coverage is `tests/fmtcorpus`, forty golden pairs across eleven categories, each
-checked for exact output, for formatting its own output unchanged, and for the
-token sequence surviving. `tests/fmtfuzztest.lua` makes the same three claims
-about programs nobody wrote down, minimizes what it finds, and prints it ready
-to be checked in under `tests/fmtcorpus/regressions/`.
 
 - [ ] **A shape type with one field still breaks across three lines.** `Shape
       types always put each field on its own line` reads well for a record-like
@@ -91,101 +58,6 @@ to be checked in under `tests/fmtcorpus/regressions/`.
 
 ## Performance and incrementality
 
-Landed: cache keys are digested with XXH64 rather than a pure-Lua SHA-256, the
-prelude no longer builds the project index on the way to every command, project
-headers are stored between commands (`nupp.compiler.build.store`, plain data via
-`string.buffer`, in the gitignored build directory), `nupp check` reuses
-unchanged modules and replays their diagnostics, bundled module declarations are
-checked when something asks for one, `nupp fmt` stores each file's formatting
-verdict, the editor session writes what it worked out on shutdown, the project
-scan prunes dot-directories instead of walking the whole checkout and discarding
-it, the cross-process cutoff runs off what a dependent actually read rather than
-off the whole project index, a warm command spawns no processes of its own, and
-`nupp check FILE` reuses what the last check worked out about that file.
-
-The cutoff used to be the largest item here. A module records the project queries
-it asked and the fingerprint each answered with (`inc.projectDependencies`,
-`src/nupp/compiler/incremental.nupp`), and reuse compares those one by one, so an
-edit to an exported type declaration invalidates the modules that read that
-declaration instead of every module in the project. The digest is
-`declarationSignature` (`src/nupp/compiler/env.nupp`), which walks tokens and so
-carries no trivia: reformatting a docblock above a record changes nothing.
-`typeFingerprint` still declines to expand a nominal's members, which is correct,
-and the keyed project dependency is what notices the changed record. Its
-predecessor, a whole-project `projectIndexHash`, is gone rather than merely
-unused: it was digesting every declaration of every header on every command and
-being compared by nobody.
-
-Discovery walks `nupp.io.files` on every platform now, pruning dot-directories at
-the directory rather than at the path, and each root is listed once per
-environment rather than once per question asked about it. That was eight `find`
-subprocesses on a warm no-op check, four on `lsp inspect`, two on `check FILE`.
-`process.capture`'s `os.tmpname` file turned out never to have been on this path
--- every caller is dependency resolution, native building or packaging. What is
-left is `bin/nupp`'s own `find | head`, which stays: it is a shell script asking
-whether any source is newer than the build stamp before it decides whether to
-run the compiler at all, and there is no portable shell answer to that question
-that is not `find`.
-
-`nupp check FILE` goes through the project's own incremental check, seeded at the
-named files rather than at the source set (`modules.Narrow`). It reuses records
-on the same terms a whole-project check does, reports the named files rather than
-everything the walk reached, and carries the rest of the stored state forward
-untouched so that one narrow check does not throw away what the last full one
-learned. A file the project does not reach -- a declaration file, a `.lua`, a
-file from outside, or every file when there is no manifest -- is still parsed and
-checked on its own.
-
-What that bought, measured on a loaded machine and so in CPU time rather than
-wall clock: a second `nupp check src/nupp/compiler/env.nupp` costs 0.22 s where
-the August 7 note has the old path costing 0.82--0.93 s on every warm run. The
-first one costs more than it used to, because it now checks and records the
-file's whole dependency closure, and that warms the project check as well.
-
-Historical August 7 measurements, before native file adoption and the later
-type-system work: whole-project check 0.15 s against 1.26 s cold; `fmt --check`
-0.15 s; no-op build 0.18 s; `lsp inspect` 0.13 s. The measured startup floor was
-23 ms, against 2 ms for a bare `luajit -e ""`. These are stale; remeasure on an
-otherwise idle machine before using them as current priorities.
-
-A closure in a loop now has all three defences. `gen` refuses to build a function
-inside a loop unless the site says why it cannot be declared once
-(`src/nupp/compiler/gen.nupp`), `nupp bc --check` reads the bytecode of anything
-and reports the same thing without running it, and user code is `NUPP2505` where
-the closure lifts out unchanged and `jit-loop-closure` (`NUPP2515`) where it
-reads the iteration and cannot. The second is off until a project asks for it,
-because it reports correct code with no mechanical fix; what gives it teeth is
-that it goes out through `c.jitHazards`, so a function annotated `@jit` promised
-that it compiles and gets `NUPP2707` whatever the lint's level, and `jit.off` on
-the enclosing function says nothing.
-
-It found fifteen sites in this compiler and twelve of them are gone: a function
-that reads the iteration is written above the loop and told what varies, which
-in a few places also made what it does clearer. The three that remain are one
-shape -- `nupp.compiler.comptime` and the two registration loops in
-`nupp.compiler.materialize.peg` build a function *as* an identity, one object per
-entry, so there is nothing to hoist. Each says so where it is written. They run
-once, over a handful of entries.
-
-Two of the twelve were loops `nupp bc --check` had not reported, and they are
-the same shape: a `while` whose condition is a chain of tests, which leaves a
-forward branch over the body, which is what the checker reads as "some branch
-can skip this" and declines to report. That is the deliberately weak half of
-that heuristic doing what it was written to do, and it is the case the source
-lint answers, because a name that varies per pass is visible in the source
-whatever the branches do.
-
-The lint stays out of this project's own `nupp.lua` for a reason worth knowing
-before trying: a manifest naming a lint the tracked `bootstrap/nupp.lua` has
-never heard of cannot be read by the bootstrap, so a checkout with only the
-bootstrap could not build. Enabling it here waits on
-`fixpoint --update-bootstrap`.
-
-What is left:
-
-- [ ] **The store never shrinks below what a run touched.** `KEEP_COLD = 2048`
-      (`src/nupp/compiler/build/store.nupp:36`) bounds the cold entries, which is fine
-      for a project this size and unmeasured for a large one.
 - [ ] **A cleanup region inside a loop still builds a function every iteration.**
       An owned binding needs its body run under `xpcall`, and `xpcall` takes a
       function. Where that function is built per entry, the loop holding it
@@ -255,30 +127,11 @@ What is left:
       test whose result depends on trace timing will keep costing somebody a
       bisect.
 
+---
+
 ## Tecs
 
 ### Subsystem acceptance port
-
-Translating and running `internal/ffi/FFIStorage` and its components is the
-v0.1 gate, and it is the acceptance corpus several items above name: bounded
-generic metatable receivers, bounds-carrying spans, the callback `jit.off`
-lint, and dialect-interop runtime equivalence.
-
-The port has started: `tests/acceptance/tecs` holds it, with `PORT.md` logging
-what fought back. It is a running port, not a reading exercise — `run.nupp`
-exercises the translated modules, and two compiler bugs were found by running
-what checked clean.
-
-```
- file                     lines  state
- ───────────────────────  ─────  ────────────────
- schema.tl                   49  ported, runs
- StableChunkedArray.tl       94  ported, runs
- init.tl                    111  not started
- EpochArena.tl              116  not started
- FFIEvents.tl               200  not started
- FFIStorage.tl              706  not started
-```
 
 - [ ] **Translate the four remaining files.** 143 of 1276 lines are done, and
       they are the two with the least FFI in them, so nothing about reification
