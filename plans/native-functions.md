@@ -303,10 +303,13 @@ It also exposed two language/library prerequisites that belong below the native
 pass: forwarding an exclusive parameter through a checked wrapper when no
 derived borrow is live, and a checked mutable element borrow from `WriteSpan`.
 
-One ABI integration feature remains: a reified Nupp struct needs a stable
-compiler-private spelling in generated C declarations. Until that lands, the
-spike verifies every layout field and uses private `void*` slots after typed span
-projection. That erasure is acceptable evidence but is not the production ABI.
+One ABI integration feature remains: Track A of the independent foundations
+must supply the canonical C description and typed ordinary-struct pointer
+bridge. Ordinary structs remain anonymous LuaJIT ctypes; generated headers and
+generated C share the one canonical named aggregate, while compiler-owned glue
+may erase a physical pointer slot internally after source typing and layout
+verification. The spike's ad hoc `void*` binding is evidence only. The native
+pass must consume Track A rather than invent another struct name or bridge.
 
 ## Memory safety and ownership
 
