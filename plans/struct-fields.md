@@ -246,9 +246,19 @@ to think about because the pool dies with the module.
 
 An `associated` field may hold anything, including a reference to another
 instance of the same struct. That is how `stmtLastTok` and
-`functionBodyFirstTok` survive the move.
+`functionBodyFirstTok` survive the move -- and it is also a place the
+reachability rule above applies, since such a value is an element pointer like
+any other.
 
-## Pools, identity, and borrows
+An unset entry reads as nil, so a field declared `associated value: string` would
+hand a caller nil through a type that says it cannot be. The declaration is
+therefore constrained: an `associated` field is either optional or it has a
+default, and a non-optional one without a default reports **NUPP2216**. Definite
+initialization -- proving every instance is written before it is read -- is the
+alternative, and is not worth its analysis here, because every mark this feature
+exists for is genuinely absent on most instances.
+
+## Pools and identity
 
 ```nupp
 pool lexer.Tokens of lexer.Tok
@@ -262,31 +272,29 @@ local tok = tokens:append()
 tok.offset = start
 ```
 
-A pool owns one growable block of its element type, the shared fields the
-derived bodies read, and the side tables the associated fields use. It grows by
-doubling, and growth is why an element reference has to be checked rather than
-free: a reallocation moves the block, and a raw pointer into the old one is a
-use-after-free that no amount of care at the call site prevents.
+A pool owns a list of fixed-size blocks of its element type, the shared fields
+the derived bodies read, and the side tables the associated fields use. It grows
+by appending a block, never by reallocating one, so an element reference stays
+valid for as long as the pool does and may be stored wherever a token is stored
+today. §Representation says why this rather than borrows, and why not handles.
 
-So an element reference is `borrowed<lexer.Tok>` — the ownership system Nupp
-already has, applied to the case it was built for. A borrow cannot escape the
-scope that took it, cannot be stored in a structure that outlives the pool, and
-cannot be held across a call that may grow the pool. The last of these is what
-`retains`/`releases` already expresses for C resources, and `append` is declared
-as growing.
+What the pool does not do is keep itself alive. An element pointer is not traced,
+so a structure that stores one and drops the pool holds a dangling pointer that
+reads as ordinary memory. The rule is that a structure storing element references
+must also hold the pool, and it is the one new piece of checking this plan needs.
+`lexer.TriviaArena` obeys it today by being a field of every token that indexes
+it; the difference is that nothing checks it.
 
-This is the part that a Rust arena does not get. Indices into a `Vec` launder
-lifetimes: the borrow checker sees an integer and says nothing, and a stale index
-is a logic bug that reads a live element. A declared pool keeps the reference a
-borrow, so the compiler is still watching.
+Identity is `(poolId, id)`. `id` is the element's index, assigned by `append`;
+`poolId` names the pool in a module-level registry. A table keyed by an element
+lowers to `poolId * 2^32 + id`, exact in a double for a `uint16` pool and a
+`uint32` index. `id` alone is not identity: element 1 of two pools would be one
+key, which is the bug this replaces rather than the fix for it.
 
-`self.id` is the element's index in the block, an ordinary `uint32` field the
-pool assigns on `append`. It is also the answer to the cdata-key problem: a
-struct declared in a pool is keyed by `id` in any table it is used as a key of,
-so two references to the same element are the same key. A struct **not** in a
-pool keeps LuaJIT's object identity, and using one as a table key reports
-**NUPP2215** rather than quietly working for one lookup and failing for the
-next.
+A struct **not** in a pool has no such identity and keeps LuaJIT's, where two
+cdata values at the same address are distinct keys. Using one as a table key
+reports **NUPP2215** rather than quietly working for one lookup and failing for
+the next.
 
 ## What this does to the compiler
 
@@ -302,7 +310,9 @@ associated definition, groupRef, opensGroup, stmtLastTok,
 uint16 blockDepth, lineIdx   -- ordinary fields; they were integers already
 ```
 
-32 bytes an element, against 264. Of roughly 3,200 field accesses across 37
+40 bytes an element and 73 with the reference that reaches it, against 264 --
+3.6x, not the 8x the first revision claimed from a benchmark struct that was
+missing four fields. Of roughly 3,200 field accesses across 37
 files, the ones that change are the seven token constructions, the ten sites that
 key a table by a token, and `cst.isToken`. Everything else — every `tok.kind ==
 "then"`, every `tok.text`, every `tok.typeColon = true` — is written the same
@@ -311,6 +321,28 @@ way and lowers to something smaller.
 The CST node is the same exercise: `kind`, `firstChild`, `childCount` as fields,
 `children` derived onto a child pool, and the thirty-odd `Hints` marks
 associated. That is the other 23%.
+
+## Pooled is part of the type
+
+A struct whose derived bodies read `pool`, or which declares any `associated`
+field, is **pooled-only**: a distinct nominal from an ordinary struct, and the
+difference is checked, because everything below is otherwise reachable and each
+corrupts something.
+
+- `new lexer.Tok(...)` outside a pool leaves `poolId` naming no pool. Refused.
+- `ffi.new` or a cast reaching the ctype directly is `unsafe do` only, and
+  reports **NUPP2217** elsewhere.
+- Copying an element by value duplicates `id`, so two elements share one
+  side-table entry. Assignment of a pooled element is a reference copy; a real
+  copy is `pool:clone(element)`, which allocates a new id.
+- Embedding a pooled struct as a field of another struct puts an element outside
+  every pool. Refused.
+- The same nominal in two pools. A pooled struct names its pool type in its
+  declaration, so there is exactly one.
+
+`id` and `poolId` are written once, by `append`, and are read-only to everything
+else: assigning either reports **NUPP2218**. They are ordinary fields in the
+layout, so they have to be closed explicitly rather than by being hidden.
 
 ## Constraints
 
@@ -330,6 +362,20 @@ the body rather than to a metamethod. If the generator ever falls back to
 `__index` for a typed site, the feature is a slower `ffi.metatype` with better
 error messages. `nupp bc --check` should learn to say when a derived read did not
 inline, and the compiler's own token stream is the regression test.
+
+### The metatable is already occupied
+
+`gen` emits `{__index = {}}` for every struct and stamps it with `ffi.metatype`
+(`src/nupp/compiler/gen.nupp`), so the method table exists before this feature
+adds anything. A derived field's fallback cannot replace `__index`; it composes
+with it. Associated writes need `__newindex`, which structs do not have at all
+today, and adding one turns every unknown-field write into a checked error where
+it is now an FFI message. That is an improvement and it is still a behaviour
+change to existing structs, so it is SF-S5's to announce.
+
+Inline substitution must evaluate a nontrivial receiver exactly once:
+`tokens[next()].kind` may not evaluate `tokens[next()]` twice because the body
+mentions `self` twice. The body binds the receiver to a temporary first.
 
 ### Derived bodies are not free
 
@@ -371,9 +417,15 @@ today the failure is silent.
 
 ### SF-S4: `pool`
 
-The block, growth, `append`, shared fields, `pool` in derived bodies, and
-`borrowed<T>` element references with the escape rules. The largest stage, and
-the one that needs the ownership system rather than sitting beside it.
+Chunked blocks, `append`, shared fields, `pool` in derived bodies, the
+`(poolId, id)` identity, and the reachability rule that keeps a pool alive while
+element references into it are stored. The largest stage.
+
+**Blocked** until the registry lifetime is designed: strong entries leak every
+pool an LSP opens, weak entries let a stale `poolId` resolve to a different pool,
+and never reusing an id exhausts a `uint16` after 65,536 files. A generation
+beside the id is the usual answer. Nothing after this stage is actionable until
+it is settled.
 
 ### SF-S5: `associated`
 
@@ -389,6 +441,12 @@ Only after a release carrying SF-S1 through SF-S5 is the stage-0 compiler. Then
 The same again, with the child pool. Worth doing separately, because the child
 list is variadic and the token stream is not, and that difference is where this
 design will first be found wanting.
+
+### SF-S8: kind-comparison folding
+
+Rewriting `CONST_TABLE[i] == "literal"` to `i == index`, with the immutability,
+constancy and injectivity obligations above. Independent of everything else here
+and testable on its own; the parser is where it pays.
 
 ## What it looks like
 
@@ -522,10 +580,17 @@ if tok.kind == "then" then          -- fmt/init.nupp:990
 if tok.kindIndex == 47 then         -- KIND_INDEX.then, folded at compile time
 ```
 
-A kind comparison against a literal never reaches `KIND_NAMES` at all. The set of
-kinds is closed and the literal is constant, so the whole read folds to an
-integer compare -- which is the single most common operation in the parser, at
-1,788 sites. `tok.kind` used as a value still reads the table:
+This does **not** follow from inlining. Inlining alone produces
+`KIND_NAMES[tok.kindIndex] == "then"`; turning that into an integer compare is a
+separate rewrite, sound only when the table it inverts is a compile-time
+constant, is never written after construction, and maps distinct indexes to
+distinct strings. All three hold for `KIND_NAMES`; none is checked today. So it
+is its own stage, SF-S8, with its own proof obligation and its own generated-code
+and bytecode tests, and nothing else here depends on it.
+
+With it, the most common operation in the parser -- 1,788 sites -- never reaches
+`KIND_NAMES` at all. Without it, it is one array load more than today's hash
+load. `tok.kind` used as a value reads the table either way:
 
 ```nupp
 local spelling = tok.kind
@@ -579,7 +644,7 @@ kinds[tok] = kind                   -- lsp/semantic.nupp:125
 ```
 
 ```lua
-kinds[tok.id] = kind
+kinds[tok.poolId * 4294967296 + tok.id] = kind
 ```
 
 And the token predicate, which stops asking whether a child has trivia:
