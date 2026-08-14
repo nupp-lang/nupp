@@ -22,7 +22,13 @@ git -C "$luajit_root" checkout --detach "$luajit_commit"
 if [ "$(uname -s)" = Darwin ]; then
     MACOSX_DEPLOYMENT_TARGET="$(sw_vers -productVersion | cut -d. -f1,2)"
     export MACOSX_DEPLOYMENT_TARGET
-    make -C "$luajit_root" -j2 TARGET_XCFLAGS=-DLUAJIT_UNWIND_INTERNAL
+    # Every other POSIX target links the interpreter with -Wl,-E, where a Mach-O
+    # executable exports nothing unless asked. A LuaRocks-built module resolves
+    # the Lua API out of the process that loaded it, so LPeg arrives with an
+    # undefined luaL_checkany without this.
+    make -C "$luajit_root" -j2 \
+        TARGET_XCFLAGS=-DLUAJIT_UNWIND_INTERNAL \
+        TARGET_LDFLAGS=-Wl,-export_dynamic
 else
     make -C "$luajit_root" -j2
 fi

@@ -306,6 +306,16 @@ return game
       "the same checked signature erases only the physical FFI pointer slot")
    assert(os.execute(("cd '%s' && cc -std=c11 -fsyntax-only game.h"):format(dir)) == 0,
       "an independent C compiler accepts the exported header")
+
+   -- What remains calls the C implementation through the module's own cdef,
+   -- which finds the symbol because a POSIX load can publish it globally.
+   -- Windows resolves an FFI symbol out of a fixed set of modules instead, so
+   -- the header and the erased signature are as far as this goes there.
+   if jit.os == "Windows" then
+      os.execute("rm -rf '" .. dir .. "'")
+      require("assert").skip("a globally loaded shared library is POSIX-only")
+   end
+
    local c = assert(io.open(dir .. "/game.c", "wb"))
    c:write([[#include "game.h"
 void integrate(nupp_4_game_8_Position *position, float dt) {
