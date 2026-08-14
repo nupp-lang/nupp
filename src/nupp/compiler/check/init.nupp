@@ -797,7 +797,7 @@ function checkMod.check(
                 program,
                 transported,
                 executable,
-                c.env and c.env.comptimeHost or nil
+                c.env and c.env.host or nil
             )
         else
             envelope, evaluationFailure = comptime.evaluateTypeFunctionDirect(helper, arguments, helpers)

@@ -35,8 +35,47 @@ Document sync is full-text. Inlay hints, code lens, call hierarchy, type
 hierarchy, and go-to-implementation have no handler; an unknown request gets
 a `method not found` response.
 
-`$/cancelRequest` is accepted and ignored: the work is already done by the time
-it arrives, and answering normally is what the protocol says to do then.
+## Cancellation and stale answers
+
+The server reads its input while it is working, so news of a request can reach
+it before that request is finished.
+
+`$/cancelRequest` read before the request it names is dispatched answers that
+request `RequestCancelled` (-32800) without doing the work. One read while the
+request is being answered stops the work at the next point it offers: every
+module checked and every file header read on the way to the answer is such a
+point, as is each poll of an isolated comptime evaluation. Work abandoned that
+way leaves nothing memoized, so the next request recomputes from where the
+project actually stands.
+
+A request is answered from a version of the document, and an edit that arrives
+while the answer is being worked out replaces the text its positions are
+measured against. That answer is discarded and the request is answered
+`ContentModified` (-32801) instead, which is the client's cue to ask again
+against the text it now has. An edit the server had already read when it took
+the request up is not that: the client sent both, in that order, and the answer
+it asked for is the one it gets.
+
+`textDocument/publishDiagnostics` carries the `version` of the document its
+diagnostics were found in, so an editor that has typed on since drops them
+rather than showing them against text it no longer has.
+
+## Workspace folders
+
+A folder is a project. Each one a client opens is read under its own `nupp.lua`
+— its own lint levels, strictness, language mode and target — so a file is
+checked the same way whichever window opened it and whichever folder the server
+was launched against. A folder still searches its neighbours for modules, so a
+`require` that crosses folders resolves as it always did.
+
+Each folder has its own incremental graph, built the first time something asks
+that folder a question. Buffers the editor has open are overlays in all of
+them: a file open in one folder is the module another folder requires, and both
+read what you are typing rather than what is saved.
+
+Which folder answered travels with the answer: `$/nupp/inspect` names it in
+`root`, and a `workspace/symbol` result carries the folder its declaration is
+in as `data.root`.
 
 ## Diagnostics in an editor
 

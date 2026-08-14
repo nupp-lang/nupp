@@ -206,7 +206,7 @@ function expr.install(c: state.Checker): nil
             reflections,
             layouts,
             c.comptimeFunctions,
-            c.env and c.env.comptimeHost or nil
+            c.env and c.env.host or nil
         )
         if failure then
             c.diag(

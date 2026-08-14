@@ -163,6 +163,75 @@ local function writeInto(dir, name, text)
    file:close()
 end
 
+-- A transport that stands in for the real one, so what arrives *while* a
+-- request is being answered is decided by the test rather than raced for.
+--
+-- The server reads its socket at the points long work offers, which is what
+-- lets a cancellation or a newer edit arrive partway through an answer at all.
+-- Here `onPump` is that socket: it is called from the same points, and what it
+-- does is what the client is taken to have sent.
+local function stubHost()
+   local host = { cancellation = {}, currentId = nil }
+   local cancelled, versions = {}, {}
+   host.pump = function()
+      if host.onPump then host.onPump() end
+   end
+   host.cancelled = function()
+      return host.currentId ~= nil and cancelled[host.currentId] == true
+   end
+   host.cancel = function(id) cancelled[id] = true end
+   host.isCancelled = function(id) return cancelled[id] == true end
+   host.clearCancelled = function(id) cancelled[id] = nil end
+   host.documentVersion = function(uri) return versions[uri] end
+   host.sawVersion = function(uri, version) versions[uri] = version end
+   return host
+end
+
+-- One session in this process. The stdio server is this session behind a pipe,
+-- and a test that has to be partway through a request cannot be on the far side
+-- of one.
+local function inProcessSession(rootDir, host)
+   local lsp = require("nupp.compiler.lsp")
+   local emitted = {}
+   local session = lsp.newSession(rootDir, function(message)
+      emitted[#emitted + 1] = message
+   end, host)
+
+   local function dispatch(message)
+      host.currentId = message.id
+      session.dispatch(message)
+      host.currentId = nil
+   end
+
+   local function answer(id)
+      for index = #emitted, 1, -1 do
+         if emitted[index].id == id then return emitted[index] end
+      end
+      error("no answer to request " .. tostring(id), 2)
+   end
+
+   return { dispatch = dispatch, answer = answer }
+end
+
+-- A project whose references question is real work: the declaration is the open
+-- document, and the files using it are on disk and have never been checked.
+local SHARED = "local shared = {}\n\nfunction shared.value(): integer\n"
+   .. "   return 1\nend\n\nreturn shared\n"
+
+local function projectUsingShared()
+   local dir = makeDir()
+   writeInto(dir, "shared.nupp", SHARED)
+   for index = 1, 4 do
+      writeInto(dir, "use" .. index .. ".nupp",
+         'local shared = require("shared")\n\n'
+         .. "local n: integer = shared.value()\n\nreturn n\n")
+   end
+   return dir
+end
+
+-- The declaration of `value`, which is what both requests below are about.
+local SHARED_POSITION = { line = 2, character = 16 }
+
 local function diagnosticsFor(output, uri)
    local diagnostics = {}
    for _, message in ipairs(decodeMessages(output)) do
@@ -353,6 +422,114 @@ function M.queuedRequestsCanBeCancelledWhileComptimeIsInFlight()
    os.execute("rm -rf '" .. projectDir .. "'")
    assert(responseWithId(out, 10).error.code == -32800,
       "queued request is answered as cancelled")
+end
+
+-- Cancelling a request that is already being answered stops the work rather
+-- than waiting it out. References run over every project file that spells the
+-- name, so the answer is made of module checks, and each one is a point the
+-- session can be told to stop at.
+function M.compilerWorkStopsAtACheckpointWhenTheRequestIsCancelled()
+   local dir = projectUsingShared()
+   local uri = "file://" .. dir .. "/shared.nupp"
+   local host = stubHost()
+   local client = inProcessSession(dir, host)
+   client.dispatch({ jsonrpc = "2.0", id = 1, method = "initialize",
+      params = {} })
+   client.dispatch({ jsonrpc = "2.0", method = "textDocument/didOpen",
+      params = { textDocument = { uri = uri, languageId = "nupp",
+         version = 1, text = SHARED } } })
+
+   local function references(id)
+      client.dispatch({ jsonrpc = "2.0", id = id,
+         method = "textDocument/references",
+         params = { textDocument = { uri = uri },
+            position = SHARED_POSITION,
+            context = { includeDeclaration = true } } })
+      return client.answer(id)
+   end
+
+   host.onPump = function() host.cancel(10) end
+   local cancelled = references(10)
+   host.onPump = nil
+   local completed = references(11)
+   os.execute("rm -rf '" .. dir .. "'")
+
+   assert(cancelled.error and cancelled.error.code == -32800,
+      "work abandoned mid-answer is reported as cancelled: "
+      .. json.encode(cancelled))
+   assert(completed.result and #completed.result > 1,
+      "and the same question answers normally when nothing cancels it: "
+      .. json.encode(completed))
+end
+
+-- An edit that arrives while an answer is being worked out makes that answer
+-- stale: its positions are measured against text the client has already
+-- replaced. The protocol has a code for exactly that, and the client asks
+-- again against the text it now has.
+function M.anAnswerOvertakenByAnEditIsDiscarded()
+   local dir = projectUsingShared()
+   local uri = "file://" .. dir .. "/shared.nupp"
+   local host = stubHost()
+   local client = inProcessSession(dir, host)
+   host.sawVersion(uri, 1)
+   client.dispatch({ jsonrpc = "2.0", id = 1, method = "initialize",
+      params = {} })
+   client.dispatch({ jsonrpc = "2.0", method = "textDocument/didOpen",
+      params = { textDocument = { uri = uri, languageId = "nupp",
+         version = 1, text = SHARED } } })
+
+   local function references(id)
+      client.dispatch({ jsonrpc = "2.0", id = id,
+         method = "textDocument/references",
+         params = { textDocument = { uri = uri },
+            position = SHARED_POSITION,
+            context = { includeDeclaration = true } } })
+      return client.answer(id)
+   end
+
+   host.onPump = function() host.sawVersion(uri, 2) end
+   local overtaken = references(10)
+   host.onPump = nil
+   local current = references(11)
+   os.execute("rm -rf '" .. dir .. "'")
+
+   assert(overtaken.error and overtaken.error.code == -32801,
+      "an answer the client has already typed past is discarded: "
+      .. json.encode(overtaken))
+   assert(current.result and #current.result > 1,
+      "and the next answer, against the version it asked about, is sent: "
+      .. json.encode(current))
+end
+
+-- Diagnostics say which version of the document they were worked out from, so
+-- an editor that has typed on since drops them rather than showing squiggles
+-- against text it no longer has.
+function M.publishedDiagnosticsCarryTheVersionTheyWereFoundIn()
+   local projectDir = makeDir()
+   local uri = "file://" .. projectDir .. "/main.nupp"
+   local out = runSession({
+      { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
+      { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = { uri = uri, languageId = "nupp", version = 7,
+            text = "local n: integer = 1\n\nreturn n\n" } } },
+      { jsonrpc = "2.0", method = "textDocument/didChange", params = {
+         textDocument = { uri = uri, version = 8 },
+         contentChanges = {{ text = "local n: integer = nope\n\nreturn n\n" }} } },
+      { jsonrpc = "2.0", id = 2, method = "shutdown" },
+      { jsonrpc = "2.0", method = "exit" },
+   }, projectDir)
+   os.execute("rm -rf '" .. projectDir .. "'")
+
+   local versions = {}
+   for _, message in ipairs(decodeMessages(out)) do
+      if message.method == "textDocument/publishDiagnostics"
+         and message.params.uri == uri then
+         versions[#versions + 1] = message.params.version
+      end
+   end
+   assert(versions[1] == 7 and versions[#versions] == 8,
+      "each publication names the version it was found in: "
+      .. json.encode(versions))
 end
 
 function M.hoverAndInspectExposeAutomaticCleanup()
@@ -2094,6 +2271,104 @@ function M.workspaceFolderChangesAreAppliedToTheOpenSession()
    assert(responseWithId(out, 11).result == json.null
       or responseWithId(out, 11).result == nil,
       "and stops reaching it once the folder is gone")
+end
+
+-- A folder is a project, and a project says how its own code is to be read. Two
+-- folders open in one window are two projects, so the same file must not be
+-- checked differently depending on which of them the server happened to be
+-- launched against.
+function M.eachFolderIsReadUnderItsOwnConfiguration()
+   local rootDir = makeDir()
+   local otherDir = makeDir()
+   writeInto(rootDir, "nupp.lua",
+      'return { lints = { exhaustiveness = "off" } }\n')
+   local source = table.concat({
+      'local type Color = "red" | "green" | "blue"',
+      "",
+      "local function name(color: Color): string",
+      '   if color == "red" then',
+      '      return "red"',
+      "   end",
+      '   return "other"',
+      "end",
+      "",
+      "return name",
+   }, "\n") .. "\n"
+   writeInto(rootDir, "here.nupp", source)
+   writeInto(otherDir, "there.nupp", source)
+   local hereUri = "file://" .. rootDir .. "/here.nupp"
+   local thereUri = "file://" .. otherDir .. "/there.nupp"
+
+   local out = runSession({
+      { jsonrpc = "2.0", id = 1, method = "initialize", params = {
+         workspaceFolders = {
+            { uri = "file://" .. rootDir, name = "root" },
+            { uri = "file://" .. otherDir, name = "other" },
+         } } },
+      { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = { uri = hereUri, languageId = "nupp", version = 1,
+            text = source } } },
+      { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = { uri = thereUri, languageId = "nupp", version = 1,
+            text = source } } },
+      { jsonrpc = "2.0", id = 2, method = "shutdown" },
+      { jsonrpc = "2.0", method = "exit" },
+   }, rootDir)
+   os.execute("rm -rf '" .. rootDir .. "' '" .. otherDir .. "'")
+
+   local function codes(uri)
+      local published = diagnosticsFor(out, uri)
+      local found = {}
+      for _, diagnostic in ipairs(published[#published] or {}) do
+         found[diagnostic.code] = true
+      end
+      return found
+   end
+
+   assert(not codes(hereUri).NUPP2107,
+      "the folder that turned the lint off does not report it")
+   assert(codes(thereUri).NUPP2107,
+      "the folder that did not is unaffected by its neighbour's manifest")
+end
+
+-- Which folder answered travels with the answer. The same name can be declared
+-- in two projects and read under two configurations, and a caller comparing
+-- answers has to be able to tell them apart.
+function M.answersSayWhichFolderTheyCameFrom()
+   local rootDir = makeDir()
+   local otherDir = makeDir()
+   local source = "local other = {}\n\nrecord other.Only\n   n: integer\nend\n"
+      .. "\nreturn other\n"
+   writeInto(otherDir, "other.nupp", source)
+   local uri = "file://" .. otherDir .. "/other.nupp"
+
+   local out = runSession({
+      { jsonrpc = "2.0", id = 1, method = "initialize", params = {
+         workspaceFolders = {
+            { uri = "file://" .. rootDir, name = "root" },
+            { uri = "file://" .. otherDir, name = "other" },
+         } } },
+      { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = { uri = uri, languageId = "nupp", version = 1,
+            text = source } } },
+      { jsonrpc = "2.0", id = 10, method = "$/nupp/inspect",
+        params = { textDocument = { uri = uri },
+           position = { line = 2, character = 13 } } },
+      { jsonrpc = "2.0", id = 11, method = "workspace/symbol",
+        params = { query = "Only" } },
+      { jsonrpc = "2.0", id = 2, method = "shutdown" },
+      { jsonrpc = "2.0", method = "exit" },
+   }, rootDir)
+   os.execute("rm -rf '" .. rootDir .. "' '" .. otherDir .. "'")
+
+   local inspected = responseWithId(out, 10).result
+   assert(inspected.root == otherDir,
+      "a symbol is described by the folder that owns its file: "
+      .. json.encode(inspected))
+   local symbols = responseWithId(out, 11).result
+   assert(symbols[1] and symbols[1].data.root == otherDir,
+      "and a workspace search says which folder each declaration is in: "
+      .. json.encode(symbols))
 end
 
 -- The server tells the client it can be sent folder changes at all; a client

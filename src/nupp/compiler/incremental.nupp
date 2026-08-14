@@ -186,6 +186,33 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     local headerStore = envMod.headerStore(env) or storeMod.open(nil, "")
     inc.headerStore = headerStore
 
+    -- Where a session gets a word in edgewise.
+    --
+    -- Recomputing a project is one long synchronous stretch as far as the process is
+    -- concerned, and it is made of two repeated units: the header of a file, and the
+    -- check of a module. Between them the environment's host is asked to read whatever
+    -- input has arrived and whether the request this work belongs to was cancelled by
+    -- it, and a cancelled one stops here rather than finishing an answer nobody is
+    -- waiting for.
+    --
+    -- Raising is what abandons the work: a query that raises leaves no memo behind, so
+    -- what is dropped is the unfinished computation and not the ones already recorded
+    -- under it. The value raised is the host's own, so the session it belongs to can
+    -- tell a cancellation from a compiler that broke.
+    --
+    -- A run with no host -- every build and every command-line check -- tests one field
+    -- and carries on.
+    local function checkpoint()
+        local host = env.host
+        if not host then
+            return
+        end
+        host.pump()
+        if host.cancelled() then
+            error(host.cancellation, 0)
+        end
+    end
+
     local diskPaths: {[string]: boolean} = {}
     local openPaths: {[string]: boolean} = {}
     for _, path in ipairs(envMod.listProjectFiles(env)) do
@@ -282,6 +309,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     -- The key is the path and the text; the store's stamp covers the compiler and the
     -- configuration. A key that matches is not a guess.
     q:define("projectHeader", function(self, path)
+        checkpoint()
         local text = self:get("fileText", path)
         if text == nil then
             return envMod.projectHeader(env, path, nil)
@@ -387,6 +415,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     end
 
     local checkModule = function(self: any, path: any): incremental.CheckResult
+        checkpoint()
         local result = self:get("parse", path)
         if not result then
             return {diags = {}, moduleType = nil, missing = true}

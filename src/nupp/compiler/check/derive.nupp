@@ -526,7 +526,7 @@ function derive.install(c: state.Checker): derive.Ops
                     provider.sealedProgram.runtimeHelpers or {},
                     provider.sealedProgram.providerModule,
                     executable,
-                    c.env and c.env.comptimeHost or nil
+                    c.env and c.env.host or nil
                 )
             else
                 envelope, evaluationFailure = comptime.evaluateDeriveProviderDirect(

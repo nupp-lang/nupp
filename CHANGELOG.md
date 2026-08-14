@@ -7,6 +7,15 @@
   since the code it reports is correct and has no mechanical fix, but a
   function annotated `@jit` promised that it compiles and reports the same
   hazard as `NUPP2707` whatever level the lint is at.
+- Read each workspace folder under its own `nupp.lua`, so a file is checked the
+  same way whichever window opened it. Every folder gets its own incremental
+  graph, built when something first asks that folder a question and reading the
+  editor's open buffers along with the rest; `$/nupp/inspect` and
+  `workspace/symbol` say which folder answered.
+- Stop language-server work when the request it belongs to is cancelled, at
+  every module and file header on the way to the answer, and answer
+  `ContentModified` rather than sending positions the client has already typed
+  past. Published diagnostics name the document version they were found in.
 - Say what a build is doing while it runs, and where its wall-clock time went
   and which modules cost the most when it ends. Reported to a terminal only;
   `--progress`, `-q` and `NUPP_PROGRESS` say otherwise, and `build --json`

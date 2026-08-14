@@ -4,21 +4,6 @@ Grouped by the part of the system a change lands in. Nothing here is
 prioritised by tier; the ordering inside a section is roughly the order the
 work makes sense in.
 
-## Editor and docs tooling
-
-- [ ] **Stale LSP results and true multi-root.** Cancellation is no longer a
-      no-op: the stdio transport reads through a child process, harvests
-      `$/cancelRequest` while work is in flight, returns `RequestCancelled` for
-      canceled request IDs, and lets a comptime worker stop through the same
-      host (`src/nupp/compiler/lsp/init.nupp`, `src/nupp/compiler/comptime_worker.nupp`).
-      Long synchronous compiler work outside that worker still has no
-      cooperative cancellation checkpoints. Requests also do not retain the
-      document version they began against, so a response cannot be discarded
-      explicitly when a newer edit has arrived. Workspace folders re-root the
-      incremental graph correctly, but all folders still share one environment
-      and configuration; independent per-root sessions and result provenance
-      remain.
-
 ## Build, codegen and distribution
 
 - [ ] **Single-binary host.** LuaJIT, lua-cjson, LPeg and luautf8 are pinned by

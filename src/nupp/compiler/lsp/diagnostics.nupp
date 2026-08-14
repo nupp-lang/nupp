@@ -28,8 +28,12 @@ type diagnostics.Session = {
     --- The open documents, by URI.
     documents: {[string]: any},
 
-    --- The query graph this session answers from.
+    --- The query graph this session answers from. Rebound as documents in different
+    --- folders are served, so it is read at the point of use and never captured.
     inc: any,
+
+    --- Points `inc` at the folder that owns a path, and answers which folder that is.
+    useRoot: function(path: string?): string,
 
     --- How the session speaks to the client unprompted.
     notify: function(method: string, params: any): nil
@@ -134,6 +138,10 @@ function diagnostics.install(s: diagnostics.Session): diagnostics.Api
             return false
         end
         local path = uriToPath(uri)
+        -- A file is checked by the folder that owns it, whichever folder's request or
+        -- edit set this refresh going: the lint levels and strictness a file is read
+        -- under are its own project's.
+        s.useRoot(path)
         local r = s.inc.checkFile(path)
         local changed = r ~= doc.checkResult
         doc.checkResult = r
@@ -146,7 +154,13 @@ function diagnostics.install(s: diagnostics.Session): diagnostics.Api
             doc.checked = r.result
         end
         if force or changed then
-            notify("textDocument/publishDiagnostics", {uri = uri, diagnostics = toLspDiagnostics(r.diags, doc.text),})
+            -- The version these were worked out from. An editor that has typed on since
+            -- drops them rather than showing squiggles against text it no longer has,
+            -- and one that sent no version is told none.
+            notify(
+                "textDocument/publishDiagnostics",
+                {uri = uri, version = doc.version, diagnostics = toLspDiagnostics(r.diags, doc.text),}
+            )
         end
 
         return changed
