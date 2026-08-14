@@ -51,57 +51,43 @@ in module resolution, no translator subcommand, no `.tl` build input mode.
 
 ## Formatting
 
-- [ ] **The tree is not `fmt`-clean, and it is not obvious which side is
-      wrong.** An August 10 direct formatter scan found 62 of 154 project
-      sources non-clean. Only seven of those contained a same-line
-      `then ... return ... end`, so the old claim that guard clauses accounted
-      for almost all drift was wrong. Either the house style or formatter rules
-      have to give, and that is a taste decision rather than a defect. Recount
-      with the ordinary command once its bootstrap and generated compiler agree
-      again rather than treating these figures as a permanent baseline.
+Settled. The formatter is the specification and the tree was brought to it: 107
+of 179 sources were rewritten, `fixpoint --update-bootstrap` refreshed the
+tracked `bootstrap/nupp.lua` in the same commit, and `tests/fmttreetest.lua`
+holds the tree there. That gate runs `nupp fmt --check` through the binary
+rather than formatting the tree in process, which is the difference between a
+quarter of a second and half a minute on every test run.
 
-      Reformatting is not a free mechanical pass, which is the part worth
-      knowing before starting: generated Lua preserves the source line count,
-      so moving a statement to a new line changes every artifact the compiler
-      emits, which changes the compiler's own build, which means
-      `fixpoint --update-bootstrap` and a new tracked `bootstrap/nupp.lua` in
-      the same commit. Until it is settled, `nupp fmt` cannot gate this
-      repository.
-- [ ] **There is no formatter corpus directory.** `tests/fmtcorpus/` does not
-      exist; coverage is inline assertions in `tests/fmttest.lua` and
-      `tests/fmtwidthtest.lua`, `tests/typedtest.lua`, and several syntax-specific
-      suites, plus a fixed 14-entry idempotency list. Collect golden input +
-      expected files under the PLAN doctrine (120/88/4, one-arg-per-line), run
-      through idempotency and parse-stability in addition to exact match.
-      Existing inline coverage per category is noted where it exists:
-  - [ ] Comment placement: have leading/trailing and comment-only files plus
-        doc-comment blocks before declarations; need `if`/`elseif` arms and
-        comments inside table constructors.
-  - [ ] Blank-line policy: have the 3+ collapse and coverage around functions;
-        need between record fields and at the top of a file.
-  - [ ] Long lines: have call arguments, params, binary-op chains, ternaries;
-        need chained method calls (`report:put(...):putf(...)`), long union
-        annotations, long generic parameter lists.
-  - [ ] Tables: have break-when-long and indentation; need the inline-vs-
-        multiline threshold pinned, nested tables, mixed array/named fields,
-        trailing separators, and a chosen alignment doctrine.
-  - [ ] Typed layer: locals, maps, generics, return packs, optional tightness,
-        record bounds and `is`/`where`, metamethods, and inline methods have
-        inline coverage. Consolidate every annotation position into the corpus
-        and add cdef blocks, where C-name fields with underscores stay untouched.
-  - [ ] Short functions: have pipe spacing, single-param, no-param, vararg, as
-        call argument; need `-> do` blocks and nested/curried chains.
-  - [ ] Interpolated strings: one `${1 + 2}` assert. Need multiline templates
-        (never reflowed), nested templates, escapes.
-  - [ ] Statements: have guard-clause expansion, numeric-for, goto; need
-        semicolon statements.
-  - [ ] Pathological: have unbreakable long lines, hashbang, unicode. Need
-        CRLF input (nothing in the formatter or its tests mentions `\r\n` at
-        all), deeply nested expressions at the wrap boundary, one-line whole
-        programs.
-  - [ ] Idempotency fuzz: the current pass is a deterministic fixed list, not
-        fuzz. Random input, minimized failures checked in as regression
-        fixtures.
+Four defects were fixed on the way, since a tree cannot be held to rules that
+are wrong. A docblock's trailing annotation no longer takes the blank line that
+belongs after the declaration it documents, so `@drop` stays with its field. A
+comment that is the whole of an `if` arm indents inside the arm rather than
+under the `elseif` that follows it. `borrows (p)` and a closure's `takes (a, b)`
+keep the space that says they are clauses rather than calls of a function named
+`borrows`. And a bare `;` terminates the statement before it instead of taking a
+line of its own.
+
+Two rules were added, both about lists that outgrow their line. An argument list
+now spreads one argument per line whenever it stops fitting -- by width, by a
+comment inside it, or by an argument whose own body is a block -- with the
+exception that a call's trailing function or table hugs the line that opens the
+call while what precedes its body still fits there. A table constructor spreads
+on the same terms and has nothing to hug. Both are in
+[fmt.md](../docs/tooling/fmt.md).
+
+Coverage is `tests/fmtcorpus`, forty golden pairs across eleven categories, each
+checked for exact output, for formatting its own output unchanged, and for the
+token sequence surviving. `tests/fmtfuzztest.lua` makes the same three claims
+about programs nobody wrote down, minimizes what it finds, and prints it ready
+to be checked in under `tests/fmtcorpus/regressions/`.
+
+- [ ] **A shape type with one field still breaks across three lines.** `Shape
+      types always put each field on its own line` reads well for a record-like
+      type and badly for `{string: any}` in a parameter list, which is twelve
+      sites in this tree and every one of them worse for it. The rule is
+      deliberate, documented and tested (`tests/fmtwidthtest.lua:143`), so
+      changing it is another taste decision rather than a defect: either a
+      one-field shape is exempt, or the rule holds and these read as they read.
 
 ## Performance and incrementality
 

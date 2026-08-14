@@ -64,15 +64,39 @@ local COVERAGE_STATEMENTS = {
 }
 
 -- Node kinds that exist only in the type layer: emitted as nothing.
-local TYPE_KINDS = {tname = true, topt = true, tptr = true, tunion = true, tintersection = true, tarray = true, tmap = true, ttuple = true, tshape = true, tshapeField = true, tfunc = true, tfuncParam = true, tparen = true, errorType = true, tpredicate = true, tborrows = true, tpreserves = true, tliteral = true, tconst = true, tcarray = true, generics = true,
+local TYPE_KINDS = {
+    tname = true,
+    topt = true,
+    tptr = true,
+    tunion = true,
+    tintersection = true,
+    tarray = true,
+    tmap = true,
+    ttuple = true,
+    tshape = true,
+    tshapeField = true,
+    tfunc = true,
+    tfuncParam = true,
+    tparen = true,
+    errorType = true,
+    tpredicate = true,
+    tborrows = true,
+    tpreserves = true,
+    tliteral = true,
+    tconst = true,
+    tcarray = true,
+    generics = true,
     -- A pack reaches here whole when it has a tail -- `...integer`, `T...` -- since
     -- only tailless packs are spliced. Its `...` is as much type material as the type
     -- beside it, and without this the token was emitted into the function's body.
-    tpack = true, tpackUnion = true, captureClause = true,
+    tpack = true,
+    tpackUnion = true,
+    captureClause = true,
     -- A comptime call in type position, `local v: Optional(string)`. It reduced while
     -- the program was checked and names no runtime function, so its call parentheses
     -- are type material; without this they were emitted as `local v ( ) = nil`.
-    ttypecall = true,}
+    ttypecall = true,
+}
 
 -- Erased declarations. recordDecl is conditional: declKind == "struct" reifies to
 -- ffi.typeof instead (M3).
@@ -97,10 +121,7 @@ local function cdefCType(t)
         end
         -- An ownership or status wrapper says who discharges the value and when it is
         -- valid. Neither changes the ABI, so the C spelling is the type inside it.
-        if (name == "Owned" or name == "Success" or name == "Failure")
-            and t.typeArgs
-            and t.typeArgs[1]
-        then
+        if (name == "Owned" or name == "Success" or name == "Failure") and t.typeArgs and t.typeArgs[1] then
             return cdefCType(t.typeArgs[1])
         end
         if t.cdefName then
@@ -185,9 +206,24 @@ local function constructorMember(index)
 end
 
 -- `is` targets checkable with type(); sized numerics approximate to number.
-local IS_TYPE = {string = "string", number = "number", boolean = "boolean", table = "table", thread = "thread", userdata = "userdata", integer = "number", float = "number", int8 = "number", int16 = "number", int32 = "number", int64 = "number", uint8 = "number", uint16 = "number", uint32 = "number", uint64 = "number", [
-    "function"
-] = "function", -- spelled via tfunc, handled separately
+local IS_TYPE = {
+    string = "string",
+    number = "number",
+    boolean = "boolean",
+    table = "table",
+    thread = "thread",
+    userdata = "userdata",
+    integer = "number",
+    float = "number",
+    int8 = "number",
+    int16 = "number",
+    int32 = "number",
+    int64 = "number",
+    uint8 = "number",
+    uint16 = "number",
+    uint32 = "number",
+    uint64 = "number",
+    ["function"] = "function", -- spelled via tfunc, handled separately
 }
 
 -- Converts an interpolated-string literal chunk to a quoted Lua string. Source escapes
@@ -811,10 +847,10 @@ function gen.generate(
                         if planned then
                             hotState.structure[#hotState.structure + 1] = "function\0" .. planned.id
                         elseif structural and (structural.kind == "cdefFunc" or structural.kind == "cdefStruct") then
-                        -- Keyed checked C metadata owns declaration presence,
-                        -- semantics, and runtime-binding compatibility. Keeping
-                        -- source spelling in the structural stream would turn a
-                        -- harmless reorder into a restart before that comparison.
+                            -- Keyed checked C metadata owns declaration presence,
+                            -- semantics, and runtime-binding compatibility. Keeping
+                            -- source spelling in the structural stream would turn a
+                            -- harmless reorder into a restart before that comparison.
                         else
                             local shape = compactSource(statement)
                             local first, last = cst.firstToken(statement), cst.lastToken(statement)
@@ -988,16 +1024,7 @@ function gen.generate(
         cleanupFailureName = nextTemp()
         cleanupCacheName = nextTemp()
         cleanupGlobals = {}
-        for _, name in ipairs({
-            "pcall",
-            "xpcall",
-            "error",
-            "unpack",
-            "select",
-            "setmetatable",
-            "tostring",
-            "ipairs"
-        }) do
+        for _, name in ipairs({"pcall", "xpcall", "error", "unpack", "select", "setmetatable", "tostring", "ipairs"}) do
             cleanupGlobals[name] = nextTemp()
         end
     end
@@ -1236,7 +1263,16 @@ function gen.generate(
     -- it
     -- instruments the largest function in the compiler and the module then will not
     -- load.
-    local pluck = {plans = {}, statementActive = {}, helpers = helpers, declareHelper = declareHelper, loweredFunction = loweredFunction, emitDerivedMembers = emitDerivedMembers, quote = literal.quote, renderData = literal.renderData, hotLibraries = hot and hot.libraries or {},
+    local pluck = {
+        plans = {},
+        statementActive = {},
+        helpers = helpers,
+        declareHelper = declareHelper,
+        loweredFunction = loweredFunction,
+        emitDerivedMembers = emitDerivedMembers,
+        quote = literal.quote,
+        renderData = literal.renderData,
+        hotLibraries = hot and hot.libraries or {},
         -- Why each lowering that still builds a function inside a loop cannot be
         -- declared once for the module instead. Every one is the same shape: the body
         -- writes a local belonging to its own site, and Lua gives no way to hand
@@ -1250,12 +1286,13 @@ function gen.generate(
         -- and
         -- reaching one more name from it will not load.
         reasons = {
-        capture = "the body sets this site's own capture flags",
-        reinit = "the body sets this site's own reinit flag",
-        move = "the body clears this site's own move flag",
-        cheader = "a C header is declared once where it is imported",
-        region = "the protected body reads and writes this region's own owners and flags",
-    },}
+            capture = "the body sets this site's own capture flags",
+            reinit = "the body sets this site's own reinit flag",
+            move = "the body clears this site's own move flag",
+            cheader = "a C header is declared once where it is imported",
+            region = "the protected body reads and writes this region's own owners and flags",
+        },
+    }
 
     local function dottedPathParts(node): string?, {string}?
         if not node or cst.isToken(node) then
@@ -3250,7 +3287,9 @@ function gen.generate(
                 for _, cleanup in ipairs(x.ownerCleanups or {}) do
                     local call = protectedCleanupCall(cleanup, "__nuppV", cleanupGlobals.pcall)
                     if call then
-                        statements[#statements + 1] = "do local __ok,__reason="
+                        statements[
+                            #statements + 1
+                        ] = "do local __ok,__reason="
                             .. call
                             .. "; if not __ok then __n=__n+1; __errs[__n]=__reason end end; "
                     end
@@ -3569,7 +3608,7 @@ function gen.generate(
                 -- parameter of that name would shadow it with whatever the caller
                 -- happened to pass first.
                 if index == 1 and p.name and p.name.text == "self" then
-                -- skipped
+                    -- skipped
                 elseif p.namedVararg then
                     names[#names + 1] = "..."
                 elseif p.name then

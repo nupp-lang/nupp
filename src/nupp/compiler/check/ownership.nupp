@@ -313,19 +313,13 @@ function ownership.install(c: state.Checker): ownership.Ops
             end
             local firstParam = cleanupFunc and cleanupFunc.params[1] or nil
             if not cleanupT then
-                c.diag(
-                    code,
-                    at,
-                    ("cleanup %q is not declared"):format(cleanup.name),
-                    nil,
-                    {
-                        notes = {
-                            "a cleanup is resolved here, where the owner "
-                            .. "is declared, so it has to name a function this file "
-                            .. "can see"
-                        }
+                c.diag(code, at, ("cleanup %q is not declared"):format(cleanup.name), nil, {
+                    notes = {
+                        "a cleanup is resolved here, where the owner "
+                        .. "is declared, so it has to name a function this file "
+                        .. "can see"
                     }
-                )
+                })
             elseif cleanupT and cleanupT ~= T.any and (not firstParam or not isA(cleanupValue, firstParam)) then
                 c.diag(code, at, ("cleanup %q must accept %s"):format(cleanup.name, T.tostring(cleanupValue)))
             elseif cleanupFunc and j < #(cleanups or {}) and cleanupFunc.paramModes[1] == "takes" then
@@ -365,8 +359,7 @@ function ownership.install(c: state.Checker): ownership.Ops
             c.diag(
                 "NUPP2602",
                 at,
-                "bare Owned<T> has multiple inherited @drop operations; "
-                .. "choose one with Owned<T, cleanup>"
+                "bare Owned<T> has multiple inherited @drop operations; " .. "choose one with Owned<T, cleanup>"
             )
             return {}
         end
@@ -387,8 +380,7 @@ function ownership.install(c: state.Checker): ownership.Ops
                 c.diag(
                     "NUPP2602",
                     pending.at,
-                    "bare Owned<T> has multiple inherited @drop operations; "
-                    .. "choose one with Owned<T, cleanup>"
+                    "bare Owned<T> has multiple inherited @drop operations; " .. "choose one with Owned<T, cleanup>"
                 )
             end
         end
@@ -505,8 +497,8 @@ function ownership.install(c: state.Checker): ownership.Ops
 
                 local terminals = own.inheritedTerminals(resource)
                 if resource.tag == "func" then
-                -- A closure carries its own terminal, discharged through the capture
-                -- it took. There is no `@drop` for it to be missing.
+                    -- A closure carries its own terminal, discharged through the
+                    -- capture it took. There is no `@drop` for it to be missing.
                 elseif resource.tag ~= "nominal" or #terminals == 0 then
                     -- The case the rule exists for. A result carrying no cleanup used
                     -- to
@@ -841,16 +833,10 @@ function ownership.install(c: state.Checker): ownership.Ops
             if entry.moved then
                 if not nameNode.ownershipUseReported then
                     local related = entry.movedAt and c.related(entry.movedAt, "owner was moved here") or nil
-                    c.diag(
-                        "NUPP2601",
-                        nameNode,
-                        ("owner %q was already moved"):format(nameNode.token.text),
-                        nil,
-                        {
-                            related = related and {related} or nil,
-                            help = "use the owner before this transfer, or borrow it " .. "instead of moving it"
-                        }
-                    )
+                    c.diag("NUPP2601", nameNode, ("owner %q was already moved"):format(nameNode.token.text), nil, {
+                        related = related and {related} or nil,
+                        help = "use the owner before this transfer, or borrow it " .. "instead of moving it"
+                    })
                 end
                 return false
             end

@@ -204,26 +204,34 @@ function doc.json(modules: {extractMod.Module}): string
     local function item(value)
         local info = value.doc
 
-        return {name = value.name, kind = value.kind, signature = value.signature, path = value.path, module = value.module, line = value.line, doc = {
-            text = info.text,
-            params = info.params,
-            returns = array(info.returns),
-            raises = array(info.raises),
-            fields = info.fields,
-            typeargs = info.typeargs,
-            tags = info.tags,
-        }, members = array(
-            value.members,
-            member
-        ), params = array(
-            value.params,
-            param
-        ), returns = array(
-            value.returns,
-            result
-        ), raises = array(value.raises), typeargs = array(value.typeargs, function(typearg)
-            return {name = typearg.name, text = typearg.text}
-        end), annotations = annotations(value.annotations),}
+        return {
+            name = value.name,
+            kind = value.kind,
+            signature = value.signature,
+            path = value.path,
+            module = value.module,
+            line = value.line,
+            doc = {
+                text = info.text,
+                params = info.params,
+                returns = array(info.returns),
+                raises = array(info.raises),
+                fields = info.fields,
+                typeargs = info.typeargs,
+                tags = info.tags,
+            },
+            members = array(value.members, member),
+            params = array(value.params, param),
+            returns = array(value.returns, result),
+            raises = array(value.raises),
+            typeargs = array(
+                value.typeargs,
+                function(typearg)
+                    return {name = typearg.name, text = typearg.text}
+                end
+            ),
+            annotations = annotations(value.annotations),
+        }
     end
 
     local model = array(modules, function(value)
@@ -275,12 +283,10 @@ local function loadModules(root, config, settings, requested)
             errors[#errors + 1] = {filename = path, line = 1, col = 1, msg = tostring(readErr)}
         else
             local name = moduleName(path, root, config.include or {})
-            local module, parseErrors, extraModules = doc.extract(
-                source,
-                path,
-                name,
-                {includeAll = settings.all, includePrivate = settings.includePrivate}
-            )
+            local module, parseErrors, extraModules = doc.extract(source, path, name, {
+                includeAll = settings.all,
+                includePrivate = settings.includePrivate
+            })
             if module then
                 modules[#modules + 1] = module
                 for _, extra in ipairs(extraModules or {}) do
@@ -362,9 +368,10 @@ local function loadModules(root, config, settings, requested)
             local target = item.module and byName[item.module] or nil
             local nested = target and byName[item.module .. "." .. item.name] or nil
             if not settings.includePrivate and item.module and internalModuleName(item.module) then
-            -- Dropped outright. `record nupp.internal.Cache` belongs to a private
-            -- module whether or not a file by that name was read, so it must not fall
-            -- through and stay behind on whichever module happened to declare it.
+                -- Dropped outright. `record nupp.internal.Cache` belongs to a private
+                -- module whether or not a file by that name was read, so it must not
+                -- fall through and stay behind on whichever module happened to declare
+                -- it.
             elseif nested and namespaceBacked[nested.name] then
                 if item.doc.text ~= "" then
                     nested.text = item.doc.text
@@ -525,16 +532,11 @@ local function configuredPages(root, settings, title)
             return nil, what .. " collides with a configured page: " .. route
         end
         seen[route] = true
-        pages[
-            #pages + 1
-        ] = {
-            path = route,
-            title = generated.title,
-            markdown = generated.markdown
-        }
+        pages[#pages + 1] = {path = route, title = generated.title, markdown = generated.markdown}
 
         return true
     end
+
     local added, addErr = addGenerated(diagnosticsMod.page(settings.diagnostics, published), "diagnostic index")
     if not added then
         return nil, addErr
@@ -544,18 +546,14 @@ local function configuredPages(root, settings, title)
         return nil, addErr
     end
     if not home then
-        table.insert(
-            pages,
-            1,
-            {
-                path = "",
-                title = title,
-                layout = "home",
-                heroTitle = title,
-                heroText = settings.description or "API reference generated directly from Nupp source.",
-                markdown = ""
-            }
-        )
+        table.insert(pages, 1, {
+            path = "",
+            title = title,
+            layout = "home",
+            heroTitle = title,
+            heroText = settings.description or "API reference generated directly from Nupp source.",
+            markdown = ""
+        })
     end
 
     return pages
@@ -702,19 +700,16 @@ local function renderSite(root, outDir, modules, title, settings)
     for _, module in ipairs(modules) do
         local route = moduleFile(module.name):gsub("/index%.html$", "")
         local overview = configured[route]
-        ordered[
-            #ordered + 1
-        ] = {path = route, title = overview and overview.title or (
-            module.namespace and "Namespace: " or "Module: "
-        )
-            .. module.name, module = module, overview = overview
-            and overview.markdown
-            or nil, source = overview
-            and overview.source
-            or nil,
+        ordered[#ordered + 1] = {
+            path = route,
+            title = overview and overview.title or (module.namespace and "Namespace: " or "Module: ") .. module.name,
+            module = module,
+            overview = overview and overview.markdown or nil,
+            source = overview and overview.source or nil,
             -- An overview is folded into the module's own page, so the routes it
             -- used to answer at have to come with it or they are dropped here.
-            redirects = overview and overview.redirects or nil,}
+            redirects = overview and overview.redirects or nil,
+        }
     end
     pages = ordered
 
@@ -1022,8 +1017,7 @@ function doc.build(
     local opts = opts as doc.BuildOptions or {} as doc.BuildOptions
     local modules, errors = loadModules(root, config or {}, settings, opts.sources)
     if #errors > 0 then
-        report(errors)
-        ;
+        report(errors);
         return 1
     end
     if opts.checkOnly then
@@ -1113,10 +1107,9 @@ function doc.manifestSettings(config: doc.Config, requested: string?): doc.Setti
             return nil, "unknown build target " .. requested
         end
         if target.kind ~= "docs" then
-            return nil, ("build target %s is a %s target, not a docs target"):format(
-                requested,
-                tostring(target.kind or "modules")
-            )
+            return nil, (
+                "build target %s is a %s target, not a docs target"
+            ):format(requested, tostring(target.kind or "modules"))
         end
 
         return withName(target, requested)
@@ -1124,7 +1117,10 @@ function doc.manifestSettings(config: doc.Config, requested: string?): doc.Setti
     if type(config.docs) == "table" then
         return config.docs as doc.Settings
     end
-    local found: {{name: string, target: doc.Settings}} = {}
+    local found: {{
+        name: string,
+        target: doc.Settings
+    }} = {}
     for name, target in pairs(targets) do
         if type(target) == "table" and target.kind == "docs" then
             found[#found + 1] = {name = name, target = target}
@@ -1148,10 +1144,9 @@ function doc.manifestSettings(config: doc.Config, requested: string?): doc.Setti
             names[index] = entry.name
         end
 
-        return nil, ("the manifest has %d docs targets (%s): name one with --target, "):format(
-            #found,
-            table.concat(names, ", ")
-        ) .. "or say which the build defaults to with build.default"
+        return nil, (
+            "the manifest has %d docs targets (%s): name one with --target, "
+        ):format(#found, table.concat(names, ", ")) .. "or say which the build defaults to with build.default"
     end
 
     return withName(first.target, first.name)

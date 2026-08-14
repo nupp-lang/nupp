@@ -2646,7 +2646,7 @@ record nupp.io
     ---     buffer
     --- @return the new writer
     newScalarWriter: function(): Owned<ScalarWriter>
-        & function(borrows destination: Buffer): Owned<ScalarWriter> borrows(destination)
+        & function(borrows destination: Buffer): Owned<ScalarWriter> borrows (destination)
         & function(takes destination: Writer): Owned<ScalarWriter>
 
     --- Filesystem metadata, directory contents, and the operations that move

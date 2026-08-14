@@ -132,12 +132,12 @@ function compile.module(path: string, env: table, settings: compile.Settings): s
     if say(diags) then
         return nil, "type errors"
     end
-    local remarks = require(
-        "nupp.compiler.optimize"
-    ).run(
-        result,
-        {level = settings.optLevel, filename = path, disabled = settings.disabled, relaxed = settings.relaxed}
-    )
+    local remarks = require("nupp.compiler.optimize").run(result, {
+        level = settings.optLevel,
+        filename = path,
+        disabled = settings.disabled,
+        relaxed = settings.relaxed
+    })
     if settings.remarks then
         say(remarks)
     end

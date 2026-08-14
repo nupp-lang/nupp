@@ -136,13 +136,10 @@ function undocumentedraise.install(c: state.Checker): undocumentedraise.Ops
         -- The name it answers to, not the table it hangs off: `function query.Q:get` is
         -- reported at `get`, the way every other diagnostic about a member is.
         local at = stat.name and cst.lastToken(stat.name) or stat
-        c.diag(
-            "NUPP2506",
-            at,
-            ("%s raises, but its documentation does not say when"):format(label),
-            nil,
-            {help = "add an @raises line saying what makes it raise", related = {c.related(raiseTok, "raises here")}}
-        )
+        c.diag("NUPP2506", at, ("%s raises, but its documentation does not say when"):format(label), nil, {
+            help = "add an @raises line saying what makes it raise",
+            related = {c.related(raiseTok, "raises here")}
+        })
     end
 
     return ops

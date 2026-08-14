@@ -541,9 +541,9 @@ function functions.install(c: state.Checker): state.StatHandlers
         -- landed on the receiver, and the argument itself came in borrowing.
         for sourceIndex, p in ipairs(body.params) do
             if p == explicitSelf then
-            -- The binding above carries the owner type. The generator
-            -- likewise removes this parameter when it emits `function
-            -- Owner:method(...)`.
+                -- The binding above carries the owner type. The generator
+                -- likewise removes this parameter when it emits `function
+                -- Owner:method(...)`.
             elseif p.namedVararg then
                 vararg = true
                 varargMode = p.modeTok and p.modeTok.text or nil
@@ -1007,7 +1007,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         local vararg = body and body.varargs or false
         for sourceIndex, p in ipairs(body and body.params or {}) do
             if p == explicitSelf then
-            -- The receiver added above is the leading `self` spelling.
+                -- The receiver added above is the leading `self` spelling.
             elseif p.name and not p.namedVararg then
                 local pt = p.type and c.resolveType(p.type) or T.any
                 local mode = inferredModes[sourceIndex] or "borrows"
@@ -1042,9 +1042,10 @@ function functions.install(c: state.Checker): state.StatHandlers
             ),
             modes
         )
-        local retPack = body and body.returnPack and c.resolvePack(
-            body.returnPack
-        ) or T.pack({}, {kind = "unknown", type = T.any})
+        local retPack = body and body.returnPack and c.resolvePack(body.returnPack) or T.pack({}, {
+            kind = "unknown",
+            type = T.any
+        })
         -- A hoisted method publishes this signature before its body is checked, so the
         -- terminal a result inherits has to be settled here too. Otherwise a caller
         -- reached through the published signature and one reached after the body was

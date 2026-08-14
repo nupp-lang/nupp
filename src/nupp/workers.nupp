@@ -378,9 +378,14 @@ function workers.Worker:receive(timeoutMs: integer?): any?
     if value ~= nil then
         return value
     end
-    waitFor(self, "worker receive", function(): boolean
-        return self._firstMessage <= self._lastMessage
-    end, timeoutMs)
+    waitFor(
+        self,
+        "worker receive",
+        function(): boolean
+            return self._firstMessage <= self._lastMessage
+        end,
+        timeoutMs
+    )
 
     return takeMessage(self)
 end
@@ -497,10 +502,12 @@ function workers.Self:serve(handler: function(any): any): nil
                 if rejected == nil then
                     push(self.outbox, {kind = "reply", id = frame.id, ok = true, payload = answer})
                 else
-                    push(
-                        self.outbox,
-                        {kind = "reply", id = frame.id, ok = false, error = "a call result cannot cross: " .. rejected,}
-                    )
+                    push(self.outbox, {
+                        kind = "reply",
+                        id = frame.id,
+                        ok = false,
+                        error = "a call result cannot cross: " .. rejected,
+                    })
                 end
             else
                 push(self.outbox, {kind = "reply", id = frame.id, ok = false, error = tostring(answer),})

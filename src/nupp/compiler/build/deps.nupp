@@ -143,10 +143,11 @@ local function generateBinding(root, outDir, name, dep, base, libraryPath, extra
     if header:sub(1, 1) ~= "/" then
         header = join(base, header)
     end
-    local text, warnings = importc.import(
-        header,
-        {lib = binding.library or dep.load or libraryPath, cc = dep.cc, cppflags = extraCppflags or dep.cppflags,}
-    )
+    local text, warnings = importc.import(header, {
+        lib = binding.library or dep.load or libraryPath,
+        cc = dep.cc,
+        cppflags = extraCppflags or dep.cppflags,
+    })
     if not text then
         return nil, table.concat(warnings or {}, "; ")
     end
@@ -225,14 +226,12 @@ local function buildC(root, outDir, name, dep, previous, childResults)
             if osName == "osx" then
                 argv[#argv + 1] = "-dynamiclib"
             elseif osName ~= "windows" then
-                argv[#argv + 1] = "-shared"
-                ;
+                argv[#argv + 1] = "-shared";
                 argv[#argv + 1] = "-fPIC"
             else
                 argv[#argv + 1] = "-shared"
             end
-            argv[#argv + 1] = "-o"
-            ;
+            argv[#argv + 1] = "-o";
             argv[#argv + 1] = stagedOutput
             for _, dir in ipairs(dep.includeDirs or {}) do
                 argv[#argv + 1] = "-I" .. join(base, dir)
@@ -328,13 +327,11 @@ local function buildCargo(root, outDir, name, dep, previous)
         if profile == "release" then
             argv[#argv + 1] = "--release"
         elseif profile ~= "debug" then
-            argv[#argv + 1] = "--profile"
-            ;
+            argv[#argv + 1] = "--profile";
             argv[#argv + 1] = profile
         end
         if dep.target then
-            argv[#argv + 1] = "--target"
-            ;
+            argv[#argv + 1] = "--target";
             argv[#argv + 1] = dep.target
         end
         if dep.locked ~= false then
@@ -595,9 +592,7 @@ local function buildRock(root, outDir, name, dep, previous)
     end
     local wanted = dep.version or declared
 
-    local luarocks = dep.luarocks
-        or os.getenv("NUPP_LUAROCKS")
-        or (windows and "luarocks.bat" or "luarocks")
+    local luarocks = dep.luarocks or os.getenv("NUPP_LUAROCKS") or (windows and "luarocks.bat" or "luarocks")
     local version = toolVersion(luarocks)
     if not version then
         return nil, (

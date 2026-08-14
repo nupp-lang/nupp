@@ -57,11 +57,15 @@ type diagnostics.Api = {
 -- whose first reader has not been typed yet is the same thing one line later, and stays
 -- visible without being coloured like a mistake. This is the only place the two levels
 -- differ, so it is the only place that knows they can.
-local EDITOR_ADVICE = {["NUPP2120"] = "warning", -- a project module used without requiring it
+local EDITOR_ADVICE = {
+    ["NUPP2120"] = "warning", -- a project module used without requiring it
     ["NUPP2507"] = "note", -- a binding whose reader may be the next line written
 }
 
-local PROTOCOL_SEVERITY = {error = 1, warning = 2, note = 3, -- 3 is Information
+local PROTOCOL_SEVERITY = {
+    error = 1,
+    warning = 2,
+    note = 3, -- 3 is Information
 }
 
 --- Installs diagnostic publication on one session.
@@ -157,10 +161,11 @@ function diagnostics.install(s: diagnostics.Session): diagnostics.Api
             -- The version these were worked out from. An editor that has typed on since
             -- drops them rather than showing squiggles against text it no longer has,
             -- and one that sent no version is told none.
-            notify(
-                "textDocument/publishDiagnostics",
-                {uri = uri, version = doc.version, diagnostics = toLspDiagnostics(r.diags, doc.text),}
-            )
+            notify("textDocument/publishDiagnostics", {
+                uri = uri,
+                version = doc.version,
+                diagnostics = toLspDiagnostics(r.diags, doc.text),
+            })
         end
 
         return changed

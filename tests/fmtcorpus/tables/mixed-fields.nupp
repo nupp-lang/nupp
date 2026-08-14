@@ -1,0 +1,5 @@
+local m = {}
+
+local mixed = {"first", "second", name = "the name of it", "third", count = 3, [4] = "explicit", nested = {"deep"}}
+
+return m, mixed

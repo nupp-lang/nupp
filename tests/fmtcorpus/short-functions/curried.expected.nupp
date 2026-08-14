@@ -1,0 +1,7 @@
+local m = {}
+
+local adder = |a: integer| -> |b| -> |c| -> a + b + c
+local applied = adder(1)(2)(3)
+local nested = |f| -> |x| -> f(f(x))
+
+return m, adder, applied, nested

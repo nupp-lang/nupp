@@ -394,9 +394,10 @@ end
 --- @raises when the subscription resumes twice, answers no cancellation for a real
 ---   park, suspends where the handler forbids it, or is handled by one that returns
 ---   without resuming
-function suspension.suspend<
-    T
-    >(operation: string, subscribe: function(function(T), suspension.Context): (function()?)): T
+function suspension.suspend<T>(
+    operation: string,
+    subscribe: function(function(T), suspension.Context): (function()?)
+): T
     local current = effectiveInstallation()
     local handler = current and current.handler or nil
     -- The ready path's cost: one table for the state a cancellation also has to reach,
@@ -494,11 +495,20 @@ function suspension.suspend<
         current.parks[ticket] = true
     end
 
-    local waiting = setmetatable({operation = operation, context = context, waitCursor = 1, isReady = function()
-        return state.resumed or state.cancelled
-    end, setWaker = function(wake)
-        state.waker = wake
-    end,}, WaitingMT)
+    local waiting = setmetatable(
+        {
+            operation = operation,
+            context = context,
+            waitCursor = 1,
+            isReady = function()
+                return state.resumed or state.cancelled
+            end,
+            setWaker = function(wake)
+                state.waker = wake
+            end,
+        },
+        WaitingMT
+    )
 
     -- A park suspends, and suspending fails when non-yieldable C code is on the stack:
     -- an FFI callback, a comparator, a pattern replacement. Most of those positions are
@@ -793,9 +803,11 @@ local ABANDONED = {}
 --- @param limit how many may be in flight, or nil for all of them
 --- @param stopEarly asked after each branch settles; true abandons the remainder
 --- @return per-branch values, per-branch errors, and which branch settled first
-local function drive<
-    T
-    >(bodies: {function(): T}, limit: integer?, stopEarly: (function(): boolean)?): {T?}, {any}, integer?
+local function drive<T>(
+    bodies: {function(): T},
+    limit: integer?,
+    stopEarly: (function(): boolean)?
+): {T?}, {any}, integer?
     local count = #bodies
     local values: {T?} = {}
     local errors: {any} = {}
@@ -820,11 +832,8 @@ local function drive<
         end
     end
 
-    local branchHandler = new suspension.Handler(park = function(
-        _: suspension.Handler,
-        waiting: suspension.Waiting,
-        cancel: function(): nil
-    ): nil
+    local branchHandler = new suspension.Handler(
+        park = function(_: suspension.Handler, waiting: suspension.Waiting, cancel: function(): nil): nil
             local index = indexOf[running()] as integer
             local function markRunnable(): nil
                 runnable[index] = true
@@ -844,10 +853,13 @@ local function drive<
                     error(ABANDONED, 0)
                 end
             end
-    end, canPark = function(_: suspension.Handler): boolean
+        end,
+        canPark = function(_: suspension.Handler): boolean
             return true
-    end, shutdown = function(_: suspension.Handler): nil
-    end)
+        end,
+        shutdown = function(_: suspension.Handler): nil
+        end
+    )
 
     --- Starts the next body that has not been started. Counting inside is what keeps
     --- the
@@ -915,7 +927,7 @@ local function drive<
                             if victim ~= nil then
                                 abandoned[other] = true
                                 if entered[other] then
-                                coroutine.resume(victim)
+                                    coroutine.resume(victim)
                                 else
                                     local victimBody = bodies[other] as any
                                     if type(victimBody) == "table" and victimBody.__drop then
@@ -1013,9 +1025,8 @@ local function raceImpl<T>(takes bodies: {function(): T}): T?, integer?
     return first ~= nil and values[first] or nil, first
 end
 
-local race: function<
-    T
-    >(scoped bodies: {function(): T}): (T?, integer?) & function<T>(takes bodies: {function(): T}): (T?, integer?)
+local race: function<T>(scoped bodies: {function(): T}): (T?, integer?)
+    & function<T>(takes bodies: {function(): T}): (T?, integer?)
 unsafe do
     -- Both contracts execute synchronously. The owning arm additionally lets
     -- `raceImpl` call or drop every affine body exactly once.

@@ -449,8 +449,9 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
                 ok = false
                 break
             end
-            fields[#fields + 1] = "   " .. field.name .. ": " .. rendered
-                .. (field.bitWidth and " : " .. tostring(field.bitWidth) or "")
+            fields[
+                #fields + 1
+            ] = "   " .. field.name .. ": " .. rendered .. (field.bitWidth and " : " .. tostring(field.bitWidth) or "")
         end
         if ok then
             emit("cdef " .. declaration.kind .. " " .. name)

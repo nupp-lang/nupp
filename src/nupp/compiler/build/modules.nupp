@@ -321,8 +321,7 @@ typeFingerprint = function(
         for _, item in ipairs(t.members or {}) do
             items[#items + 1] = typeFingerprint(item, active, binders)
         end
-        table.sort(items)
-        ;
+        table.sort(items);
         value = tag .. "(" .. table.concat(items, tag == "union" and "|" or "&") .. ")"
     elseif tag == "projection" then
         -- Through the canonical head, so two projections off binders that share a name
@@ -531,38 +530,43 @@ local function buildModules(root: string, outDir: string, config: Config, target
         return path
     end
 
-    local observer: nupp.compiler.incremental.Observer = {checking = function(path: string): nil
-        -- Checking is charged wherever it happens rather than only where this file
-        -- calls for it. Deciding a module can be reused reaches the checker too, so a
-        -- build that compiles nothing at all would otherwise report its whole runtime
-        -- as bookkeeping.
-        if #open == 0 then
-            resumeActivity = report.activity
-            report:at("check")
-        end
-        open[#open + 1] = {startedAt = progress.now(), children = 0}
-        report:step("checking " .. shortPath(path))
-    end, checked = function(path: string): nil
-        local frame = open[#open]
-        if not frame then
-            return
-        end
-        open[#open] = nil
-        local spent = progress.now() - frame.startedAt
-        local parent = open[#open]
-        if parent then
-            parent.children = parent.children + spent
-        end
-        checkMs[path] = (checkMs[path] or 0) + spent - frame.children
-        if #open == 0 then
-            report:at(resumeActivity)
-        end
-    end,}
+    local observer: nupp.compiler.incremental.Observer = {
+        checking = function(path: string): nil
+            -- Checking is charged wherever it happens rather than only where this file
+            -- calls for it. Deciding a module can be reused reaches the checker too, so
+            -- a build that compiles nothing at all would otherwise report its whole
+            -- runtime as bookkeeping.
+            if #open == 0 then
+                resumeActivity = report.activity
+                report:at("check")
+            end
+            open[#open + 1] = {startedAt = progress.now(), children = 0}
+            report:step("checking " .. shortPath(path))
+        end,
+        checked = function(path: string): nil
+            local frame = open[#open]
+            if not frame then
+                return
+            end
+            open[#open] = nil
+            local spent = progress.now() - frame.startedAt
+            local parent = open[#open]
+            if parent then
+                parent.children = parent.children + spent
+            end
+            checkMs[path] = (checkMs[path] or 0) + spent - frame.children
+            if #open == 0 then
+                report:at(resumeActivity)
+            end
+        end,
+    }
 
-    local inc = incremental.new(
-        root,
-        {config = envConfig, strict = strict, typeRoots = rocks and rocks.typeRoots or {}, observe = observer,}
-    )
+    local inc = incremental.new(root, {
+        config = envConfig,
+        strict = strict,
+        typeRoots = rocks and rocks.typeRoots or {},
+        observe = observer,
+    })
     -- A check reuses on the same terms a build does. It used to be excluded, and had to
     -- be: reuse produced no diagnostics, so the second `nupp check` over a project with
     -- an error would have said nothing was wrong. Now a record carries what the file
@@ -716,15 +720,12 @@ local function buildModules(root: string, outDir: string, config: Config, target
             report:step("generating " .. name)
             local startedGenerating = progress.now()
             local genDiags
-            local remarks = optimize.run(
-                result.result,
-                {
-                    level = config._optLevel or 0,
-                    filename = path,
-                    disabled = config._disabledPasses,
-                    relaxed = config._relaxedGuarantees
-                }
-            )
+            local remarks = optimize.run(result.result, {
+                level = config._optLevel or 0,
+                filename = path,
+                disabled = config._disabledPasses,
+                relaxed = config._relaxedGuarantees
+            })
             if config._remarks then
                 for _, note in ipairs(remarks) do
                     mine[#mine + 1] = note
@@ -759,31 +760,35 @@ local function buildModules(root: string, outDir: string, config: Config, target
         local derives = result.result and result.result.deriveObservations or {}
         local projectDependencies = inc.projectDependencies(path)
         local checkedExports = result.exports or {}
-        records[
-            name
-        ] = {sourceHash = sourceHash, interfaceHash = hash.digest(
-            typeFingerprint(
-                result.moduleType
-            ) .. "\0deprecated\0" .. exportDeprecationsFingerprint(
-                checkedExports
-            ) .. "\0nominal-callables:" .. (
-                checkedExports.nominalEffectFingerprint or ""
-            ) .. "\0derives:" .. (
-                checkedExports.deriveInterfaceFingerprint or ""
-            ) .. "\0comptime-functions:" .. (
-                checkedExports.comptimeFunctionFingerprint or ""
-            ) .. (external and ("\0" .. sourceHash) or "")
-        ), artifactHash = artifactHash, dependencies = jsonArray(
-            depNames
-        ), projectDependencies = jsonArray(
-            projectDependencies
-        ), effects = jsonArray(effectNames), output = output, external = external or nil,
+        records[name] = {
+            sourceHash = sourceHash,
+            interfaceHash = hash.digest(
+                typeFingerprint(
+                    result.moduleType
+                ) .. "\0deprecated\0" .. exportDeprecationsFingerprint(
+                    checkedExports
+                ) .. "\0nominal-callables:" .. (
+                    checkedExports.nominalEffectFingerprint or ""
+                ) .. "\0derives:" .. (
+                    checkedExports.deriveInterfaceFingerprint or ""
+                ) .. "\0comptime-functions:" .. (
+                    checkedExports.comptimeFunctionFingerprint or ""
+                ) .. (external and ("\0" .. sourceHash) or "")
+            ),
+            artifactHash = artifactHash,
+            dependencies = jsonArray(depNames),
+            projectDependencies = jsonArray(projectDependencies),
+            effects = jsonArray(effectNames),
+            output = output,
+            external = external or nil,
             -- Only what checking found. Generation runs once per artifact and a reused
             -- module does not run it again, so its remarks belong to the run that
             -- produced them and not to the record.
-            diags = jsonArray(
-            result.diags or {}
-        ), coverage = coverage, materializations = jsonArray(materializations), derives = jsonArray(derives),}
+            diags = jsonArray(result.diags or {}),
+            coverage = coverage,
+            materializations = jsonArray(materializations),
+            derives = jsonArray(derives),
+        }
         codeFor[name] = code
         reused[name] = nil
         for _, depName in ipairs(depNames) do

@@ -47,10 +47,11 @@ local function run(parsed: any): integer
     local dryRun = values.dryRun and true or false
     local project = require("nupp.compiler.build.project")
     local removed: {string} = {}
-    local code = project.clean(
-        ".",
-        {target = values.target, dryRun = values.dryRun, removed = asJson and removed or nil}
-    )
+    local code = project.clean(".", {
+        target = values.target,
+        dryRun = values.dryRun,
+        removed = asJson and removed or nil
+    })
     if asJson then
         require("nupp.compiler.cli.report").write({ok = code == 0, removed = removed, dryRun = dryRun})
     end

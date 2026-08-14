@@ -657,51 +657,91 @@ function checkMod.check(
 
     -- One run's whole state, so the passes below reach it through `c` rather than by
     -- being lexically inside one function. See nupp.compiler.check.state.
-    local c = new state.Checker(result = result, filename = filename, env = env, opts = opts, reducerMemo = {}, comptimeDepth = 0, comptimeFunctionDepth = 0, comptimeFunctions = {}, typeFunctionMemo = {},
+    local c = new state.Checker(
+        result = result,
+        filename = filename,
+        env = env,
+        opts = opts,
+        reducerMemo = {},
+        comptimeDepth = 0,
+        comptimeFunctionDepth = 0,
+        comptimeFunctions = {},
+        typeFunctionMemo = {},
         -- A declaration file describes an interface it does not own, so its bare
         -- declarations are that interface and have no table of the file's own to attach
         -- to. Bundled declarations are checked under their module name rather than a
         -- path, so they say so directly.
         declarationFile = (
-        opts and (opts.declarationFile or opts.declareGlobals)
-    ) and true or (filename and filename:match("%.d%.nupp$")) and true or false,
+            opts and (opts.declarationFile or opts.declareGlobals)
+        ) and true or (filename and filename:match("%.d%.nupp$")) and true or false,
         -- The table qualified declarations attach to, so `record M.Point` in a file
         -- that returns M exports Point while `record Other.Point` does not.
-        moduleLocal = cst.returnedLocal(
-        result.root
-    ), annotationRegistry = registry, annotationDefinitions = {}, lintConfig = opts
-        and opts.lints
-        or env
-        and env.config
-        and env.config.lints
-        or nil,
+        moduleLocal = cst.returnedLocal(result.root),
+        annotationRegistry = registry,
+        annotationDefinitions = {},
+        lintConfig = opts and opts.lints or env and env.config and env.config.lints or nil,
         -- Fixes and the missing-require advice read the parse and the project index
         -- rather than anything the walk builds, so they are made once here and asked.
         -- See nupp.compiler.check.fixits.
-        edits = fixits.new(
-        result,
-        env
-    ), diags = {}, moduleType = nil, moduleExports = opts and opts.initialExports or {
-        types = {},
-        typeDefs = {},
-        values = {},
-        valueDefs = {},
-        comptimeFunctions = {},
-        callGuarantees = {},
-    }, seenDefinitions = {}, scope = {
-        vars = {},
-        types = {},
-        packTypes = {},
-        typeDefs = {},
-        pending = {},
-        automaticOwners = {},
-        depth = 0,
-        completionScope = result.root,
-        parent = nil
-    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, dropOperationFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, effectRegionDepths = {
-        allocates = 0,
-        raises = 0
-    }, handledDepth = 0, functionDepth = 0, functionBodies = {}, jitHazards = {}, scopedCaptureDepth = 0, closureCaptureStack = {}, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldDefs = {}, moduleFunctionDeclarations = {}, moduleFieldConst = {}, moduleFieldValues = {}, nominalEffectOwners = {}, nominalEffectEntries = {}, constModulePaths = {}, moduleLocalAnnotated = false)
+        edits = fixits.new(result, env),
+        diags = {},
+        moduleType = nil,
+        moduleExports = opts and opts.initialExports or {
+            types = {},
+            typeDefs = {},
+            values = {},
+            valueDefs = {},
+            comptimeFunctions = {},
+            callGuarantees = {},
+        },
+        seenDefinitions = {},
+        scope = {
+            vars = {},
+            types = {},
+            packTypes = {},
+            typeDefs = {},
+            pending = {},
+            automaticOwners = {},
+            depth = 0,
+            completionScope = result.root,
+            parent = nil
+        },
+        retStack = {},
+        retPackStack = {},
+        ownReturnStack = {},
+        borrowReturnStack = {},
+        varargPackStack = {},
+        yieldPackStack = {},
+        resumePackStack = {},
+        protocolStack = {},
+        dropOperationFieldStack = {},
+        validatedCleanupContracts = {},
+        unsafeDepth = 0,
+        noSuspendDepth = 0,
+        effectRegionDepths = {allocates = 0, raises = 0},
+        handledDepth = 0,
+        functionDepth = 0,
+        functionBodies = {},
+        jitHazards = {},
+        scopedCaptureDepth = 0,
+        closureCaptureStack = {},
+        captureWatches = {},
+        allowed = {},
+        nextStat = nil,
+        hoisting = false,
+        resolvingAlias = {},
+        lastCallRets = nil,
+        moduleFields = {},
+        moduleFieldTokens = {},
+        moduleFieldDefs = {},
+        moduleFunctionDeclarations = {},
+        moduleFieldConst = {},
+        moduleFieldValues = {},
+        nominalEffectOwners = {},
+        nominalEffectEntries = {},
+        constModulePaths = {},
+        moduleLocalAnnotated = false
+    )
     c.rootScope = c.scope
     c.moduleExports.valueDefs = c.moduleExports.valueDefs or {}
     c.moduleExports.comptimeFunctions = c.moduleExports.comptimeFunctions or {}
@@ -814,9 +854,11 @@ function checkMod.check(
 
         return resultType, validationFailure
     end
-    c.reductionControl = {evaluateTypeFunction = function(helper, arguments)
-        return c.typeFunctionEvaluator(helper, arguments, c.comptimeFunctions)
-    end}
+    c.reductionControl = {
+        evaluateTypeFunction = function(helper, arguments)
+            return c.typeFunctionEvaluator(helper, arguments, c.comptimeFunctions)
+        end
+    }
     resolve.install(c)
     local ownershipKind = own.ownershipKind
 
@@ -1100,18 +1142,12 @@ function checkMod.check(
             if deprecated.reason and deprecated.reason ~= "" then
                 msg = msg .. ": " .. deprecated.reason
             end
-            c.diag(
-                "NUPP2513",
-                tok,
-                msg,
-                nil,
-                {
-                    help = deprecated.replacement and deprecated.replacement ~= "" and (
-                        "use " .. deprecated.replacement .. " instead"
-                    ) or nil,
-                    related = def.token and {c.related(def, "deprecated API is declared here")} or nil,
-                }
-            )
+            c.diag("NUPP2513", tok, msg, nil, {
+                help = deprecated.replacement and deprecated.replacement ~= "" and (
+                    "use " .. deprecated.replacement .. " instead"
+                ) or nil,
+                related = def.token and {c.related(def, "deprecated API is declared here")} or nil,
+            })
         end
     end
     c.bindVar = function(name, t, annotated, tok, kind, constant)
@@ -1389,14 +1425,17 @@ function checkMod.check(
     --- A file that declared nothing gets an empty shape rather than `any`, so
     --- reaching a symbol it never declared is NUPP2004 instead of silence.
     c.cNamespaceType = function(): Type
-        local decls = require("nupp.compiler.cheader").declaredFunctions(function(tag)
-            local found = c.lookupType(tag)
-            if found and found.tag == "nominal" then
-                return found
-            end
+        local decls = require("nupp.compiler.cheader").declaredFunctions(
+            function(tag)
+                local found = c.lookupType(tag)
+                if found and found.tag == "nominal" then
+                    return found
+                end
 
-            return nil
-        end, c.cDeclared)
+                return nil
+            end,
+            c.cDeclared
+        )
         for name, t in pairs(c.cDefinedFunctions) do
             decls[name] = t
         end
@@ -2142,13 +2181,9 @@ function checkMod.check(
         ) and not (
             hazard.disabledBody and hazard.disabledBody.jitDisabled
         ) and not (hazard.disabledDefinition and hazard.disabledDefinition.jitDisabled) then
-            c.diag(
-                body and body.jitRequired and "NUPP2707" or hazard.code,
-                hazard.at,
-                hazard.message,
-                nil,
-                {help = hazard.help}
-            )
+            c.diag(body and body.jitRequired and "NUPP2707" or hazard.code, hazard.at, hazard.message, nil, {
+                help = hazard.help
+            })
         end
     end
     c.derives.finalize()

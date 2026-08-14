@@ -79,9 +79,7 @@ end
 --- Set bits in one word.
 local function popcount(word: integer): integer
     unsafe do
-        return POPCOUNT_HALF[band(word, HALF_MASK)] + POPCOUNT_HALF[band(
-            rshift(word, HALF_SHIFT), HALF_MASK
-        )]
+        return POPCOUNT_HALF[band(word, HALF_MASK)] + POPCOUNT_HALF[band(rshift(word, HALF_SHIFT), HALF_MASK)]
     end
 end
 
@@ -447,12 +445,7 @@ record bitset.Bitset
     --- @return how many positions were written, and the position to resume from
     ---     when `target` filled first, or -1 when the set is exhausted
     --- @raises when capacity is negative
-    function positionsInto(
-        self,
-        target: int32[?],
-        capacity: integer,
-        from: integer
-    ): (integer, integer)
+    function positionsInto(self, target: int32[?], capacity: integer, from: integer): (integer, integer)
         if capacity < 0 then
             error("bitset target capacity cannot be negative", 2)
         end

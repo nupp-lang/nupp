@@ -54,15 +54,11 @@ local function run(parsed)
         return 1
     end
     local project = require("nupp.compiler.build.project")
-    local testCode = project.test(
-        ".",
-        parsed.positional,
-        {
-            coverage = true,
-            outDir = buildDir,
-            env = {NUPP_COVERAGE = "1", NUPP_COVERAGE_BUILD = buildDir, NUPP_COVERAGE_FILE = raw}
-        }
-    )
+    local testCode = project.test(".", parsed.positional, {
+        coverage = true,
+        outDir = buildDir,
+        env = {NUPP_COVERAGE = "1", NUPP_COVERAGE_BUILD = buildDir, NUPP_COVERAGE_FILE = raw}
+    })
     local report = require("nupp.compiler.coverage")
     local model = report.collect(buildDir .. "/.nupp-state.json", raw)
     local summary = report.write(model, outDir)

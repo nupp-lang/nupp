@@ -642,41 +642,32 @@ function narrow.install(c: state.Checker): narrow.Ops
                 if conditionalOwnership then
                     moved, ownershipOrigin = false, nil
                 end
-                c.scope.vars[name] = {t = t, narrowing = true, -- shadows a declaration; not one itself
+                c.scope.vars[name] = {
+                    t = t,
+                    narrowing = true, -- shadows a declaration; not one itself
                     -- a narrowed copy still came from where it came from, or the second
                     -- arm of a chain would forget
-                    aliasNode = entry
-                    and entry.aliasNode
-                    or nil, aliasPath = entry
-                    and entry.aliasPath
-                    or nil, ann = entry
-                    and entry.ann
-                    or false, constant = entry
-                    and entry.constant
-                    or false, decl = entry
-                    and (
-                    entry.decl or entry.t
-                ) or t, definition = entry and entry.definition or nil,
+                    aliasNode = entry and entry.aliasNode or nil,
+                    aliasPath = entry and entry.aliasPath or nil,
+                    ann = entry and entry.ann or false,
+                    constant = entry and entry.constant or false,
+                    decl = entry and (entry.decl or entry.t) or t,
+                    definition = entry and entry.definition or nil,
                     -- A correlated result can carry an owner on only one arm (pcall's
                     -- success arm is the important case). It is not a live obligation
                     -- before the discriminator is selected. Once narrowed into that arm
                     -- this shadow is the owner for the branch and is audited when the
                     -- branch scope closes; other narrowed values continue to share
                     -- their declaration's ordinary ownership state.
-                    ownership = conditionalOwnership
-                    or entry
-                    and entry.ownership
-                    or nil, moved = moved, ownershipOrigin = ownershipOrigin,
+                    ownership = conditionalOwnership or entry and entry.ownership or nil,
+                    moved = moved,
+                    ownershipOrigin = ownershipOrigin,
                     automaticOwner = entry and entry.automaticOwner or nil,
-                    functionDepth = entry
-                    and entry.functionDepth
-                    or c.functionDepth, threadPhase = entry
-                    and entry.threadPhase
-                    or nil, wrappedProtocol = entry
-                    and entry.wrappedProtocol
-                    or nil, wrappedPhase = entry
-                    and entry.wrappedPhase
-                    or nil,}
+                    functionDepth = entry and entry.functionDepth or c.functionDepth,
+                    threadPhase = entry and entry.threadPhase or nil,
+                    wrappedProtocol = entry and entry.wrappedProtocol or nil,
+                    wrappedPhase = entry and entry.wrappedPhase or nil,
+                }
             end
         end
     end

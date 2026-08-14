@@ -23,7 +23,9 @@ if not state then
     state = {
         generation = 1,
         modules = {},
-        bySlots = setmetatable({}, {__mode = "k"}),
+        bySlots = setmetatable({}, {
+            __mode = "k"
+        }),
         staging = nil,
         preparedSerial = 0,
     }
@@ -84,6 +86,7 @@ local function detachSelf(fn: any, selfName: string?): nil
             local function anchor(): any
                 return value
             end
+
             debugAny.upvaluejoin(fn, index, anchor, 1)
             return
         end
@@ -160,12 +163,7 @@ function hotreload.define(
         if module.definitions[index] then
             error("nupp hot reload: slot " .. tostring(index) .. " was defined twice", 2)
         end
-        module.definitions[index] = {
-            id = id,
-            signature = signature,
-            selfName = selfName,
-            captures = captures,
-        }
+        module.definitions[index] = {id = id, signature = signature, selfName = selfName, captures = captures,}
         slots[index] = implementation
         return
     end

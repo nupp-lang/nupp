@@ -109,9 +109,12 @@ local function run(parsed: any): integer
         opts
     )
     if asJson then
-        require(
-            "nupp.compiler.cli.report"
-        ).write({ok = code == 0, files = written, output = output or "", format = resolved or ""})
+        require("nupp.compiler.cli.report").write({
+            ok = code == 0,
+            files = written,
+            output = output or "",
+            format = resolved or ""
+        })
     end
 
     return code

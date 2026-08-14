@@ -64,9 +64,7 @@ local function quote(arg)
 end
 
 local function launchArgs(argv: {string}): {string}
-    local testBash = windows and (
-        rawget(_G, "__NUPP_TEST_BASH") or os.getenv("NUPP_TEST_BASH")
-    ) or nil
+    local testBash = windows and (rawget(_G, "__NUPP_TEST_BASH") or os.getenv("NUPP_TEST_BASH")) or nil
     if not testBash or not tostring(argv[1]):gsub("\\", "/"):match("/bin/nupp$") then
         return argv
     end
@@ -75,6 +73,7 @@ local function launchArgs(argv: {string}): {string}
     for _, arg in ipairs(argv) do
         launched[#launched + 1] = arg
     end
+
     return launched
 end
 
@@ -103,11 +102,8 @@ local function isolatedArgs(argv: {string}): {string}
         local root = executable:match("^(.*)/bin/nupp$")
         if root then
             local built = root .. "/build/nupp/compiler/main.lua"
-            local path = ("package.path=%q .. package.path")
-                :format(root .. "/build/?.lua;")
-            local launched = {
-                "luajit", "-e", path, exists(built) and built or root .. "/bootstrap/nupp.lua"
-            }
+            local path = ("package.path=%q .. package.path"):format(root .. "/build/?.lua;")
+            local launched = {"luajit", "-e", path, exists(built) and built or root .. "/bootstrap/nupp.lua"}
             for index = 2, #argv do
                 launched[#launched + 1] = argv[index]
             end
@@ -156,6 +152,7 @@ function process.command(argv: {string}, opts: process.Options?): string
     -- runner strips this out-of-band marker before handing this command to the
     -- native shell.
     local testMarker = windows and rawget(_G, "__NUPP_TEST_CMD_MARKER") or nil
+
     return testMarker and (testMarker .. command) or command
 end
 
@@ -218,8 +215,7 @@ function process.captureIsolated(argv: {string}, opts: process.Options?): intege
         args = {
             "/bin/sh",
             "-c",
-            "ulimit -v " .. tostring(kilobytes) .. " 2>/dev/null || true; exec "
-                .. process.command(argv),
+            "ulimit -v " .. tostring(kilobytes) .. " 2>/dev/null || true; exec " .. process.command(argv),
         }
     end
     local native = require("nupp.io.process")
@@ -287,7 +283,10 @@ end
 
 --- Starts the same bounded child used by `captureIsolated`, but leaves its framed
 --- stdin/stdout open for a session service. The caller owns and must close it.
-function process.startIsolated(argv: {string}, opts: process.Options?): (Owned<process.IsolatedProcess?, opaque>, string?)
+function process.startIsolated(
+    argv: {string},
+    opts: process.Options?
+): (Owned<process.IsolatedProcess?, opaque>, string?)
     opts = (opts or {}) as process.Options
     local args = isolatedArgs(argv)
     if opts.memoryMb and not windows then
@@ -295,11 +294,11 @@ function process.startIsolated(argv: {string}, opts: process.Options?): (Owned<p
         args = {
             "/bin/sh",
             "-c",
-            "ulimit -v " .. tostring(kilobytes) .. " 2>/dev/null || true; exec "
-                .. process.command(argv),
+            "ulimit -v " .. tostring(kilobytes) .. " 2>/dev/null || true; exec " .. process.command(argv),
         }
     end
     local native = require("nupp.io.process")
+
     return native.new({
         args = args,
         cwd = opts.cwd,

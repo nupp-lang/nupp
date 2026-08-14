@@ -48,8 +48,8 @@ end
 --- That is what lets a recursive or mutually-referential header terminate: the members
 --- live in the declaration `structById` returns.
 interface cdecl.CType
-    --- "void", "boolean", "integer", "float", "pointer", "struct", "union", "enum", "array",
-    --- "function", or "unknown" for what this model does not spell.
+    --- "void", "boolean", "integer", "float", "pointer", "struct", "union", "enum",
+    --- "array", "function", or "unknown" for what this model does not spell.
     kind: string
 
     name: string?
@@ -241,11 +241,7 @@ decodeType = function(id)
             const = pointee and bit.band(pointee.info, CTF_CONST) ~= 0 or false,
         }
     elseif kind == CT_STRUCT then
-        return {
-            kind = bit.band(entry.info, CTF_UNION) ~= 0 and "union" or "struct",
-            id = rid,
-            name = entry.name,
-        }
+        return {kind = bit.band(entry.info, CTF_UNION) ~= 0 and "union" or "struct", id = rid, name = entry.name,}
     elseif kind == CT_ENUM then
         return {
             kind = "enum",
@@ -279,13 +275,11 @@ local function decodeStruct(id, entry)
             -- underlying integer's byte width into the low nibble of the byte above
             -- the field width (the high bit of that byte is signedness).
             local storageBits = bit.band(bit.rshift(centry.info, 16), 0x0f) * 8
-            fields[#fields + 1] = {
+            fields[
+                #fields + 1
+            ] = {
                 name = centry.name,
-                type = {
-                    kind = "integer",
-                    bits = storageBits,
-                    unsigned = bit.band(centry.info, CTF_UNSIGNED) ~= 0,
-                },
+                type = {kind = "integer", bits = storageBits, unsigned = bit.band(centry.info, CTF_UNSIGNED) ~= 0,},
                 bitWidth = width,
             }
         end
@@ -424,9 +418,11 @@ function cdecl.inspect(text: string | {string}, prelude: (string | {string})?): 
     for _, unit in ipairs(units) do
         local ok, err = pcall(ffi.cdef, unit)
         if not ok then
-            rejected[#rejected + 1] = {text = unit,
+            rejected[#rejected + 1] = {
+                text = unit,
                 -- LuaJIT prefixes its own chunk name and line
-                reason = tostring(err):gsub("^.-:%d+:%s*", ""),}
+                reason = tostring(err):gsub("^.-:%d+:%s*", ""),
+            }
         end
     end
     if not perUnit and #rejected > 0 then
@@ -533,8 +529,7 @@ function cdecl.declaredFunctions(only: {[string]: boolean}?): {[string]: cdecl.F
     local out = {}
     for id = 1, MAX_CTYPE_ID do
         local entry = info(id)
-        if entry and entry.name and kindOf(entry.info) == CT_FUNC
-            and (only == nil or only[entry.name]) then
+        if entry and entry.name and kindOf(entry.info) == CT_FUNC and (only == nil or only[entry.name]) then
             out[entry.name] = decodeFunction(entry)
         end
     end

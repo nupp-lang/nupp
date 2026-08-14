@@ -1,0 +1,10 @@
+local m = {}
+
+local first = 1;
+local second = 2; local third = 3;
+;
+function m.total(): integer
+    return first + second + third;
+end
+
+return m

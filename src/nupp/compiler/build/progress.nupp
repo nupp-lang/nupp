@@ -380,18 +380,28 @@ function progress.new(mode: string?, stream: LuaFile?): progress.Reporter
     local showing = resolve(mode, target)
     local started = clock()
 
-    return new progress.Reporter(stream = target, showing = showing,
+    return new progress.Reporter(
+        stream = target,
+        showing = showing,
         -- Rewriting a line needs the escapes that colour needs, so one answer settles
         -- both. A terminal that has said it cannot take them gets a line per step.
-        rewriting = showing and ansi.enabled(
-        target
-    ), style = ansi.style(
-        target
-    ), startedAt = started, activity = "other", since = started, spans = {
-        other = 0
-    }, order = {
-        "other"
-    }, moduleMs = {}, moduleOrder = {}, total = 0, done = 0, compiled = 0, reused = 0, paintedAt = 0, onScreen = false, columns = width())
+        rewriting = showing and ansi.enabled(target),
+        style = ansi.style(target),
+        startedAt = started,
+        activity = "other",
+        since = started,
+        spans = {other = 0},
+        order = {"other"},
+        moduleMs = {},
+        moduleOrder = {},
+        total = 0,
+        done = 0,
+        compiled = 0,
+        reused = 0,
+        paintedAt = 0,
+        onScreen = false,
+        columns = width()
+    )
 end
 
 return progress

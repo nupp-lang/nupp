@@ -8,7 +8,9 @@ interface derive.JSONContract is nupp.data.json.JSONEncodable
 end
 
 record derive.Entry
-    schema: {data: {[string]: any}}
+    schema: {
+        data: {[string]: any}
+    }
     codec: nupp.reflect.FieldCodec<any>
 end
 
@@ -23,6 +25,7 @@ local function option(items, annotationName: string, name: string): any
             end
         end
     end
+
     return nil
 end
 
@@ -36,7 +39,9 @@ end
 @comptime
 local function optional(T: type): type?
     local value = detail(T)
-    if value.kind ~= "union" then return nil end
+    if value.kind ~= "union" then
+        return nil
+    end
     local rest = {}
     for _, member in ipairs(value.members or {}) do
         local memberDetail = detail(member)
@@ -44,20 +49,35 @@ local function optional(T: type): type?
             rest[#rest + 1] = member
         end
     end
-    if #rest == 1 then return rest[1] end
+    if #rest == 1 then
+        return rest[1]
+    end
+
     return nil
 end
 
 @comptime
 local function debugSpec(T: type, contract: type): any
     local inner = optional(T)
-    if inner ~= nil then return {kind = "optional", value = debugSpec(inner, contract)} end
+    if inner ~= nil then
+        return {kind = "optional", value = debugSpec(inner, contract)}
+    end
     local value = detail(T)
-    if value.kind == "literal" then return {kind = "literal", value = value.value} end
+    if value.kind == "literal" then
+        return {kind = "literal", value = value.value}
+    end
     if value.kind == "primitive" then
-        if value.name == "nil" or value.name == "boolean" or value.name == "string"
-            or value.name == "number" or value.name == "integer" or value.name == "float"
-            or value.name:find("int", 1, true) or value.name:find("uint", 1, true) then
+        if value.name == "nil"
+            or value.name == "boolean"
+            or value.name == "string"
+            or value.name == "number"
+            or value.name == "integer"
+            or value.name == "float"
+            or value.name:find(
+            "int",
+            1,
+            true
+        ) or value.name:find("uint", 1, true) then
             return {kind = value.name}
         end
     elseif value.kind == "array" then
@@ -66,13 +86,17 @@ local function debugSpec(T: type, contract: type): any
         return {kind = "map", key = debugSpec(value.readKey, contract), value = debugSpec(value.readValue, contract)}
     elseif value.kind == "tuple" then
         local items = {}
-        for index, member in ipairs(value.members or {}) do items[index] = debugSpec(member, contract) end
+        for index, member in ipairs(value.members or {}) do
+            items[index] = debugSpec(member, contract)
+        end
         return {kind = "tuple", items = items}
     elseif value.kind == "shape" then
         local fields = {}
         for index, field in ipairs(value.fields or {}) do
             local fieldType = field.read
-            if fieldType == nil then fieldType = field.write end
+            if fieldType == nil then
+                fieldType = field.write
+            end
             fields[index] = {name = field.name, type = debugSpec(fieldType, contract)}
         end
         return {kind = "shape", fields = fields}
@@ -83,6 +107,7 @@ local function debugSpec(T: type, contract: type): any
             return {kind = "customDebug"}
         end
     end
+
     return nil
 end
 
@@ -94,12 +119,26 @@ local function jsonSpec(T: type, contract: type): any
         return value and {kind = "optional", value = value} or nil
     end
     local value = detail(T)
-    if value.kind == "literal" then return {kind = "literal", value = value.value} end
+    if value.kind == "literal" then
+        return {kind = "literal", value = value.value}
+    end
     if value.kind == "primitive" then
-        if value.name == "nil" or value.name == "boolean" or value.name == "string"
-            or value.name == "number" or value.name == "float" then return {kind = value.name} end
-        if value.name == "integer" or value.name == "int8" or value.name == "int16" or value.name == "int32"
-            or value.name == "uint8" or value.name == "uint16" or value.name == "uint32" then
+        if value.name == "nil"
+            or value.name == "boolean"
+            or value.name == "string"
+            or value.name == "number"
+            or value.name == "float"
+        then
+            return {kind = value.name}
+        end
+        if value.name == "integer"
+            or value.name == "int8"
+            or value.name == "int16"
+            or value.name == "int32"
+            or value.name == "uint8"
+            or value.name == "uint16"
+            or value.name == "uint32"
+        then
             return {kind = "integer"}
         end
     elseif value.kind == "array" then
@@ -113,7 +152,9 @@ local function jsonSpec(T: type, contract: type): any
         local items = {}
         for index, member in ipairs(value.members or {}) do
             local item = jsonSpec(member, contract)
-            if not item then return nil end
+            if not item then
+                return nil
+            end
             items[index] = item
         end
         return {kind = "tuple", items = items}
@@ -121,9 +162,13 @@ local function jsonSpec(T: type, contract: type): any
         local fields = {}
         for index, field in ipairs(value.fields or {}) do
             local fieldType = field.read
-            if fieldType == nil then fieldType = field.write end
+            if fieldType == nil then
+                fieldType = field.write
+            end
             local item = jsonSpec(fieldType, contract)
-            if not item then return nil end
+            if not item then
+                return nil
+            end
             fields[index] = {name = field.name, type = item}
         end
         return {kind = "shape", fields = fields, unknown = "reject"}
@@ -140,10 +185,18 @@ local function jsonSpec(T: type, contract: type): any
                         local memberDetail = detail(member)
                         local nominal = memberDetail.nominal
                         local tagged = nil
-                        if memberDetail.kind == "reference" and nominal ~= nil and nominal.kind == "record"
-                            and nominal.deriveKey ~= nil and nupp.derive.claims(member, contract) then
+                        if memberDetail.kind == "reference"
+                            and nominal ~= nil
+                            and nominal.kind == "record"
+                            and nominal.deriveKey ~= nil
+                            and nupp.derive.claims(
+                            member,
+                            contract
+                        ) then
                             for _, field in ipairs(nominal.fields or {}) do
-                                if field.name == candidate.name then tagged = field end
+                                if field.name == candidate.name then
+                                    tagged = field
+                                end
                             end
                         end
                         if tagged == nil then
@@ -151,14 +204,18 @@ local function jsonSpec(T: type, contract: type): any
                             break
                         end
                         local tagType = tagged.read
-                        if tagType == nil then tagType = tagged.write end
+                        if tagType == nil then
+                            tagType = tagged.write
+                        end
                         local tag = detail(tagType)
                         if tag.kind ~= "literal" or seen[tag.value] then
                             valid = false
                             break
                         end
                         local encoded = option(tagged.annotations, "json", "name")
-                        if encoded == nil then encoded = candidate.name end
+                        if encoded == nil then
+                            encoded = candidate.name
+                        end
                         if jsonName ~= nil and jsonName ~= encoded then
                             valid = false
                             break
@@ -174,10 +231,13 @@ local function jsonSpec(T: type, contract: type): any
             end
         end
         return nil
-    elseif value.kind == "reference" and value.nominal and value.nominal.deriveKey
-        and nupp.derive.claims(T, contract) then
+    elseif value.kind == "reference" and value.nominal and value.nominal.deriveKey and nupp.derive.claims(
+        T,
+        contract
+    ) then
         return {kind = "record", typeKey = value.nominal.deriveKey}
     end
+
     return nil
 end
 
@@ -213,8 +273,10 @@ function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.Debug>
                 "NUPP2803"
             )
         end
-        local spec = field.name ~= "debug" and not skip and not redact
-            and debugSpec(field.readType, info.interfaceType) or nil
+        local spec = field.name ~= "debug" and not skip and not redact and debugSpec(
+            field.readType,
+            info.interfaceType
+        ) or nil
         if not skip and not redact and not spec then
             if field.name ~= "debug" then
                 return nupp.derive.error("field type cannot be formatted by Debug", field.reference, "NUPP2803")
@@ -222,11 +284,14 @@ function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.Debug>
         end
         fields[index] = {name = field.name, debugSkip = skip, debugRedact = redact, debugType = spec}
     end
+
     return nupp.derive.implement{
-        methods = {debug = nupp.derive.forward{
-            helper = nupp.derive.helper(derive, "debug"),
-            arguments = {nupp.derive.receiver(), nupp.derive.entry()},
-        }},
+        methods = {
+            debug = nupp.derive.forward{
+                helper = nupp.derive.helper(derive, "debug"),
+                arguments = {nupp.derive.receiver(), nupp.derive.entry()},
+            }
+        },
         data = {debug = {name = info.name, fields = fields}},
     }
 end
@@ -256,23 +321,39 @@ function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<nupp.data.json.
         if not omit and not spec then
             return nupp.derive.error("type is not supported by JSON", field.reference, "NUPP2806")
         end
-        fields[index] = {
-            name = field.name, jsonName = name, omit = omit,
-            omitEmpty = option(field.annotations, "json", "omitEmpty") == true, jsonType = spec,
+        fields[
+            index
+        ] = {
+            name = field.name,
+            jsonName = name,
+            omit = omit,
+            omitEmpty = option(field.annotations, "json", "omitEmpty") == true,
+            jsonType = spec,
             default = defaultField.hasDefault and {kind = "literal", value = defaultField.defaultValue} or nil,
         }
     end
     local text = nupp.types.string
     local nullable = nupp.types.optional(info.ownerType)
     local problem = nupp.types.optional(text)
+
     return nupp.derive.implement{
-        methods = {toJSON = nupp.derive.forward{
-            helper = nupp.derive.helper(derive, "toJSON"),
-            arguments = {nupp.derive.receiver(), nupp.derive.entry()},
-        }},
+        methods = {
+            toJSON = nupp.derive.forward{
+                helper = nupp.derive.helper(derive, "toJSON"),
+                arguments = {nupp.derive.receiver(), nupp.derive.entry()},
+            }
+        },
         statics = {
             fromJSON = nupp.derive.member{
-                signature = nupp.types.function_(nupp.types.pack({text}), nupp.types.pack({nullable, problem})),
+                signature = nupp.types.function_(
+                    nupp.types.pack({
+                        text
+                    }),
+                    nupp.types.pack({
+                        nullable,
+                        problem
+                    })
+                ),
                 parameters = {"text"},
                 forward = nupp.derive.forward{
                     helper = nupp.derive.helper(derive, "fromJSON"),
@@ -280,7 +361,12 @@ function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<nupp.data.json.
                 },
             },
             fieldCodec = nupp.derive.member{
-                signature = nupp.types.function_(nupp.types.pack({}), nupp.types.pack({nupp.types.any})),
+                signature = nupp.types.function_(
+                    nupp.types.pack({}),
+                    nupp.types.pack({
+                        nupp.types.any
+                    })
+                ),
                 forward = nupp.derive.forward{
                     helper = nupp.derive.helper(derive, "fieldCodec"),
                     arguments = {nupp.derive.entry()},

@@ -1,0 +1,25 @@
+local m = {}
+
+function m.run(report: any, rows: {string}): nil
+    report:visit(function(row: string): nil
+        print(row)
+    end)
+    table.sort(rows, |a, b| -> do
+        return a < b
+    end)
+    report:put("header", "middle", function(row: string): string
+        return row
+    end)
+    report:configure("name", {
+        alphaValue = 1,
+        betaValue = 2,
+        gammaValue = 3,
+        deltaValue = 4,
+        epsilonValue = 5,
+        zetaValue = 6,
+        etaValue = 77
+    })
+    report:short("a", "b")
+end
+
+return m

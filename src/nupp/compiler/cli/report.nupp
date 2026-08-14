@@ -114,19 +114,22 @@ function report.diagnosticValues(diagnostics: {any}): {any}
                 range = rangeAt(read(relatedFile), item.offset, item.length)
             }
         end
-        values[
-            #values + 1
-        ] = {file = e.filename, severity = REPORTED[e.severity] or "error", code = e.code, lint = e.lint,
+        values[#values + 1] = {
+            file = e.filename,
+            severity = REPORTED[e.severity] or "error",
+            code = e.code,
+            lint = e.lint,
             -- Derived from the code rather than carried on every diagnostic: one code
             -- always means one section, so storing it at each of the hundreds of places
             -- a diagnostic is raised would only be a way for them to disagree.
-            docs = explain.anchor(
-            e.code
-        ), message = e.msg, range = rangeAt(
-            source,
-            e.offset,
-            e.length
-        ), fixes = fixes, help = e.help, notes = e.notes or {}, related = related,}
+            docs = explain.anchor(e.code),
+            message = e.msg,
+            range = rangeAt(source, e.offset, e.length),
+            fixes = fixes,
+            help = e.help,
+            notes = e.notes or {},
+            related = related,
+        }
     end
 
     return values

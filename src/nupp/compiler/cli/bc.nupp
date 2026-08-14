@@ -24,12 +24,12 @@ local optionsMod = require("nupp.compiler.cli.options")
 -- The shared `--format` trio, plus the two questions this command answers.
 local function bcOptions(): {any}
     local list = optionsMod.format()
-    list[#list + 1] = {
-        name = "--check",
-        key = "check",
-        help = "Report bytecode a loop cannot compile, and exit non-zero for it",
-    }
-    list[#list + 1] = {
+    list[
+        #list + 1
+    ] = {name = "--check", key = "check", help = "Report bytecode a loop cannot compile, and exit non-zero for it",}
+    list[
+        #list + 1
+    ] = {
         name = "--prologue",
         key = "prologue",
         help = "Include the generated runtime preamble, folded away by default",
@@ -98,17 +98,20 @@ program's answers changes.]],
 }
 
 -- Building a function, and closing the upvalues one captured. LuaJIT records neither.
-local UNRECORDABLE = {
-    FNEW = "builds a function",
-    UCLO = "closes an upvalue",
-}
+local UNRECORDABLE = {FNEW = "builds a function", UCLO = "closes an upvalue",}
 
 -- The back edge of each loop form. Each jumps backwards to the top of its own body, so
 -- the instruction and its target bracket the body.
 local BACK_EDGE = {
-    FORL = true, IFORL = true, JFORL = true,
-    ITERL = true, IITERL = true, JITERL = true,
-    LOOP = true, ILOOP = true, JLOOP = true,
+    FORL = true,
+    IFORL = true,
+    JFORL = true,
+    ITERL = true,
+    IITERL = true,
+    JITERL = true,
+    LOOP = true,
+    ILOOP = true,
+    JLOOP = true,
 }
 
 --- Every instruction of one function, already decoded and located.
@@ -124,7 +127,9 @@ local function instructionsOf(util: any, bc: any, fn: any): {any}
         -- `jit.bc` renders the whole line; the mnemonic is its second field.
         local op = text:match("^%s*%d+%s+=?>?%s*([A-Z][A-Z0-9]*)") or "?"
         local located = util.funcinfo(fn, pc)
-        out[#out + 1] = {
+        out[
+            #out + 1
+        ] = {
             pc = pc,
             op = op,
             text = (text:gsub("\n$", "")),
@@ -157,9 +162,9 @@ local function markLoops(instructions: {any}): nil
             end
         end
     end
-    -- Only a branch can skip anything. A loop header also jumps forward -- `FORI` clears
-    -- the whole body to reach the exit -- and counting that would mark every instruction
-    -- in every loop as skippable, which is the same as not checking at all.
+    -- Only a branch can skip anything. A loop header also jumps forward -- `FORI`
+    -- clears the whole body to reach the exit -- and counting that would mark every
+    -- instruction in every loop as skippable, which is the same as not checking at all.
     --
     -- A conditional branch in this bytecode is a test followed by its `JMP`, so that
     -- pairing is what to look for.
@@ -205,7 +210,9 @@ local function collect(util: any, bc: any, fn: any, depth: integer, into: {any},
             ins.unrecordable = UNRECORDABLE[ins.op]
         end
     end
-    into[#into + 1] = {
+    into[
+        #into + 1
+    ] = {
         what = depth == 0 and "chunk" or "function",
         depth = depth,
         firstLine = info.linedefined,
@@ -275,9 +282,7 @@ local function run(parsed: any): integer
     if (parsed.values.format or "text") == "json" then
         local json = require("cjson").new()
         json.encode_empty_table_as_object(false)
-        io.write(json.encode(
-            {file = path, functions = functions, unrecordable = unrecordable}
-        ) .. "\n")
+        io.write(json.encode({file = path, functions = functions, unrecordable = unrecordable}) .. "\n")
     else
         local lines = sourceLines(source)
         -- The preamble all lands on line 1, so folding it is folding the run of
@@ -285,9 +290,7 @@ local function run(parsed: any): integer
         local prologue = not parsed.values.prologue
         for _, fn in ipairs(functions) do
             local indent = ("  "):rep(fn.depth)
-            io.write(("%s-- %s, lines %s-%s\n"):format(
-                indent, fn.what, tostring(fn.firstLine), tostring(fn.lastLine)
-            ))
+            io.write(("%s-- %s, lines %s-%s\n"):format(indent, fn.what, tostring(fn.firstLine), tostring(fn.lastLine)))
             local shown: integer? = nil
             local folded = 0
             for _, ins in ipairs(fn.instructions) do
@@ -296,9 +299,7 @@ local function run(parsed: any): integer
                     folded = folded + 1
                 else
                     if folded > 0 then
-                        io.write(("%s     ... %d instructions of runtime preamble\n"):format(
-                            indent, folded
-                        ))
+                        io.write(("%s     ... %d instructions of runtime preamble\n"):format(indent, folded))
                         folded = 0
                     end
                     if ins.line and ins.line ~= shown then
@@ -323,9 +324,11 @@ local function run(parsed: any): integer
     end
 
     if parsed.values.check and unrecordable > 0 then
-        io.stderr:write(("nupp: %d instruction%s in a loop that cannot compile\n"):format(
-            unrecordable, unrecordable == 1 and "" or "s"
-        ))
+        io.stderr:write(
+            (
+                "nupp: %d instruction%s in a loop that cannot compile\n"
+            ):format(unrecordable, unrecordable == 1 and "" or "s")
+        )
         return 1
     end
 

@@ -1,0 +1,17 @@
+local m = {}
+
+record m.Row
+    id: integer
+    name: string
+
+    count: integer
+
+    total: number
+
+    --- Documented fields are set off on their own.
+    label: string
+
+    trailing: boolean
+end
+
+return m

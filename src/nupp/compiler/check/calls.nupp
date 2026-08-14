@@ -771,13 +771,9 @@ function calls.install(c: state.Checker): calls.Ops
                 end
             end
             local named = c.pathKey(node.obj) or calleeT.name
-            c.diag(
-                "NUPP2202",
-                node,
-                ("%s is constructed with `new`"):format(named),
-                nil,
-                {help = ("write new %s%s"):format(named, (argsNode and argsNode.table) and "{...}" or "(...)")}
-            )
+            c.diag("NUPP2202", node, ("%s is constructed with `new`"):format(named), nil, {
+                help = ("write new %s%s"):format(named, (argsNode and argsNode.table) and "{...}" or "(...)")
+            })
             for _, arg in ipairs(args) do
                 if not cst.isToken(arg) then
                     c.infer(arg)
@@ -1070,13 +1066,9 @@ function calls.install(c: state.Checker): calls.Ops
             -- in is read off the declaration rather than the call. That is a judgement
             -- about the call site rather than a claim it is wrong, so it is a lint.
             if byOrder and isRecord then
-                c.diag(
-                    "NUPP2512",
-                    node,
-                    ("record %s is constructed by field order"):format(calleeT.name),
-                    nil,
-                    {help = ("write new %s(field = value, ...) to name the fields"):format(declared)}
-                )
+                c.diag("NUPP2512", node, ("record %s is constructed by field order"):format(calleeT.name), nil, {
+                    help = ("write new %s(field = value, ...) to name the fields"):format(declared)
+                })
             end
             for _, field in ipairs(order) do
                 local default = calleeT.fieldDefaults and calleeT.fieldDefaults[field] or nil
@@ -1261,16 +1253,10 @@ function calls.install(c: state.Checker): calls.Ops
                     namedStarted = true
                     local value = argument.value or argument
                     if not isPluckPath(value) then
-                        c.diag(
-                            "NUPP2006",
-                            value,
-                            "a plucked operand must be a name or dotted field path",
-                            nil,
-                            {
-                                help = "bind the producing expression to a local, then pluck from "
-                                .. "that local or one of its dotted fields",
-                            }
-                        )
+                        c.diag("NUPP2006", value, "a plucked operand must be a name or dotted field path", nil, {
+                            help = "bind the producing expression to a local, then pluck from "
+                            .. "that local or one of its dotted fields",
+                        })
                     end
                     local valueType = c.infer(value)
                     if c.ownershipKind(valueType) then
@@ -1864,9 +1850,9 @@ function calls.install(c: state.Checker): calls.Ops
                     local sourceArg = args[j]
                     if movedNode.affineAggregate then
                         node.automaticOwnerMoves = node.automaticOwnerMoves or {}
-                        for _, move in ipairs(
-                            (sourceArg and sourceArg.automaticOwnerMoves) or movedNode.automaticOwnerMoves or {}
-                        ) do
+                        for _, move in ipairs((
+                            sourceArg and sourceArg.automaticOwnerMoves
+                        ) or movedNode.automaticOwnerMoves or {}) do
                             node.automaticOwnerMoves[#node.automaticOwnerMoves + 1] = move
                         end
                     else
@@ -2053,7 +2039,7 @@ function calls.install(c: state.Checker): calls.Ops
                 elseif c.ownershipKind(ats[j]) ~= "pinned" or not entry then
                     c.diag("NUPP2602", argNodes[j] or node, mode .. " argument requires a named Pinned<T> handle")
                 elseif entry.moved then
-                -- The name expression already emitted the use-after-move.
+                    -- The name expression already emitted the use-after-move.
                 elseif mode == "retains" then
                     if entry.retained then
                         c.diag("NUPP2602", nameNode or argNodes[j], "C already retains this pinned handle")

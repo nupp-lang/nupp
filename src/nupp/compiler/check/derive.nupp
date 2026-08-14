@@ -43,26 +43,37 @@ end
 local function providerFilePaths(program)
     local paths, seen = {}, {}
     local function stringLiteral(token)
-        if not token then return nil end
+        if not token then
+            return nil
+        end
         local chunk = loadstring("return " .. token.text)
-        if not chunk then return nil end
+        if not chunk then
+            return nil
+        end
         local ok, value = pcall(chunk)
 
         return ok and type(value) == "string" and value or nil
     end
+
     local function dotted(node)
-        if not node or cst.isToken(node) then return nil end
+        if not node or cst.isToken(node) then
+            return nil
+        end
         if node.kind == "name" then
             return node.token and node.token.text or nil
         elseif node.kind == "dotIndex" then
             local left = dotted(node.obj)
             return left and node.name and (left .. "." .. node.name.text) or nil
         end
+
         return nil
     end
+
     local dynamic
     local function visit(node)
-        if type(node) ~= "table" or cst.isToken(node) then return end
+        if type(node) ~= "table" or cst.isToken(node) then
+            return
+        end
         if node.kind == "call" and dotted(node.obj) == "nupp.derive.file" then
             local args = node.args and node.args.exprs or {}
             local first = args[1]
@@ -77,18 +88,23 @@ local function providerFilePaths(program)
                 dynamic = node
             end
         end
-        for _, child in ipairs(node) do visit(child) end
+        for _, child in ipairs(node) do
+            visit(child)
+        end
     end
 
     visit(program and program.helper)
-    for _, helper in pairs(program and program.helpers or {}) do visit(helper) end
+    for _, helper in pairs(program and program.helpers or {}) do
+        visit(helper)
+    end
     for name, descriptor in pairs(program and program.serializedHelpers or {}) do
         if type(descriptor) == "table" and type(descriptor.source) == "string" then
-            local parsed = require("nupp.compiler.parser").parse(
-                descriptor.source,
-                "=provider-input-" .. tostring(name)
-            )
-            if #(parsed.errors or {}) == 0 then visit(parsed.root) end
+            local parsed = require(
+                "nupp.compiler.parser"
+            ).parse(descriptor.source, "=provider-input-" .. tostring(name))
+            if #(parsed.errors or {}) == 0 then
+                visit(parsed.root)
+            end
         end
     end
     table.sort(paths)
@@ -218,13 +234,9 @@ function derive.install(c: state.Checker): derive.Ops
                 aborted, abortReason = true, "budget"
                 if not budgetReported then
                     budgetReported = true
-                    c.diag(
-                        "NUPP2808",
-                        at,
-                        "derive recipe construction exhausted its cooperative work budget",
-                        nil,
-                        {help = "split the declaration or increase the derive recipe budget"}
-                    )
+                    c.diag("NUPP2808", at, "derive recipe construction exhausted its cooperative work budget", nil, {
+                        help = "split the declaration or increase the derive recipe budget"
+                    })
                 end
                 return false
             end
@@ -326,29 +338,29 @@ function derive.install(c: state.Checker): derive.Ops
             for index, node in ipairs(descriptor and descriptor.types or {}) do
                 local source = descriptor.sources and descriptor.sources[index] or nil
                 if node.nominal and source then
-                    permittedReferences[prefix .. ":" .. tostring(index)] = {
+                    permittedReferences[
+                        prefix .. ":" .. tostring(index)
+                    ] = {
                         source = source,
                         fingerprint = node.referenceFingerprint or reflection.describe(source).fingerprint,
                     }
                 end
             end
         end
+
         permit(input.ownerType, "owner")
         if item.ownerDescriptor.root then
             local rootNode = item.ownerDescriptor.types[item.ownerDescriptor.root]
-            permittedReferences["owner:" .. tostring(item.ownerDescriptor.root)] = {
-                source = n,
-                fingerprint = rootNode.referenceFingerprint or reflection.describe(n).fingerprint,
-            }
+            permittedReferences[
+                "owner:" .. tostring(item.ownerDescriptor.root)
+            ] = {source = n, fingerprint = rootNode.referenceFingerprint or reflection.describe(n).fingerprint,}
         end
-        if input.interfaceType then permit(input.interfaceType, "interface") end
+        if input.interfaceType then
+            permit(input.interfaceType, "interface")
+        end
         local filePaths, dynamicFile = providerFilePaths(provider.sealedProgram)
         if dynamicFile then
-            c.diag(
-                "NUPP2810",
-                dynamicFile,
-                "derive.file needs one project-relative path written as a string literal"
-            )
+            c.diag("NUPP2810", dynamicFile, "derive.file needs one project-relative path written as a string literal")
             return
         end
         input.providerFiles = {}
@@ -368,16 +380,10 @@ function derive.install(c: state.Checker): derive.Ops
             end
             local bytes = c.env and c.env.externalFile and c.env.externalFile(c.env, absolute) or nil
             if bytes == nil then
-                c.diag(
-                    "NUPP2810",
-                    provider.site.arg.expr or provider.site.arg,
-                    "derive.file cannot read " .. absolute
-                )
+                c.diag("NUPP2810", provider.site.arg.expr or provider.site.arg, "derive.file cannot read " .. absolute)
                 return
             end
-            local fingerprint = hash.sha256(
-                table.concat({"provider-file-v1", authoredPath, bytes}, "\0")
-            )
+            local fingerprint = hash.sha256(table.concat({"provider-file-v1", authoredPath, bytes}, "\0"))
             input.providerFiles[authoredPath] = bytes
             input.providerInputDescriptors[
                 #input.providerInputDescriptors + 1
@@ -573,7 +579,11 @@ function derive.install(c: state.Checker): derive.Ops
             if fieldIndex then
                 at = nodes[(n.fieldOrder or {})[fieldIndex]]
             end
-            c.diag(envelope.payload.code or "NUPP2810", at or provider.site.arg.expr or provider.site.arg, envelope.payload.message)
+            c.diag(
+                envelope.payload.code or "NUPP2810",
+                at or provider.site.arg.expr or provider.site.arg,
+                envelope.payload.message
+            )
             return
         end
         if envelope.family ~= "Result"
@@ -647,8 +657,9 @@ function derive.install(c: state.Checker): derive.Ops
                         c.diag(
                             "NUPP2811",
                             provider.site.arg.expr or provider.site.arg,
-                            "derive member " .. methodName .. " has an invalid function signature: "
-                                .. tostring(signatureFailure and signatureFailure.message or "expected a function type")
+                            "derive member " .. methodName .. " has an invalid function signature: " .. tostring(
+                                signatureFailure and signatureFailure.message or "expected a function type"
+                            )
                         )
                     elseif #(recipe.parameters or {}) ~= #callable.params - (isStatic and 0 or 1) then
                         c.diag(
@@ -682,9 +693,11 @@ function derive.install(c: state.Checker): derive.Ops
                         provider.site.arg.expr or provider.site.arg,
                         "a derive cannot replace an interface default"
                     )
-                elseif not declared and ((
-                    not isStatic and contract.overloadedMethods and contract.overloadedMethods[methodName]
-                ) or requirement.tag == "intersection") then
+                elseif not declared and (
+                    (
+                        not isStatic and contract.overloadedMethods and contract.overloadedMethods[methodName]
+                    ) or requirement.tag == "intersection"
+                ) then
                     c.diag(
                         "NUPP2811",
                         provider.site.arg.expr or provider.site.arg,
@@ -710,7 +723,9 @@ function derive.install(c: state.Checker): derive.Ops
                     callable = callable or generics.specializeSelf(contract, requirement, n) as T.Func
                     if declared then
                         callable.paramNames = {}
-                        if not isStatic then callable.paramNames[1] = "self" end
+                        if not isStatic then
+                            callable.paramNames[1] = "self"
+                        end
                         for index, parameter in ipairs(recipe.parameters or {}) do
                             callable.paramNames[index + (isStatic and 0 or 1)] = parameter
                         end
@@ -935,10 +950,7 @@ function derive.install(c: state.Checker): derive.Ops
         plan.providerABI[provider.label] = 1
         plan.inputs = plan.inputs or {}
         for _, input in ipairs(providerInputs) do
-            plan.inputs[#plan.inputs + 1] = {
-                identity = input.identity,
-                fingerprint = input.fingerprint,
-            }
+            plan.inputs[#plan.inputs + 1] = {identity = input.identity, fingerprint = input.fingerprint,}
         end
     end
 
@@ -972,21 +984,19 @@ function derive.install(c: state.Checker): derive.Ops
                     if args[index + 1] then
                         first = token(candidate)
                         last = token(args[index + 1])
-                        return c.edits.fix(
-                            title,
-                            {offset = first.offset, length = last.offset - first.offset, newText = "",}
-                        )
+                        return c.edits.fix(title, {
+                            offset = first.offset,
+                            length = last.offset - first.offset,
+                            newText = "",
+                        })
                     end
                     local prior = lastToken(args[index - 1])
                     first, last = prior, lastToken(candidate)
-                    return c.edits.fix(
-                        title,
-                        {
-                            offset = first.offset + #first.text,
-                            length = last.offset + #last.text - (first.offset + #first.text),
-                            newText = "",
-                        }
-                    )
+                    return c.edits.fix(title, {
+                        offset = first.offset + #first.text,
+                        length = last.offset + #last.text - (first.offset + #first.text),
+                        newText = "",
+                    })
                 end
             end
         end
@@ -994,10 +1004,11 @@ function derive.install(c: state.Checker): derive.Ops
             return nil
         end
 
-        return c.edits.fix(
-            title,
-            {offset = first.offset, length = last.offset + #last.text - first.offset, newText = "",}
-        )
+        return c.edits.fix(title, {
+            offset = first.offset,
+            length = last.offset + #last.text - first.offset,
+            newText = "",
+        })
     end
 
     addDefinition = function(n, name, signature, tok, kind, provider, isStatic, site, allowRequirement)
@@ -1224,7 +1235,6 @@ function derive.install(c: state.Checker): derive.Ops
         relations.invalidate()
     end
 
-
     function ops.finalize()
         if aborted or not probe(pending[1] and pending[1].stat or nil) then
             abortAll()
@@ -1236,18 +1246,17 @@ function derive.install(c: state.Checker): derive.Ops
 
         for _, item in ipairs(pending) do
             if not probe(item.stat) then
-                abortAll()
-                ;
+                abortAll();
                 return
             end
             local stat, n = item.stat, item.nominal
             recipeLimitAt = origin(item, item.order[1])
             local nodes = item.fieldNodes
             local plan = item.plan
-            local canonical, canonicalError = recipeCodec.canonicalRoot(
-                plan,
-                {limit = maxCanonicalBytes, probe = serializationProbe,}
-            )
+            local canonical, canonicalError = recipeCodec.canonicalRoot(plan, {
+                limit = maxCanonicalBytes,
+                probe = serializationProbe,
+            })
             if not canonical then
                 if canonicalError == "limit" then
                     c.diag(
@@ -1262,10 +1271,10 @@ function derive.install(c: state.Checker): derive.Ops
             end
             item.canonicalBytes = #canonical
             plan.fingerprint = hash.sha256("nupp.derive\0v2\0" .. canonical)
-            local rendered, renderError = recipeCodec.render(
-                plan,
-                {limit = maxOutputBytes, probe = serializationProbe,}
-            )
+            local rendered, renderError = recipeCodec.render(plan, {
+                limit = maxOutputBytes,
+                probe = serializationProbe,
+            })
             if not rendered then
                 if renderError == "limit" then
                     c.diag(
@@ -1295,7 +1304,9 @@ function derive.install(c: state.Checker): derive.Ops
         end
 
         local function recordDependencies(value, out, seen)
-            if type(value) ~= "table" or seen[value] then return end
+            if type(value) ~= "table" or seen[value] then
+                return
+            end
             seen[value] = true
             for key, child in pairs(value) do
                 if key == "typeKey" and type(child) == "string" then
@@ -1344,7 +1355,9 @@ function derive.install(c: state.Checker): derive.Ops
             table.sort(contracts)
             local dependencySet, dependencies = {}, {}
             recordDependencies(n.deriveRecipe and n.deriveRecipe.data, dependencySet, {})
-            for dependency in pairs(dependencySet) do dependencies[#dependencies + 1] = dependency end
+            for dependency in pairs(dependencySet) do
+                dependencies[#dependencies + 1] = dependency
+            end
             table.sort(dependencies)
             interface[
                 #interface + 1
@@ -1396,19 +1409,24 @@ function derive.install(c: state.Checker): derive.Ops
                         providerMembers = providerMembers + 1
                     end
                 end
-                observations[
-                    #observations + 1
-                ] = {provider = provider, owner = item.nominal.name, semanticFingerprint = item.nominal.deriveRecipe and item.nominal.deriveRecipe.fingerprint or nil, generatedMembers = providerMembers, canonicalBytes = item.canonicalBytes or 0, renderedBytes = item.renderedBytes or 0, effects = provider == item.providerLabels.JSON and {
-                    "native.cjson",
-                    "stdlib.derives"
-                } or {
-                    "stdlib.derives"
-                }, cached = item.recipeCached and true or false, durationMs = math.floor(
-                    (os.clock() - item.startedAt) * 1000000 + 0.5
-                ) / 1000,
+                observations[#observations + 1] = {
+                    provider = provider,
+                    owner = item.nominal.name,
+                    semanticFingerprint = item.nominal.deriveRecipe and item.nominal.deriveRecipe.fingerprint or nil,
+                    generatedMembers = providerMembers,
+                    canonicalBytes = item.canonicalBytes or 0,
+                    renderedBytes = item.renderedBytes or 0,
+                    effects = provider == item.providerLabels.JSON and {
+                        "native.cjson",
+                        "stdlib.derives"
+                    } or {"stdlib.derives"},
+                    cached = item.recipeCached and true or false,
+                    durationMs = math.floor((os.clock() - item.startedAt) * 1000000 + 0.5) / 1000,
                     -- Closed recipes allocate exactly these maxima regardless of
                     -- field count: two setup locals and at most one captured entry.
-                    generatedLocals = 2, maxGeneratedUpvalues = 1,}
+                    generatedLocals = 2,
+                    maxGeneratedUpvalues = 1,
+                }
             end
         end
         c.result.deriveObservations = observations

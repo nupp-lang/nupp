@@ -1,1 +1,5 @@
 host/notices/*.txt text eol=lf
+
+# The formatter corpus is bytes under test: a case exists to prove what the
+# formatter does with the line endings it was given, so nothing normalizes them.
+tests/fmtcorpus/** -text

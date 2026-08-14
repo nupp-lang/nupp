@@ -83,9 +83,7 @@ local function run(parsed: any): integer
         return command:usageError("unknown diagnostic code " .. positional[1])
     end
     if asJson then
-        require(
-            "nupp.compiler.cli.report"
-        ).write({
+        require("nupp.compiler.cli.report").write({
             code = entry.code,
             summary = entry.summary,
             rule = entry.rule,

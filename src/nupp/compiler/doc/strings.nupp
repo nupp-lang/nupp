@@ -25,36 +25,41 @@ local function markdownCell(text: string): string
 end
 
 local function htmlEscape(text: string?): string, integer?
-    return tostring(
-        text or ""
-    ):gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;"):gsub("'", "&#39;")
+    return tostring(text or "")
+        :gsub("&", "&amp;")
+        :gsub("<", "&lt;")
+        :gsub(">", "&gt;")
+        :gsub('"', "&quot;")
+        :gsub("'", "&#39;")
 end
 
 local function headingId(text: string): string
-    local id = text:lower():gsub(
-        "`",
-        ""
-    ):gsub("<[^>]+>", ""):gsub("[^%w%s_-]", ""):gsub("[%s_]+", "-"):gsub("%-+", "-"):gsub("^%-", ""):gsub("%-$", "")
+    local id = text:lower()
+        :gsub("`", "")
+        :gsub("<[^>]+>", "")
+        :gsub("[^%w%s_-]", "")
+        :gsub("[%s_]+", "-")
+        :gsub("%-+", "-")
+        :gsub("^%-", "")
+        :gsub("%-$", "")
 
     return id ~= "" and id or "section"
 end
 
 local function summaryText(text: string?): string
-    text = tostring(
-        text or ""
-    ):gsub(
-        "```[%s%S]-```",
-        " "
-    ):gsub(
+    text = tostring(text or ""):gsub("```[%s%S]-```", " "):gsub(
         -- A cross-reference written with no link text stands for the name it points at,
         -- so that name is what it reduces to here. Letting the general rule below take
         -- it leaves the sentence a word short.
         "%[%]%(([^%)]+)%)",
         "%1"
-    ):gsub(
-        "%[([^%]]+)%]%([^%)]+%)",
-        "%1"
-    ):gsub("`([^`]*)`", "%1"):gsub("[*_~#]", ""):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+    )
+        :gsub("%[([^%]]+)%]%([^%)]+%)", "%1")
+        :gsub("`([^`]*)`", "%1")
+        :gsub("[*_~#]", "")
+        :gsub("%s+", " ")
+        :gsub("^%s+", "")
+        :gsub("%s+$", "")
     local sentence = text:match("^(.-[.!?])%s")
     text = sentence or text
     if #text > 120 then

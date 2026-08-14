@@ -43,6 +43,7 @@ function observe.collect(root: any, filename: string?): {any}
             walk(child)
         end
     end
+
     walk(root)
 
     return found

@@ -1731,8 +1731,7 @@ function types.packUnion(alternatives: {types.Pack}): types.Pack
     for _, p in ipairs(alternatives) do
         for _, q in ipairs(p.alternatives or {p}) do
             if not seen[q.id] then
-                seen[q.id] = true
-                ;
+                seen[q.id] = true;
                 flat[#flat + 1] = q
             end
         end
@@ -2569,8 +2568,18 @@ local nominalCounter: integer = 0
 --- @param declKind "record", "interface" or "struct"
 function types.nominal(name: string, declKind: string): types.Nominal
     nominalCounter = nominalCounter + 1
-    local t = new types.Nominal(tag = "nominal", declKind = declKind, name = name, byname = {}, -- populated while the declaration is checked
-        writeByname = {}, staticByname = {}, staticWriteByname = {}, metamethods = {}, nestedTypes = {}, defaultDropOperations = {})
+    local t = new types.Nominal(
+        tag = "nominal",
+        declKind = declKind,
+        name = name,
+        byname = {}, -- populated while the declaration is checked
+        writeByname = {},
+        staticByname = {},
+        staticWriteByname = {},
+        metamethods = {},
+        nestedTypes = {},
+        defaultDropOperations = {}
+    )
     t.id = "nominal#" .. nominalCounter .. "(" .. name .. ")"
 
     return t

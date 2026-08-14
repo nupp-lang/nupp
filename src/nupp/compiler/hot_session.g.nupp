@@ -144,7 +144,10 @@ local function cdefFingerprint(parsed)
             or node.kind == "cdefFunc"
             or node.cdefDeclarationBlock
             or node.cheaderCdef
-            or node.kind == "pragmaStmt" and wrapsCdef(node)
+            or node.kind == "pragmaStmt"
+            and wrapsCdef(
+            node
+        )
     end
 
     local function visit(node, inside)
@@ -231,9 +234,7 @@ local function interfaceFingerprint(moduleType, exports)
             exports.nominalEffectFingerprint or ""
         ) .. "\0derives:" .. (
             exports.deriveInterfaceFingerprint or ""
-        ) .. "\0comptime-functions:" .. (
-            exports.comptimeFunctionFingerprint or ""
-        )
+        ) .. "\0comptime-functions:" .. (exports.comptimeFunctionFingerprint or "")
     )
 end
 
@@ -277,8 +278,12 @@ local function cDeclarationChange(old, current)
     local oldUses = old.cUses or {}
     local nextUses = current.cUses or oldUses
     local identities = {}
-    for identity in pairs(oldDeclarations) do identities[identity] = true end
-    for identity in pairs(nextDeclarations) do identities[identity] = true end
+    for identity in pairs(oldDeclarations) do
+        identities[identity] = true
+    end
+    for identity in pairs(nextDeclarations) do
+        identities[identity] = true
+    end
     for identity in pairs(nextUses) do
         local declaration = nextDeclarations[identity] or oldDeclarations[identity]
         if not oldUses[identity] and declaration and not declaration.runtimeBinding then
@@ -286,15 +291,16 @@ local function cDeclarationChange(old, current)
         end
     end
     local ordered = {}
-    for identity in pairs(identities) do ordered[#ordered + 1] = identity end
+    for identity in pairs(identities) do
+        ordered[#ordered + 1] = identity
+    end
     table.sort(ordered)
     for _, identity in ipairs(ordered) do
         local before, after = oldDeclarations[identity], nextDeclarations[identity]
         local changed = not before or not after or before.semantic ~= after.semantic
-        local relevant = before and before.runtimeBinding
-            or after and after.runtimeBinding
-            or oldUses[identity]
-            or nextUses[identity]
+        local relevant = before and before.runtimeBinding or after and after.runtimeBinding or oldUses[
+            identity
+        ] or nextUses[identity]
         if changed and relevant then
             return before or after, not before and "added" or not after and "removed" or "changed"
         end
@@ -322,9 +328,12 @@ local function snapshotChanged(previous, candidate, consumer)
         local old = previous.inputs[identity]
         local current = candidate.inputs[identity]
         if not current or current.fingerprint ~= old.fingerprint then
-            local kind = old.binary and "native-artifact"
-                or old.kind == "header" and "header-abi"
-                or old.kind == "provider-file" and "provider-input"
+            local kind = old.binary
+                and "native-artifact"
+                or old.kind == "header"
+                and "header-abi"
+                or old.kind == "provider-file"
+                and "provider-input"
                 or "semantic-input"
             return {
                 kind = kind,
@@ -643,18 +652,13 @@ function Session:compile(path, mode, module, only)
     if not abi then
         return nil, abiFailure
     end
-    local code, generated, _, _, metadata = gen.generate(
-        checked.result,
-        path,
-        nil,
-        {
-            mode = mode,
-            module = module,
-            baseGeneration = mode == "patch" and self.generation or nil,
-            only = only,
-            libraries = self.libraryPaths,
-        }
-    )
+    local code, generated, _, _, metadata = gen.generate(checked.result, path, nil, {
+        mode = mode,
+        module = module,
+        baseGeneration = mode == "patch" and self.generation or nil,
+        only = only,
+        libraries = self.libraryPaths,
+    })
     if fatalIn(generated) then
         return nil, diagnosticsFailure(generated)
     end
@@ -820,36 +824,40 @@ function Session:prepare(paths)
                 return restart(path, dependencyChangeMessage(abiChange, module, path), abiChange)
             end
             if live.structure ~= nextManifest.structure then
-                return restart(
-                    path,
-                    "top-level structure changed in " .. module,
-                    {kind = "source-structure", dependency = module, path = path, consumer = module,}
-                )
+                return restart(path, "top-level structure changed in " .. module, {
+                    kind = "source-structure",
+                    dependency = module,
+                    path = path,
+                    consumer = module,
+                })
             end
             local oldByID, nextByID = indexed(live), indexed(nextManifest)
             local only = {}
             for id, old in pairs(oldByID) do
                 local nextFn = nextByID[id]
                 if not nextFn or nextFn.slot ~= old.slot then
-                    return restart(
-                        path,
-                        "reloadable declaration changed: " .. id,
-                        {kind = "reloadable-declaration", dependency = id, path = path, consumer = module,}
-                    )
+                    return restart(path, "reloadable declaration changed: " .. id, {
+                        kind = "reloadable-declaration",
+                        dependency = id,
+                        path = path,
+                        consumer = module,
+                    })
                 end
                 if nextFn.signature ~= old.signature then
-                    return restart(
-                        path,
-                        "callable signature changed: " .. id,
-                        {kind = "callable-abi", dependency = id, path = path, consumer = module,}
-                    )
+                    return restart(path, "callable signature changed: " .. id, {
+                        kind = "callable-abi",
+                        dependency = id,
+                        path = path,
+                        consumer = module,
+                    })
                 end
                 if not sameCaptures(old.captures, nextFn.captures) then
-                    return restart(
-                        path,
-                        "captured bindings changed: " .. id,
-                        {kind = "capture-set", dependency = id, path = path, consumer = module,}
-                    )
+                    return restart(path, "captured bindings changed: " .. id, {
+                        kind = "capture-set",
+                        dependency = id,
+                        path = path,
+                        consumer = module,
+                    })
                 end
                 if nextFn.implementation ~= old.implementation then
                     if not old.patchable then
@@ -873,11 +881,12 @@ function Session:prepare(paths)
             end
             for id in pairs(nextByID) do
                 if not oldByID[id] then
-                    return restart(
-                        path,
-                        "reloadable declaration was added: " .. id,
-                        {kind = "reloadable-declaration", dependency = id, path = path, consumer = module,}
-                    )
+                    return restart(path, "reloadable declaration was added: " .. id, {
+                        kind = "reloadable-declaration",
+                        dependency = id,
+                        path = path,
+                        consumer = module,
+                    })
                 end
             end
             if next(only) then

@@ -109,10 +109,9 @@ end
 
 -- Whether a summary describes a function that reaches nothing at all.
 --
--- Both halves are asked of `nupp.compiler.analysis` rather than restated here. Unknown is
--- not
--- inert, which is the first half: `top` is the analysis giving up and `external` is a
--- body belonging to somebody else, and neither is a promise that nothing happens.
+-- Both halves are asked of `nupp.compiler.analysis` rather than restated here. Unknown
+-- is not inert, which is the first half: `top` is the analysis giving up and `external`
+-- is a body belonging to somebody else, and neither is a promise that nothing happens.
 local function closed(queries: any, summary: any): boolean
     return queries.visible(summary) and queries.free(summary, EFFECTFUL)
 end
@@ -227,10 +226,13 @@ function discard.install(c: state.Checker): discard.Ops
         if not tok or not tok.definition then
             return
         end
-        candidates[#candidates + 1] = {call = call, tok = tok,
+        candidates[#candidates + 1] = {
+            call = call,
+            tok = tok,
             -- Settled here because the statement's `@allow` is in scope here and gone
             -- by the time the sweep runs.
-            allowed = c.suppressed("discarded-result"),}
+            allowed = c.suppressed("discarded-result"),
+        }
     end
 
     --- Reports every registered statement whose callee turned out to have nothing to do

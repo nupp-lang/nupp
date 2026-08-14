@@ -434,8 +434,7 @@ local function inferFunction(info, byDefinition)
         local index
         for j, name in ipairs(callee.paramNames or {}) do
             if name == root then
-                index = j
-                ;
+                index = j;
                 break
             end
         end
@@ -1107,8 +1106,7 @@ function queries.body(body: any, byDefinition: any): any
                     local index
                     for j, name in ipairs(known.paramNames) do
                         if name == root then
-                            index = j
-                            ;
+                            index = j;
                             break
                         end
                     end

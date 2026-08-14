@@ -253,7 +253,14 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
 
     local json = registry:get("json")
     json.members = {
-        unknown = member("unknown", typesApi.union({typesApi.literal("reject"), typesApi.literal("ignore")}), true),
+        unknown = member(
+            "unknown",
+            typesApi.union({
+                typesApi.literal("reject"),
+                typesApi.literal("ignore")
+            }),
+            true
+        ),
         name = member("name", optional(typesApi.string), true),
         omit = member("omit", optional(typesApi.boolean), true),
         omitEmpty = member("omitEmpty", optional(typesApi.boolean), true),

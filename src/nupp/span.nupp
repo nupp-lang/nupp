@@ -23,14 +23,14 @@ end
 sealed interface span.Span<T> is span.CountedSpan
     readonly count: integer
     get: function(self: Span<T>, index: integer): T
-    slice: function(self: Span<T>, first: integer, last: integer?): Span<T> borrows(self)
-    ref: function(self: Span<T>): (const T[?] borrows(self), integer)
+    slice: function(self: Span<T>, first: integer, last: integer?): Span<T> borrows (self)
+    ref: function(self: Span<T>): (const T[?] borrows (self), integer)
 end
 
 --- The sole runtime representation of a dynamic shared span.
 local record SpanImpl<T> is span.Span<T>
     private readonly anchor: any
-    private readonly pointer: const T[?] borrows(anchor)
+    private readonly pointer: const T[?] borrows (anchor)
     private readonly offset: integer
     readonly count: integer
 
@@ -47,7 +47,7 @@ local record SpanImpl<T> is span.Span<T>
 
     --- Returns a checked subspan, inclusive at both ends.
     --- @raises when the requested range is outside this span
-    function slice(self: SpanImpl<T>, first: integer, last: integer?): span.Span<T> borrows(self)
+    function slice(self: SpanImpl<T>, first: integer, last: integer?): span.Span<T> borrows (self)
         local finish = last or self.count
         if first < 1 or finish < first - 1 or finish > self.count then
             error("span slice out of bounds", 2)
@@ -62,7 +62,7 @@ local record SpanImpl<T> is span.Span<T>
     end
 
     --- Exposes the checked range as a const pointer/count pair for a native call.
-    function ref(self: SpanImpl<T>): (const T[?] borrows(self), integer)
+    function ref(self: SpanImpl<T>): (const T[?] borrows (self), integer)
         unsafe do
             local pointer = (self.pointer as const T*) + self.offset
             return borrowFrom(pointer as const T[?], self), self.count
@@ -80,7 +80,7 @@ end
 --- The sole runtime representation of a fixed shared span.
 local record FixedSpanImpl<T, const N: integer> is span.FixedSpan<T, N>
     private readonly anchor: any
-    private readonly pointer: const T[?] borrows(anchor)
+    private readonly pointer: const T[?] borrows (anchor)
     private readonly offset: integer
     readonly count: N
 
@@ -93,7 +93,7 @@ local record FixedSpanImpl<T, const N: integer> is span.FixedSpan<T, N>
         end
     end
 
-    function slice(self: FixedSpanImpl<T, N>, first: integer, last: integer?): span.Span<T> borrows(self)
+    function slice(self: FixedSpanImpl<T, N>, first: integer, last: integer?): span.Span<T> borrows (self)
         local finish = last or (self.count as integer)
         if first < 1 or finish < first - 1 or finish > (self.count as integer) then
             error("span slice out of bounds", 2)
@@ -107,7 +107,7 @@ local record FixedSpanImpl<T, const N: integer> is span.FixedSpan<T, N>
         ) as span.Span<T>
     end
 
-    function ref(self: FixedSpanImpl<T, N>): (const T[?] borrows(self), integer)
+    function ref(self: FixedSpanImpl<T, N>): (const T[?] borrows (self), integer)
         unsafe do
             local pointer = (self.pointer as const T*) + self.offset
             return borrowFrom(pointer as const T[?], self), self.count as integer
@@ -121,8 +121,8 @@ end
 --- @export
 record span.WriteSplit<T>
     private readonly anchor: any
-    readonly left: span.WriteSpan<T> borrows(anchor)
-    readonly right: span.WriteSpan<T> borrows(anchor)
+    readonly left: span.WriteSpan<T> borrows (anchor)
+    readonly right: span.WriteSpan<T> borrows (anchor)
 end
 
 --- An affine checked write range. Its live token keeps the source under an
@@ -133,30 +133,30 @@ sealed interface span.WriteSpan<T> is span.CountedSpan
     readonly count: integer
     @drop
     commit: nosuspend function(takes self: WriteSpan<T>): nil
-    getMut: function(exclusive self: WriteSpan<T>, index: integer): T* borrows(self)
+    getMut: function(exclusive self: WriteSpan<T>, index: integer): T* borrows (self)
     set: function(exclusive self: WriteSpan<T>, index: integer, value: T): nil
-    ref: function(exclusive self: WriteSpan<T>): (T[?] borrows(self), integer)
-    shared: function(borrows self: WriteSpan<T>): span.Span<T> borrows(self)
+    ref: function(exclusive self: WriteSpan<T>): (T[?] borrows (self), integer)
+    shared: function(borrows self: WriteSpan<T>): span.Span<T> borrows (self)
     slice: function(
         exclusive self: WriteSpan<T>,
         first: integer,
         last: integer?
-    ): Owned<span.WriteSpan<T>> borrows(self)
+    ): Owned<span.WriteSpan<T>> borrows (self)
     @partition(left, right)
-    splitAt: function(exclusive self: WriteSpan<T>, mid: integer): span.WriteSplit<T> borrows(self)
+    splitAt: function(exclusive self: WriteSpan<T>, mid: integer): span.WriteSplit<T> borrows (self)
 end
 
 --- A writable span whose exact element count is part of its static type.
 --- @export
 sealed interface span.FixedWriteSpan<T, const N: integer> is span.WriteSpan<T>
     readonly count: N
-    shared: function(borrows self: FixedWriteSpan<T, N>): span.FixedSpan<T, N> borrows(self)
+    shared: function(borrows self: FixedWriteSpan<T, N>): span.FixedSpan<T, N> borrows (self)
 end
 
 --- The sole runtime representation of a dynamic writable span.
 local record WriteSpanImpl<T> is span.WriteSpan<T>
     private readonly anchor: any
-    private readonly pointer: T[?] borrows(anchor)
+    private readonly pointer: T[?] borrows (anchor)
     private readonly offset: integer
     readonly count: integer
 
@@ -167,7 +167,7 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
 
     --- Returns a checked mutable element reference tied to this write borrow.
     --- @raises when index is outside 1 through count
-    function getMut(exclusive self: WriteSpanImpl<T>, index: integer): T* borrows(self)
+    function getMut(exclusive self: WriteSpanImpl<T>, index: integer): T* borrows (self)
         if index < 1 or index > self.count then
             error("write span index out of bounds", 2)
         end
@@ -188,7 +188,7 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
     end
 
     --- Exposes the checked range as a mutable pointer/count pair for a native call.
-    function ref(exclusive self: WriteSpanImpl<T>): (T[?] borrows(self), integer)
+    function ref(exclusive self: WriteSpanImpl<T>): (T[?] borrows (self), integer)
         unsafe do
             local pointer = (self.pointer as T*) + self.offset
             return borrowFrom(pointer as T[?], self), self.count
@@ -196,7 +196,7 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
     end
 
     --- Downgrades this writer to a shared view for the lifetime of the result.
-    function shared(borrows self: WriteSpanImpl<T>): span.Span<T> borrows(self)
+    function shared(borrows self: WriteSpanImpl<T>): span.Span<T> borrows (self)
         return new SpanImpl(
             anchor = self,
             pointer = self.pointer as any,
@@ -211,7 +211,7 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
         exclusive self: WriteSpanImpl<T>,
         first: integer,
         last: integer?
-    ): Owned<span.WriteSpan<T>> borrows(self)
+    ): Owned<span.WriteSpan<T>> borrows (self)
         local finish = last or self.count
         if first < 1 or finish < first - 1 or finish > self.count then
             error("write span slice out of bounds", 2)
@@ -227,7 +227,7 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
 
     --- Partitions this range at a zero-based boundary count.
     --- @raises when mid is negative or greater than count
-    function splitAt(exclusive self: WriteSpanImpl<T>, mid: integer): span.WriteSplit<T> borrows(self)
+    function splitAt(exclusive self: WriteSpanImpl<T>, mid: integer): span.WriteSplit<T> borrows (self)
         if mid < 0 or mid > self.count then
             error("write span split point out of bounds", 2)
         end
@@ -256,14 +256,14 @@ end
 --- The sole runtime representation of a fixed writable span.
 local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N>
     private readonly anchor: any
-    private readonly pointer: T[?] borrows(anchor)
+    private readonly pointer: T[?] borrows (anchor)
     private readonly offset: integer
     readonly count: N
 
     @drop
     commit: nosuspend function(takes self: FixedWriteSpanImpl<T, N>): nil
 
-    function getMut(exclusive self: FixedWriteSpanImpl<T, N>, index: integer): T* borrows(self)
+    function getMut(exclusive self: FixedWriteSpanImpl<T, N>, index: integer): T* borrows (self)
         if index < 1 or index > (self.count as integer) then
             error("write span index out of bounds", 2)
         end
@@ -283,14 +283,14 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
         end
     end
 
-    function ref(exclusive self: FixedWriteSpanImpl<T, N>): (T[?] borrows(self), integer)
+    function ref(exclusive self: FixedWriteSpanImpl<T, N>): (T[?] borrows (self), integer)
         unsafe do
             local pointer = (self.pointer as T*) + self.offset
             return borrowFrom(pointer as T[?], self), self.count as integer
         end
     end
 
-    function shared(borrows self: FixedWriteSpanImpl<T, N>): span.FixedSpan<T, N> borrows(self)
+    function shared(borrows self: FixedWriteSpanImpl<T, N>): span.FixedSpan<T, N> borrows (self)
         return new FixedSpanImpl(
             anchor = self,
             pointer = self.pointer as any,
@@ -303,7 +303,7 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
         exclusive self: FixedWriteSpanImpl<T, N>,
         first: integer,
         last: integer?
-    ): Owned<span.WriteSpan<T>> borrows(self)
+    ): Owned<span.WriteSpan<T>> borrows (self)
         local finish = last or (self.count as integer)
         if first < 1 or finish < first - 1 or finish > (self.count as integer) then
             error("write span slice out of bounds", 2)
@@ -317,7 +317,7 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
         ) as span.WriteSpan<T>
     end
 
-    function splitAt(exclusive self: FixedWriteSpanImpl<T, N>, mid: integer): span.WriteSplit<T> borrows(self)
+    function splitAt(exclusive self: FixedWriteSpanImpl<T, N>, mid: integer): span.WriteSplit<T> borrows (self)
         if mid < 0 or mid > (self.count as integer) then
             error("write span split point out of bounds", 2)
         end
@@ -373,7 +373,7 @@ type span.ByteWriteSpan = span.WriteSpan<uint8>
 
 --- Creates a byte span over a Lua string and keeps that string rooted.
 --- @export
-function span.fromString(borrows source: string): span.ByteSpan borrows(source)
+function span.fromString(borrows source: string): span.ByteSpan borrows (source)
     local pointer = ffi.cast<const uint8[?]>(source)
     return (new SpanImpl(anchor = source, pointer = pointer as any, offset = 0, count = #source)) as span.ByteSpan
 end
@@ -381,7 +381,7 @@ end
 --- Creates a checked shared span over a C array and an explicit logical count.
 --- @export
 --- @raises when count is negative
-function span.fromCarray<T>(borrows source: T[?], count: integer): span.Span<T> borrows(source)
+function span.fromCarray<T>(borrows source: T[?], count: integer): span.Span<T> borrows (source)
     if count < 0 then
         error("span count cannot be negative", 2)
     end
@@ -391,7 +391,10 @@ end
 --- Creates a fixed shared span without a runtime length check. The literal count is
 --- both the stored count and the proof that the source has exactly `N` elements.
 --- @export
-function span.fromFixedCarray<T, const N: integer>(borrows source: T[N], count: N): span.FixedSpan<T, N> borrows(source)
+function span.fromFixedCarray<T, const N: integer>(
+    borrows source: T[N],
+    count: N
+): span.FixedSpan<T, N> borrows (source)
     return (
         new FixedSpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)
     ) as span.FixedSpan<T, N>
@@ -402,7 +405,7 @@ end
 --- committed.
 --- @export
 --- @raises when count is negative
-function span.writeCarray<T>(exclusive source: T[?], count: integer): Owned<span.WriteSpan<T>> borrows(source)
+function span.writeCarray<T>(exclusive source: T[?], count: integer): Owned<span.WriteSpan<T>> borrows (source)
     if count < 0 then
         error("write span count cannot be negative", 2)
     end
@@ -415,7 +418,7 @@ end
 function span.writeFixedCarray<T, const N: integer>(
     exclusive source: T[N],
     count: N
-): Owned<span.FixedWriteSpan<T, N>> borrows(source)
+): Owned<span.FixedWriteSpan<T, N>> borrows (source)
     return (
         new FixedWriteSpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)
     ) as span.FixedWriteSpan<T, N>

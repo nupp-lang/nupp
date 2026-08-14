@@ -129,21 +129,29 @@ local function taskDescription(config, name, isDefault)
         return nil, err
     end
 
-    return {name = name, default = isDefault, category = "build", description = target.description, kind = target.kind or "modules", outDir = outDirOf(
-        target
-    ), entries = copyStrings(
-        target.entries
-    ), sources = copyStrings(target.sources), format = target.format, title = target.title,
+    return {
+        name = name,
+        default = isDefault,
+        category = "build",
+        description = target.description,
+        kind = target.kind or "modules",
+        outDir = outDirOf(target),
+        entries = copyStrings(target.entries),
+        sources = copyStrings(target.sources),
+        format = target.format,
+        title = target.title,
         -- Two settings, and neither is the other: `all` takes in declarations that are
         -- not part of the public surface, `includePrivate` takes in the ones named as
         -- private. Reporting one under the other's name told a reader the opposite of
         -- what they had configured.
-        all = target.all, includePrivate = target.includePrivate, resources = copyResources(
-        target.resources
-    ), dependencies = copyStrings(
-        target.dependencies
-    ), nativeFeatures = target.nativeFeatures, layoutTarget = target.layoutTarget,
-        command = jsonArray({"nupp", "build", "--target", name}),}
+        all = target.all,
+        includePrivate = target.includePrivate,
+        resources = copyResources(target.resources),
+        dependencies = copyStrings(target.dependencies),
+        nativeFeatures = target.nativeFeatures,
+        layoutTarget = target.layoutTarget,
+        command = jsonArray({"nupp", "build", "--target", name}),
+    }
 end
 
 local function configuredTasks(config: manifest.Config, buildOnly: boolean?): {tasks.Task}, string?

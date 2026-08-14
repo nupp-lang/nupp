@@ -31,51 +31,140 @@ local type Loader = function(): specMod.Handler
 local REGISTRY: {{
     name: string,
     load: Loader
-}} = {{name = "ast", load = function(): specMod.Handler
-    return require("nupp.compiler.cli.ast")
-end}, {name = "bc", load = function(): specMod.Handler
-    return require("nupp.compiler.cli.bc")
-end}, {name = "check", load = function(): specMod.Handler
-    return require("nupp.compiler.cli.check")
-end}, {name = "fmt", load = function(): specMod.Handler
-    return require("nupp.compiler.cli.fmt")
-end}, {name = "build", load = function(): specMod.Handler
-    return require("nupp.compiler.cli.build")
-end}, {name = "clean", load = function(): specMod.Handler
-    return require("nupp.compiler.cli.clean")
-end}, {name = "tasks", load = function(): specMod.Handler
-    return require("nupp.compiler.cli.tasks")
-end}, {name = "lints", load = function(): specMod.Handler
-    return require("nupp.compiler.cli.lints")
-end}, {name = "ownership-audit", load = function(): specMod.Handler
-    return require("nupp.compiler.cli.ownership_audit")
-end}, {name = "explain", load = function(): specMod.Handler
-    return require("nupp.compiler.cli.explain")
-end}, {name = "reference", load = function(): specMod.Handler
-    return require("nupp.compiler.cli.reference")
-end}, {name = "completions", load = function(): specMod.Handler
-    return require("nupp.compiler.cli.completions_command")
-end}, {name = "test", load = function(): specMod.Handler
-    return require("nupp.compiler.cli.test")
-end}, {name = "coverage", load = function(): specMod.Handler
-    return require("nupp.compiler.cli.coverage")
-end}, {name = "task", load = function(): specMod.Handler
-    return require("nupp.compiler.cli.task")
-end}, {name = "doc", load = function(): specMod.Handler
-    return require("nupp.compiler.cli.doc")
-end}, {name = "fixpoint", load = function(): specMod.Handler
-    return require("nupp.compiler.cli.fixpoint")
-end}, {name = "run", load = function(): specMod.Handler
-    return require("nupp.compiler.cli.run")
-end}, {name = "import-c", load = function(): specMod.Handler
-    return require("nupp.compiler.cli.importc")
-end}, {name = "export-c", load = function(): specMod.Handler
-    return require("nupp.compiler.cli.exportc")
-end}, {name = "rock", load = function(): specMod.Handler
-    return require("nupp.compiler.cli.rock")
-end}, {name = "lsp", load = function(): specMod.Handler
-    return require("nupp.compiler.cli.lsp")
-end},}
+}} = {
+    {
+        name = "ast",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.ast")
+        end
+    },
+    {
+        name = "bc",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.bc")
+        end
+    },
+    {
+        name = "check",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.check")
+        end
+    },
+    {
+        name = "fmt",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.fmt")
+        end
+    },
+    {
+        name = "build",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.build")
+        end
+    },
+    {
+        name = "clean",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.clean")
+        end
+    },
+    {
+        name = "tasks",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.tasks")
+        end
+    },
+    {
+        name = "lints",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.lints")
+        end
+    },
+    {
+        name = "ownership-audit",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.ownership_audit")
+        end
+    },
+    {
+        name = "explain",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.explain")
+        end
+    },
+    {
+        name = "reference",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.reference")
+        end
+    },
+    {
+        name = "completions",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.completions_command")
+        end
+    },
+    {
+        name = "test",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.test")
+        end
+    },
+    {
+        name = "coverage",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.coverage")
+        end
+    },
+    {
+        name = "task",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.task")
+        end
+    },
+    {
+        name = "doc",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.doc")
+        end
+    },
+    {
+        name = "fixpoint",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.fixpoint")
+        end
+    },
+    {
+        name = "run",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.run")
+        end
+    },
+    {
+        name = "import-c",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.importc")
+        end
+    },
+    {
+        name = "export-c",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.exportc")
+        end
+    },
+    {
+        name = "rock",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.rock")
+        end
+    },
+    {
+        name = "lsp",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.lsp")
+        end
+    },
+}
 
 -- `help` is a command in the list and in the help, but there is no work behind it, so
 -- it is answered here rather than being a file of its own.

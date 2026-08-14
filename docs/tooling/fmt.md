@@ -61,6 +61,44 @@ An operator joining two operands is looser than the chain inside either of
 them, so a chain that is one operand of an `and` waits until the line is down
 to the chain itself. A single method call is not a chain: its arguments break.
 
+An argument list that no longer fits on one line is still a list, so it is
+written as one: every argument under the opener, one per line, with the closing
+parenthesis on its own. That holds however the list stopped fitting — the width,
+a comment inside it, or an argument whose own body is a block.
+
+The exception is the argument that runs down the page on purpose. A trailing
+function or table hugs the call that takes it, because the line that opens the
+call already says what is being done and to what, and only the body follows:
+
+```nupp
+table.sort(rows, |a, b| -> do
+    return a.id < b.id
+end)
+
+report:configure("name", {
+    retries = 3,
+    timeout = 30,
+})
+```
+
+The hug holds while the arguments before it, and that argument's own opening,
+still fit on that line. Past that the list spreads like any other, and an
+argument that goes multiline anywhere but last never hugs at all: the arguments
+after it would read as a continuation of its body rather than as arguments.
+
+```nupp
+report:put(
+    "header",
+    function(row: string): string
+        return row
+    end,
+    "footer"
+)
+```
+
+A table constructor spreads on the same terms and has nothing to hug: a
+constructor that outgrows its line puts one field on each.
+
 A type breaks in the same order. The `|` and `&` of a union or an intersection
 join whole types, so they are looser than any bracket on the line: an
 overloaded signature breaks between its overloads, and a union too long to fit
@@ -77,7 +115,13 @@ those are what break and `function<E, A..., R...>` stays as written. A generic
 parameter list breaks only when it is all the line has to break.
 
 Blank runs collapse to one, leading blanks are stripped, trailing whitespace
-goes, and a file ends with exactly one newline.
+goes, and a file ends with exactly one newline. A bare `;` terminates the
+statement before it and stays on that statement's line rather than taking one of
+its own.
+
+A clause whose sources are parenthesised is not a call of the word that opens
+it, so `borrows (source)` and a closure's `takes (a, b)` keep the space that
+says so.
 
 Docblocks are reflowed and set off with a blank line. `@tag` lines are
 recognized, continuations indent by five spaces, and fenced or indented

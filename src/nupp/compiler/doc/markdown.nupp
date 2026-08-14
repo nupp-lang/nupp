@@ -57,8 +57,8 @@ local function heading(level)
 end
 
 -- What a declaration was annotated with, on its own line under the heading. `@drop` and
--- `Owned<T>` are the ownership contract, and a reader who cannot see them cannot tell an
--- obligation from an ordinary method.
+-- `Owned<T>` are the ownership contract, and a reader who cannot see them cannot tell
+-- an obligation from an ordinary method.
 local function markdownAnnotations(out, annotations)
     if not annotations or #annotations == 0 then
         return
@@ -197,8 +197,7 @@ local function renderMarkdownItem(out, item, constructorPattern, level)
     -- declaration you are looking for, and the signature answers how to call it once
     -- you know that it is.
     if item.doc.text ~= "" then
-        out[#out + 1] = prose(item.doc.text)
-        ;
+        out[#out + 1] = prose(item.doc.text);
         out[#out + 1] = ""
     end
     out[#out + 1] = "```nupp"
@@ -267,8 +266,7 @@ function markdown.render(
     end)
     local out = {}
     if title and title ~= "" then
-        out[#out + 1] = "# " .. title
-        ;
+        out[#out + 1] = "# " .. title;
         out[#out + 1] = ""
     end
     for moduleIndex, module in ipairs(modules) do
@@ -288,8 +286,7 @@ function markdown.render(
             out[#out + 1] = "Modules nested under `" .. module.name .. "`. Nothing is required by this name itself."
             out[#out + 1] = ""
         elseif module.text ~= "" then
-            out[#out + 1] = prose(module.text)
-            ;
+            out[#out + 1] = prose(module.text);
             out[#out + 1] = ""
         end
         local children = childModules(all, module.name)
@@ -323,8 +320,7 @@ function markdown.render(
             end
         end
         if moduleIndex < #modules then
-            out[#out + 1] = "---"
-            ;
+            out[#out + 1] = "---";
             out[#out + 1] = ""
         end
     end

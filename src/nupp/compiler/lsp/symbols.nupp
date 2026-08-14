@@ -152,7 +152,7 @@ function symbols.documentSymbols(result: tree.Parse, source: string): {symbols.S
                 stat = stat.stat
             end
             if not stat then
-            -- nothing to outline
+                -- nothing to outline
             elseif stat.kind == "recordDecl" then
                 emit(stat, stat.name, stat.declKind or "record", qualified(stat))
             elseif stat.kind == "typeAlias" then

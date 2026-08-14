@@ -1,0 +1,51 @@
+local m = {}
+
+local type Id = uint32
+local type Maybe = string?
+local type Counts = {[string]: integer}
+local type Pair = {first: string, second: number}
+local type Handler = function(event: string): boolean
+local type Results = function(): (integer, string)
+local type Tuple = {string, integer}
+local type Tight = string?*
+
+interface m.Named
+    name: string
+end
+
+record m.User is m.Named where true
+    id: Id
+    name: string
+    tags: {string}?
+
+    @drop
+    close: nosuspend function(takes self: m.User): nil
+
+    read: function(borrows self: m.User): string borrows (self)
+
+    function label(self, prefix: string): string
+        return prefix .. self.name
+    end
+
+    function __tostring(self): string
+        return self.name
+    end
+end
+
+function m.first<T>(xs: {T}): T?
+    return xs[1]
+end
+
+function m.forward<A...>(...: A...): A...
+    return ...
+end
+
+function m.hold(exclusive user: m.User, scoped callback: function(borrows u: m.User): nil): nil borrows (user)
+    callback(user)
+end
+
+local mine: m.User = nil as any
+local counts: Counts = {}
+local pair: Pair = {first = "a", second = 2}
+
+return m, mine, counts, pair

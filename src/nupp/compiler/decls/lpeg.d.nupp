@@ -25,6 +25,7 @@ local function __LpegMatch(Captures: type): typepack
         end
         return nupp.types.pack(optional)
     end
+
     return nupp.types.pack({}, nupp.types.any)
 end
 
@@ -71,20 +72,18 @@ local record lpeg
     V: function(key: any): Pattern<{any}>
     B: function<Captures>(pattern: Pattern<Captures>): Pattern<__LpegEmpty>
 
-    C: function<Captures>(pattern: Pattern<Captures>):
-        Pattern<{string, unpackof Captures}>
+    C: function<Captures>(pattern: Pattern<Captures>): Pattern<{string, unpackof Captures}>
         & function(pattern: string | number | boolean): Pattern<{string,}>
     Cp: function(): Pattern<{integer,}>
     Cc: function(): Pattern<__LpegEmpty> & function<Value>(first: Value, ...: Value): Pattern<{Value}>
     Ct: function<Captures>(pattern: Pattern<Captures>): Pattern<{Captures,}>
-    Cg:
-        function<Captures>(pattern: Pattern<Captures>): Pattern<Captures>
+    Cg: function<Captures>(pattern: Pattern<Captures>): Pattern<Captures>
         & function<Captures>(pattern: Pattern<Captures>, key: any): Pattern<__LpegEmpty>
     Cb: function(key: any): Pattern<{any}>
     Cs: function<Captures>(pattern: Pattern<Captures>): Pattern<{string,}>
     Cmt: function<Captures, Result>(
         pattern: Pattern<Captures>,
-        callback: function(string, integer, ...: unpackof Captures): (integer | boolean, ...Result)
+        callback: function(string, integer, ...: unpackof Captures): (integer | boolean,...Result)
     ): Pattern<{Result}>
     Cf: function<Captures, Result>(pattern: Pattern<Captures>, callback: function(any, any): Result): Pattern<{Result,}>
     Carg: function(index: integer): Pattern<{any,}>

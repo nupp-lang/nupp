@@ -1,0 +1,13 @@
+local m = {}
+
+function m.run(): nil
+    reportDiagnostic(
+        "NUPP2810",
+        provider.site.arg.expr or provider.site.arg,
+        "derive.file cannot read " .. absolutePath,
+        extra
+    )
+    shortEnough("one", "two", "three")
+end
+
+return m

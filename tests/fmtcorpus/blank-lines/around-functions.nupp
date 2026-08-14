@@ -1,0 +1,12 @@
+local m = {}
+local function head(): integer
+    return 1
+end
+local function tail(): integer
+    return 2
+end
+--- Documented, so it is set off from what came before.
+function m.both(): integer
+    return head() + tail()
+end
+return m

@@ -347,13 +347,9 @@ function expr.install(c: state.Checker): nil
             if entry and entry.definition and entry.definition.comptimeFunction and (
                 c.comptimeDepth or 0
             ) == 0 and (c.comptimeFunctionDepth or 0) == 0 then
-                c.diag(
-                    "NUPP2415",
-                    node,
-                    ("@comptime function %q has no runtime value"):format(nameText),
-                    nil,
-                    {help = "call it from a comptime block or another @comptime function"}
-                )
+                c.diag("NUPP2415", node, ("@comptime function %q has no runtime value"):format(nameText), nil, {
+                    help = "call it from a comptime block or another @comptime function"
+                })
             end
             node.immutablePath = entry and entry.constant == true or false
             if entry and entry.borrowOwner then
@@ -366,16 +362,10 @@ function expr.install(c: state.Checker): nil
                 local state = c.ownershipState(entry)
                 if state.moved then
                     local related = state.movedAt and c.related(state.movedAt, "owner was moved here") or nil
-                    c.diag(
-                        "NUPP2601",
-                        node,
-                        ("owner %q was moved and cannot be used"):format(nameText),
-                        nil,
-                        {
-                            related = related and {related} or nil,
-                            help = "use the owner before this transfer, or borrow it " .. "instead of moving it"
-                        }
-                    )
+                    c.diag("NUPP2601", node, ("owner %q was moved and cannot be used"):format(nameText), nil, {
+                        related = related and {related} or nil,
+                        help = "use the owner before this transfer, or borrow it " .. "instead of moving it"
+                    })
                     node.ownershipUseReported = true
                 elseif c.ownershipKind(
                     entry.t
@@ -470,38 +460,26 @@ function expr.install(c: state.Checker): nil
                     c.diag("missing-require", node, advice, fixes)
                 elseif not isModule and c.opts and c.opts.strict then
                     fixes = c.edits.nameSpellingFix(nameTok, visibleNames())
-                    c.diag(
-                        "NUPP2105",
-                        nameTok,
-                        ("unknown variable %q"):format(nameText),
-                        fixes,
-                        {
-                            help = fixes
-                            and "use the suggested visible name"
-                            or "declare the value, require its module, or correct "
-                            .. "the spelling"
-                        }
-                    )
+                    c.diag("NUPP2105", nameTok, ("unknown variable %q"):format(nameText), fixes, {
+                        help = fixes
+                        and "use the suggested visible name"
+                        or "declare the value, require its module, or correct "
+                        .. "the spelling"
+                    })
                 end
             end
             if entry and entry.unassigned then
-                c.diag(
-                    "NUPP2207",
-                    nameTok,
-                    ("%s is read before it holds a value"):format(nameText),
-                    nil,
-                    {
-                        related = entry.unassignedAt and {
-                            c.related(
-                                {filename = c.filename, token = entry.unassignedAt, name = nameText},
-                                "declared here, with no value"
-                            )
-                        } or nil,
-                        help = (
-                            "assign it first, or declare it as %s? if it is " .. "meant to start empty"
-                        ):format(T.tostring(entry.t))
-                    }
-                )
+                c.diag("NUPP2207", nameTok, ("%s is read before it holds a value"):format(nameText), nil, {
+                    related = entry.unassignedAt and {
+                        c.related(
+                            {filename = c.filename, token = entry.unassignedAt, name = nameText},
+                            "declared here, with no value"
+                        )
+                    } or nil,
+                    help = (
+                        "assign it first, or declare it as %s? if it is " .. "meant to start empty"
+                    ):format(T.tostring(entry.t))
+                })
                 -- Said once. A binding nobody assigned is usually read more than once,
                 -- and the second report adds nothing to the first.
                 entry.unassigned = nil
@@ -611,10 +589,10 @@ function expr.install(c: state.Checker): nil
                 if present ~= T.never and present.tag ~= "typevar" and isA(present, target) then
                     node.provenStatically = true
                     node.provenNeedsNil = admitsNil
-                -- A declaration's own table is not one of the values it stamps, so this
-                -- pairing is settled the other way and the test would spend a metatable
-                -- lookup to say false. The only pairing answered so: `as` stays the way
-                -- to override what the checker decided.
+                    -- A declaration's own table is not one of the values it stamps, so
+                    -- this pairing is settled the other way and the test would spend a
+                    -- metatable lookup to say false. The only pairing answered so: `as`
+                    -- stays the way to override what the checker decided.
                 elseif rawType(present).tag == "metatable" and target.tag == "nominal" then
                     node.refutedStatically = true
                 end

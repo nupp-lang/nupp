@@ -243,10 +243,9 @@ function pragma.install(c: state.Checker): state.StatHandlers
                         local isUnconstrained = contract == T.any
                         if #signature.params ~= 1 or signature.params[
                             1
-                        ] ~= infoType
-                            or #signature.rets ~= 1
-                            or signature.vararg
-                            or not (hasContract or isUnconstrained) then
+                        ] ~= infoType or #signature.rets ~= 1 or signature.vararg or not (
+                            hasContract or isUnconstrained
+                        ) then
                             c.diag(
                                 "NUPP2809",
                                 helper.name,

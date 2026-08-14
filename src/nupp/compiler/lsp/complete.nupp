@@ -188,8 +188,7 @@ function complete.membersOf(t: T.Type?, fromModule: string?): {[string]: complet
                         callable = true
                         for _, candidate in ipairs(combined.members) do
                             if candidate.tag ~= "func" then
-                                callable = false
-                                ;
+                                callable = false;
                                 break
                             end
                         end
@@ -222,10 +221,11 @@ function complete.membersOf(t: T.Type?, fromModule: string?): {[string]: complet
                 }
             end
             for name, member in pairs(nominal.byname or {}) do
-                if not members[name]
-                    and not (nominal.privateFields and nominal.privateFields[name]
-                        and nominal.moduleName ~= fromModule)
-                then
+                if not members[
+                    name
+                ] and not (
+                    nominal.privateFields and nominal.privateFields[name] and nominal.moduleName ~= fromModule
+                ) then
                     members[
                         name
                     ] = {
@@ -245,9 +245,7 @@ function complete.membersOf(t: T.Type?, fromModule: string?): {[string]: complet
     -- is what tells either from a primitive.
     for name, member in pairs((t as T.Nominal).byname or {}) do
         local nominal = t as T.Nominal
-        if not (nominal.privateFields and nominal.privateFields[name]
-            and nominal.moduleName ~= fromModule)
-        then
+        if not (nominal.privateFields and nominal.privateFields[name] and nominal.moduleName ~= fromModule) then
             members[
                 name
             ] = {

@@ -1,0 +1,9 @@
+local m = {}
+
+local double = |x: integer| -> x * 2
+local none = || -> true
+local bare = x -> x
+local packed = |...args| -> args
+local sorted = table.sort(m, |a, b| -> a.id < b.id)
+
+return m, double, none, bare, packed, sorted

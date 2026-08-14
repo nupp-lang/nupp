@@ -166,11 +166,11 @@ function fixits.new(result: state.Parse, env: state.Env?): fixits.Edits
         end
 
         return {
-            self.fix(
-                ("cast to `%s`"):format(name),
-                self.insertBefore(first, "("),
-                {offset = last.offset + #last.text, length = 0, newText = ") as " .. name}
-            )
+            self.fix(("cast to `%s`"):format(name), self.insertBefore(first, "("), {
+                offset = last.offset + #last.text,
+                length = 0,
+                newText = ") as " .. name
+            })
         }
     end
 

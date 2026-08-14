@@ -299,35 +299,54 @@ local function memberIsA(have: Type, want: Type): boolean
         for j = 2, #want.params do
             wn[#wn + 1] = want.paramNames and want.paramNames[j] or ""
         end
-        return (isA(T.func(hp, have.rets, have.vararg, hm, nil, nil, nil, nil, nil, nil, nil, have.varargType, nil, T.pack(
-            hp,
-            have.paramPack.tail,
-            hm
-        ), have.retPack, have.packParams, have.yieldPack, have.resumePack,
-            -- Both sides keep the qualifier, so dropping the receiver to
-            -- compare shapes does not also drop the suspension check.
-            have.noYield, hn), T.func(
-            wp,
-            want.rets,
-            want.vararg,
-            wm,
-            nil,
-            nil,
-            nil,
-            nil,
-            nil,
-            nil,
-            nil,
-            want.varargType,
-            nil,
-            T.pack(wp, want.paramPack.tail, wm),
-            want.retPack,
-            want.packParams,
-            want.yieldPack,
-            want.resumePack,
-            want.noYield,
-            wn
-        )))
+        return (isA(
+            T.func(
+                hp,
+                have.rets,
+                have.vararg,
+                hm,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                have.varargType,
+                nil,
+                T.pack(hp, have.paramPack.tail, hm),
+                have.retPack,
+                have.packParams,
+                have.yieldPack,
+                have.resumePack,
+                -- Both sides keep the qualifier, so dropping the receiver to
+                -- compare shapes does not also drop the suspension check.
+                have.noYield,
+                hn
+            ),
+            T.func(
+                wp,
+                want.rets,
+                want.vararg,
+                wm,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                want.varargType,
+                nil,
+                T.pack(wp, want.paramPack.tail, wm),
+                want.retPack,
+                want.packParams,
+                want.yieldPack,
+                want.resumePack,
+                want.noYield,
+                wn
+            )
+        ))
     end
 
     return (isA(have, want))
@@ -433,15 +452,12 @@ local function intersectionSurface(t: T.Intersection): T.Shape
         fields[#fields + 1] = {name = entry.name, read = entry.readType, write = entry.writeType}
     end
 
-    return T.shape(
-        fields,
-        {
-            readKey = surface.readIndexer and surface.readIndexer.keyType or nil,
-            readValue = surface.readIndexer and surface.readIndexer.valueType or nil,
-            writeKey = surface.writeIndexer and surface.writeIndexer.keyType or nil,
-            writeValue = surface.writeIndexer and surface.writeIndexer.valueType or nil,
-        }
-    ) as T.Shape
+    return T.shape(fields, {
+        readKey = surface.readIndexer and surface.readIndexer.keyType or nil,
+        readValue = surface.readIndexer and surface.readIndexer.valueType or nil,
+        writeKey = surface.writeIndexer and surface.writeIndexer.keyType or nil,
+        writeValue = surface.writeIndexer and surface.writeIndexer.valueType or nil,
+    }) as T.Shape
 end
 
 --- Read capabilities compare covariantly; write capabilities compare contravariantly.
@@ -589,9 +605,9 @@ local function check(a: Type, b: Type): boolean, string?
         end
         return fail(a, b)
 
-    -- An expected intersection requires every contract. A source intersection fits
-    -- through any member that already proves the target, or through the composed
-    -- structural surface when several members jointly provide it.
+        -- An expected intersection requires every contract. A source intersection fits
+        -- through any member that already proves the target, or through the composed
+        -- structural surface when several members jointly provide it.
     elseif btag == "intersection" then
         for _, m in ipairs(b.members) do
             local ok, why = isA(a, m)
@@ -614,9 +630,9 @@ local function check(a: Type, b: Type): boolean, string?
         end
         return fail(a, b)
 
-    -- A declared `is` edge is a trusted contract inclusion. Runtime registration may
-    -- fill the inherited surface later (as tecs does for component and event type
-    -- tables), so it is not re-proved structurally.
+        -- A declared `is` edge is a trusted contract inclusion. Runtime registration
+        -- may fill the inherited surface later (as tecs does for component and event
+        -- type tables), so it is not re-proved structurally.
     elseif atag == "nominal" then
         for _, parent in ipairs(a.supertypes or {}) do
             if parent == b or isA(parent, b) then

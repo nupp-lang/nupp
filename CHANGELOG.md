@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Spread an argument list one argument per line whenever it stops fitting on
+  one, whether by width, by a comment inside it, or by an argument whose own
+  body is a block. A call's trailing function or table still hugs the line that
+  opens the call while what precedes its body fits there, and a table
+  constructor spreads on the same terms.
+- Keep the space in `borrows (p)` and a closure's `takes (a, b)`, leave a bare
+  `;` on the line of the statement it terminates, indent a comment that is the
+  whole of an `if` arm inside that arm, and stop a docblock's trailing
+  annotation from taking the blank line owed to the declaration below it.
 - Say when a closure that reads its iteration costs a loop its trace. The new
   `jit-loop-closure` lint (`NUPP2515`) is off until a project asks for it,
   since the code it reports is correct and has no mechanical fix, but a

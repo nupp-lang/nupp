@@ -61,6 +61,7 @@ function runtime.install(
         -- Watch modules become patch targets only after top level completed. Keep this
         -- wrapper out of ordinary runs: besides being unnecessary there, pcall would
         -- be an observable stack-frame change.
+
         return function(...)
             local args = {n = select("#", ...), ...}
             local result
@@ -71,6 +72,7 @@ function runtime.install(
             if not ok then
                 error(failure, 0)
             end
+
             return unpack(result, 1, result.n)
         end
     end

@@ -146,10 +146,12 @@ function store.open(path: string?, stamp: string): store.Store
                 keptEntries[key] = entries[key]
             end
         end
-        local ok, text = pcall(
-            buffer.encode,
-            {format = FORMAT, stamp = stamp, order = keptOrder, entries = keptEntries,}
-        )
+        local ok, text = pcall(buffer.encode, {
+            format = FORMAT,
+            stamp = stamp,
+            order = keptOrder,
+            entries = keptEntries,
+        })
         -- A store that cannot be encoded or written is a store that misses next time,
         -- which is what happens when there is no store at all.
         if ok then

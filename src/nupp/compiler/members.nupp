@@ -120,9 +120,11 @@ local function direct(t: T.Shape | T.Nominal): members.View
             declarationKind = t.tag == "nominal" and t.declKind or "shape",
             definition = defs[1],
             definitions = #defs > 1 and defs or nil,
-            annotations = readDefinition and readDefinition.annotations
-                or writeDefinition and writeDefinition.annotations
-                or {}
+            annotations = readDefinition
+            and readDefinition.annotations
+            or writeDefinition
+            and writeDefinition.annotations
+            or {}
         }
         out.ordered[#out.ordered + 1] = entry
         out.byname[name] = entry
@@ -325,22 +327,22 @@ end
 
 --- One member by name, without building the view it would sit in.
 ---
---- Almost every question put to this module is "what is `t.name`", and asking it through
---- `members.view` meant ordering every member, sorting them, allocating an entry for
---- each, and then reading one. Checking a single 791-line module built 84,372 views to
---- do that, 99% of them from one member access in `nupp.compiler.check.calls`.
+--- Almost every question put to this module is "what is `t.name`", and asking it
+--- through `members.view` meant ordering every member, sorting them, allocating an
+--- entry for each, and then reading one. Checking a single 791-line module built 84,372
+--- views to do that, 99% of them from one member access in `nupp.compiler.check.calls`.
 ---
---- So this walks the shapes `build` walks and composes the same answer for one name. The
---- two must agree, and `memberstest` holds them to it. Callers that iterate all members
---- still want `members.view`, which is unchanged and still the vocabulary this module is
---- about; this is the fast path through it, not a second opinion.
+--- So this walks the shapes `build` walks and composes the same answer for one name.
+--- The two must agree, and `memberstest` holds them to it. Callers that iterate all
+--- members still want `members.view`, which is unchanged and still the vocabulary this
+--- module is about; this is the fast path through it, not a second opinion.
 ---
 --- Nothing is cached. A nominal's members are filled in while its declaration is
 --- checked, and this reads the live tables, which is exactly what `direct` does.
 local lookup: function(t: T.Type, name: string): members.Entry?
 
---- The entry a shape or nominal has under `name`, or nil when it has none. The name test
---- matches `orderedNames`: present in either table is present.
+--- The entry a shape or nominal has under `name`, or nil when it has none. The name
+--- test matches `orderedNames`: present in either table is present.
 local function directEntry(t: T.Shape | T.Nominal, name: string): members.Entry?
     local readType = t.byname and t.byname[name] or nil
     local writeType = t.writeByname and t.writeByname[name] or nil
@@ -367,9 +369,11 @@ local function directEntry(t: T.Shape | T.Nominal, name: string): members.Entry?
         declarationKind = t.tag == "nominal" and t.declKind or "shape",
         definition = defs[1],
         definitions = #defs > 1 and defs or nil,
-        annotations = readDefinition and readDefinition.annotations
-            or writeDefinition and writeDefinition.annotations
-            or {}
+        annotations = readDefinition
+        and readDefinition.annotations
+        or writeDefinition
+        and writeDefinition.annotations
+        or {}
     }
 end
 
@@ -408,9 +412,10 @@ local function intersectionEntry(t: T.Intersection, name: string): members.Entry
     }
 end
 
---- A union has a member only where every alternative has it, which is what makes reading
---- it safe. `mergeUnion` takes its candidates from the first alternative, so a name the
---- first one lacks is not a member however the rest are spelled; that is preserved here.
+--- A union has a member only where every alternative has it, which is what makes
+--- reading it safe. `mergeUnion` takes its candidates from the first alternative, so a
+--- name the first one lacks is not a member however the rest are spelled; that is
+--- preserved here.
 local function unionEntry(t: T.Union, name: string): members.Entry?
     if not t.members[1] or not lookup(t.members[1], name) then
         return nil
@@ -459,8 +464,7 @@ lookup = function(t: T.Type, name: string): members.Entry?
         return lookup((t as T.Literal).base, name)
     elseif tag == "typevar" and (t as T.TypeVar).bound then
         return lookup((t as T.TypeVar).bound as T.Type, name)
-    elseif tag == "neutral" and (t as T.Neutral).op == "comptimeCall"
-        and (t as T.Neutral).comptimeBound then
+    elseif tag == "neutral" and (t as T.Neutral).op == "comptimeCall" and (t as T.Neutral).comptimeBound then
         return lookup((t as T.Neutral).comptimeBound as T.Type, name)
     elseif tag == "shape" or tag == "nominal" then
         return directEntry(t as T.Shape | T.Nominal, name)
@@ -486,6 +490,7 @@ lookup = function(t: T.Type, name: string): members.Entry?
     end
 
     -- A map has an indexer and no named members, and nothing else has either.
+
     return nil
 end
 

@@ -1,0 +1,7 @@
+local m = {}
+
+function m.label(count: integer, singularSpelling: string, pluralSpelling: string, missingSpelling: string): string
+    return count == 0 ? missingSpelling : count == 1 ? singularSpelling : pluralSpelling .. " (" .. count .. ")"
+end
+
+return m

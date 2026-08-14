@@ -158,6 +158,7 @@ function operators.install(c: state.Checker): state.ExprHandlers
         if not origin.lpegPattern then
             return nil
         end
+
         return origin, payload.typeArgs and payload.typeArgs[1] or lpegUnknown
     end
 
@@ -166,6 +167,7 @@ function operators.install(c: state.Checker): state.ExprHandlers
         if not parameter then
             return origin
         end
+
         return generics.instantiate(origin, {[parameter] = captures})
     end
 
@@ -184,10 +186,15 @@ function operators.install(c: state.Checker): state.ExprHandlers
         end
         if left.tag == "tuple" and right.tag == "tuple" then
             local values = {}
-            for _, value in ipairs(left.elems) do values[#values + 1] = value end
-            for _, value in ipairs(right.elems) do values[#values + 1] = value end
+            for _, value in ipairs(left.elems) do
+                values[#values + 1] = value
+            end
+            for _, value in ipairs(right.elems) do
+                values[#values + 1] = value
+            end
             return T.tuple(values)
         end
+
         return lpegUnknown
     end
 
@@ -206,6 +213,7 @@ function operators.install(c: state.Checker): state.ExprHandlers
         if concrete.tail.kind == "homogeneous" and #concrete.head == 0 then
             return T.array(concrete.tail.type)
         end
+
         return lpegUnknown
     end
 
@@ -214,10 +222,13 @@ function operators.install(c: state.Checker): state.ExprHandlers
         if captures then
             return captures
         end
-        if t == T.any or isA(t, T.string) or isA(t, T.number) or isA(t, T.boolean)
-            or isA(t, T.table_) or t.tag == "func" then
+        if t == T.any or isA(
+            t,
+            T.string
+        ) or isA(t, T.number) or isA(t, T.boolean) or isA(t, T.table_) or t.tag == "func" then
             return lpegEmpty
         end
+
         return nil
     end
 
@@ -232,9 +243,7 @@ function operators.install(c: state.Checker): state.ExprHandlers
             local left = patternOperandCaptures(lt)
             local right = patternOperandCaptures(rt)
             if not left or not right then
-                c.diag("NUPP2003", node, ("cannot apply '%s' to %s and %s"):format(
-                    op, T.tostring(lt), T.tostring(rt)
-                ))
+                c.diag("NUPP2003", node, ("cannot apply '%s' to %s and %s"):format(op, T.tostring(lt), T.tostring(rt)))
                 return T.any
             end
             if op == "*" then
@@ -273,14 +282,14 @@ function operators.install(c: state.Checker): state.ExprHandlers
             elseif rt.tag == "func" then
                 return makeLpegPattern(leftOrigin, capturesFromPack(rt.retPack))
             elseif isA(rt, T.table_) or rt.tag == "shape" or rt.tag == "array" or rt.tag == "map" then
-                local value = rt.tag == "array" and rt.elem
-                    or rt.tag == "map" and rt.value
-                    or rt.tag == "nominal" and rt.indexReadValue
+                local value = rt.tag == "array"
+                    and rt.elem
+                    or rt.tag == "map"
+                    and rt.value
+                    or rt.tag == "nominal"
+                    and rt.indexReadValue
                     or T.any
-                return makeLpegPattern(
-                    leftOrigin,
-                    value == T.any and lpegUnknown or T.tuple({value as Type})
-                )
+                return makeLpegPattern(leftOrigin, value == T.any and lpegUnknown or T.tuple({value as Type}))
             end
             c.diag("NUPP2003", node, ("invalid LPeg capture transformation %s"):format(T.tostring(rt)))
             return T.any
@@ -290,6 +299,7 @@ function operators.install(c: state.Checker): state.ExprHandlers
             end
             return makeLpegPattern(leftOrigin, lpegEmpty)
         end
+
         return nil
     end
 

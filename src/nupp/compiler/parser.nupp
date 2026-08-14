@@ -44,68 +44,31 @@ local add = cst.add
 
 -- Binary operator priorities {left, right}; right < left means right-assoc. Layering
 -- follows docs/grammar.abnf (Lua 5.3-style placement of bit ops).
-local BINPRI = {["or"] = {1, 1}, ["??"] = {1, 1}, -- nil-coalescing, alongside `or`
-    [
-    "and"
-] = {
-    2,
-    2
-}, [
-    "<"
-] = {
-    3,
-    3
-}, [
-    ">"
-] = {
-    3,
-    3
-}, [
-    "<="
-] = {
-    3,
-    3
-}, [
-    ">="
-] = {
-    3,
-    3
-}, [
-    "~="
-] = {
-    3,
-    3
-}, [
-    "=="
-] = {
-    3,
-    3
-}, [
-    "|"
-] = {
-    4,
-    4
-}, [
-    "~"
-] = {
-    5,
-    5
-}, [
-    "&"
-] = {
-    6,
-    6
-}, [
-    "<<"
-] = {
-    7,
-    7
-}, [
-    ">>"
-] = {
-    7,
-    7
-}, ["~>>"] = {7, 7}, [".."] = {9, 8}, ["+"] = {10, 10}, ["-"] = {10, 10}, ["*"] = {11, 11}, ["/"] = {11, 11}, ["//"] = {11, 11}, ["%"] = {11, 11}, ["^"] = {14, 13},}
+local BINPRI = {
+    ["or"] = {1, 1},
+    ["??"] = {1, 1}, -- nil-coalescing, alongside `or`
+    ["and"] = {2, 2},
+    ["<"] = {3, 3},
+    [">"] = {3, 3},
+    ["<="] = {3, 3},
+    [">="] = {3, 3},
+    ["~="] = {3, 3},
+    ["=="] = {3, 3},
+    ["|"] = {4, 4},
+    ["~"] = {5, 5},
+    ["&"] = {6, 6},
+    ["<<"] = {7, 7},
+    [">>"] = {7, 7},
+    ["~>>"] = {7, 7},
+    [".."] = {9, 8},
+    ["+"] = {10, 10},
+    ["-"] = {10, 10},
+    ["*"] = {11, 11},
+    ["/"] = {11, 11},
+    ["//"] = {11, 11},
+    ["%"] = {11, 11},
+    ["^"] = {14, 13},
+}
 local UNARY_PRI = 12
 local UNOPS = {["not"] = true, ["#"] = true, ["-"] = true, ["~"] = true}
 
@@ -338,22 +301,24 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- operators they are built from. That is also what lets `~=` mean xor-assign here
     -- while it stays inequality in an expression: Lua has no assignment expression, so
     -- the two never meet.
-    local COMPOUND_ASSIGN = {[
-        "+="
-    ] = "+", [
-        "-="
-    ] = "-", [
-        "*="
-    ] = "*", [
-        "/="
-    ] = "/", [
-        "//="
-    ] = "//", [
-        "%="
-    ] = "%", ["&="] = "&", ["|="] = "|", ["<<="] = "<<", [">>="] = ">>", ["~>>="] = "~>>", ["..="] = "..", ["~="] = "~",
+    local COMPOUND_ASSIGN = {
+        ["+="] = "+",
+        ["-="] = "-",
+        ["*="] = "*",
+        ["/="] = "/",
+        ["//="] = "//",
+        ["%="] = "%",
+        ["&="] = "&",
+        ["|="] = "|",
+        ["<<="] = "<<",
+        [">>="] = ">>",
+        ["~>>="] = "~>>",
+        ["..="] = "..",
+        ["~="] = "~",
         -- `??=` is a Nupp extension: LuaJIT lists it among the extensions it has not
         -- taken, so it is lowered rather than passed through.
-        ["??="] = "??",}
+        ["??="] = "??",
+    }
 
     --- The binary operator a compound assignment at the cursor is built from, or nil
     --- when there is no compound assignment there. Only `~=` needs the second look:
@@ -1034,8 +999,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
         packPunct(add(n, advance()))
         if cur().kind == ")" then
-            packPunct(add(n, advance()))
-            ;
+            packPunct(add(n, advance()));
             return n
         end
         if cur().kind == "(" then
@@ -2693,10 +2657,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         tokens[i + 1].unaryTok = true
         tokens[i + 1].blockDepth = 0
         tokens[i + 2].blockDepth = 0
-        advance()
-        ;
-        advance()
-        ;
+        advance();
+        advance();
         advance()
     end
     while true do

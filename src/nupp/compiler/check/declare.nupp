@@ -25,7 +25,9 @@ local declare = {}
 -- Which reifiable primitives C admits as a bitfield base: the integer ones and
 -- `bool`. `number` and `float` lower to `double` and `float`, which have no bitfield
 -- form, and everything else with a layout carries a width of its own.
-local BITFIELD_BASE: {[string]: boolean} = {
+local BITFIELD_BASE: {
+    [string]: boolean
+} = {
     boolean = true,
     integer = true,
     int8 = true,
@@ -48,7 +50,9 @@ local dropSelf = generics.dropSelf
 --- Converts the closed field-default grammar to source-free data. Defaults cross
 --- module and comptime boundaries, so they cannot retain lexical source expressions.
 local function defaultValue(node: any): any, boolean
-    if not node then return nil, false end
+    if not node then
+        return nil, false
+    end
     local kind = node.kind
     if kind == "nilExpr" then
         return nil, true
@@ -82,7 +86,9 @@ local function defaultValue(node: any): any, boolean
         local value, nextIndex = {}, 1
         for _, field in ipairs(node.fields or {}) do
             local child, ok = defaultValue(field.value)
-            if not ok then return nil, false end
+            if not ok then
+                return nil, false
+            end
             if field.kind == "fieldItem" then
                 value[nextIndex] = child
                 nextIndex = nextIndex + 1
@@ -90,7 +96,9 @@ local function defaultValue(node: any): any, boolean
                 value[field.name.text] = child
             elseif field.kind == "fieldBracket" then
                 local key, keyOk = defaultValue(field.key)
-                if not keyOk or key == nil or type(key) == "table" then return nil, false end
+                if not keyOk or key == nil or type(key) == "table" then
+                    return nil, false
+                end
                 value[key] = child
             else
                 return nil, false
@@ -98,6 +106,7 @@ local function defaultValue(node: any): any, boolean
         end
         return value, true
     end
+
     return nil, false
 end
 
@@ -254,20 +263,28 @@ function declare.install(
         local fixes = keyword and {
             c.edits.fix("change `record` to `struct`", c.edits.replaceToken(keyword, "struct"))
         } or nil
-        c.diag("NUPP2509", stat.name, (
-            "record %s declares only fields that reify"
-        ):format(
-            n.name
-        ), fixes, {help = "declaring it `struct` puts its instances in C memory, off the " .. "collector's graph, at the cost of a fixed layout: no fields added " .. "after construction", notes = {
-            -- The cost that actually bites, and the one a reader is least likely to
-            -- predict: an instance stops being a table at runtime. `type` answers
-            -- \"cdata\", `is` tests for cdata, `pairs` needs a `__pairs` on the
-            -- metatype, and a serializer that walks tables refuses it outright --
-            -- `string.buffer.encode` raises \"cannot serialize 'cdata'\" with no hook
-            -- to install.
-            "an instance is cdata, not a table: `pairs` needs a `__pairs` "
-            .. "metamethod, and a serializer that walks tables will refuse it "
-            .. "unless it is converted first",}})
+        c.diag(
+            "NUPP2509",
+            stat.name,
+            ("record %s declares only fields that reify"):format(n.name),
+            fixes,
+            {
+                help = "declaring it `struct` puts its instances in C memory, off the "
+                .. "collector's graph, at the cost of a fixed layout: no fields added "
+                .. "after construction",
+                notes = {
+                    -- The cost that actually bites, and the one a reader is least
+                    -- likely to predict: an instance stops being a table at runtime.
+                    -- `type` answers \"cdata\", `is` tests for cdata, `pairs` needs a
+                    -- `__pairs` on the metatype, and a serializer that walks tables
+                    -- refuses it outright -- `string.buffer.encode` raises \"cannot
+                    -- serialize 'cdata'\" with no hook to install.
+                    "an instance is cdata, not a table: `pairs` needs a `__pairs` "
+                    .. "metamethod, and a serializer that walks tables will refuse it "
+                    .. "unless it is converted first",
+                }
+            }
+        )
     end
 
     --- The one statement a long-form refinement body is allowed to be, or nil.
@@ -492,16 +509,10 @@ function declare.install(
                         {help = "one declaration states each associated type once"}
                     )
                 elseif typeNames[name] then
-                    c.diag(
-                        "NUPP2129",
-                        e.name,
-                        ("%s already has a type member %q"):format(stat.name.text, name),
-                        nil,
-                        {
-                            help = "an associated type and a nested declaration share one "
-                            .. "namespace; rename one of them"
-                        }
-                    )
+                    c.diag("NUPP2129", e.name, ("%s already has a type member %q"):format(stat.name.text, name), nil, {
+                        help = "an associated type and a nested declaration share one "
+                        .. "namespace; rename one of them"
+                    })
                 else
                     written[name] = e
                     if stat.declKind == "interface" then
@@ -698,13 +709,9 @@ function declare.install(
         for _, name in ipairs(owed) do
             local found = relations.associatedLookup(n, name)
             if found.reason == "missing" then
-                c.diag(
-                    "NUPP2127",
-                    stat.name,
-                    ("%s does not name the associated type %q"):format(n.name, name),
-                    nil,
-                    {help = "add `associated type " .. name .. " = <type>` to its body"}
-                )
+                c.diag("NUPP2127", stat.name, ("%s does not name the associated type %q"):format(n.name, name), nil, {
+                    help = "add `associated type " .. name .. " = <type>` to its body"
+                })
             elseif found.reason == "conflict" then
                 c.diag(
                     "NUPP2127",
@@ -982,8 +989,9 @@ function declare.install(
         local missing = {}
         for _, name in ipairs(order) do
             local ft2 = n.byname[name]
-            if ft2 and ft2.tag ~= "func" and ft2.tag ~= "nominal" and not assigned[name]
-                and not (n.fieldDefaults and n.fieldDefaults[name]) and not isA(T.nil_, ft2) then
+            if ft2 and ft2.tag ~= "func" and ft2.tag ~= "nominal" and not assigned[
+                name
+            ] and not (n.fieldDefaults and n.fieldDefaults[name]) and not isA(T.nil_, ft2) then
                 missing[#missing + 1] = name
             end
         end
@@ -1044,16 +1052,11 @@ function declare.install(
             -- different program, so it is not offered as an edit.
             local fixes = {}
             if stat.modifier then
-                fixes[
-                    1
-                ] = fix(
-                    ("drop `%s`"):format(stat.visibility),
-                    {
-                        offset = stat.modifier.offset,
-                        length = (stat.sealedTok or stat.keyword).offset - stat.modifier.offset,
-                        newText = ""
-                    }
-                )
+                fixes[1] = fix(("drop `%s`"):format(stat.visibility), {
+                    offset = stat.modifier.offset,
+                    length = (stat.sealedTok or stat.keyword).offset - stat.modifier.offset,
+                    newText = ""
+                })
             end
             c.diag(
                 "NUPP2119",
@@ -1190,8 +1193,11 @@ function declare.install(
                 c.bindType(stat.name.text, n, nil)
             end
             if stat.generics then
-                local nominalTypes, nominalBounds, nominalPacks, nominalConsts, nominalKinds, nominalDefaults =
-                    c.bindGenerics(stat.generics, "nominal", n)
+                local nominalTypes, nominalBounds, nominalPacks, nominalConsts, nominalKinds, nominalDefaults = c.bindGenerics(
+                    stat.generics,
+                    "nominal",
+                    n
+                )
                 n.typeParams, n.typeBounds, n.packParams = nominalTypes, nominalBounds, nominalPacks
                 n.constParams, n.paramKinds = nominalConsts, nominalKinds
                 n.paramDefaults = nominalDefaults
@@ -1496,8 +1502,7 @@ function declare.install(
                                     c.diag(
                                         "NUPP2202",
                                         e.defaultValue,
-                                        "field default does not fit "
-                                            .. T.tostring(ft) .. (why and (": " .. why) or "")
+                                        "field default does not fit " .. T.tostring(ft) .. (why and (": " .. why) or "")
                                     )
                                 else
                                     n.fieldDefaults[e.name.text] = {value = value}
@@ -1657,7 +1662,8 @@ function declare.install(
                                 "NUPP2201",
                                 e.bitWidth,
                                 (
-                                    "field %q: a bit width belongs to a struct field, " .. "which is the only kind laid out in C memory"
+                                    "field %q: a bit width belongs to a struct field, "
+                                    .. "which is the only kind laid out in C memory"
                                 ):format(e.name.text),
                                 nil,
                                 {help = "drop the width, or declare the type a struct"}
@@ -1667,12 +1673,11 @@ function declare.install(
                                 "NUPP2201",
                                 e.bitWidth,
                                 (
-                                    "struct field %q: %s carries no bit width; C allows " .. "one on an integer or boolean field only"
+                                    "struct field %q: %s carries no bit width; C allows "
+                                    .. "one on an integer or boolean field only"
                                 ):format(e.name.text, T.tostring(ft)),
                                 nil,
-                                {
-                                    help = "drop the width, or give the field an " .. "integer or boolean type"
-                                }
+                                {help = "drop the width, or give the field an " .. "integer or boolean type"}
                             )
                         end
                     end
@@ -1902,13 +1907,9 @@ function declare.install(
                     end
                     e.overridesDefault = receiver and inheritedDefault(n, memberName) or nil
                     if not receiver and isOverride then
-                        c.diag(
-                            "NUPP2118",
-                            e.name,
-                            "a static function cannot override an instance default",
-                            nil,
-                            {help = "add `self` as the first parameter, or remove @override"}
-                        )
+                        c.diag("NUPP2118", e.name, "a static function cannot override an instance default", nil, {
+                            help = "add `self` as the first parameter, or remove @override"
+                        })
                     elseif e.overridesDefault and not isOverride then
                         c.diag(
                             "NUPP2118",
@@ -2083,13 +2084,9 @@ function declare.install(
             for _, e in ipairs(stat.entries) do
                 if e.kind == "satisfiesDecl" then
                     if n.predicate then
-                        c.diag(
-                            "NUPP2122",
-                            e,
-                            ("%s already declares how it is matched"):format(n.name),
-                            nil,
-                            {help = "combine the tests with `and`"}
-                        )
+                        c.diag("NUPP2122", e, ("%s already declares how it is matched"):format(n.name), nil, {
+                            help = "combine the tests with `and`"
+                        })
                     else
                         checkRefinement(stat, n, e)
                     end
@@ -2171,8 +2168,8 @@ function declare.install(
             relations.invalidate()
             c.popScope()
             if stat.isAnnotationDefinition then
-            -- The declaration is a metadata schema, not a runtime constructor. Its type
-            -- remains available to the checker.
+                -- The declaration is a metadata schema, not a runtime constructor. Its
+                -- type remains available to the checker.
             elseif stat.declKind == "struct" then
                 -- the name is a value too: the ctype constructor
                 c.bindDeclaredVar(stat, n)

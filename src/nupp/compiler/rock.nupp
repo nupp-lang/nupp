@@ -23,6 +23,7 @@ local function commandPath(path)
         return path
     end
     path = path:gsub("^/([A-Za-z])(/)", "%1:%2")
+
     return (path:gsub("/", "\\"))
 end
 
@@ -219,10 +220,11 @@ end
 
 local function validateDeclarations(root, modules): boolean?, string?
     local incremental = require("nupp.compiler.incremental")
-    local inc = incremental.new(
-        join(root, ".nupp-rock-check"),
-        {cache = false, config = {include = {}}, typeRoots = {join(root, "nupp")},}
-    )
+    local inc = incremental.new(join(root, ".nupp-rock-check"), {
+        cache = false,
+        config = {include = {}},
+        typeRoots = {join(root, "nupp")},
+    })
     local failed = {}
     for _, name in ipairs(modules) do
         local path = inc.modulePath(name)
@@ -316,18 +318,16 @@ function rock.test(root: string?, asked: string?): string?, string?
         return nil, "cannot create temporary rock tree"
     end
     local localArtifact = (windows and ".\\" or "./") .. basename(packed)
-    local code, output = process.capture({
-        "luarocks",
-        "--lua-version=5.1",
-        "--tree=" .. commandPath(temp),
-        "install",
-        localArtifact,
-    }, {cwd = commandPath(dirname(packed))})
+    local code, output = process.capture(
+        {"luarocks", "--lua-version=5.1", "--tree=" .. commandPath(temp), "install", localArtifact,},
+        {cwd = commandPath(dirname(packed))}
+    )
     if code ~= 0 then
         io.stderr:write(output)
         removeTree(temp)
-        return nil, ("the packed rock %s could not be installed from %s (present: %s)")
-            :format(localArtifact, dirname(packed), tostring(fs.exists(packed)))
+        return nil, (
+            "the packed rock %s could not be installed from %s (present: %s)"
+        ):format(localArtifact, dirname(packed), tostring(fs.exists(packed)))
     end
     local modules, modulesErr = declarationModules(
         join(temp, "lib/luarocks/rocks-5.1/" .. meta.name .. "/" .. meta.version)

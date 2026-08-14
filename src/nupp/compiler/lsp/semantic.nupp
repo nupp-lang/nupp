@@ -281,12 +281,12 @@ local function embeddedStringTokens(result: semantic.Parse): {[lexer.Token]: boo
             return
         end
         for _, value in ipairs(node.exprs or {}) do
-            if value
-                and (value.kind == "string" or value.kind == "dedentString") and value.token then
+            if value and (value.kind == "string" or value.kind == "dedentString") and value.token then
                 embedded[value.token] = true
             end
         end
     end)
+
     return embedded
 end
 
@@ -505,12 +505,17 @@ function semantic.install(s: semantic.Session): semantic.Api
         return wire.array({{start = prefix, deleteCount = deleteCount, data = inserted,}})
     end
 
-    return {semanticEntries = semanticEntries, encodeSemanticEntries = encodeSemanticEntries, rememberTokens = rememberTokens, tokenEdits = tokenEdits,
+    return {
+        semanticEntries = semanticEntries,
+        encodeSemanticEntries = encodeSemanticEntries,
+        rememberTokens = rememberTokens,
+        tokenEdits = tokenEdits,
 
         --- The answer last given for `uri`, which a delta is computed against.
         lastSent = function(uri)
-        return sentTokens[uri]
-    end,}
+            return sentTokens[uri]
+        end,
+    }
 end
 
 return semantic

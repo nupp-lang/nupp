@@ -451,13 +451,9 @@ function control.install(c: state.Checker): state.StatHandlers
             ),
         } or nil
         if nested then
-            c.diag(
-                "else-if",
-                otherwise,
-                "this else contains only an if; write elseif instead",
-                fixes,
-                {help = "replace else followed by if with elseif"}
-            )
+            c.diag("else-if", otherwise, "this else contains only an if; write elseif instead", fixes, {
+                help = "replace else followed by if with elseif"
+            })
         end
         local accumulatedElse = {}
         local firstFacts = nil
@@ -499,8 +495,7 @@ function control.install(c: state.Checker): state.StatHandlers
             if cond then
                 local key, seen = nil, 0
                 for k in pairs(facts.t) do
-                    key = k
-                    ;
+                    key = k;
                     seen = seen + 1
                 end
                 if seen == 1 and (dispatchKey == nil or dispatchKey == key) then
@@ -622,10 +617,8 @@ function control.install(c: state.Checker): state.StatHandlers
     end
 
     handlers.doStmt = function(stat: cst.DoStmt)
-        c.pushScope()
-        ;
-        c.checkBlock(stat.body, true)
-        ;
+        c.pushScope();
+        c.checkBlock(stat.body, true);
         c.popScope()
     end
 
@@ -725,13 +718,9 @@ function control.install(c: state.Checker): state.StatHandlers
                     node.name.text
                 ] and not node.handledEntryDiagnosed then
                     node.handledEntryDiagnosed = true
-                    c.diag(
-                        "NUPP2706",
-                        node,
-                        "control cannot enter a `handle suspension` region",
-                        nil,
-                        {help = "move the label outside the handled region"}
-                    )
+                    c.diag("NUPP2706", node, "control cannot enter a `handle suspension` region", nil, {
+                        help = "move the label outside the handled region"
+                    })
                 end
                 for _, child in ipairs(node) do
                     refuse(child, nextFunction)
@@ -774,10 +763,8 @@ function control.install(c: state.Checker): state.StatHandlers
 
     handlers.unsafeStmt = function(stat: cst.UnsafeStmt)
         c.unsafeDepth = c.unsafeDepth + 1
-        c.pushScope()
-        ;
-        c.checkBlock(stat.body, true)
-        ;
+        c.pushScope();
+        c.checkBlock(stat.body, true);
         c.popScope()
         c.unsafeDepth = c.unsafeDepth - 1
     end

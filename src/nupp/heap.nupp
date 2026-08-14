@@ -23,6 +23,7 @@ local function finish_array(takes self: any): nil
         end
     end
 end
+
 local finish_array_nosuspend = finish_array as nosuspend function(takes self: any): nil
 
 --- An owned contiguous native allocation whose logical count cannot be separated
@@ -51,16 +52,15 @@ function heap.Array.close<T>(takes self: heap.Array<T>): nil
     finish_array_nosuspend(self)
 end
 
-function heap.Array.write<T>(
-    exclusive self: heap.Array<T>
-): Owned<span.WriteSpan<T>> borrows (self)
+function heap.Array.write<T>(exclusive self: heap.Array<T>): Owned<span.WriteSpan<T>> borrows (self)
     return span.writeCarray(self.pointer, self.count)
 end
 
 --- Allocates `count` contiguous values of `element` outside LuaJIT's GC allocation
 --- limit. The result owns the allocation and is automatically freed.
 --- @export
---- @raises when count is negative, the byte size overflows a Lua integer, or malloc fails
+--- @raises when count is negative, the byte size overflows a Lua integer, or malloc
+---     fails
 function heap.allocate<T>(element: ctype<T>, count: integer): Owned<heap.Array<T>>
     if count < 0 then
         error("heap array count cannot be negative", 2)

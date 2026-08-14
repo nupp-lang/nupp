@@ -313,8 +313,7 @@ local function pageNavigation(route, pages, prefix)
     local current
     for index, candidate in ipairs(pages or {}) do
         if candidate.path == route then
-            current = index
-            ;
+            current = index;
             break
         end
     end
@@ -539,8 +538,11 @@ function page.render(
     if settings.favicon and settings.favicon ~= "" then
         favicon = '<link rel="icon" href="' .. htmlEscape(assetHref(prefix, settings.favicon)) .. '">'
     end
-    local playground = body:find("<nupp-playground", 1, true)
-        and '<script type="module" src="/playground/doc-app.js"></script>' or ""
+    local playground = body:find(
+        "<nupp-playground",
+        1,
+        true
+    ) and '<script type="module" src="/playground/doc-app.js"></script>' or ""
 
     return "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
         .. '<meta name="viewport" content="width=device-width,initial-scale=1">'

@@ -46,6 +46,7 @@ type manifest.Target = {
     sources: {string}?,
     resources: {string | manifest.Resource}?,
     dependencies: {string}?,
+
     --- Target triple used by compile-time C layout intrinsics. It is deliberately
     --- separate from the machine running the compiler and from a dependency's native
     --- build target.
@@ -53,8 +54,8 @@ type manifest.Target = {
     format: string?,
     title: string?,
 
-    --- The target's own name, filled in by `nupp.compiler.build.tasks` when it merges the
-    --- build's keys with the target's. A docs target takes `targetName` instead,
+    --- The target's own name, filled in by `nupp.compiler.build.tasks` when it merges
+    --- the build's keys with the target's. A docs target takes `targetName` instead,
     --- because `name` is already the site's.
     name: string?,
     targetName: string?,
@@ -127,10 +128,9 @@ type manifest.Task = {
 
 --- A whole `nupp.lua`.
 ---
---- The underscored keys are not written by hand: `nupp.compiler.build.project` folds the
---- options
---- a command was given into the config before it is hashed, so changing one invalidates
---- the artifacts built under the old value.
+--- The underscored keys are not written by hand: `nupp.compiler.build.project` folds
+--- the options a command was given into the config before it is hashed, so changing one
+--- invalidates the artifacts built under the old value.
 type manifest.Config = {
     include: {string}?,
     fmt: {
@@ -196,13 +196,56 @@ end
 -- is how `nupp doc` gets the rocks it renders with.
 local DOCS_KEYS = {
     -- read by nupp.compiler.doc
-    "sources", "format", "outDir", "title", "name", "description", "github", "logo", "favicon", "public", "customCss", "lexers", "includePrivate", "all", "pages", "constructorPattern", "diagnostics", "stdlib",
+    "sources",
+    "format",
+    "outDir",
+    "title",
+    "name",
+    "description",
+    "github",
+    "logo",
+    "favicon",
+    "public",
+    "customCss",
+    "lexers",
+    "includePrivate",
+    "all",
+    "pages",
+    "constructorPattern",
+    "diagnostics",
+    "stdlib",
     -- taken by any build target
-    "kind", "dependencies", "entries", "resources", "output", "stub", "nativeFeatures", "layoutTarget",}
+    "kind",
+    "dependencies",
+    "entries",
+    "resources",
+    "output",
+    "stub",
+    "nativeFeatures",
+    "layoutTarget",
+}
 
-local PAGE_KEYS = {"path", "title", "source", "layout", "redirects", "heroTitle", "heroText", "heroContent", "heroImage", "heroImageAlt", "heroActions",
+local PAGE_KEYS = {
+    "path",
+    "title",
+    "source",
+    "layout",
+    "redirects",
+    "heroTitle",
+    "heroText",
+    "heroContent",
+    "heroImage",
+    "heroImageAlt",
+    "heroActions",
     -- accepted spellings of the same six
-    "hero_title", "hero_text", "hero_content", "hero_image", "hero_image_alt", "hero_actions", "features",}
+    "hero_title",
+    "hero_text",
+    "hero_content",
+    "hero_image",
+    "hero_image_alt",
+    "hero_actions",
+    "features",
+}
 
 -- The two generated indexes are configured the same way, because the only thing
 -- either takes is where it goes.
@@ -223,7 +266,23 @@ local CONFIG_KEYS = {"name", "include", "fmt", "lints", "dependencies", "build",
 
 -- What any build target takes, whatever its kind. A docs target is checked against
 -- DOCS_KEYS instead, which spells out these same keys plus the generator's own.
-local TARGET_KEYS = {"kind", "description", "outDir", "output", "stub", "entries", "sources", "resources", "dependencies", "nativeFeatures", "layoutTarget", "format", "title", "name", "targetName"}
+local TARGET_KEYS = {
+    "kind",
+    "description",
+    "outDir",
+    "output",
+    "stub",
+    "entries",
+    "sources",
+    "resources",
+    "dependencies",
+    "nativeFeatures",
+    "layoutTarget",
+    "format",
+    "title",
+    "name",
+    "targetName"
+}
 
 -- The build section itself, which is either one target inline or the table the named
 -- ones hang off. A target inherits every key here that is not one of the two.
@@ -240,13 +299,65 @@ local SELF_HOST_KEYS = {"target", "bootstrap", "binary"}
 -- common: what a C build takes and what a rock takes overlap in `path` and nothing
 -- else. So each kind is closed against what its own provider reads.
 -- `rust` and `cargo` name the same provider, so they take the same keys.
-local CARGO_KEYS = {"kind", "dependencies", "manifest", "path", "cargo", "target", "targetDir", "profile", "library", "artifactPath", "features", "locked", "offline", "out", "load", "header", "bindings", "cc", "cppflags"}
+local CARGO_KEYS = {
+    "kind",
+    "dependencies",
+    "manifest",
+    "path",
+    "cargo",
+    "target",
+    "targetDir",
+    "profile",
+    "library",
+    "artifactPath",
+    "features",
+    "locked",
+    "offline",
+    "out",
+    "load",
+    "header",
+    "bindings",
+    "cc",
+    "cppflags"
+}
 
-local DEPENDENCY_KEYS: {[string]: {string}} = {
-    c = {"kind", "dependencies", "source", "path", "sources", "headers", "includeDirs", "cc", "cflags", "cppflags", "ldflags", "pkgConfig", "out", "load", "header", "bindings"},
+local DEPENDENCY_KEYS: {
+    [string]: {string}
+} = {
+    c = {
+        "kind",
+        "dependencies",
+        "source",
+        "path",
+        "sources",
+        "headers",
+        "includeDirs",
+        "cc",
+        "cflags",
+        "cppflags",
+        "ldflags",
+        "pkgConfig",
+        "out",
+        "load",
+        "header",
+        "bindings"
+    },
     cargo = CARGO_KEYS,
     rust = CARGO_KEYS,
-    luarocks = {"kind", "dependencies", "rock", "version", "rockspec", "path", "tree", "luaVersion", "server", "luaDir", "luarocks", "bundle"},
+    luarocks = {
+        "kind",
+        "dependencies",
+        "rock",
+        "version",
+        "rockspec",
+        "path",
+        "tree",
+        "luaVersion",
+        "server",
+        "luaDir",
+        "luarocks",
+        "bundle"
+    },
 }
 
 -- The generated FFI binding a C or Cargo dependency asks for by naming a header.
@@ -262,9 +373,9 @@ local function validateKeys(value, known, label)
     end
     local unknown = {}
     for key in pairs(value) do
-        -- An underscored key is the build's own: `nupp.compiler.build.project` folds the
-        -- options a command was given into the config it hashes, so a validated manifest
-        -- is not the only table these checks ever see.
+        -- An underscored key is the build's own: `nupp.compiler.build.project` folds
+        -- the options a command was given into the config it hashes, so a validated
+        -- manifest is not the only table these checks ever see.
         if type(key) == "string" and not allowed[key] and key:sub(1, 1) ~= "_" then
             unknown[#unknown + 1] = key
         end
@@ -367,7 +478,10 @@ local function validateTarget(target, label, dependencies)
                 .. ".layoutTarget names unsupported target "
                 .. target.layoutTarget
                 .. "; supported targets: "
-                .. table.concat(layouts.keys(), ", ")
+                .. table.concat(
+                layouts.keys(),
+                ", "
+            )
         end
     end
     if target.nativeFeatures ~= nil then
@@ -765,9 +879,8 @@ local function validateManifest(config: manifest.Config): boolean?, string?
             end
             -- Unlike test.build, this doesn't require build configuration to exist at
             -- all: most tasks won't name one (nupp task itself doesn't build anything
-            -- by default, see nupp.compiler.build.project.runTask), and a manifest with no
-            -- build
-            -- section is still a manifest a task can be defined in.
+            -- by default, see nupp.compiler.build.project.runTask), and a manifest with
+            -- no build section is still a manifest a task can be defined in.
             if task.build ~= nil then
                 valid, err = validateString(task.build, label .. ".build")
                 if not valid then

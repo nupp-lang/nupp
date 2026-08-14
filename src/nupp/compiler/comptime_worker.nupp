@@ -243,7 +243,11 @@ function worker.main(argv: {string}): integer
     end
     if #requestText > MAX_PROTOCOL_BYTES then
         io.write(
-            cjson.encode({ok = false, code = "NUPP2416", message = "comptime worker request exceeds 2097152 bytes"}),
+            cjson.encode({
+                ok = false,
+                code = "NUPP2416",
+                message = "comptime worker request exceeds 2097152 bytes"
+            }),
             "\n"
         )
         return 0
@@ -319,16 +323,13 @@ function worker.evaluate(
     if not wrote then
         return nil, {code = "NUPP2412", message = "cannot create comptime worker request: " .. tostring(writeErr)}
     end
-    local code, output = process.captureIsolated(
-        {executable, "__comptime-worker", requestPath},
-        {
-            env = {NUPP_COMPTIME_WORKER_CHILD = "1"},
-            timeoutMs = WORKER_TIMEOUT_MS,
-            memoryMb = 256,
-            pump = host and host.pump or nil,
-            cancelled = host and host.cancelled or nil,
-        }
-    )
+    local code, output = process.captureIsolated({executable, "__comptime-worker", requestPath}, {
+        env = {NUPP_COMPTIME_WORKER_CHILD = "1"},
+        timeoutMs = WORKER_TIMEOUT_MS,
+        memoryMb = 256,
+        pump = host and host.pump or nil,
+        cancelled = host and host.cancelled or nil,
+    })
     os.remove(requestPath)
     if code == 124 then
         return nil, {
@@ -387,10 +388,10 @@ local function startService(executable: string): any, worker.Failure?
         return service, nil
     end
     stopService(true)
-    local child, problem = process.startIsolated(
-        {executable, "__comptime-worker-service"},
-        {env = {NUPP_COMPTIME_WORKER_CHILD = "1"}, memoryMb = 256}
-    )
+    local child, problem = process.startIsolated({executable, "__comptime-worker-service"}, {
+        env = {NUPP_COMPTIME_WORKER_CHILD = "1"},
+        memoryMb = 256
+    })
     if not child or not child.stdin or not child.stdout then
         if child then
             child:close()

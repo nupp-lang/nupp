@@ -1,0 +1,14 @@
+local m = {}
+
+-- Exactly 120 columns: the width is the last column a line may occupy, not the
+-- first it may not.
+local atTheWidth = {alpha = 1, beta = 2, label = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+
+-- One column more, and the same table is a list.
+local oneOver = {
+    alpha = 1,
+    beta = 2,
+    label = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+}
+
+return m, atTheWidth, oneOver

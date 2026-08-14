@@ -20,7 +20,6 @@ local cabi = require("nupp.compiler.cabi")
 local cst = require("nupp.compiler.cst")
 local state = require("nupp.compiler.check.state")
 
-
 local cdef = {}
 
 --- A type, as nupp.compiler.types builds them.
@@ -216,13 +215,7 @@ function cdef.install(
                     -- slot's type rather than above the signature, so it sits where
                     -- the value it describes does and the ABI is unchanged.
                     if slot and slot.tag == "owned" and not output then
-                        output = {
-                            kind = "owned",
-                            name = named,
-                            cleanups = slot.cleanups,
-                            opaque = slot.opaque,
-                            at = p,
-                        }
+                        output = {kind = "owned", name = named, cleanups = slot.cleanups, opaque = slot.opaque, at = p,}
                     end
                     if not output then
                         c.diag(

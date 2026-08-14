@@ -1,0 +1,9 @@
+local m = {}
+
+--- Prose with a dash — an em dash — and a naïve accent, wrapped at eighty-eight columns
+--- of display width rather than bytes.
+local greeting = "こんにちは、世界"
+
+local mixed = {"αβγ", "🙂 wide", "ascii"}
+
+return m, greeting, mixed

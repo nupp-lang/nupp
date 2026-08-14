@@ -1,0 +1,10 @@
+local m = {}
+
+-- Values are never column-aligned: one space around `=`, whatever the neighbours are.
+local codes = {
+    a         = 1,
+    bb        = 22,
+    ccccccccc = 333,
+}
+
+return m, codes

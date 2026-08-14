@@ -196,27 +196,32 @@ record process.Reader is nupp.io.Reader
             return nil
         end
         local chunk = nil
-        await(self.owner, "process stream read", function(): boolean
-            if self.closed or self.eof then
-                return true
-            end
-            local got = self:poll()
-            if got == nil then
-                return true
-            end
-            if #got > 0 then
-                chunk = got
+        await(
+            self.owner,
+            "process stream read",
+            function(): boolean
+                if self.closed or self.eof then
+                    return true
+                end
+                local got = self:poll()
+                if got == nil then
+                    return true
+                end
+                if #got > 0 then
+                    chunk = got
 
-                return true
-            end
+                    return true
+                end
 
-            return false
-        end, function(): processtypes.Interest
-            -- This stream, and the child: end of stream is something the child's
-            -- ending produces, so a reader that only asked about the pipe could sleep
-            -- through the very event that answers it.
-            return new processtypes.Interest(child = self.owner.handle, read = {self.handle}, write = {})
-        end)
+                return false
+            end,
+            function(): processtypes.Interest
+                -- This stream, and the child: end of stream is something the child's
+                -- ending produces, so a reader that only asked about the pipe could
+                -- sleep through the very event that answers it.
+                return new processtypes.Interest(child = self.owner.handle, read = {self.handle}, write = {})
+            end
+        )
 
         return chunk
     end
@@ -296,8 +301,8 @@ end
 --- A child's writable stream.
 ---
 --- `offer` and `isGone` are the nonblocking half, for the same reason the reader has
---- `poll`: the prelude's `nupp.io.Writer.write` writes the whole value, which a drain loop
---- serving three pipes cannot afford to wait for. The completion-oriented `write`
+--- `poll`: the prelude's `nupp.io.Writer.write` writes the whole value, which a drain
+--- loop serving three pipes cannot afford to wait for. The completion-oriented `write`
 --- remains the ordinary `nupp.io.Writer` operation; `offer` is concrete and additional.
 record process.Writer is nupp.io.Writer
     owner: any
@@ -400,18 +405,24 @@ record process.Writer is nupp.io.Writer
 
         while sent < #data and not self.closed and not self.gone do
             local before = sent
-            local completed = await(self.owner, "process stream write", function(): boolean
-                if self.closed or self.gone then
-                    return true
-                end
-                sent = sent + self:offer(data:sub(sent + 1))
+            local completed = await(
+                self.owner,
+                "process stream write",
+                function(): boolean
+                    if self.closed or self.gone then
+                        return true
+                    end
+                    sent = sent + self:offer(data:sub(sent + 1))
 
-                -- Return after each piece, not only after the whole value. A timeout
-                -- bounds one period with no progress; a child that keeps taking bytes
-                -- may keep the write alive beyond that interval.
+                    -- Return after each piece, not only after the whole value. A
+                    -- timeout bounds one period with no progress; a child that keeps
+                    -- taking bytes may keep the write alive beyond that interval.
 
-                return sent > before
-            end, interest, stopAt)
+                    return sent > before
+                end,
+                interest,
+                stopAt
+            )
             if not completed then
                 break
             end
@@ -577,15 +588,20 @@ record process.Process
 
     --- Waits for it to end and answers how. Suspends while it runs.
     function wait(self): processtypes.Exit
-        await(self, "process wait", function(): boolean
-            return self.exit ~= nil
-        end, function(): processtypes.Interest
-            -- The child alone. Its streams are deliberately left out: output nobody is
-            -- reading stays ready forever, so asking about it here would turn this
-            -- sleep into a spin. The cost is that waiting without draining can fill a
-            -- pipe and stall, which is exactly what `communicate` is for.
-            return new processtypes.Interest(child = self.handle, read = {}, write = {})
-        end)
+        await(
+            self,
+            "process wait",
+            function(): boolean
+                return self.exit ~= nil
+            end,
+            function(): processtypes.Interest
+                -- The child alone. Its streams are deliberately left out: output nobody
+                -- is reading stays ready forever, so asking about it here would turn
+                -- this sleep into a spin. The cost is that waiting without draining can
+                -- fill a pipe and stall, which is exactly what `communicate` is for.
+                return new processtypes.Interest(child = self.handle, read = {}, write = {})
+            end
+        )
         if self.timedOut and self.exit ~= nil then
             self.exit.timedOut = true
         end
@@ -781,16 +797,21 @@ record process.Process
             -- a premature yes has the next toucher on a handle already given back. It
             -- waits for whoever holds the teardown, then answers on the same terms as
             -- any other close -- finished, or free to try again.
-            await(self, "process close", function(): boolean
-                return not self.closing
-            end, function(): processtypes.Interest
-                return new processtypes.Interest(child = self.handle, read = {}, write = {})
-            end)
+            await(
+                self,
+                "process close",
+                function(): boolean
+                    return not self.closing
+                end,
+                function(): processtypes.Interest
+                    return new processtypes.Interest(child = self.handle, read = {}, write = {})
+                end
+            )
             if self.reaped then
                 return true
             end
 
-        -- The holder's attempt failed and left it open. This caller inherits it.
+            -- The holder's attempt failed and left it open. This caller inherits it.
         end
         self.closing = true
         self.closingBy = coroutine.running()
@@ -840,11 +861,16 @@ record process.Process
                 -- stream close has been attempted by now -- attempted, not necessarily
                 -- done, since one may have refused and stayed ours -- so the child is
                 -- what this waits on and the only thing that can advance it.
-                await(self, "process close", function(): boolean
-                    return self.exit ~= nil
-                end, function(): processtypes.Interest
-                    return new processtypes.Interest(child = self.handle, read = {}, write = {})
-                end)
+                await(
+                    self,
+                    "process close",
+                    function(): boolean
+                        return self.exit ~= nil
+                    end,
+                    function(): processtypes.Interest
+                        return new processtypes.Interest(child = self.handle, read = {}, write = {})
+                    end
+                )
             end)
         end
         attempt(function(): nil
@@ -1100,24 +1126,30 @@ readForCompletion = function(source: process.Reader, limit: integer): (string?, 
     end
     local chunk: string? = nil
     local stopAt = source.owner.backend:now() + source.timeoutMs
-    local completed = await(source.owner, "process stream read", function(): boolean
-        if source.closed or source.eof then
-            return true
-        end
-        local got = source:poll(limit)
-        if got == nil then
-            return true
-        end
-        if #got > 0 then
-            chunk = got
+    local completed = await(
+        source.owner,
+        "process stream read",
+        function(): boolean
+            if source.closed or source.eof then
+                return true
+            end
+            local got = source:poll(limit)
+            if got == nil then
+                return true
+            end
+            if #got > 0 then
+                chunk = got
 
-            return true
-        end
+                return true
+            end
 
-        return false
-    end, function(): processtypes.Interest
-        return new processtypes.Interest(child = source.owner.handle, read = {source.handle}, write = {})
-    end, stopAt)
+            return false
+        end,
+        function(): processtypes.Interest
+            return new processtypes.Interest(child = source.owner.handle, read = {source.handle}, write = {})
+        end,
+        stopAt
+    )
     if not completed then
         return nil, "the process read timed out"
     end
@@ -1193,10 +1225,24 @@ local function fromSpawn(
     errHandle: any?,
     pid: integer
 ): Owned<process.Process>
-    local self = new process.Process(stdin = nil, stdout = nil, stderr = nil, backend = backend, handle = handle, exit = nil, reaped = false, childReleased = false, closing = false, closingBy = nil, pump = nil, timedOut = false, pid = pid,
+    local self = new process.Process(
+        stdin = nil,
+        stdout = nil,
+        stderr = nil,
+        backend = backend,
+        handle = handle,
+        exit = nil,
+        reaped = false,
+        childReleased = false,
+        closing = false,
+        closingBy = nil,
+        pump = nil,
+        timedOut = false,
+        pid = pid,
         -- Measured from the start, not from the first wait: a caller that spawns, works
         -- and then waits should not get a deadline counted from whenever it asked.
-        deadline = options.timeoutMs ~= nil and (backend:now() + options.timeoutMs) or nil)
+        deadline = options.timeoutMs ~= nil and (backend:now() + options.timeoutMs) or nil
+    )
     self.stdin = newWriter(self, inHandle)
     self.stdout = newReader(self, outHandle)
     self.stderr = newReader(self, errHandle)
@@ -1250,12 +1296,15 @@ end
 --- Backends build these, so the one judgement every caller makes -- did this work --
 --- has one definition rather than one per platform.
 function process.exited(exitCode: integer, killed: boolean, timedOut: boolean): processtypes.Exit
-    return {exitCode = exitCode, killed = killed, timedOut = timedOut, succeeded = function(
-        self: processtypes.Exit
-    ): boolean
-        -- A killed child never succeeded, whatever status the platform reported.
-        return not self.killed and not self.timedOut and self.exitCode == 0
-    end,} as processtypes.Exit
+    return {
+        exitCode = exitCode,
+        killed = killed,
+        timedOut = timedOut,
+        succeeded = function(self: processtypes.Exit): boolean
+            -- A killed child never succeeded, whatever status the platform reported.
+            return not self.killed and not self.timedOut and self.exitCode == 0
+        end,
+    } as processtypes.Exit
 end
 
 return process

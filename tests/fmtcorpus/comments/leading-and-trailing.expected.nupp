@@ -1,0 +1,14 @@
+-- A file that opens with a comment.
+local m = {} -- trailing, over-spaced
+
+-- Leading comment for a function.
+local function report(count: integer): nil -- trailing after a signature
+    -- leading, inside the body
+    print(count) -- trailing, inside the body
+end
+
+--[[ A long comment written in bracket form.
+     It is not prose the formatter reflows. ]]
+m.report = report
+
+return m -- trailing on the last statement

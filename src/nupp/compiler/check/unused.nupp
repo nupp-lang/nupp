@@ -82,12 +82,15 @@ function unused.install(c: state.Checker): unused.Ops
         if c.ownershipKind(entry.t) then
             return
         end
-        candidates[
-            #candidates + 1
-        ] = {tok = tok, definition = entry.definition, kind = kind, module = entry.requiredModule,
+        candidates[#candidates + 1] = {
+            tok = tok,
+            definition = entry.definition,
+            kind = kind,
+            module = entry.requiredModule,
             -- Settled here because the statement's `@allow` is in scope here and gone
             -- by the time the sweep runs.
-            allowed = c.suppressed("unused-binding"),}
+            allowed = c.suppressed("unused-binding"),
+        }
     end
 
     --- Reports every registered binding that nothing read. Runs once, after the last

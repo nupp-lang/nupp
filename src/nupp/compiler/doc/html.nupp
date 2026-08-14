@@ -141,8 +141,11 @@ local function playgroundHtml(source: string, caption: string?): string
     if trimmed ~= "" then
         fallback = '<div class="nuppdoc-code-block" data-lang="nupp"'
             .. ' data-reader-source slot="reader-source"><pre><code class="language-nupp">'
-            .. htmlEscape(trimmed) .. "</code></pre></div>"
+            .. htmlEscape(
+            trimmed
+        ) .. "</code></pre></div>"
     end
+
     return '<nupp-playground class="nuppdoc-playground" aria-label="' .. htmlEscape(
         title
     ) .. '"' .. (
@@ -193,10 +196,7 @@ local function codeGroupHtml(blocks, links)
             index == 1 and " checked" or ""
         ) .. '><label class="nuppdoc-code-tab" for="' .. id .. '">' .. htmlEscape(
             block.caption
-        ) .. '</label><figure class="nuppdoc-code-panel">' .. renderedCodeBlockHtml(
-            block,
-            links
-        ) .. '</figure>'
+        ) .. '</label><figure class="nuppdoc-code-panel">' .. renderedCodeBlockHtml(block, links) .. '</figure>'
     end
     out[#out + 1] = "</div>"
 
@@ -389,10 +389,11 @@ local function buildParser()
         }
     end
 
-    return lunamark.reader.markdown.new(
-        writer,
-        {fenced_code_blocks = true, header_attributes = true, pipe_tables = true,}
-    )
+    return lunamark.reader.markdown.new(writer, {
+        fenced_code_blocks = true,
+        header_attributes = true,
+        pipe_tables = true,
+    })
 end
 
 markdownHtml = function(text: string?, links: nupp.compiler.doc.urls.Links?, headingShift: integer?): string

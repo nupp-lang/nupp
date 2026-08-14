@@ -229,8 +229,11 @@ end
 --- its own element, so the span must be closed and reopened at the boundary.
 local function lineWriter(source)
     if source == "" then
-        return {lines = {}, append = function()
-        end}
+        return {
+            lines = {},
+            append = function()
+            end
+        }
     end
     local lines = {""}
     local function append(text, class, href)
@@ -476,11 +479,14 @@ local function loadScintillua(language)
         if not ok or type(library) ~= "table" then
             return nil
         end
-        library.property = setmetatable({["scintillua.lexers"] = scintilluaSearchPath,}, {__index = function()
-            return ""
-        end, __newindex = function(t, key, value)
-            rawset(t, key, tostring(value))
-        end,})
+        library.property = setmetatable({["scintillua.lexers"] = scintilluaSearchPath,}, {
+            __index = function()
+                return ""
+            end,
+            __newindex = function(t, key, value)
+                rawset(t, key, tostring(value))
+            end,
+        })
         scintilluaLibrary = library
     end
     local ok, loaded = pcall(scintilluaLibrary.load, language)

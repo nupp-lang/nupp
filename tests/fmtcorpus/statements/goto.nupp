@@ -1,0 +1,15 @@
+local m = {}
+
+function m.search(rows: {string}): string?
+    for _, row in ipairs(rows) do
+        if row == "stop" then
+            goto finished
+        end
+    end
+    do return nil end
+    ::finished::
+
+    return "stop"
+end
+
+return m

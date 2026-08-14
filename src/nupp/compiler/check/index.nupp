@@ -302,17 +302,11 @@ function index.install(c: state.Checker): state.ExprHandlers
             if not fixes and contracted then
                 fixes = c.edits.spellingFix(member, c.metamethodNames(base))
             end
-            c.diag(
-                "NUPP2004",
-                member,
-                ("no field %q in %s"):format(memberName, T.tostring(base)),
-                fixes,
-                {
-                    help = fixes and (
-                        contracted and "use the suggested contract spelling" or "use the suggested field spelling"
-                    ) or "check the receiver type and available fields"
-                }
-            )
+            c.diag("NUPP2004", member, ("no field %q in %s"):format(memberName, T.tostring(base)), fixes, {
+                help = fixes and (
+                    contracted and "use the suggested contract spelling" or "use the suggested field spelling"
+                ) or "check the receiver type and available fields"
+            })
             return T.any
         end
         local staticOwner = base.tag == "metatable" and rawType(base.of) or nil
@@ -337,13 +331,9 @@ function index.install(c: state.Checker): state.ExprHandlers
         elseif not writing and base.tag == "nominal" and base.overloadedMethods and base.overloadedMethods[
             memberName
         ] then
-            c.diag(
-                "NUPP2126",
-                member,
-                ("overloaded method %q has no single field value"):format(memberName),
-                nil,
-                {help = "call it with `:` so the arguments select one body"}
-            )
+            c.diag("NUPP2126", member, ("overloaded method %q has no single field value"):format(memberName), nil, {
+                help = "call it with `:` so the arguments select one body"
+            })
         end
         -- A declaration table reads as `metatable<T>`, so a static's feature effect is
         -- recorded against the declaration `T` and found through it.
@@ -403,9 +393,9 @@ function index.install(c: state.Checker): state.ExprHandlers
         end
         if (ot.tag == "ptr" or ot.tag == "carray") and not staticallyBounded then
             if boundsReported then
-            -- The precise static bounds diagnostic above already explains it.
+                -- The precise static bounds diagnostic above already explains it.
             elseif node.carrayBound and c.unsafeDepth == 0 then
-            -- Code generation checks the dynamic index against this fixed bound.
+                -- Code generation checks the dynamic index against this fixed bound.
             elseif c.unsafeDepth == 0 then
                 c.diag(
                     "NUPP2604",
@@ -532,22 +522,14 @@ function index.install(c: state.Checker): state.ExprHandlers
             return ot.elem
         elseif ot.tag == "map" then
             if writing and not ot.writeValue then
-                c.diag(
-                    "NUPP2009",
-                    node,
-                    "indexer is read-only",
-                    nil,
-                    {help = "assign through a view that grants write access"}
-                )
+                c.diag("NUPP2009", node, "indexer is read-only", nil, {
+                    help = "assign through a view that grants write access"
+                })
                 return T.any
             elseif not writing and not ot.readable then
-                c.diag(
-                    "NUPP2009",
-                    node,
-                    "indexer is write-only",
-                    nil,
-                    {help = "read through a view that grants read access"}
-                )
+                c.diag("NUPP2009", node, "indexer is write-only", nil, {
+                    help = "read through a view that grants read access"
+                })
                 return T.any
             end
             local keyType = writing and ot.writeKey or ot.key

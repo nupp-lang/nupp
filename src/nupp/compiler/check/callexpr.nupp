@@ -495,13 +495,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
             local target = c.env and c.env.layoutTarget or nil
             if not target then
-                c.diag(
-                    "NUPP2419",
-                    node,
-                    "nupp." .. layoutIntrinsic .. " needs an explicit build layout target",
-                    nil,
-                    {help = "set layoutTarget on the selected build target in nupp.lua"}
-                )
+                c.diag("NUPP2419", node, "nupp." .. layoutIntrinsic .. " needs an explicit build layout target", nil, {
+                    help = "set layoutTarget on the selected build target in nupp.lua"
+                })
                 return T.any
             end
             local measured, why = targetLayout.of(subject, target)
@@ -548,13 +544,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             local typeArgument = callArgs and callArgs.typeArg or argExprs[1]
             local key, reflected = concreteTypePath(typeArgument, callArgs and callArgs.typeArg ~= nil)
             if not stable or not reflected then
-                c.diag(
-                    "NUPP2418",
-                    argExprs[1] or node,
-                    "nupp.reflect expects one concrete type name",
-                    nil,
-                    {help = "pass a declared or qualified type, not a runtime value"}
-                )
+                c.diag("NUPP2418", argExprs[1] or node, "nupp.reflect expects one concrete type name", nil, {
+                    help = "pass a declared or qualified type, not a runtime value"
+                })
                 return T.any
             end
             local descriptor = reflection.describe(reflected, key)
@@ -727,10 +719,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             elseif intrinsic == "attemptAll" then
                 -- An ordered list of operations, as one terminal. `drop` stops where a
                 -- cleanup raises, which is right for a single one and wrong for a list:
-                -- the steps after the failure are obligations of their own, and skipping
-                -- them leaks whatever they release. This attempts every one, so a
-                -- terminal written with it behaves like automatic destruction and like a
-                -- resource set, which both attempt everything.
+                -- the steps after the failure are obligations of their own, and
+                -- skipping them leaks whatever they release. This attempts every one,
+                -- so a terminal written with it behaves like automatic destruction and
+                -- like a resource set, which both attempt everything.
                 local valueT = args[1] and c.infer(args[1]) or T.any
                 local cleanups = {}
                 if #args < 2 then
@@ -746,9 +738,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                         cleanups[#cleanups + 1] = operationTok.text
                     end
                     if operationT ~= T.any and (
-                        operationT.tag ~= "func"
-                        or not operationT.params[1]
-                        or not isA(rawType(valueT), operationT.params[1])
+                        operationT.tag ~= "func" or not operationT.params[
+                            1
+                        ] or not isA(rawType(valueT), operationT.params[1])
                     ) then
                         c.diag("NUPP2602", args[j], "an attemptAll operation must accept the value")
                     end
@@ -757,9 +749,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     if operationT ~= T.any
                         and operationT.tag == "func"
                         and operationT.paramModes
-                        and operationT.paramModes[1] == "takes"
-                        and j < #args
-                    then
+                        and operationT.paramModes[
+                        1
+                    ] == "takes" and j < #args then
                         c.diag("NUPP2615", args[j], "only the final attemptAll operation may take the value")
                     end
                 end
@@ -784,8 +776,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     c.diag(
                         "NUPP2602",
                         args[1] or node,
-                        "drop needs a named terminal; transfer this owner "
-                        .. "to a declared takes parameter"
+                        "drop needs a named terminal; transfer this owner " .. "to a declared takes parameter"
                     )
                 end
                 node.ownershipIntrinsic = "drop"
@@ -1249,10 +1240,12 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                         and threadType.resumePack
                         or phase == "dead"
                         and threadType.resumePack
-                        or T.packUnion({
-                        threadType.startPack,
-                        threadType.resumePack
-                    })
+                        or T.packUnion(
+                        {
+                            threadType.startPack,
+                            threadType.resumePack
+                        }
+                    )
                     if accepted.alternatives then
                         local fits = false
                         local suppliedHead = {}
@@ -1288,7 +1281,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     pack = T.packUnion({
                         successful(threadType.yieldPack),
                         successful(threadType.returnPack),
-                        T.pack({T.literal(false, T.boolean), T.any})
+                        T.pack({
+                            T.literal(false, T.boolean),
+                            T.any
+                        })
                     })
                     first, rets = T.packAt(pack, 1) or T.boolean, pack.head
                 end
@@ -1672,17 +1668,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         if ot ~= T.any and ot ~= T.table_ and ot.tag ~= "map" then
             if ot.tag == "shape" or ot.tag == "nominal" then
                 local fixes = c.edits.nameSpellingFix(member, c.fieldNames(ot))
-                c.diag(
-                    "NUPP2004",
-                    member,
-                    ("no method %q in %s"):format(member.text, T.tostring(ot)),
-                    fixes,
-                    {
-                        help = fixes
-                        and "use the suggested method spelling"
-                        or "check the receiver type and available methods"
-                    }
-                )
+                c.diag("NUPP2004", member, ("no method %q in %s"):format(member.text, T.tostring(ot)), fixes, {
+                    help = fixes
+                    and "use the suggested method spelling"
+                    or "check the receiver type and available methods"
+                })
             end
         end
         if node.args then

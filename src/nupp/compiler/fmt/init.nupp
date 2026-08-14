@@ -10,6 +10,10 @@ Fixed, with two knobs:
 - an over-long line is broken, one element per group;
 - an over-long chain of method calls is broken between its steps, one call
   per line, before anything inside a call is broken;
+- an argument list or a table constructor that no longer holds one line is
+  written one element per line, closer on its own, however it stopped
+  fitting -- except that a call's trailing function or table hugs the line
+  that opens the call while what precedes its body still fits there;
 - an `if` is broken across lines, however short its arms;
 - docblocks wrap only when a safe prose paragraph has a line exceeding their
   width, and then the whole paragraph is refilled so no word is left stranded
@@ -30,7 +34,8 @@ A group is an argument list, a parameter list, or a table constructor, and
 breaking one puts each element on its own line. Shape types always put each
 field on its own line. A docblock is a `---` run with
 its annotations, and it gets a blank line on either side of the declaration it
-belongs to.
+belongs to -- on either side of the declaration, that is, rather than between
+the annotations and what they annotate.
 
 The safety invariant is that the output must re-lex to the identical token
 sequence, in kind and in text, as the input; if it does not, `format` returns the
@@ -105,6 +110,15 @@ local CLOSERS = {
     [">"] = true,
 }
 local BRACKET_PAIR = {["("] = ")", ["["] = "]", ["{"] = "}", ["<"] = ">"}
+-- Groups that read as a list of elements, so once one line no longer holds them they
+-- are written one per line rather than wherever the width happened to part them.
+-- `hug` is the argument list, where a trailing function or table may keep the line that
+-- opens it; a table constructor has nothing to hug and always spreads.
+local SPREADING_GROUPS = {["args"] = "hug", ["tableExpr"] = "spread"}
+-- What an element that runs down the page closes with. A function literal and a table
+-- constructor are the two arguments whose tail is a block, and the only two that can
+-- hug the call that takes them.
+local BLOCK_CLOSERS = {["end"] = true, ["}"] = true}
 -- Operators a line may break before when it has no breakable group.
 local BREAK_OPS = {
     ["and"] = true,
@@ -318,6 +332,23 @@ local function annotate(root)
                     child.typeOp = true
                 end
             end
+        elseif kind == "tborrows" or kind == "captureClause" then
+            -- `borrows (p)` and `takes (p)` name their sources in parentheses because a
+            -- source list of one is still a list, not because they are calls. The
+            -- keyword stands off its list the way `is` and `where` stand off theirs;
+            -- hugging it reads as a call of a function named `borrows`.
+            local clause = n.mode
+            if not clause then
+                for _, child in ipairs(n) do
+                    if cst.isToken(child) and child.text == "borrows" then
+                        clause = child
+                        break
+                    end
+                end
+            end
+            if clause then
+                clause.spacedTok = true
+            end
         elseif kind == "methodCall" then
             markChainStep(n)
         elseif kind == "ifStmt" then
@@ -333,12 +364,32 @@ local function annotate(root)
         local inner = group
         if openIdx then
             local openTok, closeTok = n[openIdx], n[closeIdx]
-            inner = {kind = kind, open = openTok, close = closeTok, seps = {}, last = nil as any, parent = group}
+            inner = {
+                kind = kind,
+                open = openTok,
+                close = closeTok,
+                seps = {},
+                elements = {},
+                last = nil as any,
+                parent = group,
+            }
             openTok.opensGroup = inner
+            local atElement = true
             for idx = openIdx + 1, closeIdx - 1 do
                 local child = n[idx]
                 if cst.isToken(child) and (child.kind == "," or child.kind == ";") then
                     inner.seps[#inner.seps + 1] = child
+                    atElement = true
+                else
+                    local first, final = firstToken(child), lastToken(child)
+                    if atElement then
+                        if first then
+                            inner.elements[#inner.elements + 1] = {first = first, final = final}
+                            atElement = false
+                        end
+                    elseif final then
+                        inner.elements[#inner.elements].final = final
+                    end
                 end
             end
             inner.last = lastToken(n[closeIdx - 1])
@@ -369,6 +420,17 @@ local function annotate(root)
         if n.whereClause then
             headerPart[n.whereClause] = true
         end
+        -- A declaration's annotations are children of the declaration, parsed before
+        -- the member they decorate. A docblock above `@drop` documents the member, so
+        -- the span carrying the blank line after it has to reach the member's last
+        -- token rather than stopping at the annotation's, which would set the docblock
+        -- off from what it documents.
+        local documented: {[cst.Node]: cst.Node} = {}
+        for _, entry in ipairs(n.entries or {}) do
+            for _, application in ipairs(entry.annotations or {}) do
+                documented[application] = entry
+            end
+        end
         for idx, child in ipairs(n) do
             local childGroup = group
             if openIdx and idx > openIdx and idx < closeIdx then
@@ -387,7 +449,10 @@ local function annotate(root)
                 end
             elseif child.kind == "block" then
                 for _, stat in ipairs(child.stats or {}) do
-                    markStart = true
+                    -- A bare `;` is a statement the grammar allows and nobody writes on
+                    -- purpose. It terminates the statement before it, so it stays on
+                    -- that statement's line rather than taking one of its own.
+                    markStart = stat.kind ~= "emptyStmt"
                     walk(stat, block + 1, childGroup)
                     markStart = false
                     local first, last = firstToken(stat), lastToken(stat)
@@ -399,7 +464,7 @@ local function annotate(root)
                 markStart = true
                 walk(child, block + 1, childGroup)
                 markStart = false
-                local first, last = firstToken(child), lastToken(child)
+                local first, last = firstToken(child), lastToken(documented[child] or child)
                 if first then
                     first.stmtLastTok = last
                 end
@@ -420,7 +485,7 @@ local function annotate(root)
             child.blockDepth = 0
         elseif child.kind == "block" then
             for _, stat in ipairs(child.stats or {}) do
-                markStart = true
+                markStart = stat.kind ~= "emptyStmt"
                 walk(stat, 0, nil)
                 markStart = false
                 local first, last = firstToken(stat), lastToken(stat)
@@ -872,12 +937,16 @@ local function computeIndents(lines)
             end
             line.indent = depth
         else
-            -- comment/doc-only line: take the indent of the next code line
+            -- comment/doc-only line: take the indent of the next code line, except that
+            -- a line closing a construct sits at the construct's own depth. A comment
+            -- written before `end`, `elseif` or a group's `}` is inside what is being
+            -- closed -- which is the whole of a branch whose body is a comment -- so it
+            -- takes the depth the closer is leaving rather than the one it returns to.
             local nextIndent = 0
             for j = idx + 1, #lines do
                 local t = lineFirstToken(lines[j])
                 if t then
-                    nextIndent = lines[j].indent
+                    nextIndent = lines[j].indent + (CLOSERS[t.kind] and 1 or 0)
                     break
                 end
             end
@@ -965,8 +1034,12 @@ local function splitLine(line)
     -- A chain breaks between its steps before anything inside one of its calls breaks.
     -- An operator joining two operands is looser still, so a chain that is only one of
     -- those operands waits until the line is down to the chain.
-    local ops = breakPoints(line, function(tok) return tok.breakOp end)
-    local chain = breakPoints(line, function(tok) return tok.chainStep end)
+    local ops = breakPoints(line, function(tok)
+        return tok.breakOp
+    end)
+    local chain = breakPoints(line, function(tok)
+        return tok.chainStep
+    end)
     if #chain > 0 then
         return breakBefore(#ops > 0 and ops or chain)
     end
@@ -975,7 +1048,9 @@ local function splitLine(line)
     -- on the line: an overloaded signature reads as one line per overload, rather than
     -- as one overload's generic parameters spread down the page while the other stays
     -- where it was.
-    local typeOps = breakPoints(line, function(tok) return tok.typeOp end)
+    local typeOps = breakPoints(line, function(tok)
+        return tok.typeOp
+    end)
     if #typeOps > 0 then
         return breakBefore(typeOps)
     end
@@ -1096,10 +1171,86 @@ local function splitForcedLines(lines)
     return changed and out or nil
 end
 
+-- A list that no longer fits on one line is still a list, so it is written as one:
+-- every element under the opener, one per line, with the closer on its own. A group
+-- goes multiline for reasons the width pass never sees -- a comment inside it, an
+-- argument whose own body is a block -- and those are exactly the cases where whatever
+-- elements happened to precede the break would otherwise be left sharing a line.
+--
+-- The exception is the argument that runs down the page on purpose. A trailing function
+-- or table hugs the call that takes it -- `sort(rows, |a, b| -> do` says what is being
+-- sorted and by what on the line that opens it, and only the body follows -- so the hug
+-- holds while the arguments before it and that argument's own opening still fit on that
+-- line. An argument that goes multiline anywhere else has nothing to hug against: the
+-- arguments after it would read as a continuation of its body rather than as arguments.
+local function spreadListGroups(lines, width)
+    local changed = false
+    local function mark(tok)
+        if tok and not tok.forceBreak then
+            tok.forceBreak = true
+            changed = true
+        end
+    end
+
+    -- What the line costs up to and including one of its items: the hug survives only
+    -- while what precedes the body still fits.
+    local function prefixWidth(line, through)
+        local part = {}
+        for idx = 1, through do
+            part[#part + 1] = line.items[idx]
+        end
+
+        return line.indent * displayWidth(INDENT) + displayWidth(renderItems(part))
+    end
+
+    for lineIdx, line in ipairs(lines) do
+        for _, item in ipairs(line.items) do
+            local g = item.kind == "token" and item.token.opensGroup or nil
+            local mode = g and SPREADING_GROUPS[g.kind] or nil
+            if mode and #g.elements > 0 then
+                local tail = g.elements[#g.elements]
+                local block = tail.final ~= nil and BLOCK_CLOSERS[tail.final.kind] or false
+                if g.open.lineIdx ~= g.close.lineIdx then
+                    local opening = lines[g.open.lineIdx]
+                    local hugs = mode == "hug"
+                        and block
+                        and tail.first.lineIdx == g.open.lineIdx
+                        and opening ~= nil
+                        and lineWidth(
+                        opening
+                    ) <= width
+                    if not hugs then
+                        for _, element in ipairs(g.elements) do
+                            mark(element.first)
+                        end
+                        mark(g.close)
+                    end
+                elseif mode == "hug" and block and lineWidth(line) > width then
+                    -- The whole call is still on one line and does not fit. Where the
+                    -- argument that can hug is the one carrying a body, opening that
+                    -- body is what makes the line fit, and it keeps the arguments
+                    -- before it beside the call rather than spreading every one of
+                    -- them.
+                    local at = indexOfToken(line.items, tail.first)
+                    local body = tail.first.opensGroup
+                    if at and body and prefixWidth(line, at) <= width then
+                        for _, element in ipairs(body.elements) do
+                            mark(element.first)
+                        end
+                        mark(body.close)
+                    end
+                end
+            end
+        end
+    end
+
+    return changed
+end
+
 local function breakLines(lines, width)
     for _ = 1, MAX_PASSES do
         computeIndents(lines)
-        local changed = false
+        local changed = spreadListGroups(lines, width)
         local forced = splitForcedLines(lines)
         if forced then
             lines = forced

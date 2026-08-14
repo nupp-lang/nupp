@@ -1,0 +1,5 @@
+#!/usr/bin/env nupp
+-- A program that runs from the shell.
+local m={}
+print("ready")
+return m

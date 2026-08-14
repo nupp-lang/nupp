@@ -156,8 +156,7 @@ local function writeFile(path: string, text: string): boolean?, string?
         os.remove(backup)
         local moved, moveErr = os.rename(path, backup)
         if not moved then
-            os.remove(tmp)
-            ;
+            os.remove(tmp);
             return nil, moveErr
         end
         ok, renameErr = os.rename(tmp, path)
@@ -168,8 +167,7 @@ local function writeFile(path: string, text: string): boolean?, string?
         end
     end
     if not ok then
-        os.remove(tmp)
-        ;
+        os.remove(tmp);
         return nil, renameErr
     end
 

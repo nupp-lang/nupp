@@ -100,15 +100,18 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     -- client adds or drops a workspace folder, or when a request is about a document
     -- another folder owns, which is why they are fields: a module that captured the old
     -- value would go on answering from it.
-    local s = {root = rootDir,
+    local s = {
+        root = rootDir,
         -- The folders this session answers for, as the client named them. A client that
         -- opened more than one names them at `initialize` and again whenever the user
         -- adds or drops one; a client that names none leaves this empty and the session
         -- is the one root it was launched against.
-        folders = {}, documents = {},
+        folders = {},
+        documents = {},
         -- The last lex of each file, so a handler that only needs tokens does not
         -- reparse.
-        lexed = {},}
+        lexed = {},
+    }
 
     local running = true
 
@@ -180,8 +183,8 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         s.inc = graphFor(s.roots[1])
     end
 
-    --- Which folder owns a path: the longest one it lies under, and the launch root when
-    --- it lies under none.
+    --- Which folder owns a path: the longest one it lies under, and the launch root
+    --- when it lies under none.
     local function rootFor(path: string): any
         local owner, longest = nil, -1
         for _, entry in ipairs(s.roots) do
@@ -285,9 +288,9 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     -- declarations a name can mean — everything the query graphs were built around. So
     -- a folder change rebuilds them rather than patching them, and the open buffers are
     -- handed back as overlays so the editor's unsaved text is still what the new graph
-    -- reads. Diagnostics are then republished unconditionally: a file can be clean under
-    -- one set of folders and not under another, and the editor has no way to know the
-    -- ground moved.
+    -- reads. Diagnostics are then republished unconditionally: a file can be clean
+    -- under one set of folders and not under another, and the editor has no way to know
+    -- the ground moved.
     local function reroot(nextFolders)
         setRoots(nextFolders)
         local uris = {}
@@ -334,22 +337,37 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         if #opened > 0 then
             reroot(opened)
         end
-        respond(id, {capabilities = {textDocumentSync = 1, -- full-document sync
-            definitionProvider = true, hoverProvider = true, completionProvider = {
-            triggerCharacters = wire.array({".", ":"}),
-        }, signatureHelpProvider = {
-            triggerCharacters = wire.array({"(", ","}),
-        }, referencesProvider = true, renameProvider = {
-            prepareProvider = true
-        }, semanticTokensProvider = {
-            legend = {tokenTypes = semanticTypes, tokenModifiers = semanticModifiers,},
-            full = {delta = true},
-            range = true,
-        }, documentFormattingProvider = true, documentRangeFormattingProvider = true, documentSymbolProvider = true, workspaceSymbolProvider = true, documentHighlightProvider = true, foldingRangeProvider = true, selectionRangeProvider = true, codeActionProvider = {
-            codeActionKinds = wire.array({QUICKFIX}),
-        }, workspace = {
-            workspaceFolders = {supported = true, changeNotifications = true,},
-        },}, serverInfo = {name = "nupp-lsp", version = "0.1"},})
+        respond(id, {
+            capabilities = {
+                textDocumentSync = 1, -- full-document sync
+                definitionProvider = true,
+                hoverProvider = true,
+                completionProvider = {
+                    triggerCharacters = wire.array({
+                        ".",
+                        ":"
+                    }),
+                },
+                signatureHelpProvider = {triggerCharacters = wire.array({"(", ","}),},
+                referencesProvider = true,
+                renameProvider = {prepareProvider = true},
+                semanticTokensProvider = {
+                    legend = {tokenTypes = semanticTypes, tokenModifiers = semanticModifiers,},
+                    full = {delta = true},
+                    range = true,
+                },
+                documentFormattingProvider = true,
+                documentRangeFormattingProvider = true,
+                documentSymbolProvider = true,
+                workspaceSymbolProvider = true,
+                documentHighlightProvider = true,
+                foldingRangeProvider = true,
+                selectionRangeProvider = true,
+                codeActionProvider = {codeActionKinds = wire.array({QUICKFIX}),},
+                workspace = {workspaceFolders = {supported = true, changeNotifications = true,},},
+            },
+            serverInfo = {name = "nupp-lsp", version = "0.1"},
+        })
     end
 
     handlers["initialized"] = function()
@@ -405,8 +423,8 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             local uri = params.textDocument.uri
             local doc = s.documents[uri] or {}
             doc.text = changes[1].text
-            -- What the client calls this edit. Carried back on the diagnostics published
-            -- for it, so an editor holding newer text knows to ignore them.
+            -- What the client calls this edit. Carried back on the diagnostics
+            -- published for it, so an editor holding newer text knows to ignore them.
             doc.version = params.textDocument.version
             s.documents[uri] = doc
             eachGraph(function(inc)
@@ -425,8 +443,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         end
         local offset = offsetAtPosition(doc.text, params.position)
         if not offset then
-            respond(id, json.null)
-            ;
+            respond(id, json.null);
             return
         end
         for _, tok in ipairs(doc.result.tokens) do
@@ -482,16 +499,13 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
                     "\n\nMaterialized by `%s` (`%s`, %d-byte blueprint)."
                 ):format(tostring(observation.provider), tostring(observation.backend), observation.blueprintSize or 0)
             end
-            respond(
-                id,
-                {
-                    contents = {kind = "markdown", value = value},
-                    range = {
-                        start = positionAtOffset(doc.text, from or hoverOffset),
-                        ["end"] = positionAtOffset(doc.text, to or hoverOffset),
-                    },
-                }
-            )
+            respond(id, {
+                contents = {kind = "markdown", value = value},
+                range = {
+                    start = positionAtOffset(doc.text, from or hoverOffset),
+                    ["end"] = positionAtOffset(doc.text, to or hoverOffset),
+                },
+            })
             return
         end
         local def = tok and tok.definition
@@ -513,8 +527,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             end
         end
         if not tok or not t then
-            respond(id, json.null)
-            ;
+            respond(id, json.null);
             return
         end
         local name = def and def.name or tok.text
@@ -592,8 +605,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     handlers["$/nupp/inspect"] = function(id, params)
         local _, doc, tok, offset = symbolAt(params)
         if not tok then
-            respond(id, json.null)
-            ;
+            respond(id, json.null);
             return
         end
         local member = memberAt(doc, offset)
@@ -610,25 +622,21 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
                     end
                 end
             end
-            respond(
-                id,
-                {
-                    name = member.name,
-                    kind = "function",
-                    detail = stat and functionSignature(stat) or nil,
-                    documentation = documentation,
-                    definition = memberLocation(member),
-                    range = tokenRange(doc.text, tok),
-                    root = s.currentRoot,
-                }
-            )
+            respond(id, {
+                name = member.name,
+                kind = "function",
+                detail = stat and functionSignature(stat) or nil,
+                documentation = documentation,
+                definition = memberLocation(member),
+                range = tokenRange(doc.text, tok),
+                root = s.currentRoot,
+            })
             return
         end
         local def = tok.definition
         local t = tok.inferredType or def and def.type
         if not t then
-            respond(id, json.null)
-            ;
+            respond(id, json.null);
             return
         end
         respond(
@@ -674,8 +682,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         local offset = offsetAtPosition(doc.text, params.position)
         local call = offset and signatureAt(doc.result, offset)
         if not call then
-            respond(id, json.null)
-            ;
+            respond(id, json.null);
             return
         end
         local ft = call.signatureType
@@ -732,8 +739,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     handlers["textDocument/references"] = function(id, params)
         local _, doc, tok, offset = symbolAt(params)
         if not tok then
-            respond(id, json.empty_array)
-            ;
+            respond(id, json.empty_array);
             return
         end
         local includeDeclaration = params.context and params.context.includeDeclaration or false
@@ -779,8 +785,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     handlers["textDocument/prepareRename"] = function(id, params)
         local doc, tok = renameSubject(params)
         if not tok then
-            respond(id, json.null)
-            ;
+            respond(id, json.null);
             return
         end
         respond(id, {range = tokenRange(doc.text, tok), placeholder = tok.text,})
@@ -865,12 +870,12 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             if not edits or #edits == 0 then
                 return
             end
-            offers[
-                #offers + 1
-            ] = {
+            offers[#offers + 1] = {
                 title = title,
                 kind = kind,
-                diagnostics = diagnostic and wire.array({diagnostic}) or nil,
+                diagnostics = diagnostic and wire.array({
+                    diagnostic
+                }) or nil,
                 edit = {changes = {[uri] = toTextEdits(doc.text, edits)}},
             }
         end
@@ -948,11 +953,17 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     --- loses work.
     local function formattedText(uri, doc)
         local path = uriToPath(uri)
-        local formatted, errors = fmt.format(doc.text, path, {annotations = s.inc.env.annotations, resolveAnnotation = function(
-            name
+        local formatted, errors = fmt.format(
+            doc.text,
+            path,
+            {
+                annotations = s.inc.env.annotations,
+                resolveAnnotation = function(name)
+                    return s.inc.env.resolveProjectAnnotation(s.inc.env, path, name)
+                end,
+                methodParens = envMod.fmtMethodParensDefault(s.inc.env),
+            }
         )
-            return s.inc.env.resolveProjectAnnotation(s.inc.env, path, name)
-        end, methodParens = envMod.fmtMethodParensDefault(s.inc.env),})
         if #errors > 0 or formatted == doc.text then
             return nil
         end
@@ -993,8 +1004,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
 
     local function respondWithEdits(id, edits, keep)
         if not edits then
-            respond(id, json.empty_array)
-            ;
+            respond(id, json.empty_array);
             return
         end
         local out = wire.array({})
@@ -1009,8 +1019,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     handlers["textDocument/formatting"] = function(id, params)
         local uri, doc = documentAt(params)
         if not doc then
-            respond(id, json.empty_array)
-            ;
+            respond(id, json.empty_array);
             return
         end
         respondWithEdits(id, formattingEdits(uri, doc))
@@ -1020,8 +1029,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         local uri, doc = documentAt(params)
         local range = params and params.range
         if not doc or not range then
-            respond(id, json.empty_array)
-            ;
+            respond(id, json.empty_array);
             return
         end
         -- The formatter is a whole-document formatter — that is what makes its output
@@ -1054,9 +1062,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
                 for _, entry in ipairs(entries) do
                     local location = definitionLocation(entry.definition)
                     if location ~= json.null then
-                        found[
-                            #found + 1
-                        ] = {
+                        found[#found + 1] = {
                             name = name,
                             kind = SYMBOL_KINDS[entry.kind] or SYMBOL_KINDS.variable,
                             containerName = entry.moduleName,
@@ -1082,8 +1088,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     handlers["textDocument/documentHighlight"] = function(id, params)
         local _, doc, tok, offset = symbolAt(params)
         if not tok then
-            respond(id, json.empty_array)
-            ;
+            respond(id, json.empty_array);
             return
         end
         local highlights = wire.array({})
@@ -1156,11 +1161,12 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         respond(id, out)
     end
 
-    -- A cancellation read before the request it names is dispatched answers that request
-    -- outright. One read while the request is being answered stops the work at the next
-    -- point it offers, which is every module and every file header the answer needed.
-    -- Either way the id stays marked until it is answered, because the transport reads
-    -- ahead of the session and the order the two see things in is not the same.
+    -- A cancellation read before the request it names is dispatched answers that
+    -- request outright. One read while the request is being answered stops the work at
+    -- the next point it offers, which is every module and every file header the answer
+    -- needed. Either way the id stays marked until it is answered, because the
+    -- transport reads ahead of the session and the order the two see things in is not
+    -- the same.
     handlers["$/cancelRequest"] = function(_, params)
         if host and params then
             host.cancel(params.id)
@@ -1249,9 +1255,12 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         end
     end
 
-    return {dispatch = dispatch, running = function()
-        return running
-    end,}
+    return {
+        dispatch = dispatch,
+        running = function()
+            return running
+        end,
+    }
 end
 
 --- Blocking input half of the stdio transport. The server starts this as a child so
@@ -1376,17 +1385,26 @@ function lsp.run(rootDir: string?): integer
         harvest()
     end
 
-    host = {currentId = nil, cancellation = {}, pump = pump, cancelled = function(): boolean
-        return host.currentId ~= nil and cancelled[host.currentId] == true
-    end, cancel = function(id): nil
-        cancelled[id] = true
-    end, isCancelled = function(id): boolean
-        return cancelled[id] == true
-    end, clearCancelled = function(id): nil
-        cancelled[id] = nil
-    end, documentVersion = function(uri): integer?
-        return versions[uri]
-    end,}
+    host = {
+        currentId = nil,
+        cancellation = {},
+        pump = pump,
+        cancelled = function(): boolean
+            return host.currentId ~= nil and cancelled[host.currentId] == true
+        end,
+        cancel = function(id): nil
+            cancelled[id] = true
+        end,
+        isCancelled = function(id): boolean
+            return cancelled[id] == true
+        end,
+        clearCancelled = function(id): nil
+            cancelled[id] = nil
+        end,
+        documentVersion = function(uri): integer?
+            return versions[uri]
+        end,
+    }
 
     local session = lsp.newSession(rootDir, send, host)
     -- One exit, so the relay is closed once. Two `close` calls on paths that cannot

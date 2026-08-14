@@ -115,9 +115,14 @@ local function run(parsed: any): integer
     -- over `currentPath` rather than a fixed path, since the same formatter answers for
     -- whichever file is being formatted right now.
     local currentPath = ""
-    local formatter = fmt.new({annotations = env.annotations, resolveAnnotation = function(name: string): any
-        return env.resolveProjectAnnotation(env, currentPath, name)
-    end, methodParens = methodParens, width = width,})
+    local formatter = fmt.new({
+        annotations = env.annotations,
+        resolveAnnotation = function(name: string): any
+            return env.resolveProjectAnnotation(env, currentPath, name)
+        end,
+        methodParens = methodParens,
+        width = width,
+    })
     local paths: {string} = parsed.positional
     local wholeProject = #paths == 0
     -- The project form and --check both ask rather than transform, so both report a
@@ -179,9 +184,7 @@ local function run(parsed: any): integer
         local source, err = fs.readFile(path)
         if not source then
             if asJson then
-                failures[
-                    #failures + 1
-                ] = {
+                failures[#failures + 1] = {
                     file = path,
                     diagnostics = reportMod.diagnosticValues({
                         {
@@ -201,9 +204,9 @@ local function run(parsed: any): integer
             end
             failed = true
         elseif settled and settled.get(verdictKey(path, source)) == "same" then
-        -- Known to format to itself: nothing to report and nothing to rewrite. Parsing
-        -- the file and laying it out is the whole cost of finding that out, which is
-        -- why it is worth not doing twice.
+            -- Known to format to itself: nothing to report and nothing to rewrite.
+            -- Parsing the file and laying it out is the whole cost of finding that out,
+            -- which is why it is worth not doing twice.
         elseif not textNeeded and settled and settled.get(verdictKey(path, source)) == "differs" then
             unformatted[#unformatted + 1] = path
         else

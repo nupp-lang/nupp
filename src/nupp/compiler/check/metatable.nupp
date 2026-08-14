@@ -132,13 +132,9 @@ function metatable.install(c: state.Checker): metatable.Ops
                 if declared and written then
                     local ok, why = isA(written, declared)
                     if not ok then
-                        c.diag(
-                            "NUPP2123",
-                            field.value or field,
-                            ("__index %s: %s"):format(name, why),
-                            nil,
-                            {help = ("%s declares it as %s"):format(T.tostring(of), T.tostring(declared))}
-                        )
+                        c.diag("NUPP2123", field.value or field, ("__index %s: %s"):format(name, why), nil, {
+                            help = ("%s declares it as %s"):format(T.tostring(of), T.tostring(declared))
+                        })
                     end
                 end
             end
@@ -177,7 +173,7 @@ function metatable.install(c: state.Checker): metatable.Ops
             return
         end
         if name == "__metatable" then
-        -- Whatever the program wants handed out in place of the real one.
+            -- Whatever the program wants handed out in place of the real one.
         elseif name == "__mode" then
             if not isA(valueT, T.string) then
                 c.diag("NUPP2123", at, ("__mode is read as a string, not %s"):format(T.tostring(valueT)))

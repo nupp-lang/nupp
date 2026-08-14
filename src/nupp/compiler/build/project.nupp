@@ -44,11 +44,12 @@ type project.BuildOptions = {
     checkOnly: boolean?,
 
     --- Check these files, and whatever they require, rather than the project. Only a
-    --- check narrows: a build compiles the whole source set whatever it was asked about.
+    --- check narrows: a build compiles the whole source set whatever it was asked
+    --- about.
     ---
     --- A named file the project does not reach -- a declaration file, a `.lua`, a file
-    --- from outside -- is appended to `unchecked` rather than refused, for the caller to
-    --- check on its own.
+    --- from outside -- is appended to `unchecked` rather than refused, for the caller
+    --- to check on its own.
     paths: {string}?,
     unchecked: {string}?,
 
@@ -158,8 +159,7 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
     local report = progressMod.new(opts.checkOnly and "never" or opts.progress)
     local config, loadErr = project.loadManifest(root)
     if not config then
-        io.stderr:write(tostring(loadErr) .. "\n")
-        ;
+        io.stderr:write(tostring(loadErr) .. "\n");
         return 1
     end
     -- Absent rather than false: nil reaches the checker as "ask the file", which is
@@ -167,8 +167,7 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
     local strict = opts.strict
     local target, targetErr = targetConfig(config, opts.target)
     if not target then
-        io.stderr:write("nupp: " .. tostring(targetErr) .. "\n")
-        ;
+        io.stderr:write("nupp: " .. tostring(targetErr) .. "\n");
         return 1
     end
     config._target = target
@@ -199,11 +198,10 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
             io.stderr:write("nupp: " .. tostring(depErr) .. "\n")
             return 1
         end
-        return (
-            require(
-                "nupp.compiler.doc"
-            ).build(root, config, target, {checkOnly = opts.checkOnly, output = opts.outDir,})
-        )
+        return (require("nupp.compiler.doc").build(root, config, target, {
+            checkOnly = opts.checkOnly,
+            output = opts.outDir,
+        }))
     elseif target.kind and target.kind ~= "modules" and target.kind ~= "bundle" and target.kind ~= "binary" then
         -- A bundle is a modules build plus one more file, and a binary is a bundle
         -- stamped into a stub, so both fall through to the same path and finish
@@ -246,8 +244,7 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
     local dependencies, depErr = buildDependencies(root, outDir, config, oldState.dependencies)
     report:clear()
     if not dependencies then
-        io.stderr:write("nupp: " .. tostring(depErr) .. "\n")
-        ;
+        io.stderr:write("nupp: " .. tostring(depErr) .. "\n");
         return 1
     end
     newState.dependencies = dependencies
@@ -407,8 +404,7 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
     report:at("write")
     local ok, stateErr = saveState(statePath, newState)
     if not ok then
-        io.stderr:write("nupp: " .. tostring(stateErr) .. "\n")
-        ;
+        io.stderr:write("nupp: " .. tostring(stateErr) .. "\n");
         return 1
     end
     local completed, completionErr = writeFile(completionPath, newState.compilerHash .. "\n")
@@ -427,8 +423,7 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
 end
 
 function project.check(root: string?, opts: project.BuildOptions?): integer
-    opts = (opts or {}) as project.BuildOptions
-    ;
+    opts = (opts or {}) as project.BuildOptions;
     opts.checkOnly = true
     return project.build(root, opts)
 end
@@ -438,16 +433,14 @@ function project.test(root: string?, args: {string}?, opts: project.TestOptions?
     local asked: project.TestOptions = opts or {}
     local config, err = project.loadManifest(root)
     if not config then
-        io.stderr:write(tostring(err) .. "\n")
-        ;
+        io.stderr:write(tostring(err) .. "\n");
         return 1
     end
     -- The manifest has been validated, so a `test` that is there is a table; the guard
     -- below is still what decides whether there is one at all.
     local test = config.test as manifest.Test
     if type(test) ~= "table" or type(test.argv) ~= "table" then
-        io.stderr:write("nupp: test.argv is not configured\n")
-        ;
+        io.stderr:write("nupp: test.argv is not configured\n");
         return 1
     end
     if project.build(root, {target = test.build, outDir = asked.outDir, coverage = asked.coverage}) ~= 0 then
@@ -491,8 +484,7 @@ function project.runTask(root: string?, name: string, args: {string}?): integer
     root = root or "."
     local config, err = project.loadManifest(root)
     if not config then
-        io.stderr:write(tostring(err) .. "\n")
-        ;
+        io.stderr:write(tostring(err) .. "\n");
         return 1
     end
     local tasks = config.tasks or {}
@@ -584,8 +576,7 @@ function project.clean(root: string?, opts: project.CleanOptions?): integer
     root, opts = root or ".", (opts or {}) as project.CleanOptions
     local described, err = project.describeTasks(root, opts.target, {buildOnly = true})
     if not described then
-        io.stderr:write(tostring(err) .. "\n")
-        ;
+        io.stderr:write(tostring(err) .. "\n");
         return 1
     end
     local tasks = opts.target and {described} or described.tasks
@@ -649,9 +640,7 @@ end
 local function copyTree(source, destination)
     for _, path in ipairs(listFiles(source)) do
         local relative = path:sub(#normalize(source) + 2)
-        if relative ~= ".nupp-state.json"
-            and relative ~= ".nupp-complete"
-            and not relative:match("^native/") then
+        if relative ~= ".nupp-state.json" and relative ~= ".nupp-complete" and not relative:match("^native/") then
             local ok, err = copyFile(path, join(destination, relative))
             if not ok then
                 return nil, err
@@ -708,8 +697,7 @@ function project.binaryFixpoint(root: string?, opts: project.FixpointOptions?): 
     root = root or "."
     local config, err = project.loadManifest(root)
     if not config then
-        io.stderr:write(tostring(err) .. "\n")
-        ;
+        io.stderr:write(tostring(err) .. "\n");
         return 1
     end
     local targetName = config.selfHost and config.selfHost.binary or nil
@@ -790,23 +778,24 @@ function project.fixpoint(root: string?, opts: project.FixpointOptions?): intege
     root, opts = root or ".", (opts or {}) as project.FixpointOptions
     local config, err = project.loadManifest(root)
     if not config then
-        io.stderr:write(tostring(err) .. "\n")
-        ;
+        io.stderr:write(tostring(err) .. "\n");
         return 1
     end
     local targetName = config.selfHost and config.selfHost.target or nil
     local stage1, stage2 = "_stage1", "_stage2"
-    removeTree(join(root, stage1))
-    ;
+    removeTree(join(root, stage1));
     removeTree(join(root, stage2))
     if project.build(root, {target = targetName, outDir = stage1}) ~= 0 then
         return 1
     end
     local target = assert(targetConfig(config, targetName))
     local entry = (target.entries or {})[1] or "nupp.compiler.main"
-    local moduleName = entry:match(
-        "%.nupp$"
-    ) and envMod.moduleNameForPath(envMod.new(root, {config = config}), join(root, entry)) or entry
+    local moduleName = entry:match("%.nupp$") and envMod.moduleNameForPath(
+        envMod.new(root, {
+            config = config
+        }),
+        join(root, entry)
+    ) or entry
     moduleName = moduleName or "nupp.compiler.main"
     local mainPath = join(root, join(stage1, moduleName:gsub("%.", "/") .. ".lua"))
     local packagePath = join(root, stage1) .. "/?.lua;" .. package.path
@@ -820,8 +809,7 @@ function project.fixpoint(root: string?, opts: project.FixpointOptions?): intege
         stage2
     }
     if targetName then
-        argv[#argv + 1] = "--target"
-        ;
+        argv[#argv + 1] = "--target";
         argv[#argv + 1] = targetName
     end
     if process.run(argv, {cwd = root}) ~= 0 then
@@ -839,21 +827,18 @@ function project.fixpoint(root: string?, opts: project.FixpointOptions?): intege
     local destination = join(root, target.outDir or "build")
     local copied, copyErr = copyTree(join(root, stage2), destination)
     if not copied then
-        io.stderr:write("nupp: " .. copyErr .. "\n")
-        ;
+        io.stderr:write("nupp: " .. copyErr .. "\n");
         return 1
     end
     writeFile(join(destination, ".nupp-complete"), second .. "\n")
     if opts.updateBootstrap then
         local updated, updateErr = project.updateBootstrap(root)
         if not updated then
-            io.stderr:write("nupp: " .. tostring(updateErr) .. "\n")
-            ;
+            io.stderr:write("nupp: " .. tostring(updateErr) .. "\n");
             return 1
         end
     end
-    removeTree(join(root, stage1))
-    ;
+    removeTree(join(root, stage1));
     removeTree(join(root, stage2))
     if opts.result then
         opts.result.target = targetName

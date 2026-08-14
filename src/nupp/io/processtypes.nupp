@@ -155,11 +155,11 @@ record processtypes.Backend
     --- ask for, so a backend never converts a zero or a negative into a buffer size.
     ---
     --- The limit is part of the seam rather than something above it, because the
-    --- contract above promises one: `nupp.io.Reader.read(count)` answers at most `count`
-    --- bytes, and a platform that always handed back whatever a pipe held would leave
-    --- the completion-oriented method holding a surplus buffer of its own -- a second
-    --- place where bytes wait, with its own emptiness to reason about, to work around a
-    --- limit the kernel accepts perfectly well.
+    --- contract above promises one: `nupp.io.Reader.read(count)` answers at most
+    --- `count` bytes, and a platform that always handed back whatever a pipe held would
+    --- leave the completion-oriented method holding a surplus buffer of its own -- a
+    --- second place where bytes wait, with its own emptiness to reason about, to work
+    --- around a limit the kernel accepts perfectly well.
     read: function(processtypes.Backend, any, integer): (string?)
 
     --- Writes what it can without waiting. Answers how many bytes went, and whether

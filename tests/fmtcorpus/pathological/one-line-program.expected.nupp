@@ -1,0 +1,8 @@
+local m = {}
+local first = 1
+local function total(): integer
+    return first
+end
+
+m.total = total
+return m

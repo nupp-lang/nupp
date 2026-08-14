@@ -117,8 +117,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     local hasConst = false
                     for _, field in ipairs(initNode.fields or {}) do
                         if field.kind == "fieldNamed" and field.isConst then
-                            hasConst = true
-                            ;
+                            hasConst = true;
                             break
                         end
                     end

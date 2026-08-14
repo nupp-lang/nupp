@@ -45,10 +45,11 @@ local function run(parsed: any): integer
     local diagnostics: {any} = {}
     if #paths == 0 then
         local project = require("nupp.compiler.build.project")
-        local code = project.check(
-            ".",
-            {strict = values.strict, target = target, diagnostics = asJson and diagnostics or nil}
-        )
+        local code = project.check(".", {
+            strict = values.strict,
+            target = target,
+            diagnostics = asJson and diagnostics or nil
+        })
         if asJson then
             reportMod.json(diagnostics)
         end
@@ -61,8 +62,9 @@ local function run(parsed: any): integer
     local failed = false
 
     -- A file that cannot be read is answered here, before anything else is asked to
-    -- account for it. Below, an unreadable path would reach the project walk as a module
-    -- with no source, which is indistinguishable from a module that is simply fine.
+    -- account for it. Below, an unreadable path would reach the project walk as a
+    -- module with no source, which is indistinguishable from a module that is simply
+    -- fine.
     local readable, sources = {}, {}
     for _, path in ipairs(paths) do
         local source, err = fs.readFile(path)
@@ -117,15 +119,12 @@ local function run(parsed: any): integer
         if #mine > 0 then
             local project = require("nupp.compiler.build.project")
             local unchecked = {}
-            local code = project.check(
-                ".",
-                {
-                    strict = values.strict,
-                    paths = mine,
-                    unchecked = unchecked,
-                    diagnostics = asJson and diagnostics or nil,
-                }
-            )
+            local code = project.check(".", {
+                strict = values.strict,
+                paths = mine,
+                unchecked = unchecked,
+                diagnostics = asJson and diagnostics or nil,
+            })
             if code ~= 0 then
                 failed = true
             end

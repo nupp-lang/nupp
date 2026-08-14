@@ -552,8 +552,10 @@ local function sequenceEnded(state: any, ruleBoundary: boolean): boolean
     if state.position > #state.source or starts(
         state,
         "/"
-    ) or starts(state, ")") or starts(state, "}") or starts(state, ":}")
-        or starts(state, "~}") or starts(state, "|}") then
+    ) or starts(
+        state,
+        ")"
+    ) or starts(state, "}") or starts(state, ":}") or starts(state, "~}") or starts(state, "|}") then
         return true
     end
 

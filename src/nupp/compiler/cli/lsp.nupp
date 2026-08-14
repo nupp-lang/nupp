@@ -93,9 +93,11 @@ end
 
 local function uriToPath(uri)
     local path = uri:gsub("^file://", "")
-    return normalizePath((path:gsub("%%(%x%x)", function(hex)
-        return string.char(tonumber(hex, 16) or 0)
-    end)))
+    return normalizePath(
+        (path:gsub("%%(%x%x)", function(hex)
+            return string.char(tonumber(hex, 16) or 0)
+        end))
+    )
 end
 
 local function utf8Char(source, offset)
@@ -173,10 +175,16 @@ local function operationSpec(name: string, summary: string, usage: string, extra
         declared[#declared + 1] = option
     end
 
-    return spec.command{name = "lsp " .. name,
+    return spec.command{
+        name = "lsp " .. name,
         -- An operation is reached through its group, so a wrong option here points at
         -- `nupp help lsp`, which is a thing somebody can type.
-        helpName = "lsp", summary = summary, usage = {usage}, options = declared, schema = schema,}
+        helpName = "lsp",
+        summary = summary,
+        usage = {usage},
+        options = declared,
+        schema = schema,
+    }
 end
 
 -- One symbol, as inspect describes it and as the symbol searches list it.
@@ -416,10 +424,9 @@ local function newClient(root)
         if not text then
             return nil, err
         end
-        notify(
-            "textDocument/didOpen",
-            {textDocument = {uri = pathToUri(path), languageId = "nupp", version = 1, text = text,}}
-        )
+        notify("textDocument/didOpen", {
+            textDocument = {uri = pathToUri(path), languageId = "nupp", version = 1, text = text,}
+        })
 
         return text
     end
@@ -742,10 +749,9 @@ local function runSymbols(client, opts)
         if openErr then
             return nil, openErr
         end
-        local result, requestErr = client.request(
-            "textDocument/documentSymbol",
-            {textDocument = {uri = pathToUri(path)}}
-        )
+        local result, requestErr = client.request("textDocument/documentSymbol", {
+            textDocument = {uri = pathToUri(path)}
+        })
         if requestErr then
             return nil, requestErr
         end
@@ -1045,14 +1051,12 @@ local function dispatch(args: any): integer
     end
     local client, clientErr = newClient(opts.root)
     if not client then
-        io.stderr:write("nupp: " .. clientErr .. "\n")
-        ;
+        io.stderr:write("nupp: " .. clientErr .. "\n");
         return 1
     end
     local ok, runErr = run(client, opts)
     if not ok then
-        io.stderr:write("nupp: " .. tostring(runErr) .. "\n")
-        ;
+        io.stderr:write("nupp: " .. tostring(runErr) .. "\n");
         return 1
     end
 

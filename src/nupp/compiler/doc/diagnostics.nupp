@@ -83,13 +83,17 @@ local function section(
         out[#out + 1] = fence("Accepted", entry.right)
         out[#out + 1] = ""
     elseif entry.family then
-        out[#out + 1] = "This code has no example pair of its own. The rule above is "
+        out[
+            #out + 1
+        ] = "This code has no example pair of its own. The rule above is "
             .. "its family's, which is what the compiler knows about it."
         out[#out + 1] = ""
     end
     local lint = lintFor(code)
     if lint then
-        out[#out + 1] = "Reported by the `"
+        out[
+            #out + 1
+        ] = "Reported by the `"
             .. lint.name
             .. "` lint, category `"
             .. lint.category
@@ -104,9 +108,7 @@ local function section(
         for _, other in ipairs(entry.related) do
             names[
                 #names + 1
-            ] = listed[other] and ("[**" .. other .. "**](" .. anchor(other) .. ")") or ("**"
-                .. other
-                .. "**")
+            ] = listed[other] and ("[**" .. other .. "**](" .. anchor(other) .. ")") or ("**" .. other .. "**")
         end
         trail[#trail + 1] = "Related: " .. table.concat(names, ", ") .. "."
     end
@@ -119,9 +121,9 @@ local function section(
     if entry.wrong then
         trail[
             #trail + 1
-        ] = "[Open the reported program in the playground](/playground/#source="
-            .. htmlMod.urlFragmentEscape((entry.wrong:gsub("%s+$", "")))
-            .. ")."
+        ] = "[Open the reported program in the playground](/playground/#source=" .. htmlMod.urlFragmentEscape(
+            (entry.wrong:gsub("%s+$", ""))
+        ) .. ")."
     end
     out[#out + 1] = table.concat(trail, " ")
     out[#out + 1] = ""
@@ -130,10 +132,7 @@ local function section(
 end
 
 --- Every documented code as one page, or nil when the manifest asked for no index.
-function diagnostics.page(
-    settings: diagnostics.Settings?,
-    published: diagnostics.Published?
-): diagnostics.Page?
+function diagnostics.page(settings: diagnostics.Settings?, published: diagnostics.Published?): diagnostics.Page?
     if not settings then
         return nil
     end
@@ -181,11 +180,7 @@ function diagnostics.page(
         end
     end
 
-    return {
-        path = settings.path or "diagnostics",
-        title = title,
-        markdown = table.concat(out, "\n")
-    }
+    return {path = settings.path or "diagnostics", title = title, markdown = table.concat(out, "\n")}
 end
 
 return diagnostics

@@ -1080,7 +1080,7 @@ local function foldMethods(items: {extract.Item}, declaredTypes: {[string]: bool
         local ownerPath = callable and item.path:match("^(.*)[.:][^.:]+$") or nil
         local owner = ownerPath and types[ownerPath] or nil
         if not owner and ownerPath and declaredTypes[ownerPath] then
-        -- Its type is private, so it is too: the reader has no way to hold one.
+            -- Its type is private, so it is too: the reader has no way to hold one.
         elseif owner then
             local name = item.name:match("([^.:]+)$") or item.name
             local declared = memberNamed(owner, name)
@@ -1145,7 +1145,7 @@ local function headerDoc(root)
     for index = 1, token and token.triviaCount or 0 do
         local text = lexer.triviaText(token, index)
         if lexer.triviaKind(token, index) ~= "comment" then
-        -- keep looking: only whitespace may precede the header
+            -- keep looking: only whitespace may precede the header
         elseif text:match("^%-%-%[=*%[") then
             return trim((text:gsub("^%-%-%[=*%[", ""):gsub("%]=*%]$", "")))
         else

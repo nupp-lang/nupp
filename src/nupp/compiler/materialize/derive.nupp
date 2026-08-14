@@ -113,10 +113,7 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
         end
         local value = state.deriveFiles and state.deriveFiles[path]
         if type(value) ~= "string" then
-            return nil, failure(
-                "NUPP2810",
-                "derive.file path was not statically admitted by the compiler: " .. path
-            )
+            return nil, failure("NUPP2810", "derive.file path was not statically admitted by the compiler: " .. path)
         end
 
         return value
@@ -143,10 +140,10 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
     install("forward", function(at, args)
         local specification = args[1]
         local helper = type(specification) == "table" and entryOf(specification.helper) or nil
-        if args.n ~= 1 or not hasOnly(
-            specification,
-            {helper = true, arguments = true}
-        ) or not helper or helper.provider ~= "derive" or helper.family ~= "RuntimeHelper" then
+        if args.n ~= 1 or not hasOnly(specification, {
+            helper = true,
+            arguments = true
+        }) or not helper or helper.provider ~= "derive" or helper.family ~= "RuntimeHelper" then
             return nil, failure("NUPP2810", "derive.forward needs a runtime helper and arguments")
         end
         local arguments = specification.arguments or {}
@@ -165,9 +162,17 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
         local specification = args[1]
         local signature = type(specification) == "table" and entryOf(specification.signature) or nil
         local forward = type(specification) == "table" and entryOf(specification.forward) or nil
-        if args.n ~= 1 or not hasOnly(specification, {signature = true, parameters = true, forward = true})
-            or not signature or signature.provider ~= "types" or signature.family ~= "Type"
-            or not forward or forward.provider ~= "derive" or forward.family ~= "Forward" then
+        if args.n ~= 1 or not hasOnly(specification, {
+            signature = true,
+            parameters = true,
+            forward = true
+        })
+            or not signature
+            or signature.provider ~= "types"
+            or signature.family ~= "Type"
+            or not forward
+            or forward.provider ~= "derive"
+            or forward.family ~= "Forward" then
             return nil, failure("NUPP2810", "derive.member needs a function signature and forward recipe")
         end
         if signature.payload.kind ~= "function" then
@@ -182,19 +187,26 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
                 return nil, failure("NUPP2810", "derive.member parameter names must be non-empty strings")
             end
         end
-        return opaque("derive", "Member", {
-            signature = specification.signature,
-            parameters = parameters,
-            forward = specification.forward,
-        }, provenance(at, "member"))
+
+        return opaque(
+            "derive",
+            "Member",
+            {signature = specification.signature, parameters = parameters, forward = specification.forward,},
+            provenance(at, "member")
+        )
     end)
     install("implement", function(at, args)
         local specification = args[1]
-        if args.n ~= 1 or not hasOnly(
-            specification,
-            {methods = true, statics = true, data = true, effects = true}
-        ) or type(specification.methods or {}) ~= "table" or type(specification.statics or {}) ~= "table"
-            or type(specification.data or {}) ~= "table" or not denseArray(specification.effects or {}) then
+        if args.n ~= 1 or not hasOnly(specification, {
+            methods = true,
+            statics = true,
+            data = true,
+            effects = true
+        }) or type(
+            specification.methods or {}
+        ) ~= "table" or type(
+            specification.statics or {}
+        ) ~= "table" or type(specification.data or {}) ~= "table" or not denseArray(specification.effects or {}) then
             return nil, failure(
                 "NUPP2810",
                 (
@@ -206,16 +218,31 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
         return opaque(
             "derive",
             "Result",
-            {methods = specification.methods or {}, statics = specification.statics or {}, data = specification.data or {}, effects = specification.effects or {},},
+            {
+                methods = specification.methods or {},
+                statics = specification.statics or {},
+                data = specification.data or {},
+                effects = specification.effects or {},
+            },
             provenance(at, "implement")
         )
     end)
     install("error", function(at, args)
         local message, suppliedReference, code = args[1], args[2], args[3] or "NUPP2810"
         local reference = suppliedReference and entryOf(suppliedReference) or nil
-        if (args.n ~= 1 and args.n ~= 2 and args.n ~= 3) or type(message) ~= "string"
-            or type(code) ~= "string" or not code:match("^NUPP%d%d%d%d$")
-            or (suppliedReference ~= nil and (not reference or reference.provider ~= "derive" or reference.family ~= "Reference")) then
+        if (
+            args.n ~= 1 and args.n ~= 2 and args.n ~= 3
+        ) or type(
+            message
+        ) ~= "string" or type(
+            code
+        ) ~= "string" or not code:match(
+            "^NUPP%d%d%d%d$"
+        ) or (
+            suppliedReference ~= nil and (
+                not reference or reference.provider ~= "derive" or reference.family ~= "Reference"
+            )
+        ) then
             return nil, failure("NUPP2810", "derive.error needs a message and optional Info reference")
         end
 
@@ -256,6 +283,7 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
                 return true
             end
         end
+
         return false
     end)
 
@@ -461,14 +489,12 @@ local function copyConstant(value, active, count, state)
         end
         local copied, why = copyConstant(child, active, count, state)
         if why then
-            active[value] = nil
-            ;
+            active[value] = nil;
             return nil, why
         end
         out[key] = copied
         if count[1] > MAX_NODES then
-            active[value] = nil
-            ;
+            active[value] = nil;
             return nil, "recipe exceeds its node limit"
         end
     end
@@ -532,8 +558,7 @@ function deriveProvider.finalize(state: any, root: any): any, any
             local why
             out.value, why = copyConstant(payload.value, {}, count, state)
             if why then
-                active[handle] = nil
-                ;
+                active[handle] = nil;
                 return nil, why
             end
         elseif payload.kind == "array" then
@@ -542,8 +567,7 @@ function deriveProvider.finalize(state: any, root: any): any, any
                 local why
                 out.values[index], why = argument(child)
                 if why then
-                    active[handle] = nil
-                    ;
+                    active[handle] = nil;
                     return nil, why
                 end
             end
@@ -586,7 +610,10 @@ function deriveProvider.finalize(state: any, root: any): any, any
             if member then
                 local signature, why = typeprovider.finalize(state, member.signature)
                 if not signature or signature.family ~= "Type" then
-                    return nil, failure("NUPP2810", "derive member has an invalid function signature: " .. tostring(why and why.message))
+                    return nil, failure(
+                        "NUPP2810",
+                        "derive member has an invalid function signature: " .. tostring(why and why.message)
+                    )
                 end
                 out.signature, out.parameters = signature, member.parameters
             end
@@ -620,7 +647,9 @@ function deriveProvider.finalize(state: any, root: any): any, any
             return nil, failure("NUPP2810", "derive data keys must be non-empty strings")
         end
         local copied, why = copyConstant(value, {}, count, state)
-        if why then return nil, failure("NUPP2810", "derive data " .. name .. " " .. why) end
+        if why then
+            return nil, failure("NUPP2810", "derive data " .. name .. " " .. why)
+        end
         payload.data[name] = copied
     end
     for _, effect in ipairs(payload.effects) do

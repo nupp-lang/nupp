@@ -268,17 +268,11 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
                 else
                     message = ("%s %s, and this region forbids suspending"):format(named, why)
                 end
-                c.diag(
-                    candidate.code,
-                    callee or call,
-                    message,
-                    nil,
-                    {
-                        help = "call something that cannot suspend, declare the callee's type "
-                        .. "`nosuspend function(...)`, or move this out of the region",
-                        related = info and chain(queries, info) or nil,
-                    }
-                )
+                c.diag(candidate.code, callee or call, message, nil, {
+                    help = "call something that cannot suspend, declare the callee's type "
+                    .. "`nosuspend function(...)`, or move this out of the region",
+                    related = info and chain(queries, info) or nil,
+                })
             end
         end
     end

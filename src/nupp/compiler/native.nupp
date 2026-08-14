@@ -25,194 +25,152 @@ type native.Feature = {
     [string]: any
 }
 
-local FEATURES: {
-    [string]: native.Feature
-} = {["native.lpeg"] = {
-    name = "lpeg",
-    module = "lpeg",
-    host = "lpeg",
-    binary = true,
-}, ["stdlib.lpeg.re"] = {
-    name = "lpeg_re",
-    module = "re",
-    requires = {"native.lpeg"},
-}, [
-    "native.cjson"
-] = {
-    name = "cjson",
-    globals = {"nupp.data.json"},
-    modules = {"cjson", "cjson.safe"},
-    host = "cjson",
-    binary = true,
-}, [
-    "native.lua_utf8"
-] = {
-    name = "lua_utf8",
-    globals = {"nupp.data.utf8"},
-    module = "lua-utf8",
-    host = "lua-utf8",
-    binary = true,
-}, [
-    "stdlib.peg"
-] = {
-    name = "peg",
-    requires = {"native.lpeg"},
-}, [
-    "stdlib.peg.compile"
-] = {
-    name = "peg_compile",
-    globals = {"nupp.peg.compile"},
-    requires = {"native.lpeg"},
-}, [
-    "stdlib.fieldcodec"
-] = {
-    name = "fieldcodec",
-    globals = {"nupp.reflect.fieldCodec"},
-}, [
-    "stdlib.derives"
-] = {
-    name = "derives",
-    globals = {},
-}, [
-    "stdlib.io"
-] = {
-    name = "io",
-    globals = {"nupp.io.newBuffer", "nupp.io.newStringReader"},
-}, [
-    "stdlib.math"
-] = {
-    name = "math",
-    globals = {"nupp.math"},
-}, [
-    "stdlib.bitset"
-] = {
-    name = "bitset",
-    globals = {"nupp.data.bitset"},
-    -- Checked Nupp reached through the ambient namespace. The installer loads the
-    -- module, so there is no native host feature and no shared module name.
-}, [
-    "stdlib.log"
-] = {
-    name = "log",
-    globals = {
-        "nupp.log.error",
-        "nupp.log.warn",
-        "nupp.log.info",
-        "nupp.log.debug",
-        "nupp.log.level",
-        "nupp.log.enabled",
-        "nupp.log.sink",
-        "nupp.log.formatter",
-        "nupp.log.timestamp",
-        "nupp.log.timestampFormat",
-        "nupp.log.named",
-        "nupp.log.levelName",
+local FEATURES: {[string]: native.Feature} = {
+    ["native.lpeg"] = {name = "lpeg", module = "lpeg", host = "lpeg", binary = true,},
+    ["stdlib.lpeg.re"] = {name = "lpeg_re", module = "re", requires = {"native.lpeg"},},
+    [
+        "native.cjson"
+    ] = {
+        name = "cjson",
+        globals = {"nupp.data.json"},
+        modules = {"cjson", "cjson.safe"},
+        host = "cjson",
+        binary = true,
     },
-}, [
-    "stdlib.fnv1a64"
-] = {
-    name = "fnv1a64",
-    globals = {"nupp.data.fnv1a64"},
-}, [
-    "stdlib.checksums"
-] = {
-    name = "checksums",
-    globals = {"nupp.data.crc32"},
-}, [
-    "native.path"
-] = {
-    name = "path",
-    globals = {"nupp.io.Path.new", "nupp.io.Path.currentDirectory", "nupp.io.Path.separator"},
-    cargo = "runtime/native/Cargo.toml",
-    cargoFeature = "path",
-    library = "nupp_native",
-    binary = true,
-}, [
-    "native.uri"
-] = {
-    name = "uri",
-    globals = {"nupp.io.URI.new", "nupp.io.URI.validate", "nupp.io.URI.isURI"},
-    cargo = "runtime/native/Cargo.toml",
-    cargoFeature = "uri",
-    library = "nupp_native",
-    binary = true,
-}, [
-    "native.uuid"
-] = {
-    name = "uuid",
-    globals = {"nupp.data.uuid4", "nupp.data.uuid7"},
-    cargo = "runtime/native/Cargo.toml",
-    cargoFeature = "uuid",
-    library = "nupp_native",
-    binary = true,
-}, [
-    "native.files"
-] = {
-    name = "files",
-    globals = {"nupp.io.files"},
-    cargo = "runtime/native/Cargo.toml",
-    cargoFeature = "files",
-    host = "native-files",
-    library = "nupp_native",
-    binary = true,
-    -- A file operation that waits performs `suspend`, so the runtime that
-    -- answers it has to be in the target beside the program.
-    requires = {"runtime.suspension"},
-}, [
-    "runtime.suspension"
-] = {
-    -- Not a native library: a compiler-provided Nupp module a target needs its
-    -- own copy of. Deliberately not `binary`, so no manifest can force it on or
-    -- off -- nothing selects this, it is implied by what waits.
-    name = "suspension",
-    runtimeModule = "nupp.suspension",
-}, [
-    "native.process"
-] = {
-    name = "process",
-    -- The public surface, and only that: spawning a child, the `Process` it answers,
-    -- `communicate`. The platform primitives -- `tryRead`, `reap`, readiness waiting --
-    -- reach Nupp under a separate internal binding, because a global that a program can
-    -- name is a global a program will use, and the backend ABI is not something to
-    -- promise by accident.
-    module = "nupp.io.process",
-    runtimeModule = "nupp.io.process",
-    cargo = "runtime/native/Cargo.toml",
-    cargoFeature = "process",
-    host = "native-process",
-    library = "nupp_native",
-    binary = true,
-    requires = {"runtime.suspension"},
-}, [
-    "native.workers"
-] = {
-    name = "workers",
-    module = "nupp.workers",
-    host = "workers",
-    binary = true,
-    runtimeModule = "nupp.workers",
-    requires = {"runtime.suspension"},
-}, [
-    "native.http"
-] = {
-    name = "http",
-    module = "nupp.io.http",
-    runtimeModule = "nupp.io.http",
-    cargo = "runtime/native/Cargo.toml",
-    cargoFeature = "http",
-    library = "nupp_native",
-    binary = true,
-    requires = {"runtime.suspension", "native.uri", "stdlib.io"},
-}, [
-    "native.sha256"
-] = {
-    name = "sha256",
-    globals = {"nupp.data.sha256"},
-    cargo = "runtime/native/Cargo.toml",
-    cargoFeature = "sha256",
-    library = "nupp_native",
-    binary = true,
-},}
+    [
+        "native.lua_utf8"
+    ] = {name = "lua_utf8", globals = {"nupp.data.utf8"}, module = "lua-utf8", host = "lua-utf8", binary = true,},
+    ["stdlib.peg"] = {name = "peg", requires = {"native.lpeg"},},
+    ["stdlib.peg.compile"] = {name = "peg_compile", globals = {"nupp.peg.compile"}, requires = {"native.lpeg"},},
+    ["stdlib.fieldcodec"] = {name = "fieldcodec", globals = {"nupp.reflect.fieldCodec"},},
+    ["stdlib.derives"] = {name = "derives", globals = {},},
+    ["stdlib.io"] = {name = "io", globals = {"nupp.io.newBuffer", "nupp.io.newStringReader"},},
+    ["stdlib.math"] = {name = "math", globals = {"nupp.math"},},
+    ["stdlib.bitset"] = {
+        name = "bitset",
+        globals = {"nupp.data.bitset"},
+        -- Checked Nupp reached through the ambient namespace. The installer loads the
+        -- module, so there is no native host feature and no shared module name.
+    },
+    [
+        "stdlib.log"
+    ] = {
+        name = "log",
+        globals = {
+            "nupp.log.error",
+            "nupp.log.warn",
+            "nupp.log.info",
+            "nupp.log.debug",
+            "nupp.log.level",
+            "nupp.log.enabled",
+            "nupp.log.sink",
+            "nupp.log.formatter",
+            "nupp.log.timestamp",
+            "nupp.log.timestampFormat",
+            "nupp.log.named",
+            "nupp.log.levelName",
+        },
+    },
+    ["stdlib.fnv1a64"] = {name = "fnv1a64", globals = {"nupp.data.fnv1a64"},},
+    ["stdlib.checksums"] = {name = "checksums", globals = {"nupp.data.crc32"},},
+    [
+        "native.path"
+    ] = {
+        name = "path",
+        globals = {"nupp.io.Path.new", "nupp.io.Path.currentDirectory", "nupp.io.Path.separator"},
+        cargo = "runtime/native/Cargo.toml",
+        cargoFeature = "path",
+        library = "nupp_native",
+        binary = true,
+    },
+    [
+        "native.uri"
+    ] = {
+        name = "uri",
+        globals = {"nupp.io.URI.new", "nupp.io.URI.validate", "nupp.io.URI.isURI"},
+        cargo = "runtime/native/Cargo.toml",
+        cargoFeature = "uri",
+        library = "nupp_native",
+        binary = true,
+    },
+    [
+        "native.uuid"
+    ] = {
+        name = "uuid",
+        globals = {"nupp.data.uuid4", "nupp.data.uuid7"},
+        cargo = "runtime/native/Cargo.toml",
+        cargoFeature = "uuid",
+        library = "nupp_native",
+        binary = true,
+    },
+    ["native.files"] = {
+        name = "files",
+        globals = {"nupp.io.files"},
+        cargo = "runtime/native/Cargo.toml",
+        cargoFeature = "files",
+        host = "native-files",
+        library = "nupp_native",
+        binary = true,
+        -- A file operation that waits performs `suspend`, so the runtime that
+        -- answers it has to be in the target beside the program.
+        requires = {"runtime.suspension"},
+    },
+    ["runtime.suspension"] = {
+        -- Not a native library: a compiler-provided Nupp module a target needs its
+        -- own copy of. Deliberately not `binary`, so no manifest can force it on or
+        -- off -- nothing selects this, it is implied by what waits.
+        name = "suspension",
+        runtimeModule = "nupp.suspension",
+    },
+    ["native.process"] = {
+        name = "process",
+        -- The public surface, and only that: spawning a child, the `Process` it
+        -- answers, `communicate`. The platform primitives -- `tryRead`, `reap`,
+        -- readiness waiting -- reach Nupp under a separate internal binding, because a
+        -- global that a program can name is a global a program will use, and the
+        -- backend ABI is not something to promise by accident.
+        module = "nupp.io.process",
+        runtimeModule = "nupp.io.process",
+        cargo = "runtime/native/Cargo.toml",
+        cargoFeature = "process",
+        host = "native-process",
+        library = "nupp_native",
+        binary = true,
+        requires = {"runtime.suspension"},
+    },
+    [
+        "native.workers"
+    ] = {
+        name = "workers",
+        module = "nupp.workers",
+        host = "workers",
+        binary = true,
+        runtimeModule = "nupp.workers",
+        requires = {"runtime.suspension"},
+    },
+    [
+        "native.http"
+    ] = {
+        name = "http",
+        module = "nupp.io.http",
+        runtimeModule = "nupp.io.http",
+        cargo = "runtime/native/Cargo.toml",
+        cargoFeature = "http",
+        library = "nupp_native",
+        binary = true,
+        requires = {"runtime.suspension", "native.uri", "stdlib.io"},
+    },
+    [
+        "native.sha256"
+    ] = {
+        name = "sha256",
+        globals = {"nupp.data.sha256"},
+        cargo = "runtime/native/Cargo.toml",
+        cargoFeature = "sha256",
+        library = "nupp_native",
+        binary = true,
+    },
+}
 
 local byGlobal, byModule, byName = {}, {}, {}
 for effect, feature in pairs(FEATURES) do
@@ -245,6 +203,7 @@ function native.decorateGlobals(globals: {[string]: any}): {[any]: {[string]: st
             effects[owner][member] = effect
         end
     end
+
     for path, effect in pairs(byGlobal) do
         local parts = {}
         for part in path:gmatch("[^.]+") do
@@ -263,9 +222,10 @@ function native.decorateGlobals(globals: {[string]: any}): {[any]: {[string]: st
                 local qualified = globals[table.concat(parts, ".", 1, index - 1)]
                 decorate(qualified and qualified.t, parts[index], effect)
             end
-            -- A static reached through the type that owns it -- `nupp.io.Path.separator`
-            -- -- steps through a nested declaration rather than a field, so the walk
-            -- asks `nestedTypes` wherever `byname` has nothing.
+            -- A static reached through the type that owns it --
+            -- `nupp.io.Path.separator` -- steps through a nested declaration rather
+            -- than a field, so the walk asks `nestedTypes` wherever `byname` has
+            -- nothing.
             t = t and (t.byname and t.byname[parts[index]] or t.nestedTypes and t.nestedTypes[parts[index]]) or nil
         end
     end

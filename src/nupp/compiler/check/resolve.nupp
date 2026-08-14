@@ -746,11 +746,7 @@ function resolve.install(c: state.Checker): nil
                     )
                 end
                 local inner = c.resolveType(node.typeArgs[1])
-                local statusValue = constArgument(
-                    node.typeArgs[2],
-                    {name = "status", domain = "integer"},
-                    node
-                )
+                local statusValue = constArgument(node.typeArgs[2], {name = "status", domain = "integer"}, node)
                 if statusValue and statusValue.tag == "constLiteral" then
                     node.cdefSuccess = status .. ":" .. tostring(statusValue.value)
                 end
@@ -770,13 +766,9 @@ function resolve.install(c: state.Checker): nil
                     -- second argument would discharge the first and silently forget
                     -- the rest.
                     if node.typeArgs[3] then
-                        c.diag(
-                            "NUPP2602",
-                            node.typeArgs[3],
-                            "Owned<T, cleanup> names one terminal",
-                            nil,
-                            {help = "ordered attempt-all cleanup is not currently expressible"}
-                        )
+                        c.diag("NUPP2602", node.typeArgs[3], "Owned<T, cleanup> names one terminal", nil, {
+                            help = "ordered attempt-all cleanup is not currently expressible"
+                        })
                     end
                     -- `opaque` is a word rather than a cleanup: the owner is
                     -- transfer-only because the author said so, which is what separates
@@ -801,10 +793,9 @@ function resolve.install(c: state.Checker): nil
                         -- declared generic so its identity and runtime-linker key are
                         -- exactly the ones every other function const argument gets.
                         local term = constArgument(cleanupArg, {name = "cleanup", domain = "function"}, node)
-                        local cleanupName = cleanupArg.kind == "tname"
-                            and not cleanupArg.typeArgs
-                            and (cleanupArg as cst.Tname).base
-                            or nil
+                        local cleanupName = cleanupArg.kind == "tname" and not cleanupArg.typeArgs and (
+                            cleanupArg as cst.Tname
+                        ).base or nil
                         local named = cleanupName and cleanupName.text or nil
                         if term and named then
                             local cleanups = c.own.resolveCleanups({named}, cleanupArg)
@@ -918,17 +909,11 @@ function resolve.install(c: state.Checker): nil
             for _, candidate in ipairs(spelling or {}) do
                 fixes[#fixes + 1] = candidate
             end
-            c.diag(
-                "NUPP2101",
-                base,
-                ("unknown type name %q"):format(name),
-                fixes,
-                {
-                    help = #fixes > 0
-                    and "use one of the suggested type names"
-                    or "declare the type, qualify its module, or correct the spelling"
-                }
-            )
+            c.diag("NUPP2101", base, ("unknown type name %q"):format(name), fixes, {
+                help = #fixes > 0
+                and "use one of the suggested type names"
+                or "declare the type, qualify its module, or correct the spelling"
+            })
             return T.any
         elseif kind == "tliteral" then
             local literal = node.token
@@ -1009,8 +994,8 @@ function resolve.install(c: state.Checker): nil
             return T.boolean
         elseif kind == "tborrows" then
             -- the body returns the plain value; the borrow wrapper and the argument it
-            -- is tied to are applied to the function type, the same way Owned<T> wraps an
-            -- annotated return
+            -- is tied to are applied to the function type, the same way Owned<T> wraps
+            -- an annotated return
             return c.resolveType(node.type)
         elseif kind == "tpreserves" then
             -- The callable records the relation; this node contributes its payload.
@@ -1335,12 +1320,34 @@ function resolve.install(c: state.Checker): nil
             if node.generics then
                 c.popScope()
             end
-            local callable = T.func(params, rets, vararg, paramModes, nil, typeParams, typeBounds, borrowsParam, borrowsSelf, borrowsParams, nil, varargType, nil, paramPack, retPack, packParams, yieldPack, resumePack,
+            local callable = T.func(
+                params,
+                rets,
+                vararg,
+                paramModes,
+                nil,
+                typeParams,
+                typeBounds,
+                borrowsParam,
+                borrowsSelf,
+                borrowsParams,
+                nil,
+                varargType,
+                nil,
+                paramPack,
+                retPack,
+                packParams,
+                yieldPack,
+                resumePack,
                 -- `nosuspend function(...)`: the one way to state the guarantee about
                 -- something whose body is never seen here.
-                node.noSuspend, paramNames, next(
-                preservesResults
-            ) and preservesResults or nil, nil, constParams, paramKinds)
+                node.noSuspend,
+                paramNames,
+                next(preservesResults) and preservesResults or nil,
+                nil,
+                constParams,
+                paramKinds
+            )
             if node.captureBorrows then
                 return T.borrowed(callable)
             end

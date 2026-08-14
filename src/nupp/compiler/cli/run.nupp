@@ -231,54 +231,57 @@ local function run(parsed: any): integer
             resetWatchInputs()
         end
 
-        _G.nupp.hotreload = {generation = function(): integer
-            return hotRuntime.generation()
-        end, poll = function(): any
-            -- The entry may own a loop and never return from its chunk. Its first
-            -- cooperative boundary proves initialization reached a safe point.
-            ensureEntryLoaded()
-            local changed = {}
-            local current = {}
-            for _, input in ipairs(watchSession:watchedInputs()) do
-                current[input.path] = true
-                local fingerprint = watchFingerprint(input)
-                local prior = seen[input.path]
-                if not prior or prior.kind ~= input.kind or prior.fingerprint ~= fingerprint then
-                    seen[input.path] = {kind = input.kind, fingerprint = fingerprint}
-                    watchSession:diskChanged(input.path, watchFs.readFile(input.path) == nil and 3 or 2)
-                    changed[#changed + 1] = input.path
+        _G.nupp.hotreload = {
+            generation = function(): integer
+                return hotRuntime.generation()
+            end,
+            poll = function(): any
+                -- The entry may own a loop and never return from its chunk. Its first
+                -- cooperative boundary proves initialization reached a safe point.
+                ensureEntryLoaded()
+                local changed = {}
+                local current = {}
+                for _, input in ipairs(watchSession:watchedInputs()) do
+                    current[input.path] = true
+                    local fingerprint = watchFingerprint(input)
+                    local prior = seen[input.path]
+                    if not prior or prior.kind ~= input.kind or prior.fingerprint ~= fingerprint then
+                        seen[input.path] = {kind = input.kind, fingerprint = fingerprint}
+                        watchSession:diskChanged(input.path, watchFs.readFile(input.path) == nil and 3 or 2)
+                        changed[#changed + 1] = input.path
+                    end
                 end
-            end
-            for watchedPath in pairs(seen) do
-                if not current[watchedPath] then
-                    seen[watchedPath] = nil
-                    watchSession:diskChanged(watchedPath, 3)
-                    changed[#changed + 1] = watchedPath
+                for watchedPath in pairs(seen) do
+                    if not current[watchedPath] then
+                        seen[watchedPath] = nil
+                        watchSession:diskChanged(watchedPath, 3)
+                        changed[#changed + 1] = watchedPath
+                    end
                 end
-            end
-            if #changed == 0 then
-                return {kind = "no-change", generation = watchSession.generation}
-            end
-            local result = watchSession:prepare(changed)
-            if result.kind == "prepared" then
-                local prepared, reason = hotRuntime.stage(result.patch, result.baseGeneration)
-                if not prepared then
-                    return {kind = "diagnostics", diagnostics = {{msg = reason}}}
+                if #changed == 0 then
+                    return {kind = "no-change", generation = watchSession.generation}
                 end
-                local generation, commitError = hotRuntime.commit(prepared)
-                if not generation then
-                    return {kind = "diagnostics", diagnostics = {{msg = commitError}}}
+                local result = watchSession:prepare(changed)
+                if result.kind == "prepared" then
+                    local prepared, reason = hotRuntime.stage(result.patch, result.baseGeneration)
+                    if not prepared then
+                        return {kind = "diagnostics", diagnostics = {{msg = reason}}}
+                    end
+                    local generation, commitError = hotRuntime.commit(prepared)
+                    if not generation then
+                        return {kind = "diagnostics", diagnostics = {{msg = commitError}}}
+                    end
+                    reportWatchNotices(watchSession:committed(generation))
+                    io.stderr:write(("nupp: committed hot generation %d\n"):format(generation))
+                elseif result.diagnostics then
+                    require("nupp.compiler.diagnostics").report(result.diagnostics)
+                    io.stderr:write(("nupp: generation %d remains running\n"):format(watchSession.generation))
                 end
-                reportWatchNotices(watchSession:committed(generation))
-                io.stderr:write(("nupp: committed hot generation %d\n"):format(generation))
-            elseif result.diagnostics then
-                require("nupp.compiler.diagnostics").report(result.diagnostics)
-                io.stderr:write(("nupp: generation %d remains running\n"):format(watchSession.generation))
-            end
-            resetWatchInputs()
+                resetWatchInputs()
 
-            return result
-        end,}
+                return result
+            end,
+        }
     else
         compileLoaded = function(modulePath: string, env: any): string?, string?
             return compile.module(modulePath, env, settings)

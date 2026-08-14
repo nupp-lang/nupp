@@ -48,7 +48,9 @@ end
 -- The compiler's own declarations, in reading order. Paths are the ones
 -- [](nupp.compiler.bundled.source) answers to, so a stamped binary renders the same
 -- page as a checkout without either knowing which it is.
-local SOURCES: {Source} = {
+local SOURCES: {
+    Source
+} = {
     new Source(file = "/decls/prelude.d.nupp"),
     new Source(file = "/decls/ffi.d.nupp", required = "ffi"),
     new Source(file = "/decls/stringbuffer.d.nupp", required = "string.buffer"),
@@ -81,15 +83,12 @@ local REFLECTION = "What the compiler hands a program about a reified `struct`'s
 -- now belongs to `nupp.reflect`; this page retains only the ambient `Layout` graph a
 -- struct's memory is described by. Naming those types is what keeps the list honest --
 -- a prelude type added later stays under Types until someone decides it is reflection.
-local REFLECTION_TYPES: {[string]: boolean} = {
-    Layout = true,
-    LayoutField = true,
-}
+local REFLECTION_TYPES: {[string]: boolean} = {Layout = true, LayoutField = true,}
 
 -- A value is a global, a type is a type, and everything else on this page is a library
--- of its own. `item.module` is set on a declaration whose name qualifies it into another
--- module -- `record nupp.data` is written in the prelude and belongs to `nupp` -- and
--- that module documents it already.
+-- of its own. `item.module` is set on a declaration whose name qualifies it into
+-- another module -- `record nupp.data` is written in the prelude and belongs to `nupp`
+-- -- and that module documents it already.
 local function isGlobal(item: extractMod.Item): boolean
     return not item.module and (item.kind == "function" or item.kind == "variable")
 end
@@ -186,12 +185,9 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
         local text = bundledMod.source(source.file)
         if text then
             local path = source.file:gsub("^/", "")
-            local module, _, libraries = extractMod.extract(
-                text,
-                path,
-                source.required or "globals",
-                {shapesAsModules = source.required == nil}
-            )
+            local module, _, libraries = extractMod.extract(text, path, source.required or "globals", {
+                shapesAsModules = source.required == nil
+            })
             if module then
                 if source.required then
                     local items = withoutRedeclaredBindings(module.items)
@@ -215,9 +211,14 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
         end
     end
     anchorByName(types)
-    section(out, "Types", TYPES, only(types, function(item: extractMod.Item): boolean
-        return not isReflection(item)
-    end))
+    section(
+        out,
+        "Types",
+        TYPES,
+        only(types, function(item: extractMod.Item): boolean
+            return not isReflection(item)
+        end)
+    )
     section(out, "Reflection", REFLECTION, only(types, isReflection))
 
     return {

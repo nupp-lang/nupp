@@ -308,24 +308,28 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     -- A header is a pure function of the file's bytes, so it can be looked up by them.
     -- The key is the path and the text; the store's stamp covers the compiler and the
     -- configuration. A key that matches is not a guess.
-    q:define("projectHeader", function(self, path)
-        checkpoint()
-        local text = self:get("fileText", path)
-        if text == nil then
-            return envMod.projectHeader(env, path, nil)
-        end
-        local key = envMod.headerKey(env, path, text)
-        local cached = headerStore.get(key)
-        if cached then
-            return cached
-        end
-        -- Depending on the parse only on a miss is the point: on a hit the header
-        -- depends on the text alone, which is all it was ever computed from.
-        local header = envMod.projectHeader(env, path, self:get("parse", path))
-        headerStore.put(key, header)
+    q:define(
+        "projectHeader",
+        function(self, path)
+            checkpoint()
+            local text = self:get("fileText", path)
+            if text == nil then
+                return envMod.projectHeader(env, path, nil)
+            end
+            local key = envMod.headerKey(env, path, text)
+            local cached = headerStore.get(key)
+            if cached then
+                return cached
+            end
+            -- Depending on the parse only on a miss is the point: on a hit the header
+            -- depends on the text alone, which is all it was ever computed from.
+            local header = envMod.projectHeader(env, path, self:get("parse", path))
+            headerStore.put(key, header)
 
-        return header
-    end, sameHeader)
+            return header
+        end,
+        sameHeader
+    )
 
     local projectNominals = env.projectNominals or {}
     env.projectNominals = projectNominals
@@ -371,25 +375,41 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return sameStable(entryListSurface(a), entryListSurface(b))
     end
 
-    q:define("projectEntries", function(self, name)
-        return self:get("projectIndex", "root").byName[name] or {}
-    end, sameEntryLists)
+    q:define(
+        "projectEntries",
+        function(self, name)
+            return self:get("projectIndex", "root").byName[name] or {}
+        end,
+        sameEntryLists
+    )
 
-    q:define("projectPathEntries", function(self, path)
-        return self:get("projectIndex", "root").byPath[path] or {}
-    end, sameEntryLists)
+    q:define(
+        "projectPathEntries",
+        function(self, path)
+            return self:get("projectIndex", "root").byPath[path] or {}
+        end,
+        sameEntryLists
+    )
 
     q:define("projectModulePath", function(self, name)
         return self:get("projectIndex", "root").modules[name]
     end)
 
-    q:define("projectModuleBasenames", function(self, short)
-        return self:get("projectIndex", "root").moduleBasenames[short]
-    end, sameStable)
+    q:define(
+        "projectModuleBasenames",
+        function(self, short)
+            return self:get("projectIndex", "root").moduleBasenames[short]
+        end,
+        sameStable
+    )
 
-    q:define("projectAnnotations", function(self, name)
-        return self:get("projectIndex", "root").annotationsByName[name]
-    end, sameEntryLists)
+    q:define(
+        "projectAnnotations",
+        function(self, name)
+            return self:get("projectIndex", "root").annotationsByName[name]
+        end,
+        sameEntryLists
+    )
 
     -- Environment lookup helpers call this function, including from inside a check
     -- query. q:get records the project-index dependency in that case.
@@ -425,48 +445,70 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         end
         -- route require() through the query graph so dependencies record
         result.externalInputs = {}
-        local qenv = setmetatable({resolveModule = function(_, name)
-            local interface = self:get("moduleInterface", name)
-            return interface and interface.type or nil
-        end, resolveModuleExports = function(_, name)
-            return self:get("moduleExports", name)
-        end, observeCallGuarantee = function(_, module, member, identity, guarantee)
-            local key = table.concat({module, member, identity, guarantee}, "\0")
-            local observed = self:get("moduleCallGuarantee", key)
-            return observed and observed:sub(-8) == "\0present" or false
-        end, resolveCallGuarantees = function(_, module, member)
-            return self:get("moduleCallGuarantees", module .. "\0" .. member)
-        end, projectEntries = function(_, name)
-            return self:get("projectEntries", name)
-        end, projectPathEntries = function(_, requestedPath)
-            return self:get("projectPathEntries", requestedPath)
-        end, projectModulePath = function(_, name)
-            return self:get("projectModulePath", name)
-        end, projectModuleBasenames = function(_, short)
-            return self:get("projectModuleBasenames", short)
-        end, projectAnnotations = function(_, name)
-            return self:get("projectAnnotations", name)
-        end, externalFile = function(_, externalPath)
-            return self:get("externalFile", externalPath)
-        end, observeExternalInput = function(_, input)
-            for _, externalPath in ipairs(input.paths or {}) do
-                self:get("externalFile", externalPath)
-            end
-            result.externalInputs[#result.externalInputs + 1] = input
-        end, openTypeFunctionStore = function()
-            -- Query-local environment overlays must share the session's store. If the
-            -- lazy store were attached to this short-lived proxy, `inc.persist()`
-            -- would never see or save the results it accumulated.
-            return envMod.typeFunctionStore(env)
-        end, internDeriveRecipe = internDeriveRecipe,}, {__index = env})
+        local qenv = setmetatable(
+            {
+                resolveModule = function(_, name)
+                    local interface = self:get("moduleInterface", name)
+                    return interface and interface.type or nil
+                end,
+                resolveModuleExports = function(_, name)
+                    return self:get("moduleExports", name)
+                end,
+                observeCallGuarantee = function(_, module, member, identity, guarantee)
+                    local key = table.concat({module, member, identity, guarantee}, "\0")
+                    local observed = self:get("moduleCallGuarantee", key)
+                    return observed and observed:sub(-8) == "\0present" or false
+                end,
+                resolveCallGuarantees = function(_, module, member)
+                    return self:get("moduleCallGuarantees", module .. "\0" .. member)
+                end,
+                projectEntries = function(_, name)
+                    return self:get("projectEntries", name)
+                end,
+                projectPathEntries = function(_, requestedPath)
+                    return self:get("projectPathEntries", requestedPath)
+                end,
+                projectModulePath = function(_, name)
+                    return self:get("projectModulePath", name)
+                end,
+                projectModuleBasenames = function(_, short)
+                    return self:get("projectModuleBasenames", short)
+                end,
+                projectAnnotations = function(_, name)
+                    return self:get("projectAnnotations", name)
+                end,
+                externalFile = function(_, externalPath)
+                    return self:get("externalFile", externalPath)
+                end,
+                observeExternalInput = function(_, input)
+                    for _, externalPath in ipairs(input.paths or {}) do
+                        self:get("externalFile", externalPath)
+                    end
+                    result.externalInputs[#result.externalInputs + 1] = input
+                end,
+                openTypeFunctionStore = function()
+                    -- Query-local environment overlays must share the session's store.
+                    -- If the lazy store were attached to this short-lived proxy,
+                    -- `inc.persist()` would never see or save the results it
+                    -- accumulated.
+                    return envMod.typeFunctionStore(env)
+                end,
+                internDeriveRecipe = internDeriveRecipe,
+            },
+            {__index = env}
+        )
         local external = envMod.isDependencyTypePath(env, path)
-        local diags, moduleType, exports = check.check(result, path, qenv, {moduleName = envMod.moduleNameForPath(
-            env,
-            path
-        ),
-            -- A dependency owns the judgement of its declaration surface. A
-            -- consumer's `--strict` must not reinterpret that foreign contract.
-            strict = external and false or strict,})
+        local diags, moduleType, exports = check.check(
+            result,
+            path,
+            qenv,
+            {
+                moduleName = envMod.moduleNameForPath(env, path),
+                -- A dependency owns the judgement of its declaration surface. A
+                -- consumer's `--strict` must not reinterpret that foreign contract.
+                strict = external and false or strict,
+            }
+        )
 
         return {diags = diags, moduleType = moduleType, exports = exports, result = result}
     end
@@ -488,34 +530,38 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         q:define("checkModule", checkModule)
     end
 
-    q:define("moduleInterface", function(self, name)
-        local path = modulePath(self, name)
-        if not path then
-            -- project files shadow bundled declarations; see env.resolveModule
-            local bundled = env.bundled and env.bundled[name]
-            return bundled and {
-                type = bundled.type,
-                nominalEffectFingerprint = bundled.exports and bundled.exports.nominalEffectFingerprint,
-                deriveInterfaceFingerprint = bundled.exports and bundled.exports.deriveInterfaceFingerprint,
-            } or nil
-        end
-        -- nil on the re-entrant edge of a require cycle: the module is mid-check, so
-        -- nothing is known about it yet
-        local r = self:get("checkModule", path)
+    q:define(
+        "moduleInterface",
+        function(self, name)
+            local path = modulePath(self, name)
+            if not path then
+                -- project files shadow bundled declarations; see env.resolveModule
+                local bundled = env.bundled and env.bundled[name]
+                return bundled and {
+                    type = bundled.type,
+                    nominalEffectFingerprint = bundled.exports and bundled.exports.nominalEffectFingerprint,
+                    deriveInterfaceFingerprint = bundled.exports and bundled.exports.deriveInterfaceFingerprint,
+                } or nil
+            end
+            -- nil on the re-entrant edge of a require cycle: the module is mid-check,
+            -- so nothing is known about it yet
+            local r = self:get("checkModule", path)
 
-        return r and {
-            type = r.moduleType,
-            nominalEffectFingerprint = r.exports and r.exports.nominalEffectFingerprint,
-            deriveInterfaceFingerprint = r.exports and r.exports.deriveInterfaceFingerprint,
-        } or nil
-    end, function(left, right)
-        if left == nil or right == nil then
-            return left == right
-        end
-        return left.type == right.type
+            return r and {
+                type = r.moduleType,
+                nominalEffectFingerprint = r.exports and r.exports.nominalEffectFingerprint,
+                deriveInterfaceFingerprint = r.exports and r.exports.deriveInterfaceFingerprint,
+            } or nil
+        end,
+        function(left, right)
+            if left == nil or right == nil then
+                return left == right
+            end
+            return left.type == right.type
             and left.nominalEffectFingerprint == right.nominalEffectFingerprint
             and left.deriveInterfaceFingerprint == right.deriveInterfaceFingerprint
-    end)
+        end
+    )
 
     local function sameTypeMap(left, right)
         left, right = left or {}, right or {}
@@ -574,36 +620,44 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         ) and sameDefinitionMap(left.typeDefs, right.typeDefs) and sameDefinitionMap(left.valueDefs, right.valueDefs)
     end
 
-    q:define("moduleExports", function(self, name)
-        local path = modulePath(self, name)
-        if not path then
-            -- Type-side lookups need the bundled declaration's exports just as the
-            -- value side above needs its interface. Project files still shadow the
-            -- declaration because this fallback is reached only when no path won.
-            local bundled = env.bundled and env.bundled[name]
-            return bundled and bundled.exports or nil
-        end
-        local r = self:get("checkModule", path)
+    q:define(
+        "moduleExports",
+        function(self, name)
+            local path = modulePath(self, name)
+            if not path then
+                -- Type-side lookups need the bundled declaration's exports just as the
+                -- value side above needs its interface. Project files still shadow the
+                -- declaration because this fallback is reached only when no path won.
+                local bundled = env.bundled and env.bundled[name]
+                return bundled and bundled.exports or nil
+            end
+            local r = self:get("checkModule", path)
 
-        return r and r.exports or nil
-    end, sameExports)
+            return r and r.exports or nil
+        end,
+        sameExports
+    )
 
     -- Sidecar queries deliberately cut off below `moduleExports`. A caller which never
     -- asks one of these does not observe a body-only guarantee change.
-    q:define("moduleCallGuarantees", function(self, key)
-        local module, member = key:match("^([^%z]+)%z(.+)$")
-        local path = module and modulePath(self, module) or nil
-        local exports
-        if path then
-            local checked = self:get("checkModule", path)
-            exports = checked and checked.exports or nil
-        else
-            local bundled = module and env.bundled and env.bundled[module]
-            exports = bundled and bundled.exports or nil
-        end
+    q:define(
+        "moduleCallGuarantees",
+        function(self, key)
+            local module, member = key:match("^([^%z]+)%z(.+)$")
+            local path = module and modulePath(self, module) or nil
+            local exports
+            if path then
+                local checked = self:get("checkModule", path)
+                exports = checked and checked.exports or nil
+            else
+                local bundled = module and env.bundled and env.bundled[module]
+                exports = bundled and bundled.exports or nil
+            end
 
-        return exports and exports.callGuarantees and exports.callGuarantees[member] or nil
-    end, sameStable)
+            return exports and exports.callGuarantees and exports.callGuarantees[member] or nil
+        end,
+        sameStable
+    )
 
     q:define("moduleCallGuarantee", function(self, key)
         local module, member, identity, guarantee = key:match("^([^%z]+)%z([^%z]+)%z([^%z]+)%z([^%z]+)$")

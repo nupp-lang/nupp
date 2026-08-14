@@ -533,8 +533,7 @@ function spec.Command:help(): string
     end
     local intro = self.intro
     if intro then
-        out[#out + 1] = ""
-        ;
+        out[#out + 1] = "";
         out[#out + 1] = intro
     end
     if #self.options > 0 then
@@ -572,8 +571,7 @@ function spec.Command:help(): string
     end
     local detail = self.detail
     if detail then
-        out[#out + 1] = ""
-        ;
+        out[#out + 1] = "";
         out[#out + 1] = detail
     end
 

@@ -10,140 +10,151 @@ rather than resolved.
 local spec = require("nupp.compiler.cli.spec")
 local optionsMod = require("nupp.compiler.cli.options")
 
-local command = spec.command{name = "build", summary = "Build source files or a configured project target", usage = {
-    "nupp build [--strict] [-O<n>] [--target NAME] [--out-dir DIR]" .. " [-q] [--format text|json]",
-    "nupp build [--strict] [-O<n>] [-o DIR] [-q] [--format text|json] <file...>",
-}, options = optionsMod.join({name = "--target", value = "NAME", help = "Build a named manifest target"},
-    -- Two directories, not two spellings of one: --out-dir moves a manifest target's
-    -- output, -o says where a named file's Lua goes. Distinct keys, so giving both is a
-    -- contradiction the command can see.
-    {
-    name = "--out-dir",
-    value = "DIR",
-    key = "projectOutDir",
-    help = "Override the manifest target's output directory"
-}, {
-    name = "-o",
-    value = "DIR",
-    key = "outDir",
-    help = "Output directory for explicit source-file builds"
-}, optionsMod.strict, optionsMod.optimize(), optionsMod.progress(), optionsMod.format()), schema = {
-    type = "object",
-    description = "What a build reported and what it produced.",
-    properties = {
-        diagnostics = require("nupp.compiler.cli.report").DIAGNOSTICS,
-        target = {
-            type = "string",
-            description = "The manifest target that was built. Absent for a "
-            .. "build of explicitly named source files."
-        },
-        written = {
-            type = "array",
-            items = {type = "string"},
-            description = "Every output path the build produced, sorted."
-        },
-        materializations = {
-            type = "array",
-            description = "Materialized expressions and their versioned provider and backend facts.",
-            items = {
-                type = "object",
-                properties = {
-                    source = {type = "string"},
-                    line = {type = "integer"},
-                    column = {type = "integer"},
-                    provider = {type = "string"},
-                    schema = {type = "integer"},
-                    fingerprint = {type = "string"},
-                    backend = {type = "string"},
-                    blueprintSize = {type = "integer"},
-                    generatedSize = {type = "integer"},
-                    runtimeFeatures = {type = "array", items = {type = "string"}},
-                    abis = {type = "object"},
-                },
-                required = {
-                    "source",
-                    "line",
-                    "column",
-                    "provider",
-                    "schema",
-                    "fingerprint",
-                    "backend",
-                    "blueprintSize",
-                    "generatedSize",
-                    "runtimeFeatures",
-                    "abis"
-                },
-            },
-        },
-        derives = {
-            type = "array",
-            description = "Closed derive recipes and their bounded generation facts.",
-            items = {
-                type = "object",
-                properties = {
-                    provider = {type = "string"},
-                    owner = {type = "string"},
-                    semanticFingerprint = {type = "string"},
-                    generatedMembers = {type = "integer"},
-                    canonicalBytes = {type = "integer"},
-                    renderedBytes = {type = "integer"},
-                    effects = {type = "array", items = {type = "string"}},
-                    cached = {type = "boolean"},
-                    durationMs = {type = "number"},
-                    generatedLocals = {type = "integer"},
-                    maxGeneratedUpvalues = {type = "integer"},
-                },
-                required = {
-                    "provider",
-                    "owner",
-                    "semanticFingerprint",
-                    "generatedMembers",
-                    "canonicalBytes",
-                    "renderedBytes",
-                    "effects",
-                    "cached",
-                    "durationMs",
-                    "generatedLocals",
-                    "maxGeneratedUpvalues"
-                },
-            },
-        },
-        timing = {
-            type = "object",
-            description = "Where the build's wall-clock time went. Absent when a "
-            .. "diagnostic stopped the build, since a run that did not finish has no "
-            .. "account of itself to give.",
-            properties = {
-                totalMs = {type = "number", description = "Wall-clock milliseconds for the whole build."},
-                compiledModules = {type = "integer"},
-                reusedModules = {type = "integer"},
-                phases = {
-                    type = "array",
-                    description = "Every activity that took measurable time, longest "
-                    .. "first. One activity is current at a time, so these sum to the whole.",
-                    items = {
-                        type = "object",
-                        properties = {name = {type = "string"}, durationMs = {type = "number"}},
-                        required = {"name", "durationMs"},
-                    },
-                },
-                slowest = {
-                    type = "array",
-                    description = "The costliest modules, longest first, each charged "
-                    .. "for its own checking and generation and not for its dependencies'.",
-                    items = {
-                        type = "object",
-                        properties = {module = {type = "string"}, durationMs = {type = "number"}},
-                        required = {"module", "durationMs"},
-                    },
-                },
-            },
-            required = {"totalMs", "compiledModules", "reusedModules", "phases", "slowest"},
-        },
-        ok = {type = "boolean", description = "Whether the build completed. False when a " .. "diagnostic stopped it."},
+local command = spec.command{
+    name = "build",
+    summary = "Build source files or a configured project target",
+    usage = {
+        "nupp build [--strict] [-O<n>] [--target NAME] [--out-dir DIR]" .. " [-q] [--format text|json]",
+        "nupp build [--strict] [-O<n>] [-o DIR] [-q] [--format text|json] <file...>",
     },
-    required = {"ok", "diagnostics", "written", "materializations", "derives"},
-}, detail = [[Manifest target options cannot be combined with explicit source files.
+    options = optionsMod.join(
+        {name = "--target", value = "NAME", help = "Build a named manifest target"},
+        -- Two directories, not two spellings of one: --out-dir moves a manifest
+        -- target's output, -o says where a named file's Lua goes. Distinct keys, so
+        -- giving both is a contradiction the command can see.
+        {
+            name = "--out-dir",
+            value = "DIR",
+            key = "projectOutDir",
+            help = "Override the manifest target's output directory"
+        },
+        {name = "-o", value = "DIR", key = "outDir", help = "Output directory for explicit source-file builds"},
+        optionsMod.strict,
+        optionsMod.optimize(),
+        optionsMod.progress(),
+        optionsMod.format()
+    ),
+    schema = {
+        type = "object",
+        description = "What a build reported and what it produced.",
+        properties = {
+            diagnostics = require("nupp.compiler.cli.report").DIAGNOSTICS,
+            target = {
+                type = "string",
+                description = "The manifest target that was built. Absent for a "
+                .. "build of explicitly named source files."
+            },
+            written = {
+                type = "array",
+                items = {type = "string"},
+                description = "Every output path the build produced, sorted."
+            },
+            materializations = {
+                type = "array",
+                description = "Materialized expressions and their versioned provider and backend facts.",
+                items = {
+                    type = "object",
+                    properties = {
+                        source = {type = "string"},
+                        line = {type = "integer"},
+                        column = {type = "integer"},
+                        provider = {type = "string"},
+                        schema = {type = "integer"},
+                        fingerprint = {type = "string"},
+                        backend = {type = "string"},
+                        blueprintSize = {type = "integer"},
+                        generatedSize = {type = "integer"},
+                        runtimeFeatures = {type = "array", items = {type = "string"}},
+                        abis = {type = "object"},
+                    },
+                    required = {
+                        "source",
+                        "line",
+                        "column",
+                        "provider",
+                        "schema",
+                        "fingerprint",
+                        "backend",
+                        "blueprintSize",
+                        "generatedSize",
+                        "runtimeFeatures",
+                        "abis"
+                    },
+                },
+            },
+            derives = {
+                type = "array",
+                description = "Closed derive recipes and their bounded generation facts.",
+                items = {
+                    type = "object",
+                    properties = {
+                        provider = {type = "string"},
+                        owner = {type = "string"},
+                        semanticFingerprint = {type = "string"},
+                        generatedMembers = {type = "integer"},
+                        canonicalBytes = {type = "integer"},
+                        renderedBytes = {type = "integer"},
+                        effects = {type = "array", items = {type = "string"}},
+                        cached = {type = "boolean"},
+                        durationMs = {type = "number"},
+                        generatedLocals = {type = "integer"},
+                        maxGeneratedUpvalues = {type = "integer"},
+                    },
+                    required = {
+                        "provider",
+                        "owner",
+                        "semanticFingerprint",
+                        "generatedMembers",
+                        "canonicalBytes",
+                        "renderedBytes",
+                        "effects",
+                        "cached",
+                        "durationMs",
+                        "generatedLocals",
+                        "maxGeneratedUpvalues"
+                    },
+                },
+            },
+            timing = {
+                type = "object",
+                description = "Where the build's wall-clock time went. Absent when a "
+                .. "diagnostic stopped the build, since a run that did not finish has no "
+                .. "account of itself to give.",
+                properties = {
+                    totalMs = {type = "number", description = "Wall-clock milliseconds for the whole build."},
+                    compiledModules = {type = "integer"},
+                    reusedModules = {type = "integer"},
+                    phases = {
+                        type = "array",
+                        description = "Every activity that took measurable time, longest "
+                        .. "first. One activity is current at a time, so these sum to the whole.",
+                        items = {
+                            type = "object",
+                            properties = {name = {type = "string"}, durationMs = {type = "number"}},
+                            required = {"name", "durationMs"},
+                        },
+                    },
+                    slowest = {
+                        type = "array",
+                        description = "The costliest modules, longest first, each charged "
+                        .. "for its own checking and generation and not for its dependencies'.",
+                        items = {
+                            type = "object",
+                            properties = {module = {type = "string"}, durationMs = {type = "number"}},
+                            required = {"module", "durationMs"},
+                        },
+                    },
+                },
+                required = {"totalMs", "compiledModules", "reusedModules", "phases", "slowest"},
+            },
+            ok = {
+                type = "boolean",
+                description = "Whether the build completed. False when a " .. "diagnostic stopped it."
+            },
+        },
+        required = {"ok", "diagnostics", "written", "materializations", "derives"},
+    },
+    detail = [[Manifest target options cannot be combined with explicit source files.
 Use 'nupp tasks' to discover target names and configuration.
 
 The level is part of the build key, so changing it rebuilds rather than
@@ -159,7 +170,8 @@ To a terminal, a build says which module it is on while it compiles and then
 how long it took, what it spent that on, and its slowest modules. To anything
 else it stays quiet, so a script reading the output sees what it always saw.
 NUPP_PROGRESS says what --progress says, for the builds nothing passes a flag
-to -- including the rebuild bin/nupp runs before every other command.]],}
+to -- including the rebuild bin/nupp runs before every other command.]],
+}
 
 -- Whether the manifest declares a target by this name. Asked only about a positional
 -- that is not a file, so an ordinary build never reads the manifest to find out.
@@ -234,21 +246,18 @@ local function run(parsed: any): integer
     if #paths == 0 then
         local project = require("nupp.compiler.build.project")
         local produced: {[string]: any} = {}
-        local code = project.build(
-            ".",
-            {
-                outDir = projectOutDir,
-                target = target,
-                strict = settings.strict,
-                optLevel = settings.optLevel,
-                remarks = settings.remarks,
-                disabled = settings.disabled,
-                relaxed = settings.relaxed,
-                diagnostics = asJson and diagnostics or nil,
-                produced = asJson and produced or nil,
-                progress = progressMode
-            }
-        )
+        local code = project.build(".", {
+            outDir = projectOutDir,
+            target = target,
+            strict = settings.strict,
+            optLevel = settings.optLevel,
+            remarks = settings.remarks,
+            disabled = settings.disabled,
+            relaxed = settings.relaxed,
+            diagnostics = asJson and diagnostics or nil,
+            produced = asJson and produced or nil,
+            progress = progressMode
+        })
         return finish(
             code,
             produced.target,

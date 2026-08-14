@@ -310,19 +310,36 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
                 bounds[j] = substWith(b, map, unmapped)
             end
         end
-        return T.func(params, rets, t.vararg, t.paramModes, t.predicate, t.typeParams, bounds, t.borrowsParam, t.borrowsSelf, t.borrowsParams, t.ffiOut, t.varargType and substWith(
-            t.varargType,
-            map,
-            unmapped
-        ) or nil, t.noreturn, paramPack, retPack, t.packParams, t.yieldPack and substPackWith(
-            t.yieldPack,
-            map,
-            unmapped
-        ) or nil, t.resumePack and substPackWith(t.resumePack, map, unmapped) or nil,
+        return T.func(
+            params,
+            rets,
+            t.vararg,
+            t.paramModes,
+            t.predicate,
+            t.typeParams,
+            bounds,
+            t.borrowsParam,
+            t.borrowsSelf,
+            t.borrowsParams,
+            t.ffiOut,
+            t.varargType and substWith(t.varargType, map, unmapped) or nil,
+            t.noreturn,
+            paramPack,
+            retPack,
+            t.packParams,
+            t.yieldPack and substPackWith(t.yieldPack, map, unmapped) or nil,
+            t.resumePack and substPackWith(t.resumePack, map, unmapped) or nil,
             -- Substitution changes what a function takes and answers, never whether
             -- calling it may suspend. Dropping the qualifier here would silently
             -- downgrade every generic call site to may-yield.
-            t.noYield, t.paramNames, t.preservesResults, t.foreign, t.constParams, t.paramKinds, t.partitionResults)
+            t.noYield,
+            t.paramNames,
+            t.preservesResults,
+            t.foreign,
+            t.constParams,
+            t.paramKinds,
+            t.partitionResults
+        )
     end
 
     return t
@@ -530,7 +547,7 @@ local function literalKeys(t: Type): {T.Literal}?
     local out: {T.Literal} = {}
     for _, member in ipairs(t.members) do
         if member == T.never then
-        -- A distributed match with no result contributes no mapped keys.
+            -- A distributed match with no result contributes no mapped keys.
         elseif member.tag ~= "literal" or (member.base ~= T.string and member.base ~= T.integer) then
             return nil
         else
@@ -1994,15 +2011,34 @@ function generics.dropSelf(ft: Type): Type
                 borrowsParams[#borrowsParams + 1] = source - 1
             end
         end
-        return T.func(params, ft.rets, ft.vararg, modes, nil, ft.typeParams, ft.typeBounds, borrowsParam, borrowsSelf, next(
-            borrowsParams
-        )
-            and borrowsParams
-            or nil, ft.ffiOut, ft.varargType, ft.noreturn, paramPack, ft.retPack, ft.packParams, ft.yieldPack, ft.resumePack,
+        return T.func(
+            params,
+            ft.rets,
+            ft.vararg,
+            modes,
+            nil,
+            ft.typeParams,
+            ft.typeBounds,
+            borrowsParam,
+            borrowsSelf,
+            next(borrowsParams) and borrowsParams or nil,
+            ft.ffiOut,
+            ft.varargType,
+            ft.noreturn,
+            paramPack,
+            ft.retPack,
+            ft.packParams,
+            ft.yieldPack,
+            ft.resumePack,
             -- Adjusting the receiver rewrites a parameter list, not an effect.
-            ft.noYield, names, next(
-            preserves
-        ) and preserves or nil, ft.foreign, ft.constParams, ft.paramKinds, ft.partitionResults)
+            ft.noYield,
+            names,
+            next(preserves) and preserves or nil,
+            ft.foreign,
+            ft.constParams,
+            ft.paramKinds,
+            ft.partitionResults
+        )
     end
 
     return ft
@@ -2039,17 +2075,43 @@ function generics.addSelf(ft: Type, selfType: Type, selfMode: string?): Type
     end
     local paramPack = T.pack(params, ft.paramPack.tail, modes)
 
-    return T.func(params, ft.rets, ft.vararg, modes, ft.predicate, ft.typeParams, ft.typeBounds, ft.borrowsParam, ft.borrowsSelf, ft.borrowsParams, ft.ffiOut, ft.varargType, ft.noreturn, paramPack, ft.retPack, ft.packParams, ft.yieldPack, ft.resumePack, ft.noYield, names, (function()
-        local shifted = {}
-        for result = 1, #ft.rets do
-            local source = ft.preservesResults and ft.preservesResults[result]
-            if source then
-                shifted[result] = source + 1
+    return T.func(
+        params,
+        ft.rets,
+        ft.vararg,
+        modes,
+        ft.predicate,
+        ft.typeParams,
+        ft.typeBounds,
+        ft.borrowsParam,
+        ft.borrowsSelf,
+        ft.borrowsParams,
+        ft.ffiOut,
+        ft.varargType,
+        ft.noreturn,
+        paramPack,
+        ft.retPack,
+        ft.packParams,
+        ft.yieldPack,
+        ft.resumePack,
+        ft.noYield,
+        names,
+        (function()
+            local shifted = {}
+            for result = 1, #ft.rets do
+                local source = ft.preservesResults and ft.preservesResults[result]
+                if source then
+                    shifted[result] = source + 1
+                end
             end
-        end
 
-        return next(shifted) and shifted or nil
-    end)(), ft.foreign, ft.constParams, ft.paramKinds, ft.partitionResults)
+            return next(shifted) and shifted or nil
+        end)(),
+        ft.foreign,
+        ft.constParams,
+        ft.paramKinds,
+        ft.partitionResults
+    )
 end
 
 return generics

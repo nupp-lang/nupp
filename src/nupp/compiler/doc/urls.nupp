@@ -73,9 +73,9 @@ local function symbolLinkIndex(modules: {nupp.compiler.doc.extract.Module}, targ
         end
     end
     -- Modules are indexed after the declarations and never over one, so a name a
-    -- declaration already answers to keeps meaning the declaration. Only the full dotted
-    -- name is indexed: a module's last segment is an ordinary enough word that claiming
-    -- it would drop the declarations sharing it as ambiguous.
+    -- declaration already answers to keeps meaning the declaration. Only the full
+    -- dotted name is indexed: a module's last segment is an ordinary enough word that
+    -- claiming it would drop the declarations sharing it as ambiguous.
     for _, module in ipairs(modules) do
         if links[module.name] == nil and not ambiguous[module.name] then
             links[module.name] = target(module.name)
@@ -130,8 +130,7 @@ local function rewriteSymbolLinks(markdown: string, resolve: function(string): s
     while position <= #markdown do
         local opening, closing = markdown:find("(`+).-%1", position)
         if not opening or not closing then
-            out[#out + 1] = rewrite(markdown:sub(position))
-            ;
+            out[#out + 1] = rewrite(markdown:sub(position));
             break
         end
         out[#out + 1] = rewrite(markdown:sub(position, opening - 1))
@@ -157,10 +156,12 @@ local function symbolLinks(index: urls.Links, module: nupp.compiler.doc.extract.
         end
     end
 
-    return setmetatable(links, {__index = function(_, name)
-        local url = index[name]
-        return url and prefix .. url or nil
-    end})
+    return setmetatable(links, {
+        __index = function(_, name)
+            local url = index[name]
+            return url and prefix .. url or nil
+        end
+    })
 end
 
 local function routeFile(route: string): string

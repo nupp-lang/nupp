@@ -1,0 +1,36 @@
+local m = {}
+
+function m.run(report: any, rows: {string}): nil
+    report:put(
+        "header",
+        function(row: string): string
+            return row
+        end,
+        "footer"
+    )
+    plain(
+        "header",
+        function(row: string): string
+            return row
+        end,
+        "footer"
+    )
+    report:emit(
+        rows,
+        function(row: string): nil
+            print(row)
+        end,
+        function(row: string): nil
+            print(row)
+        end
+    )
+    local nested = outer(
+        inner("a", function(row: string): nil
+            print(row)
+        end)
+    )
+
+    return nested
+end
+
+return m

@@ -266,10 +266,7 @@ function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: 
             return nil, failure("NUPP2417", "nupp.peg.compile backend must be 'auto' or 'lpeg'")
         end
         if options and (options.actions ~= nil or options.definitions ~= nil) then
-            return nil, failure(
-                "NUPP2417",
-                "comptime PEG actions are supplied to the materialized matcher factory"
-            )
+            return nil, failure("NUPP2417", "comptime PEG actions are supplied to the materialized matcher factory")
         end
         local function simpleTableCapture(pattern, seen)
             local entry = patternEntry(state, pattern)
@@ -283,9 +280,15 @@ function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: 
             seen[pattern] = true
             local payload = entry.payload
             local op = payload.op
-            if op == "group" or op == "tableCapture" or op == "substitution"
-                or op == "backReference" or op == "external" or op == "transform"
-                or op == "matchTime" or op == "accumulate" or op == "fold"
+            if op == "group"
+                or op == "tableCapture"
+                or op == "substitution"
+                or op == "backReference"
+                or op == "external"
+                or op == "transform"
+                or op == "matchTime"
+                or op == "accumulate"
+                or op == "fold"
                 or op == "reference"
             then
                 return false
@@ -299,80 +302,103 @@ function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: 
 
             return true
         end
-        local make = {literal = function(text)
-            return node("literal", nil, text, at)
-        end, set = function(text)
-            return node("set", nil, sortedBytes(text), at)
-        end, anyByte = function()
-            return node("any", nil, nil, at)
-        end, sequence = function(children)
-            return node("sequence", children, nil, at)
-        end, choice = function(children)
-            return node("choice", children, nil, at)
-        end, zeroOrMore = function(pattern)
-            return node("zeroOrMore", {pattern}, nil, at)
-        end, oneOrMore = function(pattern)
-            return node("oneOrMore", {pattern}, nil, at)
-        end, optional = function(pattern)
-            return node("optional", {pattern}, nil, at)
-        end, andPredicate = function(pattern)
-            return node("and", {pattern}, nil, at)
-        end, notPredicate = function(pattern)
-            local entry = patternEntry(state, pattern)
-            if entry and entry.payload.op == "any" then
-                return node("eof", nil, nil, at)
-            end
 
-            return node("not", {pattern}, nil, at)
-        end, capture = function(pattern)
-            return node("capture", {pattern}, nil, at)
-        end, collect = function(pattern)
-            return node("collect", {pattern}, nil, at)
-        end, tableCapture = function(pattern)
-            return node(simpleTableCapture(pattern) and "collect" or "tableCapture", {pattern}, nil, at)
-        end, group = function(pattern, name)
-            return node("group", {pattern}, name, at)
-        end, substitution = function(pattern)
-            return node("substitution", {pattern}, nil, at)
-        end, backReference = function(name)
-            return node("backReference", nil, name, at)
-        end, external = function(name)
-            return node("external", nil, name, at)
-        end, transform = function(pattern, kind, value)
-            return node("transform", {pattern}, {kind, value}, at)
-        end, matchTime = function(pattern, name)
-            return node("matchTime", {pattern}, name, at)
-        end, accumulate = function(pattern, name)
-            return node("accumulate", {pattern}, name, at)
-        end, fold = function(pattern, name)
-            return node("fold", {pattern}, name, at)
-        end, position = function()
-            return node("position", nil, nil, at)
-        end, action = function(pattern, name)
-            return node("action", {pattern}, name, at)
-        end, reference = function(name)
-            return node("reference", nil, name, at)
-        end, define = function(name, pattern)
-            return newOpaque(
-                "peg",
-                "Definition",
-                {name = name, pattern = pattern},
-                provenance(at, "nupp.peg.compile")
-            )
-        end, grammar = function(start, definitions)
-            return node("grammar", definitions, start, at)
-        end,}
+        local make = {
+            literal = function(text)
+                return node("literal", nil, text, at)
+            end,
+            set = function(text)
+                return node("set", nil, sortedBytes(text), at)
+            end,
+            anyByte = function()
+                return node("any", nil, nil, at)
+            end,
+            sequence = function(children)
+                return node("sequence", children, nil, at)
+            end,
+            choice = function(children)
+                return node("choice", children, nil, at)
+            end,
+            zeroOrMore = function(pattern)
+                return node("zeroOrMore", {pattern}, nil, at)
+            end,
+            oneOrMore = function(pattern)
+                return node("oneOrMore", {pattern}, nil, at)
+            end,
+            optional = function(pattern)
+                return node("optional", {pattern}, nil, at)
+            end,
+            andPredicate = function(pattern)
+                return node("and", {pattern}, nil, at)
+            end,
+            notPredicate = function(pattern)
+                local entry = patternEntry(state, pattern)
+                if entry and entry.payload.op == "any" then
+                    return node("eof", nil, nil, at)
+                end
+
+                return node("not", {pattern}, nil, at)
+            end,
+            capture = function(pattern)
+                return node("capture", {pattern}, nil, at)
+            end,
+            collect = function(pattern)
+                return node("collect", {pattern}, nil, at)
+            end,
+            tableCapture = function(pattern)
+                return node(simpleTableCapture(pattern) and "collect" or "tableCapture", {pattern}, nil, at)
+            end,
+            group = function(pattern, name)
+                return node("group", {pattern}, name, at)
+            end,
+            substitution = function(pattern)
+                return node("substitution", {pattern}, nil, at)
+            end,
+            backReference = function(name)
+                return node("backReference", nil, name, at)
+            end,
+            external = function(name)
+                return node("external", nil, name, at)
+            end,
+            transform = function(pattern, kind, value)
+                return node("transform", {pattern}, {kind, value}, at)
+            end,
+            matchTime = function(pattern, name)
+                return node("matchTime", {pattern}, name, at)
+            end,
+            accumulate = function(pattern, name)
+                return node("accumulate", {pattern}, name, at)
+            end,
+            fold = function(pattern, name)
+                return node("fold", {pattern}, name, at)
+            end,
+            position = function()
+                return node("position", nil, nil, at)
+            end,
+            action = function(pattern, name)
+                return node("action", {pattern}, name, at)
+            end,
+            reference = function(name)
+                return node("reference", nil, name, at)
+            end,
+            define = function(name, pattern)
+                return newOpaque(
+                    "peg",
+                    "Definition",
+                    {name = name, pattern = pattern},
+                    provenance(at, "nupp.peg.compile")
+                )
+            end,
+            grammar = function(start, definitions)
+                return node("grammar", definitions, start, at)
+            end,
+        }
         local pattern, why = pegRe.parse(args[1], make)
         if not pattern then
             return nil, failure("NUPP2417", why and why.message or "invalid PEG re grammar")
         end
 
-        return newOpaque(
-            "peg",
-            "Blueprint",
-            {pattern = pattern, backend = backend},
-            provenance(at, "nupp.peg.compile")
-        )
+        return newOpaque("peg", "Blueprint", {pattern = pattern, backend = backend}, provenance(at, "nupp.peg.compile"))
     end)
 
     env.nupp = env.nupp or {}
@@ -712,6 +738,7 @@ local function analyze(nodes, root, ruleRoots)
     if not result then
         return nil, why
     end
+
     return #result > 0 and result or {"integer"}, nil, false
 end
 
@@ -857,16 +884,16 @@ local function finalizeGraph(state, rootHandle, backend)
     end
     local slotSet = {}
     for _, node in ipairs(nodes) do
-        if node[1] == "action"
-            or node[1] == "matchTime"
-            or node[1] == "accumulate"
-            or node[1] == "fold"
-            or node[1] == "external"
-            or (node[1] == "transform" and node[3][1] == "definition")
-        then
-            local name = node[1] == "external" and node[2]
-                or node[1] == "transform" and node[3][2]
-                or node[3]
+        if node[
+            1
+        ] == "action" or node[
+            1
+        ] == "matchTime" or node[
+            1
+        ] == "accumulate" or node[
+            1
+        ] == "fold" or node[1] == "external" or (node[1] == "transform" and node[3][1] == "definition") then
+            local name = node[1] == "external" and node[2] or node[1] == "transform" and node[3][2] or node[3]
             slotSet[name] = true
         end
     end
@@ -887,9 +914,9 @@ local function finalizeGraph(state, rootHandle, backend)
         payload = payload,
         provenance = origins,
         fingerprint = fingerprint,
-        summary = ("%d-node PEG, %d rules, %d actions, %d results"):format(
-            #nodes, #ruleRoots, #slots, result == "any" and -1 or #result
-        ),
+        summary = (
+            "%d-node PEG, %d rules, %d actions, %d results"
+        ):format(#nodes, #ruleRoots, #slots, result == "any" and -1 or #result),
     }, nil
 end
 
@@ -915,9 +942,11 @@ local function validateEnvelope(envelope)
         root
     ) ~= "number" or root < 1 or root > #nodes or type(
         result
-    ) ~= "table" and result ~= "any" or type(ruleCount) ~= "number" or type(slots) ~= "table" or (
-        backend ~= "auto" and backend ~= "lpeg"
-    ) or type(general) ~= "boolean" then
+    ) ~= "table" and result ~= "any" or type(
+        ruleCount
+    ) ~= "number" or type(
+        slots
+    ) ~= "table" or (backend ~= "auto" and backend ~= "lpeg") or type(general) ~= "boolean" then
         return nil, "PEG blueprint header is malformed"
     end
     if result ~= "any" then
@@ -975,19 +1004,24 @@ local function validateEnvelope(envelope)
                 return nil, "PEG action instruction is malformed"
             end
         elseif op == "group" then
-            if (#node ~= 2 and #node ~= 3) or type(node[2]) ~= "number" or (
-                node[3] ~= nil and type(node[3]) ~= "string"
-            ) then
+            if (
+                #node ~= 2 and #node ~= 3
+            ) or type(node[2]) ~= "number" or (node[3] ~= nil and type(node[3]) ~= "string") then
                 return nil, "PEG group capture instruction is malformed"
             end
         elseif op == "transform" then
             local transform = node[3]
-            if #node ~= 3 or type(node[2]) ~= "number" or type(transform) ~= "table"
-                or (transform[1] ~= "string" and transform[1] ~= "number" and transform[1] ~= "definition")
-                or (transform[1] == "string" and type(transform[2]) ~= "string")
-                or (transform[1] == "number" and type(transform[2]) ~= "number")
-                or (transform[1] == "definition" and not slotSet[transform[2]])
-            then
+            if #node ~= 3 or type(
+                node[2]
+            ) ~= "number" or type(
+                transform
+            ) ~= "table" or (
+                transform[1] ~= "string" and transform[1] ~= "number" and transform[1] ~= "definition"
+            ) or (
+                transform[1] == "string" and type(transform[2]) ~= "string"
+            ) or (
+                transform[1] == "number" and type(transform[2]) ~= "number"
+            ) or (transform[1] == "definition" and not slotSet[transform[2]]) then
                 return nil, "PEG transform instruction is malformed"
             end
         elseif op == "backReference" or op == "external" then
@@ -997,10 +1031,22 @@ local function validateEnvelope(envelope)
         elseif not arities[op] or (arities[op] > 0 and #node ~= arities[op]) then
             return nil, "PEG blueprint contains an unknown or malformed instruction"
         end
-        if op ~= "literal" and op ~= "set" and op ~= "any" and op ~= "eof" and op ~= "position"
-            and op ~= "backReference" and op ~= "external" then
-            local last = (op == "action" or op == "group" or op == "transform"
-                or op == "matchTime" or op == "accumulate" or op == "fold") and 2 or #node
+        if op ~= "literal"
+            and op ~= "set"
+            and op ~= "any"
+            and op ~= "eof"
+            and op ~= "position"
+            and op ~= "backReference"
+            and op ~= "external"
+        then
+            local last = (
+                op == "action"
+                or op == "group"
+                or op == "transform"
+                or op == "matchTime"
+                or op == "accumulate"
+                or op == "fold"
+            ) and 2 or #node
             for index = 2, last do
                 if type(node[index]) ~= "number" or node[index] < 1 or node[index] > #nodes then
                     return nil, "PEG instruction points outside the blueprint"
@@ -1016,14 +1062,7 @@ local function validateEnvelope(envelope)
         return nil, "PEG blueprint fingerprint does not match its payload"
     end
 
-    return {
-        nodes = nodes,
-        root = root,
-        result = result,
-        slots = slots,
-        backend = backend,
-        general = general,
-    }, nil
+    return {nodes = nodes, root = root, result = result, slots = slots, backend = backend, general = general,}, nil
 end
 
 local function descriptorType(descriptor, actionReturns): T.Type?
@@ -1104,7 +1143,6 @@ local function packOfResult(result, actionReturns): T.Pack?
 
     return output
 end
-
 
 local function resultFits(result, resultPack, actionReturns)
     if result == "any" then
@@ -1189,19 +1227,16 @@ function peg.inferSourceResult(source: string, actions: T.Type?): T.Pack?, peg.F
 
         return result, why
     end
+
     local state = {opaque = {}, intrinsics = {}}
     local scratch = {}
     local function newOpaque(provider, family, payload, at)
         local handle = {}
-        state.opaque[handle] = {
-            provider = provider,
-            family = family,
-            payload = payload,
-            provenance = at,
-        }
+        state.opaque[handle] = {provider = provider, family = family, payload = payload, provenance = at,}
 
         return handle
     end
+
     peg.installEvaluator(state, scratch, newOpaque, function(_, operation)
         return {operation = operation, line = 1, column = 1}
     end)
@@ -1268,8 +1303,8 @@ local function searchPlan(validated)
         elseif op == "any" then
             known = false
         elseif op == "eof" or op == "position" or op == "and" or op == "not" then
-        -- These nodes consume no byte. A surrounding sequence contributes the
-        -- first consuming node that follows them.
+            -- These nodes consume no byte. A surrounding sequence contributes the
+            -- first consuming node that follows them.
         elseif op == "sequence" then
             for child = 2, #node do
                 if not collect(node[child], bytes, active) then
@@ -1334,6 +1369,7 @@ local function searchPlan(validated)
 
         return table.concat(pattern)
     end
+
     local candidate: string
     local plain: boolean
     if #bytes == 0 or #bytes == 256 then
@@ -1363,6 +1399,7 @@ local function searchPlan(validated)
 
         return index
     end
+
     local function literalPattern(value)
         local pattern = {}
         for offset = 1, #value do
@@ -1380,6 +1417,7 @@ local function searchPlan(validated)
 
         return table.concat(pattern)
     end
+
     local function atomPattern(index)
         local node = nodes[dereference(index)]
         if node[1] == "literal" and #node[2] == 1 then
@@ -1392,6 +1430,7 @@ local function searchPlan(validated)
 
         return nil
     end
+
     local fixedPattern
     fixedPattern = function(index, allowRepeat)
         index = dereference(index)
@@ -1457,6 +1496,7 @@ local function searchPlan(validated)
 
         return false
     end
+
     if singleResult(validated.result, "integer") and not hasCaptures(root, {}) then
         directResult = "integer"
     elseif singleResult(validated.result, "string") and nodes[directRoot][1] == "capture" then

@@ -728,8 +728,7 @@ end
 -- A record's namespace table is the metatable its instances are stamped with, so
 -- installing a declared contract is an ordinary assignment to it. The cast is because
 -- the contract is not a field: see docs/metamethods.md.
-(profile.TraceReport as {[string]: any}).__tostring = serializeTraceReport
-;
+(profile.TraceReport as {[string]: any}).__tostring = serializeTraceReport;
 
 (profile.SampleReport as {[string]: any}).__tostring = function(report: profile.SampleReport): string
     return report.text
@@ -748,8 +747,17 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
     end
 
     local opts: profile.TraceOptions = options or {}
-    local session = new profile.TraceSession(includeBenign = opts.includeBenign or false, startedAt = os.time() as integer, paused = false, stopped = false, sites = {}, totalAborts = 0, blacklisted = 0, callback = function()
-    end)
+    local session = new profile.TraceSession(
+        includeBenign = opts.includeBenign or false,
+        startedAt = os.time() as integer,
+        paused = false,
+        stopped = false,
+        sites = {},
+        totalAborts = 0,
+        blacklisted = 0,
+        callback = function()
+        end
+    )
 
     -- Variadic because `jit.attach` hands each event its own arguments; a "trace"
     -- event's are what this unpacks. The trace number is the one this does not need:

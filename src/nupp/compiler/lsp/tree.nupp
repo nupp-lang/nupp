@@ -116,7 +116,11 @@ function tree.symbolKey(def: tree.Definition?): string?
     return def.filename .. ":" .. tostring(def.token.offset)
 end
 
-local function documentationFrom(kindAt: function(integer): string, textAt: function(integer): string, count: integer): string?
+local function documentationFrom(
+    kindAt: function(integer): string,
+    textAt: function(integer): string,
+    count: integer
+): string?
     local lines = {}
     for index = 1, count do
         local kind = kindAt(index)

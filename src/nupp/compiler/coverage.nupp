@@ -177,10 +177,8 @@ function coverage.collect(statePath: string, shardPath: string): coverage.Model
         for _, line in ipairs(executable) do
             add(file.lines, (file.lineHits["L" .. line] or 0) > 0, line)
         end
-        finish(file.lines)
-        ;
-        finish(file.functions)
-        ;
+        finish(file.lines);
+        finish(file.functions);
         finish(file.branches)
         file.status = fileStatus(file)
         list[#list + 1] = file
@@ -203,10 +201,8 @@ local function aggregate(files, prefix)
             value.files[#value.files + 1] = file
         end
     end
-    finish(value.lines)
-    ;
-    finish(value.functions)
-    ;
+    finish(value.lines);
+    finish(value.functions);
     finish(value.branches)
 
     return value
@@ -587,8 +583,7 @@ function coverage.write(model: coverage.Model, outDir: string): {[string]: any}
     for _, file in ipairs(model.files) do
         local dir = parent(file.path)
         while dir ~= "" do
-            dirSet[dir] = true
-            ;
+            dirSet[dir] = true;
             dir = parent(dir)
         end
     end

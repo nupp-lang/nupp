@@ -1,0 +1,12 @@
+local m = {}
+
+local kept = {alpha = 1, beta = 2,}
+
+local semicolons = {alpha = 1; beta = 2;}
+
+local type Shape = {
+    alpha: integer,
+    beta: integer
+}
+
+return m, kept, semicolons

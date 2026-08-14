@@ -223,28 +223,24 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             ) == "number" and countT.constant >= 0 and countT.constant % 1 == 0 and countT.constant or nil
             return T.carray(elemT, count as integer?)
 
-        -- layoutof(Struct) answers how one is laid out in C memory: the fields in
-        -- declaration order with their offsets, sizes and padding, the whole size, and
-        -- a fingerprint over all of it.
-        --
-        -- Reifying is what makes a value unreachable to anything that walks a table,
-        -- and this is what makes it reachable again without the language choosing a
-        -- serialization format. See plans/layout.md.
-        --
-        -- Only the spec is built here, because only the checker knows the declared
-        -- field order and types. Everything numeric is this platform's and is asked of
-        -- the FFI at run time.
+            -- layoutof(Struct) answers how one is laid out in C memory: the fields in
+            -- declaration order with their offsets, sizes and padding, the whole size,
+            -- and a fingerprint over all of it.
+            --
+            -- Reifying is what makes a value unreachable to anything that walks a
+            -- table, and this is what makes it reachable again without the language
+            -- choosing a serialization format. See plans/layout.md.
+            --
+            -- Only the spec is built here, because only the checker knows the declared
+            -- field order and types. Everything numeric is this platform's and is asked
+            -- of the FFI at run time.
         elseif calleeName == "layoutof" then
             local args = argExprs
             local subject = args[1] and c.infer(args[1]) or nil
             if not subject or subject.tag ~= "nominal" or subject.declKind ~= "struct" then
-                c.diag(
-                    "NUPP2402",
-                    node,
-                    "layoutof needs a struct type as its argument",
-                    nil,
-                    {help = "a record is a table and has no C layout; only a " .. "struct is laid out in memory"}
-                )
+                c.diag("NUPP2402", node, "layoutof needs a struct type as its argument", nil, {
+                    help = "a record is a table and has no C layout; only a " .. "struct is laid out in memory"
+                })
                 return T.any
             end
             -- The fingerprint expands a nested struct rather than naming it. Naming it
@@ -315,9 +311,10 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             }
             return c.lookupType("Layout") or T.any
 
-        -- cheader("path.h" [, "lib"]) types a pinned C header at compile time: LuaJIT
-        -- parses it and reports back what it declares, so there is no generated file to
-        -- keep in step and the sizes are the ones this platform actually uses.
+            -- cheader("path.h" [, "lib"]) types a pinned C header at compile time:
+            -- LuaJIT parses it and reports back what it declares, so there is no
+            -- generated file to keep in step and the sizes are the ones this platform
+            -- actually uses.
         elseif calleeName == "cheader" then
             local args = argExprs
             local function literal(e)
@@ -346,10 +343,10 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                 return c.env.externalFile(c.env, externalPath)
             end or nil
             for _, candidate in ipairs(candidates) do
-                loaded, err = cheaderMod.load(
-                    candidate,
-                    {preprocess = literal(args[3]) == "preprocess", read = externalReader,}
-                )
+                loaded, err = cheaderMod.load(candidate, {
+                    preprocess = literal(args[3]) == "preprocess",
+                    read = externalReader,
+                })
                 if loaded then
                     node.cheaderCdef = loaded.cdef
                     node.cheaderLib = lib

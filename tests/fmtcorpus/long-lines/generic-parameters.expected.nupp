@@ -1,0 +1,14 @@
+local m = {}
+
+function m.zip<FirstElement, SecondElement, ThirdElement>(first: {FirstElement}, second: {SecondElement}): integer
+    return #first + #second
+end
+
+function m.wide<
+    AnExceptionallyLongTypeParameterName,
+    AnotherExceptionallyLongTypeParameterName,
+    AThirdRatherLongOne
+>(): nil
+end
+
+return m
