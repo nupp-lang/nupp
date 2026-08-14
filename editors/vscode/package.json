@@ -40,6 +40,11 @@
     "README.md"
   ],
   "contributes": {
+    "configurationDefaults": {
+      "[nupp]": {
+        "editor.semanticHighlighting.enabled": false
+      }
+    },
     "languages": [
       {
         "id": "nupp",

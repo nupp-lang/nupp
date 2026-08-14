@@ -26,6 +26,9 @@ for (const pattern of Object.values(languageConfig.indentationRules)) {
 }
 
 const manifest = require(path.join(root, "package.json"));
+if (manifest.contributes.configurationDefaults?.["[nupp]"]?.["editor.semanticHighlighting.enabled"] !== false) {
+  throw new Error("NUPP must use grammar highlighting by default");
+}
 if (manifest.icon !== "icon.png") {
   throw new Error("extension icon must be icon.png");
 }
