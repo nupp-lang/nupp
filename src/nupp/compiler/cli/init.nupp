@@ -178,6 +178,52 @@ local function applyColor(values: {[string]: any})
 end
 
 --- Runs one command line and returns the process exit status.
+-- Commands that keep LuaJIT's own thresholds.
+--
+-- `lsp` is resident: its traces amortize across every edit of a session, so refusing
+-- side traces would give up what it spends the first file paying for. `run` and `task`
+-- execute a program that is not this one, and nothing here knows its shape.
+const JIT_DEFAULT_COMMANDS = {lsp = true, run = true, task = true}
+
+-- Everything else is a compiler run: it walks a large program roughly once and exits.
+--
+-- LuaJIT compiles a side trace for every guard that fails often enough, and a compiler
+-- is branches -- node kinds, token kinds, type tags -- so the tail of that distribution
+-- never ends. Half of a cold self-build was the trace compiler rather than compiled
+-- code, and raising the exit threshold is what stops it chasing the tail:
+--
+--     default                    16.1s
+--     hotexit=200                 9.0s
+--     hotexit=200, hotloop=1000   9.1s
+--
+-- Both curves turn back up past their peak -- `hotexit=1000` gives back most of the
+-- win -- because eventually the refused traces are ones that would have paid. Re-run
+-- `bench/jit-thresholds.lua` on a quiet machine before moving these.
+--
+-- `NUPP_JIT_DEFAULT` turns it off and `NUPP_JIT_TUNE` replaces it with a
+-- comma-separated flag list, which is how `bench/jit-thresholds.lua` compares settings
+-- without rebuilding the compiler between them.
+local function tuneJitFor(name: string)
+    if JIT_DEFAULT_COMMANDS[name] or os.getenv("NUPP_JIT_DEFAULT") then
+        return
+    end
+    local override = os.getenv("NUPP_JIT_TUNE")
+    -- A LuaJIT built without the JIT, or a future one that renames a flag, is not a
+    -- reason to refuse to run.
+    if not override then
+        pcall(jit.opt.start, "hotexit=200", "hotloop=1000")
+
+        return
+    end
+    local flags: {string} = {}
+    for flag in override:gmatch("[^,]+") do
+        flags[#flags + 1] = flag
+    end
+    pcall(function()
+        jit.opt.start(unpack(flags))
+    end)
+end
+
 function cli.main(argv: {string}): integer
     local name = argv[1]
     if not name or name == "-h" or name == "--help" then
@@ -217,6 +263,7 @@ function cli.main(argv: {string}): integer
     if name == "help" then
         return runHelp(rest)
     end
+    tuneJitFor(name)
     local command = lookup(name)
     if not command then
         return fail("unknown command " .. name, "Try 'nupp help' for a list of commands.")

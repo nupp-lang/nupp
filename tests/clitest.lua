@@ -451,4 +451,41 @@ function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- Half of a cold self-build is the trace compiler, so a compiler run raises LuaJIT's
+-- side-trace threshold. A resident or program-running command must not: `lsp` amortizes
+-- its traces across a session, and `run` and `task` execute somebody else's program.
+local function flagsAppliedBy(command, env)
+   local applied = {}
+   local realStart, realGetenv, realWrite = jit.opt.start, os.getenv, io.write
+   jit.opt.start = function(...) applied[#applied + 1] = table.concat({...}, ",") end
+   os.getenv = function(name) return (env or {})[name] or realGetenv(name) end
+   io.write = function() end
+   pcall(cli.main, {command, "--help"})
+   jit.opt.start, os.getenv, io.write = realStart, realGetenv, realWrite
+   return table.concat(applied, " ")
+end
+
+local function assertFlags(command, want, env, label)
+   local got = flagsAppliedBy(command, env)
+   assert(got == want, ("%s: %s\n  want: %q\n  got:  %q")
+      :format(command, label or "wrong jit flags", want, got))
+end
+
+function M.compilerRunsRaiseTheSideTraceThreshold()
+   assertFlags("build", "hotexit=200,hotloop=1000")
+   assertFlags("check", "hotexit=200,hotloop=1000")
+end
+
+function M.residentAndProgramRunningCommandsKeepTheDefaults()
+   assertFlags("lsp", "", nil, "resident: its traces amortize across a session")
+   assertFlags("run", "", nil, "runs a program this says nothing about")
+   assertFlags("task", "", nil, "likewise")
+end
+
+function M.theTuningIsOverridable()
+   assertFlags("build", "", {NUPP_JIT_DEFAULT = "1"}, "NUPP_JIT_DEFAULT compares the two")
+   assertFlags("build", "hotexit=60,hotloop=100", {NUPP_JIT_TUNE = "hotexit=60,hotloop=100"},
+      "NUPP_JIT_TUNE is how a sweep moves them")
+end
+
 return M
