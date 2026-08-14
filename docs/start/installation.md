@@ -1,7 +1,7 @@
 # Installation
 
 Nupp is written in Nupp. A checkout carries a stage-0 compiler already lowered
-to Lua, so building the real one takes a LuaJIT and nothing else.
+to Lua, so building the real one takes a LuaJIT, an LPeg, and nothing else.
 
 ## Requirements
 
@@ -11,6 +11,14 @@ compound assignment, rather than in a lowering of it. That rolling version is
 the first build carrying those extensions. `bin/nupp` reads `luajit -v` and says
 which build is wanted, so an older interpreter fails with a sentence instead of
 a syntax error on a line nobody wrote.
+
+**LPeg 1.1.** The compiler reads its own doc comments and manifests with
+`nupp.peg`, which resolves native LPeg, so the module is loaded before the first
+build rather than by a later command:
+
+```bash
+luarocks install lpeg
+```
 
 Everything else is optional and buys one feature each:
 

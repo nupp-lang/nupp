@@ -6,6 +6,10 @@ set -eu
 luajit_commit=1edc3e52b67eaf6ce5f809be8e17d6862594b8bc
 cjson_commit=5ce46a80b10ef9d380a45c9e6cff9ecffbe71ebb
 luarocks_commit=3421bedc2ce2b64e79530bb97497531b014899a8
+# The compiler parses its own doc comments with `nupp.peg`, which resolves
+# native LPeg, so the module has to exist before the first build rather than
+# arriving later with what `nupp doc` renders with.
+lpeg_version=1.1.0-2
 tool_root="$RUNNER_TEMP/nupp-ci-tools"
 luajit_root="$tool_root/luajit"
 cjson_root="$tool_root/lua-cjson"
@@ -48,11 +52,13 @@ git -C "$luarocks_root" checkout --detach "$luarocks_commit"
     --with-lua-interpreter=luajit \
     --force-config && make install)
 
+"$luarocks_install/bin/luarocks" install lpeg "$lpeg_version"
+
 printf '%s\n' "$luajit_root/src" "$luarocks_install/bin" >> "$GITHUB_PATH"
 printf 'LUA_PATH=%s/src/?.lua;;\n' "$luajit_root" >> "$GITHUB_ENV"
 printf 'LUA_CPATH=%s/?.so;;\n' "$module_root" >> "$GITHUB_ENV"
 
 LUA_PATH="$luajit_root/src/?.lua;;" \
 LUA_CPATH="$module_root/?.so;;" \
-    "$luajit_root/src/luajit" -e 'require("cjson"); assert((nil ?? 1) == 1)'
+    "$luajit_root/src/luajit" -e 'require("cjson"); require("lpeg"); assert((nil ?? 1) == 1)'
 "$luarocks_install/bin/luarocks" --version

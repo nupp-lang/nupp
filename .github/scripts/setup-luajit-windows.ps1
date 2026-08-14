@@ -5,6 +5,10 @@ $ErrorActionPreference = "Stop"
 $luajitCommit = "1edc3e52b67eaf6ce5f809be8e17d6862594b8bc"
 $cjsonCommit = "5ce46a80b10ef9d380a45c9e6cff9ecffbe71ebb"
 $luarocksCommit = "3421bedc2ce2b64e79530bb97497531b014899a8"
+# The compiler parses its own doc comments with `nupp.peg`, which resolves
+# native LPeg, so the module has to exist before the first build rather than
+# arriving later with what `nupp doc` renders with.
+$lpegVersion = "1.1.0-2"
 $toolRoot = Join-Path $env:RUNNER_TEMP "nupp-ci-tools"
 $luajitRoot = Join-Path $toolRoot "luajit"
 $cjsonRoot = Join-Path $toolRoot "lua-cjson"
@@ -69,6 +73,19 @@ if ($LASTEXITCODE -ne 0) {
     throw "LuaRocks failed to install"
 }
 
+# LuaRocks compiles LPeg from source, so this one runs in the developer shell
+# too rather than in the PowerShell the workflow starts.
+$installLpeg = Join-Path $toolRoot "install-lpeg.cmd"
+@"
+@call "$developerShell" -arch=x64 -host_arch=x64
+@if errorlevel 1 exit /b %errorlevel%
+@call "$luarocksInstall\luarocks.bat" install lpeg $lpegVersion
+"@ | Set-Content -Encoding ascii $installLpeg
+& cmd.exe /d /c $installLpeg
+if ($LASTEXITCODE -ne 0) {
+    throw "LPeg failed to install"
+}
+
 $luaJitBin = Join-Path $luajitRoot "src"
 $gitBash = (Get-Command bash.exe).Source
 $gitSh = Join-Path (Split-Path $gitBash) "sh.exe"
@@ -85,9 +102,9 @@ $luarocksInstall | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
 $env:LUA_PATH = $luaPath
 $env:LUA_CPATH = $luaCPath
-& (Join-Path $luaJitBin "luajit.exe") -e 'require("cjson"); assert((nil ?? 1) == 1)'
+& (Join-Path $luaJitBin "luajit.exe") -e 'require("cjson"); require("lpeg"); assert((nil ?? 1) == 1)'
 if ($LASTEXITCODE -ne 0) {
-    throw "the CI LuaJIT toolchain cannot load lua-cjson or Nupp syntax"
+    throw "the CI LuaJIT toolchain cannot load lua-cjson, LPeg or Nupp syntax"
 }
 & (Join-Path $luarocksInstall "luarocks.bat") --version
 if ($LASTEXITCODE -ne 0) {

@@ -45,6 +45,10 @@ jobs:
           sudo make -C LuaJIT-1edc3e52b67eaf6ce5f809be8e17d6862594b8bc install PREFIX=/usr/local
           sudo ldconfig
           luarocks --lua-version=5.1 --tree=.rocks install lua-cjson 2.1.0.10-1
+          # The compiler parses its own doc comments with `nupp.peg`, which
+          # resolves native LPeg, so the module has to exist before the first
+          # build rather than arriving with what `nupp doc` renders with.
+          luarocks --lua-version=5.1 --tree=.rocks install lpeg 1.1.0-2
 
       - name: Install playground dependencies
         run: npm ci --prefix editors/playground
