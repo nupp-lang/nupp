@@ -338,3 +338,221 @@ Only after a release carrying SF-S1 through SF-S5 is the stage-0 compiler. Then
 The same again, with the child pool. Worth doing separately, because the child
 list is variadic and the token stream is not, and that difference is where this
 design will first be found wanting.
+
+## What it looks like
+
+The declaration, with the fields grouped by where each one actually lives.
+
+```nupp
+--- One token of a lexed file.
+---
+--- Six numbers and a flag word are the whole layout. The kind is an index into a
+--- table the language fixes; the text is a slice of the file; the marks later
+--- passes hang on a token are sparse and live beside it.
+struct lexer.Tok
+    --- Index into `KIND_NAMES`. The set of kinds is closed -- keywords, operators,
+    --- and the five open classes -- so this needs nothing from the pool.
+    kindIndex: uint16
+
+    offset: uint32
+    length: uint32
+    line: uint32
+    col: uint32
+    triviaFirst: uint32
+    triviaCount: uint32
+
+    --- These were `integer?` marks and were always integers.
+    blockDepth: uint16
+    lineIdx: uint16
+
+    flag missing: boolean
+    flag typeColon: boolean
+    flag typeSeparator: boolean
+    flag typeBracket: boolean
+    flag typePostfix: boolean
+    flag generic: boolean
+    flag homogeneousPack: boolean
+    flag namedVararg: boolean
+    flag contextualOp: boolean
+    flag constructTarget: boolean
+    flag spacedTok: boolean
+    flag breakOp: boolean
+    flag chainStep: boolean
+    flag typeOp: boolean
+    flag unaryTok: boolean
+    flag startsStat: boolean
+    flag blankBefore: boolean
+    flag blankAfter: boolean
+    flag forceBreak: boolean
+    flag finalFunctionReturn: boolean
+    flag formatOmit: boolean
+    flag _shortfnOpen: boolean
+    flag _shortfnClose: boolean
+
+    --- "name", "number", "string", "error", "eof", a keyword, or an operator.
+    derived kind: string
+        return KIND_NAMES[self.kindIndex]
+    end
+
+    --- The exact bytes of the token itself, trivia excluded.
+    derived text: string
+        return pool.source:sub(self.offset, self.offset + self.length - 1)
+    end
+
+    --- Where the name this token spells was declared, attached by the checker.
+    associated definition: any
+
+    associated groupRef: any
+    associated opensGroup: any
+    associated stmtLastTok: any
+    associated functionBodyFirstTok: any
+    associated deprecationToken: any
+    associated deprecation: any
+    associated deprecationReported: any
+    associated additionalDefinitions: {any}?
+    associated propertyCapability: string?
+end
+
+--- One file's tokens.
+pool lexer.Tokens of lexer.Tok
+    --- What `text` is cut from.
+    source: string
+
+    --- The file's trivia, which is the arena this replaces the hand-rolled one with.
+    trivia: lexer.TriviaArena
+end
+```
+
+### Lexing
+
+Today, at the bottom of the loop:
+
+```nupp
+tokens[#tokens + 1] = {
+    kind = kind,
+    text = text or sub(source, start, pos - 1),
+    offset = start,
+    line = l,
+    col = c,
+    trivia = arena,
+    triviaFirst = triviaFirst,
+    triviaCount = triviaCount
+}
+```
+
+and after:
+
+```nupp
+local tok = tokens:append()
+tok.kindIndex = KIND_INDEX[kind]
+tok.offset = start
+tok.length = pos - start
+tok.line = l
+tok.col = c
+tok.triviaFirst = triviaFirst
+tok.triviaCount = triviaCount
+```
+
+The `text` local disappears entirely, and with it the last reason the operator
+scan tracked which string it matched: `text` is now the span, and a customary
+spelling keeps its own bytes for free because the span is where they are. So does
+`eof`, whose length is zero, and so does a token the parser inserts to recover,
+which is the same thing.
+
+### Reading
+
+These sites do not change. What changes is what they lower to.
+
+```nupp
+if tok.kind == "then" then          -- fmt/init.nupp:990
+```
+
+```lua
+if tok.kindIndex == 47 then         -- KIND_INDEX.then, folded at compile time
+```
+
+A kind comparison against a literal never reaches `KIND_NAMES` at all. The set of
+kinds is closed and the literal is constant, so the whole read folds to an
+integer compare -- which is the single most common operation in the parser, at
+1,788 sites. `tok.kind` used as a value still reads the table:
+
+```nupp
+local spelling = tok.kind
+```
+
+```lua
+local spelling = KIND_NAMES[tok.kindIndex]
+```
+
+Text costs one more indirection than it did, and pays for it by not existing
+until read:
+
+```nupp
+local name = tok.text
+```
+
+```lua
+local name = __pools[tok.poolId].source:sub(tok.offset, tok.offset + tok.length - 1)
+```
+
+A flag is a mask:
+
+```nupp
+colon.typeColon = true              -- parser.nupp:444
+if prev.typeColon then              -- fmt/init.nupp:456
+```
+
+```lua
+colon.flags0 = bor(colon.flags0, 2)
+if band(prev.flags0, 2) ~= 0 then
+```
+
+And an associated field is an integer-keyed table read, where it is an
+object-keyed one today:
+
+```nupp
+tok.definition = entry
+```
+
+```lua
+__pools[tok.poolId].__definition[tok.id] = entry
+```
+
+### The three kinds of site that do change
+
+Construction, above. Keying a table by a token, which today is silently wrong and
+becomes right:
+
+```nupp
+kinds[tok] = kind                   -- lsp/semantic.nupp:125
+```
+
+```lua
+kinds[tok.id] = kind
+```
+
+And the token predicate, which stops asking whether a child has trivia:
+
+```nupp
+local function isToken(x: cst.Child): x is lexer.Tok
+    return x is lexer.Tok
+end
+```
+
+```lua
+local function isToken(x)
+    return ffi.istype(NuppTok, x)
+end
+```
+
+### What the pool indirection costs
+
+`__pools` is a module-level array and `poolId` a `uint16` field, so a text read is
+two array loads and a `sub` where it was one hash load. That is the price of a
+token that does not know which file it came from, and it is only paid by `text`
+and by the associated fields -- `kind`, the flags, and every numeric field reach
+nothing outside the element.
+
+The alternative is a pool reference inside the element, which cdata cannot hold,
+or threading the pool through every function that takes a token, which is the
+signature change this design exists to avoid.
