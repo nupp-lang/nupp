@@ -1,6 +1,9 @@
 # Fields a struct cannot hold
 
-> **Status: proposed, revised after review. Not implemented.** Nothing here is
+> **Status: SF-S1 through SF-S3 proposed; SF-S4 onward blocked and not
+> recommended on current evidence.** See §Anchoring, which is why.
+>
+> **Revised twice after review. Not implemented.** Nothing here is
 > built. The measurements are from the compiler's own token stream, taken while
 > moving trivia into an arena.
 >
@@ -30,6 +33,10 @@ changes what the layout is:
 Instances of such a struct come from a **`pool`**, which owns the block they
 live in and the shared data their derived fields read. An element reference is
 borrowed from its pool, so it cannot outlive it.
+
+Element references are ordinary values, not borrows -- an earlier revision said
+borrows and could not have type-checked, because a borrow may not be stored in a
+table and the CST stores every token in one.
 
 The declarations are what make this worth doing in the language rather than by
 hand. A hand-written `ffi.metatype` reaches the same layout, and every read of
@@ -106,6 +113,56 @@ What B leaves open, and what the rest of this plan depends on being answered:
   different pool; never reusing an id exhausts a `uint16` after 65,536 files.
   A generation counter beside the id is the usual answer and is not yet
   designed. **This is the open question that blocks SF-S4.**
+
+## Anchoring, and why the pooled stages are blocked
+
+An element reference does not keep its block alive. Measured, on the shape this
+plan proposes:
+
+```lua
+local held
+do
+  local block = ffi.new("Tok[?]", 64)
+  block[7].offset = 1007
+  held = block[7]
+end
+collectgarbage("collect")            -- block is unreachable; held is not
+-- allocate over the freed region
+print(held.offset)                   --> 0
+```
+
+Not a crash: a read of reused memory, returning a plausible value. Chunking
+fixes reallocation and does nothing about this, so §Representation's claim that
+an element reference "may be stored wherever a token is stored today" is false as
+written.
+
+Three ways out, and none is good:
+
+1. **A strong registry.** Pools are held by a module-level table, so an element is
+   valid while its pool is registered, and release is a program action. Element
+   validity then equals pool liveness, which is exactly Nupp's `@owned` model --
+   at the pool, not the element. But use after release is undefined and
+   unchecked, so element access becomes an unsafe operation wearing a typed
+   field's clothes. That contradicts the reason for doing this in the language.
+2. **A reference that carries its anchor.** A pool-and-index pair, which is
+   §Representation's option C. Measured at 217 bytes a token against the table's
+   264, because boxing an eight-byte value as cdata costs about 200. Dead.
+3. **Leave tokens as tables.** No new unsafety, no saving.
+
+A full provenance analysis -- proving that every structure storing an element
+also retains its pool, through locals, returns, closures, nested nodes, calls,
+unions, and containers mixing pools -- is a research-grade lifetime system, not a
+stage. Until one exists, SF-S4 onward is blocked on more than the registry.
+
+**And the trade has moved.** B saves 3.6x on lexing, which is 38% of what a build
+allocates; the collector is 3-5% of build time, while the trace compiler is about
+half. The escape analysis that lambda lifting and scratch reuse both want attacks
+that half, costs no new unsafety, and is described as the smaller half of an
+analysis that already exists. On the evidence gathered here it should come first,
+and the pooled stages should wait for a reason better than allocation.
+
+`flag`, `derived` over `self` alone, and the identity error are unaffected by any
+of this. They are worth building on their own.
 
 ## Goals
 
@@ -291,6 +348,22 @@ lowers to `poolId * 2^32 + id`, exact in a double for a `uint16` pool and a
 `uint32` index. `id` alone is not identity: element 1 of two pools would be one
 key, which is the bug this replaces rather than the fix for it.
 
+Two problems this does not yet solve, both of which block SF-S3's key lowering
+for pooled types:
+
+- **The key changes with the receiver's static type.** `t[tok]` lowers to the
+  composite key; `t[k]` where `k: any = tok` cannot, so it uses cdata identity
+  and the two never meet -- a value stored through one is invisible to the other.
+  Either a pooled reference may not erase to `any` at all, which is severe in a
+  compiler whose token marks are typed `any`, or every dynamic index
+  canonicalises, which means a runtime check on paths that have none today. The
+  `__index` fallback has the same shape: it is where provenance disappears.
+- **The key has no room left.** `poolId` and `id` fill 48 of a double's 53 exact
+  bits, leaving five for the generation the registry needs, and nothing at all
+  for a module or nominal discriminator -- so two pooled types in different
+  modules, each with its own registry, produce the same numeric key. A wider key
+  means a string or a pair, and both cost what the composite key was for.
+
 A struct **not** in a pool has no such identity and keeps LuaJIT's, where two
 cdata values at the same address are distinct keys. Using one as a table key
 reports **NUPP2215** rather than quietly working for one lookup and failing for
@@ -310,9 +383,9 @@ associated definition, groupRef, opensGroup, stmtLastTok,
 uint16 blockDepth, lineIdx   -- ordinary fields; they were integers already
 ```
 
-40 bytes an element and 73 with the reference that reaches it, against 264 --
-3.6x, not the 8x the first revision claimed from a benchmark struct that was
-missing four fields. Of roughly 3,200 field accesses across 37
+44 bytes an element -- 40 before `lineIdx` was widened back to 32-bit -- and 73
+with the reference that reaches it, against 264. That is 3.6x, not the 8x the
+first revision claimed from a benchmark struct missing four fields. Of roughly 3,200 field accesses across 37
 files, the ones that change are the seven token constructions, the ten sites that
 key a table by a token, and `cst.isToken`. Everything else — every `tok.kind ==
 "then"`, every `tok.text`, every `tok.typeColon = true` — is written the same
@@ -458,7 +531,7 @@ The declaration, with the fields grouped by where each one actually lives.
 --- Six numbers and a flag word are the whole layout. The kind is an index into a
 --- table the language fixes; the text is a slice of the file; the marks later
 --- passes hang on a token are sparse and live beside it.
-struct lexer.Tok
+struct lexer.Tok in lexer.Tokens
     --- Index into `KIND_NAMES`. The set of kinds is closed -- keywords, operators,
     --- and the five open classes -- so this needs nothing from the pool.
     kindIndex: uint16
@@ -470,9 +543,16 @@ struct lexer.Tok
     triviaFirst: uint32
     triviaCount: uint32
 
-    --- These were `integer?` marks and were always integers.
+    --- These were `integer?` marks and were always integers. `lineIdx` is an
+    --- output line number and stays 32-bit: a formatted file may exceed 65,535
+    --- lines, and a wrapped one breaks every line-distance comparison silently.
     blockDepth: uint16
-    lineIdx: uint16
+    lineIdx: uint32
+
+    --- Written once by `append`, read-only to everything else. Declared rather
+    --- than hidden, because they are in the layout and the ABI is published.
+    readonly id: uint32
+    readonly poolId: uint16
 
     flag missing: boolean
     flag typeColon: boolean
@@ -531,6 +611,17 @@ pool lexer.Tokens of lexer.Tok
     trivia: lexer.TriviaArena
 end
 ```
+
+The element names its pool -- `struct lexer.Tok in lexer.Tokens` on the
+declaration line above -- which is what makes it a pooled nominal, what a derived
+body resolves `pool` through, and what makes "the same nominal in two pools"
+unstateable rather than merely refused. The pool type is declared after the
+element type and resolved forward within the module, as a record may name a type
+declared below it.
+
+`id` and `poolId` are declared fields, not hidden ones: they are in the published
+ABI, they are `readonly` so only `append` writes them, and their position in the
+layout is part of the struct's declaration order like any other field.
 
 ### Lexing
 
