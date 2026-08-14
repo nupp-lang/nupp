@@ -1,4 +1,4 @@
-# Strictness floors
+# Gradual typing
 
 Nupp is a gradual superset of LuaJIT's Lua, so every valid LuaJIT program is
 already a valid Nupp program. What a file is named says how strictly it is
