@@ -179,7 +179,9 @@ function M.documentsFunctionTypedRecordFieldsAsMethods()
    local markdown = doc.markdown({module})
    assert(markdown:find("#### Methods", 1, true), "methods section missing")
    assert(markdown:find("###### Arguments", 1, true), "method arguments missing")
-   assert(markdown:find("| `count` | `number` |", 1, true), "fields table missing")
+   assert(markdown:find("#### Fields", 1, true), "fields section missing")
+   assert(markdown:find('<a id="num.Counter.count"></a>', 1, true), "field anchor missing")
+   assert(markdown:find("##### `count`", 1, true), "field sub-heading missing")
 end
 
 local NESTED_DECLARATIONS = table.concat({
@@ -224,7 +226,9 @@ function M.documentsNestedTypesAsTheirOwnSubHeadingWithMembers()
    assert(markdown:find("#### Types", 1, true), "types section missing")
    assert(markdown:find("##### `Settings` _record_", 1, true), "nested type heading missing")
    assert(markdown:find("###### Methods", 1, true), "nested type's own methods section missing")
-   assert(markdown:find("| `enabled` | `boolean` |", 1, true), "nested type's own fields table missing")
+   assert(markdown:find("###### `enabled`", 1, true), "nested type's own field sub-heading missing")
+   assert(markdown:find('<a id="config.Config.Settings.enabled"></a>', 1, true),
+      "nested type's own field anchor missing")
 end
 
 local ANNOTATED_DECLARATIONS = table.concat({
@@ -413,6 +417,60 @@ function M.documentsMethodImplementationsUnderTheirOwnType()
    -- A type this module does not document has nowhere to fold into, and dropping the
    -- method would lose it entirely.
    assert(listed["Elsewhere:extend"], "an orphan method stays a listed function")
+end
+
+function M.foldsMethodsWrittenWithAnExplicitReceiverAndHidesAPrivateTypesOwn()
+   local source = table.concat({
+      "--- A worker.",
+      "--- @export",
+      "record job.Worker",
+      "   --- Sends a value.",
+      "   send: function(borrows self: job.Worker, value: any): nil",
+      "   stop: function(takes self: job.Worker): nil",
+      "end",
+      "",
+      "function job.Worker.send(borrows self: job.Worker, value: any): nil",
+      "end",
+      "",
+      "--- Stops it.",
+      "--- @raises when it already stopped",
+      "function job.Worker.stop(takes self: job.Worker): nil",
+      "end",
+      "",
+      "--- The sole runtime representation.",
+      "local record WorkerImpl is job.Worker",
+      "end",
+      "",
+      "--- Sends through the implementation.",
+      "function WorkerImpl.send(borrows self: WorkerImpl, value: any): nil",
+      "end",
+      "",
+      "--- Starts one.",
+      "function job.spawn(): job.Worker",
+      "   return nil",
+      "end",
+   }, "\n")
+   local module = assert(doc.extract(source, "src/job.nupp", "job"))
+   local listed = {}
+   for _, item in ipairs(module.items) do
+      listed[item.name] = item
+   end
+   assert(listed["job.spawn"], "a module-level function must stay listed")
+   assert(not listed["job.Worker.send"] and not listed["job.Worker.stop"],
+      "an explicit receiver is still a method, not a function of the module")
+   -- The type is private, so the reader has no value to call this on and no
+   -- declaration to read it against. It goes wherever its type went.
+   assert(not listed["WorkerImpl"], "a private type must stay out of the listing")
+   assert(not listed["WorkerImpl.send"],
+      "a private type's method must go with the type rather than list as a function")
+   local worker = assert(listed["Worker"], "record missing")
+   local stop
+   for _, member in ipairs(worker.members) do
+      if member.name == "stop" then stop = member end
+   end
+   assert(#worker.members == 2, "folding must not duplicate a declared method")
+   assert(stop and stop.text == "Stops it.", "the implementation supplies what it lacked")
+   assert(stop.raises[1] == "when it already stopped", "raises must fold in too")
 end
 
 function M.omitsImplementationBodiesFromStructureSignatures()
@@ -929,15 +987,16 @@ function M.standardResourcesApiHasCompleteDocumentation()
    -- `adopt` and `remove` are inline members and document themselves inside the record.
    -- `close` is declared there and defined below, because a `@drop` member states
    -- `nosuspend` in its declared type and an inline method has nowhere to spell it.
+   -- Being written outside the record does not make it a function of the module: it
+   -- folds back onto `Set`, which is where a reader reaches it.
    local expected = {
       ["resources.openFile"] = "raises",
       ["resources.openProcess"] = "raises",
       ["resources.temporaryFile"] = "raises",
-      ["resources.Set.close"] = "raises",
       ["resources.set"] = "function",
       ["Set"] = "record",
    }
-   assert(#module.items == 6, "nupp.resources must document exactly its public surface")
+   assert(#module.items == 5, "nupp.resources must document exactly its public surface")
    for _, item in ipairs(module.items) do
       local prefix = item.path
       local want = expected[item.name]
@@ -964,10 +1023,12 @@ function M.standardResourcesApiHasCompleteDocumentation()
          for _, member in ipairs(item.members) do
             assert(member.name ~= "_entries" and member.name ~= "_closed",
                "the set's private storage leaked into the public docs")
-            named[member.name] = true
+            named[member.name] = member
          end
          for _, operation in ipairs({"close", "adopt", "remove"}) do
             assert(named[operation], "the set stopped documenting " .. operation)
+            assert(#named[operation].raises > 0,
+               operation .. " has no documented failure condition")
          end
       end
    end

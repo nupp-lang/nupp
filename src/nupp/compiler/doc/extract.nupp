@@ -970,15 +970,30 @@ declarationItem = function(stat, moduleName, includeAll, declarationFile, includ
     return item
 end
 
+-- Every type this file declares, whether or not it is documented. Folding an
+-- out-of-line method needs to tell a type held back from the listing apart from one
+-- this file never mentions, and only the visibility-blind walk can say which.
+local function declaredTypePath(stat, moduleName: string): string?
+    while stat.kind == "pragmaStmt" and stat.stat do
+        stat = stat.stat
+    end
+    local declaresType = stat.kind == "recordDecl" or stat.kind == "typeAlias" or stat.kind == "cdefStruct"
+    if not declaresType or not stat.name then
+        return nil
+    end
+
+    return moduleName .. "." .. stat.name.text
+end
+
 -- A method is written twice over: the record declares `send: function(Worker, any)` and
--- the implementation follows it as `function Worker:send(value)`. Both spell one
--- method,
--- and a module's function listing is the functions a reader calls through the module,
--- not the ones reached through a type it happens to declare. Folding the implementation
+-- the implementation follows it as `function Worker:send(value)`, or with an explicit
+-- receiver as `function Worker.send(self, value)`. Both spell one method, and a
+-- module's function listing is the functions a reader calls through the module, not
+-- the ones reached through a type it happens to declare. Folding the implementation
 -- into that type puts it where the reader looks for it and lets it supply what the
--- declaration left out. A method whose type this module does not document has nowhere
--- to
--- fold into and stays a listed function rather than disappearing.
+-- declaration left out. A method whose type this file never declares has nowhere to
+-- fold into and stays a listed function rather than disappearing; one whose type this
+-- file declares but does not document goes wherever its type went, which is nowhere.
 local function memberNamed(item: extract.Item, name: string): extract.Member?
     for _, member in ipairs(item.members) do
         if member.name == name then
@@ -989,7 +1004,7 @@ local function memberNamed(item: extract.Item, name: string): extract.Member?
     return nil
 end
 
-local function foldMethods(items: {extract.Item}): {extract.Item}
+local function foldMethods(items: {extract.Item}, declaredTypes: {[string]: boolean}): {extract.Item}
     local types: {[string]: extract.Item} = {}
     for _, item in ipairs(items) do
         if item.kind ~= "function" and item.kind ~= "method" and item.kind ~= "variable" then
@@ -998,10 +1013,13 @@ local function foldMethods(items: {extract.Item}): {extract.Item}
     end
     local kept: {extract.Item} = {}
     for _, item in ipairs(items) do
-        local ownerPath = item.kind == "method" and item.path:match("^(.*):") or nil
+        local callable = item.kind == "method" or item.kind == "function"
+        local ownerPath = callable and item.path:match("^(.*)[.:][^.:]+$") or nil
         local owner = ownerPath and types[ownerPath] or nil
-        if owner then
-            local name = item.name:match("([^:]+)$") or item.name
+        if not owner and ownerPath and declaredTypes[ownerPath] then
+        -- Its type is private, so it is too: the reader has no way to hold one.
+        elseif owner then
+            local name = item.name:match("([^.:]+)$") or item.name
             local declared = memberNamed(owner, name)
             if declared then
                 if declared.text == "" then
@@ -1096,8 +1114,13 @@ function extract.extract(
     result.text = headerDoc(parsed.root) or ""
     local declarationFile = path ~= nil and path:match("%.d%.nupp$") ~= nil
     local extraModules = {}
+    local declaredTypes: {[string]: boolean} = {}
     for _, block in ipairs(parsed.root.blocks or {}) do
         for _, stat in ipairs(block.stats or {}) do
+            local typePath = declaredTypePath(stat, name)
+            if typePath then
+                declaredTypes[typePath] = true
+            end
             local info = parseDoc(docLines(stat))
             if info.tags.module then
                 result.text = type(info.tags.module) == "string" and info.tags.module or info.text
@@ -1142,7 +1165,7 @@ function extract.extract(
             end
         end
     end
-    result.items = foldMethods(result.items)
+    result.items = foldMethods(result.items, declaredTypes)
     table.sort(result.items, byKindThenName)
 
     return result, {}, extraModules

@@ -37,7 +37,8 @@ local function kindBadge(kind)
 end
 
 -- What a declaration was annotated with. `@drop` and `@owned` are the ownership
--- contract, so they belong beside the name rather than only inside a raw signature dump.
+-- contract, so they belong beside the name rather than only inside a raw signature
+-- dump.
 local function annotationBadges(annotations)
     if not annotations or #annotations == 0 then
         return ""
@@ -50,13 +51,15 @@ local function annotationBadges(annotations)
     return '<div class="nuppdoc-annotations">' .. table.concat(marks) .. "</div>"
 end
 
--- `takes` and `borrows` decide whether the caller still owns the value afterwards, which
+-- `takes` and `borrows` decide whether the caller still owns the value afterwards,
+-- which
 -- no other column of the arguments table says.
 local function spelledParam(param)
     return (param.mode and (param.mode .. " ") or "") .. param.name
 end
 
--- HTML stops at `<h6>`; a type nested deeply enough to reach it renders its own sections
+-- HTML stops at `<h6>`; a type nested deeply enough to reach it renders its own
+-- sections
 -- at the same depth as its members rather than past the edge. Nesting past that point
 -- still reads, because each nested type is its own `<div>`.
 local function htag(level)
@@ -243,23 +246,45 @@ local function structureMemberLinks(item, links)
     return next(members) and members or nil
 end
 
+-- One member's heading: the anchor the structure's own signature links each entry to,
+-- and the `#` beside it that hands that anchor back. `badge` is the kind a nested type
+-- carries; a method or a field is told apart by the group heading above it.
+local function memberHeading(name: string, path: string, tag: string, extra: string?, badge: string?): string
+    return '<div class="nuppdoc-api-member' .. (
+        extra or ""
+    ) .. '" id="' .. htmlEscape(
+        path
+    ) .. '"><' .. tag .. '><code>' .. htmlEscape(
+        name
+    ) .. "</code>" .. (
+        badge and '<span class="nuppdoc-kind-badge nuppdoc-kind-' .. htmlEscape(
+            badge
+        ) .. '">' .. htmlEscape(badge) .. "</span>" or ""
+    ) .. '<a class="nuppdoc-header-anchor" href="#' .. htmlEscape(
+        path
+    ) .. '" aria-label="Link to ' .. htmlEscape(name) .. '">#</a></' .. tag .. ">"
+end
+
 -- Methods, nested types, and fields, at `level` for the group heading (`Methods` /
 -- `Types` / `Fields`). A nested type recurses at two levels deeper than its own group
 -- heading — one for its name, one for its own groups — the same relationship an item
 -- has to its top-level Methods/Types/Fields, so a type nested arbitrarily deep still
 -- gets a real heading and its own `<div>` instead of losing its members to a flattened
--- table.
-local function renderHtmlMembers(out: {string}, members: {extractMod.Member}?, links: nupp.compiler.doc.urls.Links?, level: integer): nil
+-- table. A field gets the same heading a method does: the structure's signature links
+-- every entry it lists to the member's own anchor, so a row in a table is a link with
+-- nowhere to land.
+local function renderHtmlMembers(
+    out: {string},
+    members: {extractMod.Member}?,
+    links: nupp.compiler.doc.urls.Links?,
+    level: integer
+): nil
     local fields, methods, types = splitMembers(members)
     local hGroup, hName, hSub = htag(level), htag(level + 1), htag(level + 2)
     if #methods > 0 then
         out[#out + 1] = "<" .. hGroup .. ">Methods</" .. hGroup .. ">"
         for _, method in ipairs(methods) do
-            out[
-                #out + 1
-            ] = '<div class="nuppdoc-api-member" id="' .. htmlEscape(
-                method.path
-            ) .. '"><' .. hName .. '><code>' .. htmlEscape(method.name) .. "</code></" .. hName .. ">"
+            out[#out + 1] = memberHeading(method.name, method.path, hName)
             out[#out + 1] = annotationBadges(method.annotations)
             out[#out + 1] = markdownHtml(method.text, links)
             out[
@@ -281,7 +306,9 @@ local function renderHtmlMembers(out: {string}, members: {extractMod.Member}?, l
                         markdownHtml(param.text, links)
                     }
                 end
-                out[#out + 1] = "<" .. hSub .. ">Arguments</" .. hSub .. ">" .. tableHtml({"Name", "Type", "Description"}, rows)
+                out[
+                    #out + 1
+                ] = "<" .. hSub .. ">Arguments</" .. hSub .. ">" .. tableHtml({"Name", "Type", "Description"}, rows)
             end
             if #method.returns > 0 then
                 local rows = {}
@@ -297,15 +324,7 @@ local function renderHtmlMembers(out: {string}, members: {extractMod.Member}?, l
     if #types > 0 then
         out[#out + 1] = "<" .. hGroup .. ">Types</" .. hGroup .. ">"
         for _, nested in ipairs(types) do
-            out[
-                #out + 1
-            ] = '<div class="nuppdoc-api-member nuppdoc-api-nested-type" id="' .. htmlEscape(
-                nested.path
-            ) .. '"><' .. hName .. '><code>' .. htmlEscape(
-                nested.name
-            ) .. '</code><span class="nuppdoc-kind-badge nuppdoc-kind-' .. htmlEscape(
-                nested.type
-            ) .. '">' .. htmlEscape(nested.type) .. '</span></' .. hName .. '>'
+            out[#out + 1] = memberHeading(nested.name, nested.path, hName, " nuppdoc-api-nested-type", nested.type)
             out[#out + 1] = annotationBadges(nested.annotations)
             out[#out + 1] = markdownHtml(nested.text, links)
             renderHtmlMembers(out, nested.members, links, level + 2)
@@ -313,17 +332,21 @@ local function renderHtmlMembers(out: {string}, members: {extractMod.Member}?, l
         end
     end
     if #fields > 0 then
-        local rows = {}
+        out[#out + 1] = "<" .. hGroup .. ">Fields</" .. hGroup .. ">"
         for _, field in ipairs(fields) do
-            rows[
-                #rows + 1
-            ] = {
-                "<code>" .. htmlEscape(field.name) .. "</code>",
-                inlineNupp(field.type, links),
-                markdownHtml(field.text, links)
-            }
+            out[#out + 1] = memberHeading(field.name, field.path, hName)
+            out[#out + 1] = annotationBadges(field.annotations)
+            out[#out + 1] = markdownHtml(field.text, links)
+            out[
+                #out + 1
+            ] = '<div class="nuppdoc-code-block" data-lang="nupp"><pre>'
+                .. '<code class="language-nupp">'
+                .. highlightNupp(
+                field.name .. ": " .. field.type,
+                links
+            ) .. "</code></pre></div>"
+            out[#out + 1] = "</div>"
         end
-        out[#out + 1] = "<" .. hGroup .. ">Fields</" .. hGroup .. ">" .. tableHtml({"Name", "Type", "Description"}, rows)
     end
 end
 
