@@ -141,11 +141,13 @@ At `-O1` and above the build recomputes these effects from the post-folding
 tree; a use found only in a constant-dead branch or loop is removed with that
 code.
 
-The registry also recognizes compiler-provided Lua modules. `require("lpeg")`
-selects Nupp's pure-Lua LPeg compatibility frontend, which lowers legacy pattern
-objects into the same PEG runtime as `nupp.peg`; it does not add LPeg's C module
-to the host. A local table named `nupp`, or a computed `require`, does not claim
-a compiler feature: only the resolved global path and literal module name do.
+The registry also recognizes compiler-provided modules. `require("lpeg")`
+selects native LPeg 1.1, while `require("re")` selects the bundled official Lua
+frontend and implies LPeg. Every `nupp.peg` matcher also selects LPeg: Nupp may
+emit a faster kernel for a recognized static graph, but the typed matcher shell
+and general lowering share the same native feature. A local table named `nupp`,
+or a computed `require`, does not claim a compiler feature: only the resolved
+global path and literal module name do.
 
 Detection is the default, not a requirement to configure every target. A
 target may override one answer when it deliberately supplies or forbids a
@@ -155,19 +157,20 @@ keeps the detected answer.
 ```lua
 nativeFeatures = {
    cjson = true,
+   lpeg = true,
    lua_utf8 = false,
    sha256 = true,
 }
 ```
 
-The forceable binary feature names are `cjson`, `lua_utf8`, `path`,
-`uri`, `uuid`, and `sha256`. The registered module effects include `cjson` and
-`cjson.safe` (one shared `cjson` provider), the pure `lpeg` compatibility
-module, and `lua-utf8`. Bundled LuaRock modules are checked too, so Lunamark
-contributes the PEG compatibility layer and lua-utf8 even when application
-source does not require either one directly. Forced removal is an expert escape
-hatch: if reachable code still requires that provider, the resulting program
-fails at runtime in the usual way.
+The forceable binary feature names are `cjson`, `lpeg`, `lua_utf8`, `path`,
+`uri`, `uuid`, `files`, `process`, `workers`, `http`, and `sha256`. The
+registered module effects include `cjson` and `cjson.safe` (one shared `cjson`
+provider), native `lpeg`, the Lua `re` module that requires it, and `lua-utf8`.
+Bundled LuaRock modules are checked too, so Lunamark contributes LPeg and
+lua-utf8 even when application source does not require either one directly.
+Forced removal is an expert escape hatch: if reachable code still requires
+that provider, the resulting program fails at runtime in the usual way.
 
 A binary target may use `stub = "nupp"` to ask the source compiler to build its
 own host with exactly the resolved host features. A path-valued `stub` remains

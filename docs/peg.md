@@ -539,6 +539,19 @@ Runtime textual grammars are compiled by LPeg's `re` module and cached by source
 They do not invoke `loadstring`. The `auto` backend invokes `loadstring` only
 when a static graph selects a Nupp specialization; LPeg owns every general match.
 
+This split is possible because Nupp owns the static representation. LPeg pattern
+userdata does not expose a public, traversable AST from which the compiler could
+recover capture types or optimization facts. Nupp therefore parses static
+`nupp.peg` text into its canonical typed graph, derives the `R...` result pack
+there, and then either emits a selected kernel or constructs the equivalent LPeg
+pattern. The graph is a type-system and optimization layer, not another parsing
+machine.
+
+Direct `require("lpeg")` returns the native LPeg 1.1 module. Nupp's declaration
+and operator checking track capture packs through ordinary LPeg composition, but
+the runtime object remains LPeg's pattern userdata. `require("re")` returns the
+bundled official Lua frontend over that module.
+
 Repeated byte or class plans also emit a direct byte-scanning `forEachMatch`
 loop, so traversal does not re-enter LPeg for every match. Typed replacement
 callbacks retain the general search loop for plans without a direct traversal.

@@ -711,7 +711,8 @@ end
 --- expression language during compilation and at runtime. A constant call inside a
 --- `comptime` block is validated and materialized into the program; a call with a
 --- runtime string parses and caches the grammar when the program runs. Neither form
---- requires LPeg to be installed.
+--- requires a separately installed LPeg: its resolved native effect asks the build
+--- for a host that supplies LPeg 1.1.
 ---
 --- PEGs use ordered choice. `first / second` tries `second` only when `first` fails,
 --- and a later failure may backtrack into an earlier choice. Sequence is written by

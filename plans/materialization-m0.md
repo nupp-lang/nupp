@@ -4,6 +4,10 @@ This document freezes the evidence contract before measuring the PEG
 materialization prototypes. Results are added in a later commit; changing a
 threshold afterward requires a new benchmark decision and an explanation.
 
+This is a historical specialization experiment, not the current general
+matcher architecture. Nupp retained selected kernels, replaced the proposed
+pure-Lua general machine with native LPeg, and removed the PEG bytecode VM.
+
 Run from the repository root:
 
 ```sh
@@ -93,8 +97,9 @@ LPeg reaches 255. All clear the required depth 128.
 
 Generated source is 1,769 bytes for the shared reference helper plus programs
 and 1,588 bytes for the three specialized matchers, a 0.90x ratio. Matcher
-bytecode is 1,080 bytes for the reference machine and 1,018 bytes for the
-specialized functions, a 0.94x ratio. Neither pure-Lua form has a bundle
-dependency; the measured LPeg module is 91,560 bytes.
+LuaJIT bytecode is 1,080 bytes for the reference machine and 1,018 bytes for the
+specialized functions, a 0.94x ratio. Neither pure-Lua prototype has a bundle
+dependency; the independently loaded LPeg module measured 91,560 bytes. These
+prototype sizes do not describe the feature-matched host Nupp now ships.
 
 Decision: **keep M6**. The handwritten specializer clears every frozen M0 gate.

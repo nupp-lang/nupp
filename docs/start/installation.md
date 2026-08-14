@@ -61,9 +61,10 @@ installs them.
 ```
 
 That installs both and their declared rocks into a project-local `.rocks` tree
-that `bin/nupp` and `tests/run` put on the search path. Nupp's own binaries use
-their pure PEG compatibility frontend for the LPeg calls in those libraries;
-they do not carry LPeg's C module. Two checkouts can hold different versions
+that `bin/nupp` and `tests/run` put on the search path. A Nupp binary's feature
+scan sees the LPeg and lua-utf8 calls in those bundled libraries and links both
+native modules into its host. Their Lua files, including LPeg's official
+`re.lua`, remain in the payload. Two checkouts can hold different rock versions
 without either disturbing the other, and nothing lands in a global tree. See
 [rock dependencies](../tooling/build.md#rock-dependencies) for declaring your
 own.
@@ -99,7 +100,9 @@ alongside:
 | --- | --- | --- |
 | `LuaJIT` | linked into the stub | running anything |
 | lua-cjson | detected and linked | --json and the LSP |
-| Nupp PEG frontend | emitted in the payload | legacy LPeg pattern calls |
+| LPeg 1.1 | detected and linked | general PEG and direct LPeg patterns |
+| LPeg `re.lua` | in the payload | runtime textual grammars |
+| Nupp PEG matcher shell | emitted in the payload | typed matching, search, and replacement |
 | `luautf8` | detected and linked | nupp doc's entities |
 | `lunamark` | in the payload | nupp doc's markdown |
 | Scintillua (45) | in the payload | highlighting fences |

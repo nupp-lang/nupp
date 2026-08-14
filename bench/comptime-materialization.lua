@@ -5,10 +5,10 @@
 --
 -- This file deliberately records its thresholds before any result is checked
 -- into plans/materialization-m0.md. The reference column is a small flat
--- parsing machine in the shape M4 would quote. The specialized column is
--- handwritten Lua in the shape M6 would emit. LPeg 1.1 is the independent
--- semantics and performance comparison, not a gate the pure-Lua bundle has to
--- beat.
+-- parsing machine in the shape M4 originally proposed. The specialized column
+-- is handwritten Lua in the shape M6 would emit. This is a historical lowering
+-- spike, not the shipped Nupp matcher architecture; LPeg 1.1 is its independent
+-- semantics and performance comparison.
 
 local jit = require("jit")
 local lpeg = require("lpeg")
@@ -449,7 +449,7 @@ io.write((" specialized/reference geomean: %.2fx (gate %.2fx)\n"):format(
    geomean, SPECIALIZED_MIN_GEOMEAN))
 io.write((" generated source: reference %d B, specialized %d B, %.2fx (cap %.2fx)\n"):format(
    referenceSource, specializedSource, sourceRatio, SPECIALIZED_MAX_SOURCE_RATIO))
-io.write((" matcher bytecode: reference %d B, specialized %d B, %.2fx (cap %.2fx)\n"):format(
+io.write((" LuaJIT matcher bytecode: reference %d B, specialized %d B, %.2fx (cap %.2fx)\n"):format(
    referenceBytecode, specializedBytecode, bytecodeRatio, SPECIALIZED_MAX_BYTECODE_RATIO))
 for _, row in ipairs(rows) do
    if row.name == "recursive" then
@@ -458,7 +458,7 @@ for _, row in ipairs(rows) do
    end
 end
 local lpegPath, lpegBytes = moduleSize("lpeg")
-io.write((" bundle dependencies: reference none, specialized none, LPeg %s (%d B)\n"):format(
+io.write((" spike dependencies: reference none, specialized none, LPeg %s (%d B)\n"):format(
    lpegPath, lpegBytes))
 io.write("\n")
 

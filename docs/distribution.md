@@ -64,9 +64,12 @@ them and an older stub will refuse rather than misread.
 
 ## Payload
 
-One Lua chunk, exactly as `nupp build` with a `bundle` target produces it. It is
-plain Lua and runs under a plain `luajit` with no stub at all, which is what
-makes it testable on its own.
+One Lua chunk, exactly as `nupp build` with a `bundle` target produces it. The
+chunk is plain Lua and can run under a compatible `luajit` when that runtime
+also supplies every native feature the target resolved. A target with no native
+effects needs no stub; `nupp.peg`, for example, resolves native LPeg and
+therefore needs a feature-matched host or an LPeg module on LuaJIT's module
+path.
 
 "Plain" has a floor. Generated Nupp is written in the LuaJIT 3.0 syntax that 2.1
 backported, meaning `?.`, `??`, `?:`, the bit operators and compound assignment,
@@ -124,8 +127,8 @@ window and own an event loop before step 6; Nupp's own does none of that.
 
 ## Third-party notices
 
-The compiler-owned stub links LuaJIT, and, where the features are on,
-lua-cjson and luautf8. All three are MIT, and a stamped binary is a
+The compiler-owned stub links LuaJIT, and, where the features are on, LPeg,
+lua-cjson and luautf8. All four are MIT, and a stamped binary is a
 distribution of them, so their notices ship in
 [`host/NOTICE.md`](../host/NOTICE.md) and `host/notices/` — the notice files as
 they arrive in the pinned sources, byte for byte. Hand them over with the
@@ -222,11 +225,12 @@ Four things a distributed binary deliberately is not:
   Rust library still ships that library beside the binary, unless it is linked
   into a stub built for the purpose.
 
-  Nupp's compiler payload detects two native modules, and its compiler-owned
+  Nupp's compiler payload detects three native modules, and its compiler-owned
   host links exactly those features: `lua-cjson`, which the compiler requires
-  before it does anything, and `luautf8`, which Lunamark's entity table uses.
-  Lunamark's LPeg pattern objects lower through Nupp's pure-Lua PEG
-  compatibility frontend. Another payload selects whatever its own code and
-  bundled dependencies need; the format has no opinion.
+  before it does anything; LPeg, which backs direct LPeg patterns and every
+  general `nupp.peg` matcher; and `luautf8`, which Lunamark's entity table uses.
+  The official `re.lua` module remains ordinary Lua in the payload. Another
+  payload selects whatever its own code and bundled dependencies need; the
+  format has no opinion.
 - **It does not make Nupp a Rust project.** The host is a component, built by
   the same machinery that already builds a project's other native dependencies.

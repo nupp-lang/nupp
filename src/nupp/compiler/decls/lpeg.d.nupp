@@ -1,5 +1,5 @@
 --[[
-Typed declaration for LPeg 1.1 and Nupp's source-compatible implementation.
+Typed declaration for the native LPeg 1.1 module bundled by Nupp.
 
 Each Pattern<C> carries C as a tuple describing its capture values. `{never}` is
 the empty capture sequence, a tuple keeps heterogeneous positions, and an array

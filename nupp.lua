@@ -38,10 +38,11 @@ return {
       -- Renders the markdown. Pulls in lpeg, cosmo, alt-getopt and luautf8,
       -- which LuaRocks resolves rather than this file listing them.
       --
-      -- `bundle` is what a binary carries. LPeg calls are supplied by Nupp's PEG
-      -- compatibility frontend; only the utf8 the entity table needs is linked
-      -- into the host stub. Named rather than swept, because the tree also holds a
-      -- command-line program and its tests, which nothing here ever asks for.
+      -- `bundle` is what a binary carries. The official `re.lua` frontend is Lua
+      -- payload; LPeg itself and the utf8 the entity table needs are native host
+      -- features selected from the bundled sources. Named rather than swept,
+      -- because the tree also holds a command-line program and its tests, which
+      -- nothing here ever asks for.
       lunamark = {
          kind = "luarocks",
          version = "0.6.0-1",

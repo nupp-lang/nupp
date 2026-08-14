@@ -1,11 +1,11 @@
 --[[
-The textual frontend for compiler-owned PEG patterns.
+The compile-time textual frontend for compiler-owned PEG patterns.
 
-This is intentionally a parser, not a source generator and not a dependency on LPeg's
-runtime `re` module. It accepts LPeg 1.1's `re` notation and calls the same sealed
-pattern constructors as the ordinary comptime API. Nupp's typed frontend may impose a
-stronger result contract after parsing, but the notation and capture operations are
-the LPeg ones.
+This parser is deliberately independent of LPeg's runtime `re` module so the compiler
+can validate a static grammar, derive its capture pack, and build Nupp's canonical
+graph. Execution later selects a Nupp specialization or lowers that graph to native
+LPeg. It accepts LPeg 1.1's `re` notation and calls the same sealed pattern
+constructors as the ordinary comptime API.
 ]]
 
 local record pegRe

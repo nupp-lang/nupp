@@ -12,9 +12,9 @@ wall-clock, result, protocol, IR and provider limits.
 PEG now has one LPeg-re-style textual API at both phases.
 `nupp.peg.compile` parses constant grammar text into the opaque graph, so static
 code retains typed results and specialization. The same call at runtime uses
-the same plan contract and matcher factories, caches the plan by grammar and
-backend, and returns a dynamic result type. `{backend = "vm"}` is the explicit
-specialization opt-out.
+the official LPeg `re` frontend, caches the native pattern by grammar and
+backend, and returns a dynamic result type. `{backend = "lpeg"}` is the explicit
+specialization opt-out. The former general PEG bytecode VM has been removed.
 
 Literal grammar calls expose the analyzer's canonical capture descriptor to the
 checker at both phases. Actionless `comptime` declarations infer `Peg<R>` without an
@@ -112,9 +112,10 @@ executable and whose semantics are narrow enough for the compiler to own.
 
 The initial and acceptance cases are:
 
-- **PEG matchers.** A pattern graph becomes either a flat program consumed by a
-  pure-Lua parsing machine or a specialized matcher closure. A bundle can use
-  it without linking LPeg.
+- **PEG matchers.** A typed canonical pattern graph becomes either a native LPeg
+  pattern or one of Nupp's specialized matcher closures. Every matcher records
+  the native LPeg effect, so a binary links LPeg even when its particular graph
+  selects a specialization.
 - **Type-directed codecs.** A descriptor built from `nupp.reflect(T)` becomes a
   typed encoder/decoder or field projection. The real acceptance workload is
   the keyed codec `fieldcodec.tl` builds through `load()` at run time from a
@@ -327,15 +328,15 @@ worker produced it. The selected provider validates the schema, indices, sizes,
 types and resource limits again before lowering. A crashed or compromised
 worker cannot ask the generator to paste source or address an arbitrary local.
 
-For PEG the finalized payload is not required to be the exact runtime VM
-bytecode. Preserve the analysis needed by every backend:
+For PEG the finalized payload is not the opaque native LPeg pattern. Preserve
+the analysis needed by every backend:
 
 ```text
 Pattern graph with provenance
     -> nullability, fixed length, FIRST sets, capture shape, rule validation
     -> normalized matcher blueprint
-        -> flat parsing-machine program
-        -> specialized runtime expression
+        -> native LPeg construction
+        -> selected specialized runtime expression
 ```
 
 The quoted interpreter program uses rule indices and flat tables because a
@@ -386,12 +387,12 @@ It cannot express a module, top-level declaration, `require` chosen by user
 data, access to a source binding, arbitrary global assignment, `load`, or a raw
 source fragment. The ordinary generator validates and renders this IR.
 
-Compiler helpers are also selected from a closed table. A provider may request
-the internal PEG VM helper, for example, but cannot derive a module name from its
-payload. Helper requests participate in the target's semantic helper and
-runtime-feature accounting. A pure generated-Lua helper records no native
-feature; a future provider with a native backend would use the same conservative
-feature detection as `nupp.io.Path`.
+Compiler helpers are also selected from a closed table. The PEG provider may
+request its matcher shell and native LPeg constructor, for example, but cannot
+derive a module name from its payload. Helper requests participate in the
+target's semantic helper and runtime-feature accounting. PEG records
+`native.lpeg`; other providers use the same conservative feature detection as
+`nupp.io.Path`.
 
 ### Line numbers
 
@@ -490,8 +491,9 @@ These are build facts, not new manifest inputs.
 A provider can offer a general backend and a specialized backend. The build
 derives the choice from the existing optimization policy and backend
 availability; there is no provider-specific manifest flag. Source code and
-checked interfaces do not change. PEG's general backend is a compact pure-Lua
-bytecode VM. Specialized PEG source ships only after its benchmark gate.
+checked interfaces do not change. PEG's general backend is native LPeg 1.1.
+Nupp's fixed-width, repeated-byte, and packed whole-input specializations ship
+only for canonical graph shapes that clear their benchmark gates.
 
 Both backends implement the same provider specification. Differential tests
 run the same finalized payloads and inputs through both and compare successes,
@@ -580,32 +582,19 @@ finalizes it into a normalized blueprint with stable rule indices, byte sets,
 literals, capture descriptions, action slots, FIRST sets, nullability and
 fixed-length facts.
 
-### General bytecode backend
+### Native LPeg backend
 
-The general runtime backend lowers the finalized graph to numeric instructions
-and pooled strings and 256-byte class maps, then constructs a matcher through
-the pure generated-Lua PEG VM helper. The VM uses an explicit combined
-call/backtracking stack, a capture-free loop, and deferred capture/action
-opcodes. Its recognizer tier detects fixed-width whole matches and bounded
-prefix/class/suffix scans while lowering, then records compact superinstruction
-operands beside the fallback bytecode. Fixed checks are unrolled at the common
-ten-byte width; short prefix choices use length-tagged packed keys; byte classes
-use 256-byte maps; and the nine-byte route suffix tier packs its fixed bytes
-into two comparisons. Shared subgraphs above the inline budget become
-subroutines so source growth remains bounded. It exists even if specialization
-never wins:
+The general runtime backend recursively constructs native LPeg patterns from
+the finalized graph. Nupp owns that graph because LPeg pattern userdata does
+not expose a public AST suitable for deriving capture packs or optimization
+facts. The graph remains the stable typed contract; native LPeg owns general
+matching, backtracking, recursion, and captures.
 
-- bundles need no native LPeg dependency;
-- it validates the public semantics and finalized IR;
-- it supplies the semantic baseline for specialization;
-- it is the real table-building workload comptime's implementation plan asks
-  for.
-
-Its choice, commit, partial-commit, back-commit, call and return instructions
-follow LPeg's parsing-machine design. Nupp still owns its typed result, capture,
-action and diagnostic contracts. The original recursive runtime AST interpreter
-was retired after the VM won recognition, captures, action, and recursive
-grammar benchmarks while passing the same semantic suite.
+Runtime textual grammars use the bundled official `re.lua` module directly and
+cache the resulting LPeg patterns. Static graphs use the same matcher shell but
+may select a fixed-width, repeated-byte, or packed-scan kernel. The previous
+numeric instruction stream, constant pools, opcode dispatcher, and pure-Lua PEG
+VM are no longer emitted or shipped.
 
 ### Specialized backend gate
 
@@ -622,13 +611,12 @@ compare them with LPeg 1.1.0. Record separately:
 - generated source and LuaJIT bytecode size;
 - bundled artifact dependencies and size.
 
-The primary acceptance condition for the reference machine is useful pure-Lua
-bundle performance with no LPeg linked, not a universal win over LPeg's tuned C
-VM. The specialized prototype has a separate, numeric improvement margin over
-that machine for named workloads, with source-size, bytecode-size and
-trace-compiler caps. The benchmark records workloads and every threshold before
-results are measured. If the handwritten specializer misses that margin, M6 is
-deleted from this plan rather than deferred.
+M0 originally tested whether a useful pure-Lua reference machine could support
+a bundle without LPeg and whether specialized Lua beat that reference by a
+frozen margin. That historical gate justified specialization, not the current
+general backend. The specialized prototype has numeric source-size, LuaJIT
+bytecode-size, throughput, and trace-compiler caps; the surviving kernels are
+also compared directly with native LPeg.
 
 Likely specializations include literal fusion, byte-class comparison or lookup
 selection, FIRST-byte choice dispatch, tight spans, tail-rule elimination and
@@ -663,7 +651,7 @@ This provider must reuse, unchanged:
 - one-line runtime-expression emission;
 - cache and build observation records.
 
-If it requires PEG opcodes, rule concepts or pattern-shaped callbacks in the
+If it requires PEG rules, LPeg constructors or pattern-shaped callbacks in the
 common layer, the layer is wrong and is revised before the provider lands.
 
 ## Scheduling and prerequisites
@@ -752,12 +740,13 @@ locations remain invariant; oversized output fails deterministically.
 - Implement the textual grammar floor, graph validation and typed results.
 - Keep pattern nodes and their composition internal to the textual frontend.
 - Finalize the analyzed graph to a canonical matcher blueprint.
-- Emit compact bytecode and constant pools for the pure-Lua VM matcher.
+- Lower the general blueprint to native LPeg and retain only benchmarked Nupp
+  kernels as specialized alternatives.
 - Differential-test the matcher against LPeg where the surfaces overlap.
 - Integrate semantic runtime-feature detection and bundle tests.
 
-Exit test: useful recursive grammars and captures run in a bundle with no LPeg;
-check, build, LSP and fixpoint retain their invariants.
+Exit test: useful recursive grammars and captures run through native LPeg in a
+feature-matched host; check, build, LSP and fixpoint retain their invariants.
 
 ### M5: factories and action slots
 
@@ -840,10 +829,11 @@ Every materializer extends these common invariants:
 - generated-size, bytecode, local, upvalue, recursion and resource limits;
 - query compute counters for body, type, blueprint and backend changes;
 - LSP cancellation, diagnostics, hover and worker recovery;
-- pure-Lua bundle execution with unavailable native features;
+- native-feature detection, feature-matched host execution, and refusal of a
+  one-file bundle whose native features cannot be embedded;
 - self-hosted stage-one/stage-two byte-identical fixpoint.
 
 Provider suites add an independent oracle and fuzz small canonical payloads.
-PEG compares its overlapping floor with LPeg and its own reference machine.
+PEG compares its specialized kernels and textual frontend with native LPeg.
 The field codec compares generated behavior with the existing source-generating
 implementation until that implementation can be removed.

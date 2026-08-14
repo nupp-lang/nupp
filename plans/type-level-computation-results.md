@@ -37,8 +37,10 @@ third finite workload in the focused tests.
   seconds including process startup and renders the reduced type as
   `{readonly post: string, readonly user: string}`.
 - With guarded recursion, reflection, associated types, comptime workers,
-  materialization, and PEG bytecode enabled, the complete suite passes 1,523
-  tests in about 144 seconds. `nupp fixpoint` also passes.
+  materialization, and the then-current PEG bytecode backend enabled, the
+  complete suite passed 1,523 tests in about 144 seconds. That backend has since
+  been replaced by native LPeg; the entry records the 2026-08-10 acceptance run,
+  not the current matcher architecture. `nupp fixpoint` also passed.
 
 Reflection now serializes ordinary fields and indexers through the same member
 view used by access, `keyof`, indexed lookup, and mapped shapes. Its descriptor

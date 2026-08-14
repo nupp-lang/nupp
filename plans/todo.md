@@ -21,11 +21,12 @@ work makes sense in.
 
 ## Build, codegen and distribution
 
-- [ ] **Single-binary host.** LuaJIT, lua-cjson and luautf8 are pinned by
+- [ ] **Single-binary host.** LuaJIT, lua-cjson, LPeg and luautf8 are pinned by
       revision and SHA-256 and built from source by `host/build.rs`, not
-      committed. LPeg is no longer a host C dependency; the compatible runtime
-      is generated Lua. `cjson`/`cjson.safe` are registered in
-      `package.preload`; the binary container, trailer, stamping, pinned
+      committed. LPeg is a small optional host feature used by direct LPeg calls
+      and every `nupp.peg` matcher; Nupp's typed graph and selected kernels sit
+      above it. The native modules are registered for `require`; the binary
+      container, trailer, stamping, pinned
       revision metadata, and a compiler-built current-platform `stub = "nupp"`
       are implemented. Their MIT notices ship in `host/NOTICE.md` and
       `host/notices/`, and the build fails when a committed copy stops

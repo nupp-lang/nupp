@@ -1560,6 +1560,13 @@ default `auto` backend recognizes fixed-width, repeated-byte, and packed scan
 shapes and emits straight-line Lua for them. Every other graph lowers directly
 to native LPeg; Nupp has no PEG bytecode or general interpreter.
 
+LPeg pattern userdata has no public traversable AST from which to recover
+capture types or optimization facts. Nupp therefore owns the canonical graph
+and derives the result pack before lowering; it is a type-system and
+optimization layer above LPeg, not a second general parsing machine. Direct
+`require("lpeg")` still returns native LPeg 1.1, with Nupp declarations tracking
+capture packs through ordinary pattern composition.
+
 `{backend = "lpeg"}` disables those Nupp specializations for reproducible backend
 comparisons. Runtime textual grammars compile through LPeg's `re` module without
 `loadstring` and are cached by grammar. Runtime definition values use
