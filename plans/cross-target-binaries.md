@@ -32,6 +32,24 @@ The source-built current-platform path remains available. A target with no
 `platforms` keeps today's behavior: `stub = "nupp"` compiles a feature-matched
 host locally. Cross-target selection always uses a verified prebuilt stub.
 
+## Why the bootstrap is not circular
+
+The stub is only the Rust/LuaJIT host. The compiler and program payloads are
+platform-neutral Lua, so stamping an already-built Linux, macOS or Windows stub
+does not invoke that platform's linker or SDK. The compiler host's platform and
+the payload target's platform are independent once the native stub exists.
+
+Catalog publication does introduce a release-order constraint. A released
+compiler may refer only to immutable stub assets which already exist, so release
+N publishes the stubs and catalog release N+1 consumes. An unchanged `hostAbi`
+may retain an older stub; a changed `hostAbi` needs native-runner stubs before a
+compiler release can consume it. Source checkouts can always build their current
+platform host while that next catalog is being prepared.
+
+Every catalog-referenced stub must remain downloadable for as long as a released
+compiler names it. Retention is therefore part of correctness, not release
+housekeeping: deleting an old asset breaks a pinned released CLI.
+
 ## Why prebuilt stubs are the boundary
 
 Stamping is platform-neutral. It copies an existing executable, appends one Lua
@@ -71,6 +89,8 @@ Windows can stamp every target.
   platform.
 - Downloading a mutable `latest` artifact or accepting an unverified CI
   artifact.
+- Shelling out to `curl`, PowerShell or another optional system downloader from
+  the released compiler.
 - Absorbing arbitrary project C, Rust or LuaRock native libraries into the
   compiler-owned stub.
 - Solving Apple notarization by weakening signature checks or asking users to
@@ -92,6 +112,18 @@ Windows can stamp every target.
   Windows x86-64 host on a Windows runner.
 - The trailer and payload are platform-neutral and the binary packaging
   fixpoint passes on the current platform.
+- `project.build` calls `native.build` for every target kind. It therefore
+  compiles and stages current-machine sidecars even when the eventual binary is
+  meant for another platform.
+- Features such as files and process have both a native sidecar and a compiler
+  host feature. Path, URI, UUID, HTTP and SHA-256 are sidecar-only today.
+- `stampFile` unconditionally invokes `chmod +x`, which cannot run on a Windows
+  compiler host and applies the compiler host's mode operation rather than the
+  output platform's rule.
+- The released compiler host has files and process but no HTTP/TLS provider, so
+  it cannot implement an in-process catalog download yet.
+- `hostAbi` does not exist yet. The only current container identity is
+  `PAYLOAD_VERSION = 1`; target-layout ABI is a separate concern.
 - Release artifacts currently contain only executables. They do not carry the
   required notice tree, and the appended macOS binary is not notarizable under
   the current signing method.
@@ -126,6 +158,7 @@ The supported commands are:
 nupp build --target app --platform x86_64-pc-windows-msvc
 nupp build --target app --platform all
 nupp check --target app --platform aarch64-apple-darwin
+nupp clean --target app --platform x86_64-unknown-linux-gnu
 ```
 
 Rules:
@@ -138,6 +171,11 @@ Rules:
   explicit platform rather than silently building one; release automation uses
   `--platform all`.
 - `check` performs the target-sensitive check but writes no payload or stub.
+- `clean --target NAME --platform NAME` removes only that platform's owned
+  outputs. `clean --target NAME --platform all` removes every configured
+  platform output. For compatibility, omitting `--platform` from `clean` removes
+  all outputs owned by the named target; `--platform` without `--target` is an
+  error.
 - `layoutTarget`, when present on a cross-target binary, must equal the selected
   platform. Normally it is omitted and inferred from that platform.
 - A binary platform must have a layout model. A layout model need not have a
@@ -146,8 +184,15 @@ Rules:
   hyphenated command-line convention.
 
 `nupp tasks --json` reports `platforms`, and the text form lists them beneath
-the binary target. Build JSON adds `platform` to a single-platform result and a
-`platforms` array to an `all` result.
+the binary target. Build JSON adds `platform` to a single-platform result. An
+`all` result has a `platforms` array whose entries each contain `platform`,
+`status`, `outputs` and, on failure, `error`.
+
+`--platform all` attempts every configured platform in manifest order. A
+failure does not prevent independent later platforms from being checked or
+stamped. Successful outputs and their state remain valid, every platform gets a
+result entry, and the command exits non-zero when any entry failed. A rerun may
+reuse the successful entries.
 
 ## Output layout
 
@@ -175,8 +220,34 @@ an unchecked string template makes collisions and escaping part of the build
 contract.
 
 Build cache keys, completion stamps, `produced.outputs`, cleanup ownership and
-fixpoint paths all include the platform. Building or cleaning one platform must
-not remove another platform's files.
+fixpoint paths all include the platform. A stamped-output key additionally
+includes `catalogRelease` and the selected stub's SHA-256. Replacing an override
+stub or advancing a catalog therefore forces a restamp even when the platform
+and payload are unchanged. Building or cleaning one platform must not remove
+another platform's files.
+
+Stamping and applying a file mode are separate operations. `stampFile` writes
+the same bytes on every compiler host and never unconditionally runs `chmod`.
+A target finalizer applies these rules:
+
+- PE output needs no executable-mode operation.
+- A POSIX compiler host sets ELF and Mach-O raw outputs to mode `0755`.
+- A Windows compiler host cannot represent a Unix executable bit on its
+  filesystem. Its raw output is byte-complete, and the transferable Unix
+  artifact is a deterministic tar archive whose executable entry records mode
+  `0755`.
+
+Unix release artifacts use tar, not zip, so extraction preserves that mode.
+Windows release artifacts may use zip. Native CI extracts the archive, checks
+the mode where applicable, and executes the result.
+
+Every cross-target POSIX result owns both the raw stamped file and a
+deterministic `<output>.tar` containing that file at mode `0755`. Emitting both
+on every compiler host keeps `produced.outputs` and cache behavior independent
+of the compiler host; the tar file is the canonical transferable artifact when
+the raw file lives on Windows. `platformOutputs` customizes the raw path and the
+tar path is derived from it. Phase 4 may compress that tar deterministically for
+release without changing the mode contract.
 
 ## Stub catalog
 
@@ -184,6 +255,7 @@ The compiler carries a versioned catalog for the release whose host ABI it
 understands. Each record contains:
 
 ```text
+catalogRelease
 platform
 hostAbi
 artifact
@@ -208,6 +280,32 @@ can change without revising the executable container, and a third-party stub
 does not become a Nupp release artifact merely because it implements that
 container.
 
+### Host ABI
+
+Phase 2 introduces one integer `hostAbiVersion` beside `PAYLOAD_VERSION` in
+the packager and host. `docs/distribution.md` specifies it immediately after the
+trailer contract before any catalog is published. `hostAbi` is the catalog's
+camelCase spelling of that exact integer; target-layout ABI remains unrelated.
+
+The host ABI describes the contract between a compiler-generated payload and a
+compiler-owned host. It bumps when an older host cannot correctly run a new
+payload, including incompatible changes to:
+
+- the compiler-owned preload set or preload registration rules;
+- the private host capability record or bootstrap handshake;
+- the worker-state startup and payload protocol; or
+- the minimum LuaJIT/runtime behavior generated payloads require.
+
+A trailer-layout change bumps `PAYLOAD_VERSION`. It bumps `hostAbiVersion` as
+well only when that change also makes the payload/host runtime contract
+incompatible. Adding a compatible optional host capability does not itself bump
+the ABI; the catalog's `hostFeatures` records it.
+
+The compiler compares the catalog record's `hostAbi` with its own constant
+before reading or stamping the stub. The payload preamble repeats the check at
+startup as defense against an artifact mislabeled outside the catalog. A
+mismatch never falls back to a different catalog or current-platform host.
+
 ## Stub features
 
 Publishing every combination of cjson, LPeg, luautf8, workers, native files and
@@ -216,54 +314,72 @@ cross-target stub is therefore one **universal compiler-owned host** per
 platform, built with every compiler-owned host feature.
 
 That must not make unselected modules observable. A universal host publishes
-its compiled capability set through a private bootstrap record. The generated
-payload begins by:
+its compiled capability set through a private bootstrap record. The exposure
+mask is a pure function of the target's selected feature set, never of the stub
+or its capability record. The generated payload begins by:
 
 1. checking that every required host feature is present;
 2. removing unselected C module openers from `package.preload`; and
 3. installing only the compiler-generated runtime modules selected by the
    payload.
 
-No user code runs before this mask. A computed `require("lpeg")` therefore
-continues to fail when the checked program did not select LPeg, even though the
-stub contains LPeg machine code. Worker states run the same payload preamble
-and see the same mask.
+No user code runs before this mask. Removing a preload which an exact-feature
+host never registered is a documented no-op, so an exact host and a universal
+host receive byte-identical payloads for the same target. A computed
+`require("lpeg")` therefore continues to fail when the checked program did not
+select LPeg, even though the universal stub contains LPeg machine code. Worker
+states run the same payload preamble and see the same mask.
 
 The source-built current-platform host may continue compiling the exact feature
 set for size. Both paths must pass the same visible-capability tests.
 
-`path`, `uri`, `uuid`, `http` and `sha256` currently come from native sidecars
-rather than host Cargo features. Phase one refuses a cross-target binary which
-needs one of those providers. Later support publishes a target-native provider
-pack with its own digest and feature manifest, or deliberately links selected
-providers into the universal host. The HTTP/TLS size and export surface must be
-measured before choosing between those approaches.
+Cross-target native staging classifies every resolved feature before calling
+`native.build`:
+
+- a feature with a `host` Cargo feature is satisfied by the compiler-owned
+  catalog stub and is not sidecar-built or copied into `outDir/lib`;
+- a sidecar-only feature with `cargo` but no `host` is refused until the catalog
+  provides a matching target-native provider artifact; and
+- pure runtime modules are still bundled when implied by a host-backed feature.
+
+This means files and process are satisfied by the universal stub even though
+they also have sidecar implementations. Path, URI, UUID, HTTP and SHA-256 are
+sidecar-only today and are refused. No Linux `.so` may be staged beside a
+Windows `.exe` merely because Linux ran the compiler.
+
+Workers require a compiler-owned host, source-built or selected from the
+catalog; they no longer key on the literal `target.stub == "nupp"` path. Later
+support publishes a target-native provider pack with its own digest and feature
+manifest, or deliberately links selected providers into the universal host.
+The HTTP/TLS size and export surface must be measured before choosing between
+those approaches.
 
 ## Acquisition and offline behavior
 
-Stub acquisition follows the same trust shape as host source acquisition:
+Phase 3 acquisition is deliberately local because the released compiler has no
+HTTP/TLS provider. It follows this trust shape:
 
 1. Reuse a digest-verified project cache entry.
 2. Search `NUPP_STUB_DIR` for the catalog artifact.
-3. Otherwise use the catalog URL, replacing its base with
-   `NUPP_STUB_BASE_URL` when configured.
-4. With `NUPP_STUB_OFFLINE=1`, refuse the network fallback and name the exact
-   missing artifact.
+3. On a miss, name the exact artifact and directory required. Phase 3 never
+   contacts the network and never shells out to an optional downloader.
 
-Downloads go to a unique temporary sibling, are checked for size and SHA-256,
-and are atomically renamed into the cache only after verification. A bad
-download never replaces a valid cached stub. A local artifact receives the
-same digest check as a download.
+Every local artifact is checked for size and SHA-256 before it enters the
+project cache. A bad override never replaces a valid cached stub.
 
-The default cache is project-local under `.nupp/stubs/<hostAbi>/<platform>/` so
-cleaning generated output does not force another download. A future shared
-cache may be selected by another environment variable, but no implementation
-may infer and write into a user home directory without documenting ownership
-and cleanup.
+The default cache is project-local under
+`.nupp/stubs/<catalogRelease>/<hostAbi>/<platform>/<sha256>/` so cleaning
+generated output does not force another acquisition and distinct immutable
+stubs cannot alias. A future shared cache may be selected by another environment
+variable, but no implementation may infer and write into a user home directory
+without documenting ownership and cleanup.
 
-Help, checking a target without a selected cross platform, and current-platform
-source builds do not contact the network merely because the catalog cache is
-empty.
+Phase 5 may add the catalog URL and `NUPP_STUB_BASE_URL` fallback only after the
+standalone compiler distribution carries an in-process HTTP/TLS provider.
+Downloads then go to a unique temporary sibling, are checked before atomic
+rename, and obey `NUPP_STUB_OFFLINE`. Help, checks which need no stub, local
+hits, and current-platform source builds never contact the network. Offline
+mode continues to work without loading the HTTP provider.
 
 ## Target-specific payloads
 
@@ -320,64 +436,87 @@ native platform, and then uploads the exact archive it tested. Release assets
 are immutable; replacement bytes require a new release identity rather than
 `--clobber` under a pinned identity.
 
+Unix archives are tar files whose executable entry records mode `0755`; zip is
+not used for ELF or Mach-O because its executable-mode handling is not portable.
+Windows archives may be zip files.
+
 Raw stubs used by the compiler may be separate release assets from end-user
 standalone Nupp archives, but both derive from the same native build and catalog
 record.
 
 ## Diagnostics
 
-Every refusal names the build target, selected platform and remedy. Required
-cases include:
+Every refusal names the build target, selected platform and remedy. Refusals
+include:
 
 - platform not configured on the target;
 - configured platform not supported by the compiler;
 - no layout model for the platform;
 - catalog host ABI differs from the compiler;
 - local, cached or downloaded stub has the wrong digest or size;
-- offline mode is missing an artifact;
+- phase 3 cannot find the required artifact in the cache or `NUPP_STUB_DIR`;
+- after network acquisition exists, offline mode is missing an artifact;
 - selected payload needs a host feature absent from the stub;
-- selected payload needs a native sidecar with no target artifact;
-- one literal `output` was used for a multi-platform build; and
-- macOS output is runnable but not signed for distribution.
+- selected payload needs a native sidecar with no target artifact; and
+- one literal `output` was used for a multi-platform build.
 
 Errors do not fall back to the current-platform stub, another platform, a
 smaller feature set or an unverified path.
+
+Successful output may also carry notices. An unsigned cross-stamped macOS
+binary is produced in phase 3 with a structured `distributionReady = false`
+notice explaining that it is runnable for development but has not passed strict
+signature validation or notarization. It is not a refusal; phase 4 signing
+turns that status true for a release artifact.
 
 ## Implementation phases
 
 ### Phase 1: platform identity
 
 - Add and validate `platforms` on binary targets.
-- Add `--platform` and `--platform all` to check/build.
+- Add `--platform` and `--platform all` to check, build and clean.
 - Connect selected platform to effective `layoutTarget`, cache keys, task
   descriptions and JSON schemas.
 - Define output paths and cleanup ownership without acquiring stubs yet.
+- Define per-platform result entries and continue-after-failure behavior for
+  `--platform all`.
 - Prove two platform checks in one process do not share target-sensitive
   comptime results.
 
 ### Phase 2: universal stubs and catalog
 
+- Define `hostAbiVersion`, its bump rules and runtime handshake beside the
+  trailer in `docs/distribution.md`.
 - Add the private host capability record and payload exposure mask.
 - Build one all-host-features stub per initial platform on native CI.
 - Generate the immutable catalog and checksums.
 - Package notices with every stub.
 - Test universal and exact-feature hosts for identical visible modules.
+- Prove the exposure mask and resulting payload depend only on selected target
+  features, not on the chosen stub.
 
 ### Phase 3: acquisition and stamping
 
-- Implement cache, `NUPP_STUB_DIR`, mirror and offline lookup.
+- Implement cache and `NUPP_STUB_DIR` local lookup with no network fallback.
 - Verify size, digest, platform and host ABI before stamping.
+- Include `catalogRelease` and stub SHA-256 in stamped-output cache keys.
+- Skip sidecar builds for host-backed features and refuse sidecar-only features
+  before anything is copied into `outDir/lib`.
+- Replace unconditional `chmod` with target-aware mode and archive handling.
 - Stamp one or all configured platforms and report every output.
-- Refuse unresolved target-native sidecars.
-- Run Linux-to-Windows and Linux-to-macOS stamping tests using prebuilt stubs.
+- Use committed synthetic stub bytes and a synthetic catalog for offline
+  mechanical acquisition, corruption and cross-stamping tests.
+- Gate real Linux-to-Windows and Linux-to-macOS artifacts on release CI.
 
 ### Phase 4: release completion
 
 - Replace bare release executables with verified archives carrying notices.
 - Implement or integrate post-stamping macOS signing and notarization.
 - Decide and implement Windows Authenticode policy.
+- Use tar archives with mode `0755` for Unix binaries and verify the extracted
+  mode on native runners; do not ship Unix executables in zip files.
 - Retain immutable raw stub assets and their catalog for every supported
-  compiler release.
+  compiler release and verify that every catalog URL remains available.
 - Exercise one CLI invocation which produces all three outputs, followed by
   native execution jobs for each artifact.
 
@@ -385,9 +524,12 @@ smaller feature set or an unverified path.
 
 - Measure universal-host versus sidecar size for path, URI, UUID, SHA-256 and
   HTTP/TLS providers.
+- Put an HTTP/TLS provider in the standalone compiler distribution, then add
+  catalog URL, `NUPP_STUB_BASE_URL` and `NUPP_STUB_OFFLINE` acquisition without
+  shelling out to system downloaders.
 - Publish target-native provider packs or extend the universal host deliberately.
 - Add native LuaRock artifact metadata if a real project requires it.
-- Remove the phase-one refusal only for providers with complete target tests.
+- Remove the phase-3 refusal only for providers with complete target tests.
 
 ## Verification
 
@@ -397,15 +539,24 @@ Unit and integration coverage must include:
 - CLI selection of one, all, missing and unconfigured platforms;
 - target layout and persistent comptime separation;
 - deterministic per-platform output paths and cleanup isolation;
-- local stub directory, mirror, cache hit and offline miss;
+- `clean --platform`, target-aware executable mode and Unix archive mode;
+- local stub directory, cache hit and local miss in phase 3;
+- mirror, verified download and offline miss after phase 5 enables networking;
 - corrupt, truncated, wrong-platform and wrong-ABI stubs;
+- cache invalidation when `catalogRelease` or the stub digest changes;
 - universal-host feature masking for direct and computed `require`;
+- byte-identical payloads for universal and exact-feature host selection;
 - worker startup under a universal stub;
 - payload feature mismatch refusal before user code runs;
-- target-native sidecar refusal;
+- host-backed sidecar suppression and sidecar-only refusal before staging;
+- synthetic offline catalog fixtures in the ordinary suite and real catalog
+  artifacts only in native release CI;
 - the existing twenty damaged-container cases on every native runner;
 - recorded LSP session equivalence through every standalone compiler;
-- current-platform and per-platform packaging fixpoints;
+- repeated off-platform stamping with the same stub and payload is
+  byte-identical;
+- the existing self-stamping binary fixpoint runs only on a native runner which
+  can execute that platform's result;
 - required notices in every unpacked release archive;
 - macOS signature and notarization verification; and
 - one host producing all configured artifacts before native runners execute
@@ -418,10 +569,11 @@ The TODO item closes only when:
 1. the manifest and CLI can select all three initial platforms;
 2. one supported host can produce all three binaries without target toolchains;
 3. every stub is pinned, verified, cacheable and available through an offline
-   local override;
+   local override, with cache identity including its digest and catalog release;
 4. target-dependent payloads are compiled under the target rather than the
    compiler host;
-5. unsupported native sidecars are refused before stamping;
+5. host-backed features use the stub without building a compiler-host sidecar,
+   and unsupported sidecar-only features are refused before staging;
 6. release archives carry notices and immutable checksums;
 7. Linux and Windows release artifacts run on clean native machines;
 8. the macOS release artifact passes strict signature validation and
