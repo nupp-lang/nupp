@@ -253,7 +253,7 @@ current task while the scheduler keeps running. Ready operations do neither.
 [Suspension](start/suspension.md) explains how the same ordinary call takes
 those paths and how several waits compose with `all`, `race`, or `batch`.
 
-`Process.close()` is idempotent and is also its lexical `@drop`: it attempts
+`Process.drop()` is its structural `Drop` operation: it attempts
 every stream release, terminates a child still running, waits for it to finish,
 and releases the child handle. An `Exit` reports `exitCode`, `killed`, and
 `timedOut`; `succeeded()` is true only for an ordinary zero exit.

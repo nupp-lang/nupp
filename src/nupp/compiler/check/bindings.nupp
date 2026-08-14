@@ -101,7 +101,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
             local bound = ann or init or T.any
             -- Keep the cleanup list discovered at the initializer even when the source
             -- spells only `Owned<T>`.
-            if ann and init and ownershipKind(ann) == "owned" and ownershipKind(init) == "owned" then
+            if ann and init and ownershipKind(ann) == "affine" and ownershipKind(init) == "affine" then
                 bound = init
             end
             if not ann then
@@ -129,7 +129,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 end
             end
             if (
-                ownershipKind(init) == "owned" or ownershipKind(init) == "pinned"
+                ownershipKind(init) == "affine" or ownershipKind(init) == "pinned"
             ) and stat.exprs and initializers[j] then
                 moveExpression(initializers[j], init, "local initialization", ownershipKind(init))
             end
@@ -356,7 +356,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     ] = {name = nameTok.text, index = sourceEntry.packCorrelationIndex,}
                 end
             end
-            if boundEntry and (ownershipKind(bound) == "owned" or ownershipKind(bound) == "pinned") and not init then
+            if boundEntry and (ownershipKind(bound) == "affine" or ownershipKind(bound) == "pinned") and not init then
                 boundEntry.moved = true -- declared storage, no live affine value
             end
             local boundKind = ownershipKind(bound)
@@ -393,7 +393,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 end
             end
             if boundEntry and (
-                boundKind == "borrowed" or boundKind == "owned"
+                boundKind == "borrowed" or boundKind == "affine"
             ) and returnBorrowOwners and #returnBorrowOwners == 1 then
                 boundEntry.borrowOwner = returnBorrowOwners[1]
                 returnBorrowOwners[1].activeBorrows = (returnBorrowOwners[1].activeBorrows or 0) + 1
@@ -404,7 +404,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     ].activeExclusiveBorrows = (returnBorrowOwners[1].activeExclusiveBorrows or 0) + 1
                 end
             elseif boundEntry and (
-                boundKind == "borrowed" or boundKind == "owned"
+                boundKind == "borrowed" or boundKind == "affine"
             ) and initNode and initNode.borrowOwner then
                 boundEntry.borrowOwner = initNode.borrowOwner
                 initNode.borrowOwner.activeBorrows = (initNode.borrowOwner.activeBorrows or 0) + 1
@@ -414,7 +414,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 end
             end
             if boundEntry and (
-                boundKind == "borrowed" or boundKind == "owned"
+                boundKind == "borrowed" or boundKind == "affine"
             ) and returnBorrowOwners and #returnBorrowOwners > 1 then
                 boundEntry.borrowOwners = returnBorrowOwners
                 for _, owner in ipairs(returnBorrowOwners) do
@@ -425,7 +425,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 end
                 boundEntry.exclusiveBorrow = returnExclusiveBorrow or nil
             elseif boundEntry and (
-                boundKind == "borrowed" or boundKind == "owned"
+                boundKind == "borrowed" or boundKind == "affine"
             ) and initNode and initNode.borrowOwners then
                 boundEntry.borrowOwners = initNode.borrowOwners
                 for _, owner in ipairs(initNode.borrowOwners) do
@@ -480,7 +480,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 local ownedType, activation, compatible = nil, {}, true
                 for _, alternative in ipairs(correlated.alternatives) do
                     local resultType = alternative.head and alternative.head[resultIndex]
-                    if resultType and ownershipKind(resultType) == "owned" then
+                    if resultType and ownershipKind(resultType) == "affine" then
                         if ownedType and ownedType.id ~= resultType.id then
                             compatible = false
                             break
@@ -609,7 +609,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                         ("%q cannot be assigned while a derived borrow is live"):format(targetName)
                     )
                 end
-                if entry and et and (ownershipKind(et) == "owned" or ownershipKind(et) == "pinned") then
+                if entry and et and (ownershipKind(et) == "affine" or ownershipKind(et) == "pinned") then
                     -- The branch above is what proves it has one.
                     local incomingKind = ownershipKind(et) as string
                     if entry.ann and ownershipKind(entry.t) ~= incomingKind then
@@ -655,7 +655,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 if target.kind == "dotIndex" and target.obj and target.obj.kind == "name" and target.name then
                     local container = ownershipState((c.ownershipEntry(target.obj)))
                     local field = target.name.text
-                    if et and ownershipKind(et) == "owned" and tt and ownershipKind(tt) == "owned" and container then
+                    if et and ownershipKind(et) == "affine" and tt and ownershipKind(tt) == "affine" and container then
                         if not (container.movedFields and container.movedFields[field]) then
                             c.diag("NUPP2602", target, ("assignment overwrites live affine field %q"):format(field))
                         else
@@ -667,7 +667,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                                     "reinitialized field must keep its exact cleanup contract"
                                 )
                             end
-                            moveExpression(written, et, "affine field reinitialization", "owned")
+                            moveExpression(written, et, "affine field reinitialization", "affine")
                             if written and container.automaticOwner then
                                 written.automaticOwnerReinit = {owner = container.automaticOwner, field = field,}
                             end
@@ -832,10 +832,10 @@ function bindings.install(c: state.Checker): state.StatHandlers
             c.checkPackDiscard(called.valuePack, 1, called)
             return
         end
-        local ignoredOwner = ownershipKind(resultT) == "owned"
+        local ignoredOwner = ownershipKind(resultT) == "affine"
         if called.ffiOutContracts then
             for _, returned in ipairs(c.lastCallRets or {}) do
-                if ownershipKind(returned) == "owned" then
+                if ownershipKind(returned) == "affine" then
                     ignoredOwner = true
                 end
             end

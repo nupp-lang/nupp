@@ -36,7 +36,7 @@ local function fingerprint(t: any, binders: any, active: any): string
         out = "nominal(" .. tostring(t.declKind) .. ":" .. tostring(t.runtimePath or t.name) .. ")"
     elseif tag == "array" or tag == "ptr" or tag == "const" then
         out = tag .. "(" .. fingerprint(t.elem or t.inner, binders, active) .. ")"
-    elseif tag == "owned" or tag == "borrowed" or tag == "pinned" then
+    elseif tag == "affine" or tag == "borrowed" or tag == "pinned" then
         out = tag .. "(" .. fingerprint(t.inner, binders, active) .. ")"
     elseif tag == "map" then
         out = "map(" .. fingerprint(

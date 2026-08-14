@@ -852,4 +852,89 @@ function M.aConstFunctionDomainSurvivesHoisting()
    }, "\n"))
 end
 
+local AFFINE_TYPES = table.concat({
+   "local record Resource",
+   "   value: integer",
+   "end",
+   "local function closeA(takes value: Resource): nil end",
+   "local function closeB(takes value: Resource): nil end",
+   "local affine type Owner<T, const cleanup: function> = T",
+   "   terminal cleanup",
+   "end",
+}, "\n")
+
+function M.usersCanDeclareGenericAffineTypes()
+   clean(AFFINE_TYPES .. table.concat({
+      "",
+      "local function open(): Owner<Resource, closeA>",
+      "   return new Resource(value = 1)",
+      "end",
+      "local resource = open()",
+      "drop resource",
+   }, "\n"))
+end
+
+function M.transparentAffineAliasesWithTheSameTerminalInterchange()
+   clean(AFFINE_TYPES .. table.concat({
+      "",
+      "local affine type Other<T, const cleanup: function> = T",
+      "   terminal cleanup",
+      "end",
+      "local function rename(takes value: Owner<Resource, closeA>): Other<Resource, closeA>",
+      "   return value",
+      "end",
+   }, "\n"))
+end
+
+function M.transparentAffineAliasesRetainTerminalIdentity()
+   assertEq(codes(AFFINE_TYPES .. table.concat({
+      "",
+      "local function mismatch(takes value: Owner<Resource, closeA>): Owner<Resource, closeB>",
+      "   return value",
+      "end",
+   }, "\n")), "NUPP2002")
+end
+
+function M.terminalLessAffineTypesAreExplicitAndCannotBeDropped()
+   assertEq(codes(table.concat({
+      "local affine type Forward<T> = T end",
+      "local function make(): Forward<integer> return 1 end",
+      "local value = make()",
+      "drop value",
+   }, "\n")), "NUPP2602")
+end
+
+function M.comptimeCanConstructAffineTypesFromFunctionIdentity()
+   clean(table.concat({
+      "local function close(takes value: string): nil end",
+      "@comptime",
+      "local function MakeOwner(T: type, const cleanup: function): type",
+      "   return nupp.types.affine(T, cleanup)",
+      "end",
+      "local function make(): MakeOwner(string, close) return 'value' end",
+      "local value = make()",
+      "drop value",
+   }, "\n"))
+end
+
+function M.affineDeclarationsAddNoRuntimeRepresentation()
+   local source = table.concat({
+      "local calls = 0",
+      "local function close(takes value: integer): nil calls = calls + value end",
+      "local affine type Counter = integer terminal close end",
+      "local function make(): Counter return 2 end",
+      "local value = make()",
+      "drop value",
+      "return calls",
+   }, "\n")
+   local parsed = parser.parse(source, "affine-erasure.g.nupp")
+   local found = check.check(parsed, "affine-erasure.g.nupp", env)
+   assertEq(#found, 0, found[1] and found[1].msg or "check")
+   local lua, emitted = gen.generate(parsed, "affine-erasure")
+   assertEq(#emitted, 0, "code generation diagnostics")
+   assert(not lua:find("Counter = {}", 1, true), "affine declaration allocated a runtime type")
+   local chunk = assert(loadstring(lua))
+   assertEq(chunk(), 2)
+end
+
 return M

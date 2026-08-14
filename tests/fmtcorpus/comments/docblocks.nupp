@@ -4,7 +4,7 @@ record m.Handle
     --- What the operating system calls it.
     id: integer
     --- Releases it. Scope exit invokes this automatically.
-    @drop
+    @deprecated("use close")
     close: function(takes self: m.Handle): nil
     --- Reads the whole thing.
     read: function(borrows self: m.Handle): string borrows (self)

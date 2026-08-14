@@ -189,8 +189,7 @@ A producer declares the obligation, and any type can carry one:
 local record Session
     closed: boolean
 
-    @drop
-    function close(self)
+    function drop(takes self): nil
         self.closed = true
     end
 end
@@ -200,8 +199,8 @@ local function openSession(): Owned<Session>
 end
 ```
 
-`@drop` marks the operation that consumes the resource; `Owned<T>` marks the
-result that carries one. An ordinary local is destroyed automatically:
+The ordinary structural `Drop` method supplies `Owned<T>`'s default terminal.
+An ordinary local is destroyed automatically:
 
 ```nupp
 do

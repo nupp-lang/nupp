@@ -160,7 +160,7 @@ local record Handle
    name: string
 end
 
-local function close(value: Handle)
+local function close(takes value: Handle): nil
    print(value.name)
 end
 

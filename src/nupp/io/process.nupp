@@ -534,6 +534,7 @@ end
 
 --- A running child.
 record process.Process
+    drop: nosuspend function(takes self: process.Process): nil
     backend: processtypes.Backend
     handle: any
     deadline: number?
@@ -766,10 +767,9 @@ record process.Process
     end
 
     --- Closes every stream, ends the child if it is still running, waits for it to
-    --- actually finish, and releases it. Idempotent, and what `@drop` runs when the
+    --- actually finish, and releases it. Idempotent, and what `drop` runs when the
     --- owner goes out of lexical scope.
-    @drop
-
+    --- @raises when closing one of the child streams fails
     function close(self): (boolean, string?)
         if self.reaped then
             return true
@@ -799,7 +799,7 @@ record process.Process
 
             -- A different caller under a scheduler, and it must not be told the child
             -- is released while the teardown is still running. Answering "done" is what
-            -- lets the owner's scope end, and the scope ending is what runs `@drop`, so
+            -- lets the owner's scope end, and the scope ending is what runs `drop`, so
             -- a premature yes has the next toucher on a handle already given back. It
             -- waits for whoever holds the teardown, then answers on the same terms as
             -- any other close -- finished, or free to try again.
@@ -936,6 +936,10 @@ record process.Process
 
         return true
     end
+end
+
+function process.Process.drop(takes self: process.Process): nil
+    self:close()
 end
 
 -- Whether the child has ended since last asked.

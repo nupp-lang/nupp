@@ -57,8 +57,7 @@ record extract.Member
     isType: boolean?
     members: {Member}?
 
-    --- What it was annotated with, as written: `@drop`,
-    --- `@derive(nupp.derive.JSON)`.
+    --- What it was annotated with, as written, such as `@derive(nupp.derive.JSON)`.
     annotations: {string}?
 end
 
@@ -167,7 +166,7 @@ end
 local docLines, parseDoc = docblock.linesOf, docblock.parse
 
 -- Where a record entry's `---` run actually sits. An annotation is parsed before the
--- entry it modifies, so the run written above `@drop` attaches to the `@` rather than
+-- entry it modifies, so the run written above `@derive` attaches to the `@` rather than
 -- to the declaration underneath it, and asking the entry answers nothing. The first
 -- annotation is the top of what the author wrote, the same way a `pragmaStmt` wrapper
 -- is for a top-level statement.
@@ -218,10 +217,10 @@ local function hiddenEntry(entry, includePrivate)
 end
 
 -- Every node a signature must leave out to leave one entry out. An entry is not the
--- whole of what was written for it: `@drop` is parsed before the entry it modifies and
--- attached to the enclosing structure, so dropping only the entry strands its
--- annotations in the block above the next visible one. Collecting the set up front also
--- keeps the walk from asking about nodes that are not entries at all — it reaches
+-- whole of what was written for it: an annotation is parsed before the entry it
+-- modifies and attached to the enclosing structure, so dropping only the entry strands
+-- its annotations in the block above the next visible one. Collecting the set up front
+-- also keeps the walk from asking about nodes that are not entries at all — it reaches
 -- parameters, type references and expressions too, and any of those can be named `_x`
 -- without that saying anything about what a reader may see.
 local function hiddenNodes(node, includePrivate)
@@ -350,11 +349,7 @@ local function annotationText(node): string?
     return "@" .. name .. "(" .. table.concat(args, ", ") .. ")"
 end
 
--- What a record entry or shape field was annotated with. `@drop` says who
--- owes the cleanup, which is the one thing about a resource a reader cannot infer from
--- the signature, so documentation that drops them describes a different API than the
--- one
--- the checker enforces.
+-- What a record entry or shape field was annotated with.
 local function annotationsOf(entry): {string}?
     local applied = entry and entry.annotations
     if not applied or #applied == 0 then

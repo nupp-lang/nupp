@@ -56,9 +56,7 @@ local function heading(level)
     return ("#"):rep(math.min(level, 6))
 end
 
--- What a declaration was annotated with, on its own line under the heading. `@drop` and
--- `Owned<T>` are the ownership contract, and a reader who cannot see them cannot tell
--- an obligation from an ordinary method.
+-- What a declaration was annotated with, on its own line under the heading.
 local function markdownAnnotations(out, annotations)
     if not annotations or #annotations == 0 then
         return

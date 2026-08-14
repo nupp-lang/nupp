@@ -694,7 +694,6 @@ end
 
 cdef function blockCreate(size: integer): block*
 
-@drop
 cdef function blockFree(takes b: block*)
 
 local function blockNew(size: integer): Owned<block*, blockFree>

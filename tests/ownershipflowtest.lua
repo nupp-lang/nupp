@@ -89,12 +89,12 @@ local value = flow_open()
 unsafe do local raw: any = value end
 ]]},
    {"nominal affine field", true, [[
-local record Box item: Owned<flow_resource*> end
+local record Box item: Owned<flow_resource*, flow_close> end
 local box = new Box(item = flow_open())
 drop(box)
 ]]},
    {"partial move and residual cleanup", true, [[
-local record Box item: Owned<flow_resource*> end
+local record Box item: Owned<flow_resource*, flow_close> end
 local box = new Box(item = flow_open())
 local item = box.item
 drop(item)
@@ -121,7 +121,7 @@ end
 function M.capabilityFixtureKeepsPayloadAndOrderedDischargeSeparate()
    local first = T.functionCleanup("flow:first", "first")
    local second = T.functionCleanup("flow:second", "second")
-   local owner = T.owned(T.string, {first, second})
+   local owner = T.affine(T.string, {first, second})
    local narrowed = T.withOwnershipPayload(owner, T.literal("ready"))
    local fixture = {
       payload = T.unwrapOwnership(narrowed),
@@ -134,7 +134,7 @@ function M.capabilityFixtureKeepsPayloadAndOrderedDischargeSeparate()
    -- the same object, which is the stronger claim and does not depend on how an id
    -- happens to read.
    assert(fixture.payload == T.literal("ready"))
-   assert(fixture.obligation == "owned")
+   assert(fixture.obligation == "affine")
    assert(fixture.cleanup[1] == first.id and fixture.cleanup[2] == second.id)
 end
 

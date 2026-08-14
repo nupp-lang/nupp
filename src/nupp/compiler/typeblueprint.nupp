@@ -211,7 +211,7 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
             or node.kind == "const"
             or node.kind == "borrowed"
             or node.kind == "pinned"
-            or node.kind == "owned"
+            or node.kind == "affine"
         then
             local inner
             inner, why = edge(node.inner, node.kind .. " inner type")
@@ -227,8 +227,24 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
                     value = T.borrowed(inner)
                 elseif node.kind == "pinned" then
                     value = T.pinned(inner)
+                elseif node.transferOnly == true then
+                    if node.terminal ~= nil then
+                        why = "transfer-only affine blueprint also names a terminal"
+                    else
+                        value = T.affine(inner, nil, true)
+                    end
+                elseif type(node.terminal) ~= "string" then
+                    why = "affine blueprint has no permitted terminal identity"
                 else
-                    value = T.owned(inner, nil, node.opaque == true)
+                    local permitted = type(
+                        permittedReferences
+                    ) == "table" and permittedReferences["function:" .. node.terminal] or nil
+                    local cleanup = permitted and permitted.cleanup or nil
+                    if not cleanup or cleanup.key ~= node.terminal then
+                        why = "affine blueprint names an unpermitted const-function terminal"
+                    else
+                        value = T.affine(inner, {cleanup})
+                    end
                 end
             end
         elseif node.kind == "tuple" then
@@ -364,7 +380,7 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
                     local copiedModes = {}
                     for position = 1, #head do
                         local mode = modes[position] or "plain"
-                        if mode ~= "plain" and mode ~= "owned" and mode ~= "borrowed" and mode ~= "pinned" then
+                        if mode ~= "plain" and mode ~= "affine" and mode ~= "borrowed" and mode ~= "pinned" then
                             why = "type blueprint pack has an invalid mode at " .. tostring(position)
                             break
                         end

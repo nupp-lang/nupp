@@ -849,17 +849,22 @@ return m
 
 Reports: `NUPP2001`. `nupp explain <code>` says more.
 
-### Owned resources
+### Affine resources
 
-`Owned<T>` gives a result a cleanup obligation, written in the position it is
-about, and takes its terminal from that type's `@drop`. `Owned<T, cleanup>` names
-one when `T` cannot declare it, such as a shared C pointer type. Any result may be
-owned, not only the first. A known local is destroyed at scope exit. Drop,
-`takes`, an owning return, or `intoRaw` ends or transfers it once. An unresolved
-owner needs an explicit terminal; forgetting is an error, not a leak.
+`affine type Name<...> = Representation terminal cleanup end` declares a
+transparent affine type. Its identity is the representation plus the const-function
+identity of its terminal; it allocates no wrapper. The terminal must be exactly a
+`nosuspend function(takes Representation): nil`, and may raise.
 
-`Owned<T, opaque>` makes the absence of a terminal deliberate: the value may be
-transferred or converted into a raw value, but cannot be destroyed locally.
+`Drop`, `Owned<T, cleanup>`, and `Transfer<T>` are ordinary prelude declarations.
+The default `Owned<T>` terminal calls the structural `Drop.drop` member. An explicit
+cleanup is used for C pointers or a representation with several possible policies.
+`Transfer<T>` deliberately has no terminal and can only be forwarded or released.
+
+A known affine local is destroyed at scope exit. `drop owner` invokes its selected
+terminal immediately. `unsafe adopt raw as SomeAffine` introduces an asserted fresh
+obligation; `unsafe release owner` consumes one without invoking its terminal.
+`takes` and matching affine returns transfer an obligation once.
 
 Parameter modes describe calls: `takes` consumes; `borrows` is call-scoped;
 `exclusive` also requires sole access; `retains`/`releases` describe C holding a
@@ -896,8 +901,8 @@ variable-length C-array indexing therefore requires `unsafe`; use `nupp.span`
 when a runtime count is available. A fixed C array rejects a statically
 out-of-range literal and inserts a runtime guard for a non-literal index.
 
-Ownership intrinsics are `nupp.drop`, `nupp.attemptAll`, `nupp.borrow`,
-`nupp.intoRaw`, `nupp.fromRaw`, `nupp.borrowFrom`, and `nupp.pin`.
+The remaining ownership helpers are `nupp.attemptAll`, `nupp.borrow`,
+`nupp.borrowFrom`, and `nupp.pin`.
 `nupp.attemptAll(value, ...)` runs each named operation in order, attempts every
 one after a failure, and raises the first with the rest suppressed; only the last
 may `takes` the value. Bare aliases lower identically.
@@ -906,29 +911,21 @@ Any local spelling, including `nupp`, shadows them.
 ```nupp
 local m = {}
 
-local function closeFile(file: LuaFile)
-    file:close()
+local record File
+    closed: boolean
+
+    function drop(takes self): nil
+        self.closed = true
+    end
 end
 
---- Opens a file the caller must discharge.
----
---- @param path where to read from
---- @return an owned handle
---- @raises when the file cannot be opened
-function m.open(path: string): Owned<LuaFile, closeFile>
-    local file = io.open(path, "r")
-    if not file then
-        error("cannot open " .. path)
-    end
-
-    return file
+function m.open(): Owned<File>
+    return new File(closed = false)
 end
 
-function m.slurp(path: string): string
-    do
-        local file = m.open(path)
-        return file:read("*a")
-    end
+function m.closeNow(): nil
+    local file = m.open()
+    drop file
 end
 
 return m
@@ -1737,7 +1734,7 @@ says more.
 - **NUPP2515**: A loop builds a function and so never compiles.
 - **NUPP2603**: An ownership obligation is not discharged or cannot escape.
 - **NUPP2605**: Adjusting a value pack would discard an affine value.
-- **NUPP2615**: An owned value names an invalid cleanup operation.
+- **NUPP2615**: An affine value names an invalid terminal.
 - **NUPP2630**: A counted C pointer does not match its physical count parameter.
 - **NUPP2701**: A non-suspending region can reach suspension.
 - **NUPP2702**: A non-yieldable C callback can reach suspension.

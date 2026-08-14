@@ -49,8 +49,7 @@ function cdef.install(
     reifiableField: function(t: Type, isCdef: boolean?): boolean
 ): state.StatHandlers
     local own = c.own
-    local registerDefaultDropOperation = own.registerDefaultDropOperation
-    local resolvedOwnedCleanups = own.resolvedOwnedCleanups
+    local resolveCleanups = own.resolveCleanups
     local pointerShaped, validateCleanups = c.pointerShaped, c.validateCleanups
 
     local handlers = {}
@@ -167,6 +166,7 @@ function cdef.install(
                 if pt.tag == "func" then
                     pt = T.foreignFunction(pt)
                 end
+                declared.resolvedType = pt
                 local mode = modeTok and modeTok.text or "plain"
                 local pdef = c.definition(pname, "parameter")
                 if pdef then
@@ -188,7 +188,7 @@ function cdef.install(
                 -- part of it. An out parameter carries the wrapper inside its pointer,
                 -- so the slot is unwrapped rather than the pointer around it.
                 local abiType = T.unwrapOwnership(pt)
-                if abiType.tag == "ptr" and abiType.elem.tag == "owned" then
+                if abiType.tag == "ptr" and abiType.elem.tag == "affine" then
                     abiType = T.ptr(T.unwrapOwnership(abiType.elem))
                 end
                 abiParams[
@@ -214,8 +214,14 @@ function cdef.install(
                     -- holding a value the caller then owns. The contract is on the
                     -- slot's type rather than above the signature, so it sits where
                     -- the value it describes does and the ABI is unchanged.
-                    if slot and slot.tag == "owned" and not output then
-                        output = {kind = "owned", name = named, cleanups = slot.cleanups, opaque = slot.opaque, at = p,}
+                    if slot and slot.tag == "affine" and not output then
+                        output = {
+                            kind = "affine",
+                            name = named,
+                            cleanups = slot.cleanups,
+                            transferOnly = slot.transferOnly,
+                            at = p,
+                        }
                     end
                     if not output then
                         c.diag(
@@ -254,18 +260,19 @@ function cdef.install(
             c.cdefReturn = true
             local rt = c.resolveType(stat.ret)
             c.cdefReturn = nil
+            stat.ret.resolvedType = rt
             rets[1] = rt
             -- An ownership wrapper says who discharges the result. It does not change
             -- the ABI, so what has to be a C type -- and what the ABI record carries --
             -- is the type inside it.
             local raw = T.unwrapOwnership(rt)
             abiResult = raw
-            if rt.tag == "owned" then
+            if rt.tag == "affine" then
                 if not pointerShaped(raw) and raw ~= T.cstring then
                     c.diag("NUPP2203", stat.ret, "an owned cdef return must be a pointer")
                 end
-                local cleanups = resolvedOwnedCleanups(raw, rt.cleanups, rt.opaque, stat.ret, nil)
-                local owner = T.owned(raw, cleanups)
+                local cleanups = resolveCleanups(rt.cleanups or {}, stat.ret, nil)
+                local owner = T.affine(raw, cleanups)
                 rets[1] = owner
                 validateCleanups(owner, cleanups, stat.ret, "NUPP2615")
             end
@@ -288,21 +295,15 @@ function cdef.install(
                 c.diag("NUPP2602", output.at or stat, "conditional output needs a C status return")
             end
             local valueType = output.success == "always" and output.valueType or T.optional(output.valueType)
-            if output.kind == "owned" then
-                output.cleanups = resolvedOwnedCleanups(
-                    output.valueType,
-                    output.cleanups,
-                    output.opaque,
-                    output.at or stat,
-                    nil
-                )
+            if output.kind == "affine" then
+                output.cleanups = resolveCleanups(output.cleanups or {}, output.at or stat, nil)
                 validateCleanups(
-                    T.owned(output.valueType, output.cleanups),
+                    T.affine(output.valueType, output.cleanups),
                     output.cleanups,
                     output.at or stat,
                     "NUPP2615"
                 )
-                rets[#rets + 1] = T.owned(valueType, output.cleanups)
+                rets[#rets + 1] = T.affine(valueType, output.cleanups)
             else
                 output.sourceParam = logicalByName[output.source]
                 if not output.sourceParam then
@@ -480,9 +481,6 @@ function cdef.install(
             c.cDefinedFunctions[cdefName.text] = cdefType
         end
         c.bindVar(cdefName.text, cdefType, true, cdefName, "function")
-        if stat.dropContract then
-            registerDefaultDropOperation(cdefType, cdefName.text, stat.dropTok or stat, stat.cleanupRegistrationNode)
-        end
         if cdefName.definition then
             cdefName.definition.cdef = true
             local library = stringLiteral(stat.fromLib) or "<default>"

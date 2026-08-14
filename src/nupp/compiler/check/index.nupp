@@ -348,14 +348,14 @@ function index.install(c: state.Checker): state.ExprHandlers
         if ownerState and ownerState.movedFields and ownerState.movedFields[memberName] and not node.writeContext then
             c.diag("NUPP2601", node, ("owned field %q was moved and has not been reinitialized"):format(memberName))
         end
-        if ownerState and c.ownershipKind(ft) == "owned" and c.ownershipKind(ownerState.t) == "owned" then
+        if ownerState and c.ownershipKind(ft) == "affine" and c.ownershipKind(ownerState.t) == "affine" then
             local exact = {}
             for _, cleanup in ipairs(ownerState.t.cleanups or {}) do
                 if cleanup.kind == "field" and cleanup.field == memberName and cleanup.cleanup then
                     exact[#exact + 1] = cleanup.cleanup
                 end
             end
-            ft = T.owned(rawType(ft), exact)
+            ft = T.affine(rawType(ft), exact)
         end
         c.markToken(member, fieldDef, ft, "property")
         member.additionalDefinitions = fieldDefs

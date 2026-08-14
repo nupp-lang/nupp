@@ -176,9 +176,9 @@ local function probeArm(ft: T.Func, argPack: T.Pack, cdefCall: boolean?, control
             actual = rawType(actual)
         end
         local mode = specialized.paramModes and specialized.paramModes[j] or "plain"
-        if mode == "takes" and actual.tag ~= "owned" then
+        if mode == "takes" and actual.tag ~= "affine" then
             return nil, ("argument %d requires an owned value"):format(j)
-        elseif mode == "scoped" and (actual.tag == "owned" or actual.tag == "pinned") then
+        elseif mode == "scoped" and (actual.tag == "affine" or actual.tag == "pinned") then
             return nil, ("argument %d cannot borrow an affine value as a repeatable callback"):format(j)
         end
         local ok, why = isA(actual, params.head[j])
@@ -199,9 +199,9 @@ local function probeArm(ft: T.Func, argPack: T.Pack, cdefCall: boolean?, control
         for j = #params.head + 1, actualCount do
             local mode = tail.mode
             local actual = argPack.head[j]
-            if mode == "takes" and actual.tag ~= "owned" then
+            if mode == "takes" and actual.tag ~= "affine" then
                 return nil, ("argument %d requires an owned value"):format(j)
-            elseif mode == "scoped" and (actual.tag == "owned" or actual.tag == "pinned") then
+            elseif mode == "scoped" and (actual.tag == "affine" or actual.tag == "pinned") then
                 return nil, ("argument %d cannot borrow an affine value as a repeatable callback"):format(j)
             end
             local ok, why = isA(argPack.head[j], tail.type)
@@ -980,8 +980,8 @@ function calls.install(c: state.Checker): calls.Ops
                     end
                 end
                 local borrowedRoot = calleeT.borrowedRootFields and calleeT.borrowedRootFields[fname]
-                local storesCapability = c.ownershipKind(ft) == "owned" or c.ownershipKind(ft) == "pinned"
-                if storesCapability and (c.ownershipKind(vt) == "owned" or c.ownershipKind(vt) == "pinned") then
+                local storesCapability = c.ownershipKind(ft) == "affine" or c.ownershipKind(ft) == "pinned"
+                if storesCapability and (c.ownershipKind(vt) == "affine" or c.ownershipKind(vt) == "pinned") then
                     affineValues[fname] = vt
                     if borrowedRoot then
                         deferredAffineRoots[fname] = {node = value, type = vt}
@@ -1117,7 +1117,7 @@ function calls.install(c: state.Checker): calls.Ops
                     local sourceType = calleeT.byname[source]
                     local internalRoot = c.ownershipKind(
                         sourceType
-                    ) == "owned" or c.ownershipKind(sourceType) == "pinned"
+                    ) == "affine" or c.ownershipKind(sourceType) == "pinned"
                     if not internalRoot then
                         for _, root in ipairs(actual) do
                             if not rootSeen[root] then
@@ -1143,29 +1143,25 @@ function calls.install(c: state.Checker): calls.Ops
             end
             if calleeT.affineFields and #calleeT.affineFields > 0 then
                 local cleanups, opaque = {}, false
-                if calleeT.defaultDropOperations and #calleeT.defaultDropOperations == 1 then
-                    cleanups[1] = calleeT.defaultDropOperations[1]
-                else
-                    for j = #calleeT.affineFields, 1, -1 do
-                        local name = calleeT.affineFields[j]
-                        local valueT = affineValues[name]
-                        if c.ownershipKind(valueT) == "owned" then
-                            if #(valueT.cleanups or {}) == 0 then
-                                opaque = true
-                            else
-                                for _, cleanup in ipairs(valueT.cleanups) do
-                                    cleanups[#cleanups + 1] = T.fieldCleanup(name, cleanup)
-                                end
+                for j = #calleeT.affineFields, 1, -1 do
+                    local name = calleeT.affineFields[j]
+                    local valueT = affineValues[name]
+                    if c.ownershipKind(valueT) == "affine" then
+                        if #(valueT.cleanups or {}) == 0 then
+                            opaque = true
+                        else
+                            for _, cleanup in ipairs(valueT.cleanups) do
+                                cleanups[#cleanups + 1] = T.fieldCleanup(name, cleanup)
                             end
-                        elseif c.ownershipKind(valueT) == "pinned" then
-                            cleanups[#cleanups + 1] = T.dropFieldCleanup(name)
                         end
+                    elseif c.ownershipKind(valueT) == "pinned" then
+                        cleanups[#cleanups + 1] = T.dropFieldCleanup(name)
                     end
                 end
                 if opaque then
                     cleanups = {}
                 end
-                local owned = T.owned(calleeT, cleanups)
+                local owned = T.affine(calleeT, cleanups)
                 return owned, {owned}
             end
             if calleeT.fieldBorrowSources and next(calleeT.fieldBorrowSources) then
@@ -1204,7 +1200,7 @@ function calls.install(c: state.Checker): calls.Ops
                             "NUPP2603",
                             arg,
                             "an owner or borrow cannot cross an untyped call; "
-                            .. "use intoRaw explicitly to abandon tracking"
+                            .. "use unsafe release explicitly to abandon tracking"
                         )
                     end
                 end
@@ -1865,7 +1861,7 @@ function calls.install(c: state.Checker): calls.Ops
                 end
             elseif preservationResult then
                 local kind = c.ownershipKind(ats[j])
-                if kind == "owned" or kind == "pinned" then
+                if kind == "affine" or kind == "pinned" then
                     local movedNode = cst.isToken(argNodes[j]) and node or argNodes[j]
                     local sourceEntry = c.ownershipEntry(movedNode)
                     local conditional = node.kind == "safeCall" or node.kind == "methodCall" and (
@@ -2117,7 +2113,7 @@ function calls.install(c: state.Checker): calls.Ops
                 sourceEntry = c.own.ownershipState(sourceEntry)
                 local found
                 if sourceEntry and (
-                    c.ownershipKind(sourceEntry.t) == "owned" or c.ownershipKind(sourceEntry.t) == "pinned"
+                    c.ownershipKind(sourceEntry.t) == "affine" or c.ownershipKind(sourceEntry.t) == "pinned"
                 ) then
                     found = {sourceEntry}
                 else

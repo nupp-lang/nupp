@@ -54,6 +54,7 @@ type types.PrimTag = 'any'
     | 'uint64'
     | 'type'
     | 'typepack'
+    | 'functionconst'
 
 --- A type with no parts: the primitives and the C-boundary scalars.
 record types.Prim
@@ -202,7 +203,7 @@ type types.TemplatePart = string | types.Type
 --- the owned value itself and therefore need no module linkage.
 record types.Cleanup
     id: string
-    kind: 'function' | 'method' | 'field' | 'dropfield'
+    kind: 'function' | 'closure' | 'method' | 'field' | 'dropfield'
     key: string?
     name: string?
     functionType: types.Type?
@@ -210,17 +211,21 @@ record types.Cleanup
     visibleBody: boolean?
     field: string?
     cleanup: types.Cleanup?
+
+    --- The const-function declaration term carried by a generic affine type. It is a
+    --- binder while the type is open and the registry key once substitution closes it.
+    constTerm: types.ConstTerm?
 end
 
 --- An owned value: affine, and released by its cleanups.
-record types.Owned
+record types.Affine
     id: string
-    tag: 'owned'
+    tag: 'affine'
     inner: types.Type
     cleanups: {types.Cleanup}
 
     --- Whether carrying no cleanup was asked for rather than arrived at.
-    opaque: boolean?
+    transferOnly: boolean?
 end
 
 --- A borrowed value, which may not escape its lexical owner.
@@ -317,6 +322,14 @@ record types.GenericAlias
     packParams: {types.PackVar}
     constParams: {types.ConstVar}
     paramKinds: {string}
+    paramDefaults: {any}
+
+    --- A transparent affine alias wraps its materialized body with this symbolic
+    --- const-function terminal. `nil` with `affine == true` is deliberately
+    --- transfer-only.
+    affine: boolean?
+
+    affineTerminal: types.ConstTerm?
 end
 
 --- A function.
@@ -682,12 +695,6 @@ record types.Nominal
     --- table to reference it out of.
     inheritedDefaults: {[string]: types.Type}?
 
-    --- Default terminal operations inherited from `@drop` contracts.
-    defaultDropOperations: {types.Cleanup}?
-
-    --- Whether this nominal has appeared behind an `Owned<T>` contract.
-    affineResource: boolean?
-
     --- Declared fields that carry affine values, in declaration order.
     affineFields: {string}?
 
@@ -820,7 +827,7 @@ type types.Type = types.Prim
     | types.Intersection
     | types.Ptr
     | types.CArray
-    | types.Owned
+    | types.Affine
     | types.Borrowed
     | types.Pinned
     | types.Const
@@ -1052,6 +1059,7 @@ types.uint64 = prim("uint64")
 -- functions. They have no runtime value or code-generation representation.
 types.type_ = prim("type")
 types.typepack = prim("typepack")
+types.functionConst = prim("functionconst")
 
 -- The structures `table` is gradual toward, which is what makes it redundant beside one
 -- in a union. Kept in step with the pair of gradual rules in `relations.isA`.
@@ -1449,13 +1457,27 @@ function types.functionCleanup(key: string, name: string, functionType: types.Ty
         kind = "function",
         key = key,
         name = name,
-        functionType = functionType
+        functionType = functionType,
+        constTerm = types.constLiteral("function", key)
     )
 end
 
---- A default drop operation reached through the owned value.
-function types.methodCleanup(name: string): types.Cleanup
-    return new types.Cleanup(id = "method:" .. name, kind = "method", name = name)
+--- A free cleanup represented by the same const-function term a generic type carries.
+function types.constFunctionCleanup(term: types.ConstTerm, name: string?, functionType: types.Type?): types.Cleanup
+    local key = term.tag == "constLiteral" and term.domain == "function" and term.value as string or nil
+    return new types.Cleanup(
+        id = key and "function:" .. key or "functionconst:" .. term.id,
+        kind = "function",
+        key = key,
+        name = name or key and (key:match("#(.*)$") or key) or types.tostringConst(term),
+        functionType = functionType,
+        constTerm = term
+    )
+end
+
+--- The generated terminal for a closure that owns captured affine values.
+function types.closureCleanup(): types.Cleanup
+    return new types.Cleanup(id = "generated:closure", kind = "closure")
 end
 
 --- A cleanup applied to one affine field of an owning record.
@@ -1479,7 +1501,7 @@ end
 --- author asked for rather than what resolution was left with -- a distinction a
 --- producer's result is held to, and one the interning key has to carry or the two
 --- would be one type.
-function types.owned(t: types.Type, cleanups: {types.Cleanup}?, opaque: boolean?): types.Type
+function types.affine(t: types.Type, cleanups: {types.Cleanup}?, transferOnly: boolean?): types.Type
     local list: {types.Cleanup} = {}
     local ids = {}
     for j, cleanup in ipairs(cleanups or {}) do
@@ -1487,14 +1509,17 @@ function types.owned(t: types.Type, cleanups: {types.Cleanup}?, opaque: boolean?
         ids[j] = cleanup.id
     end
 
-    local internKey = "owned(" .. table.concat(ids, ",") .. ":" .. t.id .. (opaque and ":opaque" or "") .. ")"
+    local internKey = "affine(" .. table.concat(ids, ",") .. ":" .. t.id .. (transferOnly and ":transfer" or "") .. ")"
 
     local existing = interned(internKey)
     if existing then
         return existing
     end
 
-    return intern(internKey, new types.Owned(tag = "owned", inner = t, cleanups = list, opaque = opaque == true))
+    return intern(
+        internKey,
+        new types.Affine(tag = "affine", inner = t, cleanups = list, transferOnly = transferOnly == true)
+    )
 end
 
 function types.borrowed(t: types.Type): types.Type
@@ -1524,7 +1549,7 @@ end
 
 --- The value type inside an ownership qualifier, or `t` itself.
 function types.unwrapOwnership(t: types.Type): types.Type
-    if t.tag == "owned" or t.tag == "borrowed" or t.tag == "pinned" then
+    if t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned" then
         return t.inner
     end
     return t
@@ -1537,7 +1562,7 @@ local function capability(t: types.Type, roots: {any}?, retention: any?): types.
     local obligation: 'none' | 'cleanup' | 'opaque' | 'pin' = "none"
     local access: 'ordinary' | 'shared-borrow' | 'exclusive-borrow' = "ordinary"
     local cleanups: {types.Cleanup} = {}
-    if t.tag == "owned" then
+    if t.tag == "affine" then
         cleanups = t.cleanups
         obligation = #cleanups > 0 and "cleanup" or "opaque"
     elseif t.tag == "borrowed" then
@@ -1593,7 +1618,7 @@ end
 function types.withOwnershipPayload(source: types.Type, payload: types.Type): types.Type
     local slot = valueSlot(source)
     if slot.capability.obligation == "cleanup" or slot.capability.obligation == "opaque" then
-        return types.owned(payload, slot.capability.cleanups)
+        return types.affine(payload, slot.capability.cleanups)
     elseif slot.capability.access == "shared-borrow" then
         return types.borrowed(payload)
     elseif slot.capability.obligation == "pin" then
@@ -1809,7 +1834,10 @@ function types.genericAlias(
     typeBounds: {types.Type}?,
     packParams: {types.PackVar}?,
     constParams: {types.ConstVar}?,
-    paramKinds: {string}?
+    paramKinds: {string}?,
+    paramDefaults: {any}?,
+    affine: boolean?,
+    affineTerminal: types.ConstTerm?
 ): types.Type
     local parts = {"alias(" .. name, body.id}
     for _, tv in ipairs(typeParams or {}) do
@@ -1820,6 +1848,9 @@ function types.genericAlias(
     end
     for _, cv in ipairs(constParams or {}) do
         parts[#parts + 1] = cv.id
+    end
+    if affine then
+        parts[#parts + 1] = "affine:" .. (affineTerminal and affineTerminal.id or "transfer")
     end
     local key = table.concat(parts, "|") .. ")"
 
@@ -1838,7 +1869,10 @@ function types.genericAlias(
             typeBounds = typeBounds or {},
             packParams = packParams or {},
             constParams = constParams or {},
-            paramKinds = paramKinds or {}
+            paramKinds = paramKinds or {},
+            paramDefaults = paramDefaults or {},
+            affine = affine == true,
+            affineTerminal = affineTerminal
         )
     )
 end
@@ -1978,7 +2012,7 @@ function types.func(
             cleanupIds[j] = cleanup.id
         end
         key = key .. "|out:" .. (
-            output.kind or "owned"
+            output.kind or "affine"
         ) .. ":" .. output.name .. ":" .. table.concat(
             cleanupIds,
             ","
@@ -2504,7 +2538,7 @@ function types.hasTypevar(t: types.Type): boolean
     end
 
     local tag = t.tag
-    if tag == "owned" or tag == "borrowed" or tag == "pinned" or tag == "const" then
+    if tag == "affine" or tag == "borrowed" or tag == "pinned" or tag == "const" then
         return types.hasTypevar(t.inner)
     elseif tag == "ctype" or tag == "metatable" then
         return types.hasTypevar(t.of)
@@ -2577,8 +2611,7 @@ function types.nominal(name: string, declKind: string): types.Nominal
         staticByname = {},
         staticWriteByname = {},
         metamethods = {},
-        nestedTypes = {},
-        defaultDropOperations = {}
+        nestedTypes = {}
     )
     t.id = "nominal#" .. nominalCounter .. "(" .. name .. ")"
 
@@ -2708,8 +2741,11 @@ function types.tostring(t: types.Type): string
             elem = "(" .. elem .. ")"
         end
         return elem .. "*"
-    elseif tag == "owned" then
-        return "Owned<" .. types.tostring(t.inner) .. (t.opaque and ", opaque" or "") .. ">"
+    elseif tag == "affine" then
+        local terminal = t.cleanups and t.cleanups[1]
+        return "affine<" .. types.tostring(
+            t.inner
+        ) .. (terminal and ", terminal " .. (terminal.name or terminal.id) or ", transfer-only") .. ">"
     elseif tag == "borrowed" then
         return "Borrowed<" .. types.tostring(t.inner) .. ">"
     elseif tag == "pinned" then

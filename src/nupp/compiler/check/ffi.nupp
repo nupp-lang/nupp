@@ -188,7 +188,11 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                     end
                 end
                 if name == "cast" and ffiArgs[1] and c.ownershipKind(ffiArgs[1]) then
-                    c.diag("NUPP2603", node, "casting an owner or borrow requires explicit intoRaw " .. "or borrowFrom")
+                    c.diag(
+                        "NUPP2603",
+                        node,
+                        "casting an affine value or borrow requires explicit unsafe release or borrowFrom"
+                    )
                 end
                 return argT
             elseif name == "typeof" then

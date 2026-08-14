@@ -764,7 +764,7 @@ function M.sessionNamesTheAffineCaptureThatRequiresRestart()
       "local record Resource",
       "   value: integer",
       "end",
-      "local function closeResource(resource: Resource): nil end",
+      "local function closeResource(takes resource: Resource): nil end",
       "local function openResource(): Owned<Resource, closeResource>",
       "   return new Resource(value = 7)",
       "end",

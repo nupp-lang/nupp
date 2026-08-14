@@ -1668,6 +1668,30 @@ function comptime.evaluateTypeFunctionDirect(helper: any, arguments: {any}, help
                 } as comptime.Failure
             end
             values[position] = handle
+        elseif argument.kind == "function" then
+            local handle = materializeProviders.importFunctionConst(state, argument.key)
+            if not handle then
+                return nil, {
+                    code = "NUPP2415",
+                    node = helper,
+                    message = "cannot import a const-function type-function argument",
+                } as comptime.Failure
+            end
+            values[position] = handle
+        elseif argument.kind == "const"
+            and argument.value
+            and argument.value.tag == "constLiteral"
+            and argument.value.domain == "function"
+        then
+            local handle = materializeProviders.importFunctionConst(state, argument.value.value)
+            if not handle then
+                return nil, {
+                    code = "NUPP2415",
+                    node = helper,
+                    message = "cannot import a const-function type-function argument",
+                } as comptime.Failure
+            end
+            values[position] = handle
         else
             values[position] = argument.value
         end

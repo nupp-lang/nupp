@@ -371,6 +371,13 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             at = at + 1
             kw = tokens[at]
         end
+        if kw and kw.kind == "name" and kw.text == "affine" then
+            at = at + 1
+            kw = tokens[at]
+            if not kw or kw.kind ~= "name" or kw.text ~= "type" then
+                return false
+            end
+        end
         if not kw or kw.kind ~= "name" or not TYPEDECL_KW[kw.text] then
             return false
         end
@@ -1503,7 +1510,33 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- A literal, constructor, function, or suffixed expression.
     local function parseSimpleexp(): Node
         local kind = cur().kind
-        if kind == "name" and cur().text == "dedent" and tokens[
+        if kind == "name" and cur().text == "unsafe" and tokens[
+            i + 1
+        ] and tokens[i + 1].kind == "name" and (tokens[i + 1].text == "adopt" or tokens[i + 1].text == "release") then
+            local operation = tokens[i + 1].text as 'adopt' | 'release'
+            local n = new cst.UnsafeOwnershipExpr(kind = "unsafeOwnershipExpr", operation = operation)
+            add(n, advance()).contextualOp = true
+            add(n, advance()).contextualOp = true
+            if operation == "release" then
+                n.expr = add(n, parseExp())
+            else
+                -- Let the ordinary expression parser recognize the required `as`.
+                -- Keeping that cast as the authored child preserves every token while
+                -- this node gives checking the stronger ownership meaning.
+                local assertion = add(n, parseExp())
+                if assertion.kind == "castExpr" then
+                    n.expr, n.type = assertion.expr, assertion.type
+                else
+                    errAt(
+                        cst.lastToken(assertion) or cur(),
+                        "'unsafe adopt' needs an affine target; write unsafe adopt value as Owner",
+                        "NUPP1002"
+                    )
+                    n.expr = assertion
+                end
+            end
+            return n
+        elseif kind == "name" and cur().text == "dedent" and tokens[
             i + 1
         ] and tokens[i + 1].kind == "string" and tokens[i + 1].text:sub(1, 1) == "[" then
             local n = new cst.DedentString(kind = "dedentString")
@@ -1659,6 +1692,26 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if cur().kind ~= ")" then
             repeat
                 local p = new cst.Param(kind = "param")
+                local isFunctionConst = cur().kind == "name" and cur().text == "const" and tokens[
+                    i + 1
+                ] and tokens[
+                    i + 1
+                ].kind == "name" and tokens[
+                    i + 2
+                ] and tokens[i + 2].kind == ":" and tokens[i + 3] and tokens[i + 3].kind == "function"
+                if isFunctionConst then
+                    p.constTok = add(p, advance())
+                    p.constTok.contextualOp = true
+                    p.name = add(p, advance())
+                    annotationColon(p, "after const function parameter")
+                    p.constDomainTok = add(p, advance())
+                    n.params[#n.params + 1] = add(n, p)
+                    if cur().kind ~= "," then
+                        break
+                    end
+                    add(n, advance())
+                    goto continue_parameter
+                end
                 if cur().kind == "name" and (
                     cur().text == "takes"
                     or cur().text == "borrows"
@@ -1717,6 +1770,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     break
                 end
                 add(n, advance())
+                ::continue_parameter::
             until false
         end
         add(n, expect(")", "to close parameter list"))
@@ -2061,8 +2115,15 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if cur().kind == "sealed" then
             sealedTok = advance()
         end
+        local affineTok = nil
+        if cur().kind == "name" and cur().text == "affine" then
+            affineTok = advance()
+        end
         local kw = advance() -- the contextual keyword (a name token)
         local which = kw.text
+        if affineTok and which ~= "type" then
+            errAt(affineTok, "'affine' may modify only a type declaration", "NUPP1002")
+        end
         if sealedTok and which ~= "interface" then
             errAt(sealedTok, "'sealed' may modify only an interface", "NUPP1002")
         end
@@ -2079,6 +2140,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             if sealedTok then
                 add(n, sealedTok)
             end
+            if affineTok then
+                add(n, affineTok)
+            end
             add(n, kw)
 
             return n
@@ -2086,10 +2150,19 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
         if which == "type" then
             local n = introduce(new cst.TypeAlias(kind = "typeAlias"))
+            n.affine = affineTok ~= nil
+            n.affineTok = affineTok
             parseDeclName(n, "after '" .. which .. "'")
             parseGenerics(n)
             add(n, expect("=", "in " .. which .. " declaration"))
             n.value = add(n, parseType())
+            if affineTok then
+                if cur().kind == "name" and cur().text == "terminal" then
+                    n.terminalTok = add(n, advance())
+                    n.terminal = add(n, parseType())
+                end
+                n.endTok = add(n, expect("end", "to close affine type declaration"))
+            end
             return n
         else -- record / interface / struct
             local n = introduce(new cst.RecordDecl(kind = "recordDecl"))
@@ -2539,6 +2612,17 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             if cur().kind == ";" then
                 add(n, advance())
             end
+            return n
+        end
+
+        if kind == "name" and cur().text == "drop" then
+            local n = new cst.CallStmt(kind = "callStmt")
+            local dropTok = add(n, advance())
+            dropTok.contextualOp = true
+            local value = add(n, parseExp())
+            local callee = new cst.NameExpr(kind = "name", token = dropTok)
+            local args = new cst.Args(kind = "args", exprs = {value})
+            n.expr = new cst.Call(kind = "call", obj = callee, args = args, ownershipSyntax = "drop")
             return n
         end
 

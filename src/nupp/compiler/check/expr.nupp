@@ -525,6 +525,37 @@ function expr.install(c: state.Checker): nil
             local result = c.infer(call)
             node.partitionFields = call.partitionFields
             return result
+        elseif kind == "unsafeOwnershipExpr" then
+            local value = node.expr
+            local valueT = value and c.infer(value) or T.any
+            if node.operation == "release" then
+                if c.ownershipKind(valueT) ~= "affine" then
+                    c.diag("NUPP2602", value or node, "unsafe release expects an affine value")
+                end
+                c.moveExpression(value or node, valueT, "unsafe release")
+                node.ownershipIntrinsic = "release"
+                return rawType(valueT)
+            else
+                local target = c.resolveType(node.type)
+                if target.tag ~= "affine" then
+                    c.diag("NUPP2602", node.type or node, "unsafe adopt target must be an affine type")
+                    return target
+                end
+                if c.ownershipKind(valueT) then
+                    c.diag("NUPP2602", value or node, "unsafe adopt expects an unmanaged value")
+                end
+                local representation = rawType(target)
+                if valueT ~= T.any and not isA(valueT, representation) then
+                    c.diag(
+                        "NUPP2602",
+                        value or node,
+                        ("cannot adopt %s as owner of %s"):format(T.tostring(valueT), T.tostring(representation))
+                    )
+                end
+                node.ownerCleanups = target.cleanups
+                node.ownershipIntrinsic = "adopt"
+                return target
+            end
         elseif kind == "ternary" then
             local cond, ifTrue, ifFalse = node.cond, node.ifTrue, node.ifFalse
             if not cond or not ifTrue or not ifFalse then
@@ -554,8 +585,8 @@ function expr.install(c: state.Checker): nil
                 end
                 return target
             end
-            if source.tag == "owned" then
-                return T.owned(target, source.cleanups, source.opaque)
+            if source.tag == "affine" then
+                return T.affine(target, source.cleanups, source.transferOnly)
             elseif c.ownershipKind(source) == "borrowed" then
                 return T.borrowed(target)
             elseif c.ownershipKind(source) == "pinned" then
@@ -734,9 +765,9 @@ function expr.install(c: state.Checker): nil
                     return rawType(valueT)
                 end
                 node.affineAggregate = true
-                if c.ownershipKind(valueT) == "owned" then
+                if c.ownershipKind(valueT) == "affine" then
                     ownsElements = true
-                    c.moveExpression(value, valueT, "affine aggregate element", "owned")
+                    c.moveExpression(value, valueT, "affine aggregate element", "affine")
                     if value.automaticOwnerMove then
                         aggregateMoves[#aggregateMoves + 1] = value.automaticOwnerMove
                     end
@@ -756,7 +787,7 @@ function expr.install(c: state.Checker): nil
 
             local function aggregateType(valueT: Type): Type
                 if ownsElements then
-                    return T.owned(valueT, {})
+                    return T.affine(valueT, {})
                 elseif #aggregateRoots > 0 then
                     if #aggregateRoots == 1 then
                         node.borrowOwner = aggregateRoots[1]

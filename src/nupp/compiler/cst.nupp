@@ -401,6 +401,9 @@ interface cst.Hints
     --- Which ownership intrinsic a call is.
     ownershipIntrinsic: string?
 
+    --- An ownership operation introduced by syntax rather than a callable name.
+    ownershipSyntax: string?
+
     --- What an owner promised to release.
     ownerCleanups: any
 
@@ -470,15 +473,6 @@ interface cst.Hints
 
     --- Whether the generator must pass the pinned pointer rather than the handle.
     passPinnedPointer: boolean?
-
-    --- Whether `@drop` was written on this declaration.
-    dropContract: boolean?
-
-    --- Whether that drop operation is a method.
-    dropMethod: boolean?
-
-    --- Where it was written.
-    dropTok: lexer.Token?
 
     --- Whether this declaration defines an annotation.
     isAnnotationDefinition: boolean?
@@ -1067,6 +1061,20 @@ record cst.TypeAlias is cst.Hints
 
     --- The type it names.
     value: cst.Node?
+
+    --- This transparent declaration adds an affine obligation to `value`.
+    affine: boolean?
+
+    --- The contextual `affine` introducer, when this is an affine declaration.
+    affineTok: lexer.Token?
+
+    --- The const-function term written after `terminal`, when one was written.
+    terminal: cst.Node?
+
+    terminalTok: lexer.Token?
+
+    --- The `end` closing an affine declaration.
+    endTok: lexer.Token?
 end
 
 --- A `record`, `interface` or `struct` declaration.
@@ -1315,6 +1323,12 @@ record cst.Param is cst.Hints
     --- Its ownership mode, when one was written.
     modeTok: lexer.Token?
 
+    --- `const name: function` on a comptime parameter. The declaration identity is
+    --- transported as an opaque compiler-only value rather than a runtime function.
+    constTok: lexer.Token?
+
+    constDomainTok: lexer.Token?
+
     --- Its name; absent for a bare `...`.
     name: lexer.Token?
 
@@ -1525,6 +1539,27 @@ record cst.NewExpr is cst.Hints
 
     --- The call this constructs from, whose `obj` names the type.
     call: cst.Node?
+end
+
+--- `unsafe adopt value as Owner` or `unsafe release owner`.
+---
+--- Both forms are explicit capability-boundary assertions and erase at runtime. The
+--- checker proves the representation agrees with the affine target on adoption and
+--- moves the owner on release.
+record cst.UnsafeOwnershipExpr is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'unsafeOwnershipExpr'
+
+    --- Which boundary operation was written.
+    operation: 'adopt' | 'release'
+
+    --- The adopted value or released owner.
+    expr: cst.Node?
+
+    --- The affine target of an adoption.
+    type: cst.Node?
 end
 
 --- `satisfies |self| -> test` in an interface body: the runtime test for `is`.
@@ -2351,6 +2386,7 @@ type cst.Node = cst.Chunk
     | cst.Paren
     | cst.ComptimeExpr
     | cst.NewExpr
+    | cst.UnsafeOwnershipExpr
     | cst.ConstructorDecl
     | cst.SatisfiesDecl
     | cst.ErrorExpr
@@ -2438,7 +2474,9 @@ end
 
 cst.isToken = isToken
 
---- The ownership intrinsics, which the compiler implements rather than declares.
+--- The remaining ownership helper intrinsics, which the compiler implements rather
+--- than declares. Affine construction, release, and destruction are syntax now, so
+--- they deliberately do not appear here.
 ---
 --- These are the only names Nupp itself puts at the top level, so each is also spelled
 --- `nupp.`: a program that would rather say where a name comes from, or that has a
@@ -2447,16 +2485,7 @@ cst.isToken = isToken
 --- thing and lower to the same code.
 local OWNERSHIP_INTRINSICS: {
     [string]: boolean
-} = {
-    attemptAll = true,
-    borrow = true,
-    borrowFrom = true,
-    drop = true,
-    fromRaw = true,
-    intoRaw = true,
-    partition = true,
-    pin = true,
-}
+} = {attemptAll = true, borrow = true, borrowFrom = true, partition = true, pin = true,}
 
 --- The ownership intrinsic a callee is written as, before anything asks what the names
 --- in it resolve to. Answers nil for a callee of any other shape.

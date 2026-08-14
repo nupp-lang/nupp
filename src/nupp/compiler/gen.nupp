@@ -36,6 +36,7 @@ represented.
 local cst = require("nupp.compiler.cst")
 local predicate = require("nupp.compiler.predicate")
 local stdlib = require("nupp.compiler.stdlib")
+local cabi = require("nupp.compiler.cabi")
 
 local gen = {}
 
@@ -108,6 +109,12 @@ local CP -- assigned to C_PRIM below (cdefCType is defined first)
 -- Maps a syntactic type node to a C type string for cdef emission. Uses checker hints
 -- (cdefName) for named C structs. Returns nil when the type has no C spelling.
 local function cdefCType(t)
+    if t.resolvedType then
+        local rendered = cabi.declaration(t.resolvedType, "", "ffi")
+        if rendered then
+            return rendered
+        end
+    end
     if t.kind == "topt" then
         t = t.inner
     end
@@ -119,9 +126,8 @@ local function cdefCType(t)
         elseif name == "voidptr" then
             return "void *"
         end
-        -- An ownership or status wrapper says who discharges the value and when it is
-        -- valid. Neither changes the ABI, so the C spelling is the type inside it.
-        if (name == "Owned" or name == "Success" or name == "Failure") and t.typeArgs and t.typeArgs[1] then
+        -- Status wrappers say when a C result is valid and do not change the ABI.
+        if (name == "Success" or name == "Failure") and t.typeArgs and t.typeArgs[1] then
             return cdefCType(t.typeArgs[1])
         end
         if t.cdefName then
@@ -336,7 +342,8 @@ type gen.Checked = {
 
     --- What the checker resolved this file to, and the native features it recorded.
     readonly moduleName: string?,
-    readonly effects: {[string]: any}?
+    readonly effects: {[string]: any}?,
+    readonly preludeRuntime: string?
 }
 
 --- How a coverage build is asked for: `true` to instrument and name the file after
@@ -563,7 +570,6 @@ function gen.generate(
     local cleanupRegistryName
     local cleanupResolvers = {}
     local cleanupResolverOrder = {}
-    local cleanupRegisterValueName
     local newTabName, clearTabName, cloneTabName
     local needsCleanupRegions = false
     local cleanupPackName, cleanupIdName, cleanupFailureName
@@ -990,16 +996,11 @@ function gen.generate(
         return name
     end
 
-    local function cleanupRegisterValue()
-        cleanupRegistry()
-        cleanupRegisterValueName = cleanupRegisterValueName or reservedName("__nuppRegisterOwner")
-
-        return cleanupRegisterValueName
-    end
-
     local function cleanupCall(cleanup, value)
         if cleanup.kind == "function" then
             return cleanupFunctionName(cleanup) .. "(" .. value .. ")"
+        elseif cleanup.kind == "closure" then
+            return value .. ":__nuppRelease()"
         elseif cleanup.kind == "method" then
             return value .. ":" .. cleanup.name .. "()"
         elseif cleanup.kind == "field" then
@@ -1030,6 +1031,9 @@ function gen.generate(
     local function protectedCleanupCall(cleanup, value, pcallName)
         if cleanup.kind == "function" then
             return pcallName .. "(" .. cleanupFunctionName(cleanup) .. "," .. value .. ")"
+        elseif cleanup.kind == "closure" then
+            local caller = declareHelper("__nuppClosureCleanup", "__nuppV", "return __nuppV:__nuppRelease()")
+            return pcallName .. "(" .. caller .. "," .. value .. ")"
         elseif cleanup.kind == "method" then
             -- `pcall(v.m, v)` would read the subject twice, and a field path is one of
             -- the
@@ -2057,6 +2061,13 @@ function gen.generate(
         return nil
     end
 
+    local function ownershipMoveOf(expr)
+        while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
+            expr = expr.expr
+        end
+        return expr and expr.automaticOwnerMove or nil
+    end
+
     local function automaticSlot(move)
         local owner = move and (move.owner or move) or nil
         if not owner then
@@ -2106,7 +2117,7 @@ function gen.generate(
         emit(body)
         cleanupStack = enclosingCleanupStack
         e(("; local %s={}; "):format(wrapper))
-        e(("%s.__drop=function() if not %s then return end; %s=false; "):format(wrapper, active, active))
+        e(("%s.__nuppRelease=function() if not %s then return end; %s=false; "):format(wrapper, active, active))
         local errors = nextTemp()
         local errorCount = nextTemp()
         e(("local %s={}; local %s=0; "):format(errors, errorCount))
@@ -2747,10 +2758,35 @@ function gen.generate(
         end
 
         if TYPE_KINDS[kind] or DECL_KINDS[kind] then
-            return -- erased entirely
+            -- Types erase, but a closed affine terminal is an ordinary declaration
+            -- reference and must publish that function under its declaration identity.
+            -- The assignment is metadata only; the affine value itself stays fully
+            -- transparent and allocates nothing.
+            for _, registration in ipairs(x.cleanupRegistrations or {}) do
+                local cleanup = registration.cleanup
+                e(("%s[%q]=%s;"):format(cleanupRegistry(), cleanup.key, cleanup.name), sourceLine(x))
+            end
+            return
 
         elseif kind == "castExpr" then
             emit(x.expr) -- `as T` vanishes; the operand keeps its grouping
+
+        elseif kind == "unsafeOwnershipExpr" then
+            local move = x.expr and x.expr.automaticOwnerMove or nil
+            local movedActive = move and activeWith(move) or nil
+            if x.operation == "release" and movedActive then
+                pluck.loweredFunction(
+                    ("(function() %s=false; return "):format(movedActive),
+                    sourceLine(x),
+                    pluck.reasons.move
+                )
+                emit(x.expr)
+                e(" end)()")
+            elseif x.expr then
+                emit(x.expr)
+            else
+                e("nil", sourceLine(x))
+            end
 
         elseif kind == "isExpr" then
             local t = x.type
@@ -3105,7 +3141,7 @@ function gen.generate(
             -- round it, in the same order.
             local inner = x.expr
             local innerArgs = inner.args and inner.args.exprs or {}
-            local innerMove = innerArgs[1] and innerArgs[1].automaticOwnerMove or nil
+            local innerMove = ownershipMoveOf(innerArgs[1])
             local innerActive = innerMove and activeWith(innerMove) or nil
             e("do", sourceLine(x))
             if innerActive then
@@ -3135,12 +3171,11 @@ function gen.generate(
             return
 
         elseif kind == "callStmt" and x.expr and x.expr.ownershipIntrinsic then
-            -- Every intrinsic but `drop` lowers to a value: `intoRaw` and `borrow` to
-            -- their argument, `pin` to a table. Written for the assertion rather than
-            -- the value -- surrendering an owner the caller is finished with -- that
-            -- leaves an expression where Lua wants a statement, and a file that checks
-            -- and builds but will not load. Binding the value keeps whatever computing
-            -- it does and lets the block discard it.
+            -- Every helper intrinsic lowers to a value. Written for the assertion
+            -- rather than the value -- surrendering an owner the caller is finished
+            -- with -- that leaves an expression where Lua wants a statement, and a file
+            -- that checks and builds but will not load. Binding the value keeps
+            -- whatever computing it does and lets the block discard it.
             --
             -- The block is also what lets the move be marked without a wrapper: this is
             -- statement root, so the clear is a statement ahead of the value rather
@@ -3148,10 +3183,10 @@ function gen.generate(
             -- function built round it. The order it needs is the same one.
             local inner = x.expr
             local innerArgs = inner.args and inner.args.exprs or {}
-            local innerMove = innerArgs[1] and innerArgs[1].automaticOwnerMove or nil
+            local innerMove = ownershipMoveOf(innerArgs[1])
             local innerActive = innerMove and activeWith(innerMove) or nil
             e("do ", sourceLine(x))
-            if innerActive and (inner.ownershipIntrinsic == "drop" or inner.ownershipIntrinsic == "intoRaw") then
+            if innerActive and inner.ownershipIntrinsic == "drop" then
                 e(("%s=false; "):format(innerActive))
                 inner.ownershipMoveCleared = true
             end
@@ -3258,7 +3293,7 @@ function gen.generate(
         elseif kind == "call" and x.ownershipIntrinsic then
             local args = x.args and x.args.exprs or {}
             local line = sourceLine(x)
-            local move = args[1] and args[1].automaticOwnerMove or nil
+            local move = ownershipMoveOf(args[1])
             local movedActive = move and activeWith(move) or nil
             -- The move has to be marked before the value is produced: if producing it
             -- raises, the region must already know the owner left, or unwinding frees
@@ -3267,9 +3302,7 @@ function gen.generate(
             -- already has; here, in the middle of an expression, only a wrapper can,
             -- and
             -- that wrapper is a function built every time this runs.
-            local wrapsMove = movedActive ~= nil and not x.ownershipMoveCleared and (
-                x.ownershipIntrinsic == "drop" or x.ownershipIntrinsic == "intoRaw"
-            )
+            local wrapsMove = movedActive ~= nil and not x.ownershipMoveCleared and x.ownershipIntrinsic == "drop"
             if wrapsMove then
                 pluck.loweredFunction(("(function() %s=false; return "):format(movedActive), line, pluck.reasons.move)
             end
@@ -3313,34 +3346,6 @@ function gen.generate(
                     e("nil")
                 end
                 e("}")
-            elseif x.ownershipIntrinsic == "intoRaw" then
-                if args[1] then
-                    emit(args[1])
-                else
-                    e("nil")
-                end
-            elseif x.ownershipIntrinsic == "fromRaw" then
-                if #(x.ownerCleanups or {}) > 0 then
-                    e(cleanupRegisterValue() .. "(", line)
-                    if args[1] then
-                        emit(args[1])
-                    else
-                        e("nil")
-                    end
-                    for j, cleanup in ipairs(x.ownerCleanups or {}) do
-                        e((",%q,"):format(cleanup.key))
-                        if args[j + 1] then
-                            emit(args[j + 1])
-                        else
-                            e("nil")
-                        end
-                    end
-                    e(")")
-                elseif args[1] then
-                    emit(args[1])
-                else
-                    e("nil")
-                end
             elseif x.ownershipIntrinsic == "attemptAll" then
                 -- Every step is attempted, and the first failure is the primary one.
                 -- The body reads its parameter and nothing else, so this is one
@@ -4386,10 +4391,15 @@ function gen.generate(
             else
                 emitChildren(x)
             end
-            local name = x.name and x.name.base or nil
-            for _, registration in ipairs(name and name.cleanupRegistrations or {}) do
-                local cleanup = registration.cleanup
-                e((";%s[%q]=%s"):format(cleanupRegistry(), cleanup.key, cleanup.name), sourceLine(x))
+            -- A qualified declaration's definition token is its final member, while
+            -- `funcname.base` is the root table. Inspect every written name token so
+            -- `function module.close()` can publish a terminal just like a local
+            -- function declaration can.
+            for _, name in ipairs(x.name or {}) do
+                for _, registration in ipairs(name.cleanupRegistrations or {}) do
+                    local cleanup = registration.cleanup
+                    e((";%s[%q]=%s"):format(cleanupRegistry(), cleanup.key, cleanup.name), sourceLine(x))
+                end
             end
 
         elseif kind == "pragmaStmt" then
@@ -4559,7 +4569,7 @@ function gen.generate(
         for _, helper in ipairs(pluck.helpers.order) do
             declarations[
                 #declarations + 1
-            ] = ("const %s = function(%s) %s end; "):format(helper.name, helper.params, helper.body)
+            ] = ("const %s = function(%s) %s end;"):format(helper.name, helper.params, helper.body)
         end
         code = table.concat(declarations) .. code
     end
@@ -4572,6 +4582,12 @@ function gen.generate(
         }
         for _, resolver in ipairs(cleanupResolverOrder) do
             local cleanup = resolver.cleanup
+            assert(
+                cleanup.key,
+                "unresolved affine terminal reached lowering in " .. (
+                    filename or "<source>"
+                ) .. ": " .. cleanup.id .. " (" .. cleanup.name .. ")"
+            )
             linked[
                 #linked + 1
             ] = (
@@ -4586,15 +4602,6 @@ function gen.generate(
             ):format(
                 "Nupp cleanup provider is not loaded: " .. cleanup.key
             ) .. ("%s=cleanup;return cleanup(value) end;"):format(resolver.name)
-        end
-        if cleanupRegisterValueName then
-            linked[
-                #linked + 1
-            ] = (
-                "local function %s(value,...) for i=1,_G.select('#',...),2 do "
-            ):format(
-                cleanupRegisterValueName
-            ) .. ("%s[_G.select(i,...)]=_G.select(i+1,...) end return value end;"):format(cleanupRegistryName)
         end
         code = table.concat(linked) .. code
     end
@@ -4836,6 +4843,18 @@ function gen.generate(
             functions = functions,
             structure = table.concat(hotState.structure, "\1"),
         }
+    end
+
+    -- Prelude implementation bodies are ordinary checked and generated Nupp. Execute
+    -- their generated chunk before this module on one physical line so authored source
+    -- line numbers remain aligned with the module body.
+    if result.preludeRuntime and result.preludeRuntime ~= "" then
+        -- Lua's `%q` spells a newline as a backslash followed by a physical newline.
+        -- That is loadable, but it adds one generated line per prelude line and shifts
+        -- every source position. Turn those continuations into `\n` escapes so the
+        -- ordinary prelude implementation remains on the generated preamble line.
+        local quotedPrelude = ("%q"):format(result.preludeRuntime):gsub("\n", "n")
+        code = ("_G.assert(_G.loadstring(%s,%q))();"):format(quotedPrelude, "@nupp-prelude") .. code
     end
 
     -- Generated Lua that will not load is a bug in this file, and it should say so here

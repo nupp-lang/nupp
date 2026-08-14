@@ -872,7 +872,7 @@ end
 function M.aSecondCloserUnderASchedulerWaitsForTheTeardown()
    -- With something to run the other frame, waiting is right: reporting the child
    -- released while its teardown is still going would let the owner's scope end, and
-   -- the scope ending runs `@drop` -- leaving the next toucher on a handle that has
+   -- the scope ending runs structural drop -- leaving the next toucher on a handle that has
    -- already been given back.
    local backend = fakeBackend({out = {}, err = {}, exitAfter = nil, code = 0})
    backend.state.killLag = 3

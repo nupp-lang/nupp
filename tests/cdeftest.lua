@@ -294,7 +294,7 @@ function M.ownershipOnACdefReturnRequiresAPointer()
    -- Not a pointer, and so nothing `free` could accept either.
    assertEq((diagsOf(
       "cdef function free(takes value: voidptr)\n"
-      .. "cdef function bad(): Owned<int32, free>")), "NUPP2203:2 NUPP2615:2")
+      .. "cdef function bad(): Owned<int32, free>")), "NUPP2615:2 NUPP2203:2")
 end
 
 function M.stringToCstringConversion()

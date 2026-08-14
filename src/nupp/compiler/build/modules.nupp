@@ -287,7 +287,7 @@ typeFingerprint = function(
             active,
             binders
         ) .. ":" .. constFingerprint(t.countTerm, binders) .. ")"
-    elseif tag == "owned" then
+    elseif tag == "affine" then
         local cleanupIds = {}
         for j, cleanup in ipairs(t.cleanups or {}) do
             cleanupIds[j] = cleanup.id
@@ -295,7 +295,7 @@ typeFingerprint = function(
         value = tag .. "(" .. table.concat(
             cleanupIds,
             ","
-        ) .. (t.opaque and ":opaque" or "") .. "," .. typeFingerprint(t.inner, active, binders) .. ")"
+        ) .. (t.transferOnly and ":transfer" or "") .. "," .. typeFingerprint(t.inner, active, binders) .. ")"
     elseif tag == "borrowed" or tag == "pinned" then
         value = tag .. "(" .. typeFingerprint(t.inner, active, binders) .. ")"
     elseif tag == "map" then

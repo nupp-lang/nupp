@@ -123,6 +123,9 @@ record workers.Worker
     --- Closes the worker inbox. Nonblocking and idempotent.
     close: function(workers.Worker)
 
+    --- Stops and releases the worker at scope exit.
+    drop: nosuspend function(takes self: workers.Worker): nil
+
     --- Waits for the worker thread and records how it ended.
     join: function(workers.Worker): workers.Exit
 
@@ -455,7 +458,6 @@ function workers.Worker:join(): workers.Exit
     return self._exit
 end
 
-@drop
 function workers.Worker:stop(): workers.Exit
     if self._destroyed then
         return self._exit as workers.Exit
@@ -467,6 +469,10 @@ function workers.Worker:stop(): workers.Exit
     self._destroyed = true
 
     return exit
+end
+
+function workers.Worker.drop(takes self: workers.Worker): nil
+    self:stop()
 end
 
 local function receiveSelf(self: workers.Self): Frame?

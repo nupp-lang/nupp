@@ -1,7 +1,6 @@
 -- Generated stage-0 compiler. Update with: nupp fixpoint --update-bootstrap
 package.preload["nupp"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
-
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -38,7 +37,7 @@ return nupp
 
 end
 package.preload["nupp._bitset"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -731,7 +730,7 @@ return bitset
 
 end
 package.preload["nupp.compiler"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -744,7 +743,7 @@ return { }
 
 end
 package.preload["nupp.compiler.LuaFormat"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -853,7 +852,7 @@ return luaFormat
 
 end
 package.preload["nupp.compiler.LuaPattern"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -938,7 +937,7 @@ return luaPattern
 
 end
 package.preload["nupp.compiler.analysis"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -2228,7 +2227,7 @@ return analysis
 
 end
 package.preload["nupp.compiler.annotations"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -2330,7 +2329,7 @@ return nil , ( "annotation @%s is already defined" ) : format ( spec . name )
 end
 if spec . arguments ~= "none"
 and spec . arguments ~= "names"
-and spec . arguments ~= "owned"
+and spec . arguments ~= "affine"
 and spec . arguments ~= "effects"
 and spec . arguments ~= "warnings"
 and spec . arguments ~= "typed"
@@ -2424,8 +2423,7 @@ local BUILTINS = {
 { name = "annotationValue" , arguments = "none" , targets = { "field" } , } ,
 { name = "ref" , arguments = "none" , targets = { "field" } , } ,
 { name = "allow" , arguments = "warnings" , targets = { "statement" } , } ,
-{ name = "borrowed" , arguments = "owned" , targets = { "c-function" } , } ,
-{ name = "drop" , arguments = "none" , targets = { "function" , "c-function" , "field" } , } ,
+{ name = "borrowed" , arguments = "affine" , targets = { "c-function" } , } ,
 { name = "override" , arguments = "none" , targets = { "function" } , } ,
 { name = "partition" , arguments = "names" , targets = { "field" } , builtin = true , } ,
 { name = "effects" , arguments = "effects" , targets = { "function" , "c-function" , "local-binding" } , } ,
@@ -2595,7 +2593,7 @@ return annotations
 
 end
 package.preload["nupp.compiler.ansi"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -2839,7 +2837,7 @@ return ansi
 
 end
 package.preload["nupp.compiler.associated"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -3225,7 +3223,7 @@ return associated
 
 end
 package.preload["nupp.compiler.build.cache"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -3506,7 +3504,7 @@ return cache
 
 end
 package.preload["nupp.compiler.build.deps"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -4338,7 +4336,7 @@ return deps
 
 end
 package.preload["nupp.compiler.build.hash"] = function(...)
-const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -4645,7 +4643,7 @@ return hash
 
 end
 package.preload["nupp.compiler.build.manifest"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -5617,7 +5615,7 @@ return manifest
 
 end
 package.preload["nupp.compiler.build.modules"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -5906,7 +5904,7 @@ t . elem ,
 active ,
 binders
 ) .. ":" .. constFingerprint ( t . countTerm , binders ) .. ")"
-elseif tag == "owned" then
+elseif tag == "affine" then
 local cleanupIds = { }
 for j , cleanup in ipairs ( t . cleanups or { } ) do
 cleanupIds [ j ] = cleanup . id
@@ -5914,7 +5912,7 @@ end
 value = tag .. "(" .. table . concat (
 cleanupIds ,
 ","
-) .. ( t . opaque and ":opaque" or "" ) .. "," .. typeFingerprint ( t . inner , active , binders ) .. ")"
+) .. ( t . transferOnly and ":transfer" or "" ) .. "," .. typeFingerprint ( t . inner , active , binders ) .. ")"
 elseif tag == "borrowed" or tag == "pinned" then
 value = tag .. "(" .. typeFingerprint ( t . inner , active , binders ) .. ")"
 elseif tag == "map" then
@@ -6697,7 +6695,7 @@ return modules
 
 end
 package.preload["nupp.compiler.build.native"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -6900,7 +6898,7 @@ return stage
 
 end
 package.preload["nupp.compiler.build.package"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -7208,7 +7206,7 @@ return package_
 
 end
 package.preload["nupp.compiler.build.process"] = function(...)
-const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);void nuppProcessDestroy(NuppChild*);int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);size_t nuppProcessUncollectedTotal(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;__nuppNativeValue={ffi=ffi,C=C,error=errorText};return __nuppNativeValue end package.preload["nupp.io.processnative"]=function() local native=__nuppNative();local ffi,C=native.ffi,native.C ffi.cdef[[double nuppProcessMonotonicMs(void);]] local MODE={pipe=0,inherit=1,["null"]=2,stdout=3} local WOULD_BLOCK,GONE,FAILED=-1,-2,-3 local RELEASED,RELEASED_WITH_REASON,NOT_RELEASED=0,1,2 local READ_SIZE,INT32_MAX=65536,2147483647 local function reason(prefix)local said=native.error();if said==nil or said==""then said="native process operation failed"end;return prefix..": "..said end local function maybeDestroy(owner)if owner.destroyed or not owner.released then return end;for _,stream in ipairs(owner.streams)do if not stream.released then return end end;owner.destroyed=true;for _,stream in ipairs(owner.streams)do local handle=stream.handle;stream.handle=nil;if handle~=nil then C.nuppProcessStreamDestroy(handle)end end;local child=owner.handle;owner.handle=nil;if child~=nil then C.nuppProcessDestroy(child)end end local function abandon(owner,message)for _,stream in ipairs(owner.streams)do if not stream.released then C.nuppProcessCloseStream(stream.handle);stream.released=true end;C.nuppProcessStreamDestroy(stream.handle);stream.handle=nil end;if owner.handle~=nil then C.nuppProcessKill(owner.handle,true);C.nuppProcessDestroy(owner.handle);owner.handle=nil end;owner.destroyed=true;error(message,0)end local function configured(ok,request,what)if ok then return end;local why=reason("nupp: could not configure process "..what);C.nuppProcessSpawnCancel(request);error(why,0)end local function wrap(owner,which,expected)local handle=C.nuppProcessTakeStream(owner.handle,which);if handle==nil then if expected then abandon(owner,reason("nupp: could not take process stream"))end;return nil end;local stream={owner=owner,handle=handle,released=false,scratch=nil,capacity=0};owner.streams[#owner.streams+1]=stream;return stream end local function makeArray(streams)local count=#streams;if count==0 then return nil,0 end;local out=ffi.new("NuppStream*[?]",count);for index,stream in ipairs(streams)do local handle=stream and stream.handle;if handle==nil then error("nupp: readiness interest named a destroyed process stream",0)end;out[index-1]=handle end;return out,count end local function whole(value)local number=tonumber(value)or 0;if number~=number then return 0 end;return math.floor(number)end return{new=function(exited) local backend={} function backend:spawn(options) local inputMode=options.stdin or"pipe";local outputMode=options.stdout or"pipe";local errorMode=options.stderr or"pipe" if MODE[inputMode]==nil then error("nupp: process has no stdin mode named "..tostring(inputMode),0)end if MODE[outputMode]==nil or outputMode=="stdout"then error("nupp: process has no stdout mode named "..tostring(outputMode),0)end if MODE[errorMode]==nil then error("nupp: process has no stderr mode named "..tostring(errorMode),0)end local request=C.nuppProcessSpawnBegin();if request==nil then error(reason("nupp: could not begin process spawn"),0)end for _,argument in ipairs(options.args or{})do configured(C.nuppProcessSpawnArg(request,argument,#argument),request,"argument")end configured(C.nuppProcessSpawnClearEnv(request,options.clearEnv==true),request,"environment mode") for key,value in pairs(options.env or{})do local entry=key.."="..value;configured(C.nuppProcessSpawnEnv(request,entry,#entry),request,"environment")end if options.cwd~=nil then local cwd=type(options.cwd)=="string"and options.cwd or options.cwd:toString();configured(C.nuppProcessSpawnCwd(request,cwd,#cwd),request,"working directory")end configured(C.nuppProcessSpawnStdio(request,0,MODE[inputMode]),request,"stdin") configured(C.nuppProcessSpawnStdio(request,1,MODE[outputMode]),request,"stdout") configured(C.nuppProcessSpawnStdio(request,2,MODE[errorMode]),request,"stderr") local child=C.nuppProcessSpawnRun(request);if child==nil then return nil,nil,nil,nil,0,reason("nupp: could not start process")end local owner={handle=child,streams={},released=false,destroyed=false} local input=wrap(owner,0,inputMode=="pipe");local output=wrap(owner,1,outputMode=="pipe");local err=wrap(owner,2,errorMode=="pipe") return owner,input,output,err,tonumber(C.nuppProcessId(child)) end function backend:poll(owner)local code=ffi.new("int32_t[1]");local killed=ffi.new("bool[1]");local status=C.nuppProcessPollExit(owner.handle,code,killed);if status<0 then error(reason("nupp: could not poll process"),0)end;if status==0 then return nil end;return exited(tonumber(code[0]),killed[0],false)end function backend:kill(owner,force)if not C.nuppProcessKill(owner.handle,force)then error(reason("nupp: could not kill process"),0)end end function backend:read(stream,limit)local wanted=whole(limit);if wanted<1 then wanted=1 elseif wanted>READ_SIZE then wanted=READ_SIZE end;if stream.capacity<wanted then stream.scratch=ffi.new("uint8_t[?]",wanted);stream.capacity=wanted end;local got=tonumber(C.nuppProcessTryRead(stream.handle,stream.scratch,wanted));if got>=0 then return ffi.string(stream.scratch,got)end;if got==WOULD_BLOCK then return""end;if got==GONE then return nil end;error(reason("nupp: could not read process stream"),0)end function backend:write(stream,bytes)local sent=tonumber(C.nuppProcessTryWrite(stream.handle,bytes,#bytes));if sent>=0 then return sent,false end;if sent==WOULD_BLOCK then return 0,false end;if sent==GONE then return 0,true end;error(reason("nupp: could not write process stream"),0)end function backend:closeStream(stream)if stream.released then return true end;local status=C.nuppProcessCloseStream(stream.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not close process stream")end;if status==RELEASED or status==RELEASED_WITH_REASON then stream.released=true;maybeDestroy(stream.owner);return true,why end;return false,why end function backend:reap(owner)if owner.released then return true end;local status=C.nuppProcessReap(owner.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not release process")end;if status==RELEASED or status==RELEASED_WITH_REASON then owner.released=true;maybeDestroy(owner);return true,why end;return false,why end function backend:now()return C.nuppProcessMonotonicMs()end function backend:waitReady(interest,timeoutMs)local readable,readCount=makeArray(interest.read);local writable,writeCount=makeArray(interest.write);local timeout=whole(timeoutMs);if timeout<0 then timeout=0 elseif timeout>INT32_MAX then timeout=INT32_MAX end;local answered=C.nuppProcessWaitReady(readable,readCount,writable,writeCount,timeout);if answered<0 then error(reason("nupp: process readiness wait failed"),0)end;return tonumber(answered)end return backend end} end;const __nuppCleanup1 = function(__nuppV) return __nuppV:close() end; 
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);void nuppProcessDestroy(NuppChild*);int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);size_t nuppProcessUncollectedTotal(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;__nuppNativeValue={ffi=ffi,C=C,error=errorText};return __nuppNativeValue end package.preload["nupp.io.processnative"]=function() local native=__nuppNative();local ffi,C=native.ffi,native.C ffi.cdef[[double nuppProcessMonotonicMs(void);]] local MODE={pipe=0,inherit=1,["null"]=2,stdout=3} local WOULD_BLOCK,GONE,FAILED=-1,-2,-3 local RELEASED,RELEASED_WITH_REASON,NOT_RELEASED=0,1,2 local READ_SIZE,INT32_MAX=65536,2147483647 local function reason(prefix)local said=native.error();if said==nil or said==""then said="native process operation failed"end;return prefix..": "..said end local function maybeDestroy(owner)if owner.destroyed or not owner.released then return end;for _,stream in ipairs(owner.streams)do if not stream.released then return end end;owner.destroyed=true;for _,stream in ipairs(owner.streams)do local handle=stream.handle;stream.handle=nil;if handle~=nil then C.nuppProcessStreamDestroy(handle)end end;local child=owner.handle;owner.handle=nil;if child~=nil then C.nuppProcessDestroy(child)end end local function abandon(owner,message)for _,stream in ipairs(owner.streams)do if not stream.released then C.nuppProcessCloseStream(stream.handle);stream.released=true end;C.nuppProcessStreamDestroy(stream.handle);stream.handle=nil end;if owner.handle~=nil then C.nuppProcessKill(owner.handle,true);C.nuppProcessDestroy(owner.handle);owner.handle=nil end;owner.destroyed=true;error(message,0)end local function configured(ok,request,what)if ok then return end;local why=reason("nupp: could not configure process "..what);C.nuppProcessSpawnCancel(request);error(why,0)end local function wrap(owner,which,expected)local handle=C.nuppProcessTakeStream(owner.handle,which);if handle==nil then if expected then abandon(owner,reason("nupp: could not take process stream"))end;return nil end;local stream={owner=owner,handle=handle,released=false,scratch=nil,capacity=0};owner.streams[#owner.streams+1]=stream;return stream end local function makeArray(streams)local count=#streams;if count==0 then return nil,0 end;local out=ffi.new("NuppStream*[?]",count);for index,stream in ipairs(streams)do local handle=stream and stream.handle;if handle==nil then error("nupp: readiness interest named a destroyed process stream",0)end;out[index-1]=handle end;return out,count end local function whole(value)local number=tonumber(value)or 0;if number~=number then return 0 end;return math.floor(number)end return{new=function(exited) local backend={} function backend:spawn(options) local inputMode=options.stdin or"pipe";local outputMode=options.stdout or"pipe";local errorMode=options.stderr or"pipe" if MODE[inputMode]==nil then error("nupp: process has no stdin mode named "..tostring(inputMode),0)end if MODE[outputMode]==nil or outputMode=="stdout"then error("nupp: process has no stdout mode named "..tostring(outputMode),0)end if MODE[errorMode]==nil then error("nupp: process has no stderr mode named "..tostring(errorMode),0)end local request=C.nuppProcessSpawnBegin();if request==nil then error(reason("nupp: could not begin process spawn"),0)end for _,argument in ipairs(options.args or{})do configured(C.nuppProcessSpawnArg(request,argument,#argument),request,"argument")end configured(C.nuppProcessSpawnClearEnv(request,options.clearEnv==true),request,"environment mode") for key,value in pairs(options.env or{})do local entry=key.."="..value;configured(C.nuppProcessSpawnEnv(request,entry,#entry),request,"environment")end if options.cwd~=nil then local cwd=type(options.cwd)=="string"and options.cwd or options.cwd:toString();configured(C.nuppProcessSpawnCwd(request,cwd,#cwd),request,"working directory")end configured(C.nuppProcessSpawnStdio(request,0,MODE[inputMode]),request,"stdin") configured(C.nuppProcessSpawnStdio(request,1,MODE[outputMode]),request,"stdout") configured(C.nuppProcessSpawnStdio(request,2,MODE[errorMode]),request,"stderr") local child=C.nuppProcessSpawnRun(request);if child==nil then return nil,nil,nil,nil,0,reason("nupp: could not start process")end local owner={handle=child,streams={},released=false,destroyed=false} local input=wrap(owner,0,inputMode=="pipe");local output=wrap(owner,1,outputMode=="pipe");local err=wrap(owner,2,errorMode=="pipe") return owner,input,output,err,tonumber(C.nuppProcessId(child)) end function backend:poll(owner)local code=ffi.new("int32_t[1]");local killed=ffi.new("bool[1]");local status=C.nuppProcessPollExit(owner.handle,code,killed);if status<0 then error(reason("nupp: could not poll process"),0)end;if status==0 then return nil end;return exited(tonumber(code[0]),killed[0],false)end function backend:kill(owner,force)if not C.nuppProcessKill(owner.handle,force)then error(reason("nupp: could not kill process"),0)end end function backend:read(stream,limit)local wanted=whole(limit);if wanted<1 then wanted=1 elseif wanted>READ_SIZE then wanted=READ_SIZE end;if stream.capacity<wanted then stream.scratch=ffi.new("uint8_t[?]",wanted);stream.capacity=wanted end;local got=tonumber(C.nuppProcessTryRead(stream.handle,stream.scratch,wanted));if got>=0 then return ffi.string(stream.scratch,got)end;if got==WOULD_BLOCK then return""end;if got==GONE then return nil end;error(reason("nupp: could not read process stream"),0)end function backend:write(stream,bytes)local sent=tonumber(C.nuppProcessTryWrite(stream.handle,bytes,#bytes));if sent>=0 then return sent,false end;if sent==WOULD_BLOCK then return 0,false end;if sent==GONE then return 0,true end;error(reason("nupp: could not write process stream"),0)end function backend:closeStream(stream)if stream.released then return true end;local status=C.nuppProcessCloseStream(stream.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not close process stream")end;if status==RELEASED or status==RELEASED_WITH_REASON then stream.released=true;maybeDestroy(stream.owner);return true,why end;return false,why end function backend:reap(owner)if owner.released then return true end;local status=C.nuppProcessReap(owner.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not release process")end;if status==RELEASED or status==RELEASED_WITH_REASON then owner.released=true;maybeDestroy(owner);return true,why end;return false,why end function backend:now()return C.nuppProcessMonotonicMs()end function backend:waitReady(interest,timeoutMs)local readable,readCount=makeArray(interest.read);local writable,writeCount=makeArray(interest.write);local timeout=whole(timeoutMs);if timeout<0 then timeout=0 elseif timeout>INT32_MAX then timeout=INT32_MAX end;local answered=C.nuppProcessWaitReady(readable,readCount,writable,writeCount,timeout);if answered<0 then error(reason("nupp: process readiness wait failed"),0)end;return tonumber(answered)end return backend end} end;local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp:prelude.d.nupp#__nuppDropDefault"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp:prelude.d.nupp#__nuppDropDefault") end;__nuppCleanup1=cleanup;return cleanup(value) end;
 
 
 
@@ -7429,7 +7427,7 @@ args = {
 }
 end
 local native = require ( "nupp.io.process" )
-do local __nuppT13=0; local  __nuppT19 ; local __nuppT20=false ; const __nuppT14,__nuppT15,__nuppT16=__nuppT6(function() do const __nuppT21=__nuppT1( native . new ( {
+do local __nuppT13=0; local  __nuppT19 ; const __nuppT14,__nuppT15,__nuppT16=__nuppT6(function() do const __nuppT20=__nuppT1( native . new ( {
 args = args ,
 cwd = opts . cwd ,
 env = opts . env ,
@@ -7437,7 +7435,7 @@ stdin = "null" ,
 stdout = "pipe" ,
 stderr = "stdout" ,
 timeoutMs = opts . timeoutMs ,
-} ) ); __nuppT19= __nuppT21[1] ; __nuppT13=1;  __nuppT20=true;  local  child , problem = __nuppT21[1] , __nuppT21[2] ;
+} ) ); __nuppT19= __nuppT20[1] ; __nuppT13=1;  local  child , problem = __nuppT20[1] , __nuppT20[2] ;
 if not child then
 return "return",__nuppT1( 1 , tostring ( problem or "the worker could not be started" ) )
 end
@@ -7480,7 +7478,7 @@ end
 end
 end
 local exit = child : wait ( )
-do (function(__nuppT22,...)  __nuppT20=false;  return __nuppT22:close(...)  end)( child ) end
+child : close ( )
 if cancelled then
 return "return",__nuppT1( 125 , table . concat ( chunks ) )
 end
@@ -7488,15 +7486,12 @@ if exit . timedOut then
 return "return",__nuppT1( 124 , table . concat ( chunks ) )
 end
 
-return "return",__nuppT1( exit . exitCode , table . concat ( chunks ) ) end; return "normal" end,__nuppT2); const __nuppT17={}; local __nuppT18=0; if __nuppT13>=1 and __nuppT20 and __nuppT19~=nil then  const __nuppT23,__nuppT24=__nuppT5(__nuppCleanup1,__nuppT19);  if not __nuppT23 then __nuppT18=__nuppT18+1; __nuppT17[__nuppT18]=__nuppT24 end; end; if not __nuppT14 then if __nuppT18>0 then __nuppT7(__nuppT3(__nuppT15,__nuppT17,1),0) else __nuppT7(__nuppT15,0) end end; if __nuppT18>0 then if __nuppT18>1 then __nuppT7(__nuppT3(__nuppT17[1],__nuppT17,2),0) else __nuppT7(__nuppT17[1],0) end end; if __nuppT15=="return" then  return __nuppT8(__nuppT16,1,__nuppT16.n)  end; end
+return "return",__nuppT1( exit . exitCode , table . concat ( chunks ) ) end; return "normal" end,__nuppT2); const __nuppT17={}; local __nuppT18=0; if __nuppT13>=1 and __nuppT19~=nil then  const __nuppT21,__nuppT22=__nuppT5(__nuppCleanup1,__nuppT19);  if not __nuppT21 then __nuppT18=__nuppT18+1; __nuppT17[__nuppT18]=__nuppT22 end; end; if not __nuppT14 then if __nuppT18>0 then __nuppT7(__nuppT3(__nuppT15,__nuppT17,1),0) else __nuppT7(__nuppT15,0) end end; if __nuppT18>0 then if __nuppT18>1 then __nuppT7(__nuppT3(__nuppT17[1],__nuppT17,2),0) else __nuppT7(__nuppT17[1],0) end end; if __nuppT15=="return" then  return __nuppT8(__nuppT16,1,__nuppT16.n)  end; end
 end
 
 
 
-function process . startIsolated (
-argv ,
-opts
-)
+function process . startIsolated ( argv , opts )
 opts = ( opts or { } )
 local args = isolatedArgs ( argv )
 if opts . memoryMb and not windows then
@@ -7523,7 +7518,7 @@ return process
 
 end
 package.preload["nupp.compiler.build.progress"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -7933,7 +7928,7 @@ return progress
 
 end
 package.preload["nupp.compiler.build.project"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -8789,7 +8784,7 @@ return project
 
 end
 package.preload["nupp.compiler.build.store"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -9006,7 +9001,7 @@ return store
 
 end
 package.preload["nupp.compiler.build.syntax"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppPeg=rawget(__nupp,"peg")or{};rawset(__nupp,"peg",__nuppPeg) local __nuppLpeg=require("lpeg");__nuppLpeg.setmaxstack(10000) local function __nuppPegInit(subject,init,level) if type(subject)~="string"then error("nupp: PEG subject must be a string",level)end;if init==nil then init=1 elseif type(init)~="number"or init~=math.floor(init)then error("nupp: PEG init must be an integer",level)elseif init<0 then init=#subject+init+1 end;if init<1 then init=1 end;if init>#subject+1 then return nil end;return init end local function __nuppPegFindAt(run,take,captureful,subject,init,search) if search and search.direct then local first,last=subject:find(search.direct,init,search.directPlain);if first==nil then return nil end;local nextPosition=last+1;if search.result=="string"then return first,nextPosition,subject:sub(first,last)end;return first,nextPosition,nextPosition end local position=init;while position<=#subject+1 do if search then position=subject:find(search.value,position,search.plain);if position==nil then return nil end end;local nextPosition=run(subject,position);if nextPosition~=nil then if captureful then return position,nextPosition,take()end;return position,nextPosition,nextPosition end;position=position+1 end end local function __nuppPegCallbackReplacement(replacement,first,nextPosition,...) local out=replacement(first,nextPosition,...);if type(out)~="string"then error("nupp: PEG replacement callback must return a string",3)end;return out end local function __nuppPegVisit(visitor,first,nextPosition,...) if first~=nil then visitor(first,nextPosition,...);return first,nextPosition end end local function __nuppPegReplacementAt(replacement,first,nextPosition,...) if first~=nil then return first,nextPosition,__nuppPegCallbackReplacement(replacement,first,nextPosition,...)end end local function __nuppPegMatcher(run,take,captureful,search,generatedFind,directReplaceAll,generatedTraverse) local Matcher={};Matcher.__index=Matcher local function findAt(subject,init)if generatedFind then return generatedFind(subject,init)end;return __nuppPegFindAt(run,take,captureful,subject,init,search)end function Matcher:match(subject,init)init=__nuppPegInit(subject,init,2);if init==nil then return nil end;local nextPosition=run(subject,init);if nextPosition==nil then return nil end;if captureful then return take()end;return nextPosition end function Matcher:find(subject,init)init=__nuppPegInit(subject,init,2);if init==nil then return nil end;return findAt(subject,init)end function Matcher:isMatch(subject,init)init=__nuppPegInit(subject,init,2);return init~=nil and findAt(subject,init)~=nil end function Matcher:forEachMatch(subject,visitor,init)if type(visitor)~="function"then error("nupp: PEG match visitor must be a function",2)end;local cursor=__nuppPegInit(subject,init,2);if cursor==nil then return 0 end;if generatedTraverse then return generatedTraverse(subject,visitor,cursor)end;local count=0;while cursor<=#subject+1 do local first,nextPosition=__nuppPegVisit(visitor,findAt(subject,cursor));if first==nil then break end;count=count+1;cursor=nextPosition>first and nextPosition or first+1 end;return count end function Matcher:__nuppPegReplaceLiteral(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local first,nextPosition=findAt(subject,init);if first==nil then return subject end;return subject:sub(1,first-1)..replacement..subject:sub(nextPosition)end function Matcher:__nuppPegReplaceCallback(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local first,nextPosition,value=__nuppPegReplacementAt(replacement,findAt(subject,init));if first==nil then return subject end;return subject:sub(1,first-1)..value..subject:sub(nextPosition)end function Matcher:replace(subject,replacement,init)if type(replacement)=="string"then return self:__nuppPegReplaceLiteral(subject,replacement,init)elseif type(replacement)=="function"then return self:__nuppPegReplaceCallback(subject,replacement,init)end;error("nupp: PEG replacement must be a string or function",2)end function Matcher:__nuppPegReplaceAllLiteral(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;if directReplaceAll then return directReplaceAll(subject,replacement,init)end;local parts,count,cursor,copyAt={},0,init,1;while cursor<=#subject+1 do local first,nextPosition=findAt(subject,cursor);if first==nil then break end;count=count+1;parts[#parts+1]=subject:sub(copyAt,first-1);parts[#parts+1]=replacement;copyAt=nextPosition;if nextPosition>first then cursor=nextPosition elseif first<=#subject then parts[#parts+1]=subject:sub(first,first);copyAt=first+1;cursor=first+1 else cursor=first+1 end end;if count==0 then return subject end;parts[#parts+1]=subject:sub(copyAt);return table.concat(parts)end function Matcher:__nuppPegReplaceAllCallback(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local parts,count,cursor,copyAt={},0,init,1;while cursor<=#subject+1 do local first,nextPosition,value=__nuppPegReplacementAt(replacement,findAt(subject,cursor));if first==nil then break end;count=count+1;parts[#parts+1]=subject:sub(copyAt,first-1);parts[#parts+1]=value;copyAt=nextPosition;if nextPosition>first then cursor=nextPosition elseif first<=#subject then parts[#parts+1]=subject:sub(first,first);copyAt=first+1;cursor=first+1 else cursor=first+1 end end;if count==0 then return subject end;parts[#parts+1]=subject:sub(copyAt);return table.concat(parts)end function Matcher:replaceAll(subject,replacement,init)if type(replacement)=="string"then return self:__nuppPegReplaceAllLiteral(subject,replacement,init)elseif type(replacement)=="function"then return self:__nuppPegReplaceAllCallback(subject,replacement,init)end;error("nupp: PEG replacement must be a string or function",2)end Matcher.__call=Matcher.match;return setmetatable({},Matcher) end local function __nuppPegPattern(program,definitions) definitions=definitions or{};for _,name in ipairs(program.actions or{})do if rawget(definitions,name)==nil then error("nupp: missing PEG definition "..tostring(name),3)end end local P,S,V,C,Ct,Cg,Cb,Cp,Cs,Cmt,Cf=__nuppLpeg.P,__nuppLpeg.S,__nuppLpeg.V,__nuppLpeg.C,__nuppLpeg.Ct,__nuppLpeg.Cg,__nuppLpeg.Cb,__nuppLpeg.Cp,__nuppLpeg.Cs,__nuppLpeg.Cmt,__nuppLpeg.Cf local nodes,memo,targets=program.graph.nodes,{},{} local function equalcap(subject,position,captured)if type(captured)~="string"then return nil end;local ending=position+#captured;if subject:sub(position,ending-1)==captured then return ending end;return nil end local build;build=function(index)local prior=memo[index];if prior then return prior end;local node=nodes[index];local op=node[1];local pattern if op=="literal"then pattern=P(node[2])elseif op=="set"then pattern=S(node[2])elseif op=="any"then pattern=P(1)elseif op=="eof"then pattern=-P(1) elseif op=="sequence"then pattern=P(true);for child=2,#node do pattern=pattern*build(node[child])end elseif op=="choice"then pattern=P(false);for child=2,#node do pattern=pattern+build(node[child])end elseif op=="difference"then pattern=build(node[2])-build(node[3]) elseif op=="zeroOrMore"then pattern=build(node[2])^0 elseif op=="oneOrMore"then pattern=build(node[2])^1 elseif op=="optional"then pattern=build(node[2])^-1 elseif op=="and"then pattern=#build(node[2])elseif op=="not"then pattern=-build(node[2]) elseif op=="capture"then pattern=C(build(node[2]))elseif op=="collect"or op=="tableCapture"then pattern=Ct(build(node[2])) elseif op=="group"then pattern=node[3]~=nil and Cg(build(node[2]),node[3])or Cg(build(node[2])) elseif op=="substitution"then pattern=Cs(build(node[2]))elseif op=="position"then pattern=Cp() elseif op=="backReference"then pattern=Cmt(Cb(node[2]),equalcap) elseif op=="external"then pattern=P(definitions[node[2]]) elseif op=="transform"then local spec=node[3];local target=spec[1]=="definition"and definitions[spec[2]]or spec[2];pattern=build(node[2])/target elseif op=="matchTime"then pattern=Cmt(build(node[2]),definitions[node[3]]) elseif op=="accumulate"then pattern=build(node[2])%definitions[node[3]] elseif op=="fold"then pattern=Cf(build(node[2]),definitions[node[3]]) elseif op=="action"then local callback=definitions[node[3]];pattern=C(build(node[2])/0)/function(text)return callback(text)end elseif op=="reference"then targets[node[2]]=true;pattern=V("n"..node[2]) else error("nupp: unknown PEG graph operation "..tostring(op),3)end;memo[index]=pattern;return pattern end local pattern=build(program.graph.root);if next(targets)then local grammar={pattern};local done={};while true do local target;for candidate in pairs(targets)do if not done[candidate]then target=candidate;break end end;if not target then break end;done[target]=true;grammar["n"..target]=build(target)end;pattern=P(grammar)end;return pattern end local function __nuppPegFromPattern(pattern) local pack=function(...)return{n=select("#",...),...}end;local resultValues;local execution=pattern*__nuppLpeg.Cp() local function run(subject,position)local values=pack(__nuppLpeg.match(execution,subject,position));local nextPosition=values[values.n];if nextPosition==nil then return nil end;values[values.n]=nil;values.n=values.n-1;if values.n==0 then values.n=1;values[1]=nextPosition end;resultValues=values;return nextPosition end local function take()local values=resultValues;resultValues=nil;return unpack(values,1,values.n)end return __nuppPegMatcher(run,take,true,nil) end local function __nuppPegLpeg(program,definitions)return __nuppPegFromPattern(__nuppPegPattern(program,definitions))end local function __nuppPegFastScan9Run(plan,sets) local keys=plan.packedKeys;local k1,k2,k3,k4,k5,k6,k7,k8=keys[1],keys[2],keys[3],keys[4],keys[5],keys[6],keys[7],keys[8] local delimiter,separatorLength=plan.separator:byte(),#plan.separator local scanByte,scanClass;if plan.scan<256 then scanByte=plan.scan else scanClass=sets[plan.scan-255]end local suffix,minimum=plan.suffix,plan.minimum;local suffixHead=((suffix[1]*256+suffix[2])*256+suffix[3])*256+suffix[4];local suffixTail=((suffix[5]*256+suffix[6])*256+suffix[7])*256+suffix[8] local lastByte,lastClass;if suffix[9]<256 then lastByte=suffix[9]else lastClass=sets[suffix[9]-255]end local function run(subject,position) local a,b,c,d,e,f,g=subject:byte(position,position+6);if not a then return nil end local key,prefixLength;if b==delimiter then prefixLength=1;key=a*8+1 elseif c==delimiter then prefixLength=2;key=(a*256+b)*8+2 elseif d==delimiter then prefixLength=3;key=((a*256+b)*256+c)*8+3 elseif e==delimiter then prefixLength=4;key=(((a*256+b)*256+c)*256+d)*8+4 elseif f==delimiter then prefixLength=5;key=((((a*256+b)*256+c)*256+d)*256+e)*8+5 elseif g==delimiter then prefixLength=6;key=(((((a*256+b)*256+c)*256+d)*256+e)*256+f)*8+6 else return nil end if not(key==k1 or key==k2 or key==k3 or key==k4 or key==k5 or key==k6 or key==k7 or key==k8)then return nil end position=position+prefixLength+separatorLength;local suffixStart=#subject-8;if suffixStart-position<minimum then return nil end if scanClass then for index=position,suffixStart-1 do local byte=subject:byte(index);if scanClass:byte(byte+1)==0 then return nil end end else for index=position,suffixStart-1 do if subject:byte(index)~=scanByte then return nil end end end local q,r,s,t,u,v,w,x,y=subject:byte(suffixStart,#subject);if ((q*256+r)*256+s)*256+t==suffixHead and((u*256+v)*256+w)*256+x==suffixTail and((lastByte and y==lastByte)or(lastClass and lastClass:byte(y+1)~=0))then return #subject+1 end;return nil end return run end local function __nuppPegCheckSource(encoded,expression)if encoded<256 then return expression.."=="..encoded end;return"sets["..(encoded-255).."]:byte("..expression.."+1)~=0"end local function __nuppPegRepeatSource(plan)local head=__nuppPegCheckSource(plan.head,"byte");local tail=__nuppPegCheckSource(plan.tail,"byte");local accept=plan.eof and"if position~=#subject+1 then return nil end;"or"";local result=plan.result=="string"and"lastSubject,lastFirst,lastNext=subject,first,position;return position"or"return position";local visitValue=plan.result=="string"and"subject:sub(first,position-1)"or"position";local visit=plan.eof and"if position==length+1 then count=count+1;visitor(first,position,"..visitValue..");return count end"or"count=count+1;visitor(first,position,"..visitValue..")";local state=plan.result=="string"and"local lastSubject,lastFirst,lastNext;local function take()return lastSubject:sub(lastFirst,lastNext-1)end;"or"";local take=plan.result=="string"and"take"or"nil";return"return function(sets)"..state.."local function run(subject,position)local first=position;local byte=subject:byte(position);if not byte or not("..head..")then return nil end;position=position+1;while true do byte=subject:byte(position);if not byte or not("..tail..")then break end;position=position+1 end;"..accept..result.." end;local function traverse(subject,visitor,position)local count,length=0,#subject;while position<=length do local byte=subject:byte(position);if "..head.." then local first=position;position=position+1;while true do byte=subject:byte(position);if not byte or not("..tail..")then break end;position=position+1 end;"..visit.." else position=position+1 end end;return count end;return run,"..take..",traverse end"end local function __nuppPegFixedSource(checks)local conditions={"position+"..#checks.."==#subject+1"};for index,encoded in ipairs(checks)do local expression="subject:byte(position+"..(index-1)..")";conditions[#conditions+1]=__nuppPegCheckSource(encoded,expression)end;return"return function(sets)return function(subject,position)if "..table.concat(conditions," and ").." then return position+"..#checks.." end end end"end local function __nuppPegCodegen(program,definitions) if program.fastScan and program.fastScan.packedKeys and program.fastScan.maximum<=6 and #program.fastScan.keys<=8 then local suffix=program.fastScan.suffix;if #suffix==9 and suffix[1]<256 and suffix[2]<256 and suffix[3]<256 and suffix[4]<256 and suffix[5]<256 and suffix[6]<256 and suffix[7]<256 and suffix[8]<256 then return __nuppPegMatcher(__nuppPegFastScan9Run(program.fastScan,program.sets),nil,false,program.search)end end local source;if program.fastRepeat then source=__nuppPegRepeatSource(program.fastRepeat)elseif program.fastFixed then source=__nuppPegFixedSource(program.fastFixed)else return __nuppPegLpeg(program,definitions)end local chunk,why=loadstring(source,"=nupp PEG specialization");if not chunk then error("nupp: PEG specialization failed: "..tostring(why),2)end;local run,take,traverse=chunk()(program.sets);return __nuppPegMatcher(run,take,program.captureful,program.search,nil,nil,traverse) end package.loaded.re=nil package.preload.re=function() local tonumber,type,print,error=tonumber,type,print,error local setmetatable=setmetatable local m=require"lpeg" local mm=m local mt=getmetatable(mm.P(0)) local version=_VERSION local any=m.P(1) local Predef={nl=m.P"\n"} local mem;local fmem;local gmem local function updatelocale() mm.locale(Predef) Predef.a=Predef.alpha;Predef.c=Predef.cntrl;Predef.d=Predef.digit Predef.g=Predef.graph;Predef.l=Predef.lower;Predef.p=Predef.punct Predef.s=Predef.space;Predef.u=Predef.upper;Predef.w=Predef.alnum Predef.x=Predef.xdigit Predef.A=any-Predef.a;Predef.C=any-Predef.c;Predef.D=any-Predef.d Predef.G=any-Predef.g;Predef.L=any-Predef.l;Predef.P=any-Predef.p Predef.S=any-Predef.s;Predef.U=any-Predef.u;Predef.W=any-Predef.w Predef.X=any-Predef.x mem={};fmem={};gmem={};local weak={__mode="v"} setmetatable(mem,weak);setmetatable(fmem,weak);setmetatable(gmem,weak) end updatelocale() local function patt_error(s,i)local msg=(#s<i+20)and s:sub(i)or s:sub(i,i+20).."...";error(("pattern error near '%s'"):format(msg),2)end local function mult(p,n)local np=mm.P(true);while n>=1 do if n%2>=1 then np=np*p end;p=p*p;n=n/2 end;return np end local function equalcap(s,i,c)if type(c)~="string"then return nil end;local e=#c+i;if s:sub(i,e-1)==c then return e end;return nil end local S=(Predef.space+"--"*(any-Predef.nl)^0)^0 local name=m.R("AZ","az","__")*m.R("AZ","az","__","09")^0 local arrow=S*"<-" local seq_follow=m.P"/"+")"+"}"+":}"+"~}"+"|}"+(name*arrow)+-1 name=m.C(name) local Def=name*m.Carg(1) local function getdef(id,defs)local c=defs and defs[id];if not c then error("undefined name: "..id)end;return c end local function defwithfunc(f)return m.Cg(Def/getdef*m.Cc(f))end local num=m.C(m.R"09"^1)*S/tonumber local String="'"*m.C((any-"'")^0)*"'"+'"'*m.C((any-'"')^0)*'"' local defined="%"*Def/function(c,Defs)local cat=Defs and Defs[c]or Predef[c];if not cat then error("name '"..c.."' undefined")end;return cat end local Range=m.Cs(any*(m.P"-"/"")*(any-"]"))/mm.R local item=(defined+Range+m.C(any))/m.P local Class="["*(m.C(m.P"^"^-1))*(item*((item%mt.__add)-"]")^0)/function(c,p)return c=="^"and any-p or p end*"]" local function adddef(t,k,exp)if t[k]then error("'"..k.."' already defined as a rule")else t[k]=exp end;return t end local function firstdef(n,r)return adddef({n},n,r)end local function NT(n,b)if not b then error("rule '"..n.."' used outside a grammar")else return mm.V(n)end end local exp=m.P{"Exp", Exp=S*(m.V"Grammar"+m.V"Seq"*("/"*S*m.V"Seq"%mt.__add)^0), Seq=(m.Cc(m.P"")*(m.V"Prefix"%mt.__mul)^0)*(#seq_follow+patt_error), Prefix="&"*S*m.V"Prefix"/mt.__len+"!"*S*m.V"Prefix"/mt.__unm+m.V"Suffix", Suffix=m.V"Primary"*S*((m.P"+"*m.Cc(1,mt.__pow)+m.P"*"*m.Cc(0,mt.__pow)+m.P"?"*m.Cc(-1,mt.__pow)+"^"*(m.Cg(num*m.Cc(mult))+m.Cg(m.C(m.S"+-"*m.R"09"^1)*m.Cc(mt.__pow)))+"->"*S*(m.Cg((String+num)*m.Cc(mt.__div))+m.P"{}"*m.Cc(nil,m.Ct)+defwithfunc(mt.__div))+"=>"*S*defwithfunc(mm.Cmt)+">>"*S*defwithfunc(mt.__mod)+"~>"*S*defwithfunc(mm.Cf))%function(a,b,f)return f(a,b)end*S)^0, Primary="("*m.V"Exp"*")"+String/mm.P+Class+defined+"{:"*(name*":"+m.Cc(nil))*m.V"Exp"*":}"/function(n,p)return mm.Cg(p,n)end+"="*name/function(n)return mm.Cmt(mm.Cb(n),equalcap)end+m.P"{}"/mm.Cp+"{~"*m.V"Exp"*"~}"/mm.Cs+"{|"*m.V"Exp"*"|}"/mm.Ct+"{"*m.V"Exp"*"}"/mm.C+m.P"."*m.Cc(any)+(name*-arrow+"<"*name*">")*m.Cb("G")/NT, Definition=name*arrow*m.V"Exp", Grammar=m.Cg(m.Cc(true),"G")*((m.V"Definition"/firstdef)*(m.V"Definition"%adddef)^0)/mm.P } local pattern=S*m.Cg(m.Cc(false),"G")*exp/mm.P*(-any+patt_error) local function compile(p,defs)if mm.type(p)=="pattern"then return p end;local cp=pattern:match(p,1,defs);if not cp then error("incorrect pattern",3)end;return cp end local function match(s,p,i)local cp=mem[p];if not cp then cp=compile(p);mem[p]=cp end;return cp:match(s,i or 1)end local function find(s,p,i)local cp=fmem[p];if not cp then cp=compile(p)/0;cp=mm.P{mm.Cp()*cp*mm.Cp()+1*mm.V(1)};fmem[p]=cp end;local first,ending=cp:match(s,i or 1);if first then return first,ending-1 end;return first end local function gsub(s,p,rep)local g=gmem[p]or{};gmem[p]=g;local cp=g[rep];if not cp then cp=compile(p);cp=mm.Cs((cp/rep+1)^0);g[rep]=cp end;return cp:match(s)end local re={compile=compile,match=match,find=find,gsub=gsub,updatelocale=updatelocale} if version=="Lua 5.1"then _G.re=re end return re end local __nuppPegPatternCache=setmetatable({},{__mode="v"}) function __nuppPeg.compile(source,options) if type(source)~="string"then error("nupp: PEG compile source must be a string",2)end;if options~=nil and type(options)~="table"then error("nupp: PEG compile options must be a table",2)end;options=options or{};local backend=options.backend or"auto";if backend~="auto"and backend~="lpeg"then error("nupp: PEG compile backend must be 'auto' or 'lpeg'",2)end local definitions=options.definitions or options.defs or options.actions;local pattern;if definitions==nil then pattern=__nuppPegPatternCache[source];if not pattern then pattern=require("re").compile(source);__nuppPegPatternCache[source]=pattern end else pattern=require("re").compile(source,definitions)end;return __nuppPegFromPattern(pattern) end;
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppPeg=rawget(__nupp,"peg")or{};rawset(__nupp,"peg",__nuppPeg) local __nuppLpeg=require("lpeg");__nuppLpeg.setmaxstack(10000) local function __nuppPegInit(subject,init,level) if type(subject)~="string"then error("nupp: PEG subject must be a string",level)end;if init==nil then init=1 elseif type(init)~="number"or init~=math.floor(init)then error("nupp: PEG init must be an integer",level)elseif init<0 then init=#subject+init+1 end;if init<1 then init=1 end;if init>#subject+1 then return nil end;return init end local function __nuppPegFindAt(run,take,captureful,subject,init,search) if search and search.direct then local first,last=subject:find(search.direct,init,search.directPlain);if first==nil then return nil end;local nextPosition=last+1;if search.result=="string"then return first,nextPosition,subject:sub(first,last)end;return first,nextPosition,nextPosition end local position=init;while position<=#subject+1 do if search then position=subject:find(search.value,position,search.plain);if position==nil then return nil end end;local nextPosition=run(subject,position);if nextPosition~=nil then if captureful then return position,nextPosition,take()end;return position,nextPosition,nextPosition end;position=position+1 end end local function __nuppPegCallbackReplacement(replacement,first,nextPosition,...) local out=replacement(first,nextPosition,...);if type(out)~="string"then error("nupp: PEG replacement callback must return a string",3)end;return out end local function __nuppPegVisit(visitor,first,nextPosition,...) if first~=nil then visitor(first,nextPosition,...);return first,nextPosition end end local function __nuppPegReplacementAt(replacement,first,nextPosition,...) if first~=nil then return first,nextPosition,__nuppPegCallbackReplacement(replacement,first,nextPosition,...)end end local function __nuppPegMatcher(run,take,captureful,search,generatedFind,directReplaceAll,generatedTraverse) local Matcher={};Matcher.__index=Matcher local function findAt(subject,init)if generatedFind then return generatedFind(subject,init)end;return __nuppPegFindAt(run,take,captureful,subject,init,search)end function Matcher:match(subject,init)init=__nuppPegInit(subject,init,2);if init==nil then return nil end;local nextPosition=run(subject,init);if nextPosition==nil then return nil end;if captureful then return take()end;return nextPosition end function Matcher:find(subject,init)init=__nuppPegInit(subject,init,2);if init==nil then return nil end;return findAt(subject,init)end function Matcher:isMatch(subject,init)init=__nuppPegInit(subject,init,2);return init~=nil and findAt(subject,init)~=nil end function Matcher:forEachMatch(subject,visitor,init)if type(visitor)~="function"then error("nupp: PEG match visitor must be a function",2)end;local cursor=__nuppPegInit(subject,init,2);if cursor==nil then return 0 end;if generatedTraverse then return generatedTraverse(subject,visitor,cursor)end;local count=0;while cursor<=#subject+1 do local first,nextPosition=__nuppPegVisit(visitor,findAt(subject,cursor));if first==nil then break end;count=count+1;cursor=nextPosition>first and nextPosition or first+1 end;return count end function Matcher:__nuppPegReplaceLiteral(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local first,nextPosition=findAt(subject,init);if first==nil then return subject end;return subject:sub(1,first-1)..replacement..subject:sub(nextPosition)end function Matcher:__nuppPegReplaceCallback(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local first,nextPosition,value=__nuppPegReplacementAt(replacement,findAt(subject,init));if first==nil then return subject end;return subject:sub(1,first-1)..value..subject:sub(nextPosition)end function Matcher:replace(subject,replacement,init)if type(replacement)=="string"then return self:__nuppPegReplaceLiteral(subject,replacement,init)elseif type(replacement)=="function"then return self:__nuppPegReplaceCallback(subject,replacement,init)end;error("nupp: PEG replacement must be a string or function",2)end function Matcher:__nuppPegReplaceAllLiteral(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;if directReplaceAll then return directReplaceAll(subject,replacement,init)end;local parts,count,cursor,copyAt={},0,init,1;while cursor<=#subject+1 do local first,nextPosition=findAt(subject,cursor);if first==nil then break end;count=count+1;parts[#parts+1]=subject:sub(copyAt,first-1);parts[#parts+1]=replacement;copyAt=nextPosition;if nextPosition>first then cursor=nextPosition elseif first<=#subject then parts[#parts+1]=subject:sub(first,first);copyAt=first+1;cursor=first+1 else cursor=first+1 end end;if count==0 then return subject end;parts[#parts+1]=subject:sub(copyAt);return table.concat(parts)end function Matcher:__nuppPegReplaceAllCallback(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local parts,count,cursor,copyAt={},0,init,1;while cursor<=#subject+1 do local first,nextPosition,value=__nuppPegReplacementAt(replacement,findAt(subject,cursor));if first==nil then break end;count=count+1;parts[#parts+1]=subject:sub(copyAt,first-1);parts[#parts+1]=value;copyAt=nextPosition;if nextPosition>first then cursor=nextPosition elseif first<=#subject then parts[#parts+1]=subject:sub(first,first);copyAt=first+1;cursor=first+1 else cursor=first+1 end end;if count==0 then return subject end;parts[#parts+1]=subject:sub(copyAt);return table.concat(parts)end function Matcher:replaceAll(subject,replacement,init)if type(replacement)=="string"then return self:__nuppPegReplaceAllLiteral(subject,replacement,init)elseif type(replacement)=="function"then return self:__nuppPegReplaceAllCallback(subject,replacement,init)end;error("nupp: PEG replacement must be a string or function",2)end Matcher.__call=Matcher.match;return setmetatable({},Matcher) end local function __nuppPegPattern(program,definitions) definitions=definitions or{};for _,name in ipairs(program.actions or{})do if rawget(definitions,name)==nil then error("nupp: missing PEG definition "..tostring(name),3)end end local P,S,V,C,Ct,Cg,Cb,Cp,Cs,Cmt,Cf=__nuppLpeg.P,__nuppLpeg.S,__nuppLpeg.V,__nuppLpeg.C,__nuppLpeg.Ct,__nuppLpeg.Cg,__nuppLpeg.Cb,__nuppLpeg.Cp,__nuppLpeg.Cs,__nuppLpeg.Cmt,__nuppLpeg.Cf local nodes,memo,targets=program.graph.nodes,{},{} local function equalcap(subject,position,captured)if type(captured)~="string"then return nil end;local ending=position+#captured;if subject:sub(position,ending-1)==captured then return ending end;return nil end local build;build=function(index)local prior=memo[index];if prior then return prior end;local node=nodes[index];local op=node[1];local pattern if op=="literal"then pattern=P(node[2])elseif op=="set"then pattern=S(node[2])elseif op=="any"then pattern=P(1)elseif op=="eof"then pattern=-P(1) elseif op=="sequence"then pattern=P(true);for child=2,#node do pattern=pattern*build(node[child])end elseif op=="choice"then pattern=P(false);for child=2,#node do pattern=pattern+build(node[child])end elseif op=="difference"then pattern=build(node[2])-build(node[3]) elseif op=="zeroOrMore"then pattern=build(node[2])^0 elseif op=="oneOrMore"then pattern=build(node[2])^1 elseif op=="optional"then pattern=build(node[2])^-1 elseif op=="and"then pattern=#build(node[2])elseif op=="not"then pattern=-build(node[2]) elseif op=="capture"then pattern=C(build(node[2]))elseif op=="collect"or op=="tableCapture"then pattern=Ct(build(node[2])) elseif op=="group"then pattern=node[3]~=nil and Cg(build(node[2]),node[3])or Cg(build(node[2])) elseif op=="substitution"then pattern=Cs(build(node[2]))elseif op=="position"then pattern=Cp() elseif op=="backReference"then pattern=Cmt(Cb(node[2]),equalcap) elseif op=="external"then pattern=P(definitions[node[2]]) elseif op=="transform"then local spec=node[3];local target=spec[1]=="definition"and definitions[spec[2]]or spec[2];pattern=build(node[2])/target elseif op=="matchTime"then pattern=Cmt(build(node[2]),definitions[node[3]]) elseif op=="accumulate"then pattern=build(node[2])%definitions[node[3]] elseif op=="fold"then pattern=Cf(build(node[2]),definitions[node[3]]) elseif op=="action"then local callback=definitions[node[3]];pattern=C(build(node[2])/0)/function(text)return callback(text)end elseif op=="reference"then targets[node[2]]=true;pattern=V("n"..node[2]) else error("nupp: unknown PEG graph operation "..tostring(op),3)end;memo[index]=pattern;return pattern end local pattern=build(program.graph.root);if next(targets)then local grammar={pattern};local done={};while true do local target;for candidate in pairs(targets)do if not done[candidate]then target=candidate;break end end;if not target then break end;done[target]=true;grammar["n"..target]=build(target)end;pattern=P(grammar)end;return pattern end local function __nuppPegFromPattern(pattern) local pack=function(...)return{n=select("#",...),...}end;local resultValues;local execution=pattern*__nuppLpeg.Cp() local function run(subject,position)local values=pack(__nuppLpeg.match(execution,subject,position));local nextPosition=values[values.n];if nextPosition==nil then return nil end;values[values.n]=nil;values.n=values.n-1;if values.n==0 then values.n=1;values[1]=nextPosition end;resultValues=values;return nextPosition end local function take()local values=resultValues;resultValues=nil;return unpack(values,1,values.n)end return __nuppPegMatcher(run,take,true,nil) end local function __nuppPegLpeg(program,definitions)return __nuppPegFromPattern(__nuppPegPattern(program,definitions))end local function __nuppPegFastScan9Run(plan,sets) local keys=plan.packedKeys;local k1,k2,k3,k4,k5,k6,k7,k8=keys[1],keys[2],keys[3],keys[4],keys[5],keys[6],keys[7],keys[8] local delimiter,separatorLength=plan.separator:byte(),#plan.separator local scanByte,scanClass;if plan.scan<256 then scanByte=plan.scan else scanClass=sets[plan.scan-255]end local suffix,minimum=plan.suffix,plan.minimum;local suffixHead=((suffix[1]*256+suffix[2])*256+suffix[3])*256+suffix[4];local suffixTail=((suffix[5]*256+suffix[6])*256+suffix[7])*256+suffix[8] local lastByte,lastClass;if suffix[9]<256 then lastByte=suffix[9]else lastClass=sets[suffix[9]-255]end local function run(subject,position) local a,b,c,d,e,f,g=subject:byte(position,position+6);if not a then return nil end local key,prefixLength;if b==delimiter then prefixLength=1;key=a*8+1 elseif c==delimiter then prefixLength=2;key=(a*256+b)*8+2 elseif d==delimiter then prefixLength=3;key=((a*256+b)*256+c)*8+3 elseif e==delimiter then prefixLength=4;key=(((a*256+b)*256+c)*256+d)*8+4 elseif f==delimiter then prefixLength=5;key=((((a*256+b)*256+c)*256+d)*256+e)*8+5 elseif g==delimiter then prefixLength=6;key=(((((a*256+b)*256+c)*256+d)*256+e)*256+f)*8+6 else return nil end if not(key==k1 or key==k2 or key==k3 or key==k4 or key==k5 or key==k6 or key==k7 or key==k8)then return nil end position=position+prefixLength+separatorLength;local suffixStart=#subject-8;if suffixStart-position<minimum then return nil end if scanClass then for index=position,suffixStart-1 do local byte=subject:byte(index);if scanClass:byte(byte+1)==0 then return nil end end else for index=position,suffixStart-1 do if subject:byte(index)~=scanByte then return nil end end end local q,r,s,t,u,v,w,x,y=subject:byte(suffixStart,#subject);if ((q*256+r)*256+s)*256+t==suffixHead and((u*256+v)*256+w)*256+x==suffixTail and((lastByte and y==lastByte)or(lastClass and lastClass:byte(y+1)~=0))then return #subject+1 end;return nil end return run end local function __nuppPegCheckSource(encoded,expression)if encoded<256 then return expression.."=="..encoded end;return"sets["..(encoded-255).."]:byte("..expression.."+1)~=0"end local function __nuppPegRepeatSource(plan)local head=__nuppPegCheckSource(plan.head,"byte");local tail=__nuppPegCheckSource(plan.tail,"byte");local accept=plan.eof and"if position~=#subject+1 then return nil end;"or"";local result=plan.result=="string"and"lastSubject,lastFirst,lastNext=subject,first,position;return position"or"return position";local visitValue=plan.result=="string"and"subject:sub(first,position-1)"or"position";local visit=plan.eof and"if position==length+1 then count=count+1;visitor(first,position,"..visitValue..");return count end"or"count=count+1;visitor(first,position,"..visitValue..")";local state=plan.result=="string"and"local lastSubject,lastFirst,lastNext;local function take()return lastSubject:sub(lastFirst,lastNext-1)end;"or"";local take=plan.result=="string"and"take"or"nil";return"return function(sets)"..state.."local function run(subject,position)local first=position;local byte=subject:byte(position);if not byte or not("..head..")then return nil end;position=position+1;while true do byte=subject:byte(position);if not byte or not("..tail..")then break end;position=position+1 end;"..accept..result.." end;local function traverse(subject,visitor,position)local count,length=0,#subject;while position<=length do local byte=subject:byte(position);if "..head.." then local first=position;position=position+1;while true do byte=subject:byte(position);if not byte or not("..tail..")then break end;position=position+1 end;"..visit.." else position=position+1 end end;return count end;return run,"..take..",traverse end"end local function __nuppPegFixedSource(checks)local conditions={"position+"..#checks.."==#subject+1"};for index,encoded in ipairs(checks)do local expression="subject:byte(position+"..(index-1)..")";conditions[#conditions+1]=__nuppPegCheckSource(encoded,expression)end;return"return function(sets)return function(subject,position)if "..table.concat(conditions," and ").." then return position+"..#checks.." end end end"end local function __nuppPegCodegen(program,definitions) if program.fastScan and program.fastScan.packedKeys and program.fastScan.maximum<=6 and #program.fastScan.keys<=8 then local suffix=program.fastScan.suffix;if #suffix==9 and suffix[1]<256 and suffix[2]<256 and suffix[3]<256 and suffix[4]<256 and suffix[5]<256 and suffix[6]<256 and suffix[7]<256 and suffix[8]<256 then return __nuppPegMatcher(__nuppPegFastScan9Run(program.fastScan,program.sets),nil,false,program.search)end end local source;if program.fastRepeat then source=__nuppPegRepeatSource(program.fastRepeat)elseif program.fastFixed then source=__nuppPegFixedSource(program.fastFixed)else return __nuppPegLpeg(program,definitions)end local chunk,why=loadstring(source,"=nupp PEG specialization");if not chunk then error("nupp: PEG specialization failed: "..tostring(why),2)end;local run,take,traverse=chunk()(program.sets);return __nuppPegMatcher(run,take,program.captureful,program.search,nil,nil,traverse) end package.loaded.re=nil package.preload.re=function() local tonumber,type,print,error=tonumber,type,print,error local setmetatable=setmetatable local m=require"lpeg" local mm=m local mt=getmetatable(mm.P(0)) local version=_VERSION local any=m.P(1) local Predef={nl=m.P"\n"} local mem;local fmem;local gmem local function updatelocale() mm.locale(Predef) Predef.a=Predef.alpha;Predef.c=Predef.cntrl;Predef.d=Predef.digit Predef.g=Predef.graph;Predef.l=Predef.lower;Predef.p=Predef.punct Predef.s=Predef.space;Predef.u=Predef.upper;Predef.w=Predef.alnum Predef.x=Predef.xdigit Predef.A=any-Predef.a;Predef.C=any-Predef.c;Predef.D=any-Predef.d Predef.G=any-Predef.g;Predef.L=any-Predef.l;Predef.P=any-Predef.p Predef.S=any-Predef.s;Predef.U=any-Predef.u;Predef.W=any-Predef.w Predef.X=any-Predef.x mem={};fmem={};gmem={};local weak={__mode="v"} setmetatable(mem,weak);setmetatable(fmem,weak);setmetatable(gmem,weak) end updatelocale() local function patt_error(s,i)local msg=(#s<i+20)and s:sub(i)or s:sub(i,i+20).."...";error(("pattern error near '%s'"):format(msg),2)end local function mult(p,n)local np=mm.P(true);while n>=1 do if n%2>=1 then np=np*p end;p=p*p;n=n/2 end;return np end local function equalcap(s,i,c)if type(c)~="string"then return nil end;local e=#c+i;if s:sub(i,e-1)==c then return e end;return nil end local S=(Predef.space+"--"*(any-Predef.nl)^0)^0 local name=m.R("AZ","az","__")*m.R("AZ","az","__","09")^0 local arrow=S*"<-" local seq_follow=m.P"/"+")"+"}"+":}"+"~}"+"|}"+(name*arrow)+-1 name=m.C(name) local Def=name*m.Carg(1) local function getdef(id,defs)local c=defs and defs[id];if not c then error("undefined name: "..id)end;return c end local function defwithfunc(f)return m.Cg(Def/getdef*m.Cc(f))end local num=m.C(m.R"09"^1)*S/tonumber local String="'"*m.C((any-"'")^0)*"'"+'"'*m.C((any-'"')^0)*'"' local defined="%"*Def/function(c,Defs)local cat=Defs and Defs[c]or Predef[c];if not cat then error("name '"..c.."' undefined")end;return cat end local Range=m.Cs(any*(m.P"-"/"")*(any-"]"))/mm.R local item=(defined+Range+m.C(any))/m.P local Class="["*(m.C(m.P"^"^-1))*(item*((item%mt.__add)-"]")^0)/function(c,p)return c=="^"and any-p or p end*"]" local function adddef(t,k,exp)if t[k]then error("'"..k.."' already defined as a rule")else t[k]=exp end;return t end local function firstdef(n,r)return adddef({n},n,r)end local function NT(n,b)if not b then error("rule '"..n.."' used outside a grammar")else return mm.V(n)end end local exp=m.P{"Exp", Exp=S*(m.V"Grammar"+m.V"Seq"*("/"*S*m.V"Seq"%mt.__add)^0), Seq=(m.Cc(m.P"")*(m.V"Prefix"%mt.__mul)^0)*(#seq_follow+patt_error), Prefix="&"*S*m.V"Prefix"/mt.__len+"!"*S*m.V"Prefix"/mt.__unm+m.V"Suffix", Suffix=m.V"Primary"*S*((m.P"+"*m.Cc(1,mt.__pow)+m.P"*"*m.Cc(0,mt.__pow)+m.P"?"*m.Cc(-1,mt.__pow)+"^"*(m.Cg(num*m.Cc(mult))+m.Cg(m.C(m.S"+-"*m.R"09"^1)*m.Cc(mt.__pow)))+"->"*S*(m.Cg((String+num)*m.Cc(mt.__div))+m.P"{}"*m.Cc(nil,m.Ct)+defwithfunc(mt.__div))+"=>"*S*defwithfunc(mm.Cmt)+">>"*S*defwithfunc(mt.__mod)+"~>"*S*defwithfunc(mm.Cf))%function(a,b,f)return f(a,b)end*S)^0, Primary="("*m.V"Exp"*")"+String/mm.P+Class+defined+"{:"*(name*":"+m.Cc(nil))*m.V"Exp"*":}"/function(n,p)return mm.Cg(p,n)end+"="*name/function(n)return mm.Cmt(mm.Cb(n),equalcap)end+m.P"{}"/mm.Cp+"{~"*m.V"Exp"*"~}"/mm.Cs+"{|"*m.V"Exp"*"|}"/mm.Ct+"{"*m.V"Exp"*"}"/mm.C+m.P"."*m.Cc(any)+(name*-arrow+"<"*name*">")*m.Cb("G")/NT, Definition=name*arrow*m.V"Exp", Grammar=m.Cg(m.Cc(true),"G")*((m.V"Definition"/firstdef)*(m.V"Definition"%adddef)^0)/mm.P } local pattern=S*m.Cg(m.Cc(false),"G")*exp/mm.P*(-any+patt_error) local function compile(p,defs)if mm.type(p)=="pattern"then return p end;local cp=pattern:match(p,1,defs);if not cp then error("incorrect pattern",3)end;return cp end local function match(s,p,i)local cp=mem[p];if not cp then cp=compile(p);mem[p]=cp end;return cp:match(s,i or 1)end local function find(s,p,i)local cp=fmem[p];if not cp then cp=compile(p)/0;cp=mm.P{mm.Cp()*cp*mm.Cp()+1*mm.V(1)};fmem[p]=cp end;local first,ending=cp:match(s,i or 1);if first then return first,ending-1 end;return first end local function gsub(s,p,rep)local g=gmem[p]or{};gmem[p]=g;local cp=g[rep];if not cp then cp=compile(p);cp=mm.Cs((cp/rep+1)^0);g[rep]=cp end;return cp:match(s)end local re={compile=compile,match=match,find=find,gsub=gsub,updatelocale=updatelocale} if version=="Lua 5.1"then _G.re=re end return re end local __nuppPegPatternCache=setmetatable({},{__mode="v"}) function __nuppPeg.compile(source,options) if type(source)~="string"then error("nupp: PEG compile source must be a string",2)end;if options~=nil and type(options)~="table"then error("nupp: PEG compile options must be a table",2)end;options=options or{};local backend=options.backend or"auto";if backend~="auto"and backend~="lpeg"then error("nupp: PEG compile backend must be 'auto' or 'lpeg'",2)end local definitions=options.definitions or options.defs or options.actions;local pattern;if definitions==nil then pattern=__nuppPegPatternCache[source];if not pattern then pattern=require("re").compile(source);__nuppPegPatternCache[source]=pattern end else pattern=require("re").compile(source,definitions)end;return __nuppPegFromPattern(pattern) end;
 
 local GlobTokens = nupp . peg . compile ( [[
     {| { '**/' / '**' / '*' / '?' / (!'*' !'?' .)+ }* |} !.
@@ -9069,7 +9064,7 @@ return { glob = compileGlob , shellWords = ShellWords , depfile = Depfile }
 
 end
 package.preload["nupp.compiler.build.tasks"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -9358,7 +9353,7 @@ return tasks
 
 end
 package.preload["nupp.compiler.bundled"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -9429,7 +9424,7 @@ return bundled
 
 end
 package.preload["nupp.compiler.cabi"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -9535,6 +9530,9 @@ return nil , ( t and tostring ( t . tag ) or "unresolved type" ) .. " has no C s
 end
 
 local function renderDeclaration ( t , name , eraseOrdinaryPointer )
+while t and ( t . tag == "affine" or t . tag == "borrowed" ) do
+t = t . inner
+end
 local optional = optionalPointer ( t )
 if optional then
 t = optional
@@ -9846,7 +9844,7 @@ return cabi
 
 end
 package.preload["nupp.compiler.cdecl"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -10405,7 +10403,7 @@ return cdecl
 
 end
 package.preload["nupp.compiler.cheader"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -10887,7 +10885,7 @@ return cheader
 
 end
 package.preload["nupp.compiler.check"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -10908,6 +10906,7 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 local T = require ( "nupp.compiler.types" )
+local relations = require ( "nupp.compiler.relations" )
 local consteval = require ( "nupp.compiler.consteval" )
 local lints = require ( "nupp.compiler.lints" )
 local fixits = require ( "nupp.compiler.check.fixits" )
@@ -11165,11 +11164,54 @@ local summary = body and body . effectSummary
 if not summary then
 return false
 end
-if summary . top == true or summary . external == true then
+if summary . yields == true then
 return false
 end
+if summary . top == true or summary . external == true then
 
-return summary . yields ~= true
+
+
+
+local visited = { }
+local function callsAreNonYielding ( current )
+if not current or cst . isToken ( current ) then
+return true
+end
+if visited [ current ] then
+return true
+end
+visited [ current ] = true
+local kind = current . kind
+if current ~= body and (
+kind == "funcExpr" or kind == "shortfn" or kind == "localFuncStmt" or kind == "funcStmt"
+) then
+return true
+end
+if kind == "call" or kind == "safeCall" or kind == "methodCall" then
+local call = current
+local target = call . calleeType or call . signatureType
+if not call . ownershipIntrinsic and ( not target or target . tag ~= "func" or not target . noYield ) then
+return false
+end
+end
+for _ , child in ipairs ( ( current ) . stats or { } ) do
+if not callsAreNonYielding ( child ) then
+return false
+end
+end
+for _ , child in ipairs ( current ) do
+if not callsAreNonYielding ( child ) then
+return false
+end
+end
+
+return true
+end
+
+return callsAreNonYielding ( body )
+end
+
+return true
 end
 
 
@@ -11417,6 +11459,10 @@ end
 
 
 for _ , entry in ipairs ( c . nominalEffectEntries or { } ) do
+local inlineEntries = entry . static and entry . owner . staticEntries and entry . owner . staticEntries [
+entry . member
+] or entry . owner . methodDispatchEntries and entry . owner . methodDispatchEntries [ entry . member ]
+if not inlineEntries or # inlineEntries == 0 then
 local qualified = qualifyExport ( entry . signature , entry . body )
 local reads = entry . static and entry . owner . staticByname or entry . owner . byname
 local writes = entry . static and entry . owner . staticWriteByname or entry . owner . writeByname
@@ -11424,6 +11470,7 @@ reads [ entry . member ] = qualified
 writes [ entry . member ] = qualified
 if entry . definition then
 entry . definition . type = qualified
+end
 end
 end
 
@@ -11533,6 +11580,7 @@ result . implicitSideEffects = { }
 
 
 result . effects = { }
+result . preludeRuntime = env and env . preludeRuntime or nil
 result . moduleName = opts and opts . moduleName or env and env . moduleNameForPath and env . moduleNameForPath (
 env ,
 filename
@@ -11602,7 +11650,7 @@ parent = nil
 { } ,  yieldPackStack =
 { } ,  resumePackStack =
 { } ,  protocolStack =
-{ } ,  dropOperationFieldStack =
+{ } ,  consumingFieldStack =
 { } ,  validatedCleanupContracts =
 { } ,  unsafeDepth =
 0 ,  noSuspendDepth =
@@ -11622,6 +11670,7 @@ false ,  resolvingAlias =
 nil ,  moduleFields =
 { } ,  moduleFieldTokens =
 { } ,  moduleFieldDefs =
+{ } ,  qualifiedFunctionEntries =
 { } ,  moduleFunctionDeclarations =
 { } ,  moduleFieldConst =
 { } ,  moduleFieldValues =
@@ -11691,9 +11740,23 @@ permitted [
 "argument" .. tostring ( position ) .. ":" .. tostring ( index )
 ] = { source = descriptor . sources [ index ] , fingerprint = node . referenceFingerprint , }
 end
+local source = descriptor . sources [ index ]
+if node . kind == "affine" and source and not source . transferOnly then
+local cleanup = source . cleanups and source . cleanups [ 1 ]
+if cleanup and cleanup . key then
+permitted [ "function:" .. cleanup . key ] = { cleanup = cleanup }
+end
+end
 end
 descriptor . sources = nil
 transported [ position ] = { kind = argument . kind , descriptor = descriptor }
+elseif argument . kind == "const" and value . tag == "constLiteral" and value . domain == "function" then
+local cleanup = c . functionConstCleanup and c . functionConstCleanup ( value ) or nil
+if cleanup and cleanup . key then
+permitted [ "function:" .. cleanup . key ] = { cleanup = cleanup }
+end
+transported [ position ] = { kind = "function" , key = value . value }
+keyParts [ # keyParts + 1 ] = "function:" .. tostring ( value . value )
 else
 transported [ position ] = { kind = argument . kind , value = value }
 keyParts [ # keyParts + 1 ] = argument . kind .. ":" .. stable ( value )
@@ -11858,13 +11921,13 @@ for name , entry in pairs ( s . vars or { } ) do
 local state = entry . ownershipOrigin or entry
 if not entry . ownershipOrigin and ownershipKind and ownershipKind (
 state . t
-) == "owned" and not state . moved and not ( state . automaticOwner and state . automaticOwner . lowerable ) then
+) == "affine" and not state . moved and not ( state . automaticOwner and state . automaticOwner . lowerable ) then
 c . diag (
 "NUPP2603" ,
 entry . definition and entry . definition . token ,
 (
 "owned value %q leaves scope without being consumed, "
-.. "dropped, returned, or converted with intoRaw"
+.. "dropped, returned, or released with unsafe release"
 ) : format ( name )
 )
 elseif not entry . ownershipOrigin and state . retained and not state . moved then
@@ -12067,7 +12130,7 @@ t = t ,
 ann = annotated ~= nil and annotated or old and old . ann or false ,
 constant = constant == true or ( tok == nil and old and old . constant ) or false ,
 definition = def ,
-ownership = t and ( t . tag == "owned" or t . tag == "borrowed" or t . tag == "pinned" ) and t . tag or nil ,
+ownership = t and ( t . tag == "affine" or t . tag == "borrowed" or t . tag == "pinned" ) and t . tag or nil ,
 moved = false ,
 functionDepth = c . functionDepth ,
 }
@@ -12076,7 +12139,7 @@ c . scope . vars [ name ] = entry
 
 
 
-if kind ~= "parameter" and t and t . tag == "owned" and # ( t . cleanups or { } ) > 0 then
+if kind ~= "parameter" and t and t . tag == "affine" and # ( t . cleanups or { } ) > 0 then
 local automatic = {
 name = name ,
 token = tok ,
@@ -12351,7 +12414,7 @@ local function affineType ( t )
 if not t then
 return false
 end
-if t . tag == "owned" or t . tag == "pinned" then
+if t . tag == "affine" or t . tag == "pinned" then
 return true
 end
 if t . tag == "union" or t . tag == "intersection" then
@@ -12369,7 +12432,7 @@ local function valueMode ( t )
 if not t then
 return "plain"
 end
-if t . tag == "owned" or t . tag == "pinned" then
+if t . tag == "affine" or t . tag == "pinned" then
 return "takes"
 end
 if t . tag == "borrowed" then
@@ -12749,27 +12812,6 @@ end
 
 
 
-local function registerHoistedDropMembers ( decl )
-if not decl or decl . kind ~= "recordDecl" or not decl . hoistedType then
-return
-end
-for _ , entry in ipairs ( decl . entries or { } ) do
-if entry . kind == "recordDecl" then
-registerHoistedDropMembers ( entry )
-else
-local named = entry . name and entry . name . text
-for _ , application in ipairs ( named and entry . annotations or { } ) do
-if application . name and application . name . text == "drop" then
-c . own . addDefaultDropOperation ( decl . hoistedType , T . methodCleanup ( named ) )
-end
-end
-end
-end
-end
-
-
-
-
 
 local function hoistDeclarations ( block )
 for _ , stat in ipairs ( block . stats or { } ) do
@@ -12825,74 +12867,8 @@ decl . hoistedAlias = waiting
 c . scope . pending [ c . declKey ( decl ) ] = waiting
 end
 end
-
-
-
-
-
-
-for _ , stat in ipairs ( block . stats or { } ) do
-local decl = stat
-while decl and decl . kind == "pragmaStmt" do
-decl = decl . stat
-end
-registerHoistedDropMembers ( decl )
-end
-
 local wasHoisting = c . hoisting
 c . hoisting = true
-
-
-
-
-
-
-for _ , stat in ipairs ( block . stats or { } ) do
-local decl , dropTok = stat , nil
-while decl and decl . kind == "pragmaStmt" do
-if decl . name and decl . name . text == "drop" then
-dropTok = decl . name
-end
-decl = decl . stat
-end
-local functionDecl = decl and ( decl . kind == "localFuncStmt" or decl . kind == "funcStmt" )
-if dropTok and functionDecl and decl . body and not decl . body . dropCleanup then
-local named = decl . name
-local ownerKey , memberTok = nil , nil
-if named and named . kind == "funcname" then
-ownerKey , memberTok = c . funcOwner ( named )
-end
-local owner = ownerKey and c . lookupType ( ownerKey ) or nil
-
-
-
-
-
-
-if owner and owner . tag == "nominal" and named . method and memberTok then
-c . own . addDefaultDropOperation ( owner , T . methodCleanup ( memberTok . text ) )
-else
-local path = nil
-if decl . kind == "localFuncStmt" and named then
-path = named . text
-elseif named and named . kind == "funcname" and not named . method then
-
-
-
-
-
-
-path = ownerKey and memberTok and (
-ownerKey .. "." .. memberTok . text
-) or named . base and named . base . text or nil
-end
-if path then
-c . own . registerDefaultDropOperation ( c . signatureOf ( decl . body , nil ) , path , dropTok , nil , decl . body )
-end
-end
-end
-end
-
 
 
 
@@ -13017,6 +12993,8 @@ local boundary = cst . lastToken ( block )
 local function cleanupName ( cleanup )
 if cleanup . kind == "function" then
 return cleanup . name or cleanup . id
+elseif cleanup . kind == "closure" then
+return "generated closure terminal"
 elseif cleanup . kind == "method" then
 return ":" .. cleanup . name
 elseif cleanup . kind == "field" then
@@ -13076,7 +13054,6 @@ help = hazard . help
 end
 end
 c . derives . finalize ( )
-own . finalizeDefaultCleanups ( )
 auditScope ( c . rootScope )
 
 
@@ -13084,6 +13061,20 @@ auditScope ( c . rootScope )
 
 
 if opts and opts . declareGlobals and env then
+
+
+
+
+local pendingNames = { }
+for name in pairs ( c . rootScope . pending ) do
+pendingNames [ # pendingNames + 1 ] = name
+end
+for _ , name in ipairs ( pendingNames ) do
+local waiting = c . rootScope . pending [ name ]
+if waiting then
+c . resolvePendingAlias ( name , waiting , c . rootScope )
+end
+end
 env . globals = env . globals or { }
 env . globalTypes = env . globalTypes or { }
 for name , entry in pairs ( c . rootScope . vars ) do
@@ -13140,6 +13131,11 @@ end
 end
 end
 finalizeNominalEffects ( c )
+relations . invalidate ( )
+
+
+
+own . finalizeCleanupBounds ( )
 finalizeCallGuarantees ( c , effectQueries )
 finalizeBoundary ( c )
 
@@ -13172,7 +13168,7 @@ return checkMod
 
 end
 package.preload["nupp.compiler.check.annotate"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -13685,7 +13681,7 @@ return annotate
 
 end
 package.preload["nupp.compiler.check.bindings"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -13788,7 +13784,7 @@ end
 local bound = ann or init or T . any
 
 
-if ann and init and ownershipKind ( ann ) == "owned" and ownershipKind ( init ) == "owned" then
+if ann and init and ownershipKind ( ann ) == "affine" and ownershipKind ( init ) == "affine" then
 bound = init
 end
 if not ann then
@@ -13816,7 +13812,7 @@ bound = T . any
 end
 end
 if (
-ownershipKind ( init ) == "owned" or ownershipKind ( init ) == "pinned"
+ownershipKind ( init ) == "affine" or ownershipKind ( init ) == "pinned"
 ) and stat . exprs and initializers [ j ] then
 moveExpression ( initializers [ j ] , init , "local initialization" , ownershipKind ( init ) )
 end
@@ -14043,7 +14039,7 @@ group . extraNames [
 ] = { name = nameTok . text , index = sourceEntry . packCorrelationIndex , }
 end
 end
-if boundEntry and ( ownershipKind ( bound ) == "owned" or ownershipKind ( bound ) == "pinned" ) and not init then
+if boundEntry and ( ownershipKind ( bound ) == "affine" or ownershipKind ( bound ) == "pinned" ) and not init then
 boundEntry . moved = true
 end
 local boundKind = ownershipKind ( bound )
@@ -14080,7 +14076,7 @@ end
 end
 end
 if boundEntry and (
-boundKind == "borrowed" or boundKind == "owned"
+boundKind == "borrowed" or boundKind == "affine"
 ) and returnBorrowOwners and # returnBorrowOwners == 1 then
 boundEntry . borrowOwner = returnBorrowOwners [ 1 ]
 returnBorrowOwners [ 1 ] . activeBorrows = ( returnBorrowOwners [ 1 ] . activeBorrows or 0 ) + 1
@@ -14091,7 +14087,7 @@ returnBorrowOwners [
 ] . activeExclusiveBorrows = ( returnBorrowOwners [ 1 ] . activeExclusiveBorrows or 0 ) + 1
 end
 elseif boundEntry and (
-boundKind == "borrowed" or boundKind == "owned"
+boundKind == "borrowed" or boundKind == "affine"
 ) and initNode and initNode . borrowOwner then
 boundEntry . borrowOwner = initNode . borrowOwner
 initNode . borrowOwner . activeBorrows = ( initNode . borrowOwner . activeBorrows or 0 ) + 1
@@ -14101,7 +14097,7 @@ initNode . borrowOwner . activeExclusiveBorrows = ( initNode . borrowOwner . act
 end
 end
 if boundEntry and (
-boundKind == "borrowed" or boundKind == "owned"
+boundKind == "borrowed" or boundKind == "affine"
 ) and returnBorrowOwners and # returnBorrowOwners > 1 then
 boundEntry . borrowOwners = returnBorrowOwners
 for _ , owner in ipairs ( returnBorrowOwners ) do
@@ -14112,7 +14108,7 @@ end
 end
 boundEntry . exclusiveBorrow = returnExclusiveBorrow or nil
 elseif boundEntry and (
-boundKind == "borrowed" or boundKind == "owned"
+boundKind == "borrowed" or boundKind == "affine"
 ) and initNode and initNode . borrowOwners then
 boundEntry . borrowOwners = initNode . borrowOwners
 for _ , owner in ipairs ( initNode . borrowOwners ) do
@@ -14167,7 +14163,7 @@ for resultIndex = 1 , # stat . names - exprCount + 1 do
 local ownedType , activation , compatible = nil , { } , true
 for _ , alternative in ipairs ( correlated . alternatives ) do
 local resultType = alternative . head and alternative . head [ resultIndex ]
-if resultType and ownershipKind ( resultType ) == "owned" then
+if resultType and ownershipKind ( resultType ) == "affine" then
 if ownedType and ownedType . id ~= resultType . id then
 compatible = false
 break
@@ -14296,7 +14292,7 @@ target ,
 ( "%q cannot be assigned while a derived borrow is live" ) : format ( targetName )
 )
 end
-if entry and et and ( ownershipKind ( et ) == "owned" or ownershipKind ( et ) == "pinned" ) then
+if entry and et and ( ownershipKind ( et ) == "affine" or ownershipKind ( et ) == "pinned" ) then
 
 local incomingKind = ownershipKind ( et )
 if entry . ann and ownershipKind ( entry . t ) ~= incomingKind then
@@ -14342,7 +14338,7 @@ local partialReinit = false
 if target . kind == "dotIndex" and target . obj and target . obj . kind == "name" and target . name then
 local container = ownershipState ( ( c . ownershipEntry ( target . obj ) ) )
 local field = target . name . text
-if et and ownershipKind ( et ) == "owned" and tt and ownershipKind ( tt ) == "owned" and container then
+if et and ownershipKind ( et ) == "affine" and tt and ownershipKind ( tt ) == "affine" and container then
 if not ( container . movedFields and container . movedFields [ field ] ) then
 c . diag ( "NUPP2602" , target , ( "assignment overwrites live affine field %q" ) : format ( field ) )
 else
@@ -14354,7 +14350,7 @@ written or stat ,
 "reinitialized field must keep its exact cleanup contract"
 )
 end
-moveExpression ( written , et , "affine field reinitialization" , "owned" )
+moveExpression ( written , et , "affine field reinitialization" , "affine" )
 if written and container . automaticOwner then
 written . automaticOwnerReinit = { owner = container . automaticOwner , field = field , }
 end
@@ -14519,10 +14515,10 @@ if called . valuePack then
 c . checkPackDiscard ( called . valuePack , 1 , called )
 return
 end
-local ignoredOwner = ownershipKind ( resultT ) == "owned"
+local ignoredOwner = ownershipKind ( resultT ) == "affine"
 if called . ffiOutContracts then
 for _ , returned in ipairs ( c . lastCallRets or { } ) do
-if ownershipKind ( returned ) == "owned" then
+if ownershipKind ( returned ) == "affine" then
 ignoredOwner = true
 end
 end
@@ -14539,7 +14535,7 @@ return bindings
 
 end
 package.preload["nupp.compiler.check.callexpr"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -15132,23 +15128,12 @@ node . zoneIntrinsic = "pop"
 end
 end
 end
-local intrinsic = ownershipIntrinsic ( c , callee )
+local intrinsic = node . ownershipSyntax or ownershipIntrinsic ( c , callee )
 if intrinsic then
 local args = argExprs
-if intrinsic == "intoRaw" then
+if intrinsic == "borrow" then
 local valueT = args [ 1 ] and c . infer ( args [ 1 ] ) or T . any
-if # args ~= 1 then
-c . diag ( "NUPP2602" , node , "intoRaw expects one owned value" )
-end
-if c . unsafeDepth == 0 then
-c . diag ( "NUPP2604" , node , "intoRaw requires an unsafe do block" )
-end
-c . moveExpression ( args [ 1 ] or node , valueT , "intoRaw" )
-node . ownershipIntrinsic = "intoRaw"
-return rawType ( valueT )
-elseif intrinsic == "borrow" then
-local valueT = args [ 1 ] and c . infer ( args [ 1 ] ) or T . any
-if # args ~= 1 or c . ownershipKind ( valueT ) ~= "owned" then
+if # args ~= 1 or c . ownershipKind ( valueT ) ~= "affine" then
 c . diag ( "NUPP2602" , node , "borrow expects one live owned value" )
 end
 node . ownershipIntrinsic = "borrow"
@@ -15225,34 +15210,6 @@ end
 end
 node . ownershipIntrinsic = "pin"
 return T . pinned ( rawType ( pointerT ) )
-elseif intrinsic == "fromRaw" then
-local valueT = args [ 1 ] and c . infer ( args [ 1 ] ) or T . any
-local cleanups = { }
-for j = 2 , # args do
-local cleanupT = c . infer ( args [ j ] )
-local cleanupNode = args [ j ]
-local cleanupTok = cleanupNode . kind == "name" and cleanupNode . token or nil
-if not cleanupTok then
-c . diag ( "NUPP2602" , args [ j ] , "fromRaw cleanup arguments must be function names" )
-else
-cleanups [ # cleanups + 1 ] = cleanupTok . text
-end
-if cleanupT ~= T . any and (
-cleanupT . tag ~= "func" or not cleanupT . params [ 1 ] or not isA ( rawType ( valueT ) , cleanupT . params [ 1 ] )
-) then
-c . diag ( "NUPP2602" , args [ j ] , "fromRaw cleanup must accept the pointer type" )
-end
-end
-if c . unsafeDepth == 0 then
-c . diag ( "NUPP2604" , node , "fromRaw requires an unsafe do block" )
-end
-if c . ownershipKind ( valueT ) or not c . pointerShaped ( valueT ) then
-c . diag ( "NUPP2602" , args [ 1 ] or node , "fromRaw expects an unmanaged pointer" )
-end
-cleanups = c . own . resolveCleanups ( cleanups , node )
-node . ownershipIntrinsic = "fromRaw"
-node . ownerCleanups = cleanups
-return T . owned ( rawType ( valueT ) , cleanups )
 elseif intrinsic == "attemptAll" then
 
 
@@ -15309,7 +15266,7 @@ if # args ~= 1 then
 c . diag ( "NUPP2602" , node , "drop expects one owned value" )
 end
 c . moveExpression ( args [ 1 ] or node , valueT , "drop" , nil , true )
-if c . ownershipKind ( valueT ) == "owned" and # ( dropped . cleanups or { } ) == 0 then
+if c . ownershipKind ( valueT ) == "affine" and # ( dropped . cleanups or { } ) == 0 then
 c . diag (
 "NUPP2602" ,
 args [ 1 ] or node ,
@@ -15381,11 +15338,11 @@ if callee and callee . kind == "dotIndex" then
 callee . callCallee = true
 end
 local calleeT = callee and c . infer ( callee ) or T . any
-if callee and c . ownershipKind ( calleeT ) == "owned" and rawType ( calleeT ) . tag == "func" then
+if callee and c . ownershipKind ( calleeT ) == "affine" and rawType ( calleeT ) . tag == "func" then
 if node . kind == "safeCall" then
 c . diag ( "NUPP2602" , callee , "an affine closure call cannot be conditional; narrow it first" )
 else
-c . moveExpression ( callee , calleeT , "affine closure call" , "owned" )
+c . moveExpression ( callee , calleeT , "affine closure call" , "affine" )
 if callee . automaticOwnerMove then
 node . automaticOwnerMoves = node . automaticOwnerMoves or { }
 node . automaticOwnerMoves [ # node . automaticOwnerMoves + 1 ] = callee . automaticOwnerMove
@@ -16034,7 +15991,7 @@ node . argumentPack and T . packAt ( node . argumentPack , 2 ) or nil
 )
 if owner . tag == "nominal" and owner . resourceSet and member . text == "adopt" then
 local adopted = node . argumentPack and T . packAt ( node . argumentPack , 1 ) or nil
-local cleanups = adopted and adopted . tag == "owned" and adopted . cleanups or nil
+local cleanups = adopted and adopted . tag == "affine" and adopted . cleanups or nil
 local actualArgs = node . args and node . args . kind == "args" and node . args . exprs or { }
 if cleanups and # cleanups > 0 then
 if actualArgs [ 2 ] then
@@ -16232,7 +16189,7 @@ return callexpr
 
 end
 package.preload["nupp.compiler.check.calls"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -16410,9 +16367,9 @@ if cdefCall and actual . tag == "pinned" then
 actual = rawType ( actual )
 end
 local mode = specialized . paramModes and specialized . paramModes [ j ] or "plain"
-if mode == "takes" and actual . tag ~= "owned" then
+if mode == "takes" and actual . tag ~= "affine" then
 return nil , ( "argument %d requires an owned value" ) : format ( j )
-elseif mode == "scoped" and ( actual . tag == "owned" or actual . tag == "pinned" ) then
+elseif mode == "scoped" and ( actual . tag == "affine" or actual . tag == "pinned" ) then
 return nil , ( "argument %d cannot borrow an affine value as a repeatable callback" ) : format ( j )
 end
 local ok , why = isA ( actual , params . head [ j ] )
@@ -16433,9 +16390,9 @@ if tail and tail . kind == "homogeneous" then
 for j = # params . head + 1 , actualCount do
 local mode = tail . mode
 local actual = argPack . head [ j ]
-if mode == "takes" and actual . tag ~= "owned" then
+if mode == "takes" and actual . tag ~= "affine" then
 return nil , ( "argument %d requires an owned value" ) : format ( j )
-elseif mode == "scoped" and ( actual . tag == "owned" or actual . tag == "pinned" ) then
+elseif mode == "scoped" and ( actual . tag == "affine" or actual . tag == "pinned" ) then
 return nil , ( "argument %d cannot borrow an affine value as a repeatable callback" ) : format ( j )
 end
 local ok , why = isA ( argPack . head [ j ] , tail . type )
@@ -17214,8 +17171,8 @@ node . partitionFields [ fname ] = suffix
 end
 end
 local borrowedRoot = calleeT . borrowedRootFields and calleeT . borrowedRootFields [ fname ]
-local storesCapability = c . ownershipKind ( ft ) == "owned" or c . ownershipKind ( ft ) == "pinned"
-if storesCapability and ( c . ownershipKind ( vt ) == "owned" or c . ownershipKind ( vt ) == "pinned" ) then
+local storesCapability = c . ownershipKind ( ft ) == "affine" or c . ownershipKind ( ft ) == "pinned"
+if storesCapability and ( c . ownershipKind ( vt ) == "affine" or c . ownershipKind ( vt ) == "pinned" ) then
 affineValues [ fname ] = vt
 if borrowedRoot then
 deferredAffineRoots [ fname ] = { node = value , type = vt }
@@ -17351,7 +17308,7 @@ end
 local sourceType = calleeT . byname [ source ]
 local internalRoot = c . ownershipKind (
 sourceType
-) == "owned" or c . ownershipKind ( sourceType ) == "pinned"
+) == "affine" or c . ownershipKind ( sourceType ) == "pinned"
 if not internalRoot then
 for _ , root in ipairs ( actual ) do
 if not rootSeen [ root ] then
@@ -17377,13 +17334,10 @@ end
 end
 if calleeT . affineFields and # calleeT . affineFields > 0 then
 local cleanups , opaque = { } , false
-if calleeT . defaultDropOperations and # calleeT . defaultDropOperations == 1 then
-cleanups [ 1 ] = calleeT . defaultDropOperations [ 1 ]
-else
 for j = # calleeT . affineFields , 1 , - 1 do
 local name = calleeT . affineFields [ j ]
 local valueT = affineValues [ name ]
-if c . ownershipKind ( valueT ) == "owned" then
+if c . ownershipKind ( valueT ) == "affine" then
 if # ( valueT . cleanups or { } ) == 0 then
 opaque = true
 else
@@ -17395,11 +17349,10 @@ elseif c . ownershipKind ( valueT ) == "pinned" then
 cleanups [ # cleanups + 1 ] = T . dropFieldCleanup ( name )
 end
 end
-end
 if opaque then
 cleanups = { }
 end
-local owned = T . owned ( calleeT , cleanups )
+local owned = T . affine ( calleeT , cleanups )
 return owned , { owned }
 end
 if calleeT . fieldBorrowSources and next ( calleeT . fieldBorrowSources ) then
@@ -17438,7 +17391,7 @@ c . diag (
 "NUPP2603" ,
 arg ,
 "an owner or borrow cannot cross an untyped call; "
-.. "use intoRaw explicitly to abandon tracking"
+.. "use unsafe release explicitly to abandon tracking"
 )
 end
 end
@@ -18099,7 +18052,7 @@ end
 end
 elseif preservationResult then
 local kind = c . ownershipKind ( ats [ j ] )
-if kind == "owned" or kind == "pinned" then
+if kind == "affine" or kind == "pinned" then
 local movedNode = cst . isToken ( argNodes [ j ] ) and node or argNodes [ j ]
 local sourceEntry = c . ownershipEntry ( movedNode )
 local conditional = node . kind == "safeCall" or node . kind == "methodCall" and (
@@ -18351,7 +18304,7 @@ local sourceEntry = source and c . ownershipEntry ( source ) or nil
 sourceEntry = c . own . ownershipState ( sourceEntry )
 local found
 if sourceEntry and (
-c . ownershipKind ( sourceEntry . t ) == "owned" or c . ownershipKind ( sourceEntry . t ) == "pinned"
+c . ownershipKind ( sourceEntry . t ) == "affine" or c . ownershipKind ( sourceEntry . t ) == "pinned"
 ) then
 found = { sourceEntry }
 else
@@ -18480,7 +18433,7 @@ return calls
 
 end
 package.preload["nupp.compiler.check.cdef"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -18531,8 +18484,7 @@ c ,
 reifiableField
 )
 local own = c . own
-local registerDefaultDropOperation = own . registerDefaultDropOperation
-local resolvedOwnedCleanups = own . resolvedOwnedCleanups
+local resolveCleanups = own . resolveCleanups
 local pointerShaped , validateCleanups = c . pointerShaped , c . validateCleanups
 
 local handlers = { }
@@ -18649,6 +18601,7 @@ local pt = c . resolveType ( declared )
 if pt . tag == "func" then
 pt = T . foreignFunction ( pt )
 end
+declared . resolvedType = pt
 local mode = modeTok and modeTok . text or "plain"
 local pdef = c . definition ( pname , "parameter" )
 if pdef then
@@ -18670,7 +18623,7 @@ local abiCountedBy = ( p ) . countedBy
 
 
 local abiType = T . unwrapOwnership ( pt )
-if abiType . tag == "ptr" and abiType . elem . tag == "owned" then
+if abiType . tag == "ptr" and abiType . elem . tag == "affine" then
 abiType = T . ptr ( T . unwrapOwnership ( abiType . elem ) )
 end
 abiParams [
@@ -18696,8 +18649,14 @@ local slot = pt . tag == "ptr" and pt . elem or nil
 
 
 
-if slot and slot . tag == "owned" and not output then
-output = { kind = "owned" , name = named , cleanups = slot . cleanups , opaque = slot . opaque , at = p , }
+if slot and slot . tag == "affine" and not output then
+output = {
+kind = "affine" ,
+name = named ,
+cleanups = slot . cleanups ,
+transferOnly = slot . transferOnly ,
+at = p ,
+}
 end
 if not output then
 c . diag (
@@ -18736,18 +18695,19 @@ if stat . ret then
 c . cdefReturn = true
 local rt = c . resolveType ( stat . ret )
 c . cdefReturn = nil
+stat . ret . resolvedType = rt
 rets [ 1 ] = rt
 
 
 
 local raw = T . unwrapOwnership ( rt )
 abiResult = raw
-if rt . tag == "owned" then
+if rt . tag == "affine" then
 if not pointerShaped ( raw ) and raw ~= T . cstring then
 c . diag ( "NUPP2203" , stat . ret , "an owned cdef return must be a pointer" )
 end
-local cleanups = resolvedOwnedCleanups ( raw , rt . cleanups , rt . opaque , stat . ret , nil )
-local owner = T . owned ( raw , cleanups )
+local cleanups = resolveCleanups ( rt . cleanups or { } , stat . ret , nil )
+local owner = T . affine ( raw , cleanups )
 rets [ 1 ] = owner
 validateCleanups ( owner , cleanups , stat . ret , "NUPP2615" )
 end
@@ -18770,21 +18730,15 @@ if output . success ~= "always" and not stat . ret then
 c . diag ( "NUPP2602" , output . at or stat , "conditional output needs a C status return" )
 end
 local valueType = output . success == "always" and output . valueType or T . optional ( output . valueType )
-if output . kind == "owned" then
-output . cleanups = resolvedOwnedCleanups (
-output . valueType ,
-output . cleanups ,
-output . opaque ,
-output . at or stat ,
-nil
-)
+if output . kind == "affine" then
+output . cleanups = resolveCleanups ( output . cleanups or { } , output . at or stat , nil )
 validateCleanups (
-T . owned ( output . valueType , output . cleanups ) ,
+T . affine ( output . valueType , output . cleanups ) ,
 output . cleanups ,
 output . at or stat ,
 "NUPP2615"
 )
-rets [ # rets + 1 ] = T . owned ( valueType , output . cleanups )
+rets [ # rets + 1 ] = T . affine ( valueType , output . cleanups )
 else
 output . sourceParam = logicalByName [ output . source ]
 if not output . sourceParam then
@@ -18962,9 +18916,6 @@ if not stat . countedAbi then
 c . cDefinedFunctions [ cdefName . text ] = cdefType
 end
 c . bindVar ( cdefName . text , cdefType , true , cdefName , "function" )
-if stat . dropContract then
-registerDefaultDropOperation ( cdefType , cdefName . text , stat . dropTok or stat , stat . cleanupRegistrationNode )
-end
 if cdefName . definition then
 cdefName . definition . cdef = true
 local library = stringLiteral ( stat . fromLib ) or "<default>"
@@ -18990,7 +18941,7 @@ return cdef
 
 end
 package.preload["nupp.compiler.check.control"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -19008,6 +18959,7 @@ local state = require ( "nupp.compiler.check.state" )
 
 local isA = relations . isA
 local packIsA = relations . packIsA
+local rawType = T . unwrapOwnership
 local memberSet = narrowing . memberSet
 
 local control = { }
@@ -19237,7 +19189,7 @@ ownCode or "NUPP2603" ,
 expr ,
 ownCode and "an owning result cannot retain an input borrow" or "borrowed value cannot be returned"
 )
-elseif ownershipKind ( valueT ) == "owned" or ownershipKind ( valueT ) == "pinned" then
+elseif ownershipKind ( valueT ) == "affine" or ownershipKind ( valueT ) == "pinned" then
 
 local valueKind = ownershipKind ( valueT )
 local expected = annotatedPack and T . packAt (
@@ -19338,12 +19290,17 @@ if annotated and not annotatedPack then
 for j , rt in ipairs ( annotated ) do
 local got = ts [ j ] or T . nil_
 local expected = rt
+local expr = stat . exprs and stat . exprs [ j ]
+local freshConstruction = expr and (
+expr . kind == "newExpr" or expr . kind == "call" and expr . recordConstruct ~= nil
+)
 
 
 
 
-if ownReturns and ownReturns [ j ] and not ownershipKind ( got ) then
+if ownReturns and ownReturns [ j ] and ( not ownershipKind ( got ) or freshConstruction ) then
 expected = ownReturns [ j ]
+got = rawType ( got )
 end
 local ok , why = isA ( got , expected )
 if not ok then
@@ -19368,8 +19325,13 @@ return
 end
 for j , expected in ipairs ( annotatedPack . head ) do
 local got = T . packAt ( returnedPack , j ) or T . nil_
-if ownReturns and ownReturns [ j ] and not ownershipKind ( got ) then
+local expr = stat . exprs and stat . exprs [ j ]
+local freshConstruction = expr and (
+expr . kind == "newExpr" or expr . kind == "call" and expr . recordConstruct ~= nil
+)
+if ownReturns and ownReturns [ j ] and ( not ownershipKind ( got ) or freshConstruction ) then
 expected = ownReturns [ j ]
+got = rawType ( got )
 end
 local ok , why = isA ( got , expected )
 if not ok then
@@ -19884,7 +19846,7 @@ return control
 
 end
 package.preload["nupp.compiler.check.declare"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -20653,7 +20615,6 @@ end
 
 
 
-
 local function checkInheritedDefaults ( stat , n )
 n . inheritedDefaults = { }
 local providers = { }
@@ -21162,9 +21123,6 @@ n . supertypes [ # n . supertypes + 1 ] = super
 
 
 superNode . resolvedSupertype = super
-for _ , dropOperation in ipairs ( super . defaultDropOperations or { } ) do
-c . own . addDefaultDropOperation ( n , dropOperation )
-end
 local selfMap = super . selfType and { [ super . selfType ] = n . selfType } or { }
 for name , inherited in pairs ( super . byname or { } ) do
 if not n . byname [ name ] then
@@ -21354,13 +21312,10 @@ end
 if e . type and e . type . kind == "tfunc" then
 c . raises . checkParams ( e , ( e . type ) . params or { } )
 end
-local isDropOperation = false
 local partitionApplication = nil
 for _ , application in ipairs ( e . annotations or { } ) do
 local definition2 , valid = validateAnnotation ( application , e , stat )
-if definition2 and valid and application . name . text == "drop" then
-isDropOperation = true
-elseif definition2 and valid and application . name . text == "partition" then
+if definition2 and valid and application . name . text == "partition" then
 partitionApplication = application
 end
 end
@@ -21467,21 +21422,9 @@ stat . isAnnotationDefinition and "annotation schemas" or "structs"
 )
 capability = nil
 end
-if c . ownershipKind ( ft ) == "owned" or c . ownershipKind ( ft ) == "pinned" then
+if c . ownershipKind ( ft ) == "affine" or c . ownershipKind ( ft ) == "pinned" then
 n . affineFields = n . affineFields or { }
 n . affineFields [ # n . affineFields + 1 ] = e . name . text
-n . affineResource = true
-end
-if isDropOperation then
-if ft . tag ~= "func" or not ft . params [ 1 ] or ft . paramModes [ 1 ] ~= "takes" then
-c . diag (
-"NUPP2602" ,
-e ,
-"@drop member must be a function whose first " .. "parameter takes the resource"
-)
-else
-c . own . addDefaultDropOperation ( n , T . methodCleanup ( e . name . text ) )
-end
 end
 local name = e . name . text
 if e . privacy and stat . declKind == "record" then
@@ -21680,13 +21623,11 @@ end
 elseif e . kind == "constructorDecl" then
 checkConstructor ( e , n , stat )
 elseif e . kind == "inlineMethod" then
-local isDropOperation , isOverride = false , false
+local isOverride = false
 for _ , application in ipairs ( e . annotations or { } ) do
 local definition2 , valid = validateAnnotation ( application , e , stat )
 if definition2 and valid then
-if application . name . text == "drop" then
-isDropOperation = true
-elseif application . name . text == "override" then
+if application . name . text == "override" then
 isOverride = true
 end
 end
@@ -21701,27 +21642,8 @@ state = { read = true , write = true , method = true }
 localMembers [ name ] = state
 end
 local receiver = hasReceiver ( e . body , stat . declKind )
-local declaredGroup = ( receiver and inlineSignatures or staticSignatures ) [ name ] or { }
-if isDropOperation and # declaredGroup > 1 then
-c . diag (
-"NUPP2602" ,
-e . name ,
-"a drop method has one resource contract and cannot " .. "be overloaded"
-)
-end
-if isDropOperation and not receiver then
-c . diag ( "NUPP2602" , e . name , "a drop method must declare `self` as its first parameter" )
-isDropOperation = false
-elseif isDropOperation then
-e . body . dropContract = true
-e . body . dropMethod = true
-end
 local checked = c . checkFuncbody ( e . body , receiver and n or nil )
-local ft = receiver and addSelf (
-checked ,
-n ,
-isDropOperation and "takes" or e . body . receiverMode
-) or checked
+local ft = receiver and addSelf ( checked , n , e . body . receiverMode ) or checked
 c . raises . check ( e , e . body )
 local callable = ( receiver and dropSelf ( ft ) or ft )
 local parameterKey = methodslots . parameters ( callable )
@@ -21819,9 +21741,6 @@ help = "remove @override, or declare the interface "
 .. "that provides the matching default"
 }
 )
-end
-if isDropOperation then
-c . own . addDefaultDropOperation ( n , T . methodCleanup ( name ) )
 end
 if receiver then
 n . fieldDefs [ name ] = n . fieldDefs [ name ] or definition
@@ -22081,7 +22000,7 @@ return declare
 
 end
 package.preload["nupp.compiler.check.derive"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 local T = require ( "nupp.compiler.types" )
 local cst = require ( "nupp.compiler.cst" )
@@ -23532,7 +23451,7 @@ return derive
 
 end
 package.preload["nupp.compiler.check.discard"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -23818,7 +23737,7 @@ return discard
 
 end
 package.preload["nupp.compiler.check.effectregions"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -24071,7 +23990,7 @@ return effectregions
 
 end
 package.preload["nupp.compiler.check.expr"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -24598,6 +24517,37 @@ end
 local result = c . infer ( call )
 node . partitionFields = call . partitionFields
 return result
+elseif kind == "unsafeOwnershipExpr" then
+local value = node . expr
+local valueT = value and c . infer ( value ) or T . any
+if node . operation == "release" then
+if c . ownershipKind ( valueT ) ~= "affine" then
+c . diag ( "NUPP2602" , value or node , "unsafe release expects an affine value" )
+end
+c . moveExpression ( value or node , valueT , "unsafe release" )
+node . ownershipIntrinsic = "release"
+return rawType ( valueT )
+else
+local target = c . resolveType ( node . type )
+if target . tag ~= "affine" then
+c . diag ( "NUPP2602" , node . type or node , "unsafe adopt target must be an affine type" )
+return target
+end
+if c . ownershipKind ( valueT ) then
+c . diag ( "NUPP2602" , value or node , "unsafe adopt expects an unmanaged value" )
+end
+local representation = rawType ( target )
+if valueT ~= T . any and not isA ( valueT , representation ) then
+c . diag (
+"NUPP2602" ,
+value or node ,
+( "cannot adopt %s as owner of %s" ) : format ( T . tostring ( valueT ) , T . tostring ( representation ) )
+)
+end
+node . ownerCleanups = target . cleanups
+node . ownershipIntrinsic = "adopt"
+return target
+end
 elseif kind == "ternary" then
 local cond , ifTrue , ifFalse = node . cond , node . ifTrue , node . ifFalse
 if not cond or not ifTrue or not ifFalse then
@@ -24627,8 +24577,8 @@ c . diag ( "NUPP2604" , node , "a Pinned<T> value must be constructed with pin(p
 end
 return target
 end
-if source . tag == "owned" then
-return T . owned ( target , source . cleanups , source . opaque )
+if source . tag == "affine" then
+return T . affine ( target , source . cleanups , source . transferOnly )
 elseif c . ownershipKind ( source ) == "borrowed" then
 return T . borrowed ( target )
 elseif c . ownershipKind ( source ) == "pinned" then
@@ -24807,9 +24757,9 @@ value ,
 return rawType ( valueT )
 end
 node . affineAggregate = true
-if c . ownershipKind ( valueT ) == "owned" then
+if c . ownershipKind ( valueT ) == "affine" then
 ownsElements = true
-c . moveExpression ( value , valueT , "affine aggregate element" , "owned" )
+c . moveExpression ( value , valueT , "affine aggregate element" , "affine" )
 if value . automaticOwnerMove then
 aggregateMoves [ # aggregateMoves + 1 ] = value . automaticOwnerMove
 end
@@ -24829,7 +24779,7 @@ end
 
 local function aggregateType ( valueT )
 if ownsElements then
-return T . owned ( valueT , { } )
+return T . affine ( valueT , { } )
 elseif # aggregateRoots > 0 then
 if # aggregateRoots == 1 then
 node . borrowOwner = aggregateRoots [ 1 ]
@@ -24953,7 +24903,7 @@ return expr
 
 end
 package.preload["nupp.compiler.check.ffi"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -25143,7 +25093,11 @@ node . unsafeOwnershipOperation = "FFI callback creation"
 end
 end
 if name == "cast" and ffiArgs [ 1 ] and c . ownershipKind ( ffiArgs [ 1 ] ) then
-c . diag ( "NUPP2603" , node , "casting an owner or borrow requires explicit intoRaw " .. "or borrowFrom" )
+c . diag (
+"NUPP2603" ,
+node ,
+"casting an affine value or borrow requires explicit unsafe release or borrowFrom"
+)
 end
 return argT
 elseif name == "typeof" then
@@ -25446,7 +25400,7 @@ return ffi
 
 end
 package.preload["nupp.compiler.check.fixits"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -25787,7 +25741,7 @@ return fixits
 
 end
 package.preload["nupp.compiler.check.functions"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -25815,7 +25769,6 @@ local functions = { }
 
 
 function functions . install ( c )
-local registerDefaultDropOperation = c . own . registerDefaultDropOperation
 
 local ownershipState , pointerShaped = c . ownershipState , c . pointerShaped
 local expectedFuncbodies = { }
@@ -25886,15 +25839,13 @@ local calleeT = calleeName and c . lookupVar ( calleeName ) or nil
 
 
 
-
-
-local intrinsic = cst . ownershipIntrinsicSpelling ( node . obj )
+local intrinsic = node . ownershipSyntax or cst . ownershipIntrinsicSpelling ( node . obj )
 local args = node . args and node . args . exprs or { }
 for j , arg in ipairs ( args ) do
 local name = directName ( arg )
 if name then
 local effect
-if intrinsic == "drop" or intrinsic == "intoRaw" then
+if intrinsic == "drop" then
 effect = "takes"
 elseif intrinsic == "borrow" or intrinsic == "pin" then
 effect = "borrows"
@@ -26157,7 +26108,7 @@ local state = c . ownershipState ( entry )
 local valueType = state and state . t or nil
 if not state then
 c . diag ( "NUPP2109" , token , ( "%s names no value to capture" ) : format ( token . text ) )
-elseif c . ownershipKind ( valueType ) ~= "owned" then
+elseif c . ownershipKind ( valueType ) ~= "affine" then
 c . diag (
 "NUPP2602" ,
 token ,
@@ -26173,7 +26124,7 @@ token ,
 )
 else
 local moveNode = { kind = "name" , token = token }
-c . moveExpression ( moveNode , valueType , "closure capture" , "owned" )
+c . moveExpression ( moveNode , valueType , "closure capture" , "affine" )
 captures [
 # captures + 1
 ] = {
@@ -26265,16 +26216,14 @@ if not ( explicitSelf and explicitSelf . name and explicitSelf . name . text == 
 explicitSelf = nil
 end
 local inferredModes , declaredModes = inferredParameterModes ( body )
+local receiverMode = nil
 if explicitSelf then
 local mode = inferredModes [ 1 ] or "borrows"
-if not declaredModes [
-1
-] and mode ~= "takes" and not pointerShaped (
-selfType
-) and not ( selfType . tag == "nominal" and selfType . affineResource ) then
+if not declaredModes [ 1 ] and mode ~= "takes" and not pointerShaped ( selfType ) then
 mode = "plain"
 end
 body . receiverMode = mode
+receiverMode = mode
 end
 local scopedCandidates = scopedCallbackParameters ( body , true )
 local vararg = false
@@ -26314,9 +26263,12 @@ end
 end
 body . takenCaptures = captures
 if selfType then
+local receiverType = receiverMode == "takes" and T . affine (
+selfType
+) or ( receiverMode == "borrows" or receiverMode == "exclusive" ) and T . borrowed ( selfType ) or selfType
 c . bindVar (
 "self" ,
-selfType ,
+receiverType ,
 explicitSelf and explicitSelf . type ~= nil ,
 explicitSelf and explicitSelf . name or nil ,
 "parameter"
@@ -26354,16 +26306,16 @@ end
 end
 c . bindVar ( p . name . text , T . table_ , false , p . name , "parameter" , true )
 elseif p . name then
-local pt = p . type and c . resolveType ( p . type ) or ( expectedParams and expectedParams [ # params + 1 ] ) or T . any
+local pt = p . constDomainTok and T . functionConst or p . type and c . resolveType (
+p . type
+) or ( expectedParams and expectedParams [ # params + 1 ] ) or T . any
 params [ # params + 1 ] = pt
 paramNames [ # params ] = p . name . text
 local mode = inferredModes [ sourceIndex ] or "borrows"
 if not declaredModes [ sourceIndex ] and scopedCandidates [ p . name . text ] and rawType ( pt ) . tag == "func" then
 mode = "scoped"
 end
-if not declaredModes [
-sourceIndex
-] and mode ~= "takes" and not pointerShaped ( pt ) and not ( pt . tag == "nominal" and pt . affineResource ) then
+if not declaredModes [ sourceIndex ] and mode ~= "takes" and not pointerShaped ( pt ) then
 mode = "plain"
 end
 paramModes [ # params ] = mode
@@ -26373,8 +26325,12 @@ end
 if ( mode == "retains" or mode == "releases" ) and not pointerShaped ( pt ) then
 c . diag ( "NUPP2602" , p , mode .. " parameters must have a pointer-shaped type" )
 end
-local bound = mode == "takes" and T . owned (
-pt
+
+
+
+
+local bound = mode == "takes" and (
+pt . tag == "affine" and pt or T . affine ( pt )
 ) or ( mode == "borrows" or mode == "exclusive" ) and T . borrowed ( pt ) or pt
 c . bindVar ( p . name . text , bound , p . type ~= nil , p . name , "parameter" )
 if mode == "exclusive" then
@@ -26451,29 +26407,20 @@ end
 
 
 
-
 local ownedReturns = { }
 local ownsAResult = false
-local writtenResults = body . rets
 
 
 
-local normalized = c . own . normalizeOwnedResults ( T . pack ( annotated or { } , nil ) , body . returnPack , body )
+local normalized = T . pack ( annotated or { } , nil )
 for j , ret in ipairs ( normalized . head or { } ) do
 annotated [ j ] , rets [ j ] = ret , ret
-if ret . tag == "owned" then
-local written = cst . resultValueType ( writtenResults and writtenResults [ j ] )
-local wroteOwned = written ~= nil
-and written . kind == "tname"
-and written . base ~= nil
-and written . base . text == "Owned"
-if wroteOwned and j == 1 then
+if ret . tag == "affine" then
+if j == 1 then
 body . ownCleanups = ret . cleanups
 end
-if wroteOwned then
 ownsAResult = true
 ownedReturns [ j ] = rawType ( ret )
-end
 end
 end
 
@@ -26497,10 +26444,11 @@ c . ownReturnStack [ # c . ownReturnStack + 1 ] = ownsAResult and ownedReturns o
 c . borrowReturnStack [
 # c . borrowReturnStack + 1
 ] = ( body . rets and body . rets [ 1 ] and body . rets [ 1 ] . kind == "tborrows" and body . rets [ 1 ] ) or false
-local dropOperationContext , dropRoot
-if body . dropContract then
-local resource , root = selfType , selfType and "self" or nil
-if not resource then
+local consumingContext , consumingRoot
+local resource , root = nil , nil
+if selfType and receiverMode == "takes" then
+resource , root = selfType , "self"
+else
 for j , p in ipairs ( body . params or { } ) do
 if p . name and paramModes [ j ] == "takes" then
 resource , root = params [ j ] , p . name . text
@@ -26509,17 +26457,16 @@ end
 end
 end
 resource = resource and rawType ( resource ) or nil
-dropRoot = root
+consumingRoot = root
 local affineFields = resource and resource . tag == "nominal" and resource . affineFields or nil
 if affineFields and # affineFields > 0 then
 local owned = { }
 for _ , field in ipairs ( affineFields ) do
 owned [ field ] = true
 end
-dropOperationContext = { root = root , allowed = owned , done = { } }
+consumingContext = { root = root , allowed = owned , done = { } }
 end
-end
-c . dropOperationFieldStack [ # c . dropOperationFieldStack + 1 ] = dropOperationContext or false
+c . consumingFieldStack [ # c . consumingFieldStack + 1 ] = consumingContext or false
 
 
 local loopClosure = c . loops . begin ( c . functionDepth - 1 )
@@ -26615,17 +26562,17 @@ body ,
 )
 end
 end
-if body . dropContract and dropRoot and dropRoot ~= "self" then
-local terminal = ownershipState ( c . lookupEntry ( dropRoot ) )
+if consumingRoot then
+local terminal = ownershipState ( c . lookupEntry ( consumingRoot ) )
 if terminal then
 terminal . moved = true
 end
 end
-c . dropOperationFieldStack [ # c . dropOperationFieldStack ] = nil
-if dropOperationContext then
-for field in pairs ( dropOperationContext . allowed ) do
-if not dropOperationContext . done [ field ] then
-c . diag ( "NUPP2603" , body . dropTok or body , ( "@drop leaves owned field %q live" ) : format ( field ) )
+c . consumingFieldStack [ # c . consumingFieldStack ] = nil
+if consumingContext then
+for field in pairs ( consumingContext . allowed ) do
+if not consumingContext . done [ field ] then
+c . diag ( "NUPP2603" , body , ( "consuming function leaves owned field %q live" ) : format ( field ) )
 end
 end
 end
@@ -26716,7 +26663,7 @@ end
 
 
 
-if ( borrowsParam or borrowsSelf or borrowsParams ) and rets [ 1 ] and rets [ 1 ] . tag ~= "owned" then
+if ( borrowsParam or borrowsSelf or borrowsParams ) and rets [ 1 ] and rets [ 1 ] . tag ~= "affine" then
 rets [ 1 ] = T . borrowed ( rawType ( rets [ 1 ] ) )
 end
 if body . returnPack and not retPack . alternatives then
@@ -26752,7 +26699,7 @@ paramKinds ,
 body . partitionResults
 )
 if # captures > 0 then
-return T . owned ( callable , { T . methodCleanup ( "__drop" ) } )
+return T . affine ( callable , { T . closureCleanup ( ) } )
 end
 
 return callable
@@ -26779,11 +26726,7 @@ params [ 1 ] = selfType
 local mode = "plain"
 if explicitSelf then
 mode = inferredModes [ 1 ] or "borrows"
-if not declaredModes [
-1
-] and mode ~= "takes" and not pointerShaped (
-selfType
-) and not ( selfType . tag == "nominal" and selfType . affineResource ) then
+if not declaredModes [ 1 ] and mode ~= "takes" and not pointerShaped ( selfType ) then
 mode = "plain"
 end
 body . receiverMode = mode
@@ -26798,14 +26741,12 @@ for sourceIndex , p in ipairs ( body and body . params or { } ) do
 if p == explicitSelf then
 
 elseif p . name and not p . namedVararg then
-local pt = p . type and c . resolveType ( p . type ) or T . any
+local pt = p . constDomainTok and T . functionConst or p . type and c . resolveType ( p . type ) or T . any
 local mode = inferredModes [ sourceIndex ] or "borrows"
 if not declaredModes [ sourceIndex ] and scopedCandidates [ p . name . text ] and rawType ( pt ) . tag == "func" then
 mode = "scoped"
 end
-if not declaredModes [
-sourceIndex
-] and mode ~= "takes" and not pointerShaped ( pt ) and not ( pt . tag == "nominal" and pt . affineResource ) then
+if not declaredModes [ sourceIndex ] and mode ~= "takes" and not pointerShaped ( pt ) then
 mode = "plain"
 end
 params [ # params + 1 ] = pt
@@ -26839,7 +26780,6 @@ type = T . any
 
 
 
-retPack = c . own . normalizeOwnedResults ( retPack , body and body . returnPack , body )
 local rets = body and body . returnPack and retPack . head or { T . any }
 local yieldPack = body and body . yieldPack and c . resolvePack ( body . yieldPack ) or nil
 local resumePack = body and body . resumePack and c . resolvePack ( body . resumePack ) or nil
@@ -26907,7 +26847,7 @@ local functionEntry = c . scope . vars [ nameTok . text ]
 if functionEntry then
 functionEntry . jitTarget = functionEntry . definition
 end
-if ft . tag == "owned" then
+if ft . tag == "affine" then
 local entry = c . scope . vars [ nameTok . text ]
 local automatic = entry and entry . automaticOwner
 local initializer = { kind = "funcExpr" , body = body , affineLocal = true }
@@ -26926,9 +26866,6 @@ end
 
 c . unused . declared ( nameTok , c . scope . vars [ nameTok . text ] , "function" )
 c . raises . check ( stat , body )
-if body . dropContract then
-registerDefaultDropOperation ( ft , nameTok . text , body . dropTok or stat , body . cleanupRegistrationNode , body )
-end
 end
 
 handlers . funcStmt = function ( stat )
@@ -26966,6 +26903,9 @@ if memberDefinition then
 memberDefinition . type = ft
 c . markToken ( memberTok , memberDefinition , ft , memberDefinition . kind )
 end
+if not fname . method and ownerKey and memberTok and memberDefinition then
+c . qualifiedFunctionEntries [ ownerKey .. "." .. memberTok . text ] = { t = ft , definition = memberDefinition , }
+end
 if stat . comptimeFunction then
 stat . comptimeSignature = ft
 stat . comptimeDefinition = memberDefinition
@@ -27000,12 +26940,6 @@ end
 if not fname . method and not owner and ownerKey and memberTok then
 c . applyFacts ( { [ ownerKey .. "." .. memberTok . text ] = ft } )
 end
-if body . dropContract and not owner then
-local path = ownerKey and memberTok and (
-ownerKey .. "." .. memberTok . text
-) or fname . base and fname . base . text or "<drop>"
-registerDefaultDropOperation ( ft , path , body . dropTok or stat , body . cleanupRegistrationNode , body )
-end
 if owner and owner . declKind == "struct" then
 
 stat . structOwner = owner . runtimePath or ownerKey
@@ -27020,7 +26954,7 @@ local params = { selfType }
 for _ , p in ipairs ( ft . params ) do
 params [ # params + 1 ] = p
 end
-local modes = { body . dropMethod and "takes" or "plain" }
+local modes = { body . receiverMode or "plain" }
 local names = { "self" }
 for _ , mode in ipairs ( ft . paramModes or { } ) do
 modes [ # modes + 1 ] = mode
@@ -27092,19 +27026,6 @@ signature = stored ,
 body = body ,
 }
 end
-if body . dropMethod then
-if fname . method then
-c . own . addDefaultDropOperation ( owner , T . methodCleanup ( member ) )
-else
-registerDefaultDropOperation (
-ft ,
-( owner . runtimePath or ownerKey ) .. "." .. member ,
-body . dropTok or stat ,
-body . cleanupRegistrationNode ,
-body
-)
-end
-end
 if owner . fieldOrder and ( fname . method or owner . declKind == "struct" ) then
 owner . fieldOrder [ # owner . fieldOrder + 1 ] = member
 end
@@ -27121,7 +27042,7 @@ return functions
 
 end
 package.preload["nupp.compiler.check.index"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -27471,14 +27392,14 @@ local ownerState = target . kind == "name" and c . ownershipState ( ( c . owners
 if ownerState and ownerState . movedFields and ownerState . movedFields [ memberName ] and not node . writeContext then
 c . diag ( "NUPP2601" , node , ( "owned field %q was moved and has not been reinitialized" ) : format ( memberName ) )
 end
-if ownerState and c . ownershipKind ( ft ) == "owned" and c . ownershipKind ( ownerState . t ) == "owned" then
+if ownerState and c . ownershipKind ( ft ) == "affine" and c . ownershipKind ( ownerState . t ) == "affine" then
 local exact = { }
 for _ , cleanup in ipairs ( ownerState . t . cleanups or { } ) do
 if cleanup . kind == "field" and cleanup . field == memberName and cleanup . cleanup then
 exact [ # exact + 1 ] = cleanup . cleanup
 end
 end
-ft = T . owned ( rawType ( ft ) , exact )
+ft = T . affine ( rawType ( ft ) , exact )
 end
 c . markToken ( member , fieldDef , ft , "property" )
 member . additionalDefinitions = fieldDefs
@@ -27721,7 +27642,7 @@ return index
 
 end
 package.preload["nupp.compiler.check.loopclosure"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -27930,7 +27851,7 @@ return loopclosure
 
 end
 package.preload["nupp.compiler.check.metatable"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -28159,7 +28080,7 @@ return metatable
 
 end
 package.preload["nupp.compiler.check.narrow"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -28847,7 +28768,7 @@ return narrow
 
 end
 package.preload["nupp.compiler.check.nosuspend"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -29133,7 +29054,7 @@ return nosuspend
 
 end
 package.preload["nupp.compiler.check.operators"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -29681,7 +29602,7 @@ return operators
 
 end
 package.preload["nupp.compiler.check.ownership"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -29775,34 +29696,12 @@ local rawType = T . unwrapOwnership
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 function ownership . install ( c )
 local own = { }
-local pendingDefaultCleanups = { }
+local pendingGenericCleanupBounds = { }
 
 function own . ownershipKind ( t )
-return t and ( t . tag == "owned" or t . tag == "borrowed" or t . tag == "pinned" ) and t . tag or nil
+return t and ( t . tag == "affine" or t . tag == "borrowed" or t . tag == "pinned" ) and t . tag or nil
 end
 
 function own . ownershipState ( entry )
@@ -29842,7 +29741,7 @@ end
 
 function own . optionalOwned ( t )
 local inner = rawType ( t )
-return own . ownershipKind ( t ) == "owned" and inner . tag == "union" and inner . hasNil
+return own . ownershipKind ( t ) == "affine" and inner . tag == "union" and inner . hasNil
 end
 
 
@@ -29888,6 +29787,13 @@ end
 local cleanupOrdinals = { }
 local cleanupKeys = { }
 
+local function stableOrigin ( origin )
+while origin : sub ( 1 , 2 ) == "./" or origin : sub ( 1 , 2 ) == ".\\" do
+origin = origin : sub ( 3 )
+end
+return origin
+end
+
 local function cleanupKey ( origin , name , definition )
 local base = ( "%s#%s" ) : format ( origin , name )
 if not definition then
@@ -29915,12 +29821,18 @@ end
 
 
 function own . cleanupKeyFor ( name )
-local entry = c . lookupEntry ( name )
+local entry = c . lookupEntry ( name ) or c . qualifiedFunctionEntries [ name ]
 local definition = entry and entry . definition or nil
 if not definition then
 return nil , nil
 end
-local origin = c . result . moduleName or c . filename or "<module>"
+local definitionModule = definition . filename and c . env and c . env . moduleNameForPath and c . env . moduleNameForPath (
+c . env ,
+definition . filename
+)
+local origin = stableOrigin (
+definitionModule or definition and definition . filename or c . result . moduleName or c . filename or "<module>"
+)
 local key = cleanupKey ( origin , name , definition )
 local bound = entry and entry . t or nil
 if bound and bound . tag == "func" then
@@ -29933,7 +29845,17 @@ end
 local function resolvedFunctionCleanup ( name , at , registrationNode , after , knownType )
 local entry = c . lookupEntry ( name )
 local definition = entry and entry . definition or nil
-local origin = c . result . moduleName or c . filename or "<module>"
+local definitionModule = definition
+and definition . filename
+and c . env
+and c . env . moduleNameForPath
+and c . env . moduleNameForPath (
+c . env ,
+definition . filename
+)
+local origin = stableOrigin (
+definitionModule or definition and definition . filename or c . result . moduleName or c . filename or "<module>"
+)
 local key = cleanupKey ( origin , name , definition )
 local cleanup = T . functionCleanup ( key , name , knownType or entry and entry . t or nil )
 addRegistration ( registrationNode , cleanup , after == true )
@@ -29963,6 +29885,8 @@ end
 function own . validateCleanups ( valueT , cleanups , at , code )
 code = code or "NUPP2602"
 local cleanupValue = rawType ( valueT )
+
+
 if cleanupValue . tag == "union" and cleanupValue . hasNil then
 local present = { }
 for _ , member in ipairs ( cleanupValue . members ) do
@@ -29988,13 +29912,32 @@ goto continue
 end
 local cleanupT = cleanup . functionType or c . lookupVar ( cleanup . name )
 local cleanupFunc = cleanupT and cleanupT . tag == "func" and cleanupT or nil
+local cleanupEntry = c . lookupEntry ( cleanup . name ) or c . qualifiedFunctionEntries [ cleanup . name ]
+local cVoidTerminal = cleanupFunc
+and # cleanupFunc . rets == 0
+and cleanupFunc . retPack . tail == nil
+and cleanupEntry
+and cleanupEntry . definition
+and cleanupEntry . definition . cdef
 if cleanup . kind == "function" and c . nosuspend and c . nosuspend . cleanup then
-local entry = c . lookupEntry ( cleanup . name )
-cleanup . token = entry and entry . definition and entry . definition . token or nil
-cleanup . visibleBody = entry and entry . definition and not c . declarationFile or nil
+local localDefinition = cleanupEntry
+and cleanupEntry . definition
+and cleanupEntry . definition . filename == c . filename
+and cleanupEntry . definition
+or nil
+cleanup . token = localDefinition and localDefinition . token or nil
+cleanup . visibleBody = localDefinition and not c . declarationFile or nil
 c . nosuspend . cleanup ( cleanup , at )
 end
 local firstParam = cleanupFunc and cleanupFunc . params [ 1 ] or nil
+local genericBound = nil
+if firstParam and firstParam . tag == "typevar" and cleanupFunc then
+for parameter , typeParameter in ipairs ( cleanupFunc . typeParams or { } ) do
+if typeParameter == firstParam then
+genericBound = cleanupFunc . typeBounds and cleanupFunc . typeBounds [ parameter ] or nil
+end
+end
+end
 if not cleanupT then
 c . diag ( code , at , ( "cleanup %q is not declared" ) : format ( cleanup . name ) , nil , {
 notes = {
@@ -30003,8 +29946,26 @@ notes = {
 .. "can see"
 }
 } )
-elseif cleanupT and cleanupT ~= T . any and ( not firstParam or not isA ( cleanupValue , firstParam ) ) then
-c . diag ( code , at , ( "cleanup %q must accept %s" ) : format ( cleanup . name , T . tostring ( cleanupValue ) ) )
+elseif genericBound and not isA ( cleanupValue , genericBound ) then
+pendingGenericCleanupBounds [
+# pendingGenericCleanupBounds + 1
+] = { cleanup = cleanup , value = cleanupValue , bound = genericBound , at = at , code = code , }
+elseif cleanupT and cleanupT ~= T . any and not cleanupFunc then
+c . diag ( code , at , ( "terminal %q must be a function" ) : format ( cleanup . name ) )
+elseif cleanupFunc and (
+# cleanupFunc . params ~= 1 or cleanupFunc . paramPack . tail ~= nil or cleanupFunc . paramModes [ 1 ] ~= "takes"
+) then
+c . diag ( code , at , ( "terminal %q must take exactly one consuming argument" ) : format ( cleanup . name ) )
+elseif cleanupFunc and not genericBound and ( not firstParam or firstParam . id ~= cleanupValue . id ) then
+c . diag ( code , at , ( "terminal %q must take exactly %s" ) : format ( cleanup . name , T . tostring ( cleanupValue ) ) )
+elseif cleanupFunc and (
+not cVoidTerminal and (
+# cleanupFunc . rets ~= 1 or cleanupFunc . retPack . tail ~= nil or cleanupFunc . rets [ 1 ] ~= T . nil_
+)
+) then
+c . diag ( code , at , ( "terminal %q must return nil" ) : format ( cleanup . name ) )
+elseif cleanupFunc and not cleanupFunc . noYield and cleanup . visibleBody ~= true then
+c . diag ( code , at , ( "terminal %q must be nosuspend" ) : format ( cleanup . name ) )
 elseif cleanupFunc and j < # ( cleanups or { } ) and cleanupFunc . paramModes [ 1 ] == "takes" then
 c . diag ( "NUPP2615" , at , ( "cleanup %q takes before the final step" ) : format ( cleanup . name ) )
 end
@@ -30012,217 +29973,18 @@ end
 end
 end
 
-function own . resolvedOwnedCleanups ( valueT , cleanups , opaque , at , registrationNode )
-local resource = own . resourceBehind ( valueT )
-if resource . tag == "nominal" then
-resource . affineResource = true
-end
-if # ( cleanups or { } ) > 0 then
-return own . resolveCleanups ( cleanups , at , registrationNode )
-elseif opaque then
-return { }
-end
-local base = resource
-local defaults = base . tag == "nominal" and base . defaultDropOperations or nil
-if not defaults or # defaults == 0 then
-if base . tag ~= "nominal" then
+function own . finalizeCleanupBounds ( )
+for _ , pending in ipairs ( pendingGenericCleanupBounds ) do
+if not isA ( pending . value , pending . bound ) then
 c . diag (
-"NUPP2602" ,
-at ,
-"bare Owned<T> needs exactly one inherited @drop operation; "
-.. "use Owned<T, cleanup> or Owned<T, opaque>"
-)
-return { }
-end
-defaults = defaults or { }
-base . defaultDropOperations = defaults
-pendingDefaultCleanups [ # pendingDefaultCleanups + 1 ] = { at = at , defaults = defaults }
-return defaults
-elseif # defaults > 1 then
-c . diag (
-"NUPP2602" ,
-at ,
-"bare Owned<T> has multiple inherited @drop operations; " .. "choose one with Owned<T, cleanup>"
-)
-return { }
-end
-
-return { defaults [ 1 ] }
-end
-
-function own . finalizeDefaultCleanups ( )
-for _ , pending in ipairs ( pendingDefaultCleanups ) do
-if # pending . defaults == 0 then
-c . diag (
-"NUPP2602" ,
+pending . code ,
 pending . at ,
-"bare Owned<T> needs exactly one inherited @drop operation; "
-.. "use Owned<T, cleanup> or Owned<T, opaque>"
-)
-elseif # pending . defaults > 1 then
-c . diag (
-"NUPP2602" ,
-pending . at ,
-"bare Owned<T> has multiple inherited @drop operations; " .. "choose one with Owned<T, cleanup>"
-)
-end
-end
-end
-
-function own . addDefaultDropOperation ( resourceT , cleanup )
-if not resourceT then
-return
-end
-local base = rawType ( resourceT )
-if base . tag ~= "nominal" then
-return
-end
-local defaults = base . defaultDropOperations or { }
-base . defaultDropOperations = defaults
-for _ , current in ipairs ( defaults ) do
-if current . id == cleanup . id then
-return
-end
-end
-defaults [ # defaults + 1 ] = cleanup
-end
-
-function own . registerDefaultDropOperation ( ft , path , at , registrationNode , declaration )
-if not ft or ft . tag ~= "func" or not ft . params [ 1 ] or ft . paramModes [ 1 ] ~= "takes" then
-c . diag ( "NUPP2602" , at , "@drop requires a function whose first parameter takes " .. "the resource" )
-return
-end
-
-
-
-
-
-
-local cleanup = declaration and declaration . dropCleanup
-if not cleanup then
-cleanup = resolvedFunctionCleanup ( path , at , registrationNode , true , ft )
-if declaration then
-declaration . dropCleanup = cleanup
-end
-else
-addRegistration ( registrationNode , cleanup , true )
-end
-own . addDefaultDropOperation ( ft . params [ 1 ] , cleanup )
-end
-
-
-
-
-
-
-
-
-
-
-
-
-
-function own . inheritedTerminals ( resourceT )
-return resourceT and resourceT . tag == "nominal" and resourceT . defaultDropOperations or { }
-end
-
-local reportedResults = { }
-
-
-
-
-
-
-
-
-local function reportOwnedResult ( site , message , help )
-if not site or reportedResults [ site ] then
-return
-end
-reportedResults [ site ] = true
-c . diag ( "NUPP2602" , site , message , nil , { help = help } )
-end
-
-function own . normalizeOwnedResults ( pack , writtenPack , at )
-
-
-
-local writtenTypes = writtenPack ~= nil and writtenPack . kind == "tpack" and (
-writtenPack
-) . types or nil
-
-
-
-if not pack or pack . alternatives or not writtenTypes or # pack . head == 0 then
-return pack
-end
-local head , changed = nil , false
-for j , resolved in ipairs ( pack . head ) do
-local written = cst . resultValueType ( writtenTypes [ j ] )
-local bare = written ~= nil
-and written . kind == "tname"
-and written . base ~= nil
-and written . base . text == "Owned"
-and not (
-written . typeArgs and written . typeArgs [ 2 ]
-)
-if bare and resolved . tag == "owned" and not resolved . opaque and # ( resolved . cleanups or { } ) == 0 then
-
-
-
-
-
-
-
-
-
-
-
-local declared = rawType ( resolved )
-local resource = own . resourceBehind ( declared )
-local terminals = own . inheritedTerminals ( resource )
-if resource . tag == "func" then
-
-
-elseif resource . tag ~= "nominal" or # terminals == 0 then
-
-
-
-
-
-reportOwnedResult (
-written or at ,
-"an owning result needs a terminal" ,
-"give the type a `@drop`, name one with `Owned<T, cleanup>`, "
-.. "or say `Owned<T, opaque>` for a transfer-only owner"
-)
-elseif # terminals > 1 then
-reportOwnedResult (
-written or at ,
 (
-"an owning result of %s has %d terminals to choose from"
-) : format ( T . tostring ( resource ) , # terminals ) ,
-"name the one this result means with `Owned<T, cleanup>`"
+"cleanup %q requires %s to satisfy %s"
+) : format ( pending . cleanup . name , T . tostring ( pending . value ) , T . tostring ( pending . bound ) )
 )
-else
-local cleanups = own . resolvedOwnedCleanups ( resource , nil , false , written or at , nil )
-head = head or { }
-if not changed then
-for k , slot in ipairs ( pack . head ) do
-head [ k ] = slot
-end
-changed = true
-end
-head [ j ] = T . owned ( declared , cleanups )
-own . validateCleanups ( head [ j ] , cleanups , written or at , "NUPP2615" )
 end
 end
-end
-if not changed then
-return pack
-end
-
-return T . pack ( head , pack . tail , pack . modes )
 end
 
 
@@ -30442,10 +30204,10 @@ entry . exclusiveBorrow = nil
 end
 
 function own . moveExpression ( expr , t , reason , expectedKind , allowPartial )
-expectedKind = expectedKind or "owned"
-local dropOperation = c . dropOperationFieldStack [ # c . dropOperationFieldStack ]
+expectedKind = expectedKind or "affine"
+local dropOperation = c . consumingFieldStack [ # c . consumingFieldStack ]
 if dropOperation
-and expectedKind == "owned"
+and expectedKind == "affine"
 and expr
 and expr . kind == "dotIndex"
 and expr . obj
@@ -30468,12 +30230,14 @@ if own . ownershipKind ( t ) ~= expectedKind then
 c . diag ( "NUPP2602" , expr , ( reason or "ownership transfer" ) .. " requires a " .. expectedKind .. " value" )
 return false
 end
-if expr and expr . kind == "dotIndex" and expectedKind == "owned" then
+if expr and expr . kind == "dotIndex" and expectedKind == "affine" then
 local container = expr . obj and own . ownershipState ( ( own . ownershipEntry ( expr . obj ) ) ) or nil
 local field = expr . name and expr . name . text
 local aggregate = container and rawType ( container . t ) or nil
 local declared = aggregate and aggregate . tag == "nominal" and aggregate . byname [ field ] or nil
-if not container or own . ownershipKind ( container . t ) ~= "owned" or own . ownershipKind ( declared ) ~= "owned" then
+if not container or own . ownershipKind (
+container . t
+) ~= "affine" or own . ownershipKind ( declared ) ~= "affine" then
 c . diag ( "NUPP2602" , expr , "only a declared affine field of a named owning record can move" )
 return false
 end
@@ -30504,7 +30268,7 @@ container . automaticOwner . movedFields = container . automaticOwner . movedFie
 container . automaticOwner . movedFields [ field ] = true
 end
 return true
-elseif expr and expr . kind == "bracketIndex" and expectedKind == "owned" then
+elseif expr and expr . kind == "bracketIndex" and expectedKind == "affine" then
 c . diag ( "NUPP2602" , expr , "computed partial moves cannot prove which affine field moved" )
 return false
 end
@@ -30576,7 +30340,7 @@ return ownership
 
 end
 package.preload["nupp.compiler.check.pragma"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -31035,32 +30799,6 @@ c . checkStat ( stat . stat )
 end
 return
 
-elseif written == "drop" then
-local ownerKey = nil
-if target and target . kind == "funcStmt" then
-local fname = target . name
-if fname and fname . kind == "funcname" then
-ownerKey = c . funcOwner ( fname )
-end
-end
-if valid and targetKind == "funcStmt" and targetBody then
-targetBody . dropContract = true
-targetBody . dropMethod = ownerKey ~= nil
-targetBody . dropTok = annotationName
-targetBody . cleanupRegistrationNode = stat
-elseif valid and targetKind == "localFuncStmt" and targetBody then
-targetBody . dropContract = true
-targetBody . dropTok = annotationName
-targetBody . cleanupRegistrationNode = stat
-elseif valid and target and targetKind == "cdefFunc" then
-target . dropContract = true
-target . dropTok = stat . name
-target . cleanupRegistrationNode = stat
-end
-if stat . stat then
-c . checkStat ( stat . stat )
-end
-return
 end
 
 if written ~= "allow" then
@@ -31113,7 +30851,7 @@ return pragma
 
 end
 package.preload["nupp.compiler.check.resolve"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -31137,7 +30875,7 @@ local state = require ( "nupp.compiler.check.state" )
 local resolve = { }
 
 
-local ownershipConstructors = { Owned = "owned" , Borrowed = "borrowed" , Pinned = "pinned" , }
+local ownershipConstructors = { Borrowed = "borrowed" , Pinned = "pinned" , }
 
 
 
@@ -31191,10 +30929,28 @@ local fix , insertBefore = edits . fix , edits . insertBefore
 local requiredAs , requireBindsName = edits . requiredAs , edits . requireBindsName
 local requireEdit = edits . requireEdit
 local pointerShaped = c . pointerShaped
+local functionConstCleanups = { }
+c . functionConstCleanup = function ( term )
+return functionConstCleanups [ term . id ] or T . constFunctionCleanup ( term )
+end
 
 local function constBinding ( name )
 local found = c . lookupType ( name )
 return found and consteval . fromType ( found ) or nil
+end
+
+local function writtenName ( node )
+if not node or node . kind ~= "tname" or node . typeArgs then
+return nil
+end
+local parts = { }
+for _ , child in ipairs ( node ) do
+if cst . isToken ( child ) and child . kind == "name" then
+parts [ # parts + 1 ] = child . text
+end
+end
+
+return # parts > 0 and table . concat ( parts , "." ) or nil
 end
 
 
@@ -31260,10 +31016,36 @@ end
 
 
 if parameter . domain == "function" then
-local named = arg . kind == "tname" and not arg . typeArgs and arg . base and arg . base . text or nil
+local named = writtenName ( arg )
 if not named then
 c . diag ( "NUPP2131" , arg , ( "argument for const parameter %s must name a function" ) : format ( parameter . name ) )
 return nil
+end
+
+
+
+local boundConst = not named : find ( "%." , 1 , false ) and constBinding ( named ) or nil
+if boundConst and boundConst . tag == "constLiteral" and boundConst . domain == "function" then
+
+
+
+
+local _ , entry = c . own . cleanupKeyFor ( named )
+local namedToken = nil
+for _ , child in ipairs ( arg ) do
+if cst . isToken ( child ) and child . kind == "name" then
+namedToken = child
+end
+end
+if entry and namedToken then
+c . markToken ( namedToken , entry . definition , entry . t , "function" )
+end
+functionConstCleanups [
+boundConst . id
+] = T . constFunctionCleanup ( boundConst , named , entry and entry . t or nil )
+return boundConst
+elseif boundConst and boundConst . tag == "constVar" and boundConst . domain == "function" then
+return boundConst
 end
 local key , entry = c . own . cleanupKeyFor ( named )
 local bound = entry and entry . t or nil
@@ -31275,7 +31057,19 @@ c . diag ( "NUPP2131" , arg , ( "%q is not a function" ) : format ( named ) )
 return nil
 end
 
-return T . constLiteral ( "function" , key )
+local namedToken = nil
+for _ , child in ipairs ( arg ) do
+if cst . isToken ( child ) and child . kind == "name" then
+namedToken = child
+end
+end
+if entry and namedToken then
+c . markToken ( namedToken , entry . definition , entry . t , "function" )
+end
+
+local term = T . constLiteral ( "function" , key )
+functionConstCleanups [ term . id ] = T . constFunctionCleanup ( term , named , bound )
+return term
 end
 local term = consteval . fromType ( c . resolveType ( arg ) )
 if not term then
@@ -31308,22 +31102,26 @@ end
 
 local function aliasArgumentMap ( alias , node )
 local map , ordinaryAt , packAt , constAt = { } , 1 , 1 , 1
-for position , arg in ipairs ( node . typeArgs or { } ) do
-local kind = alias . paramKinds and alias . paramKinds [ position ]
+for position , kind in ipairs ( alias . paramKinds or { } ) do
+local arg = node . typeArgs and node . typeArgs [
+position
+] or alias . paramDefaults and alias . paramDefaults [ position ]
 if kind == "const" then
 local cv = alias . constParams [ constAt ]
 if cv then
 map [ cv ] = constArgument ( arg , cv , node )
 end
 constAt = constAt + 1
-elseif kind == "pack" or not kind and (
+elseif kind == "pack" or not kind and arg and (
 arg . kind == "tpack"
 or arg . kind == "tpackUnion"
 or arg . kind == "tparen"
 and packAt <= # alias . packParams
 and ordinaryAt > # alias . typeParams
 ) then
-local pack = arg . kind == "tparen" and T . pack ( { c . resolveType ( arg . inner ) } ) or c . resolvePack ( arg )
+local pack = arg and ( arg . kind == "tparen" and T . pack ( {
+c . resolveType ( arg . inner )
+} ) or c . resolvePack ( arg ) ) or T . pack ( { } , { kind = "unknown" , type = T . any } )
 local pv = alias . packParams [ packAt ]
 if pv then
 map [ pv ] , packAt = pack , packAt + 1
@@ -31331,14 +31129,14 @@ end
 else
 local tv = alias . typeParams [ ordinaryAt ]
 if tv then
-map [ tv ] , ordinaryAt = c . resolveType ( arg ) , ordinaryAt + 1
-else
+map [ tv ] , ordinaryAt = arg and c . resolveType ( arg ) or T . any , ordinaryAt + 1
+elseif arg then
 c . diag ( "NUPP2121" , arg , "ambiguous or surplus generic alias argument" )
 end
 end
 end
-for j = constAt , # alias . constParams do
-constArgument ( nil , alias . constParams [ j ] , node )
+for position = # ( alias . paramKinds or { } ) + 1 , # ( node . typeArgs or { } ) do
+c . diag ( "NUPP2121" , node . typeArgs [ position ] , "ambiguous or surplus generic alias argument" )
 end
 c . validateTypeBounds ( alias . typeParams , alias . typeBounds , map , node )
 
@@ -31365,6 +31163,17 @@ reductionError : find ( "recursive alias" , 1 , true ) and "NUPP2133" or "NUPP21
 node ,
 reductionError
 )
+end
+if t . affine then
+local term = t . affineTerminal and map [
+t . affineTerminal
+] and generics . materializeConst ( t . affineTerminal , map ) or nil
+local cleanup = term and ( functionConstCleanups [ term . id ] or T . constFunctionCleanup ( term ) ) or nil
+local affine = T . affine ( reduced , cleanup and { cleanup } or nil , t . affineTerminal == nil )
+if cleanup and term and term . tag == "constLiteral" then
+c . own . validateCleanups ( affine , { cleanup } , node , "NUPP2615" )
+end
+return affine
 end
 return reduced
 end
@@ -31576,6 +31385,29 @@ open = open or T . hasTypevar ( wrapped ) or T . hasProjection ( wrapped )
 for _ , member in ipairs ( suppliedPack . head or { } ) do
 open = open or member . tag == "neutral"
 end
+elseif expected == T . functionConst then
+local term = constArgument (
+argumentNode ,
+{
+name = parameter and parameter . name and parameter . name . text or "function" ,
+domain = "function"
+} ,
+argumentNode
+)
+if not term or term . domain ~= "function" then
+c . diag (
+"NUPP2421" ,
+argumentNode ,
+"a const-function type-function argument must name a declared function"
+)
+return T . any
+end
+if term . tag == "constLiteral" then
+arguments [ position ] = { kind = "const" , value = term }
+else
+open = true
+end
+deferredArguments [ position ] = { kind = "const" , value = term , }
 elseif expected == T . string or expected == T . boolean or expected == T . integer then
 local supplied = c . resolveType ( argumentNode )
 local term = consteval . fromType ( supplied )
@@ -31604,7 +31436,7 @@ else
 c . diag (
 "NUPP2421" ,
 parameter and ( parameter . type or parameter ) or node ,
-"type-function parameters must be type, typepack, string, boolean, or integer"
+"type-function parameters must be type, typepack, const function, string, boolean, or integer"
 )
 return T . any
 end
@@ -31663,6 +31495,9 @@ node ,
 )
 return T . any
 end
+end
+if result . tag == "affine" and not result . transferOnly then
+c . own . validateCleanups ( result , result . cleanups , node , "NUPP2615" )
 end
 node . resolvedType = result
 return result
@@ -31874,10 +31709,6 @@ c . resolvePack ( node . typeArgs [ 3 ] ) ,
 c . resolvePack ( node . typeArgs [ 4 ] )
 )
 end
-
-
-
-
 local status = statusConstructors [ name ]
 if status and node . typeArgs and node . typeArgs [ 1 ] and not c . lookupType ( name ) then
 if not c . cdefReturn then
@@ -31901,64 +31732,7 @@ local inner = c . resolveType ( node . typeArgs [ 1 ] )
 if ownership == "pinned" and not pointerShaped ( inner ) then
 c . diag ( "NUPP2602" , node , "Pinned<T> requires a pointer-shaped T" )
 end
-if ownership == "owned" then
-local cleanupArg = node . typeArgs [ 2 ]
-
-
-
-
-if node . typeArgs [ 3 ] then
-c . diag ( "NUPP2602" , node . typeArgs [ 3 ] , "Owned<T, cleanup> names one terminal" , nil , {
-help = "ordered attempt-all cleanup is not currently expressible"
-} )
-end
-
-
-
-
-
-
-local saidOpaque = cleanupArg ~= nil
-and cleanupArg . kind == "tname"
-and not cleanupArg . typeArgs
-and cleanupArg . base ~= nil
-and cleanupArg . base . text == "opaque"
-and c . own . cleanupKeyFor (
-"opaque"
-) == nil
-if saidOpaque then
-return T . owned ( inner , nil , true )
-end
-if cleanupArg then
-
-
-
-
-local term = constArgument ( cleanupArg , { name = "cleanup" , domain = "function" } , node )
-local cleanupName = cleanupArg . kind == "tname" and not cleanupArg . typeArgs and (
-cleanupArg
-) . base or nil
-local named = cleanupName and cleanupName . text or nil
-if term and named then
-local cleanups = c . own . resolveCleanups ( { named } , cleanupArg )
-c . own . validateCleanups ( inner , cleanups , cleanupArg , "NUPP2615" )
-
-
-local entry = c . lookupEntry ( named )
-if entry then
-c . markToken (
-cleanupName ,
-entry . definition ,
-entry . t ,
-entry . definition and entry . definition . kind or "function"
-)
-end
-return T . owned ( inner , cleanups )
-end
-end
-return T . owned ( inner )
-
-elseif ownership == "borrowed" then
+if ownership == "borrowed" then
 return T . borrowed ( inner )
 end
 return T . pinned ( inner )
@@ -31977,6 +31751,23 @@ end
 c . markToken ( base , def , t , def and def . kind or "type" )
 t = applyTypeArgs ( t , node )
 if t then
+
+
+
+
+for _ , cleanup in ipairs ( t . tag == "affine" and t . cleanups or { } ) do
+local localOrigin = c . filename or c . result . moduleName or "<module>"
+while localOrigin : sub ( 1 , 2 ) == "./" or localOrigin : sub ( 1 , 2 ) == ".\\" do
+localOrigin = localOrigin : sub ( 3 )
+end
+local localPrefix = localOrigin .. "#"
+if cleanup . kind == "function" and cleanup . name and cleanup . key and cleanup . key : sub (
+1 ,
+# localPrefix
+) == localPrefix then
+c . own . cleanupKeyFor ( cleanup . name )
+end
+end
 if (
 t == T . type_ or t == T . typepack or t . tag == "typeHandle"
 ) and ( c . comptimeDepth or 0 ) == 0 and ( c . comptimeFunctionDepth or 0 ) == 0 then
@@ -32395,10 +32186,6 @@ local retPack = node . returnPack and c . resolvePack ( node . returnPack ) or T
 
 
 
-retPack = c . own . normalizeOwnedResults ( retPack , node . returnPack , node )
-
-
-
 rets = { }
 for j , result in ipairs ( retPack . head ) do
 rets [ j ] = result
@@ -32442,7 +32229,7 @@ if rets [ 1 ] then
 
 
 
-if rets [ 1 ] . tag ~= "owned" then
+if rets [ 1 ] . tag ~= "affine" then
 rets [ 1 ] = T . borrowed ( T . unwrapOwnership ( rets [ 1 ] ) )
 end
 retPack = T . pack ( rets , retPack . tail , retPack . modes )
@@ -32556,19 +32343,51 @@ local saved = c . scope
 c . scope = owner
 local t
 local decl = waiting . decl
-local typeParams , typeBounds , packParams , constParams , paramKinds = { } , { } , { } , { } , { }
+local typeParams , typeBounds , packParams , constParams , paramKinds , paramDefaults = { } , { } , { } , { } , { } , { }
 if decl and decl . generics then
 c . pushScope ( )
-typeParams , typeBounds , packParams , constParams , paramKinds = c . bindGenerics ( decl . generics , "type-alias" )
+typeParams , typeBounds , packParams , constParams , paramKinds , paramDefaults = c . bindGenerics (
+decl . generics ,
+"type-alias"
+)
 end
 c . resolvingAlias [ name ] = true
 local body = c . resolveType ( waiting . node )
+local terminal = decl and decl . affine and decl . terminal and constArgument (
+decl . terminal ,
+{ name = "terminal" , domain = "function" } ,
+decl . terminal
+) or nil
 c . resolvingAlias [ name ] = nil
 if decl and decl . generics then
 c . popScope ( )
-t = T . genericAlias ( name , body , typeParams , typeBounds , packParams , constParams , paramKinds )
+t = T . genericAlias (
+name ,
+body ,
+typeParams ,
+typeBounds ,
+packParams ,
+constParams ,
+paramKinds ,
+paramDefaults ,
+decl . affine ,
+terminal
+)
+elseif decl and decl . affine then
+local cleanup = terminal and ( functionConstCleanups [ terminal . id ] or T . constFunctionCleanup ( terminal ) ) or nil
+if cleanup then
+cleanup = c . own . resolveCleanups ( { cleanup } , decl , decl ) [ 1 ]
+end
+t = T . affine ( body , cleanup and { cleanup } or nil , terminal == nil )
+if cleanup and terminal and terminal . tag == "constLiteral" then
+c . own . validateCleanups ( t , { cleanup } , decl . terminal or decl , "NUPP2615" )
+end
 else
 t = body
+end
+if decl and decl . affine and decl . generics and terminal then
+local cleanup = functionConstCleanups [ terminal . id ] or T . constFunctionCleanup ( terminal )
+c . own . resolveCleanups ( { cleanup } , decl , decl )
 end
 c . scope = saved
 owner . pending [ name ] = nil
@@ -32583,7 +32402,7 @@ return resolve
 
 end
 package.preload["nupp.compiler.check.state"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -33205,11 +33024,20 @@ state.Checker = {} state.Checker.__index = state.Checker
 
 
 
+
+
+
+
+
+
+
+
+
 return state
 
 end
 package.preload["nupp.compiler.check.undocumentedraise"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -33360,7 +33188,7 @@ return undocumentedraise
 
 end
 package.preload["nupp.compiler.check.unused"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -33484,7 +33312,7 @@ return unused
 
 end
 package.preload["nupp.compiler.cli"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -33900,7 +33728,7 @@ return cli
 
 end
 package.preload["nupp.compiler.cli.ast"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -34050,7 +33878,7 @@ return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.bc"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -34391,7 +34219,7 @@ return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.build"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppBytes NuppBytes;const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end __nuppLazy(__nuppIO,"files",function() local native=__nuppNative();local ffi,C=native.ffi,native.C;ffi.cdef[[NuppBytes*nuppFilesGlob(const uint8_t*,size_t);]];local files={};local record=ffi.new("NuppFileInfo[1]") local KINDS={[1]="file",[2]="directory",[3]="other",[4]="symlink"} local ENTRIES={f="file",d="directory",l="symlink",o="other"} local FOLDERS={home=0,documents=1,downloads=2,desktop=3,pictures=4,music=5,videos=6} local MODES={r=0,w=1,a=2,["r+"]=3,["w+"]=4,["a+"]=5} local ORIGINS={set=0,current=1,["end"]=2} local READ_SIZE=65536 local PENDING,READY=0,1 local SOURCE,PRIORITY="nupp-files",20 local waits={};local suspending local File={};File.__index=File;local Reader={};Reader.__index=Reader;local Writer={};Writer.__index=Writer local function named(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.toString then return value:toString()end;error("nupp: io.files "..what.." must be a path or a string",level)end local function done(answered)if answered then return true end;return false,native.error()end local function answer(handle)if handle==nil then return nil,native.error()end;return native.bytes(handle)end local function described(path,follow,level)local text=named(path,"path",level+1);if not C.nuppFilesInfo(text,#text,follow,record)then return nil end;return record[0]end local function optional(options,field,level)local value=options and options[field];if value==nil then return""end;if type(value)~="string"then error("nupp: io.files temporary "..field.." must be a string",level)end;return value end local function temporary(options,directory,level)local root=options and options.directory and named(options.directory,"temporary directory",level+1)or"";local prefix=optional(options,"prefix",level+1);local suffix=optional(options,"suffix",level+1);return answer(C.nuppFilesCreateTemporary(root,#root,prefix,#prefix,suffix,#suffix,directory))end local function payload(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.getString then return value:getString()end;error("nupp: io.files "..what.." must be bytes or a byte view",level)end local function harvest()local moved=0;local index=#waits;while index>0 do local entry=waits[index];if C.nuppFsStatus(entry.handle)~=PENDING then waits[index]=waits[#waits];waits[#waits]=nil;moved=moved+1;entry.resume(true)end;index=index-1 end;return moved end local function polled()C.nuppFsPoll();return harvest()end local function slept(waitMs)C.nuppFsWait(waitMs);return harvest()end local function forget(entry)for index=1,#waits do if waits[index]==entry then waits[index]=waits[#waits];waits[#waits]=nil;return end end end local function runtime()if suspending==nil then suspending=require("nupp.suspension")end;return suspending end local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,polled,slept);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end local function settled(handle)if handle==nil then return nil,native.error()end;await(handle);if C.nuppFsStatus(handle)~=READY then local reason=ffi.string(C.nuppFsError(handle));C.nuppFsDestroy(handle);return nil,reason end;return handle end local function transferred(handle)local done,reason=settled(handle);if not done then return false,reason end;C.nuppFsDestroy(done);return true end local function fetched(handle)local done,reason=settled(handle);if not done then return nil,reason end;local out=ffi.string(C.nuppFsData(done),tonumber(C.nuppFsLength(done)));C.nuppFsDestroy(done);return out end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: io.files "..what.." must be an integer",level)end;return value end local function counted(value,what,level)if whole(value,what,level)<0 then error("nupp: io.files "..what.." must not be negative",level)end;return value end local function live(self,what,level)if self._closed then error("nupp: io.files "..what.." is closed",level)end;return self end function File:isReleased()return self._closed end function File:close()if self._closed then return true end;self._closed=true;local handle=self._handle;self._handle=nil;C.nuppFileClose(handle);return true end function File:size()live(self,"File",2);local size=tonumber(C.nuppFileSize(self._handle));if size<0 then return nil,native.error()end;return size end function File:seek(offset,origin)live(self,"File",2);local whence=ORIGINS[origin or"set"];if whence==nil then error("nupp: io.files has no seek origin named "..tostring(origin),2)end;local at=tonumber(C.nuppFileSeek(self._handle,whole(offset or 0,"seek offset",2),whence));if at<0 then return nil,native.error()end;return at end function File:position()live(self,"File",2);return self:seek(0,"current")end function File:flush()live(self,"File",2);if C.nuppFileFlush(self._handle)then return true end;return false,native.error()end function File:newReader()live(self,"File",2);return setmetatable({_file=self,_scratch=nil,_capacity=0,_closed=false},Reader)end function File:newWriter()live(self,"File",2);return setmetatable({_file=self,_closed=false},Writer)end local function scratch(self,count)if count>self._capacity then local size=self._capacity*2;if size<count then size=count end;if size<READ_SIZE then size=READ_SIZE end;self._scratch=ffi.new("uint8_t[?]",size);self._capacity=size end;return self._scratch end local function usable(self)if self._closed then return nil,"the reader is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Reader:read(count)local file,reason=usable(self);if not file then return nil,reason end;count=whole(count,"Reader:read count",2);if count<1 then count=1 end;local into=scratch(self,count);local got=tonumber(C.nuppFileRead(file._handle,into,count));if got<0 then return nil,native.error()end;if got==0 then return""end;return ffi.string(into,got)end function Reader:readInto(destination,offset,count)local file,reason=usable(self);if not file then return nil,reason end;offset=counted(offset or 0,"Reader:readInto offset",2);count=counted(count or READ_SIZE,"Reader:readInto count",2);if count==0 then return 0 end;local data=rawget(destination,"_data");local capacity=rawget(destination,"_capacity");if data==nil and capacity==nil then local chunk,why=self:read(count);if chunk==nil then return nil,why end;if #chunk==0 then return 0 end;destination:setString(chunk,offset);return #chunk end;destination:ensureCapacity(offset+count);data=rawget(destination,"_data");local length=rawget(destination,"_length");if offset>length then ffi.fill(data+length,offset-length,0)end;local got=tonumber(C.nuppFileRead(file._handle,data+offset,count));if got<0 then return nil,native.error()end;if offset+got>length then rawset(destination,"_length",offset+got)end;return got end function Reader:transferTo(destination)local file,reason=usable(self);if not file then return nil,reason end;local total=0;while true do local chunk,why=self:read(READ_SIZE);if chunk==nil then return nil,why end;if chunk==""then return total end;local wrote,failure=destination:write(chunk);if not wrote then return nil,failure end;total=total+#chunk end end function Reader:close()self._closed=true;self._scratch=nil;self._capacity=0;return true end local function writable(self)if self._closed then return nil,"the writer is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Writer:write(bytes)local file,reason=writable(self);if not file then return false,reason end;if type(bytes)~="string"then error("nupp: io.files Writer:write needs a string",2)end;if C.nuppFileWrite(file._handle,bytes,#bytes)<0 then return false,native.error()end;return true end function Writer:writeFrom(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeFrom offset",2);count=counted(count==nil and length-offset or count,"Writer:writeFrom count",2);if offset+count>length then error("nupp: io.files Writer:writeFrom range is past the end",2)end;if count==0 then return 0 end;local data=rawget(source,"_data");if data==nil then local wrote,failure=self:write(source:getString(offset,count));if not wrote then return nil,failure end;return count end;if C.nuppFileWrite(file._handle,data+offset,count)<0 then return nil,native.error()end;return count end function Writer:writeView(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeView offset",2);count=counted(count==nil and length-offset or count,"Writer:writeView count",2);if offset+count>length then error("nupp: io.files Writer:writeView range is past the end",2)end;local wrote,failure=self:write(source:getString():sub(offset+1,offset+count));if not wrote then return nil,failure end;return count end function Writer:flush()local file,reason=writable(self);if not file then return false,reason end;return file:flush()end function Writer:close()self._closed=true;return true end function files.info(path)local found=described(path,true,2);if not found then return nil,native.error()end;return{kind=KINDS[tonumber(found.kind)]or"other",size=tonumber(found.size),modified=found.modified,readOnly=found.readOnly}end function files.exists(path)return described(path,true,2)~=nil end function files.isFile(path)local found=described(path,true,2);return found~=nil and found.kind==1 end function files.isDirectory(path)local found=described(path,true,2);return found~=nil and found.kind==2 end function files.isSymlink(path)local found=described(path,false,2);return found~=nil and found.kind==4 end function files.readLink(path)local text=named(path,"path",2);return answer(C.nuppFilesReadLink(text,#text))end function files.createSymlink(target,link,kind)local to=named(target,"symlink target",2);local at=named(link,"symlink path",2);if kind~=nil and kind~="file"and kind~="directory"then error("nupp: io.files symlink kind must be 'file' or 'directory'",2)end;return done(C.nuppFilesCreateSymlink(to,#to,at,#at,kind=="directory"))end function files.setReadOnly(path,readOnly)local text=named(path,"path",2);return done(C.nuppFilesSetReadOnly(text,#text,readOnly and true or false))end function files.createDirectory(path)local text=named(path,"path",2);return done(C.nuppFilesCreateDirectory(text,#text))end function files.remove(path,recursive)local text=named(path,"path",2);return done(C.nuppFilesRemove(text,#text,recursive and true or false))end function files.rename(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return done(C.nuppFilesRename(source,#source,destination,#destination))end function files.list(path)local text=named(path,"path",2);local handle=C.nuppFilesList(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local entries,at={},1;while at<=#blob do local stop=blob:find("\0",at+1,true);entries[#entries+1]={kind=ENTRIES[blob:sub(at,at)]or"other",name=blob:sub(at+1,stop-1)};at=stop+1 end;return entries end function files.glob(pattern)local text=named(pattern,"glob pattern",2);local handle=C.nuppFilesGlob(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local matches,at={},1;while at<=#blob do local stop=blob:find("\0",at,true);if not stop then matches[#matches+1]=blob:sub(at);break end;matches[#matches+1]=blob:sub(at,stop-1);at=stop+1 end;return matches end local Temporary={};Temporary.__index=Temporary;Temporary.__tostring=function(self)return self._text end function Temporary:toString()return self._text end function Temporary:isReleased()return self._closed end function Temporary:persist(destination)if self._closed then return false,"the temporary path is released"end;local to=named(destination,"destination path",2);local moved,reason=done(C.nuppFilesRename(self._text,#self._text,to,#to));if not moved then return false,reason end;self._closed=true;return true end function Temporary:close()if self._closed then return true end;self._closed=true;return done(C.nuppFilesRemove(self._text,#self._text,self._directory))end function files.createTemporaryFile(options)local text,reason=temporary(options,false,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=false,_closed=false},Temporary)end function files.createTemporaryDirectory(options)local text,reason=temporary(options,true,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=true,_closed=false},Temporary)end function files.read(path)local text=named(path,"path",2);return fetched(C.nuppFsSubmitRead(text,#text))end function files.write(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,0))end function files.append(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,1))end function files.writeAtomic(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,2))end function files.copy(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return transferred(C.nuppFsSubmitCopy(source,#source,destination,#destination))end function files.pendingTransfers()return tonumber(C.nuppFsPending())end function files.open(path,mode)local text=named(path,"path",2);local selected=MODES[mode or"r"];if selected==nil then error("nupp: io.files has no mode named "..tostring(mode),2)end;local handle=C.nuppFileOpen(text,#text,selected);if handle==nil then return nil,native.error()end;return setmetatable({_handle=handle,_closed=false},File)end function files.lines(path)local file,reason=files.open(path,"r");if not file then return nil,reason end;local reader=file:newReader();local held,finished="",false;local function trimmed(line)if line:sub(-1)=="\r"then return line:sub(1,-2)end;return line end;return function()if finished then return nil end;while true do local stop=held:find("\n",1,true);if stop then local line=held:sub(1,stop-1);held=held:sub(stop+1);return trimmed(line)end;local chunk=reader:read(READ_SIZE);if chunk==nil or chunk==""then finished=true;file:close();if #held>0 then local line=held;held="";return trimmed(line)end;return nil end;held=held..chunk end end end function files.currentDirectory()return answer(C.nuppFilesCurrentDirectory())end function files.userFolder(which)local index=FOLDERS[which];if index==nil then error("nupp: io.files has no user folder named "..tostring(which),2)end;return answer(C.nuppFilesUserFolder(index))end return files end);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppBytes NuppBytes;const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end __nuppLazy(__nuppIO,"files",function() local native=__nuppNative();local ffi,C=native.ffi,native.C;ffi.cdef[[NuppBytes*nuppFilesGlob(const uint8_t*,size_t);]];local files={};local record=ffi.new("NuppFileInfo[1]") local KINDS={[1]="file",[2]="directory",[3]="other",[4]="symlink"} local ENTRIES={f="file",d="directory",l="symlink",o="other"} local FOLDERS={home=0,documents=1,downloads=2,desktop=3,pictures=4,music=5,videos=6} local MODES={r=0,w=1,a=2,["r+"]=3,["w+"]=4,["a+"]=5} local ORIGINS={set=0,current=1,["end"]=2} local READ_SIZE=65536 local PENDING,READY=0,1 local SOURCE,PRIORITY="nupp-files",20 local waits={};local suspending local File={};File.__index=File;local Reader={};Reader.__index=Reader;local Writer={};Writer.__index=Writer local function named(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.toString then return value:toString()end;error("nupp: io.files "..what.." must be a path or a string",level)end local function done(answered)if answered then return true end;return false,native.error()end local function answer(handle)if handle==nil then return nil,native.error()end;return native.bytes(handle)end local function described(path,follow,level)local text=named(path,"path",level+1);if not C.nuppFilesInfo(text,#text,follow,record)then return nil end;return record[0]end local function optional(options,field,level)local value=options and options[field];if value==nil then return""end;if type(value)~="string"then error("nupp: io.files temporary "..field.." must be a string",level)end;return value end local function temporary(options,directory,level)local root=options and options.directory and named(options.directory,"temporary directory",level+1)or"";local prefix=optional(options,"prefix",level+1);local suffix=optional(options,"suffix",level+1);return answer(C.nuppFilesCreateTemporary(root,#root,prefix,#prefix,suffix,#suffix,directory))end local function payload(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.getString then return value:getString()end;error("nupp: io.files "..what.." must be bytes or a byte view",level)end local function harvest()local moved=0;local index=#waits;while index>0 do local entry=waits[index];if C.nuppFsStatus(entry.handle)~=PENDING then waits[index]=waits[#waits];waits[#waits]=nil;moved=moved+1;entry.resume(true)end;index=index-1 end;return moved end local function polled()C.nuppFsPoll();return harvest()end local function slept(waitMs)C.nuppFsWait(waitMs);return harvest()end local function forget(entry)for index=1,#waits do if waits[index]==entry then waits[index]=waits[#waits];waits[#waits]=nil;return end end end local function runtime()if suspending==nil then suspending=require("nupp.suspension")end;return suspending end local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,polled,slept);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end local function settled(handle)if handle==nil then return nil,native.error()end;await(handle);if C.nuppFsStatus(handle)~=READY then local reason=ffi.string(C.nuppFsError(handle));C.nuppFsDestroy(handle);return nil,reason end;return handle end local function transferred(handle)local done,reason=settled(handle);if not done then return false,reason end;C.nuppFsDestroy(done);return true end local function fetched(handle)local done,reason=settled(handle);if not done then return nil,reason end;local out=ffi.string(C.nuppFsData(done),tonumber(C.nuppFsLength(done)));C.nuppFsDestroy(done);return out end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: io.files "..what.." must be an integer",level)end;return value end local function counted(value,what,level)if whole(value,what,level)<0 then error("nupp: io.files "..what.." must not be negative",level)end;return value end local function live(self,what,level)if self._closed then error("nupp: io.files "..what.." is closed",level)end;return self end function File:isReleased()return self._closed end function File:close()if self._closed then return true end;self._closed=true;local handle=self._handle;self._handle=nil;C.nuppFileClose(handle);return true end function File:size()live(self,"File",2);local size=tonumber(C.nuppFileSize(self._handle));if size<0 then return nil,native.error()end;return size end function File:seek(offset,origin)live(self,"File",2);local whence=ORIGINS[origin or"set"];if whence==nil then error("nupp: io.files has no seek origin named "..tostring(origin),2)end;local at=tonumber(C.nuppFileSeek(self._handle,whole(offset or 0,"seek offset",2),whence));if at<0 then return nil,native.error()end;return at end function File:position()live(self,"File",2);return self:seek(0,"current")end function File:flush()live(self,"File",2);if C.nuppFileFlush(self._handle)then return true end;return false,native.error()end function File:newReader()live(self,"File",2);return setmetatable({_file=self,_scratch=nil,_capacity=0,_closed=false},Reader)end function File:newWriter()live(self,"File",2);return setmetatable({_file=self,_closed=false},Writer)end local function scratch(self,count)if count>self._capacity then local size=self._capacity*2;if size<count then size=count end;if size<READ_SIZE then size=READ_SIZE end;self._scratch=ffi.new("uint8_t[?]",size);self._capacity=size end;return self._scratch end local function usable(self)if self._closed then return nil,"the reader is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Reader:read(count)local file,reason=usable(self);if not file then return nil,reason end;count=whole(count,"Reader:read count",2);if count<1 then count=1 end;local into=scratch(self,count);local got=tonumber(C.nuppFileRead(file._handle,into,count));if got<0 then return nil,native.error()end;if got==0 then return""end;return ffi.string(into,got)end function Reader:readInto(destination,offset,count)local file,reason=usable(self);if not file then return nil,reason end;offset=counted(offset or 0,"Reader:readInto offset",2);count=counted(count or READ_SIZE,"Reader:readInto count",2);if count==0 then return 0 end;local data=rawget(destination,"_data");local capacity=rawget(destination,"_capacity");if data==nil and capacity==nil then local chunk,why=self:read(count);if chunk==nil then return nil,why end;if #chunk==0 then return 0 end;destination:setString(chunk,offset);return #chunk end;destination:ensureCapacity(offset+count);data=rawget(destination,"_data");local length=rawget(destination,"_length");if offset>length then ffi.fill(data+length,offset-length,0)end;local got=tonumber(C.nuppFileRead(file._handle,data+offset,count));if got<0 then return nil,native.error()end;if offset+got>length then rawset(destination,"_length",offset+got)end;return got end function Reader:transferTo(destination)local file,reason=usable(self);if not file then return nil,reason end;local total=0;while true do local chunk,why=self:read(READ_SIZE);if chunk==nil then return nil,why end;if chunk==""then return total end;local wrote,failure=destination:write(chunk);if not wrote then return nil,failure end;total=total+#chunk end end function Reader:close()self._closed=true;self._scratch=nil;self._capacity=0;return true end local function writable(self)if self._closed then return nil,"the writer is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Writer:write(bytes)local file,reason=writable(self);if not file then return false,reason end;if type(bytes)~="string"then error("nupp: io.files Writer:write needs a string",2)end;if C.nuppFileWrite(file._handle,bytes,#bytes)<0 then return false,native.error()end;return true end function Writer:writeFrom(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeFrom offset",2);count=counted(count==nil and length-offset or count,"Writer:writeFrom count",2);if offset+count>length then error("nupp: io.files Writer:writeFrom range is past the end",2)end;if count==0 then return 0 end;local data=rawget(source,"_data");if data==nil then local wrote,failure=self:write(source:getString(offset,count));if not wrote then return nil,failure end;return count end;if C.nuppFileWrite(file._handle,data+offset,count)<0 then return nil,native.error()end;return count end function Writer:writeView(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeView offset",2);count=counted(count==nil and length-offset or count,"Writer:writeView count",2);if offset+count>length then error("nupp: io.files Writer:writeView range is past the end",2)end;local wrote,failure=self:write(source:getString():sub(offset+1,offset+count));if not wrote then return nil,failure end;return count end function Writer:flush()local file,reason=writable(self);if not file then return false,reason end;return file:flush()end function Writer:close()self._closed=true;return true end function files.info(path)local found=described(path,true,2);if not found then return nil,native.error()end;return{kind=KINDS[tonumber(found.kind)]or"other",size=tonumber(found.size),modified=found.modified,readOnly=found.readOnly}end function files.exists(path)return described(path,true,2)~=nil end function files.isFile(path)local found=described(path,true,2);return found~=nil and found.kind==1 end function files.isDirectory(path)local found=described(path,true,2);return found~=nil and found.kind==2 end function files.isSymlink(path)local found=described(path,false,2);return found~=nil and found.kind==4 end function files.readLink(path)local text=named(path,"path",2);return answer(C.nuppFilesReadLink(text,#text))end function files.createSymlink(target,link,kind)local to=named(target,"symlink target",2);local at=named(link,"symlink path",2);if kind~=nil and kind~="file"and kind~="directory"then error("nupp: io.files symlink kind must be 'file' or 'directory'",2)end;return done(C.nuppFilesCreateSymlink(to,#to,at,#at,kind=="directory"))end function files.setReadOnly(path,readOnly)local text=named(path,"path",2);return done(C.nuppFilesSetReadOnly(text,#text,readOnly and true or false))end function files.createDirectory(path)local text=named(path,"path",2);return done(C.nuppFilesCreateDirectory(text,#text))end function files.remove(path,recursive)local text=named(path,"path",2);return done(C.nuppFilesRemove(text,#text,recursive and true or false))end function files.rename(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return done(C.nuppFilesRename(source,#source,destination,#destination))end function files.list(path)local text=named(path,"path",2);local handle=C.nuppFilesList(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local entries,at={},1;while at<=#blob do local stop=blob:find("\0",at+1,true);entries[#entries+1]={kind=ENTRIES[blob:sub(at,at)]or"other",name=blob:sub(at+1,stop-1)};at=stop+1 end;return entries end function files.glob(pattern)local text=named(pattern,"glob pattern",2);local handle=C.nuppFilesGlob(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local matches,at={},1;while at<=#blob do local stop=blob:find("\0",at,true);if not stop then matches[#matches+1]=blob:sub(at);break end;matches[#matches+1]=blob:sub(at,stop-1);at=stop+1 end;return matches end local Temporary={};Temporary.__index=Temporary;Temporary.__tostring=function(self)return self._text end function Temporary:toString()return self._text end function Temporary:isReleased()return self._closed end function Temporary:persist(destination)if self._closed then return false,"the temporary path is released"end;local to=named(destination,"destination path",2);local moved,reason=done(C.nuppFilesRename(self._text,#self._text,to,#to));if not moved then return false,reason end;self._closed=true;return true end function Temporary:close()if self._closed then return true end;self._closed=true;return done(C.nuppFilesRemove(self._text,#self._text,self._directory))end File.drop=File.close;Reader.drop=Reader.close;Writer.drop=Writer.close;Temporary.drop=Temporary.close function files.createTemporaryFile(options)local text,reason=temporary(options,false,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=false,_closed=false},Temporary)end function files.createTemporaryDirectory(options)local text,reason=temporary(options,true,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=true,_closed=false},Temporary)end function files.read(path)local text=named(path,"path",2);return fetched(C.nuppFsSubmitRead(text,#text))end function files.write(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,0))end function files.append(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,1))end function files.writeAtomic(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,2))end function files.copy(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return transferred(C.nuppFsSubmitCopy(source,#source,destination,#destination))end function files.pendingTransfers()return tonumber(C.nuppFsPending())end function files.open(path,mode)local text=named(path,"path",2);local selected=MODES[mode or"r"];if selected==nil then error("nupp: io.files has no mode named "..tostring(mode),2)end;local handle=C.nuppFileOpen(text,#text,selected);if handle==nil then return nil,native.error()end;return setmetatable({_handle=handle,_closed=false},File)end function files.lines(path)local file,reason=files.open(path,"r");if not file then return nil,reason end;local reader=file:newReader();local held,finished="",false;local function trimmed(line)if line:sub(-1)=="\r"then return line:sub(1,-2)end;return line end;return function()if finished then return nil end;while true do local stop=held:find("\n",1,true);if stop then local line=held:sub(1,stop-1);held=held:sub(stop+1);return trimmed(line)end;local chunk=reader:read(READ_SIZE);if chunk==nil or chunk==""then finished=true;file:close();if #held>0 then local line=held;held="";return trimmed(line)end;return nil end;held=held..chunk end end end function files.currentDirectory()return answer(C.nuppFilesCurrentDirectory())end function files.userFolder(which)local index=FOLDERS[which];if index==nil then error("nupp: io.files has no user folder named "..tostring(which),2)end;return answer(C.nuppFilesUserFolder(index))end return files end);
 
 
 
@@ -34756,7 +34584,7 @@ return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.check"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -34950,7 +34778,7 @@ return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.clean"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -35015,7 +34843,7 @@ return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.compile"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -35172,7 +35000,7 @@ return compile
 
 end
 package.preload["nupp.compiler.cli.completions"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -35425,7 +35253,7 @@ return completions
 
 end
 package.preload["nupp.compiler.cli.completions_command"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 local spec = require ( "nupp.compiler.cli.spec" )
 
@@ -35455,7 +35283,7 @@ return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.coverage"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 local spec = require ( "nupp.compiler.cli.spec" )
 local fs = require ( "nupp.compiler.fs" )
@@ -35541,7 +35369,7 @@ return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.doc"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -35667,7 +35495,7 @@ return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.explain"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -35814,7 +35642,7 @@ return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.exportc"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 local spec = require ( "nupp.compiler.cli.spec" )
 local optionsMod = require ( "nupp.compiler.cli.options" )
@@ -36070,7 +35898,7 @@ return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.fixpoint"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -36149,7 +35977,7 @@ return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.fmt"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -36416,7 +36244,7 @@ return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.importc"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -36512,7 +36340,7 @@ return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.lints"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -36655,7 +36483,7 @@ return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.lsp"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -37724,7 +37552,7 @@ return setmetatable({ spec =  command ,  raw =  true ,  run =  dispatch }, spec.
 
 end
 package.preload["nupp.compiler.cli.options"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -37867,7 +37695,7 @@ return options
 
 end
 package.preload["nupp.compiler.cli.ownership_audit"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 local spec = require ( "nupp.compiler.cli.spec" )
 local optionsMod = require ( "nupp.compiler.cli.options" )
@@ -37949,6 +37777,8 @@ end
 local function cleanupName ( cleanup )
 if cleanup . kind == "function" then
 return cleanup . name or cleanup . id
+elseif cleanup . kind == "closure" then
+return "generated closure terminal"
 elseif cleanup . kind == "method" then
 return ":" .. cleanup . name
 elseif cleanup . kind == "field" then
@@ -38024,7 +37854,7 @@ contract = ft . paramModes and ft . paramModes [ j ] or "plain" ,
 end
 end
 for j , result in ipairs ( ft . rets or { } ) do
-if pointerShaped ( result , T ) or T . unwrapOwnership ( result ) . tag == "owned" then
+if pointerShaped ( result , T ) or T . unwrapOwnership ( result ) . tag == "affine" then
 results [ # results + 1 ] = { index = j , type = T . tostring ( result ) }
 end
 end
@@ -38196,7 +38026,7 @@ return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.reference"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -38369,7 +38199,7 @@ return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.report"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -38602,7 +38432,7 @@ return report
 
 end
 package.preload["nupp.compiler.cli.rock"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 local spec = require ( "nupp.compiler.cli.spec" )
 
@@ -38716,7 +38546,7 @@ return setmetatable({ spec =  command ,  raw =  true ,  run =  run }, spec.Handl
 
 end
 package.preload["nupp.compiler.cli.run"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -39052,7 +38882,7 @@ return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.spec"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -39658,7 +39488,7 @@ return spec
 
 end
 package.preload["nupp.compiler.cli.task"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -39705,7 +39535,7 @@ return setmetatable({ spec =  command ,  raw =  true ,  run =  run }, spec.Handl
 
 end
 package.preload["nupp.compiler.cli.tasks"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -39889,7 +39719,7 @@ return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
 
 end
 package.preload["nupp.compiler.cli.test"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -39993,7 +39823,7 @@ return setmetatable({ spec =  command ,  raw =  true ,  run =  run }, spec.Handl
 
 end
 package.preload["nupp.compiler.comptime"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -41663,6 +41493,30 @@ message = importFailure and importFailure . message or "cannot import a type-fun
 }
 end
 values [ position ] = handle
+elseif argument . kind == "function" then
+local handle = materializeProviders . importFunctionConst ( state , argument . key )
+if not handle then
+return nil , {
+code = "NUPP2415" ,
+node = helper ,
+message = "cannot import a const-function type-function argument" ,
+}
+end
+values [ position ] = handle
+elseif argument . kind == "const"
+and argument . value
+and argument . value . tag == "constLiteral"
+and argument . value . domain == "function"
+then
+local handle = materializeProviders . importFunctionConst ( state , argument . value . value )
+if not handle then
+return nil , {
+code = "NUPP2415" ,
+node = helper ,
+message = "cannot import a const-function type-function argument" ,
+}
+end
+values [ position ] = handle
 else
 values [ position ] = argument . value
 end
@@ -41936,7 +41790,7 @@ return comptime
 
 end
 package.preload["nupp.compiler.comptime_worker"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -42338,9 +42192,7 @@ return nil , { code = "NUPP2412" , message = "cannot start comptime worker servi
 end
 child . stdin : setTimeout ( WORKER_TIMEOUT_MS )
 child . stdout : setTimeout ( 5 )
-do
 service = child
-end
 serviceExecutable = executable
 
 return service , nil
@@ -42508,7 +42360,7 @@ return worker
 
 end
 package.preload["nupp.compiler.consteval"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 local T = require ( "nupp.compiler.types" )
 local cst = require ( "nupp.compiler.cst" )
@@ -42696,7 +42548,7 @@ return consteval
 
 end
 package.preload["nupp.compiler.coverage"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -43300,7 +43152,7 @@ return coverage
 
 end
 package.preload["nupp.compiler.cst"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -43320,12 +43172,6 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 local lexer = require ( "nupp.compiler.lexer" )
 
 local cst = { }
-
-
-
-
-
-
 
 
 
@@ -44372,6 +44218,20 @@ cst.TypeAlias = {} cst.TypeAlias.__index = cst.TypeAlias
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 cst.RecordDecl = {} cst.RecordDecl.__index = cst.RecordDecl
 
 
@@ -44636,6 +44496,12 @@ cst.Param = {} cst.Param.__index = cst.Param
 
 
 
+
+
+
+
+
+
 cst.Funcbody = {} cst.Funcbody.__index = cst.Funcbody
 
 
@@ -44820,6 +44686,27 @@ cst.ComptimeExpr = {} cst.ComptimeExpr.__index = cst.ComptimeExpr
 
 
 cst.NewExpr = {} cst.NewExpr.__index = cst.NewExpr
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+cst.UnsafeOwnershipExpr = {} cst.UnsafeOwnershipExpr.__index = cst.UnsafeOwnershipExpr
+
+
+
+
+
+
 
 
 
@@ -45734,6 +45621,7 @@ cst.Tpreserves = {} cst.Tpreserves.__index = cst.Tpreserves
 
 
 
+
 local function isToken ( x )
 return ( x ) . trivia ~= nil
 end
@@ -45747,18 +45635,11 @@ cst . isToken = isToken
 
 
 
+
+
 local OWNERSHIP_INTRINSICS
 
-= {
-attemptAll = true ,
-borrow = true ,
-borrowFrom = true ,
-drop = true ,
-fromRaw = true ,
-intoRaw = true ,
-partition = true ,
-pin = true ,
-}
+= { attemptAll = true , borrow = true , borrowFrom = true , partition = true , pin = true , }
 
 
 
@@ -46067,7 +45948,7 @@ return cst
 
 end
 package.preload["nupp.compiler.diagnostics"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -46219,7 +46100,7 @@ return diagnostics
 
 end
 package.preload["nupp.compiler.doc"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON) local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppBytes NuppBytes;const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end __nuppLazy(__nuppIO,"files",function() local native=__nuppNative();local ffi,C=native.ffi,native.C;ffi.cdef[[NuppBytes*nuppFilesGlob(const uint8_t*,size_t);]];local files={};local record=ffi.new("NuppFileInfo[1]") local KINDS={[1]="file",[2]="directory",[3]="other",[4]="symlink"} local ENTRIES={f="file",d="directory",l="symlink",o="other"} local FOLDERS={home=0,documents=1,downloads=2,desktop=3,pictures=4,music=5,videos=6} local MODES={r=0,w=1,a=2,["r+"]=3,["w+"]=4,["a+"]=5} local ORIGINS={set=0,current=1,["end"]=2} local READ_SIZE=65536 local PENDING,READY=0,1 local SOURCE,PRIORITY="nupp-files",20 local waits={};local suspending local File={};File.__index=File;local Reader={};Reader.__index=Reader;local Writer={};Writer.__index=Writer local function named(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.toString then return value:toString()end;error("nupp: io.files "..what.." must be a path or a string",level)end local function done(answered)if answered then return true end;return false,native.error()end local function answer(handle)if handle==nil then return nil,native.error()end;return native.bytes(handle)end local function described(path,follow,level)local text=named(path,"path",level+1);if not C.nuppFilesInfo(text,#text,follow,record)then return nil end;return record[0]end local function optional(options,field,level)local value=options and options[field];if value==nil then return""end;if type(value)~="string"then error("nupp: io.files temporary "..field.." must be a string",level)end;return value end local function temporary(options,directory,level)local root=options and options.directory and named(options.directory,"temporary directory",level+1)or"";local prefix=optional(options,"prefix",level+1);local suffix=optional(options,"suffix",level+1);return answer(C.nuppFilesCreateTemporary(root,#root,prefix,#prefix,suffix,#suffix,directory))end local function payload(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.getString then return value:getString()end;error("nupp: io.files "..what.." must be bytes or a byte view",level)end local function harvest()local moved=0;local index=#waits;while index>0 do local entry=waits[index];if C.nuppFsStatus(entry.handle)~=PENDING then waits[index]=waits[#waits];waits[#waits]=nil;moved=moved+1;entry.resume(true)end;index=index-1 end;return moved end local function polled()C.nuppFsPoll();return harvest()end local function slept(waitMs)C.nuppFsWait(waitMs);return harvest()end local function forget(entry)for index=1,#waits do if waits[index]==entry then waits[index]=waits[#waits];waits[#waits]=nil;return end end end local function runtime()if suspending==nil then suspending=require("nupp.suspension")end;return suspending end local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,polled,slept);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end local function settled(handle)if handle==nil then return nil,native.error()end;await(handle);if C.nuppFsStatus(handle)~=READY then local reason=ffi.string(C.nuppFsError(handle));C.nuppFsDestroy(handle);return nil,reason end;return handle end local function transferred(handle)local done,reason=settled(handle);if not done then return false,reason end;C.nuppFsDestroy(done);return true end local function fetched(handle)local done,reason=settled(handle);if not done then return nil,reason end;local out=ffi.string(C.nuppFsData(done),tonumber(C.nuppFsLength(done)));C.nuppFsDestroy(done);return out end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: io.files "..what.." must be an integer",level)end;return value end local function counted(value,what,level)if whole(value,what,level)<0 then error("nupp: io.files "..what.." must not be negative",level)end;return value end local function live(self,what,level)if self._closed then error("nupp: io.files "..what.." is closed",level)end;return self end function File:isReleased()return self._closed end function File:close()if self._closed then return true end;self._closed=true;local handle=self._handle;self._handle=nil;C.nuppFileClose(handle);return true end function File:size()live(self,"File",2);local size=tonumber(C.nuppFileSize(self._handle));if size<0 then return nil,native.error()end;return size end function File:seek(offset,origin)live(self,"File",2);local whence=ORIGINS[origin or"set"];if whence==nil then error("nupp: io.files has no seek origin named "..tostring(origin),2)end;local at=tonumber(C.nuppFileSeek(self._handle,whole(offset or 0,"seek offset",2),whence));if at<0 then return nil,native.error()end;return at end function File:position()live(self,"File",2);return self:seek(0,"current")end function File:flush()live(self,"File",2);if C.nuppFileFlush(self._handle)then return true end;return false,native.error()end function File:newReader()live(self,"File",2);return setmetatable({_file=self,_scratch=nil,_capacity=0,_closed=false},Reader)end function File:newWriter()live(self,"File",2);return setmetatable({_file=self,_closed=false},Writer)end local function scratch(self,count)if count>self._capacity then local size=self._capacity*2;if size<count then size=count end;if size<READ_SIZE then size=READ_SIZE end;self._scratch=ffi.new("uint8_t[?]",size);self._capacity=size end;return self._scratch end local function usable(self)if self._closed then return nil,"the reader is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Reader:read(count)local file,reason=usable(self);if not file then return nil,reason end;count=whole(count,"Reader:read count",2);if count<1 then count=1 end;local into=scratch(self,count);local got=tonumber(C.nuppFileRead(file._handle,into,count));if got<0 then return nil,native.error()end;if got==0 then return""end;return ffi.string(into,got)end function Reader:readInto(destination,offset,count)local file,reason=usable(self);if not file then return nil,reason end;offset=counted(offset or 0,"Reader:readInto offset",2);count=counted(count or READ_SIZE,"Reader:readInto count",2);if count==0 then return 0 end;local data=rawget(destination,"_data");local capacity=rawget(destination,"_capacity");if data==nil and capacity==nil then local chunk,why=self:read(count);if chunk==nil then return nil,why end;if #chunk==0 then return 0 end;destination:setString(chunk,offset);return #chunk end;destination:ensureCapacity(offset+count);data=rawget(destination,"_data");local length=rawget(destination,"_length");if offset>length then ffi.fill(data+length,offset-length,0)end;local got=tonumber(C.nuppFileRead(file._handle,data+offset,count));if got<0 then return nil,native.error()end;if offset+got>length then rawset(destination,"_length",offset+got)end;return got end function Reader:transferTo(destination)local file,reason=usable(self);if not file then return nil,reason end;local total=0;while true do local chunk,why=self:read(READ_SIZE);if chunk==nil then return nil,why end;if chunk==""then return total end;local wrote,failure=destination:write(chunk);if not wrote then return nil,failure end;total=total+#chunk end end function Reader:close()self._closed=true;self._scratch=nil;self._capacity=0;return true end local function writable(self)if self._closed then return nil,"the writer is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Writer:write(bytes)local file,reason=writable(self);if not file then return false,reason end;if type(bytes)~="string"then error("nupp: io.files Writer:write needs a string",2)end;if C.nuppFileWrite(file._handle,bytes,#bytes)<0 then return false,native.error()end;return true end function Writer:writeFrom(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeFrom offset",2);count=counted(count==nil and length-offset or count,"Writer:writeFrom count",2);if offset+count>length then error("nupp: io.files Writer:writeFrom range is past the end",2)end;if count==0 then return 0 end;local data=rawget(source,"_data");if data==nil then local wrote,failure=self:write(source:getString(offset,count));if not wrote then return nil,failure end;return count end;if C.nuppFileWrite(file._handle,data+offset,count)<0 then return nil,native.error()end;return count end function Writer:writeView(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeView offset",2);count=counted(count==nil and length-offset or count,"Writer:writeView count",2);if offset+count>length then error("nupp: io.files Writer:writeView range is past the end",2)end;local wrote,failure=self:write(source:getString():sub(offset+1,offset+count));if not wrote then return nil,failure end;return count end function Writer:flush()local file,reason=writable(self);if not file then return false,reason end;return file:flush()end function Writer:close()self._closed=true;return true end function files.info(path)local found=described(path,true,2);if not found then return nil,native.error()end;return{kind=KINDS[tonumber(found.kind)]or"other",size=tonumber(found.size),modified=found.modified,readOnly=found.readOnly}end function files.exists(path)return described(path,true,2)~=nil end function files.isFile(path)local found=described(path,true,2);return found~=nil and found.kind==1 end function files.isDirectory(path)local found=described(path,true,2);return found~=nil and found.kind==2 end function files.isSymlink(path)local found=described(path,false,2);return found~=nil and found.kind==4 end function files.readLink(path)local text=named(path,"path",2);return answer(C.nuppFilesReadLink(text,#text))end function files.createSymlink(target,link,kind)local to=named(target,"symlink target",2);local at=named(link,"symlink path",2);if kind~=nil and kind~="file"and kind~="directory"then error("nupp: io.files symlink kind must be 'file' or 'directory'",2)end;return done(C.nuppFilesCreateSymlink(to,#to,at,#at,kind=="directory"))end function files.setReadOnly(path,readOnly)local text=named(path,"path",2);return done(C.nuppFilesSetReadOnly(text,#text,readOnly and true or false))end function files.createDirectory(path)local text=named(path,"path",2);return done(C.nuppFilesCreateDirectory(text,#text))end function files.remove(path,recursive)local text=named(path,"path",2);return done(C.nuppFilesRemove(text,#text,recursive and true or false))end function files.rename(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return done(C.nuppFilesRename(source,#source,destination,#destination))end function files.list(path)local text=named(path,"path",2);local handle=C.nuppFilesList(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local entries,at={},1;while at<=#blob do local stop=blob:find("\0",at+1,true);entries[#entries+1]={kind=ENTRIES[blob:sub(at,at)]or"other",name=blob:sub(at+1,stop-1)};at=stop+1 end;return entries end function files.glob(pattern)local text=named(pattern,"glob pattern",2);local handle=C.nuppFilesGlob(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local matches,at={},1;while at<=#blob do local stop=blob:find("\0",at,true);if not stop then matches[#matches+1]=blob:sub(at);break end;matches[#matches+1]=blob:sub(at,stop-1);at=stop+1 end;return matches end local Temporary={};Temporary.__index=Temporary;Temporary.__tostring=function(self)return self._text end function Temporary:toString()return self._text end function Temporary:isReleased()return self._closed end function Temporary:persist(destination)if self._closed then return false,"the temporary path is released"end;local to=named(destination,"destination path",2);local moved,reason=done(C.nuppFilesRename(self._text,#self._text,to,#to));if not moved then return false,reason end;self._closed=true;return true end function Temporary:close()if self._closed then return true end;self._closed=true;return done(C.nuppFilesRemove(self._text,#self._text,self._directory))end function files.createTemporaryFile(options)local text,reason=temporary(options,false,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=false,_closed=false},Temporary)end function files.createTemporaryDirectory(options)local text,reason=temporary(options,true,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=true,_closed=false},Temporary)end function files.read(path)local text=named(path,"path",2);return fetched(C.nuppFsSubmitRead(text,#text))end function files.write(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,0))end function files.append(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,1))end function files.writeAtomic(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,2))end function files.copy(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return transferred(C.nuppFsSubmitCopy(source,#source,destination,#destination))end function files.pendingTransfers()return tonumber(C.nuppFsPending())end function files.open(path,mode)local text=named(path,"path",2);local selected=MODES[mode or"r"];if selected==nil then error("nupp: io.files has no mode named "..tostring(mode),2)end;local handle=C.nuppFileOpen(text,#text,selected);if handle==nil then return nil,native.error()end;return setmetatable({_handle=handle,_closed=false},File)end function files.lines(path)local file,reason=files.open(path,"r");if not file then return nil,reason end;local reader=file:newReader();local held,finished="",false;local function trimmed(line)if line:sub(-1)=="\r"then return line:sub(1,-2)end;return line end;return function()if finished then return nil end;while true do local stop=held:find("\n",1,true);if stop then local line=held:sub(1,stop-1);held=held:sub(stop+1);return trimmed(line)end;local chunk=reader:read(READ_SIZE);if chunk==nil or chunk==""then finished=true;file:close();if #held>0 then local line=held;held="";return trimmed(line)end;return nil end;held=held..chunk end end end function files.currentDirectory()return answer(C.nuppFilesCurrentDirectory())end function files.userFolder(which)local index=FOLDERS[which];if index==nil then error("nupp: io.files has no user folder named "..tostring(which),2)end;return answer(C.nuppFilesUserFolder(index))end return files end);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON) local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppBytes NuppBytes;const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end __nuppLazy(__nuppIO,"files",function() local native=__nuppNative();local ffi,C=native.ffi,native.C;ffi.cdef[[NuppBytes*nuppFilesGlob(const uint8_t*,size_t);]];local files={};local record=ffi.new("NuppFileInfo[1]") local KINDS={[1]="file",[2]="directory",[3]="other",[4]="symlink"} local ENTRIES={f="file",d="directory",l="symlink",o="other"} local FOLDERS={home=0,documents=1,downloads=2,desktop=3,pictures=4,music=5,videos=6} local MODES={r=0,w=1,a=2,["r+"]=3,["w+"]=4,["a+"]=5} local ORIGINS={set=0,current=1,["end"]=2} local READ_SIZE=65536 local PENDING,READY=0,1 local SOURCE,PRIORITY="nupp-files",20 local waits={};local suspending local File={};File.__index=File;local Reader={};Reader.__index=Reader;local Writer={};Writer.__index=Writer local function named(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.toString then return value:toString()end;error("nupp: io.files "..what.." must be a path or a string",level)end local function done(answered)if answered then return true end;return false,native.error()end local function answer(handle)if handle==nil then return nil,native.error()end;return native.bytes(handle)end local function described(path,follow,level)local text=named(path,"path",level+1);if not C.nuppFilesInfo(text,#text,follow,record)then return nil end;return record[0]end local function optional(options,field,level)local value=options and options[field];if value==nil then return""end;if type(value)~="string"then error("nupp: io.files temporary "..field.." must be a string",level)end;return value end local function temporary(options,directory,level)local root=options and options.directory and named(options.directory,"temporary directory",level+1)or"";local prefix=optional(options,"prefix",level+1);local suffix=optional(options,"suffix",level+1);return answer(C.nuppFilesCreateTemporary(root,#root,prefix,#prefix,suffix,#suffix,directory))end local function payload(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.getString then return value:getString()end;error("nupp: io.files "..what.." must be bytes or a byte view",level)end local function harvest()local moved=0;local index=#waits;while index>0 do local entry=waits[index];if C.nuppFsStatus(entry.handle)~=PENDING then waits[index]=waits[#waits];waits[#waits]=nil;moved=moved+1;entry.resume(true)end;index=index-1 end;return moved end local function polled()C.nuppFsPoll();return harvest()end local function slept(waitMs)C.nuppFsWait(waitMs);return harvest()end local function forget(entry)for index=1,#waits do if waits[index]==entry then waits[index]=waits[#waits];waits[#waits]=nil;return end end end local function runtime()if suspending==nil then suspending=require("nupp.suspension")end;return suspending end local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,polled,slept);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end local function settled(handle)if handle==nil then return nil,native.error()end;await(handle);if C.nuppFsStatus(handle)~=READY then local reason=ffi.string(C.nuppFsError(handle));C.nuppFsDestroy(handle);return nil,reason end;return handle end local function transferred(handle)local done,reason=settled(handle);if not done then return false,reason end;C.nuppFsDestroy(done);return true end local function fetched(handle)local done,reason=settled(handle);if not done then return nil,reason end;local out=ffi.string(C.nuppFsData(done),tonumber(C.nuppFsLength(done)));C.nuppFsDestroy(done);return out end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: io.files "..what.." must be an integer",level)end;return value end local function counted(value,what,level)if whole(value,what,level)<0 then error("nupp: io.files "..what.." must not be negative",level)end;return value end local function live(self,what,level)if self._closed then error("nupp: io.files "..what.." is closed",level)end;return self end function File:isReleased()return self._closed end function File:close()if self._closed then return true end;self._closed=true;local handle=self._handle;self._handle=nil;C.nuppFileClose(handle);return true end function File:size()live(self,"File",2);local size=tonumber(C.nuppFileSize(self._handle));if size<0 then return nil,native.error()end;return size end function File:seek(offset,origin)live(self,"File",2);local whence=ORIGINS[origin or"set"];if whence==nil then error("nupp: io.files has no seek origin named "..tostring(origin),2)end;local at=tonumber(C.nuppFileSeek(self._handle,whole(offset or 0,"seek offset",2),whence));if at<0 then return nil,native.error()end;return at end function File:position()live(self,"File",2);return self:seek(0,"current")end function File:flush()live(self,"File",2);if C.nuppFileFlush(self._handle)then return true end;return false,native.error()end function File:newReader()live(self,"File",2);return setmetatable({_file=self,_scratch=nil,_capacity=0,_closed=false},Reader)end function File:newWriter()live(self,"File",2);return setmetatable({_file=self,_closed=false},Writer)end local function scratch(self,count)if count>self._capacity then local size=self._capacity*2;if size<count then size=count end;if size<READ_SIZE then size=READ_SIZE end;self._scratch=ffi.new("uint8_t[?]",size);self._capacity=size end;return self._scratch end local function usable(self)if self._closed then return nil,"the reader is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Reader:read(count)local file,reason=usable(self);if not file then return nil,reason end;count=whole(count,"Reader:read count",2);if count<1 then count=1 end;local into=scratch(self,count);local got=tonumber(C.nuppFileRead(file._handle,into,count));if got<0 then return nil,native.error()end;if got==0 then return""end;return ffi.string(into,got)end function Reader:readInto(destination,offset,count)local file,reason=usable(self);if not file then return nil,reason end;offset=counted(offset or 0,"Reader:readInto offset",2);count=counted(count or READ_SIZE,"Reader:readInto count",2);if count==0 then return 0 end;local data=rawget(destination,"_data");local capacity=rawget(destination,"_capacity");if data==nil and capacity==nil then local chunk,why=self:read(count);if chunk==nil then return nil,why end;if #chunk==0 then return 0 end;destination:setString(chunk,offset);return #chunk end;destination:ensureCapacity(offset+count);data=rawget(destination,"_data");local length=rawget(destination,"_length");if offset>length then ffi.fill(data+length,offset-length,0)end;local got=tonumber(C.nuppFileRead(file._handle,data+offset,count));if got<0 then return nil,native.error()end;if offset+got>length then rawset(destination,"_length",offset+got)end;return got end function Reader:transferTo(destination)local file,reason=usable(self);if not file then return nil,reason end;local total=0;while true do local chunk,why=self:read(READ_SIZE);if chunk==nil then return nil,why end;if chunk==""then return total end;local wrote,failure=destination:write(chunk);if not wrote then return nil,failure end;total=total+#chunk end end function Reader:close()self._closed=true;self._scratch=nil;self._capacity=0;return true end local function writable(self)if self._closed then return nil,"the writer is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Writer:write(bytes)local file,reason=writable(self);if not file then return false,reason end;if type(bytes)~="string"then error("nupp: io.files Writer:write needs a string",2)end;if C.nuppFileWrite(file._handle,bytes,#bytes)<0 then return false,native.error()end;return true end function Writer:writeFrom(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeFrom offset",2);count=counted(count==nil and length-offset or count,"Writer:writeFrom count",2);if offset+count>length then error("nupp: io.files Writer:writeFrom range is past the end",2)end;if count==0 then return 0 end;local data=rawget(source,"_data");if data==nil then local wrote,failure=self:write(source:getString(offset,count));if not wrote then return nil,failure end;return count end;if C.nuppFileWrite(file._handle,data+offset,count)<0 then return nil,native.error()end;return count end function Writer:writeView(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeView offset",2);count=counted(count==nil and length-offset or count,"Writer:writeView count",2);if offset+count>length then error("nupp: io.files Writer:writeView range is past the end",2)end;local wrote,failure=self:write(source:getString():sub(offset+1,offset+count));if not wrote then return nil,failure end;return count end function Writer:flush()local file,reason=writable(self);if not file then return false,reason end;return file:flush()end function Writer:close()self._closed=true;return true end function files.info(path)local found=described(path,true,2);if not found then return nil,native.error()end;return{kind=KINDS[tonumber(found.kind)]or"other",size=tonumber(found.size),modified=found.modified,readOnly=found.readOnly}end function files.exists(path)return described(path,true,2)~=nil end function files.isFile(path)local found=described(path,true,2);return found~=nil and found.kind==1 end function files.isDirectory(path)local found=described(path,true,2);return found~=nil and found.kind==2 end function files.isSymlink(path)local found=described(path,false,2);return found~=nil and found.kind==4 end function files.readLink(path)local text=named(path,"path",2);return answer(C.nuppFilesReadLink(text,#text))end function files.createSymlink(target,link,kind)local to=named(target,"symlink target",2);local at=named(link,"symlink path",2);if kind~=nil and kind~="file"and kind~="directory"then error("nupp: io.files symlink kind must be 'file' or 'directory'",2)end;return done(C.nuppFilesCreateSymlink(to,#to,at,#at,kind=="directory"))end function files.setReadOnly(path,readOnly)local text=named(path,"path",2);return done(C.nuppFilesSetReadOnly(text,#text,readOnly and true or false))end function files.createDirectory(path)local text=named(path,"path",2);return done(C.nuppFilesCreateDirectory(text,#text))end function files.remove(path,recursive)local text=named(path,"path",2);return done(C.nuppFilesRemove(text,#text,recursive and true or false))end function files.rename(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return done(C.nuppFilesRename(source,#source,destination,#destination))end function files.list(path)local text=named(path,"path",2);local handle=C.nuppFilesList(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local entries,at={},1;while at<=#blob do local stop=blob:find("\0",at+1,true);entries[#entries+1]={kind=ENTRIES[blob:sub(at,at)]or"other",name=blob:sub(at+1,stop-1)};at=stop+1 end;return entries end function files.glob(pattern)local text=named(pattern,"glob pattern",2);local handle=C.nuppFilesGlob(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local matches,at={},1;while at<=#blob do local stop=blob:find("\0",at,true);if not stop then matches[#matches+1]=blob:sub(at);break end;matches[#matches+1]=blob:sub(at,stop-1);at=stop+1 end;return matches end local Temporary={};Temporary.__index=Temporary;Temporary.__tostring=function(self)return self._text end function Temporary:toString()return self._text end function Temporary:isReleased()return self._closed end function Temporary:persist(destination)if self._closed then return false,"the temporary path is released"end;local to=named(destination,"destination path",2);local moved,reason=done(C.nuppFilesRename(self._text,#self._text,to,#to));if not moved then return false,reason end;self._closed=true;return true end function Temporary:close()if self._closed then return true end;self._closed=true;return done(C.nuppFilesRemove(self._text,#self._text,self._directory))end File.drop=File.close;Reader.drop=Reader.close;Writer.drop=Writer.close;Temporary.drop=Temporary.close function files.createTemporaryFile(options)local text,reason=temporary(options,false,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=false,_closed=false},Temporary)end function files.createTemporaryDirectory(options)local text,reason=temporary(options,true,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=true,_closed=false},Temporary)end function files.read(path)local text=named(path,"path",2);return fetched(C.nuppFsSubmitRead(text,#text))end function files.write(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,0))end function files.append(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,1))end function files.writeAtomic(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,2))end function files.copy(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return transferred(C.nuppFsSubmitCopy(source,#source,destination,#destination))end function files.pendingTransfers()return tonumber(C.nuppFsPending())end function files.open(path,mode)local text=named(path,"path",2);local selected=MODES[mode or"r"];if selected==nil then error("nupp: io.files has no mode named "..tostring(mode),2)end;local handle=C.nuppFileOpen(text,#text,selected);if handle==nil then return nil,native.error()end;return setmetatable({_handle=handle,_closed=false},File)end function files.lines(path)local file,reason=files.open(path,"r");if not file then return nil,reason end;local reader=file:newReader();local held,finished="",false;local function trimmed(line)if line:sub(-1)=="\r"then return line:sub(1,-2)end;return line end;return function()if finished then return nil end;while true do local stop=held:find("\n",1,true);if stop then local line=held:sub(1,stop-1);held=held:sub(stop+1);return trimmed(line)end;local chunk=reader:read(READ_SIZE);if chunk==nil or chunk==""then finished=true;file:close();if #held>0 then local line=held;held="";return trimmed(line)end;return nil end;held=held..chunk end end end function files.currentDirectory()return answer(C.nuppFilesCurrentDirectory())end function files.userFolder(which)local index=FOLDERS[which];if index==nil then error("nupp: io.files has no user folder named "..tostring(which),2)end;return answer(C.nuppFilesUserFolder(index))end return files end);
 
 
 
@@ -47396,7 +47277,7 @@ return doc
 
 end
 package.preload["nupp.compiler.doc.api"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -47433,8 +47314,6 @@ local DEFAULT_CONSTRUCTOR_PATTERN = "^new"
 local function kindBadge ( kind )
 return '<span class="nuppdoc-kind-badge nuppdoc-kind-' .. htmlEscape ( kind ) .. '">' .. htmlEscape ( kind ) .. '</span>'
 end
-
-
 
 
 local function annotationBadges ( annotations )
@@ -47819,7 +47698,7 @@ return api
 
 end
 package.preload["nupp.compiler.doc.assets"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -48145,7 +48024,7 @@ return assets
 
 end
 package.preload["nupp.compiler.doc.diagnostics"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -48334,7 +48213,7 @@ return diagnostics
 
 end
 package.preload["nupp.compiler.doc.extract"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -48381,7 +48260,6 @@ local extract = { }
 
 
 extract.Member = {} extract.Member.__index = extract.Member
-
 
 
 
@@ -48685,10 +48563,6 @@ end
 
 return "@" .. name .. "(" .. table . concat ( args , ", " ) .. ")"
 end
-
-
-
-
 
 
 local function annotationsOf ( entry )
@@ -49673,7 +49547,7 @@ return extract
 
 end
 package.preload["nupp.compiler.doc.files"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -49810,7 +49684,7 @@ return files
 
 end
 package.preload["nupp.compiler.doc.highlight"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppBytes NuppBytes;const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end __nuppLazy(__nuppIO,"files",function() local native=__nuppNative();local ffi,C=native.ffi,native.C;ffi.cdef[[NuppBytes*nuppFilesGlob(const uint8_t*,size_t);]];local files={};local record=ffi.new("NuppFileInfo[1]") local KINDS={[1]="file",[2]="directory",[3]="other",[4]="symlink"} local ENTRIES={f="file",d="directory",l="symlink",o="other"} local FOLDERS={home=0,documents=1,downloads=2,desktop=3,pictures=4,music=5,videos=6} local MODES={r=0,w=1,a=2,["r+"]=3,["w+"]=4,["a+"]=5} local ORIGINS={set=0,current=1,["end"]=2} local READ_SIZE=65536 local PENDING,READY=0,1 local SOURCE,PRIORITY="nupp-files",20 local waits={};local suspending local File={};File.__index=File;local Reader={};Reader.__index=Reader;local Writer={};Writer.__index=Writer local function named(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.toString then return value:toString()end;error("nupp: io.files "..what.." must be a path or a string",level)end local function done(answered)if answered then return true end;return false,native.error()end local function answer(handle)if handle==nil then return nil,native.error()end;return native.bytes(handle)end local function described(path,follow,level)local text=named(path,"path",level+1);if not C.nuppFilesInfo(text,#text,follow,record)then return nil end;return record[0]end local function optional(options,field,level)local value=options and options[field];if value==nil then return""end;if type(value)~="string"then error("nupp: io.files temporary "..field.." must be a string",level)end;return value end local function temporary(options,directory,level)local root=options and options.directory and named(options.directory,"temporary directory",level+1)or"";local prefix=optional(options,"prefix",level+1);local suffix=optional(options,"suffix",level+1);return answer(C.nuppFilesCreateTemporary(root,#root,prefix,#prefix,suffix,#suffix,directory))end local function payload(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.getString then return value:getString()end;error("nupp: io.files "..what.." must be bytes or a byte view",level)end local function harvest()local moved=0;local index=#waits;while index>0 do local entry=waits[index];if C.nuppFsStatus(entry.handle)~=PENDING then waits[index]=waits[#waits];waits[#waits]=nil;moved=moved+1;entry.resume(true)end;index=index-1 end;return moved end local function polled()C.nuppFsPoll();return harvest()end local function slept(waitMs)C.nuppFsWait(waitMs);return harvest()end local function forget(entry)for index=1,#waits do if waits[index]==entry then waits[index]=waits[#waits];waits[#waits]=nil;return end end end local function runtime()if suspending==nil then suspending=require("nupp.suspension")end;return suspending end local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,polled,slept);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end local function settled(handle)if handle==nil then return nil,native.error()end;await(handle);if C.nuppFsStatus(handle)~=READY then local reason=ffi.string(C.nuppFsError(handle));C.nuppFsDestroy(handle);return nil,reason end;return handle end local function transferred(handle)local done,reason=settled(handle);if not done then return false,reason end;C.nuppFsDestroy(done);return true end local function fetched(handle)local done,reason=settled(handle);if not done then return nil,reason end;local out=ffi.string(C.nuppFsData(done),tonumber(C.nuppFsLength(done)));C.nuppFsDestroy(done);return out end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: io.files "..what.." must be an integer",level)end;return value end local function counted(value,what,level)if whole(value,what,level)<0 then error("nupp: io.files "..what.." must not be negative",level)end;return value end local function live(self,what,level)if self._closed then error("nupp: io.files "..what.." is closed",level)end;return self end function File:isReleased()return self._closed end function File:close()if self._closed then return true end;self._closed=true;local handle=self._handle;self._handle=nil;C.nuppFileClose(handle);return true end function File:size()live(self,"File",2);local size=tonumber(C.nuppFileSize(self._handle));if size<0 then return nil,native.error()end;return size end function File:seek(offset,origin)live(self,"File",2);local whence=ORIGINS[origin or"set"];if whence==nil then error("nupp: io.files has no seek origin named "..tostring(origin),2)end;local at=tonumber(C.nuppFileSeek(self._handle,whole(offset or 0,"seek offset",2),whence));if at<0 then return nil,native.error()end;return at end function File:position()live(self,"File",2);return self:seek(0,"current")end function File:flush()live(self,"File",2);if C.nuppFileFlush(self._handle)then return true end;return false,native.error()end function File:newReader()live(self,"File",2);return setmetatable({_file=self,_scratch=nil,_capacity=0,_closed=false},Reader)end function File:newWriter()live(self,"File",2);return setmetatable({_file=self,_closed=false},Writer)end local function scratch(self,count)if count>self._capacity then local size=self._capacity*2;if size<count then size=count end;if size<READ_SIZE then size=READ_SIZE end;self._scratch=ffi.new("uint8_t[?]",size);self._capacity=size end;return self._scratch end local function usable(self)if self._closed then return nil,"the reader is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Reader:read(count)local file,reason=usable(self);if not file then return nil,reason end;count=whole(count,"Reader:read count",2);if count<1 then count=1 end;local into=scratch(self,count);local got=tonumber(C.nuppFileRead(file._handle,into,count));if got<0 then return nil,native.error()end;if got==0 then return""end;return ffi.string(into,got)end function Reader:readInto(destination,offset,count)local file,reason=usable(self);if not file then return nil,reason end;offset=counted(offset or 0,"Reader:readInto offset",2);count=counted(count or READ_SIZE,"Reader:readInto count",2);if count==0 then return 0 end;local data=rawget(destination,"_data");local capacity=rawget(destination,"_capacity");if data==nil and capacity==nil then local chunk,why=self:read(count);if chunk==nil then return nil,why end;if #chunk==0 then return 0 end;destination:setString(chunk,offset);return #chunk end;destination:ensureCapacity(offset+count);data=rawget(destination,"_data");local length=rawget(destination,"_length");if offset>length then ffi.fill(data+length,offset-length,0)end;local got=tonumber(C.nuppFileRead(file._handle,data+offset,count));if got<0 then return nil,native.error()end;if offset+got>length then rawset(destination,"_length",offset+got)end;return got end function Reader:transferTo(destination)local file,reason=usable(self);if not file then return nil,reason end;local total=0;while true do local chunk,why=self:read(READ_SIZE);if chunk==nil then return nil,why end;if chunk==""then return total end;local wrote,failure=destination:write(chunk);if not wrote then return nil,failure end;total=total+#chunk end end function Reader:close()self._closed=true;self._scratch=nil;self._capacity=0;return true end local function writable(self)if self._closed then return nil,"the writer is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Writer:write(bytes)local file,reason=writable(self);if not file then return false,reason end;if type(bytes)~="string"then error("nupp: io.files Writer:write needs a string",2)end;if C.nuppFileWrite(file._handle,bytes,#bytes)<0 then return false,native.error()end;return true end function Writer:writeFrom(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeFrom offset",2);count=counted(count==nil and length-offset or count,"Writer:writeFrom count",2);if offset+count>length then error("nupp: io.files Writer:writeFrom range is past the end",2)end;if count==0 then return 0 end;local data=rawget(source,"_data");if data==nil then local wrote,failure=self:write(source:getString(offset,count));if not wrote then return nil,failure end;return count end;if C.nuppFileWrite(file._handle,data+offset,count)<0 then return nil,native.error()end;return count end function Writer:writeView(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeView offset",2);count=counted(count==nil and length-offset or count,"Writer:writeView count",2);if offset+count>length then error("nupp: io.files Writer:writeView range is past the end",2)end;local wrote,failure=self:write(source:getString():sub(offset+1,offset+count));if not wrote then return nil,failure end;return count end function Writer:flush()local file,reason=writable(self);if not file then return false,reason end;return file:flush()end function Writer:close()self._closed=true;return true end function files.info(path)local found=described(path,true,2);if not found then return nil,native.error()end;return{kind=KINDS[tonumber(found.kind)]or"other",size=tonumber(found.size),modified=found.modified,readOnly=found.readOnly}end function files.exists(path)return described(path,true,2)~=nil end function files.isFile(path)local found=described(path,true,2);return found~=nil and found.kind==1 end function files.isDirectory(path)local found=described(path,true,2);return found~=nil and found.kind==2 end function files.isSymlink(path)local found=described(path,false,2);return found~=nil and found.kind==4 end function files.readLink(path)local text=named(path,"path",2);return answer(C.nuppFilesReadLink(text,#text))end function files.createSymlink(target,link,kind)local to=named(target,"symlink target",2);local at=named(link,"symlink path",2);if kind~=nil and kind~="file"and kind~="directory"then error("nupp: io.files symlink kind must be 'file' or 'directory'",2)end;return done(C.nuppFilesCreateSymlink(to,#to,at,#at,kind=="directory"))end function files.setReadOnly(path,readOnly)local text=named(path,"path",2);return done(C.nuppFilesSetReadOnly(text,#text,readOnly and true or false))end function files.createDirectory(path)local text=named(path,"path",2);return done(C.nuppFilesCreateDirectory(text,#text))end function files.remove(path,recursive)local text=named(path,"path",2);return done(C.nuppFilesRemove(text,#text,recursive and true or false))end function files.rename(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return done(C.nuppFilesRename(source,#source,destination,#destination))end function files.list(path)local text=named(path,"path",2);local handle=C.nuppFilesList(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local entries,at={},1;while at<=#blob do local stop=blob:find("\0",at+1,true);entries[#entries+1]={kind=ENTRIES[blob:sub(at,at)]or"other",name=blob:sub(at+1,stop-1)};at=stop+1 end;return entries end function files.glob(pattern)local text=named(pattern,"glob pattern",2);local handle=C.nuppFilesGlob(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local matches,at={},1;while at<=#blob do local stop=blob:find("\0",at,true);if not stop then matches[#matches+1]=blob:sub(at);break end;matches[#matches+1]=blob:sub(at,stop-1);at=stop+1 end;return matches end local Temporary={};Temporary.__index=Temporary;Temporary.__tostring=function(self)return self._text end function Temporary:toString()return self._text end function Temporary:isReleased()return self._closed end function Temporary:persist(destination)if self._closed then return false,"the temporary path is released"end;local to=named(destination,"destination path",2);local moved,reason=done(C.nuppFilesRename(self._text,#self._text,to,#to));if not moved then return false,reason end;self._closed=true;return true end function Temporary:close()if self._closed then return true end;self._closed=true;return done(C.nuppFilesRemove(self._text,#self._text,self._directory))end function files.createTemporaryFile(options)local text,reason=temporary(options,false,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=false,_closed=false},Temporary)end function files.createTemporaryDirectory(options)local text,reason=temporary(options,true,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=true,_closed=false},Temporary)end function files.read(path)local text=named(path,"path",2);return fetched(C.nuppFsSubmitRead(text,#text))end function files.write(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,0))end function files.append(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,1))end function files.writeAtomic(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,2))end function files.copy(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return transferred(C.nuppFsSubmitCopy(source,#source,destination,#destination))end function files.pendingTransfers()return tonumber(C.nuppFsPending())end function files.open(path,mode)local text=named(path,"path",2);local selected=MODES[mode or"r"];if selected==nil then error("nupp: io.files has no mode named "..tostring(mode),2)end;local handle=C.nuppFileOpen(text,#text,selected);if handle==nil then return nil,native.error()end;return setmetatable({_handle=handle,_closed=false},File)end function files.lines(path)local file,reason=files.open(path,"r");if not file then return nil,reason end;local reader=file:newReader();local held,finished="",false;local function trimmed(line)if line:sub(-1)=="\r"then return line:sub(1,-2)end;return line end;return function()if finished then return nil end;while true do local stop=held:find("\n",1,true);if stop then local line=held:sub(1,stop-1);held=held:sub(stop+1);return trimmed(line)end;local chunk=reader:read(READ_SIZE);if chunk==nil or chunk==""then finished=true;file:close();if #held>0 then local line=held;held="";return trimmed(line)end;return nil end;held=held..chunk end end end function files.currentDirectory()return answer(C.nuppFilesCurrentDirectory())end function files.userFolder(which)local index=FOLDERS[which];if index==nil then error("nupp: io.files has no user folder named "..tostring(which),2)end;return answer(C.nuppFilesUserFolder(index))end return files end);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppBytes NuppBytes;const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end __nuppLazy(__nuppIO,"files",function() local native=__nuppNative();local ffi,C=native.ffi,native.C;ffi.cdef[[NuppBytes*nuppFilesGlob(const uint8_t*,size_t);]];local files={};local record=ffi.new("NuppFileInfo[1]") local KINDS={[1]="file",[2]="directory",[3]="other",[4]="symlink"} local ENTRIES={f="file",d="directory",l="symlink",o="other"} local FOLDERS={home=0,documents=1,downloads=2,desktop=3,pictures=4,music=5,videos=6} local MODES={r=0,w=1,a=2,["r+"]=3,["w+"]=4,["a+"]=5} local ORIGINS={set=0,current=1,["end"]=2} local READ_SIZE=65536 local PENDING,READY=0,1 local SOURCE,PRIORITY="nupp-files",20 local waits={};local suspending local File={};File.__index=File;local Reader={};Reader.__index=Reader;local Writer={};Writer.__index=Writer local function named(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.toString then return value:toString()end;error("nupp: io.files "..what.." must be a path or a string",level)end local function done(answered)if answered then return true end;return false,native.error()end local function answer(handle)if handle==nil then return nil,native.error()end;return native.bytes(handle)end local function described(path,follow,level)local text=named(path,"path",level+1);if not C.nuppFilesInfo(text,#text,follow,record)then return nil end;return record[0]end local function optional(options,field,level)local value=options and options[field];if value==nil then return""end;if type(value)~="string"then error("nupp: io.files temporary "..field.." must be a string",level)end;return value end local function temporary(options,directory,level)local root=options and options.directory and named(options.directory,"temporary directory",level+1)or"";local prefix=optional(options,"prefix",level+1);local suffix=optional(options,"suffix",level+1);return answer(C.nuppFilesCreateTemporary(root,#root,prefix,#prefix,suffix,#suffix,directory))end local function payload(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.getString then return value:getString()end;error("nupp: io.files "..what.." must be bytes or a byte view",level)end local function harvest()local moved=0;local index=#waits;while index>0 do local entry=waits[index];if C.nuppFsStatus(entry.handle)~=PENDING then waits[index]=waits[#waits];waits[#waits]=nil;moved=moved+1;entry.resume(true)end;index=index-1 end;return moved end local function polled()C.nuppFsPoll();return harvest()end local function slept(waitMs)C.nuppFsWait(waitMs);return harvest()end local function forget(entry)for index=1,#waits do if waits[index]==entry then waits[index]=waits[#waits];waits[#waits]=nil;return end end end local function runtime()if suspending==nil then suspending=require("nupp.suspension")end;return suspending end local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,polled,slept);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end local function settled(handle)if handle==nil then return nil,native.error()end;await(handle);if C.nuppFsStatus(handle)~=READY then local reason=ffi.string(C.nuppFsError(handle));C.nuppFsDestroy(handle);return nil,reason end;return handle end local function transferred(handle)local done,reason=settled(handle);if not done then return false,reason end;C.nuppFsDestroy(done);return true end local function fetched(handle)local done,reason=settled(handle);if not done then return nil,reason end;local out=ffi.string(C.nuppFsData(done),tonumber(C.nuppFsLength(done)));C.nuppFsDestroy(done);return out end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: io.files "..what.." must be an integer",level)end;return value end local function counted(value,what,level)if whole(value,what,level)<0 then error("nupp: io.files "..what.." must not be negative",level)end;return value end local function live(self,what,level)if self._closed then error("nupp: io.files "..what.." is closed",level)end;return self end function File:isReleased()return self._closed end function File:close()if self._closed then return true end;self._closed=true;local handle=self._handle;self._handle=nil;C.nuppFileClose(handle);return true end function File:size()live(self,"File",2);local size=tonumber(C.nuppFileSize(self._handle));if size<0 then return nil,native.error()end;return size end function File:seek(offset,origin)live(self,"File",2);local whence=ORIGINS[origin or"set"];if whence==nil then error("nupp: io.files has no seek origin named "..tostring(origin),2)end;local at=tonumber(C.nuppFileSeek(self._handle,whole(offset or 0,"seek offset",2),whence));if at<0 then return nil,native.error()end;return at end function File:position()live(self,"File",2);return self:seek(0,"current")end function File:flush()live(self,"File",2);if C.nuppFileFlush(self._handle)then return true end;return false,native.error()end function File:newReader()live(self,"File",2);return setmetatable({_file=self,_scratch=nil,_capacity=0,_closed=false},Reader)end function File:newWriter()live(self,"File",2);return setmetatable({_file=self,_closed=false},Writer)end local function scratch(self,count)if count>self._capacity then local size=self._capacity*2;if size<count then size=count end;if size<READ_SIZE then size=READ_SIZE end;self._scratch=ffi.new("uint8_t[?]",size);self._capacity=size end;return self._scratch end local function usable(self)if self._closed then return nil,"the reader is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Reader:read(count)local file,reason=usable(self);if not file then return nil,reason end;count=whole(count,"Reader:read count",2);if count<1 then count=1 end;local into=scratch(self,count);local got=tonumber(C.nuppFileRead(file._handle,into,count));if got<0 then return nil,native.error()end;if got==0 then return""end;return ffi.string(into,got)end function Reader:readInto(destination,offset,count)local file,reason=usable(self);if not file then return nil,reason end;offset=counted(offset or 0,"Reader:readInto offset",2);count=counted(count or READ_SIZE,"Reader:readInto count",2);if count==0 then return 0 end;local data=rawget(destination,"_data");local capacity=rawget(destination,"_capacity");if data==nil and capacity==nil then local chunk,why=self:read(count);if chunk==nil then return nil,why end;if #chunk==0 then return 0 end;destination:setString(chunk,offset);return #chunk end;destination:ensureCapacity(offset+count);data=rawget(destination,"_data");local length=rawget(destination,"_length");if offset>length then ffi.fill(data+length,offset-length,0)end;local got=tonumber(C.nuppFileRead(file._handle,data+offset,count));if got<0 then return nil,native.error()end;if offset+got>length then rawset(destination,"_length",offset+got)end;return got end function Reader:transferTo(destination)local file,reason=usable(self);if not file then return nil,reason end;local total=0;while true do local chunk,why=self:read(READ_SIZE);if chunk==nil then return nil,why end;if chunk==""then return total end;local wrote,failure=destination:write(chunk);if not wrote then return nil,failure end;total=total+#chunk end end function Reader:close()self._closed=true;self._scratch=nil;self._capacity=0;return true end local function writable(self)if self._closed then return nil,"the writer is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Writer:write(bytes)local file,reason=writable(self);if not file then return false,reason end;if type(bytes)~="string"then error("nupp: io.files Writer:write needs a string",2)end;if C.nuppFileWrite(file._handle,bytes,#bytes)<0 then return false,native.error()end;return true end function Writer:writeFrom(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeFrom offset",2);count=counted(count==nil and length-offset or count,"Writer:writeFrom count",2);if offset+count>length then error("nupp: io.files Writer:writeFrom range is past the end",2)end;if count==0 then return 0 end;local data=rawget(source,"_data");if data==nil then local wrote,failure=self:write(source:getString(offset,count));if not wrote then return nil,failure end;return count end;if C.nuppFileWrite(file._handle,data+offset,count)<0 then return nil,native.error()end;return count end function Writer:writeView(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeView offset",2);count=counted(count==nil and length-offset or count,"Writer:writeView count",2);if offset+count>length then error("nupp: io.files Writer:writeView range is past the end",2)end;local wrote,failure=self:write(source:getString():sub(offset+1,offset+count));if not wrote then return nil,failure end;return count end function Writer:flush()local file,reason=writable(self);if not file then return false,reason end;return file:flush()end function Writer:close()self._closed=true;return true end function files.info(path)local found=described(path,true,2);if not found then return nil,native.error()end;return{kind=KINDS[tonumber(found.kind)]or"other",size=tonumber(found.size),modified=found.modified,readOnly=found.readOnly}end function files.exists(path)return described(path,true,2)~=nil end function files.isFile(path)local found=described(path,true,2);return found~=nil and found.kind==1 end function files.isDirectory(path)local found=described(path,true,2);return found~=nil and found.kind==2 end function files.isSymlink(path)local found=described(path,false,2);return found~=nil and found.kind==4 end function files.readLink(path)local text=named(path,"path",2);return answer(C.nuppFilesReadLink(text,#text))end function files.createSymlink(target,link,kind)local to=named(target,"symlink target",2);local at=named(link,"symlink path",2);if kind~=nil and kind~="file"and kind~="directory"then error("nupp: io.files symlink kind must be 'file' or 'directory'",2)end;return done(C.nuppFilesCreateSymlink(to,#to,at,#at,kind=="directory"))end function files.setReadOnly(path,readOnly)local text=named(path,"path",2);return done(C.nuppFilesSetReadOnly(text,#text,readOnly and true or false))end function files.createDirectory(path)local text=named(path,"path",2);return done(C.nuppFilesCreateDirectory(text,#text))end function files.remove(path,recursive)local text=named(path,"path",2);return done(C.nuppFilesRemove(text,#text,recursive and true or false))end function files.rename(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return done(C.nuppFilesRename(source,#source,destination,#destination))end function files.list(path)local text=named(path,"path",2);local handle=C.nuppFilesList(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local entries,at={},1;while at<=#blob do local stop=blob:find("\0",at+1,true);entries[#entries+1]={kind=ENTRIES[blob:sub(at,at)]or"other",name=blob:sub(at+1,stop-1)};at=stop+1 end;return entries end function files.glob(pattern)local text=named(pattern,"glob pattern",2);local handle=C.nuppFilesGlob(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local matches,at={},1;while at<=#blob do local stop=blob:find("\0",at,true);if not stop then matches[#matches+1]=blob:sub(at);break end;matches[#matches+1]=blob:sub(at,stop-1);at=stop+1 end;return matches end local Temporary={};Temporary.__index=Temporary;Temporary.__tostring=function(self)return self._text end function Temporary:toString()return self._text end function Temporary:isReleased()return self._closed end function Temporary:persist(destination)if self._closed then return false,"the temporary path is released"end;local to=named(destination,"destination path",2);local moved,reason=done(C.nuppFilesRename(self._text,#self._text,to,#to));if not moved then return false,reason end;self._closed=true;return true end function Temporary:close()if self._closed then return true end;self._closed=true;return done(C.nuppFilesRemove(self._text,#self._text,self._directory))end File.drop=File.close;Reader.drop=Reader.close;Writer.drop=Writer.close;Temporary.drop=Temporary.close function files.createTemporaryFile(options)local text,reason=temporary(options,false,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=false,_closed=false},Temporary)end function files.createTemporaryDirectory(options)local text,reason=temporary(options,true,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=true,_closed=false},Temporary)end function files.read(path)local text=named(path,"path",2);return fetched(C.nuppFsSubmitRead(text,#text))end function files.write(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,0))end function files.append(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,1))end function files.writeAtomic(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,2))end function files.copy(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return transferred(C.nuppFsSubmitCopy(source,#source,destination,#destination))end function files.pendingTransfers()return tonumber(C.nuppFsPending())end function files.open(path,mode)local text=named(path,"path",2);local selected=MODES[mode or"r"];if selected==nil then error("nupp: io.files has no mode named "..tostring(mode),2)end;local handle=C.nuppFileOpen(text,#text,selected);if handle==nil then return nil,native.error()end;return setmetatable({_handle=handle,_closed=false},File)end function files.lines(path)local file,reason=files.open(path,"r");if not file then return nil,reason end;local reader=file:newReader();local held,finished="",false;local function trimmed(line)if line:sub(-1)=="\r"then return line:sub(1,-2)end;return line end;return function()if finished then return nil end;while true do local stop=held:find("\n",1,true);if stop then local line=held:sub(1,stop-1);held=held:sub(stop+1);return trimmed(line)end;local chunk=reader:read(READ_SIZE);if chunk==nil or chunk==""then finished=true;file:close();if #held>0 then local line=held;held="";return trimmed(line)end;return nil end;held=held..chunk end end end function files.currentDirectory()return answer(C.nuppFilesCurrentDirectory())end function files.userFolder(which)local index=FOLDERS[which];if index==nil then error("nupp: io.files has no user folder named "..tostring(which),2)end;return answer(C.nuppFilesUserFolder(index))end return files end);
 
 
 
@@ -50420,7 +50294,7 @@ return highlight
 
 end
 package.preload["nupp.compiler.doc.html"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -50896,7 +50770,7 @@ return html
 
 end
 package.preload["nupp.compiler.doc.markdown"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -50953,8 +50827,6 @@ local splitMembers = extractMod . splitMembers
 local function heading ( level )
 return ( "#" ) : rep ( math . min ( level , 6 ) )
 end
-
-
 
 
 local function markdownAnnotations ( out , annotations )
@@ -51231,7 +51103,7 @@ return markdown
 
 end
 package.preload["nupp.compiler.doc.page"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -51830,7 +51702,7 @@ return page
 
 end
 package.preload["nupp.compiler.doc.stdlib"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -52068,7 +51940,7 @@ return stdlib
 
 end
 package.preload["nupp.compiler.doc.strings"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -52158,7 +52030,7 @@ return strings
 
 end
 package.preload["nupp.compiler.doc.syntax"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppPeg=rawget(__nupp,"peg")or{};rawset(__nupp,"peg",__nuppPeg) local __nuppLpeg=require("lpeg");__nuppLpeg.setmaxstack(10000) local function __nuppPegInit(subject,init,level) if type(subject)~="string"then error("nupp: PEG subject must be a string",level)end;if init==nil then init=1 elseif type(init)~="number"or init~=math.floor(init)then error("nupp: PEG init must be an integer",level)elseif init<0 then init=#subject+init+1 end;if init<1 then init=1 end;if init>#subject+1 then return nil end;return init end local function __nuppPegFindAt(run,take,captureful,subject,init,search) if search and search.direct then local first,last=subject:find(search.direct,init,search.directPlain);if first==nil then return nil end;local nextPosition=last+1;if search.result=="string"then return first,nextPosition,subject:sub(first,last)end;return first,nextPosition,nextPosition end local position=init;while position<=#subject+1 do if search then position=subject:find(search.value,position,search.plain);if position==nil then return nil end end;local nextPosition=run(subject,position);if nextPosition~=nil then if captureful then return position,nextPosition,take()end;return position,nextPosition,nextPosition end;position=position+1 end end local function __nuppPegCallbackReplacement(replacement,first,nextPosition,...) local out=replacement(first,nextPosition,...);if type(out)~="string"then error("nupp: PEG replacement callback must return a string",3)end;return out end local function __nuppPegVisit(visitor,first,nextPosition,...) if first~=nil then visitor(first,nextPosition,...);return first,nextPosition end end local function __nuppPegReplacementAt(replacement,first,nextPosition,...) if first~=nil then return first,nextPosition,__nuppPegCallbackReplacement(replacement,first,nextPosition,...)end end local function __nuppPegMatcher(run,take,captureful,search,generatedFind,directReplaceAll,generatedTraverse) local Matcher={};Matcher.__index=Matcher local function findAt(subject,init)if generatedFind then return generatedFind(subject,init)end;return __nuppPegFindAt(run,take,captureful,subject,init,search)end function Matcher:match(subject,init)init=__nuppPegInit(subject,init,2);if init==nil then return nil end;local nextPosition=run(subject,init);if nextPosition==nil then return nil end;if captureful then return take()end;return nextPosition end function Matcher:find(subject,init)init=__nuppPegInit(subject,init,2);if init==nil then return nil end;return findAt(subject,init)end function Matcher:isMatch(subject,init)init=__nuppPegInit(subject,init,2);return init~=nil and findAt(subject,init)~=nil end function Matcher:forEachMatch(subject,visitor,init)if type(visitor)~="function"then error("nupp: PEG match visitor must be a function",2)end;local cursor=__nuppPegInit(subject,init,2);if cursor==nil then return 0 end;if generatedTraverse then return generatedTraverse(subject,visitor,cursor)end;local count=0;while cursor<=#subject+1 do local first,nextPosition=__nuppPegVisit(visitor,findAt(subject,cursor));if first==nil then break end;count=count+1;cursor=nextPosition>first and nextPosition or first+1 end;return count end function Matcher:__nuppPegReplaceLiteral(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local first,nextPosition=findAt(subject,init);if first==nil then return subject end;return subject:sub(1,first-1)..replacement..subject:sub(nextPosition)end function Matcher:__nuppPegReplaceCallback(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local first,nextPosition,value=__nuppPegReplacementAt(replacement,findAt(subject,init));if first==nil then return subject end;return subject:sub(1,first-1)..value..subject:sub(nextPosition)end function Matcher:replace(subject,replacement,init)if type(replacement)=="string"then return self:__nuppPegReplaceLiteral(subject,replacement,init)elseif type(replacement)=="function"then return self:__nuppPegReplaceCallback(subject,replacement,init)end;error("nupp: PEG replacement must be a string or function",2)end function Matcher:__nuppPegReplaceAllLiteral(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;if directReplaceAll then return directReplaceAll(subject,replacement,init)end;local parts,count,cursor,copyAt={},0,init,1;while cursor<=#subject+1 do local first,nextPosition=findAt(subject,cursor);if first==nil then break end;count=count+1;parts[#parts+1]=subject:sub(copyAt,first-1);parts[#parts+1]=replacement;copyAt=nextPosition;if nextPosition>first then cursor=nextPosition elseif first<=#subject then parts[#parts+1]=subject:sub(first,first);copyAt=first+1;cursor=first+1 else cursor=first+1 end end;if count==0 then return subject end;parts[#parts+1]=subject:sub(copyAt);return table.concat(parts)end function Matcher:__nuppPegReplaceAllCallback(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local parts,count,cursor,copyAt={},0,init,1;while cursor<=#subject+1 do local first,nextPosition,value=__nuppPegReplacementAt(replacement,findAt(subject,cursor));if first==nil then break end;count=count+1;parts[#parts+1]=subject:sub(copyAt,first-1);parts[#parts+1]=value;copyAt=nextPosition;if nextPosition>first then cursor=nextPosition elseif first<=#subject then parts[#parts+1]=subject:sub(first,first);copyAt=first+1;cursor=first+1 else cursor=first+1 end end;if count==0 then return subject end;parts[#parts+1]=subject:sub(copyAt);return table.concat(parts)end function Matcher:replaceAll(subject,replacement,init)if type(replacement)=="string"then return self:__nuppPegReplaceAllLiteral(subject,replacement,init)elseif type(replacement)=="function"then return self:__nuppPegReplaceAllCallback(subject,replacement,init)end;error("nupp: PEG replacement must be a string or function",2)end Matcher.__call=Matcher.match;return setmetatable({},Matcher) end local function __nuppPegPattern(program,definitions) definitions=definitions or{};for _,name in ipairs(program.actions or{})do if rawget(definitions,name)==nil then error("nupp: missing PEG definition "..tostring(name),3)end end local P,S,V,C,Ct,Cg,Cb,Cp,Cs,Cmt,Cf=__nuppLpeg.P,__nuppLpeg.S,__nuppLpeg.V,__nuppLpeg.C,__nuppLpeg.Ct,__nuppLpeg.Cg,__nuppLpeg.Cb,__nuppLpeg.Cp,__nuppLpeg.Cs,__nuppLpeg.Cmt,__nuppLpeg.Cf local nodes,memo,targets=program.graph.nodes,{},{} local function equalcap(subject,position,captured)if type(captured)~="string"then return nil end;local ending=position+#captured;if subject:sub(position,ending-1)==captured then return ending end;return nil end local build;build=function(index)local prior=memo[index];if prior then return prior end;local node=nodes[index];local op=node[1];local pattern if op=="literal"then pattern=P(node[2])elseif op=="set"then pattern=S(node[2])elseif op=="any"then pattern=P(1)elseif op=="eof"then pattern=-P(1) elseif op=="sequence"then pattern=P(true);for child=2,#node do pattern=pattern*build(node[child])end elseif op=="choice"then pattern=P(false);for child=2,#node do pattern=pattern+build(node[child])end elseif op=="difference"then pattern=build(node[2])-build(node[3]) elseif op=="zeroOrMore"then pattern=build(node[2])^0 elseif op=="oneOrMore"then pattern=build(node[2])^1 elseif op=="optional"then pattern=build(node[2])^-1 elseif op=="and"then pattern=#build(node[2])elseif op=="not"then pattern=-build(node[2]) elseif op=="capture"then pattern=C(build(node[2]))elseif op=="collect"or op=="tableCapture"then pattern=Ct(build(node[2])) elseif op=="group"then pattern=node[3]~=nil and Cg(build(node[2]),node[3])or Cg(build(node[2])) elseif op=="substitution"then pattern=Cs(build(node[2]))elseif op=="position"then pattern=Cp() elseif op=="backReference"then pattern=Cmt(Cb(node[2]),equalcap) elseif op=="external"then pattern=P(definitions[node[2]]) elseif op=="transform"then local spec=node[3];local target=spec[1]=="definition"and definitions[spec[2]]or spec[2];pattern=build(node[2])/target elseif op=="matchTime"then pattern=Cmt(build(node[2]),definitions[node[3]]) elseif op=="accumulate"then pattern=build(node[2])%definitions[node[3]] elseif op=="fold"then pattern=Cf(build(node[2]),definitions[node[3]]) elseif op=="action"then local callback=definitions[node[3]];pattern=C(build(node[2])/0)/function(text)return callback(text)end elseif op=="reference"then targets[node[2]]=true;pattern=V("n"..node[2]) else error("nupp: unknown PEG graph operation "..tostring(op),3)end;memo[index]=pattern;return pattern end local pattern=build(program.graph.root);if next(targets)then local grammar={pattern};local done={};while true do local target;for candidate in pairs(targets)do if not done[candidate]then target=candidate;break end end;if not target then break end;done[target]=true;grammar["n"..target]=build(target)end;pattern=P(grammar)end;return pattern end local function __nuppPegFromPattern(pattern) local pack=function(...)return{n=select("#",...),...}end;local resultValues;local execution=pattern*__nuppLpeg.Cp() local function run(subject,position)local values=pack(__nuppLpeg.match(execution,subject,position));local nextPosition=values[values.n];if nextPosition==nil then return nil end;values[values.n]=nil;values.n=values.n-1;if values.n==0 then values.n=1;values[1]=nextPosition end;resultValues=values;return nextPosition end local function take()local values=resultValues;resultValues=nil;return unpack(values,1,values.n)end return __nuppPegMatcher(run,take,true,nil) end local function __nuppPegLpeg(program,definitions)return __nuppPegFromPattern(__nuppPegPattern(program,definitions))end local function __nuppPegFastScan9Run(plan,sets) local keys=plan.packedKeys;local k1,k2,k3,k4,k5,k6,k7,k8=keys[1],keys[2],keys[3],keys[4],keys[5],keys[6],keys[7],keys[8] local delimiter,separatorLength=plan.separator:byte(),#plan.separator local scanByte,scanClass;if plan.scan<256 then scanByte=plan.scan else scanClass=sets[plan.scan-255]end local suffix,minimum=plan.suffix,plan.minimum;local suffixHead=((suffix[1]*256+suffix[2])*256+suffix[3])*256+suffix[4];local suffixTail=((suffix[5]*256+suffix[6])*256+suffix[7])*256+suffix[8] local lastByte,lastClass;if suffix[9]<256 then lastByte=suffix[9]else lastClass=sets[suffix[9]-255]end local function run(subject,position) local a,b,c,d,e,f,g=subject:byte(position,position+6);if not a then return nil end local key,prefixLength;if b==delimiter then prefixLength=1;key=a*8+1 elseif c==delimiter then prefixLength=2;key=(a*256+b)*8+2 elseif d==delimiter then prefixLength=3;key=((a*256+b)*256+c)*8+3 elseif e==delimiter then prefixLength=4;key=(((a*256+b)*256+c)*256+d)*8+4 elseif f==delimiter then prefixLength=5;key=((((a*256+b)*256+c)*256+d)*256+e)*8+5 elseif g==delimiter then prefixLength=6;key=(((((a*256+b)*256+c)*256+d)*256+e)*256+f)*8+6 else return nil end if not(key==k1 or key==k2 or key==k3 or key==k4 or key==k5 or key==k6 or key==k7 or key==k8)then return nil end position=position+prefixLength+separatorLength;local suffixStart=#subject-8;if suffixStart-position<minimum then return nil end if scanClass then for index=position,suffixStart-1 do local byte=subject:byte(index);if scanClass:byte(byte+1)==0 then return nil end end else for index=position,suffixStart-1 do if subject:byte(index)~=scanByte then return nil end end end local q,r,s,t,u,v,w,x,y=subject:byte(suffixStart,#subject);if ((q*256+r)*256+s)*256+t==suffixHead and((u*256+v)*256+w)*256+x==suffixTail and((lastByte and y==lastByte)or(lastClass and lastClass:byte(y+1)~=0))then return #subject+1 end;return nil end return run end local function __nuppPegCheckSource(encoded,expression)if encoded<256 then return expression.."=="..encoded end;return"sets["..(encoded-255).."]:byte("..expression.."+1)~=0"end local function __nuppPegRepeatSource(plan)local head=__nuppPegCheckSource(plan.head,"byte");local tail=__nuppPegCheckSource(plan.tail,"byte");local accept=plan.eof and"if position~=#subject+1 then return nil end;"or"";local result=plan.result=="string"and"lastSubject,lastFirst,lastNext=subject,first,position;return position"or"return position";local visitValue=plan.result=="string"and"subject:sub(first,position-1)"or"position";local visit=plan.eof and"if position==length+1 then count=count+1;visitor(first,position,"..visitValue..");return count end"or"count=count+1;visitor(first,position,"..visitValue..")";local state=plan.result=="string"and"local lastSubject,lastFirst,lastNext;local function take()return lastSubject:sub(lastFirst,lastNext-1)end;"or"";local take=plan.result=="string"and"take"or"nil";return"return function(sets)"..state.."local function run(subject,position)local first=position;local byte=subject:byte(position);if not byte or not("..head..")then return nil end;position=position+1;while true do byte=subject:byte(position);if not byte or not("..tail..")then break end;position=position+1 end;"..accept..result.." end;local function traverse(subject,visitor,position)local count,length=0,#subject;while position<=length do local byte=subject:byte(position);if "..head.." then local first=position;position=position+1;while true do byte=subject:byte(position);if not byte or not("..tail..")then break end;position=position+1 end;"..visit.." else position=position+1 end end;return count end;return run,"..take..",traverse end"end local function __nuppPegFixedSource(checks)local conditions={"position+"..#checks.."==#subject+1"};for index,encoded in ipairs(checks)do local expression="subject:byte(position+"..(index-1)..")";conditions[#conditions+1]=__nuppPegCheckSource(encoded,expression)end;return"return function(sets)return function(subject,position)if "..table.concat(conditions," and ").." then return position+"..#checks.." end end end"end local function __nuppPegCodegen(program,definitions) if program.fastScan and program.fastScan.packedKeys and program.fastScan.maximum<=6 and #program.fastScan.keys<=8 then local suffix=program.fastScan.suffix;if #suffix==9 and suffix[1]<256 and suffix[2]<256 and suffix[3]<256 and suffix[4]<256 and suffix[5]<256 and suffix[6]<256 and suffix[7]<256 and suffix[8]<256 then return __nuppPegMatcher(__nuppPegFastScan9Run(program.fastScan,program.sets),nil,false,program.search)end end local source;if program.fastRepeat then source=__nuppPegRepeatSource(program.fastRepeat)elseif program.fastFixed then source=__nuppPegFixedSource(program.fastFixed)else return __nuppPegLpeg(program,definitions)end local chunk,why=loadstring(source,"=nupp PEG specialization");if not chunk then error("nupp: PEG specialization failed: "..tostring(why),2)end;local run,take,traverse=chunk()(program.sets);return __nuppPegMatcher(run,take,program.captureful,program.search,nil,nil,traverse) end package.loaded.re=nil package.preload.re=function() local tonumber,type,print,error=tonumber,type,print,error local setmetatable=setmetatable local m=require"lpeg" local mm=m local mt=getmetatable(mm.P(0)) local version=_VERSION local any=m.P(1) local Predef={nl=m.P"\n"} local mem;local fmem;local gmem local function updatelocale() mm.locale(Predef) Predef.a=Predef.alpha;Predef.c=Predef.cntrl;Predef.d=Predef.digit Predef.g=Predef.graph;Predef.l=Predef.lower;Predef.p=Predef.punct Predef.s=Predef.space;Predef.u=Predef.upper;Predef.w=Predef.alnum Predef.x=Predef.xdigit Predef.A=any-Predef.a;Predef.C=any-Predef.c;Predef.D=any-Predef.d Predef.G=any-Predef.g;Predef.L=any-Predef.l;Predef.P=any-Predef.p Predef.S=any-Predef.s;Predef.U=any-Predef.u;Predef.W=any-Predef.w Predef.X=any-Predef.x mem={};fmem={};gmem={};local weak={__mode="v"} setmetatable(mem,weak);setmetatable(fmem,weak);setmetatable(gmem,weak) end updatelocale() local function patt_error(s,i)local msg=(#s<i+20)and s:sub(i)or s:sub(i,i+20).."...";error(("pattern error near '%s'"):format(msg),2)end local function mult(p,n)local np=mm.P(true);while n>=1 do if n%2>=1 then np=np*p end;p=p*p;n=n/2 end;return np end local function equalcap(s,i,c)if type(c)~="string"then return nil end;local e=#c+i;if s:sub(i,e-1)==c then return e end;return nil end local S=(Predef.space+"--"*(any-Predef.nl)^0)^0 local name=m.R("AZ","az","__")*m.R("AZ","az","__","09")^0 local arrow=S*"<-" local seq_follow=m.P"/"+")"+"}"+":}"+"~}"+"|}"+(name*arrow)+-1 name=m.C(name) local Def=name*m.Carg(1) local function getdef(id,defs)local c=defs and defs[id];if not c then error("undefined name: "..id)end;return c end local function defwithfunc(f)return m.Cg(Def/getdef*m.Cc(f))end local num=m.C(m.R"09"^1)*S/tonumber local String="'"*m.C((any-"'")^0)*"'"+'"'*m.C((any-'"')^0)*'"' local defined="%"*Def/function(c,Defs)local cat=Defs and Defs[c]or Predef[c];if not cat then error("name '"..c.."' undefined")end;return cat end local Range=m.Cs(any*(m.P"-"/"")*(any-"]"))/mm.R local item=(defined+Range+m.C(any))/m.P local Class="["*(m.C(m.P"^"^-1))*(item*((item%mt.__add)-"]")^0)/function(c,p)return c=="^"and any-p or p end*"]" local function adddef(t,k,exp)if t[k]then error("'"..k.."' already defined as a rule")else t[k]=exp end;return t end local function firstdef(n,r)return adddef({n},n,r)end local function NT(n,b)if not b then error("rule '"..n.."' used outside a grammar")else return mm.V(n)end end local exp=m.P{"Exp", Exp=S*(m.V"Grammar"+m.V"Seq"*("/"*S*m.V"Seq"%mt.__add)^0), Seq=(m.Cc(m.P"")*(m.V"Prefix"%mt.__mul)^0)*(#seq_follow+patt_error), Prefix="&"*S*m.V"Prefix"/mt.__len+"!"*S*m.V"Prefix"/mt.__unm+m.V"Suffix", Suffix=m.V"Primary"*S*((m.P"+"*m.Cc(1,mt.__pow)+m.P"*"*m.Cc(0,mt.__pow)+m.P"?"*m.Cc(-1,mt.__pow)+"^"*(m.Cg(num*m.Cc(mult))+m.Cg(m.C(m.S"+-"*m.R"09"^1)*m.Cc(mt.__pow)))+"->"*S*(m.Cg((String+num)*m.Cc(mt.__div))+m.P"{}"*m.Cc(nil,m.Ct)+defwithfunc(mt.__div))+"=>"*S*defwithfunc(mm.Cmt)+">>"*S*defwithfunc(mt.__mod)+"~>"*S*defwithfunc(mm.Cf))%function(a,b,f)return f(a,b)end*S)^0, Primary="("*m.V"Exp"*")"+String/mm.P+Class+defined+"{:"*(name*":"+m.Cc(nil))*m.V"Exp"*":}"/function(n,p)return mm.Cg(p,n)end+"="*name/function(n)return mm.Cmt(mm.Cb(n),equalcap)end+m.P"{}"/mm.Cp+"{~"*m.V"Exp"*"~}"/mm.Cs+"{|"*m.V"Exp"*"|}"/mm.Ct+"{"*m.V"Exp"*"}"/mm.C+m.P"."*m.Cc(any)+(name*-arrow+"<"*name*">")*m.Cb("G")/NT, Definition=name*arrow*m.V"Exp", Grammar=m.Cg(m.Cc(true),"G")*((m.V"Definition"/firstdef)*(m.V"Definition"%adddef)^0)/mm.P } local pattern=S*m.Cg(m.Cc(false),"G")*exp/mm.P*(-any+patt_error) local function compile(p,defs)if mm.type(p)=="pattern"then return p end;local cp=pattern:match(p,1,defs);if not cp then error("incorrect pattern",3)end;return cp end local function match(s,p,i)local cp=mem[p];if not cp then cp=compile(p);mem[p]=cp end;return cp:match(s,i or 1)end local function find(s,p,i)local cp=fmem[p];if not cp then cp=compile(p)/0;cp=mm.P{mm.Cp()*cp*mm.Cp()+1*mm.V(1)};fmem[p]=cp end;local first,ending=cp:match(s,i or 1);if first then return first,ending-1 end;return first end local function gsub(s,p,rep)local g=gmem[p]or{};gmem[p]=g;local cp=g[rep];if not cp then cp=compile(p);cp=mm.Cs((cp/rep+1)^0);g[rep]=cp end;return cp:match(s)end local re={compile=compile,match=match,find=find,gsub=gsub,updatelocale=updatelocale} if version=="Lua 5.1"then _G.re=re end return re end local __nuppPegPatternCache=setmetatable({},{__mode="v"}) function __nuppPeg.compile(source,options) if type(source)~="string"then error("nupp: PEG compile source must be a string",2)end;if options~=nil and type(options)~="table"then error("nupp: PEG compile options must be a table",2)end;options=options or{};local backend=options.backend or"auto";if backend~="auto"and backend~="lpeg"then error("nupp: PEG compile backend must be 'auto' or 'lpeg'",2)end local definitions=options.definitions or options.defs or options.actions;local pattern;if definitions==nil then pattern=__nuppPegPatternCache[source];if not pattern then pattern=require("re").compile(source);__nuppPegPatternCache[source]=pattern end else pattern=require("re").compile(source,definitions)end;return __nuppPegFromPattern(pattern) end;
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppPeg=rawget(__nupp,"peg")or{};rawset(__nupp,"peg",__nuppPeg) local __nuppLpeg=require("lpeg");__nuppLpeg.setmaxstack(10000) local function __nuppPegInit(subject,init,level) if type(subject)~="string"then error("nupp: PEG subject must be a string",level)end;if init==nil then init=1 elseif type(init)~="number"or init~=math.floor(init)then error("nupp: PEG init must be an integer",level)elseif init<0 then init=#subject+init+1 end;if init<1 then init=1 end;if init>#subject+1 then return nil end;return init end local function __nuppPegFindAt(run,take,captureful,subject,init,search) if search and search.direct then local first,last=subject:find(search.direct,init,search.directPlain);if first==nil then return nil end;local nextPosition=last+1;if search.result=="string"then return first,nextPosition,subject:sub(first,last)end;return first,nextPosition,nextPosition end local position=init;while position<=#subject+1 do if search then position=subject:find(search.value,position,search.plain);if position==nil then return nil end end;local nextPosition=run(subject,position);if nextPosition~=nil then if captureful then return position,nextPosition,take()end;return position,nextPosition,nextPosition end;position=position+1 end end local function __nuppPegCallbackReplacement(replacement,first,nextPosition,...) local out=replacement(first,nextPosition,...);if type(out)~="string"then error("nupp: PEG replacement callback must return a string",3)end;return out end local function __nuppPegVisit(visitor,first,nextPosition,...) if first~=nil then visitor(first,nextPosition,...);return first,nextPosition end end local function __nuppPegReplacementAt(replacement,first,nextPosition,...) if first~=nil then return first,nextPosition,__nuppPegCallbackReplacement(replacement,first,nextPosition,...)end end local function __nuppPegMatcher(run,take,captureful,search,generatedFind,directReplaceAll,generatedTraverse) local Matcher={};Matcher.__index=Matcher local function findAt(subject,init)if generatedFind then return generatedFind(subject,init)end;return __nuppPegFindAt(run,take,captureful,subject,init,search)end function Matcher:match(subject,init)init=__nuppPegInit(subject,init,2);if init==nil then return nil end;local nextPosition=run(subject,init);if nextPosition==nil then return nil end;if captureful then return take()end;return nextPosition end function Matcher:find(subject,init)init=__nuppPegInit(subject,init,2);if init==nil then return nil end;return findAt(subject,init)end function Matcher:isMatch(subject,init)init=__nuppPegInit(subject,init,2);return init~=nil and findAt(subject,init)~=nil end function Matcher:forEachMatch(subject,visitor,init)if type(visitor)~="function"then error("nupp: PEG match visitor must be a function",2)end;local cursor=__nuppPegInit(subject,init,2);if cursor==nil then return 0 end;if generatedTraverse then return generatedTraverse(subject,visitor,cursor)end;local count=0;while cursor<=#subject+1 do local first,nextPosition=__nuppPegVisit(visitor,findAt(subject,cursor));if first==nil then break end;count=count+1;cursor=nextPosition>first and nextPosition or first+1 end;return count end function Matcher:__nuppPegReplaceLiteral(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local first,nextPosition=findAt(subject,init);if first==nil then return subject end;return subject:sub(1,first-1)..replacement..subject:sub(nextPosition)end function Matcher:__nuppPegReplaceCallback(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local first,nextPosition,value=__nuppPegReplacementAt(replacement,findAt(subject,init));if first==nil then return subject end;return subject:sub(1,first-1)..value..subject:sub(nextPosition)end function Matcher:replace(subject,replacement,init)if type(replacement)=="string"then return self:__nuppPegReplaceLiteral(subject,replacement,init)elseif type(replacement)=="function"then return self:__nuppPegReplaceCallback(subject,replacement,init)end;error("nupp: PEG replacement must be a string or function",2)end function Matcher:__nuppPegReplaceAllLiteral(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;if directReplaceAll then return directReplaceAll(subject,replacement,init)end;local parts,count,cursor,copyAt={},0,init,1;while cursor<=#subject+1 do local first,nextPosition=findAt(subject,cursor);if first==nil then break end;count=count+1;parts[#parts+1]=subject:sub(copyAt,first-1);parts[#parts+1]=replacement;copyAt=nextPosition;if nextPosition>first then cursor=nextPosition elseif first<=#subject then parts[#parts+1]=subject:sub(first,first);copyAt=first+1;cursor=first+1 else cursor=first+1 end end;if count==0 then return subject end;parts[#parts+1]=subject:sub(copyAt);return table.concat(parts)end function Matcher:__nuppPegReplaceAllCallback(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local parts,count,cursor,copyAt={},0,init,1;while cursor<=#subject+1 do local first,nextPosition,value=__nuppPegReplacementAt(replacement,findAt(subject,cursor));if first==nil then break end;count=count+1;parts[#parts+1]=subject:sub(copyAt,first-1);parts[#parts+1]=value;copyAt=nextPosition;if nextPosition>first then cursor=nextPosition elseif first<=#subject then parts[#parts+1]=subject:sub(first,first);copyAt=first+1;cursor=first+1 else cursor=first+1 end end;if count==0 then return subject end;parts[#parts+1]=subject:sub(copyAt);return table.concat(parts)end function Matcher:replaceAll(subject,replacement,init)if type(replacement)=="string"then return self:__nuppPegReplaceAllLiteral(subject,replacement,init)elseif type(replacement)=="function"then return self:__nuppPegReplaceAllCallback(subject,replacement,init)end;error("nupp: PEG replacement must be a string or function",2)end Matcher.__call=Matcher.match;return setmetatable({},Matcher) end local function __nuppPegPattern(program,definitions) definitions=definitions or{};for _,name in ipairs(program.actions or{})do if rawget(definitions,name)==nil then error("nupp: missing PEG definition "..tostring(name),3)end end local P,S,V,C,Ct,Cg,Cb,Cp,Cs,Cmt,Cf=__nuppLpeg.P,__nuppLpeg.S,__nuppLpeg.V,__nuppLpeg.C,__nuppLpeg.Ct,__nuppLpeg.Cg,__nuppLpeg.Cb,__nuppLpeg.Cp,__nuppLpeg.Cs,__nuppLpeg.Cmt,__nuppLpeg.Cf local nodes,memo,targets=program.graph.nodes,{},{} local function equalcap(subject,position,captured)if type(captured)~="string"then return nil end;local ending=position+#captured;if subject:sub(position,ending-1)==captured then return ending end;return nil end local build;build=function(index)local prior=memo[index];if prior then return prior end;local node=nodes[index];local op=node[1];local pattern if op=="literal"then pattern=P(node[2])elseif op=="set"then pattern=S(node[2])elseif op=="any"then pattern=P(1)elseif op=="eof"then pattern=-P(1) elseif op=="sequence"then pattern=P(true);for child=2,#node do pattern=pattern*build(node[child])end elseif op=="choice"then pattern=P(false);for child=2,#node do pattern=pattern+build(node[child])end elseif op=="difference"then pattern=build(node[2])-build(node[3]) elseif op=="zeroOrMore"then pattern=build(node[2])^0 elseif op=="oneOrMore"then pattern=build(node[2])^1 elseif op=="optional"then pattern=build(node[2])^-1 elseif op=="and"then pattern=#build(node[2])elseif op=="not"then pattern=-build(node[2]) elseif op=="capture"then pattern=C(build(node[2]))elseif op=="collect"or op=="tableCapture"then pattern=Ct(build(node[2])) elseif op=="group"then pattern=node[3]~=nil and Cg(build(node[2]),node[3])or Cg(build(node[2])) elseif op=="substitution"then pattern=Cs(build(node[2]))elseif op=="position"then pattern=Cp() elseif op=="backReference"then pattern=Cmt(Cb(node[2]),equalcap) elseif op=="external"then pattern=P(definitions[node[2]]) elseif op=="transform"then local spec=node[3];local target=spec[1]=="definition"and definitions[spec[2]]or spec[2];pattern=build(node[2])/target elseif op=="matchTime"then pattern=Cmt(build(node[2]),definitions[node[3]]) elseif op=="accumulate"then pattern=build(node[2])%definitions[node[3]] elseif op=="fold"then pattern=Cf(build(node[2]),definitions[node[3]]) elseif op=="action"then local callback=definitions[node[3]];pattern=C(build(node[2])/0)/function(text)return callback(text)end elseif op=="reference"then targets[node[2]]=true;pattern=V("n"..node[2]) else error("nupp: unknown PEG graph operation "..tostring(op),3)end;memo[index]=pattern;return pattern end local pattern=build(program.graph.root);if next(targets)then local grammar={pattern};local done={};while true do local target;for candidate in pairs(targets)do if not done[candidate]then target=candidate;break end end;if not target then break end;done[target]=true;grammar["n"..target]=build(target)end;pattern=P(grammar)end;return pattern end local function __nuppPegFromPattern(pattern) local pack=function(...)return{n=select("#",...),...}end;local resultValues;local execution=pattern*__nuppLpeg.Cp() local function run(subject,position)local values=pack(__nuppLpeg.match(execution,subject,position));local nextPosition=values[values.n];if nextPosition==nil then return nil end;values[values.n]=nil;values.n=values.n-1;if values.n==0 then values.n=1;values[1]=nextPosition end;resultValues=values;return nextPosition end local function take()local values=resultValues;resultValues=nil;return unpack(values,1,values.n)end return __nuppPegMatcher(run,take,true,nil) end local function __nuppPegLpeg(program,definitions)return __nuppPegFromPattern(__nuppPegPattern(program,definitions))end local function __nuppPegFastScan9Run(plan,sets) local keys=plan.packedKeys;local k1,k2,k3,k4,k5,k6,k7,k8=keys[1],keys[2],keys[3],keys[4],keys[5],keys[6],keys[7],keys[8] local delimiter,separatorLength=plan.separator:byte(),#plan.separator local scanByte,scanClass;if plan.scan<256 then scanByte=plan.scan else scanClass=sets[plan.scan-255]end local suffix,minimum=plan.suffix,plan.minimum;local suffixHead=((suffix[1]*256+suffix[2])*256+suffix[3])*256+suffix[4];local suffixTail=((suffix[5]*256+suffix[6])*256+suffix[7])*256+suffix[8] local lastByte,lastClass;if suffix[9]<256 then lastByte=suffix[9]else lastClass=sets[suffix[9]-255]end local function run(subject,position) local a,b,c,d,e,f,g=subject:byte(position,position+6);if not a then return nil end local key,prefixLength;if b==delimiter then prefixLength=1;key=a*8+1 elseif c==delimiter then prefixLength=2;key=(a*256+b)*8+2 elseif d==delimiter then prefixLength=3;key=((a*256+b)*256+c)*8+3 elseif e==delimiter then prefixLength=4;key=(((a*256+b)*256+c)*256+d)*8+4 elseif f==delimiter then prefixLength=5;key=((((a*256+b)*256+c)*256+d)*256+e)*8+5 elseif g==delimiter then prefixLength=6;key=(((((a*256+b)*256+c)*256+d)*256+e)*256+f)*8+6 else return nil end if not(key==k1 or key==k2 or key==k3 or key==k4 or key==k5 or key==k6 or key==k7 or key==k8)then return nil end position=position+prefixLength+separatorLength;local suffixStart=#subject-8;if suffixStart-position<minimum then return nil end if scanClass then for index=position,suffixStart-1 do local byte=subject:byte(index);if scanClass:byte(byte+1)==0 then return nil end end else for index=position,suffixStart-1 do if subject:byte(index)~=scanByte then return nil end end end local q,r,s,t,u,v,w,x,y=subject:byte(suffixStart,#subject);if ((q*256+r)*256+s)*256+t==suffixHead and((u*256+v)*256+w)*256+x==suffixTail and((lastByte and y==lastByte)or(lastClass and lastClass:byte(y+1)~=0))then return #subject+1 end;return nil end return run end local function __nuppPegCheckSource(encoded,expression)if encoded<256 then return expression.."=="..encoded end;return"sets["..(encoded-255).."]:byte("..expression.."+1)~=0"end local function __nuppPegRepeatSource(plan)local head=__nuppPegCheckSource(plan.head,"byte");local tail=__nuppPegCheckSource(plan.tail,"byte");local accept=plan.eof and"if position~=#subject+1 then return nil end;"or"";local result=plan.result=="string"and"lastSubject,lastFirst,lastNext=subject,first,position;return position"or"return position";local visitValue=plan.result=="string"and"subject:sub(first,position-1)"or"position";local visit=plan.eof and"if position==length+1 then count=count+1;visitor(first,position,"..visitValue..");return count end"or"count=count+1;visitor(first,position,"..visitValue..")";local state=plan.result=="string"and"local lastSubject,lastFirst,lastNext;local function take()return lastSubject:sub(lastFirst,lastNext-1)end;"or"";local take=plan.result=="string"and"take"or"nil";return"return function(sets)"..state.."local function run(subject,position)local first=position;local byte=subject:byte(position);if not byte or not("..head..")then return nil end;position=position+1;while true do byte=subject:byte(position);if not byte or not("..tail..")then break end;position=position+1 end;"..accept..result.." end;local function traverse(subject,visitor,position)local count,length=0,#subject;while position<=length do local byte=subject:byte(position);if "..head.." then local first=position;position=position+1;while true do byte=subject:byte(position);if not byte or not("..tail..")then break end;position=position+1 end;"..visit.." else position=position+1 end end;return count end;return run,"..take..",traverse end"end local function __nuppPegFixedSource(checks)local conditions={"position+"..#checks.."==#subject+1"};for index,encoded in ipairs(checks)do local expression="subject:byte(position+"..(index-1)..")";conditions[#conditions+1]=__nuppPegCheckSource(encoded,expression)end;return"return function(sets)return function(subject,position)if "..table.concat(conditions," and ").." then return position+"..#checks.." end end end"end local function __nuppPegCodegen(program,definitions) if program.fastScan and program.fastScan.packedKeys and program.fastScan.maximum<=6 and #program.fastScan.keys<=8 then local suffix=program.fastScan.suffix;if #suffix==9 and suffix[1]<256 and suffix[2]<256 and suffix[3]<256 and suffix[4]<256 and suffix[5]<256 and suffix[6]<256 and suffix[7]<256 and suffix[8]<256 then return __nuppPegMatcher(__nuppPegFastScan9Run(program.fastScan,program.sets),nil,false,program.search)end end local source;if program.fastRepeat then source=__nuppPegRepeatSource(program.fastRepeat)elseif program.fastFixed then source=__nuppPegFixedSource(program.fastFixed)else return __nuppPegLpeg(program,definitions)end local chunk,why=loadstring(source,"=nupp PEG specialization");if not chunk then error("nupp: PEG specialization failed: "..tostring(why),2)end;local run,take,traverse=chunk()(program.sets);return __nuppPegMatcher(run,take,program.captureful,program.search,nil,nil,traverse) end package.loaded.re=nil package.preload.re=function() local tonumber,type,print,error=tonumber,type,print,error local setmetatable=setmetatable local m=require"lpeg" local mm=m local mt=getmetatable(mm.P(0)) local version=_VERSION local any=m.P(1) local Predef={nl=m.P"\n"} local mem;local fmem;local gmem local function updatelocale() mm.locale(Predef) Predef.a=Predef.alpha;Predef.c=Predef.cntrl;Predef.d=Predef.digit Predef.g=Predef.graph;Predef.l=Predef.lower;Predef.p=Predef.punct Predef.s=Predef.space;Predef.u=Predef.upper;Predef.w=Predef.alnum Predef.x=Predef.xdigit Predef.A=any-Predef.a;Predef.C=any-Predef.c;Predef.D=any-Predef.d Predef.G=any-Predef.g;Predef.L=any-Predef.l;Predef.P=any-Predef.p Predef.S=any-Predef.s;Predef.U=any-Predef.u;Predef.W=any-Predef.w Predef.X=any-Predef.x mem={};fmem={};gmem={};local weak={__mode="v"} setmetatable(mem,weak);setmetatable(fmem,weak);setmetatable(gmem,weak) end updatelocale() local function patt_error(s,i)local msg=(#s<i+20)and s:sub(i)or s:sub(i,i+20).."...";error(("pattern error near '%s'"):format(msg),2)end local function mult(p,n)local np=mm.P(true);while n>=1 do if n%2>=1 then np=np*p end;p=p*p;n=n/2 end;return np end local function equalcap(s,i,c)if type(c)~="string"then return nil end;local e=#c+i;if s:sub(i,e-1)==c then return e end;return nil end local S=(Predef.space+"--"*(any-Predef.nl)^0)^0 local name=m.R("AZ","az","__")*m.R("AZ","az","__","09")^0 local arrow=S*"<-" local seq_follow=m.P"/"+")"+"}"+":}"+"~}"+"|}"+(name*arrow)+-1 name=m.C(name) local Def=name*m.Carg(1) local function getdef(id,defs)local c=defs and defs[id];if not c then error("undefined name: "..id)end;return c end local function defwithfunc(f)return m.Cg(Def/getdef*m.Cc(f))end local num=m.C(m.R"09"^1)*S/tonumber local String="'"*m.C((any-"'")^0)*"'"+'"'*m.C((any-'"')^0)*'"' local defined="%"*Def/function(c,Defs)local cat=Defs and Defs[c]or Predef[c];if not cat then error("name '"..c.."' undefined")end;return cat end local Range=m.Cs(any*(m.P"-"/"")*(any-"]"))/mm.R local item=(defined+Range+m.C(any))/m.P local Class="["*(m.C(m.P"^"^-1))*(item*((item%mt.__add)-"]")^0)/function(c,p)return c=="^"and any-p or p end*"]" local function adddef(t,k,exp)if t[k]then error("'"..k.."' already defined as a rule")else t[k]=exp end;return t end local function firstdef(n,r)return adddef({n},n,r)end local function NT(n,b)if not b then error("rule '"..n.."' used outside a grammar")else return mm.V(n)end end local exp=m.P{"Exp", Exp=S*(m.V"Grammar"+m.V"Seq"*("/"*S*m.V"Seq"%mt.__add)^0), Seq=(m.Cc(m.P"")*(m.V"Prefix"%mt.__mul)^0)*(#seq_follow+patt_error), Prefix="&"*S*m.V"Prefix"/mt.__len+"!"*S*m.V"Prefix"/mt.__unm+m.V"Suffix", Suffix=m.V"Primary"*S*((m.P"+"*m.Cc(1,mt.__pow)+m.P"*"*m.Cc(0,mt.__pow)+m.P"?"*m.Cc(-1,mt.__pow)+"^"*(m.Cg(num*m.Cc(mult))+m.Cg(m.C(m.S"+-"*m.R"09"^1)*m.Cc(mt.__pow)))+"->"*S*(m.Cg((String+num)*m.Cc(mt.__div))+m.P"{}"*m.Cc(nil,m.Ct)+defwithfunc(mt.__div))+"=>"*S*defwithfunc(mm.Cmt)+">>"*S*defwithfunc(mt.__mod)+"~>"*S*defwithfunc(mm.Cf))%function(a,b,f)return f(a,b)end*S)^0, Primary="("*m.V"Exp"*")"+String/mm.P+Class+defined+"{:"*(name*":"+m.Cc(nil))*m.V"Exp"*":}"/function(n,p)return mm.Cg(p,n)end+"="*name/function(n)return mm.Cmt(mm.Cb(n),equalcap)end+m.P"{}"/mm.Cp+"{~"*m.V"Exp"*"~}"/mm.Cs+"{|"*m.V"Exp"*"|}"/mm.Ct+"{"*m.V"Exp"*"}"/mm.C+m.P"."*m.Cc(any)+(name*-arrow+"<"*name*">")*m.Cb("G")/NT, Definition=name*arrow*m.V"Exp", Grammar=m.Cg(m.Cc(true),"G")*((m.V"Definition"/firstdef)*(m.V"Definition"%adddef)^0)/mm.P } local pattern=S*m.Cg(m.Cc(false),"G")*exp/mm.P*(-any+patt_error) local function compile(p,defs)if mm.type(p)=="pattern"then return p end;local cp=pattern:match(p,1,defs);if not cp then error("incorrect pattern",3)end;return cp end local function match(s,p,i)local cp=mem[p];if not cp then cp=compile(p);mem[p]=cp end;return cp:match(s,i or 1)end local function find(s,p,i)local cp=fmem[p];if not cp then cp=compile(p)/0;cp=mm.P{mm.Cp()*cp*mm.Cp()+1*mm.V(1)};fmem[p]=cp end;local first,ending=cp:match(s,i or 1);if first then return first,ending-1 end;return first end local function gsub(s,p,rep)local g=gmem[p]or{};gmem[p]=g;local cp=g[rep];if not cp then cp=compile(p);cp=mm.Cs((cp/rep+1)^0);g[rep]=cp end;return cp:match(s)end local re={compile=compile,match=match,find=find,gsub=gsub,updatelocale=updatelocale} if version=="Lua 5.1"then _G.re=re end return re end local __nuppPegPatternCache=setmetatable({},{__mode="v"}) function __nuppPeg.compile(source,options) if type(source)~="string"then error("nupp: PEG compile source must be a string",2)end;if options~=nil and type(options)~="table"then error("nupp: PEG compile options must be a table",2)end;options=options or{};local backend=options.backend or"auto";if backend~="auto"and backend~="lpeg"then error("nupp: PEG compile backend must be 'auto' or 'lpeg'",2)end local definitions=options.definitions or options.defs or options.actions;local pattern;if definitions==nil then pattern=__nuppPegPatternCache[source];if not pattern then pattern=require("re").compile(source);__nuppPegPatternCache[source]=pattern end else pattern=require("re").compile(source,definitions)end;return __nuppPegFromPattern(pattern) end;
 
 local syntax
 
@@ -52218,7 +52090,7 @@ return syntax
 
 end
 package.preload["nupp.compiler.doc.urls"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -52473,7 +52345,7 @@ return urls
 
 end
 package.preload["nupp.compiler.docblock"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -52679,7 +52551,7 @@ return docblock
 
 end
 package.preload["nupp.compiler.env"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -52707,6 +52579,9 @@ local fs = require ( "nupp.compiler.fs" )
 local bundledMod = require ( "nupp.compiler.bundled" )
 
 local envMod = { }
+
+
+
 
 
 
@@ -54165,6 +54040,7 @@ end
 
 
 local preludePath = moduleDir ( ) .. "/decls/prelude.d.nupp"
+local preludeOrigin = "nupp:prelude.d.nupp"
 local src = bundledSource ( "/decls/prelude.d.nupp" )
 
 
@@ -54172,12 +54048,12 @@ local src = bundledSource ( "/decls/prelude.d.nupp" )
 
 assert ( src , "internal error: cannot read the prelude at " .. preludePath )
 do
-local result = parser . parse ( src , preludePath )
+local result = parser . parse ( src , preludeOrigin )
 assert (
 # result . errors == 0 ,
 "internal error: prelude has syntax errors: " .. ( result . errors [ 1 ] and result . errors [ 1 ] . msg or "?" )
 )
-local diags = check . check ( result , preludePath , env , { declareGlobals = true } )
+local diags = check . check ( result , preludeOrigin , env , { declareGlobals = true } )
 local fatal = nil
 for _ , diagnostic in ipairs ( diags ) do
 if diagnostics . isFatal ( diagnostic ) then
@@ -54186,6 +54062,78 @@ break
 end
 end
 assert ( not fatal , "internal error: prelude has type errors: " .. ( fatal and fatal . msg or "?" ) )
+local implementationSource = bundledSource ( "/decls/prelude_impl.d.nupp" )
+assert ( implementationSource , "internal error: cannot read the prelude implementation" )
+local function checkImplementation ( )
+local implementation = parser . parse ( implementationSource , preludeOrigin )
+assert (
+# implementation . errors == 0 ,
+"internal error: prelude implementation has syntax errors: " .. (
+implementation . errors [ 1 ] and implementation . errors [ 1 ] . msg or "?"
+)
+)
+
+
+
+
+local hiddenGlobals = { }
+local hiddenTypes = { }
+for _ , block in ipairs ( implementation . root . blocks or { } ) do
+for _ , stat in ipairs ( block . stats or { } ) do
+if stat . kind == "localFuncStmt" and stat . name then
+local name = stat . name . text
+if env . globals [ name ] then
+hiddenGlobals [ name ] = env . globals [ name ]
+env . globals [ name ] = nil
+end
+if env . globalTypes [ name ] then
+hiddenTypes [ name ] = env . globalTypes [ name ]
+env . globalTypes [ name ] = nil
+end
+end
+end
+end
+local implementationDiags = check . check ( implementation , preludeOrigin , env , {
+moduleName = "nupp.prelude" ,
+strict = true
+} )
+for name , entry in pairs ( hiddenGlobals ) do
+env . globals [ name ] = entry
+end
+for name , t in pairs ( hiddenTypes ) do
+env . globalTypes [ name ] = t
+end
+local implementationFatal = nil
+for _ , diagnostic in ipairs ( implementationDiags ) do
+if diagnostics . isFatal ( diagnostic ) then
+implementationFatal = diagnostic
+break
+end
+end
+assert (
+not implementationFatal ,
+"internal error: prelude implementation has type errors: " .. (
+implementationFatal and implementationFatal . msg or "?"
+)
+)
+
+return implementation
+end
+
+local implementation = checkImplementation ( )
+local generated , generatedDiags = require ( "nupp.compiler.gen" ) . generate ( implementation , preludeOrigin )
+local generatedFatal = nil
+for _ , diagnostic in ipairs ( generatedDiags ) do
+if diagnostics . isFatal ( diagnostic ) then
+generatedFatal = diagnostic
+break
+end
+end
+assert (
+not generatedFatal ,
+"internal error: prelude does not generate: " .. ( generatedFatal and generatedFatal . msg or "?" )
+)
+env . preludeRuntime = generated
 annotationMod . bindBuiltinDeclarations ( env . annotations , env . globalTypes , env . globalTypeDefs )
 local strlib = env . globals [ "string" ]
 env . stringLib = strlib and strlib . t or nil
@@ -54321,7 +54269,7 @@ return envMod
 
 end
 package.preload["nupp.compiler.explain"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -55013,13 +54961,12 @@ docs = "docs/type-system/packs.md#ownership-and-provenance" ,
 {
 code = "NUPP2603" ,
 summary = "An ownership obligation is not discharged or cannot escape" ,
-rule = "An owned value must be consumed, dropped, returned under a "
-.. "matching ownership contract, or explicitly converted to raw form. "
+rule = "An affine value must be consumed, dropped, returned under a "
+.. "matching ownership contract, or explicitly released in unsafe. "
 .. "Borrows likewise stay within the lifetime and suspension boundaries "
 .. "their provenance permits." ,
-wrong = "cdef function begin_request(): Owned<voidptr, opaque>\n"
-.. "local request = begin_request()\nreturn 0\n" ,
-right = "cdef function begin_request(): Owned<voidptr, opaque>\n"
+wrong = "cdef function begin_request(): Transfer<voidptr>\n" .. "local request = begin_request()\nreturn 0\n" ,
+right = "cdef function begin_request(): Transfer<voidptr>\n"
 .. "cdef function submit_request(takes request: voidptr)\n"
 .. "local request = begin_request()\nsubmit_request(request)\nreturn 0\n" ,
 related = { "NUPP2601" , "NUPP2602" , "NUPP2605" } ,
@@ -55027,14 +54974,15 @@ docs = "docs/reference.md#owned-resources" ,
 } ,
 {
 code = "NUPP2615" ,
-summary = "An owned value names an invalid cleanup operation" ,
-rule = "The cleanup named by `Owned<T, cleanup>` must be visible and accept the " .. "owned value's raw type." ,
+summary = "An affine value names an invalid terminal" ,
+rule = "The terminal must be visible and have the exact shape "
+.. "`nosuspend function(takes Representation): nil`." ,
 wrong = "local record Resource\nend\nlocal record Other\nend\n"
-.. "local function release(value: Other): nil\nend\n"
+.. "local function release(takes value: Other): nil\nend\n"
 .. "local function acquire(): Owned<Resource, release>\n"
 .. "    return new Resource()\nend\nreturn acquire\n" ,
 right = "local record Resource\nend\nlocal record Other\nend\n"
-.. "local function release(value: Resource): nil\nend\n"
+.. "local function release(takes value: Resource): nil\nend\n"
 .. "local function acquire(): Owned<Resource, release>\n"
 .. "    return new Resource()\nend\nreturn acquire\n" ,
 related = { "NUPP2602" , "NUPP2603" } ,
@@ -55493,7 +55441,7 @@ return explain
 
 end
 package.preload["nupp.compiler.fmt"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -57130,7 +57078,7 @@ return fmt
 
 end
 package.preload["nupp.compiler.fmt.displaywidth"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -57626,7 +57574,7 @@ return displayWidth
 
 end
 package.preload["nupp.compiler.fs"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppBytes NuppBytes;const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end __nuppLazy(__nuppIO,"files",function() local native=__nuppNative();local ffi,C=native.ffi,native.C;ffi.cdef[[NuppBytes*nuppFilesGlob(const uint8_t*,size_t);]];local files={};local record=ffi.new("NuppFileInfo[1]") local KINDS={[1]="file",[2]="directory",[3]="other",[4]="symlink"} local ENTRIES={f="file",d="directory",l="symlink",o="other"} local FOLDERS={home=0,documents=1,downloads=2,desktop=3,pictures=4,music=5,videos=6} local MODES={r=0,w=1,a=2,["r+"]=3,["w+"]=4,["a+"]=5} local ORIGINS={set=0,current=1,["end"]=2} local READ_SIZE=65536 local PENDING,READY=0,1 local SOURCE,PRIORITY="nupp-files",20 local waits={};local suspending local File={};File.__index=File;local Reader={};Reader.__index=Reader;local Writer={};Writer.__index=Writer local function named(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.toString then return value:toString()end;error("nupp: io.files "..what.." must be a path or a string",level)end local function done(answered)if answered then return true end;return false,native.error()end local function answer(handle)if handle==nil then return nil,native.error()end;return native.bytes(handle)end local function described(path,follow,level)local text=named(path,"path",level+1);if not C.nuppFilesInfo(text,#text,follow,record)then return nil end;return record[0]end local function optional(options,field,level)local value=options and options[field];if value==nil then return""end;if type(value)~="string"then error("nupp: io.files temporary "..field.." must be a string",level)end;return value end local function temporary(options,directory,level)local root=options and options.directory and named(options.directory,"temporary directory",level+1)or"";local prefix=optional(options,"prefix",level+1);local suffix=optional(options,"suffix",level+1);return answer(C.nuppFilesCreateTemporary(root,#root,prefix,#prefix,suffix,#suffix,directory))end local function payload(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.getString then return value:getString()end;error("nupp: io.files "..what.." must be bytes or a byte view",level)end local function harvest()local moved=0;local index=#waits;while index>0 do local entry=waits[index];if C.nuppFsStatus(entry.handle)~=PENDING then waits[index]=waits[#waits];waits[#waits]=nil;moved=moved+1;entry.resume(true)end;index=index-1 end;return moved end local function polled()C.nuppFsPoll();return harvest()end local function slept(waitMs)C.nuppFsWait(waitMs);return harvest()end local function forget(entry)for index=1,#waits do if waits[index]==entry then waits[index]=waits[#waits];waits[#waits]=nil;return end end end local function runtime()if suspending==nil then suspending=require("nupp.suspension")end;return suspending end local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,polled,slept);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end local function settled(handle)if handle==nil then return nil,native.error()end;await(handle);if C.nuppFsStatus(handle)~=READY then local reason=ffi.string(C.nuppFsError(handle));C.nuppFsDestroy(handle);return nil,reason end;return handle end local function transferred(handle)local done,reason=settled(handle);if not done then return false,reason end;C.nuppFsDestroy(done);return true end local function fetched(handle)local done,reason=settled(handle);if not done then return nil,reason end;local out=ffi.string(C.nuppFsData(done),tonumber(C.nuppFsLength(done)));C.nuppFsDestroy(done);return out end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: io.files "..what.." must be an integer",level)end;return value end local function counted(value,what,level)if whole(value,what,level)<0 then error("nupp: io.files "..what.." must not be negative",level)end;return value end local function live(self,what,level)if self._closed then error("nupp: io.files "..what.." is closed",level)end;return self end function File:isReleased()return self._closed end function File:close()if self._closed then return true end;self._closed=true;local handle=self._handle;self._handle=nil;C.nuppFileClose(handle);return true end function File:size()live(self,"File",2);local size=tonumber(C.nuppFileSize(self._handle));if size<0 then return nil,native.error()end;return size end function File:seek(offset,origin)live(self,"File",2);local whence=ORIGINS[origin or"set"];if whence==nil then error("nupp: io.files has no seek origin named "..tostring(origin),2)end;local at=tonumber(C.nuppFileSeek(self._handle,whole(offset or 0,"seek offset",2),whence));if at<0 then return nil,native.error()end;return at end function File:position()live(self,"File",2);return self:seek(0,"current")end function File:flush()live(self,"File",2);if C.nuppFileFlush(self._handle)then return true end;return false,native.error()end function File:newReader()live(self,"File",2);return setmetatable({_file=self,_scratch=nil,_capacity=0,_closed=false},Reader)end function File:newWriter()live(self,"File",2);return setmetatable({_file=self,_closed=false},Writer)end local function scratch(self,count)if count>self._capacity then local size=self._capacity*2;if size<count then size=count end;if size<READ_SIZE then size=READ_SIZE end;self._scratch=ffi.new("uint8_t[?]",size);self._capacity=size end;return self._scratch end local function usable(self)if self._closed then return nil,"the reader is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Reader:read(count)local file,reason=usable(self);if not file then return nil,reason end;count=whole(count,"Reader:read count",2);if count<1 then count=1 end;local into=scratch(self,count);local got=tonumber(C.nuppFileRead(file._handle,into,count));if got<0 then return nil,native.error()end;if got==0 then return""end;return ffi.string(into,got)end function Reader:readInto(destination,offset,count)local file,reason=usable(self);if not file then return nil,reason end;offset=counted(offset or 0,"Reader:readInto offset",2);count=counted(count or READ_SIZE,"Reader:readInto count",2);if count==0 then return 0 end;local data=rawget(destination,"_data");local capacity=rawget(destination,"_capacity");if data==nil and capacity==nil then local chunk,why=self:read(count);if chunk==nil then return nil,why end;if #chunk==0 then return 0 end;destination:setString(chunk,offset);return #chunk end;destination:ensureCapacity(offset+count);data=rawget(destination,"_data");local length=rawget(destination,"_length");if offset>length then ffi.fill(data+length,offset-length,0)end;local got=tonumber(C.nuppFileRead(file._handle,data+offset,count));if got<0 then return nil,native.error()end;if offset+got>length then rawset(destination,"_length",offset+got)end;return got end function Reader:transferTo(destination)local file,reason=usable(self);if not file then return nil,reason end;local total=0;while true do local chunk,why=self:read(READ_SIZE);if chunk==nil then return nil,why end;if chunk==""then return total end;local wrote,failure=destination:write(chunk);if not wrote then return nil,failure end;total=total+#chunk end end function Reader:close()self._closed=true;self._scratch=nil;self._capacity=0;return true end local function writable(self)if self._closed then return nil,"the writer is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Writer:write(bytes)local file,reason=writable(self);if not file then return false,reason end;if type(bytes)~="string"then error("nupp: io.files Writer:write needs a string",2)end;if C.nuppFileWrite(file._handle,bytes,#bytes)<0 then return false,native.error()end;return true end function Writer:writeFrom(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeFrom offset",2);count=counted(count==nil and length-offset or count,"Writer:writeFrom count",2);if offset+count>length then error("nupp: io.files Writer:writeFrom range is past the end",2)end;if count==0 then return 0 end;local data=rawget(source,"_data");if data==nil then local wrote,failure=self:write(source:getString(offset,count));if not wrote then return nil,failure end;return count end;if C.nuppFileWrite(file._handle,data+offset,count)<0 then return nil,native.error()end;return count end function Writer:writeView(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeView offset",2);count=counted(count==nil and length-offset or count,"Writer:writeView count",2);if offset+count>length then error("nupp: io.files Writer:writeView range is past the end",2)end;local wrote,failure=self:write(source:getString():sub(offset+1,offset+count));if not wrote then return nil,failure end;return count end function Writer:flush()local file,reason=writable(self);if not file then return false,reason end;return file:flush()end function Writer:close()self._closed=true;return true end function files.info(path)local found=described(path,true,2);if not found then return nil,native.error()end;return{kind=KINDS[tonumber(found.kind)]or"other",size=tonumber(found.size),modified=found.modified,readOnly=found.readOnly}end function files.exists(path)return described(path,true,2)~=nil end function files.isFile(path)local found=described(path,true,2);return found~=nil and found.kind==1 end function files.isDirectory(path)local found=described(path,true,2);return found~=nil and found.kind==2 end function files.isSymlink(path)local found=described(path,false,2);return found~=nil and found.kind==4 end function files.readLink(path)local text=named(path,"path",2);return answer(C.nuppFilesReadLink(text,#text))end function files.createSymlink(target,link,kind)local to=named(target,"symlink target",2);local at=named(link,"symlink path",2);if kind~=nil and kind~="file"and kind~="directory"then error("nupp: io.files symlink kind must be 'file' or 'directory'",2)end;return done(C.nuppFilesCreateSymlink(to,#to,at,#at,kind=="directory"))end function files.setReadOnly(path,readOnly)local text=named(path,"path",2);return done(C.nuppFilesSetReadOnly(text,#text,readOnly and true or false))end function files.createDirectory(path)local text=named(path,"path",2);return done(C.nuppFilesCreateDirectory(text,#text))end function files.remove(path,recursive)local text=named(path,"path",2);return done(C.nuppFilesRemove(text,#text,recursive and true or false))end function files.rename(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return done(C.nuppFilesRename(source,#source,destination,#destination))end function files.list(path)local text=named(path,"path",2);local handle=C.nuppFilesList(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local entries,at={},1;while at<=#blob do local stop=blob:find("\0",at+1,true);entries[#entries+1]={kind=ENTRIES[blob:sub(at,at)]or"other",name=blob:sub(at+1,stop-1)};at=stop+1 end;return entries end function files.glob(pattern)local text=named(pattern,"glob pattern",2);local handle=C.nuppFilesGlob(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local matches,at={},1;while at<=#blob do local stop=blob:find("\0",at,true);if not stop then matches[#matches+1]=blob:sub(at);break end;matches[#matches+1]=blob:sub(at,stop-1);at=stop+1 end;return matches end local Temporary={};Temporary.__index=Temporary;Temporary.__tostring=function(self)return self._text end function Temporary:toString()return self._text end function Temporary:isReleased()return self._closed end function Temporary:persist(destination)if self._closed then return false,"the temporary path is released"end;local to=named(destination,"destination path",2);local moved,reason=done(C.nuppFilesRename(self._text,#self._text,to,#to));if not moved then return false,reason end;self._closed=true;return true end function Temporary:close()if self._closed then return true end;self._closed=true;return done(C.nuppFilesRemove(self._text,#self._text,self._directory))end function files.createTemporaryFile(options)local text,reason=temporary(options,false,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=false,_closed=false},Temporary)end function files.createTemporaryDirectory(options)local text,reason=temporary(options,true,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=true,_closed=false},Temporary)end function files.read(path)local text=named(path,"path",2);return fetched(C.nuppFsSubmitRead(text,#text))end function files.write(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,0))end function files.append(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,1))end function files.writeAtomic(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,2))end function files.copy(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return transferred(C.nuppFsSubmitCopy(source,#source,destination,#destination))end function files.pendingTransfers()return tonumber(C.nuppFsPending())end function files.open(path,mode)local text=named(path,"path",2);local selected=MODES[mode or"r"];if selected==nil then error("nupp: io.files has no mode named "..tostring(mode),2)end;local handle=C.nuppFileOpen(text,#text,selected);if handle==nil then return nil,native.error()end;return setmetatable({_handle=handle,_closed=false},File)end function files.lines(path)local file,reason=files.open(path,"r");if not file then return nil,reason end;local reader=file:newReader();local held,finished="",false;local function trimmed(line)if line:sub(-1)=="\r"then return line:sub(1,-2)end;return line end;return function()if finished then return nil end;while true do local stop=held:find("\n",1,true);if stop then local line=held:sub(1,stop-1);held=held:sub(stop+1);return trimmed(line)end;local chunk=reader:read(READ_SIZE);if chunk==nil or chunk==""then finished=true;file:close();if #held>0 then local line=held;held="";return trimmed(line)end;return nil end;held=held..chunk end end end function files.currentDirectory()return answer(C.nuppFilesCurrentDirectory())end function files.userFolder(which)local index=FOLDERS[which];if index==nil then error("nupp: io.files has no user folder named "..tostring(which),2)end;return answer(C.nuppFilesUserFolder(index))end return files end);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppBytes NuppBytes;const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end __nuppLazy(__nuppIO,"files",function() local native=__nuppNative();local ffi,C=native.ffi,native.C;ffi.cdef[[NuppBytes*nuppFilesGlob(const uint8_t*,size_t);]];local files={};local record=ffi.new("NuppFileInfo[1]") local KINDS={[1]="file",[2]="directory",[3]="other",[4]="symlink"} local ENTRIES={f="file",d="directory",l="symlink",o="other"} local FOLDERS={home=0,documents=1,downloads=2,desktop=3,pictures=4,music=5,videos=6} local MODES={r=0,w=1,a=2,["r+"]=3,["w+"]=4,["a+"]=5} local ORIGINS={set=0,current=1,["end"]=2} local READ_SIZE=65536 local PENDING,READY=0,1 local SOURCE,PRIORITY="nupp-files",20 local waits={};local suspending local File={};File.__index=File;local Reader={};Reader.__index=Reader;local Writer={};Writer.__index=Writer local function named(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.toString then return value:toString()end;error("nupp: io.files "..what.." must be a path or a string",level)end local function done(answered)if answered then return true end;return false,native.error()end local function answer(handle)if handle==nil then return nil,native.error()end;return native.bytes(handle)end local function described(path,follow,level)local text=named(path,"path",level+1);if not C.nuppFilesInfo(text,#text,follow,record)then return nil end;return record[0]end local function optional(options,field,level)local value=options and options[field];if value==nil then return""end;if type(value)~="string"then error("nupp: io.files temporary "..field.." must be a string",level)end;return value end local function temporary(options,directory,level)local root=options and options.directory and named(options.directory,"temporary directory",level+1)or"";local prefix=optional(options,"prefix",level+1);local suffix=optional(options,"suffix",level+1);return answer(C.nuppFilesCreateTemporary(root,#root,prefix,#prefix,suffix,#suffix,directory))end local function payload(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.getString then return value:getString()end;error("nupp: io.files "..what.." must be bytes or a byte view",level)end local function harvest()local moved=0;local index=#waits;while index>0 do local entry=waits[index];if C.nuppFsStatus(entry.handle)~=PENDING then waits[index]=waits[#waits];waits[#waits]=nil;moved=moved+1;entry.resume(true)end;index=index-1 end;return moved end local function polled()C.nuppFsPoll();return harvest()end local function slept(waitMs)C.nuppFsWait(waitMs);return harvest()end local function forget(entry)for index=1,#waits do if waits[index]==entry then waits[index]=waits[#waits];waits[#waits]=nil;return end end end local function runtime()if suspending==nil then suspending=require("nupp.suspension")end;return suspending end local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,polled,slept);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end local function settled(handle)if handle==nil then return nil,native.error()end;await(handle);if C.nuppFsStatus(handle)~=READY then local reason=ffi.string(C.nuppFsError(handle));C.nuppFsDestroy(handle);return nil,reason end;return handle end local function transferred(handle)local done,reason=settled(handle);if not done then return false,reason end;C.nuppFsDestroy(done);return true end local function fetched(handle)local done,reason=settled(handle);if not done then return nil,reason end;local out=ffi.string(C.nuppFsData(done),tonumber(C.nuppFsLength(done)));C.nuppFsDestroy(done);return out end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: io.files "..what.." must be an integer",level)end;return value end local function counted(value,what,level)if whole(value,what,level)<0 then error("nupp: io.files "..what.." must not be negative",level)end;return value end local function live(self,what,level)if self._closed then error("nupp: io.files "..what.." is closed",level)end;return self end function File:isReleased()return self._closed end function File:close()if self._closed then return true end;self._closed=true;local handle=self._handle;self._handle=nil;C.nuppFileClose(handle);return true end function File:size()live(self,"File",2);local size=tonumber(C.nuppFileSize(self._handle));if size<0 then return nil,native.error()end;return size end function File:seek(offset,origin)live(self,"File",2);local whence=ORIGINS[origin or"set"];if whence==nil then error("nupp: io.files has no seek origin named "..tostring(origin),2)end;local at=tonumber(C.nuppFileSeek(self._handle,whole(offset or 0,"seek offset",2),whence));if at<0 then return nil,native.error()end;return at end function File:position()live(self,"File",2);return self:seek(0,"current")end function File:flush()live(self,"File",2);if C.nuppFileFlush(self._handle)then return true end;return false,native.error()end function File:newReader()live(self,"File",2);return setmetatable({_file=self,_scratch=nil,_capacity=0,_closed=false},Reader)end function File:newWriter()live(self,"File",2);return setmetatable({_file=self,_closed=false},Writer)end local function scratch(self,count)if count>self._capacity then local size=self._capacity*2;if size<count then size=count end;if size<READ_SIZE then size=READ_SIZE end;self._scratch=ffi.new("uint8_t[?]",size);self._capacity=size end;return self._scratch end local function usable(self)if self._closed then return nil,"the reader is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Reader:read(count)local file,reason=usable(self);if not file then return nil,reason end;count=whole(count,"Reader:read count",2);if count<1 then count=1 end;local into=scratch(self,count);local got=tonumber(C.nuppFileRead(file._handle,into,count));if got<0 then return nil,native.error()end;if got==0 then return""end;return ffi.string(into,got)end function Reader:readInto(destination,offset,count)local file,reason=usable(self);if not file then return nil,reason end;offset=counted(offset or 0,"Reader:readInto offset",2);count=counted(count or READ_SIZE,"Reader:readInto count",2);if count==0 then return 0 end;local data=rawget(destination,"_data");local capacity=rawget(destination,"_capacity");if data==nil and capacity==nil then local chunk,why=self:read(count);if chunk==nil then return nil,why end;if #chunk==0 then return 0 end;destination:setString(chunk,offset);return #chunk end;destination:ensureCapacity(offset+count);data=rawget(destination,"_data");local length=rawget(destination,"_length");if offset>length then ffi.fill(data+length,offset-length,0)end;local got=tonumber(C.nuppFileRead(file._handle,data+offset,count));if got<0 then return nil,native.error()end;if offset+got>length then rawset(destination,"_length",offset+got)end;return got end function Reader:transferTo(destination)local file,reason=usable(self);if not file then return nil,reason end;local total=0;while true do local chunk,why=self:read(READ_SIZE);if chunk==nil then return nil,why end;if chunk==""then return total end;local wrote,failure=destination:write(chunk);if not wrote then return nil,failure end;total=total+#chunk end end function Reader:close()self._closed=true;self._scratch=nil;self._capacity=0;return true end local function writable(self)if self._closed then return nil,"the writer is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Writer:write(bytes)local file,reason=writable(self);if not file then return false,reason end;if type(bytes)~="string"then error("nupp: io.files Writer:write needs a string",2)end;if C.nuppFileWrite(file._handle,bytes,#bytes)<0 then return false,native.error()end;return true end function Writer:writeFrom(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeFrom offset",2);count=counted(count==nil and length-offset or count,"Writer:writeFrom count",2);if offset+count>length then error("nupp: io.files Writer:writeFrom range is past the end",2)end;if count==0 then return 0 end;local data=rawget(source,"_data");if data==nil then local wrote,failure=self:write(source:getString(offset,count));if not wrote then return nil,failure end;return count end;if C.nuppFileWrite(file._handle,data+offset,count)<0 then return nil,native.error()end;return count end function Writer:writeView(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeView offset",2);count=counted(count==nil and length-offset or count,"Writer:writeView count",2);if offset+count>length then error("nupp: io.files Writer:writeView range is past the end",2)end;local wrote,failure=self:write(source:getString():sub(offset+1,offset+count));if not wrote then return nil,failure end;return count end function Writer:flush()local file,reason=writable(self);if not file then return false,reason end;return file:flush()end function Writer:close()self._closed=true;return true end function files.info(path)local found=described(path,true,2);if not found then return nil,native.error()end;return{kind=KINDS[tonumber(found.kind)]or"other",size=tonumber(found.size),modified=found.modified,readOnly=found.readOnly}end function files.exists(path)return described(path,true,2)~=nil end function files.isFile(path)local found=described(path,true,2);return found~=nil and found.kind==1 end function files.isDirectory(path)local found=described(path,true,2);return found~=nil and found.kind==2 end function files.isSymlink(path)local found=described(path,false,2);return found~=nil and found.kind==4 end function files.readLink(path)local text=named(path,"path",2);return answer(C.nuppFilesReadLink(text,#text))end function files.createSymlink(target,link,kind)local to=named(target,"symlink target",2);local at=named(link,"symlink path",2);if kind~=nil and kind~="file"and kind~="directory"then error("nupp: io.files symlink kind must be 'file' or 'directory'",2)end;return done(C.nuppFilesCreateSymlink(to,#to,at,#at,kind=="directory"))end function files.setReadOnly(path,readOnly)local text=named(path,"path",2);return done(C.nuppFilesSetReadOnly(text,#text,readOnly and true or false))end function files.createDirectory(path)local text=named(path,"path",2);return done(C.nuppFilesCreateDirectory(text,#text))end function files.remove(path,recursive)local text=named(path,"path",2);return done(C.nuppFilesRemove(text,#text,recursive and true or false))end function files.rename(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return done(C.nuppFilesRename(source,#source,destination,#destination))end function files.list(path)local text=named(path,"path",2);local handle=C.nuppFilesList(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local entries,at={},1;while at<=#blob do local stop=blob:find("\0",at+1,true);entries[#entries+1]={kind=ENTRIES[blob:sub(at,at)]or"other",name=blob:sub(at+1,stop-1)};at=stop+1 end;return entries end function files.glob(pattern)local text=named(pattern,"glob pattern",2);local handle=C.nuppFilesGlob(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local matches,at={},1;while at<=#blob do local stop=blob:find("\0",at,true);if not stop then matches[#matches+1]=blob:sub(at);break end;matches[#matches+1]=blob:sub(at,stop-1);at=stop+1 end;return matches end local Temporary={};Temporary.__index=Temporary;Temporary.__tostring=function(self)return self._text end function Temporary:toString()return self._text end function Temporary:isReleased()return self._closed end function Temporary:persist(destination)if self._closed then return false,"the temporary path is released"end;local to=named(destination,"destination path",2);local moved,reason=done(C.nuppFilesRename(self._text,#self._text,to,#to));if not moved then return false,reason end;self._closed=true;return true end function Temporary:close()if self._closed then return true end;self._closed=true;return done(C.nuppFilesRemove(self._text,#self._text,self._directory))end File.drop=File.close;Reader.drop=Reader.close;Writer.drop=Writer.close;Temporary.drop=Temporary.close function files.createTemporaryFile(options)local text,reason=temporary(options,false,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=false,_closed=false},Temporary)end function files.createTemporaryDirectory(options)local text,reason=temporary(options,true,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=true,_closed=false},Temporary)end function files.read(path)local text=named(path,"path",2);return fetched(C.nuppFsSubmitRead(text,#text))end function files.write(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,0))end function files.append(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,1))end function files.writeAtomic(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,2))end function files.copy(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return transferred(C.nuppFsSubmitCopy(source,#source,destination,#destination))end function files.pendingTransfers()return tonumber(C.nuppFsPending())end function files.open(path,mode)local text=named(path,"path",2);local selected=MODES[mode or"r"];if selected==nil then error("nupp: io.files has no mode named "..tostring(mode),2)end;local handle=C.nuppFileOpen(text,#text,selected);if handle==nil then return nil,native.error()end;return setmetatable({_handle=handle,_closed=false},File)end function files.lines(path)local file,reason=files.open(path,"r");if not file then return nil,reason end;local reader=file:newReader();local held,finished="",false;local function trimmed(line)if line:sub(-1)=="\r"then return line:sub(1,-2)end;return line end;return function()if finished then return nil end;while true do local stop=held:find("\n",1,true);if stop then local line=held:sub(1,stop-1);held=held:sub(stop+1);return trimmed(line)end;local chunk=reader:read(READ_SIZE);if chunk==nil or chunk==""then finished=true;file:close();if #held>0 then local line=held;held="";return trimmed(line)end;return nil end;held=held..chunk end end end function files.currentDirectory()return answer(C.nuppFilesCurrentDirectory())end function files.userFolder(which)local index=FOLDERS[which];if index==nil then error("nupp: io.files has no user folder named "..tostring(which),2)end;return answer(C.nuppFilesUserFolder(index))end return files end);
 
 
 
@@ -57881,7 +57829,7 @@ return fs
 
 end
 package.preload["nupp.compiler.gen"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -57919,6 +57867,7 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 local cst = require ( "nupp.compiler.cst" )
 local predicate = require ( "nupp.compiler.predicate" )
 local stdlib = require ( "nupp.compiler.stdlib" )
+local cabi = require ( "nupp.compiler.cabi" )
 
 local gen = { }
 
@@ -57991,6 +57940,12 @@ local CP
 
 
 local function cdefCType ( t )
+if t . resolvedType then
+local rendered = cabi . declaration ( t . resolvedType , "" , "ffi" )
+if rendered then
+return rendered
+end
+end
 if t . kind == "topt" then
 t = t . inner
 end
@@ -58003,8 +57958,7 @@ elseif name == "voidptr" then
 return "void *"
 end
 
-
-if ( name == "Owned" or name == "Success" or name == "Failure" ) and t . typeArgs and t . typeArgs [ 1 ] then
+if ( name == "Success" or name == "Failure" ) and t . typeArgs and t . typeArgs [ 1 ] then
 return cdefCType ( t . typeArgs [ 1 ] )
 end
 if t . cdefName then
@@ -58258,6 +58212,7 @@ end
 
 
 
+
 function gen . generate (
 result ,
 filename ,
@@ -58446,7 +58401,6 @@ local needsCleanupRegistry = false
 local cleanupRegistryName
 local cleanupResolvers = { }
 local cleanupResolverOrder = { }
-local cleanupRegisterValueName
 local newTabName , clearTabName , cloneTabName
 local needsCleanupRegions = false
 local cleanupPackName , cleanupIdName , cleanupFailureName
@@ -58873,16 +58827,11 @@ cleanupRegistry ( )
 return name
 end
 
-local function cleanupRegisterValue ( )
-cleanupRegistry ( )
-cleanupRegisterValueName = cleanupRegisterValueName or reservedName ( "__nuppRegisterOwner" )
-
-return cleanupRegisterValueName
-end
-
 local function cleanupCall ( cleanup , value )
 if cleanup . kind == "function" then
 return cleanupFunctionName ( cleanup ) .. "(" .. value .. ")"
+elseif cleanup . kind == "closure" then
+return value .. ":__nuppRelease()"
 elseif cleanup . kind == "method" then
 return value .. ":" .. cleanup . name .. "()"
 elseif cleanup . kind == "field" then
@@ -58913,6 +58862,9 @@ end
 local function protectedCleanupCall ( cleanup , value , pcallName )
 if cleanup . kind == "function" then
 return pcallName .. "(" .. cleanupFunctionName ( cleanup ) .. "," .. value .. ")"
+elseif cleanup . kind == "closure" then
+local caller = declareHelper ( "__nuppClosureCleanup" , "__nuppV" , "return __nuppV:__nuppRelease()" )
+return pcallName .. "(" .. caller .. "," .. value .. ")"
 elseif cleanup . kind == "method" then
 
 
@@ -59711,6 +59663,69 @@ walk ( block )
 return found
 end
 
+
+
+
+
+
+
+
+
+
+
+
+
+local chunkLocals
+local function isChunkLocal ( definition )
+if not chunkLocals then
+local found = { }
+local function declare ( stat )
+if cst . isToken ( stat ) then
+return
+end
+
+
+if stat . kind == "block" then
+for _ , inner in ipairs ( stat . stats or stat ) do
+declare ( inner )
+end
+
+return
+end
+if stat . kind == "pragmaStmt" and stat . stat then
+declare ( stat . stat )
+
+return
+end
+if stat . kind ~= "localStmt" and stat . kind ~= "localFuncStmt" then
+return
+end
+for _ , name in ipairs ( stat . names or ( stat . name and { stat . name } ) or { } ) do
+if name . definition then
+found [ name . definition ] = true
+end
+end
+end
+
+for _ , stat in ipairs ( result . root or { } ) do
+declare ( stat )
+end
+chunkLocals = found
+end
+
+return chunkLocals [ definition ] == true
+end
+
+
+
+
+
+
+
+
+
+
+
 local function automaticCaptures ( block , bindings )
 local localBindings = { }
 local firstOffset
@@ -59731,7 +59746,9 @@ local definition = node . token . definition
 local token = definition . token
 if not localBindings [
 definition
-] and token and firstOffset and token . offset < firstOffset and token . line ~= 0 then
+] and token and firstOffset and token . offset < firstOffset and token . line ~= 0 and not isChunkLocal (
+definition
+) then
 captured = true
 return
 end
@@ -59875,6 +59892,13 @@ end
 return nil
 end
 
+local function ownershipMoveOf ( expr )
+while expr and ( expr . kind == "paren" or expr . kind == "castExpr" ) do
+expr = expr . expr
+end
+return expr and expr . automaticOwnerMove or nil
+end
+
 local function automaticSlot ( move )
 local owner = move and ( move . owner or move ) or nil
 if not owner then
@@ -59924,7 +59948,7 @@ cleanupStack = { }
 emit ( body )
 cleanupStack = enclosingCleanupStack
 e ( ( "; local %s={}; " ) : format ( wrapper ) )
-e ( ( "%s.__drop=function() if not %s then return end; %s=false; " ) : format ( wrapper , active , active ) )
+e ( ( "%s.__nuppRelease=function() if not %s then return end; %s=false; " ) : format ( wrapper , active , active ) )
 local errors = nextTemp ( )
 local errorCount = nextTemp ( )
 e ( ( "local %s={}; local %s=0; " ) : format ( errors , errorCount ) )
@@ -60565,10 +60589,35 @@ return
 end
 
 if TYPE_KINDS [ kind ] or DECL_KINDS [ kind ] then
+
+
+
+
+for _ , registration in ipairs ( x . cleanupRegistrations or { } ) do
+local cleanup = registration . cleanup
+e ( ( "%s[%q]=%s;" ) : format ( cleanupRegistry ( ) , cleanup . key , cleanup . name ) , sourceLine ( x ) )
+end
 return
 
 elseif kind == "castExpr" then
 emit ( x . expr )
+
+elseif kind == "unsafeOwnershipExpr" then
+local move = x . expr and x . expr . automaticOwnerMove or nil
+local movedActive = move and activeWith ( move ) or nil
+if x . operation == "release" and movedActive then
+pluck . loweredFunction (
+( "(function() %s=false; return " ) : format ( movedActive ) ,
+sourceLine ( x ) ,
+pluck . reasons . move
+)
+emit ( x . expr )
+e ( " end)()" )
+elseif x . expr then
+emit ( x . expr )
+else
+e ( "nil" , sourceLine ( x ) )
+end
 
 elseif kind == "isExpr" then
 local t = x . type
@@ -60923,7 +60972,7 @@ elseif kind == "callStmt" and x . expr and x . expr . ownershipIntrinsic == "dro
 
 local inner = x . expr
 local innerArgs = inner . args and inner . args . exprs or { }
-local innerMove = innerArgs [ 1 ] and innerArgs [ 1 ] . automaticOwnerMove or nil
+local innerMove = ownershipMoveOf ( innerArgs [ 1 ] )
 local innerActive = innerMove and activeWith ( innerMove ) or nil
 e ( "do" , sourceLine ( x ) )
 if innerActive then
@@ -60963,13 +61012,12 @@ elseif kind == "callStmt" and x . expr and x . expr . ownershipIntrinsic then
 
 
 
-
 local inner = x . expr
 local innerArgs = inner . args and inner . args . exprs or { }
-local innerMove = innerArgs [ 1 ] and innerArgs [ 1 ] . automaticOwnerMove or nil
+local innerMove = ownershipMoveOf ( innerArgs [ 1 ] )
 local innerActive = innerMove and activeWith ( innerMove ) or nil
 e ( "do " , sourceLine ( x ) )
-if innerActive and ( inner . ownershipIntrinsic == "drop" or inner . ownershipIntrinsic == "intoRaw" ) then
+if innerActive and inner . ownershipIntrinsic == "drop" then
 e ( ( "%s=false; " ) : format ( innerActive ) )
 inner . ownershipMoveCleared = true
 end
@@ -61076,7 +61124,7 @@ return
 elseif kind == "call" and x . ownershipIntrinsic then
 local args = x . args and x . args . exprs or { }
 local line = sourceLine ( x )
-local move = args [ 1 ] and args [ 1 ] . automaticOwnerMove or nil
+local move = ownershipMoveOf ( args [ 1 ] )
 local movedActive = move and activeWith ( move ) or nil
 
 
@@ -61085,9 +61133,7 @@ local movedActive = move and activeWith ( move ) or nil
 
 
 
-local wrapsMove = movedActive ~= nil and not x . ownershipMoveCleared and (
-x . ownershipIntrinsic == "drop" or x . ownershipIntrinsic == "intoRaw"
-)
+local wrapsMove = movedActive ~= nil and not x . ownershipMoveCleared and x . ownershipIntrinsic == "drop"
 if wrapsMove then
 pluck . loweredFunction ( ( "(function() %s=false; return " ) : format ( movedActive ) , line , pluck . reasons . move )
 end
@@ -61131,34 +61177,6 @@ else
 e ( "nil" )
 end
 e ( "}" )
-elseif x . ownershipIntrinsic == "intoRaw" then
-if args [ 1 ] then
-emit ( args [ 1 ] )
-else
-e ( "nil" )
-end
-elseif x . ownershipIntrinsic == "fromRaw" then
-if # ( x . ownerCleanups or { } ) > 0 then
-e ( cleanupRegisterValue ( ) .. "(" , line )
-if args [ 1 ] then
-emit ( args [ 1 ] )
-else
-e ( "nil" )
-end
-for j , cleanup in ipairs ( x . ownerCleanups or { } ) do
-e ( ( ",%q," ) : format ( cleanup . key ) )
-if args [ j + 1 ] then
-emit ( args [ j + 1 ] )
-else
-e ( "nil" )
-end
-end
-e ( ")" )
-elseif args [ 1 ] then
-emit ( args [ 1 ] )
-else
-e ( "nil" )
-end
 elseif x . ownershipIntrinsic == "attemptAll" then
 
 
@@ -61736,7 +61754,6 @@ automaticMap = automaticMap ,
 
 
 
-
 local shared = not x . capturesEnclosing and # (
 x . bindings or { }
 ) == 1 and not active [ 1 ] and not x . automaticComplex
@@ -62205,10 +62222,15 @@ dispatch . emit ( planned )
 else
 emitChildren ( x )
 end
-local name = x . name and x . name . base or nil
-for _ , registration in ipairs ( name and name . cleanupRegistrations or { } ) do
+
+
+
+
+for _ , name in ipairs ( x . name or { } ) do
+for _ , registration in ipairs ( name . cleanupRegistrations or { } ) do
 local cleanup = registration . cleanup
 e ( ( ";%s[%q]=%s" ) : format ( cleanupRegistry ( ) , cleanup . key , cleanup . name ) , sourceLine ( x ) )
+end
 end
 
 elseif kind == "pragmaStmt" then
@@ -62378,7 +62400,7 @@ local declarations = { }
 for _ , helper in ipairs ( pluck . helpers . order ) do
 declarations [
 # declarations + 1
-] = ( "const %s = function(%s) %s end; " ) : format ( helper . name , helper . params , helper . body )
+] = ( "const %s = function(%s) %s end;" ) : format ( helper . name , helper . params , helper . body )
 end
 code = table . concat ( declarations ) .. code
 end
@@ -62391,6 +62413,12 @@ local linked = {
 }
 for _ , resolver in ipairs ( cleanupResolverOrder ) do
 local cleanup = resolver . cleanup
+assert (
+cleanup . key ,
+"unresolved affine terminal reached lowering in " .. (
+filename or "<source>"
+) .. ": " .. cleanup . id .. " (" .. cleanup . name .. ")"
+)
 linked [
 # linked + 1
 ] = (
@@ -62405,15 +62433,6 @@ cleanup . key
 ) : format (
 "Nupp cleanup provider is not loaded: " .. cleanup . key
 ) .. ( "%s=cleanup;return cleanup(value) end;" ) : format ( resolver . name )
-end
-if cleanupRegisterValueName then
-linked [
-# linked + 1
-] = (
-"local function %s(value,...) for i=1,_G.select('#',...),2 do "
-) : format (
-cleanupRegisterValueName
-) .. ( "%s[_G.select(i,...)]=_G.select(i+1,...) end return value end;" ) : format ( cleanupRegistryName )
 end
 code = table . concat ( linked ) .. code
 end
@@ -62660,6 +62679,18 @@ end
 
 
 
+if result . preludeRuntime and result . preludeRuntime ~= "" then
+
+
+
+
+local quotedPrelude = ( "%q" ) : format ( result . preludeRuntime ) : gsub ( "\n" , "n" )
+code = ( "_G.assert(_G.loadstring(%s,%q))();" ) : format ( quotedPrelude , "@nupp-prelude" ) .. code
+end
+
+
+
+
 
 
 
@@ -62711,7 +62742,7 @@ return gen
 
 end
 package.preload["nupp.compiler.generics"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -62778,6 +62809,26 @@ return T . constOp ( term . operation , operands )
 end
 
 return term
+end
+
+local function substCleanup ( cleanup , map , unmapped )
+if cleanup . kind == "function" and cleanup . constTerm then
+local term = substConst ( cleanup . constTerm , map )
+return T . constFunctionCleanup (
+term ,
+cleanup . name ,
+cleanup . functionType and substWith ( cleanup . functionType , map , unmapped ) or nil
+)
+elseif cleanup . kind == "field" and cleanup . cleanup then
+return T . fieldCleanup ( cleanup . field , substCleanup ( cleanup . cleanup , map , unmapped ) )
+end
+
+return cleanup
+end
+
+
+function generics . materializeConst ( term , map )
+return substConst ( term , map )
 end
 
 
@@ -62968,8 +63019,12 @@ elseif tag == "const" then
 return T . constOf ( substWith ( t . inner , map , unmapped ) )
 elseif tag == "ctype" then
 return T . ctype ( substWith ( t . of , map , unmapped ) )
-elseif tag == "owned" then
-return T . owned ( substWith ( t . inner , map , unmapped ) , t . cleanups , t . opaque )
+elseif tag == "affine" then
+local cleanups = { }
+for j , cleanup in ipairs ( t . cleanups or { } ) do
+cleanups [ j ] = substCleanup ( cleanup , map , unmapped )
+end
+return T . affine ( substWith ( t . inner , map , unmapped ) , cleanups , t . transferOnly )
 elseif tag == "borrowed" then
 return T . borrowed ( substWith ( t . inner , map , unmapped ) )
 elseif tag == "pinned" then
@@ -63695,9 +63750,13 @@ reduced , err = consteval . reduce ( argument . value )
 if err then
 break
 end
+if reduced . tag == "constLiteral" and reduced . domain == "function" then
+arguments [ position ] = { kind = "const" , value = reduced }
+else
 arguments [
 position
 ] = { kind = "value" , value = reduced . tag == "constLiteral" and reduced . value or reduced }
+end
 open = open or reduced . tag ~= "constLiteral"
 end
 end
@@ -63832,12 +63891,12 @@ inner , err = normalize ( t . inner , memo , budget )
 if not err then
 out = T . constOf ( inner )
 end
-elseif t . tag == "owned" or t . tag == "borrowed" or t . tag == "pinned" then
+elseif t . tag == "affine" or t . tag == "borrowed" or t . tag == "pinned" then
 local inner
 inner , err = normalize ( t . inner , memo , budget )
 if not err then
-if t . tag == "owned" then
-out = T . owned ( inner , t . cleanups , t . opaque )
+if t . tag == "affine" then
+out = T . affine ( inner , t . cleanups , t . transferOnly )
 elseif t . tag == "borrowed" then
 out = T . borrowed ( inner )
 else
@@ -64255,8 +64314,6 @@ inst . fieldDefaults = n . fieldDefaults
 inst . privateFields = n . privateFields
 inst . moduleName = n . moduleName
 inst . sealedModule = n . sealedModule
-inst . defaultDropOperations = n . defaultDropOperations
-inst . affineResource = n . affineResource
 inst . affineFields = n . affineFields
 inst . fieldBorrowSources = n . fieldBorrowSources
 inst . borrowedRootFields = n . borrowedRootFields
@@ -64831,7 +64888,7 @@ return generics
 
 end
 package.preload["nupp.compiler.hot_session"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -65770,7 +65827,7 @@ return hotSession
 
 end
 package.preload["nupp.compiler.importc"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -66331,7 +66388,7 @@ return importc
 
 end
 package.preload["nupp.compiler.incremental"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -67207,7 +67264,7 @@ return incremental
 
 end
 package.preload["nupp.compiler.lexer"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -68071,7 +68128,7 @@ return lexer
 
 end
 package.preload["nupp.compiler.lints"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -68314,7 +68371,7 @@ return lints
 
 end
 package.preload["nupp.compiler.lsp"] = function(...)
-const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);void nuppProcessDestroy(NuppChild*);int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);size_t nuppProcessUncollectedTotal(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;__nuppNativeValue={ffi=ffi,C=C,error=errorText};return __nuppNativeValue end package.preload["nupp.io.processnative"]=function() local native=__nuppNative();local ffi,C=native.ffi,native.C ffi.cdef[[double nuppProcessMonotonicMs(void);]] local MODE={pipe=0,inherit=1,["null"]=2,stdout=3} local WOULD_BLOCK,GONE,FAILED=-1,-2,-3 local RELEASED,RELEASED_WITH_REASON,NOT_RELEASED=0,1,2 local READ_SIZE,INT32_MAX=65536,2147483647 local function reason(prefix)local said=native.error();if said==nil or said==""then said="native process operation failed"end;return prefix..": "..said end local function maybeDestroy(owner)if owner.destroyed or not owner.released then return end;for _,stream in ipairs(owner.streams)do if not stream.released then return end end;owner.destroyed=true;for _,stream in ipairs(owner.streams)do local handle=stream.handle;stream.handle=nil;if handle~=nil then C.nuppProcessStreamDestroy(handle)end end;local child=owner.handle;owner.handle=nil;if child~=nil then C.nuppProcessDestroy(child)end end local function abandon(owner,message)for _,stream in ipairs(owner.streams)do if not stream.released then C.nuppProcessCloseStream(stream.handle);stream.released=true end;C.nuppProcessStreamDestroy(stream.handle);stream.handle=nil end;if owner.handle~=nil then C.nuppProcessKill(owner.handle,true);C.nuppProcessDestroy(owner.handle);owner.handle=nil end;owner.destroyed=true;error(message,0)end local function configured(ok,request,what)if ok then return end;local why=reason("nupp: could not configure process "..what);C.nuppProcessSpawnCancel(request);error(why,0)end local function wrap(owner,which,expected)local handle=C.nuppProcessTakeStream(owner.handle,which);if handle==nil then if expected then abandon(owner,reason("nupp: could not take process stream"))end;return nil end;local stream={owner=owner,handle=handle,released=false,scratch=nil,capacity=0};owner.streams[#owner.streams+1]=stream;return stream end local function makeArray(streams)local count=#streams;if count==0 then return nil,0 end;local out=ffi.new("NuppStream*[?]",count);for index,stream in ipairs(streams)do local handle=stream and stream.handle;if handle==nil then error("nupp: readiness interest named a destroyed process stream",0)end;out[index-1]=handle end;return out,count end local function whole(value)local number=tonumber(value)or 0;if number~=number then return 0 end;return math.floor(number)end return{new=function(exited) local backend={} function backend:spawn(options) local inputMode=options.stdin or"pipe";local outputMode=options.stdout or"pipe";local errorMode=options.stderr or"pipe" if MODE[inputMode]==nil then error("nupp: process has no stdin mode named "..tostring(inputMode),0)end if MODE[outputMode]==nil or outputMode=="stdout"then error("nupp: process has no stdout mode named "..tostring(outputMode),0)end if MODE[errorMode]==nil then error("nupp: process has no stderr mode named "..tostring(errorMode),0)end local request=C.nuppProcessSpawnBegin();if request==nil then error(reason("nupp: could not begin process spawn"),0)end for _,argument in ipairs(options.args or{})do configured(C.nuppProcessSpawnArg(request,argument,#argument),request,"argument")end configured(C.nuppProcessSpawnClearEnv(request,options.clearEnv==true),request,"environment mode") for key,value in pairs(options.env or{})do local entry=key.."="..value;configured(C.nuppProcessSpawnEnv(request,entry,#entry),request,"environment")end if options.cwd~=nil then local cwd=type(options.cwd)=="string"and options.cwd or options.cwd:toString();configured(C.nuppProcessSpawnCwd(request,cwd,#cwd),request,"working directory")end configured(C.nuppProcessSpawnStdio(request,0,MODE[inputMode]),request,"stdin") configured(C.nuppProcessSpawnStdio(request,1,MODE[outputMode]),request,"stdout") configured(C.nuppProcessSpawnStdio(request,2,MODE[errorMode]),request,"stderr") local child=C.nuppProcessSpawnRun(request);if child==nil then return nil,nil,nil,nil,0,reason("nupp: could not start process")end local owner={handle=child,streams={},released=false,destroyed=false} local input=wrap(owner,0,inputMode=="pipe");local output=wrap(owner,1,outputMode=="pipe");local err=wrap(owner,2,errorMode=="pipe") return owner,input,output,err,tonumber(C.nuppProcessId(child)) end function backend:poll(owner)local code=ffi.new("int32_t[1]");local killed=ffi.new("bool[1]");local status=C.nuppProcessPollExit(owner.handle,code,killed);if status<0 then error(reason("nupp: could not poll process"),0)end;if status==0 then return nil end;return exited(tonumber(code[0]),killed[0],false)end function backend:kill(owner,force)if not C.nuppProcessKill(owner.handle,force)then error(reason("nupp: could not kill process"),0)end end function backend:read(stream,limit)local wanted=whole(limit);if wanted<1 then wanted=1 elseif wanted>READ_SIZE then wanted=READ_SIZE end;if stream.capacity<wanted then stream.scratch=ffi.new("uint8_t[?]",wanted);stream.capacity=wanted end;local got=tonumber(C.nuppProcessTryRead(stream.handle,stream.scratch,wanted));if got>=0 then return ffi.string(stream.scratch,got)end;if got==WOULD_BLOCK then return""end;if got==GONE then return nil end;error(reason("nupp: could not read process stream"),0)end function backend:write(stream,bytes)local sent=tonumber(C.nuppProcessTryWrite(stream.handle,bytes,#bytes));if sent>=0 then return sent,false end;if sent==WOULD_BLOCK then return 0,false end;if sent==GONE then return 0,true end;error(reason("nupp: could not write process stream"),0)end function backend:closeStream(stream)if stream.released then return true end;local status=C.nuppProcessCloseStream(stream.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not close process stream")end;if status==RELEASED or status==RELEASED_WITH_REASON then stream.released=true;maybeDestroy(stream.owner);return true,why end;return false,why end function backend:reap(owner)if owner.released then return true end;local status=C.nuppProcessReap(owner.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not release process")end;if status==RELEASED or status==RELEASED_WITH_REASON then owner.released=true;maybeDestroy(owner);return true,why end;return false,why end function backend:now()return C.nuppProcessMonotonicMs()end function backend:waitReady(interest,timeoutMs)local readable,readCount=makeArray(interest.read);local writable,writeCount=makeArray(interest.write);local timeout=whole(timeoutMs);if timeout<0 then timeout=0 elseif timeout>INT32_MAX then timeout=INT32_MAX end;local answered=C.nuppProcessWaitReady(readable,readCount,writable,writeCount,timeout);if answered<0 then error(reason("nupp: process readiness wait failed"),0)end;return tonumber(answered)end return backend end} end;const __nuppCleanup1 = function(__nuppV) return __nuppV:close() end; 
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);void nuppProcessDestroy(NuppChild*);int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);size_t nuppProcessUncollectedTotal(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;__nuppNativeValue={ffi=ffi,C=C,error=errorText};return __nuppNativeValue end package.preload["nupp.io.processnative"]=function() local native=__nuppNative();local ffi,C=native.ffi,native.C ffi.cdef[[double nuppProcessMonotonicMs(void);]] local MODE={pipe=0,inherit=1,["null"]=2,stdout=3} local WOULD_BLOCK,GONE,FAILED=-1,-2,-3 local RELEASED,RELEASED_WITH_REASON,NOT_RELEASED=0,1,2 local READ_SIZE,INT32_MAX=65536,2147483647 local function reason(prefix)local said=native.error();if said==nil or said==""then said="native process operation failed"end;return prefix..": "..said end local function maybeDestroy(owner)if owner.destroyed or not owner.released then return end;for _,stream in ipairs(owner.streams)do if not stream.released then return end end;owner.destroyed=true;for _,stream in ipairs(owner.streams)do local handle=stream.handle;stream.handle=nil;if handle~=nil then C.nuppProcessStreamDestroy(handle)end end;local child=owner.handle;owner.handle=nil;if child~=nil then C.nuppProcessDestroy(child)end end local function abandon(owner,message)for _,stream in ipairs(owner.streams)do if not stream.released then C.nuppProcessCloseStream(stream.handle);stream.released=true end;C.nuppProcessStreamDestroy(stream.handle);stream.handle=nil end;if owner.handle~=nil then C.nuppProcessKill(owner.handle,true);C.nuppProcessDestroy(owner.handle);owner.handle=nil end;owner.destroyed=true;error(message,0)end local function configured(ok,request,what)if ok then return end;local why=reason("nupp: could not configure process "..what);C.nuppProcessSpawnCancel(request);error(why,0)end local function wrap(owner,which,expected)local handle=C.nuppProcessTakeStream(owner.handle,which);if handle==nil then if expected then abandon(owner,reason("nupp: could not take process stream"))end;return nil end;local stream={owner=owner,handle=handle,released=false,scratch=nil,capacity=0};owner.streams[#owner.streams+1]=stream;return stream end local function makeArray(streams)local count=#streams;if count==0 then return nil,0 end;local out=ffi.new("NuppStream*[?]",count);for index,stream in ipairs(streams)do local handle=stream and stream.handle;if handle==nil then error("nupp: readiness interest named a destroyed process stream",0)end;out[index-1]=handle end;return out,count end local function whole(value)local number=tonumber(value)or 0;if number~=number then return 0 end;return math.floor(number)end return{new=function(exited) local backend={} function backend:spawn(options) local inputMode=options.stdin or"pipe";local outputMode=options.stdout or"pipe";local errorMode=options.stderr or"pipe" if MODE[inputMode]==nil then error("nupp: process has no stdin mode named "..tostring(inputMode),0)end if MODE[outputMode]==nil or outputMode=="stdout"then error("nupp: process has no stdout mode named "..tostring(outputMode),0)end if MODE[errorMode]==nil then error("nupp: process has no stderr mode named "..tostring(errorMode),0)end local request=C.nuppProcessSpawnBegin();if request==nil then error(reason("nupp: could not begin process spawn"),0)end for _,argument in ipairs(options.args or{})do configured(C.nuppProcessSpawnArg(request,argument,#argument),request,"argument")end configured(C.nuppProcessSpawnClearEnv(request,options.clearEnv==true),request,"environment mode") for key,value in pairs(options.env or{})do local entry=key.."="..value;configured(C.nuppProcessSpawnEnv(request,entry,#entry),request,"environment")end if options.cwd~=nil then local cwd=type(options.cwd)=="string"and options.cwd or options.cwd:toString();configured(C.nuppProcessSpawnCwd(request,cwd,#cwd),request,"working directory")end configured(C.nuppProcessSpawnStdio(request,0,MODE[inputMode]),request,"stdin") configured(C.nuppProcessSpawnStdio(request,1,MODE[outputMode]),request,"stdout") configured(C.nuppProcessSpawnStdio(request,2,MODE[errorMode]),request,"stderr") local child=C.nuppProcessSpawnRun(request);if child==nil then return nil,nil,nil,nil,0,reason("nupp: could not start process")end local owner={handle=child,streams={},released=false,destroyed=false} local input=wrap(owner,0,inputMode=="pipe");local output=wrap(owner,1,outputMode=="pipe");local err=wrap(owner,2,errorMode=="pipe") return owner,input,output,err,tonumber(C.nuppProcessId(child)) end function backend:poll(owner)local code=ffi.new("int32_t[1]");local killed=ffi.new("bool[1]");local status=C.nuppProcessPollExit(owner.handle,code,killed);if status<0 then error(reason("nupp: could not poll process"),0)end;if status==0 then return nil end;return exited(tonumber(code[0]),killed[0],false)end function backend:kill(owner,force)if not C.nuppProcessKill(owner.handle,force)then error(reason("nupp: could not kill process"),0)end end function backend:read(stream,limit)local wanted=whole(limit);if wanted<1 then wanted=1 elseif wanted>READ_SIZE then wanted=READ_SIZE end;if stream.capacity<wanted then stream.scratch=ffi.new("uint8_t[?]",wanted);stream.capacity=wanted end;local got=tonumber(C.nuppProcessTryRead(stream.handle,stream.scratch,wanted));if got>=0 then return ffi.string(stream.scratch,got)end;if got==WOULD_BLOCK then return""end;if got==GONE then return nil end;error(reason("nupp: could not read process stream"),0)end function backend:write(stream,bytes)local sent=tonumber(C.nuppProcessTryWrite(stream.handle,bytes,#bytes));if sent>=0 then return sent,false end;if sent==WOULD_BLOCK then return 0,false end;if sent==GONE then return 0,true end;error(reason("nupp: could not write process stream"),0)end function backend:closeStream(stream)if stream.released then return true end;local status=C.nuppProcessCloseStream(stream.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not close process stream")end;if status==RELEASED or status==RELEASED_WITH_REASON then stream.released=true;maybeDestroy(stream.owner);return true,why end;return false,why end function backend:reap(owner)if owner.released then return true end;local status=C.nuppProcessReap(owner.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not release process")end;if status==RELEASED or status==RELEASED_WITH_REASON then owner.released=true;maybeDestroy(owner);return true,why end;return false,why end function backend:now()return C.nuppProcessMonotonicMs()end function backend:waitReady(interest,timeoutMs)local readable,readCount=makeArray(interest.read);local writable,writeCount=makeArray(interest.write);local timeout=whole(timeoutMs);if timeout<0 then timeout=0 elseif timeout>INT32_MAX then timeout=INT32_MAX end;local answered=C.nuppProcessWaitReady(readable,readCount,writable,writeCount,timeout);if answered<0 then error(reason("nupp: process readiness wait failed"),0)end;return tonumber(answered)end return backend end} end;local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp:prelude.d.nupp#__nuppDropDefault"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp:prelude.d.nupp#__nuppDropDefault") end;__nuppCleanup1=cleanup;return cleanup(value) end;
 
 
 
@@ -69634,7 +69691,7 @@ if compilerRoot and package . config : sub ( 1 , 1 ) == "\\" then
 local path = ( "package.path=%q .. package.path" ) : format ( compilerRoot .. "/build/?.lua;" )
 relayArgs = { "luajit" , "-e" , path , compilerRoot .. "/build/nupp/compiler/main.lua" , "__lsp-reader" , }
 end
-do local __nuppT13=0; local  __nuppT19 ; local __nuppT20=false ; const __nuppT14,__nuppT15,__nuppT16=__nuppT6(function() do const __nuppT21=__nuppT1( process . new ( { args = relayArgs , stdin = "inherit" , stdout = "pipe" , stderr = "inherit" , } ) ); __nuppT19= __nuppT21[1] ; __nuppT13=1;  __nuppT20=true;  local  relay , problem = __nuppT21[1] , __nuppT21[2] ;
+do local __nuppT13=0; local  __nuppT19 ; const __nuppT14,__nuppT15,__nuppT16=__nuppT6(function() do const __nuppT20=__nuppT1( process . new ( { args = relayArgs , stdin = "inherit" , stdout = "pipe" , stderr = "inherit" , } ) ); __nuppT19= __nuppT20[1] ; __nuppT13=1;  local  relay , problem = __nuppT20[1] , __nuppT20[2] ;
 if not relay then
 io . stderr : write ( "nupp-lsp: cannot start input reader: " .. tostring ( problem ) .. "\n" )
 return "return",__nuppT1( 1 )
@@ -69749,16 +69806,16 @@ session . dispatch ( msg )
 host . currentId = nil
 end
 end
-do (function(__nuppT22,...)  __nuppT20=false;  return __nuppT22:close(...)  end)( relay ) end
+relay : close ( )
 
-return "return",__nuppT1( 0 ) end; return "normal" end,__nuppT2); const __nuppT17={}; local __nuppT18=0; if __nuppT13>=1 and __nuppT20 and __nuppT19~=nil then  const __nuppT23,__nuppT24=__nuppT5(__nuppCleanup1,__nuppT19);  if not __nuppT23 then __nuppT18=__nuppT18+1; __nuppT17[__nuppT18]=__nuppT24 end; end; if not __nuppT14 then if __nuppT18>0 then __nuppT7(__nuppT3(__nuppT15,__nuppT17,1),0) else __nuppT7(__nuppT15,0) end end; if __nuppT18>0 then if __nuppT18>1 then __nuppT7(__nuppT3(__nuppT17[1],__nuppT17,2),0) else __nuppT7(__nuppT17[1],0) end end; if __nuppT15=="return" then  return __nuppT8(__nuppT16,1,__nuppT16.n)  end; end
+return "return",__nuppT1( 0 ) end; return "normal" end,__nuppT2); const __nuppT17={}; local __nuppT18=0; if __nuppT13>=1 and __nuppT19~=nil then  const __nuppT21,__nuppT22=__nuppT5(__nuppCleanup1,__nuppT19);  if not __nuppT21 then __nuppT18=__nuppT18+1; __nuppT17[__nuppT18]=__nuppT22 end; end; if not __nuppT14 then if __nuppT18>0 then __nuppT7(__nuppT3(__nuppT15,__nuppT17,1),0) else __nuppT7(__nuppT15,0) end end; if __nuppT18>0 then if __nuppT18>1 then __nuppT7(__nuppT3(__nuppT17[1],__nuppT17,2),0) else __nuppT7(__nuppT17[1],0) end end; if __nuppT15=="return" then  return __nuppT8(__nuppT16,1,__nuppT16.n)  end; end
 end
 
 return lsp
 
 end
 package.preload["nupp.compiler.lsp.complete"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -70157,7 +70214,7 @@ complete . completionWords = {
 "nil" ,
 "not" ,
 "or" ,
-"owned" ,
+"affine" ,
 "borrowed" ,
 "borrows" ,
 "exclusive" ,
@@ -70461,7 +70518,7 @@ return complete
 
 end
 package.preload["nupp.compiler.lsp.diagnostics"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -70664,7 +70721,7 @@ return diagnostics
 
 end
 package.preload["nupp.compiler.lsp.init"] = function(...)
-const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);void nuppProcessDestroy(NuppChild*);int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);size_t nuppProcessUncollectedTotal(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;__nuppNativeValue={ffi=ffi,C=C,error=errorText};return __nuppNativeValue end package.preload["nupp.io.processnative"]=function() local native=__nuppNative();local ffi,C=native.ffi,native.C ffi.cdef[[double nuppProcessMonotonicMs(void);]] local MODE={pipe=0,inherit=1,["null"]=2,stdout=3} local WOULD_BLOCK,GONE,FAILED=-1,-2,-3 local RELEASED,RELEASED_WITH_REASON,NOT_RELEASED=0,1,2 local READ_SIZE,INT32_MAX=65536,2147483647 local function reason(prefix)local said=native.error();if said==nil or said==""then said="native process operation failed"end;return prefix..": "..said end local function maybeDestroy(owner)if owner.destroyed or not owner.released then return end;for _,stream in ipairs(owner.streams)do if not stream.released then return end end;owner.destroyed=true;for _,stream in ipairs(owner.streams)do local handle=stream.handle;stream.handle=nil;if handle~=nil then C.nuppProcessStreamDestroy(handle)end end;local child=owner.handle;owner.handle=nil;if child~=nil then C.nuppProcessDestroy(child)end end local function abandon(owner,message)for _,stream in ipairs(owner.streams)do if not stream.released then C.nuppProcessCloseStream(stream.handle);stream.released=true end;C.nuppProcessStreamDestroy(stream.handle);stream.handle=nil end;if owner.handle~=nil then C.nuppProcessKill(owner.handle,true);C.nuppProcessDestroy(owner.handle);owner.handle=nil end;owner.destroyed=true;error(message,0)end local function configured(ok,request,what)if ok then return end;local why=reason("nupp: could not configure process "..what);C.nuppProcessSpawnCancel(request);error(why,0)end local function wrap(owner,which,expected)local handle=C.nuppProcessTakeStream(owner.handle,which);if handle==nil then if expected then abandon(owner,reason("nupp: could not take process stream"))end;return nil end;local stream={owner=owner,handle=handle,released=false,scratch=nil,capacity=0};owner.streams[#owner.streams+1]=stream;return stream end local function makeArray(streams)local count=#streams;if count==0 then return nil,0 end;local out=ffi.new("NuppStream*[?]",count);for index,stream in ipairs(streams)do local handle=stream and stream.handle;if handle==nil then error("nupp: readiness interest named a destroyed process stream",0)end;out[index-1]=handle end;return out,count end local function whole(value)local number=tonumber(value)or 0;if number~=number then return 0 end;return math.floor(number)end return{new=function(exited) local backend={} function backend:spawn(options) local inputMode=options.stdin or"pipe";local outputMode=options.stdout or"pipe";local errorMode=options.stderr or"pipe" if MODE[inputMode]==nil then error("nupp: process has no stdin mode named "..tostring(inputMode),0)end if MODE[outputMode]==nil or outputMode=="stdout"then error("nupp: process has no stdout mode named "..tostring(outputMode),0)end if MODE[errorMode]==nil then error("nupp: process has no stderr mode named "..tostring(errorMode),0)end local request=C.nuppProcessSpawnBegin();if request==nil then error(reason("nupp: could not begin process spawn"),0)end for _,argument in ipairs(options.args or{})do configured(C.nuppProcessSpawnArg(request,argument,#argument),request,"argument")end configured(C.nuppProcessSpawnClearEnv(request,options.clearEnv==true),request,"environment mode") for key,value in pairs(options.env or{})do local entry=key.."="..value;configured(C.nuppProcessSpawnEnv(request,entry,#entry),request,"environment")end if options.cwd~=nil then local cwd=type(options.cwd)=="string"and options.cwd or options.cwd:toString();configured(C.nuppProcessSpawnCwd(request,cwd,#cwd),request,"working directory")end configured(C.nuppProcessSpawnStdio(request,0,MODE[inputMode]),request,"stdin") configured(C.nuppProcessSpawnStdio(request,1,MODE[outputMode]),request,"stdout") configured(C.nuppProcessSpawnStdio(request,2,MODE[errorMode]),request,"stderr") local child=C.nuppProcessSpawnRun(request);if child==nil then return nil,nil,nil,nil,0,reason("nupp: could not start process")end local owner={handle=child,streams={},released=false,destroyed=false} local input=wrap(owner,0,inputMode=="pipe");local output=wrap(owner,1,outputMode=="pipe");local err=wrap(owner,2,errorMode=="pipe") return owner,input,output,err,tonumber(C.nuppProcessId(child)) end function backend:poll(owner)local code=ffi.new("int32_t[1]");local killed=ffi.new("bool[1]");local status=C.nuppProcessPollExit(owner.handle,code,killed);if status<0 then error(reason("nupp: could not poll process"),0)end;if status==0 then return nil end;return exited(tonumber(code[0]),killed[0],false)end function backend:kill(owner,force)if not C.nuppProcessKill(owner.handle,force)then error(reason("nupp: could not kill process"),0)end end function backend:read(stream,limit)local wanted=whole(limit);if wanted<1 then wanted=1 elseif wanted>READ_SIZE then wanted=READ_SIZE end;if stream.capacity<wanted then stream.scratch=ffi.new("uint8_t[?]",wanted);stream.capacity=wanted end;local got=tonumber(C.nuppProcessTryRead(stream.handle,stream.scratch,wanted));if got>=0 then return ffi.string(stream.scratch,got)end;if got==WOULD_BLOCK then return""end;if got==GONE then return nil end;error(reason("nupp: could not read process stream"),0)end function backend:write(stream,bytes)local sent=tonumber(C.nuppProcessTryWrite(stream.handle,bytes,#bytes));if sent>=0 then return sent,false end;if sent==WOULD_BLOCK then return 0,false end;if sent==GONE then return 0,true end;error(reason("nupp: could not write process stream"),0)end function backend:closeStream(stream)if stream.released then return true end;local status=C.nuppProcessCloseStream(stream.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not close process stream")end;if status==RELEASED or status==RELEASED_WITH_REASON then stream.released=true;maybeDestroy(stream.owner);return true,why end;return false,why end function backend:reap(owner)if owner.released then return true end;local status=C.nuppProcessReap(owner.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not release process")end;if status==RELEASED or status==RELEASED_WITH_REASON then owner.released=true;maybeDestroy(owner);return true,why end;return false,why end function backend:now()return C.nuppProcessMonotonicMs()end function backend:waitReady(interest,timeoutMs)local readable,readCount=makeArray(interest.read);local writable,writeCount=makeArray(interest.write);local timeout=whole(timeoutMs);if timeout<0 then timeout=0 elseif timeout>INT32_MAX then timeout=INT32_MAX end;local answered=C.nuppProcessWaitReady(readable,readCount,writable,writeCount,timeout);if answered<0 then error(reason("nupp: process readiness wait failed"),0)end;return tonumber(answered)end return backend end} end;const __nuppCleanup1 = function(__nuppV) return __nuppV:close() end; 
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);void nuppProcessDestroy(NuppChild*);int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);size_t nuppProcessUncollectedTotal(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;__nuppNativeValue={ffi=ffi,C=C,error=errorText};return __nuppNativeValue end package.preload["nupp.io.processnative"]=function() local native=__nuppNative();local ffi,C=native.ffi,native.C ffi.cdef[[double nuppProcessMonotonicMs(void);]] local MODE={pipe=0,inherit=1,["null"]=2,stdout=3} local WOULD_BLOCK,GONE,FAILED=-1,-2,-3 local RELEASED,RELEASED_WITH_REASON,NOT_RELEASED=0,1,2 local READ_SIZE,INT32_MAX=65536,2147483647 local function reason(prefix)local said=native.error();if said==nil or said==""then said="native process operation failed"end;return prefix..": "..said end local function maybeDestroy(owner)if owner.destroyed or not owner.released then return end;for _,stream in ipairs(owner.streams)do if not stream.released then return end end;owner.destroyed=true;for _,stream in ipairs(owner.streams)do local handle=stream.handle;stream.handle=nil;if handle~=nil then C.nuppProcessStreamDestroy(handle)end end;local child=owner.handle;owner.handle=nil;if child~=nil then C.nuppProcessDestroy(child)end end local function abandon(owner,message)for _,stream in ipairs(owner.streams)do if not stream.released then C.nuppProcessCloseStream(stream.handle);stream.released=true end;C.nuppProcessStreamDestroy(stream.handle);stream.handle=nil end;if owner.handle~=nil then C.nuppProcessKill(owner.handle,true);C.nuppProcessDestroy(owner.handle);owner.handle=nil end;owner.destroyed=true;error(message,0)end local function configured(ok,request,what)if ok then return end;local why=reason("nupp: could not configure process "..what);C.nuppProcessSpawnCancel(request);error(why,0)end local function wrap(owner,which,expected)local handle=C.nuppProcessTakeStream(owner.handle,which);if handle==nil then if expected then abandon(owner,reason("nupp: could not take process stream"))end;return nil end;local stream={owner=owner,handle=handle,released=false,scratch=nil,capacity=0};owner.streams[#owner.streams+1]=stream;return stream end local function makeArray(streams)local count=#streams;if count==0 then return nil,0 end;local out=ffi.new("NuppStream*[?]",count);for index,stream in ipairs(streams)do local handle=stream and stream.handle;if handle==nil then error("nupp: readiness interest named a destroyed process stream",0)end;out[index-1]=handle end;return out,count end local function whole(value)local number=tonumber(value)or 0;if number~=number then return 0 end;return math.floor(number)end return{new=function(exited) local backend={} function backend:spawn(options) local inputMode=options.stdin or"pipe";local outputMode=options.stdout or"pipe";local errorMode=options.stderr or"pipe" if MODE[inputMode]==nil then error("nupp: process has no stdin mode named "..tostring(inputMode),0)end if MODE[outputMode]==nil or outputMode=="stdout"then error("nupp: process has no stdout mode named "..tostring(outputMode),0)end if MODE[errorMode]==nil then error("nupp: process has no stderr mode named "..tostring(errorMode),0)end local request=C.nuppProcessSpawnBegin();if request==nil then error(reason("nupp: could not begin process spawn"),0)end for _,argument in ipairs(options.args or{})do configured(C.nuppProcessSpawnArg(request,argument,#argument),request,"argument")end configured(C.nuppProcessSpawnClearEnv(request,options.clearEnv==true),request,"environment mode") for key,value in pairs(options.env or{})do local entry=key.."="..value;configured(C.nuppProcessSpawnEnv(request,entry,#entry),request,"environment")end if options.cwd~=nil then local cwd=type(options.cwd)=="string"and options.cwd or options.cwd:toString();configured(C.nuppProcessSpawnCwd(request,cwd,#cwd),request,"working directory")end configured(C.nuppProcessSpawnStdio(request,0,MODE[inputMode]),request,"stdin") configured(C.nuppProcessSpawnStdio(request,1,MODE[outputMode]),request,"stdout") configured(C.nuppProcessSpawnStdio(request,2,MODE[errorMode]),request,"stderr") local child=C.nuppProcessSpawnRun(request);if child==nil then return nil,nil,nil,nil,0,reason("nupp: could not start process")end local owner={handle=child,streams={},released=false,destroyed=false} local input=wrap(owner,0,inputMode=="pipe");local output=wrap(owner,1,outputMode=="pipe");local err=wrap(owner,2,errorMode=="pipe") return owner,input,output,err,tonumber(C.nuppProcessId(child)) end function backend:poll(owner)local code=ffi.new("int32_t[1]");local killed=ffi.new("bool[1]");local status=C.nuppProcessPollExit(owner.handle,code,killed);if status<0 then error(reason("nupp: could not poll process"),0)end;if status==0 then return nil end;return exited(tonumber(code[0]),killed[0],false)end function backend:kill(owner,force)if not C.nuppProcessKill(owner.handle,force)then error(reason("nupp: could not kill process"),0)end end function backend:read(stream,limit)local wanted=whole(limit);if wanted<1 then wanted=1 elseif wanted>READ_SIZE then wanted=READ_SIZE end;if stream.capacity<wanted then stream.scratch=ffi.new("uint8_t[?]",wanted);stream.capacity=wanted end;local got=tonumber(C.nuppProcessTryRead(stream.handle,stream.scratch,wanted));if got>=0 then return ffi.string(stream.scratch,got)end;if got==WOULD_BLOCK then return""end;if got==GONE then return nil end;error(reason("nupp: could not read process stream"),0)end function backend:write(stream,bytes)local sent=tonumber(C.nuppProcessTryWrite(stream.handle,bytes,#bytes));if sent>=0 then return sent,false end;if sent==WOULD_BLOCK then return 0,false end;if sent==GONE then return 0,true end;error(reason("nupp: could not write process stream"),0)end function backend:closeStream(stream)if stream.released then return true end;local status=C.nuppProcessCloseStream(stream.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not close process stream")end;if status==RELEASED or status==RELEASED_WITH_REASON then stream.released=true;maybeDestroy(stream.owner);return true,why end;return false,why end function backend:reap(owner)if owner.released then return true end;local status=C.nuppProcessReap(owner.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not release process")end;if status==RELEASED or status==RELEASED_WITH_REASON then owner.released=true;maybeDestroy(owner);return true,why end;return false,why end function backend:now()return C.nuppProcessMonotonicMs()end function backend:waitReady(interest,timeoutMs)local readable,readCount=makeArray(interest.read);local writable,writeCount=makeArray(interest.write);local timeout=whole(timeoutMs);if timeout<0 then timeout=0 elseif timeout>INT32_MAX then timeout=INT32_MAX end;local answered=C.nuppProcessWaitReady(readable,readCount,writable,writeCount,timeout);if answered<0 then error(reason("nupp: process readiness wait failed"),0)end;return tonumber(answered)end return backend end} end;local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp:prelude.d.nupp#__nuppDropDefault"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp:prelude.d.nupp#__nuppDropDefault") end;__nuppCleanup1=cleanup;return cleanup(value) end;
 
 
 
@@ -71984,7 +72041,7 @@ if compilerRoot and package . config : sub ( 1 , 1 ) == "\\" then
 local path = ( "package.path=%q .. package.path" ) : format ( compilerRoot .. "/build/?.lua;" )
 relayArgs = { "luajit" , "-e" , path , compilerRoot .. "/build/nupp/compiler/main.lua" , "__lsp-reader" , }
 end
-do local __nuppT13=0; local  __nuppT19 ; local __nuppT20=false ; const __nuppT14,__nuppT15,__nuppT16=__nuppT6(function() do const __nuppT21=__nuppT1( process . new ( { args = relayArgs , stdin = "inherit" , stdout = "pipe" , stderr = "inherit" , } ) ); __nuppT19= __nuppT21[1] ; __nuppT13=1;  __nuppT20=true;  local  relay , problem = __nuppT21[1] , __nuppT21[2] ;
+do local __nuppT13=0; local  __nuppT19 ; const __nuppT14,__nuppT15,__nuppT16=__nuppT6(function() do const __nuppT20=__nuppT1( process . new ( { args = relayArgs , stdin = "inherit" , stdout = "pipe" , stderr = "inherit" , } ) ); __nuppT19= __nuppT20[1] ; __nuppT13=1;  local  relay , problem = __nuppT20[1] , __nuppT20[2] ;
 if not relay then
 io . stderr : write ( "nupp-lsp: cannot start input reader: " .. tostring ( problem ) .. "\n" )
 return "return",__nuppT1( 1 )
@@ -72099,16 +72156,16 @@ session . dispatch ( msg )
 host . currentId = nil
 end
 end
-do (function(__nuppT22,...)  __nuppT20=false;  return __nuppT22:close(...)  end)( relay ) end
+relay : close ( )
 
-return "return",__nuppT1( 0 ) end; return "normal" end,__nuppT2); const __nuppT17={}; local __nuppT18=0; if __nuppT13>=1 and __nuppT20 and __nuppT19~=nil then  const __nuppT23,__nuppT24=__nuppT5(__nuppCleanup1,__nuppT19);  if not __nuppT23 then __nuppT18=__nuppT18+1; __nuppT17[__nuppT18]=__nuppT24 end; end; if not __nuppT14 then if __nuppT18>0 then __nuppT7(__nuppT3(__nuppT15,__nuppT17,1),0) else __nuppT7(__nuppT15,0) end end; if __nuppT18>0 then if __nuppT18>1 then __nuppT7(__nuppT3(__nuppT17[1],__nuppT17,2),0) else __nuppT7(__nuppT17[1],0) end end; if __nuppT15=="return" then  return __nuppT8(__nuppT16,1,__nuppT16.n)  end; end
+return "return",__nuppT1( 0 ) end; return "normal" end,__nuppT2); const __nuppT17={}; local __nuppT18=0; if __nuppT13>=1 and __nuppT19~=nil then  const __nuppT21,__nuppT22=__nuppT5(__nuppCleanup1,__nuppT19);  if not __nuppT21 then __nuppT18=__nuppT18+1; __nuppT17[__nuppT18]=__nuppT22 end; end; if not __nuppT14 then if __nuppT18>0 then __nuppT7(__nuppT3(__nuppT15,__nuppT17,1),0) else __nuppT7(__nuppT15,0) end end; if __nuppT18>0 then if __nuppT18>1 then __nuppT7(__nuppT3(__nuppT17[1],__nuppT17,2),0) else __nuppT7(__nuppT17[1],0) end end; if __nuppT15=="return" then  return __nuppT8(__nuppT16,1,__nuppT16.n)  end; end
 end
 
 return lsp
 
 end
 package.preload["nupp.compiler.lsp.navigate"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -72655,7 +72712,7 @@ return navigate
 
 end
 package.preload["nupp.compiler.lsp.semantic"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -72730,7 +72787,7 @@ semantic . semanticTypes = wire . array ( {
 "enumMember" ,
 "function" ,
 "method" ,
-"keyword" ,
+"nuppKeyword" ,
 "comment" ,
 "string" ,
 "number" ,
@@ -72740,6 +72797,10 @@ semantic . semanticTypes = wire . array ( {
 } )
 
 semantic . semanticModifiers = wire . array ( { "declaration" , "readonly" , "deprecated" } )
+
+
+
+semantic . keywordType = "nuppKeyword"
 
 semantic . semanticIndex = { }
 for index , name in ipairs ( semantic . semanticTypes ) do
@@ -72767,7 +72828,7 @@ semantic . TYPE_WORDS = {
 [ "function" ] = true ,
 [ "metatable" ] = true ,
 [ "is" ] = true ,
-[ "owned" ] = true ,
+[ "affine" ] = true ,
 [ "borrowed" ] = true ,
 [ "pinned" ] = true ,
 [ "const" ] = true ,
@@ -72775,6 +72836,7 @@ semantic . TYPE_WORDS = {
 
 function semantic . syntaxKinds ( result )
 local kinds = { }
+local keywordType = semantic . keywordType
 local function mark ( tok , kind )
 if tok and cst . isToken ( tok ) then
 kinds [ tok ] = kind
@@ -72809,7 +72871,7 @@ local kind = node . kind
 if kind == "cdefFunc" or kind == "cdefStruct" then
 for _ , child in ipairs ( node ) do
 if cst . isToken ( child ) and ( child . text == "cdef" or child . text == "struct" or child . text == "from" ) then
-mark ( child , "keyword" )
+mark ( child , keywordType )
 end
 end
 elseif kind == "typeAlias" or kind == "recordDecl" then
@@ -72823,33 +72885,36 @@ or child . text == "global"
 or child . text == "is"
 or child . text == "where"
 then
-mark ( child , "keyword" )
+mark ( child , keywordType )
 end
 end
 end
 elseif kind == "generics" then
 for _ , child in ipairs ( node ) do
 if cst . isToken ( child ) and child . kind == "name" and child . text == "is" then
-mark ( child , "keyword" )
+mark ( child , keywordType )
 end
 end
 for _ , tok in ipairs ( ( node ) . names ) do
 mark ( tok , "typeParameter" )
 end
 elseif kind == "newExpr" or kind == "constructorDecl" or kind == "satisfiesDecl" then
-mark ( node [ 1 ] , "keyword" )
+mark ( node [ 1 ] , keywordType )
+elseif kind == "unsafeOwnershipExpr" then
+mark ( node [ 1 ] , keywordType )
+mark ( node [ 2 ] , keywordType )
 elseif kind == "whereClause" then
-mark ( node [ 1 ] , "keyword" )
+mark ( node [ 1 ] , keywordType )
 elseif kind == "metamethodDecl" then
-mark ( node [ 1 ] , "keyword" )
+mark ( node [ 1 ] , keywordType )
 mark ( node . name , "method" )
 elseif kind == "inlineMethod" then
-mark ( node [ 1 ] , "keyword" )
+mark ( node [ 1 ] , keywordType )
 mark ( node . name , "method" )
 elseif kind == "castExpr" or kind == "isExpr" then
 for _ , child in ipairs ( node ) do
 if cst . isToken ( child ) and child . text == "as" then
-mark ( child , "keyword" )
+mark ( child , keywordType )
 elseif cst . isToken ( child ) and child . text == "is" then
 mark ( child , "operator" )
 end
@@ -72857,61 +72922,61 @@ end
 elseif kind == "tpredicate" then
 for _ , child in ipairs ( node ) do
 if cst . isToken ( child ) and child . text == "is" then
-mark ( child , "keyword" )
+mark ( child , keywordType )
 end
 end
 elseif kind == "tborrows" then
 for _ , child in ipairs ( node ) do
 if cst . isToken ( child ) and child . text == "borrows" then
-mark ( child , "keyword" )
+mark ( child , keywordType )
 end
 end
 elseif kind == "tpreserves" then
 for _ , child in ipairs ( node ) do
 if cst . isToken ( child ) and child . text == "preserves" then
-mark ( child , "keyword" )
+mark ( child , keywordType )
 end
 end
 elseif kind == "tconst" then
-mark ( node [ 1 ] , "keyword" )
+mark ( node [ 1 ] , keywordType )
 elseif kind == "funcbody" or kind == "tfunc" then
 for _ , child in ipairs ( node ) do
 if cst . isToken ( child ) and ( child . text == "yields" or child . text == "resumes" ) then
-mark ( child , "keyword" )
+mark ( child , keywordType )
 end
 end
 if kind == "tfunc" and node . noSuspend then
-mark ( node [ 1 ] , "keyword" )
+mark ( node [ 1 ] , keywordType )
 end
 elseif kind == "pragmaStmt" or kind == "annotationApply" then
 mark ( node . name , "decorator" )
 elseif kind == "dedentString" then
-mark ( node . keyword , "keyword" )
+mark ( node . keyword , keywordType )
 elseif kind == "unsafeStmt" then
-mark ( node . unsafeTok , "keyword" )
+mark ( node . unsafeTok , keywordType )
 elseif kind == "noSuspendStmt" then
-mark ( node . keywordTok , "keyword" )
+mark ( node . keywordTok , keywordType )
 elseif ( kind == "localStmt" or kind == "localFuncStmt" ) and node . isConst then
-mark ( node [ 1 ] , "keyword" )
+mark ( node [ 1 ] , keywordType )
 elseif kind == "continueStmt" then
-mark ( node [ 1 ] , "keyword" )
+mark ( node [ 1 ] , keywordType )
 elseif kind == "labelStmt" or kind == "gotoStmt" then
 mark ( node . name , "label" )
 elseif kind == "param" or kind == "tfuncParam" then
 if node . modeTok then
-mark ( node . modeTok , "keyword" )
+mark ( node . modeTok , keywordType )
 end
 mark ( node . name , "parameter" )
 elseif kind == "fieldDecl" or kind == "tshapeField" then
 if node . capability then
-mark ( node . capability , "keyword" )
+mark ( node . capability , keywordType )
 end
 mark ( node . name , "property" )
 elseif kind == "fieldNamed" then
 mark ( node . name , "property" )
 elseif kind == "indexerDecl" or kind == "tmap" then
 if node . capability then
-mark ( node . capability , "keyword" )
+mark ( node . capability , keywordType )
 end
 end
 end )
@@ -73033,7 +73098,7 @@ or tok . kind == "istringClose"
 then
 kind = not embedded [ tok ] and "string" or nil
 elseif lexer . KEYWORDS [ tok . kind ] then
-kind = "keyword"
+kind = semantic . keywordType
 elseif tok . kind == "name" then
 kind = syntax [
 tok
@@ -73177,7 +73242,7 @@ return semantic
 
 end
 package.preload["nupp.compiler.lsp.symbols"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -73380,7 +73445,7 @@ return symbols
 
 end
 package.preload["nupp.compiler.lsp.text"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -73572,7 +73637,7 @@ return text
 
 end
 package.preload["nupp.compiler.lsp.tree"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -74083,7 +74148,7 @@ return tree
 
 end
 package.preload["nupp.compiler.lsp.wire"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
 
 
 
@@ -74115,7 +74180,7 @@ return wire
 
 end
 package.preload["nupp.compiler.materialize.codec"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 local MAX_CANONICAL_BYTES = 1048576
 local MAX_OUTPUT_BYTES = 2097152
@@ -74294,7 +74359,7 @@ return codec
 
 end
 package.preload["nupp.compiler.materialize.derive"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -74972,7 +75037,7 @@ return deriveProvider
 
 end
 package.preload["nupp.compiler.materialize.fieldcodec"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 local hash = require ( "nupp.compiler.build.hash" )
 
@@ -75124,7 +75189,7 @@ return fieldcodec
 
 end
 package.preload["nupp.compiler.materialize.ir"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -75377,7 +75442,7 @@ return ir
 
 end
 package.preload["nupp.compiler.materialize.observe"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 local cst = require ( "nupp.compiler.cst" )
 
@@ -75442,7 +75507,7 @@ return observe
 
 end
 package.preload["nupp.compiler.materialize.peg"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -77319,7 +77384,7 @@ return peg
 
 end
 package.preload["nupp.compiler.materialize.peg_re"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -77946,7 +78011,7 @@ return pegRe
 
 end
 package.preload["nupp.compiler.materialize.providers"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -77970,6 +78035,7 @@ local fieldcodec = require ( "nupp.compiler.materialize.fieldcodec" )
 
 
 local typeprovider = require ( "nupp.compiler.materialize.typeprovider" )
+
 
 
 
@@ -78007,6 +78073,7 @@ const providers = {} providers.__index = providers
 
 
 
+
 function providers . importTypeDescriptor (
 state ,
 descriptor ,
@@ -78018,6 +78085,10 @@ referencePrefix
 
 local importDescriptor = typeprovider . importDescriptor
 return importDescriptor ( state , descriptor , source , referencePrefix )
+end
+
+function providers . importFunctionConst ( state , key )
+return typeprovider . importFunctionConst ( state , key )
 end
 
 providers . ABI = 1
@@ -78482,7 +78553,7 @@ return providers
 
 end
 package.preload["nupp.compiler.materialize.typeprovider"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -78505,6 +78576,7 @@ local luaPattern = require ( "nupp.compiler.LuaPattern" )
 
 
 const typeprovider = {} typeprovider.__index = typeprovider
+
 
 
 
@@ -78771,7 +78843,31 @@ unary ( "pointer" , "ptr" )
 unary ( "constof" , "const" )
 unary ( "borrowed" , "borrowed" )
 unary ( "pinned" , "pinned" )
-unary ( "owned" , "owned" )
+installIntrinsic ( state , library , "affine" , function ( at , args )
+local inner = entry ( state , args [ 1 ] , "Type" )
+if not inner then
+return nil , failure ( "NUPP2415" , "nupp.types.affine needs a representation type handle" )
+end
+local terminal = args [ 2 ] and entry ( state , args [ 2 ] , "FunctionConst" ) or nil
+if args [ 2 ] ~= nil and not terminal then
+return nil , failure ( "NUPP2415" , "nupp.types.affine terminal must be a const-function parameter" )
+end
+local terminalKey = terminal and terminal . payload . key or nil
+
+return make (
+state ,
+opaque ,
+"Type" ,
+{
+kind = "affine" ,
+inner = args [ 1 ] ,
+terminal = terminalKey ,
+transferOnly = terminal == nil ,
+key = "affine:" .. inner . payload . key .. ":" .. ( terminalKey or "transfer" )
+} ,
+provenance ( at , "affine" )
+)
+end )
 
 installIntrinsic ( state , library , "carray" , function ( at , args )
 local element = entry ( state , args [ 1 ] , "Type" )
@@ -78935,7 +79031,7 @@ end
 local keys , copiedModes = { } , { }
 for index , member in ipairs ( head ) do
 local mode = modes [ index ] or "plain"
-if mode ~= "plain" and mode ~= "owned" and mode ~= "borrowed" and mode ~= "pinned" then
+if mode ~= "plain" and mode ~= "affine" and mode ~= "borrowed" and mode ~= "pinned" then
 return nil , failure ( "NUPP2415" , "nupp.types.pack has an invalid mode at " .. tostring ( index ) )
 end
 copiedModes [ index ] = mode
@@ -79048,7 +79144,7 @@ if payload . kind == "ptr"
 or payload . kind == "const"
 or payload . kind == "borrowed"
 or payload . kind == "pinned"
-or payload . kind == "owned"
+or payload . kind == "affine"
 then
 return { payload . inner }
 end
@@ -79162,6 +79258,18 @@ end )
 
 env . nupp = env . nupp or { }
 env . nupp . types = library
+end
+
+
+
+
+function typeprovider . importFunctionConst ( state , key )
+local opaque = state . typeOpaque
+if not opaque or type ( key ) ~= "string" then
+return nil
+end
+
+return make ( state , opaque , "FunctionConst" , { key = key } , nil )
 end
 
 function typeprovider . importDescriptor (
@@ -79385,10 +79493,13 @@ opaque ,
 nil
 )
 end
-elseif kind == "ptr" or kind == "const" or kind == "borrowed" or kind == "pinned" or kind == "owned" then
+elseif kind == "ptr" or kind == "const" or kind == "borrowed" or kind == "pinned" or kind == "affine" then
 local inner = import ( node . element )
 if inner then
-local intentionalOpaque = kind == "owned" and node . opaque == true
+local transferOnly = kind == "affine" and node . transferOnly == true
+local terminal = kind == "affine" and not transferOnly and node . cleanups and node . cleanups [
+1
+] and node . cleanups [ 1 ] . key or nil
 made = make (
 state ,
 opaque ,
@@ -79396,8 +79507,11 @@ opaque ,
 {
 kind = kind ,
 inner = inner ,
-opaque = intentionalOpaque ,
-key = kind .. ( intentionalOpaque and ":opaque" or "" ) .. ":" .. keyOf ( state , inner ) ,
+transferOnly = transferOnly ,
+terminal = terminal ,
+key = kind .. (
+transferOnly and ":transfer" or terminal and ":" .. terminal or ""
+) .. ":" .. keyOf ( state , inner ) ,
 } ,
 nil
 )
@@ -79541,11 +79655,12 @@ elseif payload . kind == "ptr"
 or payload . kind == "const"
 or payload . kind == "borrowed"
 or payload . kind == "pinned"
-or payload . kind == "owned"
+or payload . kind == "affine"
 then
 node . inner = intern ( payload . inner )
-if payload . kind == "owned" then
-node . opaque = payload . opaque == true
+if payload . kind == "affine" then
+node . transferOnly = payload . transferOnly == true
+node . terminal = payload . terminal
 end
 elseif payload . kind == "tuple" or payload . kind == "union" or payload . kind == "intersection" then
 node . members = { }
@@ -79616,7 +79731,7 @@ return typeprovider
 
 end
 package.preload["nupp.compiler.members"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -80149,7 +80264,7 @@ return members
 
 end
 package.preload["nupp.compiler.methodslots"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -80187,7 +80302,7 @@ if tag == "nominal" then
 out = "nominal(" .. tostring ( t . declKind ) .. ":" .. tostring ( t . runtimePath or t . name ) .. ")"
 elseif tag == "array" or tag == "ptr" or tag == "const" then
 out = tag .. "(" .. fingerprint ( t . elem or t . inner , binders , active ) .. ")"
-elseif tag == "owned" or tag == "borrowed" or tag == "pinned" then
+elseif tag == "affine" or tag == "borrowed" or tag == "pinned" then
 out = tag .. "(" .. fingerprint ( t . inner , binders , active ) .. ")"
 elseif tag == "map" then
 out = "map(" .. fingerprint (
@@ -80307,7 +80422,7 @@ return methodslots
 
 end
 package.preload["nupp.compiler.narrowing"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -80343,9 +80458,9 @@ local isA = ( relations ) . isA
 
 
 function narrowing . subtract ( t , rem )
-if t . tag == "owned" then
+if t . tag == "affine" then
 local inner = narrowing . subtract ( t . inner , rem )
-return inner == t . inner and t or T . owned ( inner , t . cleanups , t . opaque )
+return inner == t . inner and t or T . affine ( inner , t . cleanups , t . transferOnly )
 elseif t . tag == "borrowed" then
 local inner = narrowing . subtract ( t . inner , rem )
 return inner == t . inner and t or T . borrowed ( inner )
@@ -80488,7 +80603,7 @@ return narrowing
 
 end
 package.preload["nupp.compiler.native"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -80822,7 +80937,7 @@ return native
 
 end
 package.preload["nupp.compiler.neutralpolicy"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -80865,7 +80980,7 @@ return policy
 
 end
 package.preload["nupp.compiler.optimize"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -82298,7 +82413,7 @@ return optimize
 
 end
 package.preload["nupp.compiler.parser"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -82670,6 +82785,13 @@ local kw = tokens [ at ]
 if kw and kw . kind == "sealed" then
 at = at + 1
 kw = tokens [ at ]
+end
+if kw and kw . kind == "name" and kw . text == "affine" then
+at = at + 1
+kw = tokens [ at ]
+if not kw or kw . kind ~= "name" or kw . text ~= "type" then
+return false
+end
 end
 if not kw or kw . kind ~= "name" or not TYPEDECL_KW [ kw . text ] then
 return false
@@ -83803,7 +83925,33 @@ end
 
 local function parseSimpleexp ( )
 local kind = cur ( ) . kind
-if kind == "name" and cur ( ) . text == "dedent" and tokens [
+if kind == "name" and cur ( ) . text == "unsafe" and tokens [
+i + 1
+] and tokens [ i + 1 ] . kind == "name" and ( tokens [ i + 1 ] . text == "adopt" or tokens [ i + 1 ] . text == "release" ) then
+local operation = tokens [ i + 1 ] . text
+local n = setmetatable({ kind =  "unsafeOwnershipExpr" ,  operation =  operation }, cst.UnsafeOwnershipExpr)
+add ( n , advance ( ) ) . contextualOp = true
+add ( n , advance ( ) ) . contextualOp = true
+if operation == "release" then
+n . expr = add ( n , parseExp ( ) )
+else
+
+
+
+local assertion = add ( n , parseExp ( ) )
+if assertion . kind == "castExpr" then
+n . expr , n . type = assertion . expr , assertion . type
+else
+errAt (
+cst . lastToken ( assertion ) or cur ( ) ,
+"'unsafe adopt' needs an affine target; write unsafe adopt value as Owner" ,
+"NUPP1002"
+)
+n . expr = assertion
+end
+end
+return n
+elseif kind == "name" and cur ( ) . text == "dedent" and tokens [
 i + 1
 ] and tokens [ i + 1 ] . kind == "string" and tokens [ i + 1 ] . text : sub ( 1 , 1 ) == "[" then
 local n = setmetatable({ kind =  "dedentString" }, cst.DedentString)
@@ -83959,6 +84107,26 @@ n . params = { }
 if cur ( ) . kind ~= ")" then
 repeat
 local p = setmetatable({ kind =  "param" }, cst.Param)
+local isFunctionConst = cur ( ) . kind == "name" and cur ( ) . text == "const" and tokens [
+i + 1
+] and tokens [
+i + 1
+] . kind == "name" and tokens [
+i + 2
+] and tokens [ i + 2 ] . kind == ":" and tokens [ i + 3 ] and tokens [ i + 3 ] . kind == "function"
+if isFunctionConst then
+p . constTok = add ( p , advance ( ) )
+p . constTok . contextualOp = true
+p . name = add ( p , advance ( ) )
+annotationColon ( p , "after const function parameter" )
+p . constDomainTok = add ( p , advance ( ) )
+n . params [ # n . params + 1 ] = add ( n , p )
+if cur ( ) . kind ~= "," then
+break
+end
+add ( n , advance ( ) )
+goto continue_parameter
+end
 if cur ( ) . kind == "name" and (
 cur ( ) . text == "takes"
 or cur ( ) . text == "borrows"
@@ -84017,6 +84185,7 @@ if cur ( ) . kind ~= "," then
 break
 end
 add ( n , advance ( ) )
+:: continue_parameter ::
 until false
 end
 add ( n , expect ( ")" , "to close parameter list" ) )
@@ -84361,8 +84530,15 @@ local sealedTok = nil
 if cur ( ) . kind == "sealed" then
 sealedTok = advance ( )
 end
+local affineTok = nil
+if cur ( ) . kind == "name" and cur ( ) . text == "affine" then
+affineTok = advance ( )
+end
 local kw = advance ( )
 local which = kw . text
+if affineTok and which ~= "type" then
+errAt ( affineTok , "'affine' may modify only a type declaration" , "NUPP1002" )
+end
 if sealedTok and which ~= "interface" then
 errAt ( sealedTok , "'sealed' may modify only an interface" , "NUPP1002" )
 end
@@ -84379,6 +84555,9 @@ end
 if sealedTok then
 add ( n , sealedTok )
 end
+if affineTok then
+add ( n , affineTok )
+end
 add ( n , kw )
 
 return n
@@ -84386,10 +84565,19 @@ end
 
 if which == "type" then
 local n = introduce ( setmetatable({ kind =  "typeAlias" }, cst.TypeAlias) )
+n . affine = affineTok ~= nil
+n . affineTok = affineTok
 parseDeclName ( n , "after '" .. which .. "'" )
 parseGenerics ( n )
 add ( n , expect ( "=" , "in " .. which .. " declaration" ) )
 n . value = add ( n , parseType ( ) )
+if affineTok then
+if cur ( ) . kind == "name" and cur ( ) . text == "terminal" then
+n . terminalTok = add ( n , advance ( ) )
+n . terminal = add ( n , parseType ( ) )
+end
+n . endTok = add ( n , expect ( "end" , "to close affine type declaration" ) )
+end
 return n
 else
 local n = introduce ( setmetatable({ kind =  "recordDecl" }, cst.RecordDecl) )
@@ -84842,6 +85030,17 @@ end
 return n
 end
 
+if kind == "name" and cur ( ) . text == "drop" then
+local n = setmetatable({ kind =  "callStmt" }, cst.CallStmt)
+local dropTok = add ( n , advance ( ) )
+dropTok . contextualOp = true
+local value = add ( n , parseExp ( ) )
+local callee = setmetatable({ kind =  "name" ,  token =  dropTok }, cst.NameExpr)
+local args = setmetatable({ kind =  "args" ,  exprs =  { value } }, cst.Args)
+n . expr = setmetatable({ kind =  "call" ,  obj =  callee ,  args =  args ,  ownershipSyntax =  "drop" }, cst.Call)
+return n
+end
+
 
 local e = parseSuffixedexp ( )
 if compoundOp ( ) then
@@ -84982,7 +85181,7 @@ return parser
 
 end
 package.preload["nupp.compiler.predicate"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -85549,7 +85748,7 @@ return predicate
 
 end
 package.preload["nupp.compiler.query"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -85817,7 +86016,7 @@ return query
 
 end
 package.preload["nupp.compiler.reference"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -86748,18 +86947,23 @@ return m
 , setmetatable({ title =
 
 
-"Owned resources" ,  codes =
+"Affine resources" ,  codes =
 { "NUPP2603" , "NUPP2615" } ,  body =
 [=[
-`Owned<T>` gives a result a cleanup obligation, written in the position it is
-about, and takes its terminal from that type's `@drop`. `Owned<T, cleanup>` names
-one when `T` cannot declare it, such as a shared C pointer type. Any result may be
-owned, not only the first. A known local is destroyed at scope exit. Drop,
-`takes`, an owning return, or `intoRaw` ends or transfers it once. An unresolved
-owner needs an explicit terminal; forgetting is an error, not a leak.
+`affine type Name<...> = Representation terminal cleanup end` declares a
+transparent affine type. Its identity is the representation plus the const-function
+identity of its terminal; it allocates no wrapper. The terminal must be exactly a
+`nosuspend function(takes Representation): nil`, and may raise.
 
-`Owned<T, opaque>` makes the absence of a terminal deliberate: the value may be
-transferred or converted into a raw value, but cannot be destroyed locally.
+`Drop`, `Owned<T, cleanup>`, and `Transfer<T>` are ordinary prelude declarations.
+The default `Owned<T>` terminal calls the structural `Drop.drop` member. An explicit
+cleanup is used for C pointers or a representation with several possible policies.
+`Transfer<T>` deliberately has no terminal and can only be forwarded or released.
+
+A known affine local is destroyed at scope exit. `drop owner` invokes its selected
+terminal immediately. `unsafe adopt raw as SomeAffine` introduces an asserted fresh
+obligation; `unsafe release owner` consumes one without invoking its terminal.
+`takes` and matching affine returns transfer an obligation once.
 
 Parameter modes describe calls: `takes` consumes; `borrows` is call-scoped;
 `exclusive` also requires sole access; `retains`/`releases` describe C holding a
@@ -86796,8 +87000,8 @@ variable-length C-array indexing therefore requires `unsafe`; use `nupp.span`
 when a runtime count is available. A fixed C array rejects a statically
 out-of-range literal and inserts a runtime guard for a non-literal index.
 
-Ownership intrinsics are `nupp.drop`, `nupp.attemptAll`, `nupp.borrow`,
-`nupp.intoRaw`, `nupp.fromRaw`, `nupp.borrowFrom`, and `nupp.pin`.
+The remaining ownership helpers are `nupp.attemptAll`, `nupp.borrow`,
+`nupp.borrowFrom`, and `nupp.pin`.
 `nupp.attemptAll(value, ...)` runs each named operation in order, attempts every
 one after a failure, and raises the first with the rest suppressed; only the last
 may `takes` the value. Bare aliases lower identically.
@@ -86806,29 +87010,21 @@ Any local spelling, including `nupp`, shadows them.
 [=[
 local m = {}
 
-local function closeFile(file: LuaFile)
-    file:close()
+local record File
+    closed: boolean
+
+    function drop(takes self): nil
+        self.closed = true
+    end
 end
 
---- Opens a file the caller must discharge.
----
---- @param path where to read from
---- @return an owned handle
---- @raises when the file cannot be opened
-function m.open(path: string): Owned<LuaFile, closeFile>
-    local file = io.open(path, "r")
-    if not file then
-        error("cannot open " .. path)
-    end
-
-    return file
+function m.open(): Owned<File>
+    return new File(closed = false)
 end
 
-function m.slurp(path: string): string
-    do
-        local file = m.open(path)
-        return file:read("*a")
-    end
+function m.closeNow(): nil
+    local file = m.open()
+    drop file
 end
 
 return m
@@ -87939,7 +88135,7 @@ return reference
 
 end
 package.preload["nupp.compiler.reflection"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 local hash = require ( "nupp.compiler.build.hash" )
 local stable = require ( "nupp.compiler.build.cache" ) . stable
@@ -88246,14 +88442,14 @@ out . of = intern ( t . of )
 out . name = t . name
 elseif tag == "array"
 or tag == "ptr"
-or tag == "owned"
+or tag == "affine"
 or tag == "borrowed"
 or tag == "pinned"
 or tag == "const"
 then
 out . element = intern ( t . elem or t . inner )
-if tag == "owned" then
-out . opaque = t . opaque == true
+if tag == "affine" then
+out . transferOnly = t . transferOnly == true
 out . cleanups = { }
 for position , cleanup in ipairs ( t . cleanups or { } ) do
 out . cleanups [
@@ -88321,7 +88517,7 @@ return reflection
 
 end
 package.preload["nupp.compiler.relations"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -88601,6 +88797,11 @@ end
 
 local function memberIsA ( have , want )
 if have . tag == "func" and want . tag == "func" and # have . params >= 1 and # want . params >= 1 then
+local haveReceiverMode = have . paramModes and have . paramModes [ 1 ] or "plain"
+local wantReceiverMode = want . paramModes and want . paramModes [ 1 ] or "plain"
+if ( haveReceiverMode == "takes" ) ~= ( wantReceiverMode == "takes" ) then
+return false
+end
 local hp , wp = { } , { }
 for j = 2 , # have . params do
 hp [ # hp + 1 ] = have . params [ j ]
@@ -88686,7 +88887,7 @@ local function affine ( t )
 if not t then
 return false
 end
-if t . tag == "owned" or t . tag == "pinned" then
+if t . tag == "affine" or t . tag == "pinned" then
 return true
 end
 if t . tag == "union" or t . tag == "intersection" then
@@ -88874,12 +89075,17 @@ end
 
 
 
-if atag == "owned" then
-if btag == "owned" then
+if atag == "affine" then
+if btag == "affine" then
 
 
 
-if # ( b . cleanups or { } ) > 0 and not sameCleanups ( a . cleanups , b . cleanups ) then
+
+
+
+
+local takingSource = # ( a . cleanups or { } ) == 0 and not a . transferOnly
+if # ( b . cleanups or { } ) > 0 and not takingSource and not sameCleanups ( a . cleanups , b . cleanups ) then
 return fail ( a , b )
 end
 return isA ( a . inner , b . inner )
@@ -88893,7 +89099,7 @@ elseif atag == "borrowed" then
 if btag == "borrowed" then
 return isA ( a . inner , b . inner )
 
-elseif btag == "owned" then
+elseif btag == "affine" then
 return fail ( a , b )
 end
 return isA ( a . inner , b )
@@ -88904,7 +89110,7 @@ return isA ( a . inner , b . inner )
 end
 return fail ( a , b )
 end
-if btag == "owned" or btag == "borrowed" or btag == "pinned" then
+if btag == "affine" or btag == "borrowed" or btag == "pinned" then
 return fail ( a , b )
 end
 
@@ -89540,7 +89746,7 @@ return relations
 
 end
 package.preload["nupp.compiler.rock"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -89925,7 +90131,7 @@ return rock
 
 end
 package.preload["nupp.compiler.runtime"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -90027,7 +90233,7 @@ return runtime
 
 end
 package.preload["nupp.compiler.scalar_intrinsics"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 local scalar = { }
@@ -90142,7 +90348,7 @@ return scalar
 
 end
 package.preload["nupp.compiler.stdlib"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -90237,6 +90443,7 @@ local function queueLike(value)local kind=type(value);if kind=="table"then retur
 local function newQueueReader(source)if not queueLike(source)then error("nupp: io.newQueueReader needs a byte queue",2)end;return setmetatable({_source=source,_closed=false},ByteQueue)end
 local function newScalarReader(source)local self=setmetatable({_pending="",_closed=false},ScalarReader);local kind=type(source);if kind=="string"then self._pending=source elseif kind=="table"and source.read~=nil then self._reader=source elseif kind=="table"and source.getString~=nil then self._pending=source:getString()elseif queueLike(source)then self._queue=source else error(BADSOURCE,2)end;return self end
 local function newScalarWriter(destination)local self=setmetatable({_closed=false},ScalarWriter);if destination==nil then self._buffer=newBuffer()elseif type(destination)=="table"and destination.write~=nil then self._writer=destination elseif type(destination)=="table"and destination.setString~=nil then self._buffer=destination else error("nupp: io.newScalarWriter needs a buffer, a writer, or nothing",2)end;return self end
+View.drop=View.close;Buffer.drop=Buffer.close;Reader.drop=Reader.close;Writer.drop=Writer.close;ByteQueue.drop=ByteQueue.close;ScalarReader.drop=ScalarReader.close;ScalarWriter.drop=ScalarWriter.close
 __nuppIO.newBuffer=newBuffer;__nuppIO.newQueueReader=newQueueReader;__nuppIO.newScalarReader=newScalarReader;__nuppIO.newScalarWriter=newScalarWriter;__nuppIO.newStringReader=function(text)if type(text)~="string"then error("nupp: io.newStringReader needs a string",2)end;return setmetatable({_bytes=text,_at=1,_closed=false},Reader)end;return __nuppIO end
 for _,__name in ipairs({"newBuffer","newQueueReader","newScalarReader","newScalarWriter","newStringReader"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallIO();return rawget(__nuppIO,name)end)end
 ]=]
@@ -90814,6 +91021,7 @@ function Temporary:toString()return self._text end
 function Temporary:isReleased()return self._closed end
 function Temporary:persist(destination)if self._closed then return false,"the temporary path is released"end;local to=named(destination,"destination path",2);local moved,reason=done(C.nuppFilesRename(self._text,#self._text,to,#to));if not moved then return false,reason end;self._closed=true;return true end
 function Temporary:close()if self._closed then return true end;self._closed=true;return done(C.nuppFilesRemove(self._text,#self._text,self._directory))end
+File.drop=File.close;Reader.drop=Reader.close;Writer.drop=Writer.close;Temporary.drop=Temporary.close
 function files.createTemporaryFile(options)local text,reason=temporary(options,false,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=false,_closed=false},Temporary)end
 function files.createTemporaryDirectory(options)local text,reason=temporary(options,true,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=true,_closed=false},Temporary)end
 function files.read(path)local text=named(path,"path",2);return fetched(C.nuppFsSubmitRead(text,#text))end
@@ -91187,7 +91395,7 @@ return stdlib
 
 end
 package.preload["nupp.compiler.target_layout"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -91412,7 +91620,7 @@ return targetLayout
 
 end
 package.preload["nupp.compiler.typeblueprint"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -91625,7 +91833,7 @@ elseif node . kind == "ptr"
 or node . kind == "const"
 or node . kind == "borrowed"
 or node . kind == "pinned"
-or node . kind == "owned"
+or node . kind == "affine"
 then
 local inner
 inner , why = edge ( node . inner , node . kind .. " inner type" )
@@ -91641,8 +91849,24 @@ elseif node . kind == "borrowed" then
 value = T . borrowed ( inner )
 elseif node . kind == "pinned" then
 value = T . pinned ( inner )
+elseif node . transferOnly == true then
+if node . terminal ~= nil then
+why = "transfer-only affine blueprint also names a terminal"
 else
-value = T . owned ( inner , nil , node . opaque == true )
+value = T . affine ( inner , nil , true )
+end
+elseif type ( node . terminal ) ~= "string" then
+why = "affine blueprint has no permitted terminal identity"
+else
+local permitted = type (
+permittedReferences
+) == "table" and permittedReferences [ "function:" .. node . terminal ] or nil
+local cleanup = permitted and permitted . cleanup or nil
+if not cleanup or cleanup . key ~= node . terminal then
+why = "affine blueprint names an unpermitted const-function terminal"
+else
+value = T . affine ( inner , { cleanup } )
+end
 end
 end
 elseif node . kind == "tuple" then
@@ -91778,7 +92002,7 @@ else
 local copiedModes = { }
 for position = 1 , # head do
 local mode = modes [ position ] or "plain"
-if mode ~= "plain" and mode ~= "owned" and mode ~= "borrowed" and mode ~= "pinned" then
+if mode ~= "plain" and mode ~= "affine" and mode ~= "borrowed" and mode ~= "pinned" then
 why = "type blueprint pack has an invalid mode at " .. tostring ( position )
 break
 end
@@ -91825,7 +92049,7 @@ return typeblueprint
 
 end
 package.preload["nupp.compiler.types"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -91843,6 +92067,7 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 local types = { }
+
 
 
 
@@ -92040,7 +92265,11 @@ types.Cleanup = {} types.Cleanup.__index = types.Cleanup
 
 
 
-types.Owned = {} types.Owned.__index = types.Owned
+
+
+
+
+types.Affine = {} types.Affine.__index = types.Affine
 
 
 
@@ -92135,6 +92364,14 @@ types.ProtocolThread = {} types.ProtocolThread.__index = types.ProtocolThread
 
 
 types.GenericAlias = {} types.GenericAlias.__index = types.GenericAlias
+
+
+
+
+
+
+
+
 
 
 
@@ -92683,12 +92920,6 @@ types.Nominal = {} types.Nominal.__index = types.Nominal
 
 
 
-
-
-
-
-
-
 local arena = { }
 
 local packArena = { }
@@ -92879,6 +93110,7 @@ types . uint64 = prim ( "uint64" )
 
 types . type_ = prim ( "type" )
 types . typepack = prim ( "typepack" )
+types . functionConst = prim ( "functionconst" )
 
 
 
@@ -93276,13 +93508,27 @@ return setmetatable({ id =
 "function" ,  key =
 key ,  name =
 name ,  functionType =
-functionType }, types.Cleanup)
+functionType ,  constTerm =
+types . constLiteral ( "function" , key ) }, types.Cleanup)
 
 end
 
 
-function types . methodCleanup ( name )
-return setmetatable({ id =  "method:" .. name ,  kind =  "method" ,  name =  name }, types.Cleanup)
+function types . constFunctionCleanup ( term , name , functionType )
+local key = term . tag == "constLiteral" and term . domain == "function" and term . value or nil
+return setmetatable({ id =
+key and "function:" .. key or "functionconst:" .. term . id ,  kind =
+"function" ,  key =
+key ,  name =
+name or key and ( key : match ( "#(.*)$" ) or key ) or types . tostringConst ( term ) ,  functionType =
+functionType ,  constTerm =
+term }, types.Cleanup)
+
+end
+
+
+function types . closureCleanup ( )
+return setmetatable({ id =  "generated:closure" ,  kind =  "closure" }, types.Cleanup)
 end
 
 
@@ -93306,7 +93552,7 @@ end
 
 
 
-function types . owned ( t , cleanups , opaque )
+function types . affine ( t , cleanups , transferOnly )
 local list = { }
 local ids = { }
 for j , cleanup in ipairs ( cleanups or { } ) do
@@ -93314,14 +93560,17 @@ list [ j ] = cleanup
 ids [ j ] = cleanup . id
 end
 
-local internKey = "owned(" .. table . concat ( ids , "," ) .. ":" .. t . id .. ( opaque and ":opaque" or "" ) .. ")"
+local internKey = "affine(" .. table . concat ( ids , "," ) .. ":" .. t . id .. ( transferOnly and ":transfer" or "" ) .. ")"
 
 local existing = interned ( internKey )
 if existing then
 return existing
 end
 
-return intern ( internKey , setmetatable({ tag =  "owned" ,  inner =  t ,  cleanups =  list ,  opaque =  opaque == true }, types.Owned) )
+return intern (
+internKey , setmetatable({ tag =
+"affine" ,  inner =  t ,  cleanups =  list ,  transferOnly =  transferOnly == true }, types.Affine)
+)
 end
 
 function types . borrowed ( t )
@@ -93351,7 +93600,7 @@ end
 
 
 function types . unwrapOwnership ( t )
-if t . tag == "owned" or t . tag == "borrowed" or t . tag == "pinned" then
+if t . tag == "affine" or t . tag == "borrowed" or t . tag == "pinned" then
 return t . inner
 end
 return t
@@ -93364,7 +93613,7 @@ local function capability ( t , roots , retention )
 local obligation = "none"
 local access = "ordinary"
 local cleanups = { }
-if t . tag == "owned" then
+if t . tag == "affine" then
 cleanups = t . cleanups
 obligation = # cleanups > 0 and "cleanup" or "opaque"
 elseif t . tag == "borrowed" then
@@ -93420,7 +93669,7 @@ end
 function types . withOwnershipPayload ( source , payload )
 local slot = valueSlot ( source )
 if slot . capability . obligation == "cleanup" or slot . capability . obligation == "opaque" then
-return types . owned ( payload , slot . capability . cleanups )
+return types . affine ( payload , slot . capability . cleanups )
 elseif slot . capability . access == "shared-borrow" then
 return types . borrowed ( payload )
 elseif slot . capability . obligation == "pin" then
@@ -93636,7 +93885,10 @@ typeParams ,
 typeBounds ,
 packParams ,
 constParams ,
-paramKinds
+paramKinds ,
+paramDefaults ,
+affine ,
+affineTerminal
 )
 local parts = { "alias(" .. name , body . id }
 for _ , tv in ipairs ( typeParams or { } ) do
@@ -93647,6 +93899,9 @@ parts [ # parts + 1 ] = pv . id
 end
 for _ , cv in ipairs ( constParams or { } ) do
 parts [ # parts + 1 ] = cv . id
+end
+if affine then
+parts [ # parts + 1 ] = "affine:" .. ( affineTerminal and affineTerminal . id or "transfer" )
 end
 local key = table . concat ( parts , "|" ) .. ")"
 
@@ -93665,7 +93920,10 @@ typeParams or { } ,  typeBounds =
 typeBounds or { } ,  packParams =
 packParams or { } ,  constParams =
 constParams or { } ,  paramKinds =
-paramKinds or { } }, types.GenericAlias)
+paramKinds or { } ,  paramDefaults =
+paramDefaults or { } ,  affine =
+affine == true ,  affineTerminal =
+affineTerminal }, types.GenericAlias)
 
 )
 end
@@ -93805,7 +94063,7 @@ for j , cleanup in ipairs ( output . cleanups or { } ) do
 cleanupIds [ j ] = cleanup . id
 end
 key = key .. "|out:" .. (
-output . kind or "owned"
+output . kind or "affine"
 ) .. ":" .. output . name .. ":" .. table . concat (
 cleanupIds ,
 ","
@@ -94331,7 +94589,7 @@ return true
 end
 
 local tag = t . tag
-if tag == "owned" or tag == "borrowed" or tag == "pinned" or tag == "const" then
+if tag == "affine" or tag == "borrowed" or tag == "pinned" or tag == "const" then
 return types . hasTypevar ( t . inner )
 elseif tag == "ctype" or tag == "metatable" then
 return types . hasTypevar ( t . of )
@@ -94404,7 +94662,6 @@ name ,  byname =
 { } ,  staticWriteByname =
 { } ,  metamethods =
 { } ,  nestedTypes =
-{ } ,  defaultDropOperations =
 { } }, types.Nominal)
 
 t . id = "nominal#" .. nominalCounter .. "(" .. name .. ")"
@@ -94535,8 +94792,11 @@ if t . elem . tag == "union" or t . elem . tag == "intersection" then
 elem = "(" .. elem .. ")"
 end
 return elem .. "*"
-elseif tag == "owned" then
-return "Owned<" .. types . tostring ( t . inner ) .. ( t . opaque and ", opaque" or "" ) .. ">"
+elseif tag == "affine" then
+local terminal = t . cleanups and t . cleanups [ 1 ]
+return "affine<" .. types . tostring (
+t . inner
+) .. ( terminal and ", terminal " .. ( terminal . name or terminal . id ) or ", transfer-only" ) .. ">"
 elseif tag == "borrowed" then
 return "Borrowed<" .. types . tostring ( t . inner ) .. ">"
 elseif tag == "pinned" then
@@ -94752,7 +95012,7 @@ return types
 
 end
 package.preload["nupp.derive"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -95134,7 +95394,7 @@ return derive
 
 end
 package.preload["nupp.format"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 local format = { }
 
@@ -95168,7 +95428,7 @@ return format
 
 end
 package.preload["nupp.heap"] = function(...)
-const __nuppFfi = require("ffi"); const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.heap#free_nosuspend"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.heap#free_nosuspend") end;__nuppCleanup1=cleanup;return cleanup(value) end;local function __nuppRegisterOwner(value,...) for i=1,_G.select('#',...),2 do __nuppCleanups[_G.select(i,...)]=_G.select(i+1,...) end return value end;
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.heap#free_nosuspend"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.heap#free_nosuspend") end;__nuppCleanup1=cleanup;return cleanup(value) end;
 
 
 
@@ -95186,11 +95446,9 @@ local free_nosuspend = free
 
 local function finish_array ( self )
 do
-do
 local raw = self
-do local __nuppT13=0; local  __nuppT19 ; local __nuppT20=false ; const __nuppT14,__nuppT15,__nuppT16=__nuppT6(function() do const __nuppT21= __nuppRegisterOwner( raw . pointer ,"nupp.heap#free_nosuspend", free_nosuspend ) ; __nuppT19= __nuppT21 ; __nuppT13=1;  __nuppT20=true;  local pointer=__nuppT19;
+do local __nuppT13=0; local  __nuppT19 ; local __nuppT20=false ; const __nuppT14,__nuppT15,__nuppT16=__nuppT6(function() do const __nuppT21= raw . pointer ; __nuppT19= __nuppT21 ; __nuppT13=1;  __nuppT20=true;  local pointer=__nuppT19;
 do (function(__nuppT22,...)  __nuppT20=false;  return __nuppT22(...)  end)( free_nosuspend , pointer ) end end; return "normal" end,__nuppT2); const __nuppT17={}; local __nuppT18=0; if __nuppT13>=1 and __nuppT20 then  const __nuppT23,__nuppT24=__nuppT5(__nuppCleanup1,__nuppT19);  if not __nuppT23 then __nuppT18=__nuppT18+1; __nuppT17[__nuppT18]=__nuppT24 end; end; if not __nuppT14 then if __nuppT18>0 then __nuppT7(__nuppT3(__nuppT15,__nuppT17,1),0) else __nuppT7(__nuppT15,0) end end; if __nuppT18>0 then if __nuppT18>1 then __nuppT7(__nuppT3(__nuppT17[1],__nuppT17,2),0) else __nuppT7(__nuppT17[1],0) end end; if __nuppT15=="return" then  return __nuppT8(__nuppT16,1,__nuppT16.n)  end; end
-end
 end
 end
 
@@ -95214,12 +95472,17 @@ heap.Array = {} heap.Array.__index = heap.Array
 
 
 
+
 function heap . Array . read ( self )
 return span . fromCarray ( self . pointer , self . count )
 end
 
 function heap . Array . close ( self )
 finish_array_nosuspend ( self )
+end
+
+function heap . Array . drop ( self )
+self : close ( )
 end
 
 function heap . Array . write ( self )
@@ -95265,7 +95528,7 @@ return heap
 
 end
 package.preload["nupp.hotreload"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -95548,7 +95811,7 @@ return hotreload
 
 end
 package.preload["nupp.io.http"] = function(...)
-const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppInstallIO()local ffi=require("ffi");local Buffer,View,Reader,Writer={},{},{},{};Buffer.__index=Buffer;View.__index=View;Reader.__index=Reader;Writer.__index=Writer local __nuppBytes=ffi.typeof("uint8_t[?]");local SMALLEST=32 local function integer(value,what,level)if type(value)~="number"or value~=math.floor(value)or value<0 then error("nupp: "..what.." must be a non-negative integer",level)end;return value end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: "..what.." must be an integer",level)end;return value end local function opened(self,what,level)if self._closed then error("nupp: "..what.." is closed",level)end end local function range(length,offset,count,what,level)offset=integer(offset or 0,what.." offset",level);if offset>length then error("nupp: "..what.." offset is past the end",level)end;count=integer(count==nil and length-offset or count,what.." count",level);if offset+count>length then error("nupp: "..what.." range is past the end",level)end;return offset,count end local function reserve(self,minimum)if minimum<=self._capacity then return end;local capacity=self._capacity*2;if capacity<minimum then capacity=minimum end;if capacity<SMALLEST then capacity=SMALLEST end;local data=__nuppBytes(capacity);if self._length>0 then ffi.copy(data,self._data,self._length)end;self._data=data;self._capacity=capacity end local function bytesAt(self,offset,count)if count==0 then return""end;return ffi.string(self._data+offset,count)end function View:length()opened(self,"io.ByteView",2);return #self._bytes end;function View:getString()opened(self,"io.ByteView",2);return self._bytes end;function View:newReader()opened(self,"io.ByteView",2);return setmetatable({_bytes=self._bytes,_at=1,_closed=false},Reader)end;function View:view(offset,count)opened(self,"io.ByteView",2);offset,count=range(#self._bytes,offset,count,"io.ByteView",2);return setmetatable({_bytes=self._bytes:sub(offset+1,offset+count),_closed=false},View)end;function View:isReleased()return self._closed end;function View:close()self._closed=true;self._bytes="";return true end function Buffer:length()opened(self,"io.Buffer",2);return self._length end;function Buffer:capacity()opened(self,"io.Buffer",2);return self._capacity end;function Buffer:clear()opened(self,"io.Buffer",2);self._length=0 end;function Buffer:ensureCapacity(minimum)opened(self,"io.Buffer",2);reserve(self,integer(minimum,"io.Buffer capacity",2))end function Buffer:resize(length)opened(self,"io.Buffer",2);length=integer(length,"io.Buffer length",2);if length>self._length then reserve(self,length);ffi.fill(self._data+self._length,length-self._length,0)end;self._length=length end function Buffer:getString(offset,count)opened(self,"io.Buffer",2);offset,count=range(self._length,offset,count,"io.Buffer",2);return bytesAt(self,offset,count)end function Buffer:setString(bytes,offset)opened(self,"io.Buffer",2);if type(bytes)~="string"then error("nupp: io.Buffer bytes must be a string",2)end;offset=integer(offset or 0,"io.Buffer offset",2);local ending=offset+#bytes;reserve(self,ending);if offset>self._length then ffi.fill(self._data+self._length,offset-self._length,0)end;if #bytes>0 then ffi.copy(self._data+offset,bytes,#bytes)end;if ending>self._length then self._length=ending end end function Buffer:view(offset,count)opened(self,"io.Buffer",2);offset,count=range(self._length,offset,count,"io.Buffer",2);return setmetatable({_bytes=bytesAt(self,offset,count),_closed=false},View)end;function Buffer:isReleased()return self._closed end;function Buffer:close()self._closed=true;self._data=nil;self._length=0;self._capacity=0;return true end function Reader:read(count)if self._closed then return nil,"the reader is closed"end;count=whole(count,"Reader:read count",2);if self._at>#self._bytes then return ""end;local taking=math.min(math.max(1,count),#self._bytes-self._at+1);local out=self._bytes:sub(self._at,self._at+taking-1);self._at=self._at+taking;return out end function Reader:readInto(destination,offset,count)if self._closed then return nil,"the reader is closed"end;offset=integer(offset or 0,"Reader:readInto offset",2);count=integer(count or 65536,"Reader:readInto count",2);if self._at>#self._bytes or count==0 then return 0 end;local taking=math.min(count,#self._bytes-self._at+1);destination:setString(self._bytes:sub(self._at,self._at+taking-1),offset);self._at=self._at+taking;return taking end function Reader:transferTo(destination)if self._closed then return nil,"the reader is closed"end;local remaining=self._bytes:sub(self._at);local ok,reason=destination:write(remaining);if not ok then return nil,reason end;self._at=#self._bytes+1;return #remaining end;function Reader:close()self._closed=true;self._bytes="";return true end local function slice(source,offset,count,what)offset,count=range(source:length(),offset,count,what,3);return source:getString(offset,count),count end function Writer:write(bytes)if self._closed then return false,"the writer is closed"end;if self._buffer:isReleased()then return false,"the destination buffer is closed"end;self._buffer:setString(bytes,self._at);self._at=self._at+#bytes;return true end function Writer:writeFrom(source,offset,count)if self._closed then return nil,"the writer is closed"end;if source==self._buffer then return nil,"cannot write a buffer into itself"end;local bytes,n=slice(source,offset,count,"io.Buffer");local ok,reason=self:write(bytes);if not ok then return nil,reason end;return n end function Writer:writeView(source,offset,count)if self._closed then return nil,"the writer is closed"end;offset,count=range(source:length(),offset,count,"io.ByteView",2);local ok,reason=self:write(source:getString():sub(offset+1,offset+count));if not ok then return nil,reason end;return count end;function Writer:flush()if self._closed then return false,"the writer is closed"end;return true end;function Writer:close()self._closed=true;return not self._buffer:isReleased(),self._buffer:isReleased()and"the destination buffer is closed"or nil end function Buffer:newReader()opened(self,"io.Buffer",2);return setmetatable({_bytes=bytesAt(self,0,self._length),_at=1,_closed=false},Reader)end;function Buffer:newWriter()opened(self,"io.Buffer",2);self:clear();return setmetatable({_buffer=self,_at=0,_closed=false},Writer)end local function newBuffer(initial)if initial~=nil and type(initial)~="number"and type(initial)~="string"then error("nupp: io.newBuffer initial value must be bytes or a capacity",2)end;local bytes=type(initial)=="string"and initial or"";local capacity=type(initial)=="number"and integer(initial,"io.newBuffer capacity",2)or#bytes;local self=setmetatable({_data=capacity>0 and __nuppBytes(capacity)or nil,_length=0,_capacity=capacity,_closed=false},Buffer);if#bytes>0 then ffi.copy(self._data,bytes,#bytes);self._length=#bytes end;return self end local ByteQueue,ScalarReader,ScalarWriter={},{},{};ByteQueue.__index=ByteQueue;ScalarReader.__index=ScalarReader;ScalarWriter.__index=ScalarWriter function ByteQueue:read(count)if self._closed then return nil,"the reader is closed"end;count=whole(count,"Reader:read count",2);local have=#self._source;if have==0 then return""end;return self._source:get(math.min(math.max(1,count),have))end function ByteQueue:readInto(destination,offset,count)if self._closed then return nil,"the reader is closed"end;offset=integer(offset or 0,"Reader:readInto offset",2);count=integer(count or 65536,"Reader:readInto count",2);local have=#self._source;if have==0 or count==0 then return 0 end;local taking=math.min(count,have);destination:setString(self._source:get(taking),offset);return taking end function ByteQueue:transferTo(destination)if self._closed then return nil,"the reader is closed"end;local rest=self._source:get();local ok,reason=destination:write(rest);if not ok then return nil,reason end;return #rest end function ByteQueue:close()self._closed=true;self._source=nil;return true end local function fill(self,need)local failure;if self._reader then while #self._pending<need do local chunk,reason=self._reader:read(need-#self._pending);if chunk==nil then failure=reason;break end;if chunk==""then break end;self._pending=self._pending..chunk end elseif self._queue then local want=need-#self._pending;local have=want>0 and #self._queue or 0;if have>0 then self._pending=self._pending..self._queue:get(math.min(want,have))end end;return #self._pending,failure end local function taken(self,need)if self._closed then error("nupp: io.ScalarReader is closed",3)end;local have,failure=fill(self,need);if failure then error("nupp: io.ScalarReader source failed: "..tostring(failure),3)end;if have<need then error(("nupp: io.ScalarReader needs %d bytes, has %d"):format(need,have),3)end;local out=self._pending:sub(1,need);self._pending=self._pending:sub(need+1);return out end function ScalarReader:remaining()if self._closed then error("nupp: io.ScalarReader is closed",2)end;if self._reader then return nil end;if self._queue then return #self._pending+#self._queue end;return #self._pending end function ScalarReader:atEnd()if self._closed then error("nupp: io.ScalarReader is closed",2)end;local have,failure=fill(self,1);if failure then error("nupp: io.ScalarReader source failed: "..tostring(failure),2)end;return have<1 end function ScalarReader:skip(count)taken(self,integer(count,"io.ScalarReader count",2));return self end function ScalarReader:readBytes(count)return taken(self,integer(count,"io.ScalarReader count",2))end function ScalarReader:close()self._closed=true;self._pending="";self._queue=nil;local reader=self._reader;self._reader=nil;if reader then return reader:close()end;return true end local function scalarRead(ctype,size)local pointer=ffi.typeof(ctype);return function(self)local raw=taken(self,size);return ffi.cast(pointer,raw)[0]end end ScalarReader.readUint8=scalarRead("uint8_t*",1);ScalarReader.readInt8=scalarRead("int8_t*",1);ScalarReader.readUint16=scalarRead("uint16_t*",2);ScalarReader.readInt16=scalarRead("int16_t*",2);ScalarReader.readUint32=scalarRead("uint32_t*",4);ScalarReader.readInt32=scalarRead("int32_t*",4);ScalarReader.readUint64=scalarRead("uint64_t*",8);ScalarReader.readInt64=scalarRead("int64_t*",8);ScalarReader.readFloat32=scalarRead("float*",4);ScalarReader.readFloat64=scalarRead("double*",8) local function put(self,bytes)if self._closed then error("nupp: io.ScalarWriter is closed",3)end;if self._buffer then self._buffer:setString(bytes,self._buffer:length());return self end;local ok,reason=self._writer:write(bytes);if not ok then error("nupp: io.ScalarWriter destination failed: "..tostring(reason),3)end;return self end function ScalarWriter:writeBytes(bytes)if type(bytes)~="string"then error("nupp: io.ScalarWriter bytes must be a string",2)end;return put(self,bytes)end function ScalarWriter:buffer()return self._buffer end function ScalarWriter:flush()if self._closed then return false,"the writer is closed"end;if self._writer then return self._writer:flush()end;return true end function ScalarWriter:close()self._closed=true;local writer=self._writer;self._writer=nil;if writer then return writer:close()end;return true end local function scalarWrite(ctype,size)local holder=ffi.new(ctype);return function(self,value)holder[0]=value;return put(self,ffi.string(holder,size))end end ScalarWriter.writeUint8=scalarWrite("uint8_t[1]",1);ScalarWriter.writeInt8=scalarWrite("int8_t[1]",1);ScalarWriter.writeUint16=scalarWrite("uint16_t[1]",2);ScalarWriter.writeInt16=scalarWrite("int16_t[1]",2);ScalarWriter.writeUint32=scalarWrite("uint32_t[1]",4);ScalarWriter.writeInt32=scalarWrite("int32_t[1]",4);ScalarWriter.writeUint64=scalarWrite("uint64_t[1]",8);ScalarWriter.writeInt64=scalarWrite("int64_t[1]",8);ScalarWriter.writeFloat32=scalarWrite("float[1]",4);ScalarWriter.writeFloat64=scalarWrite("double[1]",8) local BADSOURCE="nupp: io.newScalarReader needs bytes, a snapshot, a buffer, a reader or a byte queue" local function queueLike(value)local kind=type(value);if kind=="table"then return value.get~=nil end;if kind~="userdata"and kind~="cdata"then return false end;local ok,getter=pcall(function()return value.get end);return ok and getter~=nil end local function newQueueReader(source)if not queueLike(source)then error("nupp: io.newQueueReader needs a byte queue",2)end;return setmetatable({_source=source,_closed=false},ByteQueue)end local function newScalarReader(source)local self=setmetatable({_pending="",_closed=false},ScalarReader);local kind=type(source);if kind=="string"then self._pending=source elseif kind=="table"and source.read~=nil then self._reader=source elseif kind=="table"and source.getString~=nil then self._pending=source:getString()elseif queueLike(source)then self._queue=source else error(BADSOURCE,2)end;return self end local function newScalarWriter(destination)local self=setmetatable({_closed=false},ScalarWriter);if destination==nil then self._buffer=newBuffer()elseif type(destination)=="table"and destination.write~=nil then self._writer=destination elseif type(destination)=="table"and destination.setString~=nil then self._buffer=destination else error("nupp: io.newScalarWriter needs a buffer, a writer, or nothing",2)end;return self end __nuppIO.newBuffer=newBuffer;__nuppIO.newQueueReader=newQueueReader;__nuppIO.newScalarReader=newScalarReader;__nuppIO.newScalarWriter=newScalarWriter;__nuppIO.newStringReader=function(text)if type(text)~="string"then error("nupp: io.newStringReader needs a string",2)end;return setmetatable({_bytes=text,_at=1,_closed=false},Reader)end;return __nuppIO end for _,__name in ipairs({"newBuffer","newQueueReader","newScalarReader","newScalarWriter","newStringReader"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallIO();return rawget(__nuppIO,name)end)end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppUri NuppUri;NuppUri*nuppUriParse(const uint8_t*,size_t);const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);bool nuppUriPort(const NuppUri*,uint16_t*);NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);NuppUri*nuppUriWithPort(const NuppUri*,int32_t);NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);void nuppUriDestroy(NuppUri*);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;__nuppNativeValue={ffi=ffi,C=C,error=errorText};return __nuppNativeValue end local function __nuppInstallURI() local native=__nuppNative();local ffi,C=native.ffi,native.C;local URI={};URI.__index=URI;URI.__tostring=function(self)return self:toString()end;URI.__eq=function(a,b)return a:toString()==b:toString()end local function wrap(handle)if handle==nil then return nil,native.error()end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end local function changed(handle)if handle==nil then error("nupp: cannot modify URI: "..native.error(),3)end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end local function part(self,kind)local length=ffi.new("size_t[1]");local data=C.nuppUriPart(self._handle,kind,length);if data==nil then return nil end;return ffi.string(data,tonumber(length[0]))end function URI:toString()return part(self,0)end;function URI:scheme()return part(self,1)end;function URI:authority()return part(self,2)end;function URI:username()return part(self,3)end;function URI:password()return part(self,4)end;function URI:host()return part(self,5)end;function URI:path()return part(self,6)end;function URI:query()return part(self,7)end;function URI:fragment()return part(self,8)end function URI:userInfo()local username=self:username();local password=self:password();if username==""and password==nil then return nil end;return password and(username..":"..password)or username end function URI:port()local value=ffi.new("uint16_t[1]");return C.nuppUriPort(self._handle,value)and tonumber(value[0])or nil end local function required(value,what)if type(value)~="string"then error("nupp: "..what.." needs a string",3)end;return value end local kinds={withScheme={0,"scheme",true},withUserInfo={1,"userInfo"},withHost={2,"host"},withPath={3,"path",true},withQuery={4,"query"},withFragment={5,"fragment"}};for name,spec in pairs(kinds)do URI[name]=function(self,value)if spec[3]then value=required(value,"URI "..spec[2])elseif value~=nil then value=required(value,"URI "..spec[2])end;if value==self[spec[2]](self)then return self end;return changed(C.nuppUriWithText(self._handle,spec[1],value or"",value and#value or 0,value~=nil))end end function URI:withPort(port)if port~=nil and(type(port)~="number"or port~=math.floor(port)or port<0 or port>65535)then error("nupp: URI port must be an integer from 0 through 65535 or nil",2)end;if port==self:port()then return self end;return changed(C.nuppUriWithPort(self._handle,port or-1))end function URI:concatPath(path)path=required(path,"URI path");if path==""then return self end;return changed(C.nuppUriConcatPath(self._handle,path,#path))end function URI:resolve(reference)if type(reference)~="string"then return nil,"nupp: URI reference needs a string"end;return wrap(C.nuppUriResolve(self._handle,reference,#reference))end function URI:withEndpoint(endpoint)if type(endpoint)~="table"or getmetatable(endpoint)~=URI then error("nupp: URI endpoint must be an io.URI",2)end;return changed(C.nuppUriWithEndpoint(self._handle,endpoint._handle))end local function compose(c)if type(c)~="table"then return nil,"nupp: io.URI.new needs absolute text or URI components"end;if type(c.scheme)~="string"or c.scheme==""then return nil,"nupp: URI components need a non-empty scheme"end;for _,name in ipairs({"userInfo","host","path","query","fragment"})do if c[name]~=nil and type(c[name])~="string"then return nil,"nupp: URI component "..name.." must be a string or nil"end end;if c.port~=nil and(type(c.port)~="number"or c.port~=math.floor(c.port)or c.port<0 or c.port>65535)then return nil,"nupp: URI component port must be an integer from 0 through 65535 or nil"end;local out=c.scheme..":";if c.host or c.userInfo or c.port then out=out.."//";if c.userInfo then out=out..c.userInfo.."@"end;out=out..(c.host or"");if c.port then out=out..":"..c.port end end;out=out..(c.path or"");if c.query then out=out.."?"..c.query end;if c.fragment then out=out.."#"..c.fragment end;return out end URI.new=function(value)local text,problem;if type(value)=="string"then text=value else text,problem=compose(value);if not text then return nil,problem end end;return wrap(C.nuppUriParse(text,#text))end URI.validate=function(text)if type(text)~="string"then return false,"nupp: io.URI.validate needs a string"end;local handle=C.nuppUriParse(text,#text);if handle==nil then return false,native.error()end;C.nuppUriDestroy(handle);return true end URI.isURI=function(value)return type(value)=="table"and getmetatable(value)==URI end __nuppIO.URI=URI return __nuppIO end __nuppLazy(__nuppIO,"URI",function()__nuppInstallURI();return rawget(__nuppIO,"URI")end);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppT75;__nuppT75=function(value) local cleanup=__nuppCleanups["nupp.io.http#destroyBody"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io.http#destroyBody") end;__nuppT75=cleanup;return cleanup(value) end;const __nuppCleanup1 = function(__nuppV) return __nuppV:close() end; const __nuppCleanup2 = function(__nuppV) return __nuppV:__drop() end; 
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppInstallIO()local ffi=require("ffi");local Buffer,View,Reader,Writer={},{},{},{};Buffer.__index=Buffer;View.__index=View;Reader.__index=Reader;Writer.__index=Writer local __nuppBytes=ffi.typeof("uint8_t[?]");local SMALLEST=32 local function integer(value,what,level)if type(value)~="number"or value~=math.floor(value)or value<0 then error("nupp: "..what.." must be a non-negative integer",level)end;return value end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: "..what.." must be an integer",level)end;return value end local function opened(self,what,level)if self._closed then error("nupp: "..what.." is closed",level)end end local function range(length,offset,count,what,level)offset=integer(offset or 0,what.." offset",level);if offset>length then error("nupp: "..what.." offset is past the end",level)end;count=integer(count==nil and length-offset or count,what.." count",level);if offset+count>length then error("nupp: "..what.." range is past the end",level)end;return offset,count end local function reserve(self,minimum)if minimum<=self._capacity then return end;local capacity=self._capacity*2;if capacity<minimum then capacity=minimum end;if capacity<SMALLEST then capacity=SMALLEST end;local data=__nuppBytes(capacity);if self._length>0 then ffi.copy(data,self._data,self._length)end;self._data=data;self._capacity=capacity end local function bytesAt(self,offset,count)if count==0 then return""end;return ffi.string(self._data+offset,count)end function View:length()opened(self,"io.ByteView",2);return #self._bytes end;function View:getString()opened(self,"io.ByteView",2);return self._bytes end;function View:newReader()opened(self,"io.ByteView",2);return setmetatable({_bytes=self._bytes,_at=1,_closed=false},Reader)end;function View:view(offset,count)opened(self,"io.ByteView",2);offset,count=range(#self._bytes,offset,count,"io.ByteView",2);return setmetatable({_bytes=self._bytes:sub(offset+1,offset+count),_closed=false},View)end;function View:isReleased()return self._closed end;function View:close()self._closed=true;self._bytes="";return true end function Buffer:length()opened(self,"io.Buffer",2);return self._length end;function Buffer:capacity()opened(self,"io.Buffer",2);return self._capacity end;function Buffer:clear()opened(self,"io.Buffer",2);self._length=0 end;function Buffer:ensureCapacity(minimum)opened(self,"io.Buffer",2);reserve(self,integer(minimum,"io.Buffer capacity",2))end function Buffer:resize(length)opened(self,"io.Buffer",2);length=integer(length,"io.Buffer length",2);if length>self._length then reserve(self,length);ffi.fill(self._data+self._length,length-self._length,0)end;self._length=length end function Buffer:getString(offset,count)opened(self,"io.Buffer",2);offset,count=range(self._length,offset,count,"io.Buffer",2);return bytesAt(self,offset,count)end function Buffer:setString(bytes,offset)opened(self,"io.Buffer",2);if type(bytes)~="string"then error("nupp: io.Buffer bytes must be a string",2)end;offset=integer(offset or 0,"io.Buffer offset",2);local ending=offset+#bytes;reserve(self,ending);if offset>self._length then ffi.fill(self._data+self._length,offset-self._length,0)end;if #bytes>0 then ffi.copy(self._data+offset,bytes,#bytes)end;if ending>self._length then self._length=ending end end function Buffer:view(offset,count)opened(self,"io.Buffer",2);offset,count=range(self._length,offset,count,"io.Buffer",2);return setmetatable({_bytes=bytesAt(self,offset,count),_closed=false},View)end;function Buffer:isReleased()return self._closed end;function Buffer:close()self._closed=true;self._data=nil;self._length=0;self._capacity=0;return true end function Reader:read(count)if self._closed then return nil,"the reader is closed"end;count=whole(count,"Reader:read count",2);if self._at>#self._bytes then return ""end;local taking=math.min(math.max(1,count),#self._bytes-self._at+1);local out=self._bytes:sub(self._at,self._at+taking-1);self._at=self._at+taking;return out end function Reader:readInto(destination,offset,count)if self._closed then return nil,"the reader is closed"end;offset=integer(offset or 0,"Reader:readInto offset",2);count=integer(count or 65536,"Reader:readInto count",2);if self._at>#self._bytes or count==0 then return 0 end;local taking=math.min(count,#self._bytes-self._at+1);destination:setString(self._bytes:sub(self._at,self._at+taking-1),offset);self._at=self._at+taking;return taking end function Reader:transferTo(destination)if self._closed then return nil,"the reader is closed"end;local remaining=self._bytes:sub(self._at);local ok,reason=destination:write(remaining);if not ok then return nil,reason end;self._at=#self._bytes+1;return #remaining end;function Reader:close()self._closed=true;self._bytes="";return true end local function slice(source,offset,count,what)offset,count=range(source:length(),offset,count,what,3);return source:getString(offset,count),count end function Writer:write(bytes)if self._closed then return false,"the writer is closed"end;if self._buffer:isReleased()then return false,"the destination buffer is closed"end;self._buffer:setString(bytes,self._at);self._at=self._at+#bytes;return true end function Writer:writeFrom(source,offset,count)if self._closed then return nil,"the writer is closed"end;if source==self._buffer then return nil,"cannot write a buffer into itself"end;local bytes,n=slice(source,offset,count,"io.Buffer");local ok,reason=self:write(bytes);if not ok then return nil,reason end;return n end function Writer:writeView(source,offset,count)if self._closed then return nil,"the writer is closed"end;offset,count=range(source:length(),offset,count,"io.ByteView",2);local ok,reason=self:write(source:getString():sub(offset+1,offset+count));if not ok then return nil,reason end;return count end;function Writer:flush()if self._closed then return false,"the writer is closed"end;return true end;function Writer:close()self._closed=true;return not self._buffer:isReleased(),self._buffer:isReleased()and"the destination buffer is closed"or nil end function Buffer:newReader()opened(self,"io.Buffer",2);return setmetatable({_bytes=bytesAt(self,0,self._length),_at=1,_closed=false},Reader)end;function Buffer:newWriter()opened(self,"io.Buffer",2);self:clear();return setmetatable({_buffer=self,_at=0,_closed=false},Writer)end local function newBuffer(initial)if initial~=nil and type(initial)~="number"and type(initial)~="string"then error("nupp: io.newBuffer initial value must be bytes or a capacity",2)end;local bytes=type(initial)=="string"and initial or"";local capacity=type(initial)=="number"and integer(initial,"io.newBuffer capacity",2)or#bytes;local self=setmetatable({_data=capacity>0 and __nuppBytes(capacity)or nil,_length=0,_capacity=capacity,_closed=false},Buffer);if#bytes>0 then ffi.copy(self._data,bytes,#bytes);self._length=#bytes end;return self end local ByteQueue,ScalarReader,ScalarWriter={},{},{};ByteQueue.__index=ByteQueue;ScalarReader.__index=ScalarReader;ScalarWriter.__index=ScalarWriter function ByteQueue:read(count)if self._closed then return nil,"the reader is closed"end;count=whole(count,"Reader:read count",2);local have=#self._source;if have==0 then return""end;return self._source:get(math.min(math.max(1,count),have))end function ByteQueue:readInto(destination,offset,count)if self._closed then return nil,"the reader is closed"end;offset=integer(offset or 0,"Reader:readInto offset",2);count=integer(count or 65536,"Reader:readInto count",2);local have=#self._source;if have==0 or count==0 then return 0 end;local taking=math.min(count,have);destination:setString(self._source:get(taking),offset);return taking end function ByteQueue:transferTo(destination)if self._closed then return nil,"the reader is closed"end;local rest=self._source:get();local ok,reason=destination:write(rest);if not ok then return nil,reason end;return #rest end function ByteQueue:close()self._closed=true;self._source=nil;return true end local function fill(self,need)local failure;if self._reader then while #self._pending<need do local chunk,reason=self._reader:read(need-#self._pending);if chunk==nil then failure=reason;break end;if chunk==""then break end;self._pending=self._pending..chunk end elseif self._queue then local want=need-#self._pending;local have=want>0 and #self._queue or 0;if have>0 then self._pending=self._pending..self._queue:get(math.min(want,have))end end;return #self._pending,failure end local function taken(self,need)if self._closed then error("nupp: io.ScalarReader is closed",3)end;local have,failure=fill(self,need);if failure then error("nupp: io.ScalarReader source failed: "..tostring(failure),3)end;if have<need then error(("nupp: io.ScalarReader needs %d bytes, has %d"):format(need,have),3)end;local out=self._pending:sub(1,need);self._pending=self._pending:sub(need+1);return out end function ScalarReader:remaining()if self._closed then error("nupp: io.ScalarReader is closed",2)end;if self._reader then return nil end;if self._queue then return #self._pending+#self._queue end;return #self._pending end function ScalarReader:atEnd()if self._closed then error("nupp: io.ScalarReader is closed",2)end;local have,failure=fill(self,1);if failure then error("nupp: io.ScalarReader source failed: "..tostring(failure),2)end;return have<1 end function ScalarReader:skip(count)taken(self,integer(count,"io.ScalarReader count",2));return self end function ScalarReader:readBytes(count)return taken(self,integer(count,"io.ScalarReader count",2))end function ScalarReader:close()self._closed=true;self._pending="";self._queue=nil;local reader=self._reader;self._reader=nil;if reader then return reader:close()end;return true end local function scalarRead(ctype,size)local pointer=ffi.typeof(ctype);return function(self)local raw=taken(self,size);return ffi.cast(pointer,raw)[0]end end ScalarReader.readUint8=scalarRead("uint8_t*",1);ScalarReader.readInt8=scalarRead("int8_t*",1);ScalarReader.readUint16=scalarRead("uint16_t*",2);ScalarReader.readInt16=scalarRead("int16_t*",2);ScalarReader.readUint32=scalarRead("uint32_t*",4);ScalarReader.readInt32=scalarRead("int32_t*",4);ScalarReader.readUint64=scalarRead("uint64_t*",8);ScalarReader.readInt64=scalarRead("int64_t*",8);ScalarReader.readFloat32=scalarRead("float*",4);ScalarReader.readFloat64=scalarRead("double*",8) local function put(self,bytes)if self._closed then error("nupp: io.ScalarWriter is closed",3)end;if self._buffer then self._buffer:setString(bytes,self._buffer:length());return self end;local ok,reason=self._writer:write(bytes);if not ok then error("nupp: io.ScalarWriter destination failed: "..tostring(reason),3)end;return self end function ScalarWriter:writeBytes(bytes)if type(bytes)~="string"then error("nupp: io.ScalarWriter bytes must be a string",2)end;return put(self,bytes)end function ScalarWriter:buffer()return self._buffer end function ScalarWriter:flush()if self._closed then return false,"the writer is closed"end;if self._writer then return self._writer:flush()end;return true end function ScalarWriter:close()self._closed=true;local writer=self._writer;self._writer=nil;if writer then return writer:close()end;return true end local function scalarWrite(ctype,size)local holder=ffi.new(ctype);return function(self,value)holder[0]=value;return put(self,ffi.string(holder,size))end end ScalarWriter.writeUint8=scalarWrite("uint8_t[1]",1);ScalarWriter.writeInt8=scalarWrite("int8_t[1]",1);ScalarWriter.writeUint16=scalarWrite("uint16_t[1]",2);ScalarWriter.writeInt16=scalarWrite("int16_t[1]",2);ScalarWriter.writeUint32=scalarWrite("uint32_t[1]",4);ScalarWriter.writeInt32=scalarWrite("int32_t[1]",4);ScalarWriter.writeUint64=scalarWrite("uint64_t[1]",8);ScalarWriter.writeInt64=scalarWrite("int64_t[1]",8);ScalarWriter.writeFloat32=scalarWrite("float[1]",4);ScalarWriter.writeFloat64=scalarWrite("double[1]",8) local BADSOURCE="nupp: io.newScalarReader needs bytes, a snapshot, a buffer, a reader or a byte queue" local function queueLike(value)local kind=type(value);if kind=="table"then return value.get~=nil end;if kind~="userdata"and kind~="cdata"then return false end;local ok,getter=pcall(function()return value.get end);return ok and getter~=nil end local function newQueueReader(source)if not queueLike(source)then error("nupp: io.newQueueReader needs a byte queue",2)end;return setmetatable({_source=source,_closed=false},ByteQueue)end local function newScalarReader(source)local self=setmetatable({_pending="",_closed=false},ScalarReader);local kind=type(source);if kind=="string"then self._pending=source elseif kind=="table"and source.read~=nil then self._reader=source elseif kind=="table"and source.getString~=nil then self._pending=source:getString()elseif queueLike(source)then self._queue=source else error(BADSOURCE,2)end;return self end local function newScalarWriter(destination)local self=setmetatable({_closed=false},ScalarWriter);if destination==nil then self._buffer=newBuffer()elseif type(destination)=="table"and destination.write~=nil then self._writer=destination elseif type(destination)=="table"and destination.setString~=nil then self._buffer=destination else error("nupp: io.newScalarWriter needs a buffer, a writer, or nothing",2)end;return self end View.drop=View.close;Buffer.drop=Buffer.close;Reader.drop=Reader.close;Writer.drop=Writer.close;ByteQueue.drop=ByteQueue.close;ScalarReader.drop=ScalarReader.close;ScalarWriter.drop=ScalarWriter.close __nuppIO.newBuffer=newBuffer;__nuppIO.newQueueReader=newQueueReader;__nuppIO.newScalarReader=newScalarReader;__nuppIO.newScalarWriter=newScalarWriter;__nuppIO.newStringReader=function(text)if type(text)~="string"then error("nupp: io.newStringReader needs a string",2)end;return setmetatable({_bytes=text,_at=1,_closed=false},Reader)end;return __nuppIO end for _,__name in ipairs({"newBuffer","newQueueReader","newScalarReader","newScalarWriter","newStringReader"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallIO();return rawget(__nuppIO,name)end)end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppUri NuppUri;NuppUri*nuppUriParse(const uint8_t*,size_t);const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);bool nuppUriPort(const NuppUri*,uint16_t*);NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);NuppUri*nuppUriWithPort(const NuppUri*,int32_t);NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);void nuppUriDestroy(NuppUri*);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;__nuppNativeValue={ffi=ffi,C=C,error=errorText};return __nuppNativeValue end local function __nuppInstallURI() local native=__nuppNative();local ffi,C=native.ffi,native.C;local URI={};URI.__index=URI;URI.__tostring=function(self)return self:toString()end;URI.__eq=function(a,b)return a:toString()==b:toString()end local function wrap(handle)if handle==nil then return nil,native.error()end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end local function changed(handle)if handle==nil then error("nupp: cannot modify URI: "..native.error(),3)end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end local function part(self,kind)local length=ffi.new("size_t[1]");local data=C.nuppUriPart(self._handle,kind,length);if data==nil then return nil end;return ffi.string(data,tonumber(length[0]))end function URI:toString()return part(self,0)end;function URI:scheme()return part(self,1)end;function URI:authority()return part(self,2)end;function URI:username()return part(self,3)end;function URI:password()return part(self,4)end;function URI:host()return part(self,5)end;function URI:path()return part(self,6)end;function URI:query()return part(self,7)end;function URI:fragment()return part(self,8)end function URI:userInfo()local username=self:username();local password=self:password();if username==""and password==nil then return nil end;return password and(username..":"..password)or username end function URI:port()local value=ffi.new("uint16_t[1]");return C.nuppUriPort(self._handle,value)and tonumber(value[0])or nil end local function required(value,what)if type(value)~="string"then error("nupp: "..what.." needs a string",3)end;return value end local kinds={withScheme={0,"scheme",true},withUserInfo={1,"userInfo"},withHost={2,"host"},withPath={3,"path",true},withQuery={4,"query"},withFragment={5,"fragment"}};for name,spec in pairs(kinds)do URI[name]=function(self,value)if spec[3]then value=required(value,"URI "..spec[2])elseif value~=nil then value=required(value,"URI "..spec[2])end;if value==self[spec[2]](self)then return self end;return changed(C.nuppUriWithText(self._handle,spec[1],value or"",value and#value or 0,value~=nil))end end function URI:withPort(port)if port~=nil and(type(port)~="number"or port~=math.floor(port)or port<0 or port>65535)then error("nupp: URI port must be an integer from 0 through 65535 or nil",2)end;if port==self:port()then return self end;return changed(C.nuppUriWithPort(self._handle,port or-1))end function URI:concatPath(path)path=required(path,"URI path");if path==""then return self end;return changed(C.nuppUriConcatPath(self._handle,path,#path))end function URI:resolve(reference)if type(reference)~="string"then return nil,"nupp: URI reference needs a string"end;return wrap(C.nuppUriResolve(self._handle,reference,#reference))end function URI:withEndpoint(endpoint)if type(endpoint)~="table"or getmetatable(endpoint)~=URI then error("nupp: URI endpoint must be an io.URI",2)end;return changed(C.nuppUriWithEndpoint(self._handle,endpoint._handle))end local function compose(c)if type(c)~="table"then return nil,"nupp: io.URI.new needs absolute text or URI components"end;if type(c.scheme)~="string"or c.scheme==""then return nil,"nupp: URI components need a non-empty scheme"end;for _,name in ipairs({"userInfo","host","path","query","fragment"})do if c[name]~=nil and type(c[name])~="string"then return nil,"nupp: URI component "..name.." must be a string or nil"end end;if c.port~=nil and(type(c.port)~="number"or c.port~=math.floor(c.port)or c.port<0 or c.port>65535)then return nil,"nupp: URI component port must be an integer from 0 through 65535 or nil"end;local out=c.scheme..":";if c.host or c.userInfo or c.port then out=out.."//";if c.userInfo then out=out..c.userInfo.."@"end;out=out..(c.host or"");if c.port then out=out..":"..c.port end end;out=out..(c.path or"");if c.query then out=out.."?"..c.query end;if c.fragment then out=out.."#"..c.fragment end;return out end URI.new=function(value)local text,problem;if type(value)=="string"then text=value else text,problem=compose(value);if not text then return nil,problem end end;return wrap(C.nuppUriParse(text,#text))end URI.validate=function(text)if type(text)~="string"then return false,"nupp: io.URI.validate needs a string"end;local handle=C.nuppUriParse(text,#text);if handle==nil then return false,native.error()end;C.nuppUriDestroy(handle);return true end URI.isURI=function(value)return type(value)=="table"and getmetatable(value)==URI end __nuppIO.URI=URI return __nuppIO end __nuppLazy(__nuppIO,"URI",function()__nuppInstallURI();return rawget(__nuppIO,"URI")end);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp:prelude.d.nupp#__nuppDropDefault"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp:prelude.d.nupp#__nuppDropDefault") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppCleanup2;__nuppCleanup2=function(value) local cleanup=__nuppCleanups["nupp.io.http#destroyBody"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io.http#destroyBody") end;__nuppCleanup2=cleanup;return cleanup(value) end;const __nuppClosureCleanup1 = function(__nuppV) return __nuppV:__nuppRelease() end;
 
 
 
@@ -95856,6 +96119,7 @@ http.Body = {} http.Body.__index = http.Body
 
 
 
+
 function http.Body:_next(count, destination, offset)
 if self . _closed then
 return nil , "the body is closed"
@@ -95965,7 +96229,6 @@ self : release ( )
 return true
 end
 
-
 function http.Body:release()
 if self . _closed then
 return
@@ -95976,6 +96239,15 @@ transfer : close ( )
 end
 
 
+function http . Body . drop ( self )
+do
+if not self . _closed then
+self . _closed = true
+local transfer = self . _transfer
+transfer : close ( )
+end
+end
+end
 
 local function destroyBody ( body )
 if not body . _closed then
@@ -95983,7 +96255,7 @@ body . _closed = true
 local transfer = body . _transfer
 transfer : close ( )
 end
-end ;__nuppCleanups["nupp.io.http#destroyBody"]=destroyBody ;__nuppCleanups["nupp.io.http#destroyBody"]=destroyBody
+end ;__nuppCleanups["nupp.io.http#destroyBody"]=destroyBody
 
 local function makeBody ( client , transfer )
 return setmetatable({ _client =  client ,  _transfer =  transfer ,  _closed =  false ,  _reading =  false }, http.Body)
@@ -96032,6 +96304,7 @@ return scheme .. "://" .. ( uri : host ( ) or "" ) : lower ( ) .. ":" .. port
 end
 
 http.Response = {} http.Response.__index = http.Response
+
 
 
 
@@ -96124,7 +96397,6 @@ end
 return copy
 end
 
-
 function http.Response:close()
 if self . _closed then
 return true
@@ -96136,6 +96408,15 @@ destroyBody ( body )
 return true
 end
 
+
+function http . Response . drop ( self )
+do
+if not self . _closed then
+self . _closed = true
+self . body : drop ( )
+end
+end
+end
 
 local function makeResponse (
 status ,
@@ -96157,6 +96438,7 @@ false }, http.Response)
 end
 
 http.Client = {} http.Client.__index = http.Client
+
 
 
 
@@ -96356,7 +96638,7 @@ end
 return "return",__nuppT1( waitHead ( self , transfer , false ) )
 end
 end end; return "normal" end,__nuppT2); const __nuppT32={}; local __nuppT33=0; if __nuppT28>=1 then  const __nuppT36,__nuppT37=__nuppT5(__nuppCleanup1,__nuppT34);  if not __nuppT36 then __nuppT33=__nuppT33+1; __nuppT32[__nuppT33]=__nuppT37 end; end; if not __nuppT29 then if __nuppT33>0 then __nuppT7(__nuppT3(__nuppT30,__nuppT32,1),0) else __nuppT7(__nuppT30,0) end end; if __nuppT33>0 then if __nuppT33>1 then __nuppT7(__nuppT3(__nuppT32[1],__nuppT32,2),0) else __nuppT7(__nuppT32[1],0) end end; if __nuppT30=="return" then  return __nuppT8(__nuppT31,1,__nuppT31.n)  end; end
-end ; local __nuppT27={};  __nuppT27.__drop=function() if not __nuppT25 then return end; __nuppT25=false;  local __nuppT38={}; local __nuppT39=0;  local __nuppT40,__nuppT41=__nuppT5(__nuppCleanup1,scratch); if not __nuppT40 then __nuppT39=__nuppT39+1; __nuppT38[__nuppT39]=__nuppT41 end;  if __nuppT39>0 then if __nuppT39>1 then __nuppT7(__nuppT3(__nuppT38[1],__nuppT38,2),0) else __nuppT7(__nuppT38[1],0) end end end;  return setmetatable(__nuppT27,{__call=function(_,...) if not __nuppT25 then __nuppT7("nupp: affine closure was already called or dropped",2) end;  __nuppT25=false; return __nuppT26(...) end}) end)( scratch ) ; __nuppT21= __nuppT24 ; __nuppT13=2;  __nuppT22=true;  local uploadAndWait=__nuppT21;
+end ; local __nuppT27={};  __nuppT27.__nuppRelease=function() if not __nuppT25 then return end; __nuppT25=false;  local __nuppT38={}; local __nuppT39=0;  local __nuppT40,__nuppT41=__nuppT5(__nuppCleanup1,scratch); if not __nuppT40 then __nuppT39=__nuppT39+1; __nuppT38[__nuppT39]=__nuppT41 end;  if __nuppT39>0 then if __nuppT39>1 then __nuppT7(__nuppT3(__nuppT38[1],__nuppT38,2),0) else __nuppT7(__nuppT38[1],0) end end end;  return setmetatable(__nuppT27,{__call=function(_,...) if not __nuppT25 then __nuppT7("nupp: affine closure was already called or dropped",2) end;  __nuppT25=false; return __nuppT26(...) end}) end)( scratch ) ; __nuppT21= __nuppT24 ; __nuppT13=2;  __nuppT22=true;  local uploadAndWait=__nuppT21;
 
 local ok , value = pcall ( (function(uploadAndWait) local __nuppT42=true;  __nuppT22=false;  local __nuppT43=function ( ) do local __nuppT45=0; local  __nuppT51 ; local __nuppT52=false ; const __nuppT46,__nuppT47,__nuppT48=__nuppT6(function() do const __nuppT53= uploadAndWait ; __nuppT51= __nuppT53 ; __nuppT45=1;  __nuppT52=true;  local uploadAndWait=__nuppT51;
 local answer = (function(__nuppT54,...)  __nuppT52=false;  return __nuppT54(...)  end)( suspension . race , {
@@ -96366,14 +96648,14 @@ return waitHead ( self , transfer , false )
 end
 } )
 
-return "return",__nuppT1( answer ) end; return "normal" end,__nuppT2); const __nuppT49={}; local __nuppT50=0; if __nuppT45>=1 and __nuppT52 then  const __nuppT55,__nuppT56=__nuppT5(__nuppCleanup2,__nuppT51);  if not __nuppT55 then __nuppT50=__nuppT50+1; __nuppT49[__nuppT50]=__nuppT56 end; end; if not __nuppT46 then if __nuppT50>0 then __nuppT7(__nuppT3(__nuppT47,__nuppT49,1),0) else __nuppT7(__nuppT47,0) end end; if __nuppT50>0 then if __nuppT50>1 then __nuppT7(__nuppT3(__nuppT49[1],__nuppT49,2),0) else __nuppT7(__nuppT49[1],0) end end; if __nuppT47=="return" then  return __nuppT8(__nuppT48,1,__nuppT48.n)  end; end
-end ; local __nuppT44={};  __nuppT44.__drop=function() if not __nuppT42 then return end; __nuppT42=false;  local __nuppT57={}; local __nuppT58=0;  local __nuppT59,__nuppT60=__nuppT5(__nuppCleanup2,uploadAndWait); if not __nuppT59 then __nuppT58=__nuppT58+1; __nuppT57[__nuppT58]=__nuppT60 end;  if __nuppT58>0 then if __nuppT58>1 then __nuppT7(__nuppT3(__nuppT57[1],__nuppT57,2),0) else __nuppT7(__nuppT57[1],0) end end end;  return setmetatable(__nuppT44,{__call=function(_,...) if not __nuppT42 then __nuppT7("nupp: affine closure was already called or dropped",2) end;  __nuppT42=false; return __nuppT43(...) end}) end)( uploadAndWait ) )
+return "return",__nuppT1( answer ) end; return "normal" end,__nuppT2); const __nuppT49={}; local __nuppT50=0; if __nuppT45>=1 and __nuppT52 then  const __nuppT55,__nuppT56=__nuppT5(__nuppClosureCleanup1,__nuppT51);  if not __nuppT55 then __nuppT50=__nuppT50+1; __nuppT49[__nuppT50]=__nuppT56 end; end; if not __nuppT46 then if __nuppT50>0 then __nuppT7(__nuppT3(__nuppT47,__nuppT49,1),0) else __nuppT7(__nuppT47,0) end end; if __nuppT50>0 then if __nuppT50>1 then __nuppT7(__nuppT3(__nuppT49[1],__nuppT49,2),0) else __nuppT7(__nuppT49[1],0) end end; if __nuppT47=="return" then  return __nuppT8(__nuppT48,1,__nuppT48.n)  end; end
+end ; local __nuppT44={};  __nuppT44.__nuppRelease=function() if not __nuppT42 then return end; __nuppT42=false;  local __nuppT57={}; local __nuppT58=0;  local __nuppT59,__nuppT60=__nuppT5(__nuppClosureCleanup1,uploadAndWait); if not __nuppT59 then __nuppT58=__nuppT58+1; __nuppT57[__nuppT58]=__nuppT60 end;  if __nuppT58>0 then if __nuppT58>1 then __nuppT7(__nuppT3(__nuppT57[1],__nuppT57,2),0) else __nuppT7(__nuppT57[1],0) end end end;  return setmetatable(__nuppT44,{__call=function(_,...) if not __nuppT42 then __nuppT7("nupp: affine closure was already called or dropped",2) end;  __nuppT42=false; return __nuppT43(...) end}) end)( uploadAndWait ) )
 if not ok then
 transfer : cancel ( )
 transfer : close ( )
 error ( value , 0 )
 end
-head = value end; return "normal" end,__nuppT2); const __nuppT17={}; local __nuppT18=0; if __nuppT13>=2 and __nuppT22 then  const __nuppT61,__nuppT62=__nuppT5(__nuppCleanup2,__nuppT21);  if not __nuppT61 then __nuppT18=__nuppT18+1; __nuppT17[__nuppT18]=__nuppT62 end; end; if __nuppT13>=1 and __nuppT20 then  const __nuppT63,__nuppT64=__nuppT5(__nuppCleanup1,__nuppT19);  if not __nuppT63 then __nuppT18=__nuppT18+1; __nuppT17[__nuppT18]=__nuppT64 end; end; if not __nuppT14 then if __nuppT18>0 then __nuppT7(__nuppT3(__nuppT15,__nuppT17,1),0) else __nuppT7(__nuppT15,0) end end; if __nuppT18>0 then if __nuppT18>1 then __nuppT7(__nuppT3(__nuppT17[1],__nuppT17,2),0) else __nuppT7(__nuppT17[1],0) end end; if __nuppT15=="return" then  return __nuppT8(__nuppT16,1,__nuppT16.n)  end; end
+head = value end; return "normal" end,__nuppT2); const __nuppT17={}; local __nuppT18=0; if __nuppT13>=2 and __nuppT22 then  const __nuppT61,__nuppT62=__nuppT5(__nuppClosureCleanup1,__nuppT21);  if not __nuppT61 then __nuppT18=__nuppT18+1; __nuppT17[__nuppT18]=__nuppT62 end; end; if __nuppT13>=1 and __nuppT20 then  const __nuppT63,__nuppT64=__nuppT5(__nuppCleanup1,__nuppT19);  if not __nuppT63 then __nuppT18=__nuppT18+1; __nuppT17[__nuppT18]=__nuppT64 end; end; if not __nuppT14 then if __nuppT18>0 then __nuppT7(__nuppT3(__nuppT15,__nuppT17,1),0) else __nuppT7(__nuppT15,0) end end; if __nuppT18>0 then if __nuppT18>1 then __nuppT7(__nuppT3(__nuppT17[1],__nuppT17,2),0) else __nuppT7(__nuppT17[1],0) end end; if __nuppT15=="return" then  return __nuppT8(__nuppT16,1,__nuppT16.n)  end; end
 else
 head = waitHead ( self , transfer , true )
 end
@@ -96460,15 +96742,14 @@ end
 local version = head . version == 10 and "1.0" or head . version == 20 and "2" or "1.1"
 do local __nuppT65=0; local  __nuppT71 ; local __nuppT72=false ; const __nuppT66,__nuppT67,__nuppT68=__nuppT6(function() do const __nuppT73= makeBody ( self , transfer ) ; __nuppT71= __nuppT73 ; __nuppT65=1;  __nuppT72=true;  local responseBody=__nuppT71;
 
-return "return",__nuppT1( (function(__nuppT74,...)  __nuppT72=false;  return __nuppT74(...)  end)( makeResponse , head . status , version , effective , responseBody , head . headers ) ) end; return "normal" end,__nuppT2); const __nuppT69={}; local __nuppT70=0; if __nuppT65>=1 and __nuppT72 then  const __nuppT76,__nuppT77=__nuppT5(__nuppT75,__nuppT71);  if not __nuppT76 then __nuppT70=__nuppT70+1; __nuppT69[__nuppT70]=__nuppT77 end; end; if not __nuppT66 then if __nuppT70>0 then __nuppT7(__nuppT3(__nuppT67,__nuppT69,1),0) else __nuppT7(__nuppT67,0) end end; if __nuppT70>0 then if __nuppT70>1 then __nuppT7(__nuppT3(__nuppT69[1],__nuppT69,2),0) else __nuppT7(__nuppT69[1],0) end end; if __nuppT67=="return" then  return __nuppT8(__nuppT68,1,__nuppT68.n)  end; end
+return "return",__nuppT1( (function(__nuppT74,...)  __nuppT72=false;  return __nuppT74(...)  end)( makeResponse , head . status , version , effective , responseBody , head . headers ) ) end; return "normal" end,__nuppT2); const __nuppT69={}; local __nuppT70=0; if __nuppT65>=1 and __nuppT72 then  const __nuppT75,__nuppT76=__nuppT5(__nuppCleanup2,__nuppT71);  if not __nuppT75 then __nuppT70=__nuppT70+1; __nuppT69[__nuppT70]=__nuppT76 end; end; if not __nuppT66 then if __nuppT70>0 then __nuppT7(__nuppT3(__nuppT67,__nuppT69,1),0) else __nuppT7(__nuppT67,0) end end; if __nuppT70>0 then if __nuppT70>1 then __nuppT7(__nuppT3(__nuppT69[1],__nuppT69,2),0) else __nuppT7(__nuppT69[1],0) end end; if __nuppT67=="return" then  return __nuppT8(__nuppT68,1,__nuppT68.n)  end; end
 end
 
 function http . Client : pending ( )
 return self . _closed and 0 or self . _native : pending ( )
 end
 
-
-function http . Client : close ( )
+function http . Client . close ( self )
 if self . _closed then
 return true
 end
@@ -96481,6 +96762,21 @@ end
 self . _native : close ( )
 
 return true
+end
+
+function http . Client . drop ( self )
+do
+if not self . _closed then
+self . _closed = true
+if self . _source ~= nil then
+self . _source : release ( )
+self . _source = nil
+self . _sourceUsers = 0
+end
+local native = self . _native
+native : close ( )
+end
+end
 end
 
 function http . reader ( reader , length , contentType )
@@ -96519,7 +96815,7 @@ return http
 
 end
 package.preload["nupp.io.process"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -97099,6 +97395,7 @@ process.Process = {} process.Process.__index = process.Process
 
 
 
+
 function process.Process:isRunning()
 if self . exit ~= nil then
 return false
@@ -97290,7 +97587,6 @@ end
 
 
 
-
 function process.Process:close()
 if self . reaped then
 return true
@@ -97458,6 +97754,10 @@ end
 return true
 end
 
+
+function process . Process . drop ( self )
+self : close ( )
+end
 
 
 progressed = function ( self )
@@ -97838,7 +98138,7 @@ return process
 
 end
 package.preload["nupp.io.processtypes"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -98152,7 +98452,7 @@ return processtypes
 
 end
 package.preload["nupp.profile"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -99034,7 +99334,7 @@ return profile
 
 end
 package.preload["nupp.resources"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;
 
 
 
@@ -99104,14 +99404,14 @@ resources.Set = {} resources.Set.__index = resources.Set
 
 
 
+
 function resources.Set:adopt(value, terminal)
 assert ( not self . _closed , "resource set is closed" )
-do
 local witness = terminal
 assert ( type ( witness ) == "function" , "resource adoption needs a discharge witness" )
 self . _entries [ # self . _entries + 1 ] = setmetatable({ value =  value ,  cleanup =  witness }, Entry)
+
 return self . _entries [ # self . _entries ] . value
-end
 end
 
 
@@ -99160,15 +99460,17 @@ self . _entries = { }
 end
 
 
-do
-do  local __nuppT1= self  end
-end
+local _raw = self
 if first ~= nil then
 if suppressed > 0 then
 error ( tostring ( first ) .. " (suppressed " .. tostring ( suppressed ) .. " cleanup failure(s))" , 0 )
 end
 error ( first , 0 )
 end
+end
+
+function resources . Set . drop ( self )
+self : close ( )
 end
 
 
@@ -99246,7 +99548,7 @@ return resources
 
 end
 package.preload["nupp.span"] = function(...)
-const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -99592,18 +99894,22 @@ end
 
 function WriteSpanImpl . commit ( self )
 do
-do
 local _raw = self
-end
 end
 end
 
 function FixedWriteSpanImpl . commit ( self )
 do
-do
 local _raw = self
 end
 end
+
+function WriteSpanImpl . drop ( self )
+self : commit ( )
+end
+
+function FixedWriteSpanImpl . drop ( self )
+self : commit ( )
 end
 
 
@@ -99703,7 +100009,7 @@ return span
 
 end
 package.preload["nupp.suspension"] = function(...)
-const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);const __nuppCleanup1 = function(__nuppV) return __nuppV:release() end; 
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp:prelude.d.nupp#__nuppDropDefault"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp:prelude.d.nupp#__nuppDropDefault") end;__nuppCleanup1=cleanup;return cleanup(value) end;
 
 
 
@@ -100360,6 +100666,10 @@ self . released = true
 end
 
 
+function suspension . Installed . drop ( self )
+self : release ( )
+end
+
 
 
 
@@ -100635,8 +100945,8 @@ if entered [ other ] then
 coroutine . resume ( victim )
 else
 local victimBody = bodies [ other ]
-if type ( victimBody ) == "table" and victimBody . __drop then
-victimBody . __drop ( )
+if type ( victimBody ) == "table" and victimBody . __nuppRelease then
+victimBody . __nuppRelease ( )
 end
 end
 threads [ other ] = nil
@@ -100645,8 +100955,8 @@ end
 end
 for other = started + 1 , count do
 local victimBody = bodies [ other ]
-if type ( victimBody ) == "table" and victimBody . __drop then
-victimBody . __drop ( )
+if type ( victimBody ) == "table" and victimBody . __nuppRelease then
+victimBody . __nuppRelease ( )
 end
 end
 finished = finished + ( count - started )
@@ -100714,9 +101024,7 @@ end
 
 local function raceImpl ( bodies )
 local rawBodies
-do
 rawBodies = bodies
-end
 if # rawBodies == 0 then
 return nil , nil
 end
@@ -100766,7 +101074,7 @@ return suspension
 
 end
 package.preload["nupp.workers"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -100863,6 +101171,9 @@ workers.Self = {} workers.Self.__index = workers.Self
 
 
 workers.Worker = {} workers.Worker.__index = workers.Worker
+
+
+
 
 
 
@@ -101223,7 +101534,6 @@ self . _exit = setmetatable({ succeeded =  status == 0 ,  status =  status ,  er
 return self . _exit
 end
 
-
 function workers . Worker : stop ( )
 if self . _destroyed then
 return self . _exit
@@ -101235,6 +101545,10 @@ destroy ( self . _outbox )
 self . _destroyed = true
 
 return exit
+end
+
+function workers . Worker . drop ( self )
+self : stop ( )
 end
 
 local function receiveSelf ( self )
@@ -101337,7 +101651,7 @@ return workers
 
 end
 package.preload["nupp.zone"] = function(...)
-local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 
@@ -102135,6 +102449,25 @@ annotations are what the language server shows on hover.
 This file is parsed and checked by `nupp` itself: the first dogfooded `.d.nupp`
 declaration file.
 ]]
+
+--- A resource with one conventional structural terminal.
+local interface Drop
+    drop: nosuspend function(takes self: self): nil
+end
+
+--- Invokes `Drop.drop`; used as the ordinary default const-function argument of
+--- `Owned<T>`. This body is compiled as the bundled prelude implementation before
+--- user-module code, through the same checker and generator as any package terminal.
+const __nuppDropDefault: nosuspend function<T is Drop>(takes value: T): nil
+
+--- A transparent affine owner. Its second argument is a declaration identity, so two
+--- cleanups with equal signatures still produce different ownership types.
+local affine type Owned<T, const cleanup: function = __nuppDropDefault> = T terminal cleanup
+end
+
+--- A deliberately terminal-less affine value which must be transferred or released.
+local affine type Transfer<T> = T
+end
 
 --- Writes every argument to standard output, converted with `tostring`, separated by
 --- tabs and followed by a newline.
@@ -103696,12 +104029,14 @@ record nupp.io
         --- @return whether the view is released
         isReleased: function(self: ByteView): boolean
 
-        --- Releases this snapshot. Repeated calls are safe.
+        --- Releases this snapshot as an ownership terminal. Repeated calls are safe.
+        --- @param self this byte view
+        drop: nosuspend function(takes self: ByteView): nil
+
+        --- Releases this snapshot and reports whether it succeeded.
         --- @param self this byte view
         --- @return whether the release succeeded
         --- @return a failure reason, when unsuccessful
-        @drop
-
         close: function(takes self: ByteView): (boolean, string?)
     end
 
@@ -103735,12 +104070,14 @@ record nupp.io
         --- @return a failure reason, when unsuccessful
         transferTo: function(self: Reader, borrows destination: Writer): (integer?, string?)
 
-        --- Closes this reader. Repeated calls are safe.
+        --- Closes this reader as an ownership terminal. Repeated calls are safe.
+        --- @param self this reader
+        drop: nosuspend function(takes self: Reader): nil
+
+        --- Closes this reader and reports whether it succeeded.
         --- @param self this reader
         --- @return whether the close succeeded
         --- @return a failure reason, when unsuccessful
-        @drop
-
         close: function(takes self: Reader): (boolean, string?)
     end
 
@@ -103787,12 +104124,14 @@ record nupp.io
         --- @return a failure reason, when unsuccessful
         flush: function(self: Writer): (boolean, string?)
 
-        --- Closes this writer. Repeated calls are safe.
+        --- Closes this writer as an ownership terminal. Repeated calls are safe.
+        --- @param self this writer
+        drop: nosuspend function(takes self: Writer): nil
+
+        --- Closes this writer and reports whether it succeeded.
         --- @param self this writer
         --- @return whether the close succeeded
         --- @return a failure reason, when unsuccessful
-        @drop
-
         close: function(takes self: Writer): (boolean, string?)
     end
 
@@ -103857,12 +104196,14 @@ record nupp.io
         --- @return whether the buffer is released
         isReleased: function(self: Buffer): boolean
 
-        --- Releases this buffer. Repeated calls are safe.
+        --- Releases this buffer as an ownership terminal. Repeated calls are safe.
+        --- @param self this buffer
+        drop: nosuspend function(takes self: Buffer): nil
+
+        --- Releases this buffer and reports whether it succeeded.
         --- @param self this buffer
         --- @return whether the release succeeded
         --- @return a failure reason, when unsuccessful
-        @drop
-
         close: function(takes self: Buffer): (boolean, string?)
     end
 
@@ -103963,13 +104304,15 @@ record nupp.io
         --- @return the value
         readFloat64: function(self: ScalarReader): number
 
-        --- Closes this reader, and the reader it was opened over. Repeated calls are
-        --- safe.
+        --- Closes this reader and its source as an ownership terminal. Repeated calls
+        --- are safe.
+        --- @param self this reader
+        drop: nosuspend function(takes self: ScalarReader): nil
+
+        --- Closes this reader and its source, reporting whether it succeeded.
         --- @param self this reader
         --- @return whether the close succeeded
         --- @return a failure reason, when unsuccessful
-        @drop
-
         close: function(takes self: ScalarReader): (boolean, string?)
     end
 
@@ -104057,13 +104400,15 @@ record nupp.io
         --- @return a failure reason, when unsuccessful
         flush: function(self: ScalarWriter): (boolean, string?)
 
-        --- Closes this writer, and the writer it was opened over. Repeated calls are
-        --- safe.
+        --- Closes this writer and its destination as an ownership terminal. Repeated
+        --- calls are safe.
+        --- @param self this writer
+        drop: nosuspend function(takes self: ScalarWriter): nil
+
+        --- Closes this writer and its destination, reporting whether it succeeded.
         --- @param self this writer
         --- @return whether the close succeeded
         --- @return a failure reason, when unsuccessful
-        @drop
-
         close: function(takes self: ScalarWriter): (boolean, string?)
     end
 
@@ -104155,11 +104500,13 @@ record nupp.io
             --- @return whether it is closed
             isReleased: nosuspend function(self: File): boolean
 
-            --- Closes the file. Repeated calls are safe.
+            --- Closes the file as an ownership terminal. Repeated calls are safe.
+            --- @param self this file
+            drop: nosuspend function(takes self: File): nil
+
+            --- Closes the file and reports whether it succeeded.
             --- @param self this file
             --- @return whether the close succeeded
-            @drop
-
             close: nosuspend function(takes self: File): boolean
         end
 
@@ -104186,12 +104533,14 @@ record nupp.io
             --- @return whether it is settled
             isReleased: nosuspend function(self: TemporaryPath): boolean
 
-            --- Removes the path. Repeated calls, and a call after `persist`, are
-            --- safe and do nothing.
+            --- Removes the path as an ownership terminal. Repeated calls, and a call
+            --- after `persist`, are safe and do nothing.
+            --- @param self this temporary path
+            drop: nosuspend function(takes self: TemporaryPath): nil
+
+            --- Removes the path and reports whether it succeeded.
             --- @param self this temporary path
             --- @return whether the removal succeeded
-            @drop
-
             close: nosuspend function(takes self: TemporaryPath): boolean
         end
 
@@ -106358,6 +106707,21 @@ local debug: {
 --- options it was given.
 local arg: {string}
 ]=],
+["/decls/prelude_impl.d.nupp"] = [[
+-- Ordinary implementation bodies for declarations in prelude.d.nupp. This unit is
+-- checked and generated under the declaration prelude's logical origin, so const
+-- function identities and their runtime registry publications are the same identities
+-- the public declarations sealed into generic defaults.
+
+local function __nuppDropDefault<T is Drop>(takes value: T): nil
+    value:drop()
+end
+
+-- Referencing the implementation as an ordinary terminal publishes it through the
+-- same declaration-token bridge used by package terminals. The alias erases.
+local affine type __NuppDropDefaultRegistration<T is Drop> = T terminal __nuppDropDefault
+end
+]],
 ["/decls/processnative.d.nupp"] = [=[
 --[[
 Internal native process binding installed by the compiler bootstrap.
@@ -107036,11 +107400,9 @@ local free_nosuspend = free as nosuspend function(takes pointer: voidptr): nil
 
 local function finish_array(takes self: any): nil
     nosuspend do
-        unsafe do
-            local raw = intoRaw(self)
-            local pointer = fromRaw(raw.pointer as voidptr, free_nosuspend)
-            free_nosuspend(pointer)
-        end
+        local raw = unsafe release self
+        local pointer = unsafe adopt raw.pointer as Owned<voidptr, free_nosuspend>
+        free_nosuspend(pointer)
     end
 end
 
@@ -107054,7 +107416,8 @@ record heap.Array<T>
     readonly count: integer
 
     --- Releases the allocation. Scope exit invokes this automatically.
-    @drop
+    drop: nosuspend function(takes self: Array<T>): nil
+
     close: nosuspend function(takes self: Array<T>): nil
 
     --- Borrows the whole allocation as a shared checked span.
@@ -107070,6 +107433,10 @@ end
 
 function heap.Array.close<T>(takes self: heap.Array<T>): nil
     finish_array_nosuspend(self)
+end
+
+function heap.Array.drop<T>(takes self: heap.Array<T>): nil
+    self:close()
 end
 
 function heap.Array.write<T>(exclusive self: heap.Array<T>): Owned<span.WriteSpan<T>> borrows (self)
@@ -107417,6 +107784,7 @@ local function fairnessYield(): nil
 end
 
 record http.Body is nupp.io.Reader
+    drop: nosuspend function(takes self: http.Body): nil
     _client: any
     _transfer: any
     _closed: boolean
@@ -107526,12 +107894,11 @@ record http.Body is nupp.io.Reader
         end
     end
 
-    function close(self): (boolean, string?)
+    function close(takes self): (boolean, string?)
         self:release()
         return true
     end
 
-    @drop
     function release(self): nil
         if self._closed then
             return
@@ -107542,7 +107909,16 @@ record http.Body is nupp.io.Reader
     end
 end
 
-@drop
+function http.Body.drop(takes self: http.Body): nil
+    nosuspend do
+        if not self._closed then
+            self._closed = true
+            local transfer = self._transfer as {close: nosuspend function(any): nil}
+            transfer:close()
+        end
+    end
+end
+
 local function destroyBody(takes body: http.Body): nil
     if not body._closed then
         body._closed = true
@@ -107606,6 +107982,7 @@ record http.Response
     _values: {[string]: {string}}?
     _headers: {string: string}?
     _closed: boolean
+    drop: nosuspend function(takes self: http.Response): nil
 
     function _decode(self): nil
         if self._values ~= nil then
@@ -107690,8 +108067,7 @@ record http.Response
         return copy
     end
 
-    @drop
-    function close(self): (boolean, string?)
+    function close(takes self): (boolean, string?)
         if self._closed then
             return true
         end
@@ -107700,6 +108076,15 @@ record http.Response
         destroyBody(body)
 
         return true
+    end
+end
+
+function http.Response.drop(takes self: http.Response): nil
+    nosuspend do
+        if not self._closed then
+            self._closed = true
+            self.body:drop()
+        end
     end
 end
 
@@ -107728,6 +108113,7 @@ record http.Client
     _source: suspension.Source?
     _sourceUsers: integer
     _closed: boolean
+    drop: nosuspend function(takes self: http.Client): nil
 
     function _retainSource(self, context: suspension.Context): nil
         if self._source == nil then
@@ -108033,8 +108419,7 @@ function http.Client:pending(): integer
     return self._closed and 0 or self._native:pending()
 end
 
-@drop
-function http.Client:close(): (boolean, string?)
+function http.Client.close(takes self: http.Client): (boolean, string?)
     if self._closed then
         return true
     end
@@ -108047,6 +108432,21 @@ function http.Client:close(): (boolean, string?)
     self._native:close()
 
     return true
+end
+
+function http.Client.drop(takes self: http.Client): nil
+    nosuspend do
+        if not self._closed then
+            self._closed = true
+            if self._source ~= nil then
+                self._source:release()
+                self._source = nil
+                self._sourceUsers = 0
+            end
+            local native = self._native as {close: nosuspend function(any): nil}
+            native:close()
+        end
+    end
 end
 
 function http.reader(reader: nupp.io.Reader, length: integer?, contentType: string?): http.ReaderBody
@@ -108620,6 +109020,7 @@ end
 
 --- A running child.
 record process.Process
+    drop: nosuspend function(takes self: process.Process): nil
     backend: processtypes.Backend
     handle: any
     deadline: number?
@@ -108852,10 +109253,9 @@ record process.Process
     end
 
     --- Closes every stream, ends the child if it is still running, waits for it to
-    --- actually finish, and releases it. Idempotent, and what `@drop` runs when the
+    --- actually finish, and releases it. Idempotent, and what `drop` runs when the
     --- owner goes out of lexical scope.
-    @drop
-
+    --- @raises when closing one of the child streams fails
     function close(self): (boolean, string?)
         if self.reaped then
             return true
@@ -108885,7 +109285,7 @@ record process.Process
 
             -- A different caller under a scheduler, and it must not be told the child
             -- is released while the teardown is still running. Answering "done" is what
-            -- lets the owner's scope end, and the scope ending is what runs `@drop`, so
+            -- lets the owner's scope end, and the scope ending is what runs `drop`, so
             -- a premature yes has the next toucher on a handle already given back. It
             -- waits for whoever holds the teardown, then answers on the same terms as
             -- any other close -- finished, or free to try again.
@@ -109022,6 +109422,10 @@ record process.Process
 
         return true
     end
+end
+
+function process.Process.drop(takes self: process.Process): nil
+    self:close()
 end
 
 -- Whether the child has ended since last asked.
@@ -110610,7 +111014,7 @@ one module. `Set` is the audited exception to the rule that an owner cannot live
 in dynamic storage. How many owners a set holds, and of what types, is known only
 while running, so the proof of discharge cannot stay in the checker: it is carried
 into the entry as the witness `adopt` is handed. Surrendering an owner to that
-storage is what `intoRaw` is for, and the two `unsafe` blocks below are the whole
+storage is what `unsafe release` is for, and the two `unsafe` blocks below are the whole
 of what this module asks to be trusted about. `nupp ownership-audit` lists them.
 
 See `docs/ownership.md`.
@@ -110649,7 +111053,8 @@ record resources.Set
     ---
     --- Attempts all of them, so one failing cleanup cannot strand the rest, then
     --- reports the first failure with a count of the ones it suppressed. Idempotent.
-    @drop
+    drop: nosuspend function(takes self: resources.Set)
+
     close: nosuspend function(takes self: resources.Set)
 
     --- Moves an owner in and returns a borrow tied to the set.
@@ -110668,12 +111073,11 @@ record resources.Set
     --- @raises when the set is already closed, or adoption carries no witness
     function adopt<T>(self, takes value: T, terminal: function(takes value: T)?): T borrows (self)
         assert(not self._closed, "resource set is closed")
-        unsafe do
-            local witness = nupp.intoRaw(terminal)
-            assert(type(witness) == "function", "resource adoption needs a discharge witness")
-            self._entries[#self._entries + 1] = new Entry(value = nupp.intoRaw(value), cleanup = witness)
-            return self._entries[#self._entries].value as T
-        end
+        local witness = terminal
+        assert(type(witness) == "function", "resource adoption needs a discharge witness")
+        self._entries[#self._entries + 1] = new Entry(value = unsafe release value, cleanup = witness)
+
+        return self._entries[#self._entries].value as T
     end
 
     --- Deletes one registration and returns the original capability exactly once.
@@ -110722,15 +111126,17 @@ function resources.Set.close(takes self)
     end
     -- The set is spent either way, and saying so before raising keeps a failing
     -- cleanup from also reading as an undischarged owner.
-    unsafe do
-        nupp.intoRaw(self)
-    end
+    local _raw = unsafe release self
     if first ~= nil then
         if suppressed > 0 then
             error(tostring(first) .. " (suppressed " .. tostring(suppressed) .. " cleanup failure(s))", 0)
         end
         error(first, 0)
     end
+end
+
+function resources.Set.drop(takes self)
+    self:close()
 end
 
 --- Creates a set that owns whatever is adopted into it.
@@ -110745,7 +111151,7 @@ function resources.set(label: string?): Owned<resources.Set>
     return new resources.Set(label = label or "resource", _entries = {}, _closed = false)
 end
 
-local function close_file(file: LuaFile)
+local function close_file(takes file: LuaFile): nil
     local ok, reason = file:close()
     if not ok then
         error(reason or "file close failed")
@@ -110940,7 +111346,7 @@ end
 --- @export
 sealed interface span.WriteSpan<T> is span.CountedSpan
     readonly count: integer
-    @drop
+    drop: nosuspend function(takes self: WriteSpan<T>): nil
     commit: nosuspend function(takes self: WriteSpan<T>): nil
     getMut: function(exclusive self: WriteSpan<T>, index: integer): T* borrows (self)
     set: function(exclusive self: WriteSpan<T>, index: integer, value: T): nil
@@ -110970,7 +111376,7 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
     readonly count: integer
 
     --- Ends this affine write range. It is also the automatic scope-exit drop.
-    @drop
+    drop: nosuspend function(takes self: WriteSpanImpl<T>): nil
 
     commit: nosuspend function(takes self: WriteSpanImpl<T>): nil
 
@@ -111069,7 +111475,7 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
     private readonly offset: integer
     readonly count: N
 
-    @drop
+    drop: nosuspend function(takes self: FixedWriteSpanImpl<T, N>): nil
     commit: nosuspend function(takes self: FixedWriteSpanImpl<T, N>): nil
 
     function getMut(exclusive self: FixedWriteSpanImpl<T, N>, index: integer): T* borrows (self)
@@ -111153,18 +111559,22 @@ end
 
 function WriteSpanImpl.commit<T>(takes self: WriteSpanImpl<T>): nil
     nosuspend do
-        unsafe do
-            local _raw = intoRaw(self)
-        end
+        local _raw = unsafe release self
     end
 end
 
 function FixedWriteSpanImpl.commit<T, const N: integer>(takes self: FixedWriteSpanImpl<T, N>): nil
     nosuspend do
-        unsafe do
-            local _raw = intoRaw(self)
-        end
+        local _raw = unsafe release self
     end
+end
+
+function WriteSpanImpl.drop<T>(takes self: WriteSpanImpl<T>): nil
+    self:commit()
+end
+
+function FixedWriteSpanImpl.drop<T, const N: integer>(takes self: FixedWriteSpanImpl<T, N>): nil
+    self:commit()
 end
 
 --- Ends an affine write range and releases its exclusive-borrow barrier.
@@ -111319,7 +111729,7 @@ local BLOCKING_WAIT_SLICE_MS = 1
 --- neither has to invent a unique string. Releasing is idempotent.
 record suspension.Source
     --- Stops the pump being polled. Idempotent.
-    release: function(suspension.Source): nil
+    release: nosuspend function(suspension.Source): nil
 
     --- What this is, for diagnostics and for ordering ties.
     name: string
@@ -111815,6 +112225,7 @@ end
 
 --- An installed handler, and the obligation to put back what it displaced.
 record suspension.Installed
+    drop: nosuspend function(takes self: suspension.Installed): nil
     co: any
     previous: any
     handler: suspension.Handler
@@ -111833,8 +112244,7 @@ record suspension.Installed
 
     --- Restores the previous handler, unwinds what it left parked, and shuts it down.
     --- Idempotent, because a scope that ended twice is a scope that ended.
-    @drop
-
+    --- @raises when a parked operation or the handler shutdown fails
     function release(self: suspension.Installed): nil
         if self.released then
             return
@@ -111918,6 +112328,10 @@ record suspension.Installed
         end
         self.released = true
     end
+end
+
+function suspension.Installed.drop(takes self: suspension.Installed): nil
+    self:release()
 end
 
 --- Installs `handler` for suspensions performed on this coroutine.
@@ -112195,8 +112609,8 @@ local function drive<T>(
                                     coroutine.resume(victim)
                                 else
                                     local victimBody = bodies[other] as any
-                                    if type(victimBody) == "table" and victimBody.__drop then
-                                        victimBody.__drop()
+                                    if type(victimBody) == "table" and victimBody.__nuppRelease then
+                                        victimBody.__nuppRelease()
                                     end
                                 end
                                 threads[other] = nil
@@ -112205,8 +112619,8 @@ local function drive<T>(
                         end
                         for other = started + 1, count do
                             local victimBody = bodies[other] as any
-                            if type(victimBody) == "table" and victimBody.__drop then
-                                victimBody.__drop()
+                            if type(victimBody) == "table" and victimBody.__nuppRelease then
+                                victimBody.__nuppRelease()
                             end
                         end
                         finished = finished + (count - started)
@@ -112274,9 +112688,7 @@ end
 --- @raises the winner's error, when the first to settle settled by failing
 local function raceImpl<T>(takes bodies: {function(): T}): T?, integer?
     local rawBodies: {function(): T}
-    unsafe do
-        rawBodies = intoRaw(bodies)
-    end
+    rawBodies = unsafe release bodies
     if #rawBodies == 0 then
         return nil, nil
     end
@@ -112449,6 +112861,9 @@ record workers.Worker
 
     --- Closes the worker inbox. Nonblocking and idempotent.
     close: function(workers.Worker)
+
+    --- Stops and releases the worker at scope exit.
+    drop: nosuspend function(takes self: workers.Worker): nil
 
     --- Waits for the worker thread and records how it ended.
     join: function(workers.Worker): workers.Exit
@@ -112782,7 +113197,6 @@ function workers.Worker:join(): workers.Exit
     return self._exit
 end
 
-@drop
 function workers.Worker:stop(): workers.Exit
     if self._destroyed then
         return self._exit as workers.Exit
@@ -112794,6 +113208,10 @@ function workers.Worker:stop(): workers.Exit
     self._destroyed = true
 
     return exit
+end
+
+function workers.Worker.drop(takes self: workers.Worker): nil
+    self:stop()
 end
 
 local function receiveSelf(self: workers.Self): Frame?
@@ -113096,7 +113514,7 @@ return zone
 ]=],
 }
 end
-const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
 

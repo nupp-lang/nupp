@@ -425,10 +425,9 @@ return shapes
 end
 
 -- A module may be checked while resolving the consumer and then checked again while
--- building the dependency closure. The nominal survives both passes, so recording
--- the same drop operation twice must be idempotent or one declaration becomes an ambiguous
--- pair merely because the command did more work.
-function M.defaultDropOperationSurvivesRepeatedModuleChecks()
+-- building the dependency closure. Its ordinary structural Drop implementation must
+-- retain the same source-defined terminal identity on both passes.
+function M.structuralDropSurvivesRepeatedModuleChecks()
    withProject({
       ["nupp.lua"] = "return { include = { 'src' } }\n",
       ["main.nupp"] = [[
@@ -445,8 +444,7 @@ local res = {}
 record res.File
     closed: boolean
 
-    @drop
-    function close(self)
+    function drop(takes self): nil
         self.closed = true
     end
 end
@@ -497,13 +495,14 @@ print(use.slurp("input.txt"), res.closed)
 local res = {}
 res.closed = 0
 
-@drop
-local function closeFile(takes file: LuaFile)
+local function closeFile(takes file: LuaFile): nil
     res.closed = res.closed + 1
-    file:close()
+    unsafe do
+        local _raw = unsafe release file
+    end
 end
 
-function res.open(path: string): Owned<LuaFile>
+function res.open(path: string): Owned<LuaFile, closeFile>
     local file = io.open(path, "r")
     if not file then error("cannot open " .. path) end
     return file
@@ -551,9 +550,11 @@ print(res.closed)
 local res = {}
 res.closed = 0
 
-local function closeFile(file: LuaFile)
+local function closeFile(takes file: LuaFile): nil
     res.closed = res.closed + 1
-    file:close()
+    unsafe do
+        local _raw = unsafe release file
+    end
 end
 
 function res.open(path: string): Owned<LuaFile, closeFile>

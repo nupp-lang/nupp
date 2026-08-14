@@ -67,6 +67,26 @@ local function substConst(term: T.ConstTerm, map: Bindings): T.ConstTerm
     return term
 end
 
+local function substCleanup(cleanup: T.Cleanup, map: Bindings, unmapped: string): T.Cleanup
+    if cleanup.kind == "function" and cleanup.constTerm then
+        local term = substConst(cleanup.constTerm, map)
+        return T.constFunctionCleanup(
+            term,
+            cleanup.name,
+            cleanup.functionType and substWith(cleanup.functionType, map, unmapped) or nil
+        )
+    elseif cleanup.kind == "field" and cleanup.cleanup then
+        return T.fieldCleanup(cleanup.field as string, substCleanup(cleanup.cleanup, map, unmapped))
+    end
+
+    return cleanup
+end
+
+--- Rebuilds a const term with the binders `map` names replaced.
+function generics.materializeConst(term: T.ConstTerm, map: Bindings): T.ConstTerm
+    return substConst(term, map)
+end
+
 --- A pack with its binders replaced per `map`, unmapped ones per `unmapped`.
 local substPackWith: function(pack: T.Pack, map: Bindings, unmapped: string): T.Pack
 
@@ -255,8 +275,12 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
         return T.constOf(substWith(t.inner, map, unmapped))
     elseif tag == "ctype" then
         return T.ctype(substWith(t.of, map, unmapped))
-    elseif tag == "owned" then
-        return T.owned(substWith(t.inner, map, unmapped), t.cleanups, t.opaque)
+    elseif tag == "affine" then
+        local cleanups = {}
+        for j, cleanup in ipairs(t.cleanups or {}) do
+            cleanups[j] = substCleanup(cleanup, map, unmapped)
+        end
+        return T.affine(substWith(t.inner, map, unmapped), cleanups, t.transferOnly)
     elseif tag == "borrowed" then
         return T.borrowed(substWith(t.inner, map, unmapped))
     elseif tag == "pinned" then
@@ -982,9 +1006,13 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
                     if err then
                         break
                     end
-                    arguments[
-                        position
-                    ] = {kind = "value", value = reduced.tag == "constLiteral" and reduced.value or reduced}
+                    if reduced.tag == "constLiteral" and reduced.domain == "function" then
+                        arguments[position] = {kind = "const", value = reduced}
+                    else
+                        arguments[
+                            position
+                        ] = {kind = "value", value = reduced.tag == "constLiteral" and reduced.value or reduced}
+                    end
                     open = open or reduced.tag ~= "constLiteral"
                 end
             end
@@ -1119,12 +1147,12 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
         if not err then
             out = T.constOf(inner)
         end
-    elseif t.tag == "owned" or t.tag == "borrowed" or t.tag == "pinned" then
+    elseif t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned" then
         local inner
         inner, err = normalize(t.inner, memo, budget)
         if not err then
-            if t.tag == "owned" then
-                out = T.owned(inner, t.cleanups, t.opaque)
+            if t.tag == "affine" then
+                out = T.affine(inner, t.cleanups, t.transferOnly)
             elseif t.tag == "borrowed" then
                 out = T.borrowed(inner)
             else
@@ -1542,8 +1570,6 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     inst.privateFields = n.privateFields
     inst.moduleName = n.moduleName
     inst.sealedModule = n.sealedModule
-    inst.defaultDropOperations = n.defaultDropOperations
-    inst.affineResource = n.affineResource
     inst.affineFields = n.affineFields
     inst.fieldBorrowSources = n.fieldBorrowSources
     inst.borrowedRootFields = n.borrowedRootFields

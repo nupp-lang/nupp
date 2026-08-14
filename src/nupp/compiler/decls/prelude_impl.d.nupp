@@ -1,0 +1,13 @@
+-- Ordinary implementation bodies for declarations in prelude.d.nupp. This unit is
+-- checked and generated under the declaration prelude's logical origin, so const
+-- function identities and their runtime registry publications are the same identities
+-- the public declarations sealed into generic defaults.
+
+local function __nuppDropDefault<T is Drop>(takes value: T): nil
+    value:drop()
+end
+
+-- Referencing the implementation as an ordinary terminal publishes it through the
+-- same declaration-token bridge used by package terminals. The alias erases.
+local affine type __NuppDropDefaultRegistration<T is Drop> = T terminal __nuppDropDefault
+end

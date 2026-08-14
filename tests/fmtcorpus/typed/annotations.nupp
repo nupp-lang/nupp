@@ -18,7 +18,7 @@ record m.User is m.Named where true
     name: string
     tags: {string}?
 
-    @drop
+    @deprecated("use close")
     close: nosuspend function(takes self: m.User): nil
 
     read: function(borrows self: m.User): string borrows (self)

@@ -33,10 +33,10 @@ function M.subtractingAnExhaustiveUnionLeavesNever()
 end
 
 function M.narrowingRetainsExplicitOpaqueOwnership()
-   local source = T.owned(T.optional(T.string), nil, true)
+   local source = T.affine(T.optional(T.string), nil, true)
    local narrowed = narrowing.subtract(source, T.nil_)
-   assertEq(narrowed.opaque, true, "narrowing erased explicit opaque ownership")
-   assertEq(T.tostring(narrowed), "Owned<string, opaque>")
+   assertEq(narrowed.transferOnly, true, "narrowing erased explicit transfer-only affinity")
+   assertEq(T.tostring(narrowed), "affine<string, transfer-only>")
 end
 
 function M.nilCheckNarrowing()

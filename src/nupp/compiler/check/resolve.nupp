@@ -22,7 +22,7 @@ local state = require("nupp.compiler.check.state")
 local resolve = {}
 
 --- The ownership type constructors, by the name each is written with.
-local ownershipConstructors: {[string]: string} = {Owned = "owned", Borrowed = "borrowed", Pinned = "pinned",}
+local ownershipConstructors: {[string]: string} = {Borrowed = "borrowed", Pinned = "pinned",}
 
 -- The C status constructors. `Success<T, N>` says the call succeeded when it
 -- returned N, `Failure<T, N>` says it succeeded when it returned anything else.
@@ -76,10 +76,28 @@ function resolve.install(c: state.Checker): nil
     local requiredAs, requireBindsName = edits.requiredAs, edits.requireBindsName
     local requireEdit = edits.requireEdit
     local pointerShaped = c.pointerShaped
+    local functionConstCleanups: {[string]: T.Cleanup} = {}
+    c.functionConstCleanup = function(term)
+        return functionConstCleanups[term.id] or T.constFunctionCleanup(term)
+    end
 
     local function constBinding(name: string): T.ConstTerm?
         local found = c.lookupType(name)
         return found and consteval.fromType(found) or nil
+    end
+
+    local function writtenName(node: Node?): string?
+        if not node or node.kind ~= "tname" or node.typeArgs then
+            return nil
+        end
+        local parts = {}
+        for _, child in ipairs(node) do
+            if cst.isToken(child) and child.kind == "name" then
+                parts[#parts + 1] = child.text
+            end
+        end
+
+        return #parts > 0 and table.concat(parts, ".") or nil
     end
 
     --- Fixes for an unqualified type name that a project module exports: spell it
@@ -145,10 +163,36 @@ function resolve.install(c: state.Checker): nil
         -- registered under, so naming one in a type and naming it in an annotation
         -- arrive at the same term and compare equal.
         if parameter.domain == "function" then
-            local named = arg.kind == "tname" and not arg.typeArgs and arg.base and arg.base.text or nil
+            local named = writtenName(arg)
             if not named then
                 c.diag("NUPP2131", arg, ("argument for const parameter %s must name a function"):format(parameter.name))
                 return nil
+            end
+            -- Inside a generic declaration the name may be its symbolic const-function
+            -- binder rather than a value declaration. Keep that term open so the same
+            -- affine declaration can be applied with any function identity later.
+            local boundConst = not named:find("%.", 1, false) and constBinding(named) or nil
+            if boundConst and boundConst.tag == "constLiteral" and boundConst.domain == "function" then
+                -- A previously declared const function already carries its stable
+                -- identity, but naming it here still publishes its runtime provider.
+                -- Skipping the ordinary declaration bridge made defaults sealed into
+                -- an affine alias callable in types but absent during destruction.
+                local _, entry = c.own.cleanupKeyFor(named)
+                local namedToken = nil
+                for _, child in ipairs(arg) do
+                    if cst.isToken(child) and child.kind == "name" then
+                        namedToken = child
+                    end
+                end
+                if entry and namedToken then
+                    c.markToken(namedToken, entry.definition, entry.t, "function")
+                end
+                functionConstCleanups[
+                    boundConst.id
+                ] = T.constFunctionCleanup(boundConst, named, entry and entry.t or nil)
+                return boundConst
+            elseif boundConst and boundConst.tag == "constVar" and boundConst.domain == "function" then
+                return boundConst
             end
             local key, entry = c.own.cleanupKeyFor(named)
             local bound = entry and entry.t or nil
@@ -160,7 +204,19 @@ function resolve.install(c: state.Checker): nil
                 return nil
             end
 
-            return T.constLiteral("function", key)
+            local namedToken = nil
+            for _, child in ipairs(arg) do
+                if cst.isToken(child) and child.kind == "name" then
+                    namedToken = child
+                end
+            end
+            if entry and namedToken then
+                c.markToken(namedToken, entry.definition, entry.t, "function")
+            end
+
+            local term = T.constLiteral("function", key)
+            functionConstCleanups[term.id] = T.constFunctionCleanup(term, named, bound)
+            return term
         end
         local term = consteval.fromType(c.resolveType(arg))
         if not term then
@@ -193,22 +249,26 @@ function resolve.install(c: state.Checker): nil
 
     local function aliasArgumentMap(alias, node)
         local map, ordinaryAt, packAt, constAt = {}, 1, 1, 1
-        for position, arg in ipairs(node.typeArgs or {}) do
-            local kind = alias.paramKinds and alias.paramKinds[position]
+        for position, kind in ipairs(alias.paramKinds or {}) do
+            local arg = node.typeArgs and node.typeArgs[
+                position
+            ] or alias.paramDefaults and alias.paramDefaults[position]
             if kind == "const" then
                 local cv = alias.constParams[constAt]
                 if cv then
                     map[cv] = constArgument(arg, cv, node)
                 end
                 constAt = constAt + 1
-            elseif kind == "pack" or not kind and (
+            elseif kind == "pack" or not kind and arg and (
                 arg.kind == "tpack"
                 or arg.kind == "tpackUnion"
                 or arg.kind == "tparen"
                 and packAt <= #alias.packParams
                 and ordinaryAt > #alias.typeParams
             ) then
-                local pack = arg.kind == "tparen" and T.pack({c.resolveType(arg.inner)}) or c.resolvePack(arg)
+                local pack = arg and (arg.kind == "tparen" and T.pack({
+                    c.resolveType(arg.inner)
+                }) or c.resolvePack(arg)) or T.pack({}, {kind = "unknown", type = T.any})
                 local pv = alias.packParams[packAt]
                 if pv then
                     map[pv], packAt = pack, packAt + 1
@@ -216,14 +276,14 @@ function resolve.install(c: state.Checker): nil
             else
                 local tv = alias.typeParams[ordinaryAt]
                 if tv then
-                    map[tv], ordinaryAt = c.resolveType(arg), ordinaryAt + 1
-                else
+                    map[tv], ordinaryAt = arg and c.resolveType(arg) or T.any, ordinaryAt + 1
+                elseif arg then
                     c.diag("NUPP2121", arg, "ambiguous or surplus generic alias argument")
                 end
             end
         end
-        for j = constAt, #alias.constParams do
-            constArgument(nil, alias.constParams[j], node)
+        for position = #(alias.paramKinds or {}) + 1, #(node.typeArgs or {}) do
+            c.diag("NUPP2121", node.typeArgs[position], "ambiguous or surplus generic alias argument")
         end
         c.validateTypeBounds(alias.typeParams, alias.typeBounds, map, node)
 
@@ -250,6 +310,17 @@ function resolve.install(c: state.Checker): nil
                     node,
                     reductionError
                 )
+            end
+            if t.affine then
+                local term = t.affineTerminal and map[
+                    t.affineTerminal
+                ] and generics.materializeConst(t.affineTerminal, map) or nil
+                local cleanup = term and (functionConstCleanups[term.id] or T.constFunctionCleanup(term)) or nil
+                local affine = T.affine(reduced, cleanup and {cleanup} or nil, t.affineTerminal == nil)
+                if cleanup and term and term.tag == "constLiteral" then
+                    c.own.validateCleanups(affine, {cleanup}, node, "NUPP2615")
+                end
+                return affine
             end
             return reduced
         end
@@ -461,6 +532,29 @@ function resolve.install(c: state.Checker): nil
                     for _, member in ipairs(suppliedPack.head or {}) do
                         open = open or member.tag == "neutral"
                     end
+                elseif expected == T.functionConst then
+                    local term = constArgument(
+                        argumentNode,
+                        {
+                            name = parameter and parameter.name and parameter.name.text or "function",
+                            domain = "function"
+                        },
+                        argumentNode
+                    )
+                    if not term or term.domain ~= "function" then
+                        c.diag(
+                            "NUPP2421",
+                            argumentNode,
+                            "a const-function type-function argument must name a declared function"
+                        )
+                        return T.any
+                    end
+                    if term.tag == "constLiteral" then
+                        arguments[position] = {kind = "const", value = term}
+                    else
+                        open = true
+                    end
+                    deferredArguments[position] = {kind = "const", value = term,} as T.ComptimeConstArgument
                 elseif expected == T.string or expected == T.boolean or expected == T.integer then
                     local supplied = c.resolveType(argumentNode)
                     local term = consteval.fromType(supplied)
@@ -489,7 +583,7 @@ function resolve.install(c: state.Checker): nil
                     c.diag(
                         "NUPP2421",
                         parameter and (parameter.type or parameter) or node,
-                        "type-function parameters must be type, typepack, string, boolean, or integer"
+                        "type-function parameters must be type, typepack, const function, string, boolean, or integer"
                     )
                     return T.any
                 end
@@ -548,6 +642,9 @@ function resolve.install(c: state.Checker): nil
                     )
                     return T.any
                 end
+            end
+            if result.tag == "affine" and not result.transferOnly then
+                c.own.validateCleanups(result, result.cleanups, node, "NUPP2615")
             end
             node.resolvedType = result
             return result
@@ -759,10 +856,6 @@ function resolve.install(c: state.Checker): nil
                     c.resolvePack(node.typeArgs[4])
                 )
             end
-            -- Both cases, for as long as the checked-in bootstrap predates the rename.
-            -- A compiler that reads `Owned` has to be built by one that does not, so
-            -- its own sources cannot say `Owned` until a bootstrap that reads it
-            -- exists. The lowercase spellings go once that bootstrap is regenerated.
             local status = statusConstructors[name]
             if status and node.typeArgs and node.typeArgs[1] and not c.lookupType(name) then
                 if not c.cdefReturn then
@@ -786,64 +879,7 @@ function resolve.install(c: state.Checker): nil
                 if ownership == "pinned" and not pointerShaped(inner) then
                     c.diag("NUPP2602", node, "Pinned<T> requires a pointer-shaped T")
                 end
-                if ownership == "owned" then
-                    local cleanupArg = node.typeArgs[2]
-                    -- One terminal, or none. An ordered list composes failure
-                    -- behaviour a single terminal does not, and reading only the
-                    -- second argument would discharge the first and silently forget
-                    -- the rest.
-                    if node.typeArgs[3] then
-                        c.diag("NUPP2602", node.typeArgs[3], "Owned<T, cleanup> names one terminal", nil, {
-                            help = "ordered attempt-all cleanup is not currently expressible"
-                        })
-                    end
-                    -- `opaque` is a word rather than a cleanup: the owner is
-                    -- transfer-only because the author said so, which is what separates
-                    -- it from one resolution merely found no terminal for. Contextual,
-                    -- so a cleanup may still be named `opaque` -- the word means this
-                    -- only in this position, and only where no such function is
-                    -- visible.
-                    local saidOpaque = cleanupArg ~= nil
-                        and cleanupArg.kind == "tname"
-                        and not cleanupArg.typeArgs
-                        and cleanupArg.base ~= nil
-                        and cleanupArg.base.text == "opaque"
-                        and c.own.cleanupKeyFor(
-                        "opaque"
-                    ) == nil
-                    if saidOpaque then
-                        return T.owned(inner, nil, true)
-                    end
-                    if cleanupArg then
-                        -- The second position is the built-in constructor's const
-                        -- function parameter. Resolve it through the same path as a
-                        -- declared generic so its identity and runtime-linker key are
-                        -- exactly the ones every other function const argument gets.
-                        local term = constArgument(cleanupArg, {name = "cleanup", domain = "function"}, node)
-                        local cleanupName = cleanupArg.kind == "tname" and not cleanupArg.typeArgs and (
-                            cleanupArg as cst.Tname
-                        ).base or nil
-                        local named = cleanupName and cleanupName.text or nil
-                        if term and named then
-                            local cleanups = c.own.resolveCleanups({named}, cleanupArg)
-                            c.own.validateCleanups(inner, cleanups, cleanupArg, "NUPP2615")
-                            -- The terminal is a reference to a function an editor
-                            -- should be able to follow, exactly as a call to it is.
-                            local entry = c.lookupEntry(named)
-                            if entry then
-                                c.markToken(
-                                    cleanupName,
-                                    entry.definition,
-                                    entry.t,
-                                    entry.definition and entry.definition.kind or "function"
-                                )
-                            end
-                            return T.owned(inner, cleanups)
-                        end
-                    end
-                    return T.owned(inner)
-
-                elseif ownership == "borrowed" then
+                if ownership == "borrowed" then
                     return T.borrowed(inner)
                 end
                 return T.pinned(inner)
@@ -862,6 +898,23 @@ function resolve.install(c: state.Checker): nil
             c.markToken(base, def, t, def and def.kind or "type")
             t = applyTypeArgs(t, node)
             if t then
+                -- Generic applications are interned across checks. Reusing a closed
+                -- affine result must still publish its terminal in this source unit;
+                -- the first check may have happened only while resolving a consumer
+                -- and its CST is not the one the runtime loader later generates.
+                for _, cleanup in ipairs(t.tag == "affine" and t.cleanups or {}) do
+                    local localOrigin = c.filename or c.result.moduleName or "<module>"
+                    while localOrigin:sub(1, 2) == "./" or localOrigin:sub(1, 2) == ".\\" do
+                        localOrigin = localOrigin:sub(3)
+                    end
+                    local localPrefix = localOrigin .. "#"
+                    if cleanup.kind == "function" and cleanup.name and cleanup.key and cleanup.key:sub(
+                        1,
+                        #localPrefix
+                    ) == localPrefix then
+                        c.own.cleanupKeyFor(cleanup.name)
+                    end
+                end
                 if (
                     t == T.type_ or t == T.typepack or t.tag == "typeHandle"
                 ) and (c.comptimeDepth or 0) == 0 and (c.comptimeFunctionDepth or 0) == 0 then
@@ -1276,11 +1329,7 @@ function resolve.install(c: state.Checker): nil
                 paramModes
             )
             local retPack = node.returnPack and c.resolvePack(node.returnPack) or T.pack({})
-            -- A callable field and a bodyless declaration say what they produce here,
-            -- so
-            -- a result written `Owned<T>` inherits the terminal `T` declared exactly as
-            -- a function statement's result does.
-            retPack = c.own.normalizeOwnedResults(retPack, node.returnPack, node)
+            -- A callable field and a bodyless declaration say what they produce here.
             -- Packs are interned. A result relation adjusts the callable's view of a
             -- slot, so never write through the canonical pack's `head` array: doing
             -- that would change every unrelated signature that shares the same pack.
@@ -1327,7 +1376,7 @@ function resolve.install(c: state.Checker): nil
                     -- Borrow provenance lives on the callable and is attached to the
                     -- produced value at the call. Do not replace an owning result's
                     -- discharge obligation with the borrow relation it also carries.
-                    if rets[1].tag ~= "owned" then
+                    if rets[1].tag ~= "affine" then
                         rets[1] = T.borrowed(T.unwrapOwnership(rets[1]))
                     end
                     retPack = T.pack(rets, retPack.tail, retPack.modes)
@@ -1441,19 +1490,51 @@ function resolve.install(c: state.Checker): nil
         c.scope = owner
         local t
         local decl = waiting.decl
-        local typeParams, typeBounds, packParams, constParams, paramKinds = {}, {}, {}, {}, {}
+        local typeParams, typeBounds, packParams, constParams, paramKinds, paramDefaults = {}, {}, {}, {}, {}, {}
         if decl and decl.generics then
             c.pushScope()
-            typeParams, typeBounds, packParams, constParams, paramKinds = c.bindGenerics(decl.generics, "type-alias")
+            typeParams, typeBounds, packParams, constParams, paramKinds, paramDefaults = c.bindGenerics(
+                decl.generics,
+                "type-alias"
+            )
         end
         c.resolvingAlias[name] = true
         local body = c.resolveType(waiting.node)
+        local terminal = decl and decl.affine and decl.terminal and constArgument(
+            decl.terminal,
+            {name = "terminal", domain = "function"},
+            decl.terminal
+        ) or nil
         c.resolvingAlias[name] = nil
         if decl and decl.generics then
             c.popScope()
-            t = T.genericAlias(name, body, typeParams, typeBounds, packParams, constParams, paramKinds)
+            t = T.genericAlias(
+                name,
+                body,
+                typeParams,
+                typeBounds,
+                packParams,
+                constParams,
+                paramKinds,
+                paramDefaults,
+                decl.affine,
+                terminal
+            )
+        elseif decl and decl.affine then
+            local cleanup = terminal and (functionConstCleanups[terminal.id] or T.constFunctionCleanup(terminal)) or nil
+            if cleanup then
+                cleanup = c.own.resolveCleanups({cleanup}, decl, decl)[1]
+            end
+            t = T.affine(body, cleanup and {cleanup} or nil, terminal == nil)
+            if cleanup and terminal and terminal.tag == "constLiteral" then
+                c.own.validateCleanups(t, {cleanup}, decl.terminal or decl, "NUPP2615")
+            end
         else
             t = body
+        end
+        if decl and decl.affine and decl.generics and terminal then
+            local cleanup = functionConstCleanups[terminal.id] or T.constFunctionCleanup(terminal)
+            c.own.resolveCleanups({cleanup}, decl, decl)
         end
         c.scope = saved
         owner.pending[name] = nil

@@ -80,6 +80,8 @@ local function run(parsed: any): integer
     local function cleanupName(cleanup)
         if cleanup.kind == "function" then
             return cleanup.name or cleanup.id
+        elseif cleanup.kind == "closure" then
+            return "generated closure terminal"
         elseif cleanup.kind == "method" then
             return ":" .. cleanup.name
         elseif cleanup.kind == "field" then
@@ -155,7 +157,7 @@ local function run(parsed: any): integer
                 end
             end
             for j, result in ipairs(ft.rets or {}) do
-                if pointerShaped(result, T) or T.unwrapOwnership(result).tag == "owned" then
+                if pointerShaped(result, T) or T.unwrapOwnership(result).tag == "affine" then
                     results[#results + 1] = {index = j, type = T.tostring(result)}
                 end
             end

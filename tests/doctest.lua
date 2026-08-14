@@ -249,7 +249,7 @@ local ANNOTATED_DECLARATIONS = table.concat({
    "   --- Closes the handle.",
    "   --- @param self this handle",
    "   --- @return whether the close succeeded",
-   "   @drop",
+   "   @deprecated('use release')",
    "",
    "   close: function(takes self: Handle): boolean",
    "end",
@@ -281,9 +281,7 @@ function M.anAnnotatedMemberKeepsItsDocumentation()
       close.returns[1] and close.returns[1].text)
 end
 
--- `@drop` and `Owned<T>` are the ownership contract. A reader who cannot see them
--- cannot tell an obligation from an ordinary method, and the parameter mode that
--- carries the same news was extracted but never rendered.
+-- Annotations and parameter modes are both public declaration metadata.
 function M.documentsAnnotationsAndParameterModes()
    local module = assert(doc.extract(ANNOTATED_DECLARATIONS, "src/handle.d.nupp", "handle",
       {includeAll = true}))
@@ -297,13 +295,13 @@ function M.documentsAnnotationsAndParameterModes()
       if member.name == "close" then close = member end
       if member.name == "isReleased" then isReleased = member end
    end
-   assert(close.annotations and close.annotations[1] == "@drop",
+   assert(close.annotations and close.annotations[1]:find("@deprecated", 1, true) == 1,
       close.annotations and close.annotations[1])
    assert(not isReleased.annotations, "an unannotated member carries no annotations")
    assert(close.params[1].mode == "takes", tostring(close.params[1].mode))
 
    local markdown = doc.markdown({module})
-   assert(markdown:find("`@drop`", 1, true), "the annotation is not rendered")
+   assert(markdown:find("`@deprecated", 1, true), "the annotation is not rendered")
    assert(markdown:find("| `takes self` |", 1, true),
       "the parameter mode is not rendered")
 end
@@ -994,8 +992,8 @@ function M.standardResourcesApiHasCompleteDocumentation()
    -- Only what reaches an operation that can fail documents a failure. Handing back
    -- an empty set cannot fail, and neither can discharging one.
    -- `adopt` and `remove` are inline members and document themselves inside the record.
-   -- `close` is declared there and defined below, because a `@drop` member states
-   -- `nosuspend` in its declared type and an inline method has nowhere to spell it.
+   -- `close` is declared there and defined below so its public signature and
+   -- implementation remain separately documented.
    -- Being written outside the record does not make it a function of the module: it
    -- folds back onto `Set`, which is where a reader reaches it.
    local expected = {

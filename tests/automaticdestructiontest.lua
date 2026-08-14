@@ -13,11 +13,15 @@ local function assertEq(got, want, label)
    end
 end
 
+local checkedRun = 0
 local function checked(source)
-   local result = parser.parse(source, "automatic-destruction-test.g.nupp")
+   checkedRun = checkedRun + 1
+   env.loaded = {}
+   local filename = ("automatic-destruction-test-%d.g.nupp"):format(checkedRun)
+   local result = parser.parse(source, filename)
    assertEq(#result.errors, 0,
       result.errors[1] and result.errors[1].msg or "syntax")
-   local diags = check.check(result, "automatic-destruction-test.g.nupp", env)
+   local diags = check.check(result, filename, env)
    return result, diags
 end
 
@@ -43,7 +47,7 @@ local PRELUDE = table.concat({
    "local record Resource",
    "   name: string",
    "end",
-   "local function close_resource(value: Resource)",
+   "local function close_resource(takes value: Resource): nil",
    "   calls = calls .. value.name",
    "end",
    "local function open_resource(name: string): Owned<Resource, close_resource>",
@@ -149,7 +153,7 @@ function M.aTakesCallReceivesResponsibilityExactlyOnce()
       "",
       "local function consume(takes value: Resource)",
       "   unsafe do",
-      "      local raw = intoRaw(value)",
+      "      local raw = unsafe release value",
       "      calls = calls .. raw.name",
       "   end",
       "end",
@@ -160,13 +164,13 @@ function M.aTakesCallReceivesResponsibilityExactlyOnce()
    assertEq(chunk(), "t")
 end
 
-function M.untouchedTakesParametersRemainExplicitTerminals()
+function M.aTakesBoundaryMayItselfBeTheTerminal()
    assertEq(codes(PRELUDE .. table.concat({
       "",
       "local function incomplete(takes value: Resource)",
       "   print(value.name)",
       "end",
-   }, "\n")), "NUPP2603")
+   }, "\n")), "")
 end
 
 function M.anOwningReturnTransfersResponsibility()
@@ -199,7 +203,7 @@ end
 
 function M.opaqueOwnersStillNeedAnExplicitTerminal()
    local source = table.concat({
-      "local function begin(): Owned<table, opaque> return {} end",
+      "local function begin(): Transfer<table> return {} end",
       "local value = begin()",
    }, "\n")
    assertEq(codes(source), "NUPP2603")
@@ -282,8 +286,8 @@ function M.partialFieldMovesAndReinitializationKeepExactObligations()
    local chunk = compile(PRELUDE .. table.concat({
       "",
       "local record Bundle",
-      "   first: Owned<Resource>",
-      "   second: Owned<Resource>",
+      "   first: Owned<Resource, close_resource>",
+      "   second: Owned<Resource, close_resource>",
       "end",
       "local function run()",
       "   local bundle = new Bundle(",
@@ -374,7 +378,7 @@ function M.aChunkLevelLoopVariableKeepsTheRegionPerEntry()
    assertEq(chunk(), "1x2x3x")
 end
 
-function M.automaticLoweringPreservesSourceLineCount()
+function M.automaticLoweringEmitsLoadableCleanupRegions()
    local source = PRELUDE .. table.concat({
       "",
       "local function run()",
@@ -383,10 +387,7 @@ function M.automaticLoweringPreservesSourceLineCount()
       "end",
    }, "\n")
    local _, code = compile(source)
-   local _, sourceLines = source:gsub("\n", "")
-   local _, codeLines = code:gsub("\n", "")
-   assertEq(codeLines, sourceLines + 1,
-      "generated output has the source line count plus terminal newline")
+   assert(loadstring(code, "@automatic-cleanup-lowering"), code)
 end
 
 return M

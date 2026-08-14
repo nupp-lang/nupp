@@ -6,7 +6,7 @@ local P, S = lpeg.P, lpeg.S
 
 local lex = lexer.new(..., {inherit = lexer.load("lua")})
 
--- Annotations precede names so @drop and the file-level @!internal/@!nofmt
+-- Annotations precede names so @deprecated and the file-level @!internal/@!nofmt
 -- forms are one semantic token rather than an operator followed by a variable.
 local annotation = lex:tag(lexer.ANNOTATION, P("@") * P("!")^-1 * lexer.word)
 local builtinType = lex:tag(lexer.TYPE, lex:word_match(lexer.TYPE))

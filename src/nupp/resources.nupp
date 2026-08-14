@@ -12,7 +12,7 @@ one module. `Set` is the audited exception to the rule that an owner cannot live
 in dynamic storage. How many owners a set holds, and of what types, is known only
 while running, so the proof of discharge cannot stay in the checker: it is carried
 into the entry as the witness `adopt` is handed. Surrendering an owner to that
-storage is what `intoRaw` is for, and the two `unsafe` blocks below are the whole
+storage is what `unsafe release` is for, and the two `unsafe` blocks below are the whole
 of what this module asks to be trusted about. `nupp ownership-audit` lists them.
 
 See `docs/ownership.md`.
@@ -51,7 +51,8 @@ record resources.Set
     ---
     --- Attempts all of them, so one failing cleanup cannot strand the rest, then
     --- reports the first failure with a count of the ones it suppressed. Idempotent.
-    @drop
+    drop: nosuspend function(takes self: resources.Set)
+
     close: nosuspend function(takes self: resources.Set)
 
     --- Moves an owner in and returns a borrow tied to the set.
@@ -70,12 +71,11 @@ record resources.Set
     --- @raises when the set is already closed, or adoption carries no witness
     function adopt<T>(self, takes value: T, terminal: function(takes value: T)?): T borrows (self)
         assert(not self._closed, "resource set is closed")
-        unsafe do
-            local witness = nupp.intoRaw(terminal)
-            assert(type(witness) == "function", "resource adoption needs a discharge witness")
-            self._entries[#self._entries + 1] = new Entry(value = nupp.intoRaw(value), cleanup = witness)
-            return self._entries[#self._entries].value as T
-        end
+        local witness = terminal
+        assert(type(witness) == "function", "resource adoption needs a discharge witness")
+        self._entries[#self._entries + 1] = new Entry(value = unsafe release value, cleanup = witness)
+
+        return self._entries[#self._entries].value as T
     end
 
     --- Deletes one registration and returns the original capability exactly once.
@@ -124,15 +124,17 @@ function resources.Set.close(takes self)
     end
     -- The set is spent either way, and saying so before raising keeps a failing
     -- cleanup from also reading as an undischarged owner.
-    unsafe do
-        nupp.intoRaw(self)
-    end
+    local _raw = unsafe release self
     if first ~= nil then
         if suppressed > 0 then
             error(tostring(first) .. " (suppressed " .. tostring(suppressed) .. " cleanup failure(s))", 0)
         end
         error(first, 0)
     end
+end
+
+function resources.Set.drop(takes self)
+    self:close()
 end
 
 --- Creates a set that owns whatever is adopted into it.
@@ -147,7 +149,7 @@ function resources.set(label: string?): Owned<resources.Set>
     return new resources.Set(label = label or "resource", _entries = {}, _closed = false)
 end
 
-local function close_file(file: LuaFile)
+local function close_file(takes file: LuaFile): nil
     local ok, reason = file:close()
     if not ok then
         error(reason or "file close failed")

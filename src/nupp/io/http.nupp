@@ -301,6 +301,7 @@ local function fairnessYield(): nil
 end
 
 record http.Body is nupp.io.Reader
+    drop: nosuspend function(takes self: http.Body): nil
     _client: any
     _transfer: any
     _closed: boolean
@@ -410,12 +411,11 @@ record http.Body is nupp.io.Reader
         end
     end
 
-    function close(self): (boolean, string?)
+    function close(takes self): (boolean, string?)
         self:release()
         return true
     end
 
-    @drop
     function release(self): nil
         if self._closed then
             return
@@ -426,7 +426,16 @@ record http.Body is nupp.io.Reader
     end
 end
 
-@drop
+function http.Body.drop(takes self: http.Body): nil
+    nosuspend do
+        if not self._closed then
+            self._closed = true
+            local transfer = self._transfer as {close: nosuspend function(any): nil}
+            transfer:close()
+        end
+    end
+end
+
 local function destroyBody(takes body: http.Body): nil
     if not body._closed then
         body._closed = true
@@ -490,6 +499,7 @@ record http.Response
     _values: {[string]: {string}}?
     _headers: {string: string}?
     _closed: boolean
+    drop: nosuspend function(takes self: http.Response): nil
 
     function _decode(self): nil
         if self._values ~= nil then
@@ -574,8 +584,7 @@ record http.Response
         return copy
     end
 
-    @drop
-    function close(self): (boolean, string?)
+    function close(takes self): (boolean, string?)
         if self._closed then
             return true
         end
@@ -584,6 +593,15 @@ record http.Response
         destroyBody(body)
 
         return true
+    end
+end
+
+function http.Response.drop(takes self: http.Response): nil
+    nosuspend do
+        if not self._closed then
+            self._closed = true
+            self.body:drop()
+        end
     end
 end
 
@@ -612,6 +630,7 @@ record http.Client
     _source: suspension.Source?
     _sourceUsers: integer
     _closed: boolean
+    drop: nosuspend function(takes self: http.Client): nil
 
     function _retainSource(self, context: suspension.Context): nil
         if self._source == nil then
@@ -917,8 +936,7 @@ function http.Client:pending(): integer
     return self._closed and 0 or self._native:pending()
 end
 
-@drop
-function http.Client:close(): (boolean, string?)
+function http.Client.close(takes self: http.Client): (boolean, string?)
     if self._closed then
         return true
     end
@@ -931,6 +949,21 @@ function http.Client:close(): (boolean, string?)
     self._native:close()
 
     return true
+end
+
+function http.Client.drop(takes self: http.Client): nil
+    nosuspend do
+        if not self._closed then
+            self._closed = true
+            if self._source ~= nil then
+                self._source:release()
+                self._source = nil
+                self._sourceUsers = 0
+            end
+            local native = self._native as {close: nosuspend function(any): nil}
+            native:close()
+        end
+    end
 end
 
 function http.reader(reader: nupp.io.Reader, length: integer?, contentType: string?): http.ReaderBody

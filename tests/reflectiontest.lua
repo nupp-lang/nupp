@@ -37,11 +37,11 @@ function M.serializesRecursiveTypesAsAcyclicIndexedGraphs()
    assert(reachesRoot, "the recursive edge refers back to the root index")
 end
 
-function M.reflectsExplicitOpaqueOwnership()
-   local descriptor = reflection.describe(T.owned(T.string, nil, true), "OpaqueString")
+function M.reflectsExplicitTransferOnlyAffinity()
+   local descriptor = reflection.describe(T.affine(T.string, nil, true), "OpaqueString")
    local root = descriptor.types[descriptor.root]
-   assertEq(root.kind, "owned")
-   assertEq(root.opaque, true, "reflection erased explicit opaque ownership")
+   assertEq(root.kind, "affine")
+   assertEq(root.transferOnly, true, "reflection erased explicit transfer-only affinity")
 end
 
 function M.reflectsFieldDefaultsAndFingerprintsTheirValues()

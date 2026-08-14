@@ -131,7 +131,7 @@ end
 --- @export
 sealed interface span.WriteSpan<T> is span.CountedSpan
     readonly count: integer
-    @drop
+    drop: nosuspend function(takes self: WriteSpan<T>): nil
     commit: nosuspend function(takes self: WriteSpan<T>): nil
     getMut: function(exclusive self: WriteSpan<T>, index: integer): T* borrows (self)
     set: function(exclusive self: WriteSpan<T>, index: integer, value: T): nil
@@ -161,7 +161,7 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
     readonly count: integer
 
     --- Ends this affine write range. It is also the automatic scope-exit drop.
-    @drop
+    drop: nosuspend function(takes self: WriteSpanImpl<T>): nil
 
     commit: nosuspend function(takes self: WriteSpanImpl<T>): nil
 
@@ -260,7 +260,7 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
     private readonly offset: integer
     readonly count: N
 
-    @drop
+    drop: nosuspend function(takes self: FixedWriteSpanImpl<T, N>): nil
     commit: nosuspend function(takes self: FixedWriteSpanImpl<T, N>): nil
 
     function getMut(exclusive self: FixedWriteSpanImpl<T, N>, index: integer): T* borrows (self)
@@ -344,18 +344,22 @@ end
 
 function WriteSpanImpl.commit<T>(takes self: WriteSpanImpl<T>): nil
     nosuspend do
-        unsafe do
-            local _raw = intoRaw(self)
-        end
+        local _raw = unsafe release self
     end
 end
 
 function FixedWriteSpanImpl.commit<T, const N: integer>(takes self: FixedWriteSpanImpl<T, N>): nil
     nosuspend do
-        unsafe do
-            local _raw = intoRaw(self)
-        end
+        local _raw = unsafe release self
     end
+end
+
+function WriteSpanImpl.drop<T>(takes self: WriteSpanImpl<T>): nil
+    self:commit()
+end
+
+function FixedWriteSpanImpl.drop<T, const N: integer>(takes self: FixedWriteSpanImpl<T, N>): nil
+    self:commit()
 end
 
 --- Ends an affine write range and releases its exclusive-borrow barrier.

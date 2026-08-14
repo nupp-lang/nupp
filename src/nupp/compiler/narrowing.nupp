@@ -34,9 +34,9 @@ local type Type = T.Type
 --- @param rem what the test ruled out
 --- @return what `t` still admits
 function narrowing.subtract(t: Type, rem: Type): Type
-    if t.tag == "owned" then
+    if t.tag == "affine" then
         local inner = narrowing.subtract(t.inner, rem)
-        return inner == t.inner and t or T.owned(inner, t.cleanups, t.opaque)
+        return inner == t.inner and t or T.affine(inner, t.cleanups, t.transferOnly)
     elseif t.tag == "borrowed" then
         local inner = narrowing.subtract(t.inner, rem)
         return inner == t.inner and t or T.borrowed(inner)

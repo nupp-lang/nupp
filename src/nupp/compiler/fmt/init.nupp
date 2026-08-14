@@ -427,10 +427,10 @@ local function annotate(root)
             headerPart[n.whereClause] = true
         end
         -- A declaration's annotations are children of the declaration, parsed before
-        -- the member they decorate. A docblock above `@drop` documents the member, so
-        -- the span carrying the blank line after it has to reach the member's last
-        -- token rather than stopping at the annotation's, which would set the docblock
-        -- off from what it documents.
+        -- the member they decorate. A docblock above an annotation documents the
+        -- member, so the span carrying the blank line after it has to reach the
+        -- member's last token rather than stopping at the annotation's, which would set
+        -- the docblock off from what it documents.
         local documented: {[cst.Node]: cst.Node} = {}
         for _, entry in ipairs(n.entries or {}) do
             for _, application in ipairs(entry.annotations or {}) do

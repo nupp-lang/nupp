@@ -190,7 +190,6 @@ annotated directly.
 | `@ref` | Implemented | None | An annotation definition field |
 | `@allow` | Implemented | Lint names or codes        statement |  |
 | `@borrowed` | Implemented | Foreign output and source      c-funct | n |
-| `@drop` | Implemented | None | function, c-function, field |
 | `@override` | Implemented | None | function |
 | `@partition` | Implemented | Two result field names | sealed interface field |
 | `@effects` | Implemented | Named effect members | function, c-function, local-binding |
@@ -235,10 +234,10 @@ use reports the suppressible `deprecated` lint; completion and semantic tokens
 carry the LSP deprecated tag/modifier; hover shows the reason and replacement;
 and generated documentation retains the annotation. It emits no Lua.
 
-An owning result is written in the result type as `Owned<T>`, which takes the
-type's own `@drop` operation, or `Owned<T, cleanup>`, which names a terminal.
-`Owned<T, opaque>` is the explicit transfer-only form. See [Ownership and FFI
-safety](ownership.md).
+An owning result is written in the result type as `Owned<T>`, whose ordinary
+prelude default requires structural `Drop`, or `Owned<T, cleanup>`, which names
+an explicit const-function terminal. `Transfer<T>` is the explicit
+transfer-only form. See [Ownership and FFI safety](ownership.md).
 
 On a C function, `@borrowed(out = view, from = source, success = zero)`
 describes a logical output tied to a `borrows` input. An *owned* output needs no
@@ -251,15 +250,10 @@ A declaration that never comes back, because it raises, exits, or loops forever,
 says so with `never` as its return type, not an annotation; see
 [primitives](type-system/primitives.md#never-the-bottom-type).
 
-`@drop` marks a consuming function, method, or interface field as a type's
-default drop operation. A drop contract must take its resource, and a bare
-`Owned<T>` result is rejected unless exactly one default applies. See
-[Ownership and FFI safety](ownership.md) for the complete model and examples.
-
-Automatic lexical cleanup works over owning producers with arbitrary return
-types; the returned type does not need to implement a cleanup interface. A
-terminal named on the result belongs to that producer, so different producers of
-the same type may carry different cleanup contracts.
+Automatic lexical cleanup works over every public `affine type`. `Owned<T>`
+uses structural `Drop`; an explicit terminal belongs to that affine type, so
+different policies over the same runtime representation remain distinct static
+types.
 
 `@override` marks a member that replaces a default implementation an interface
 provides. It is required there, and equally an error on a member that replaces

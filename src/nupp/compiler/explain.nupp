@@ -690,13 +690,12 @@ local ENTRIES: {any} = {
     {
         code = "NUPP2603",
         summary = "An ownership obligation is not discharged or cannot escape",
-        rule = "An owned value must be consumed, dropped, returned under a "
-        .. "matching ownership contract, or explicitly converted to raw form. "
+        rule = "An affine value must be consumed, dropped, returned under a "
+        .. "matching ownership contract, or explicitly released in unsafe. "
         .. "Borrows likewise stay within the lifetime and suspension boundaries "
         .. "their provenance permits.",
-        wrong = "cdef function begin_request(): Owned<voidptr, opaque>\n"
-        .. "local request = begin_request()\nreturn 0\n",
-        right = "cdef function begin_request(): Owned<voidptr, opaque>\n"
+        wrong = "cdef function begin_request(): Transfer<voidptr>\n" .. "local request = begin_request()\nreturn 0\n",
+        right = "cdef function begin_request(): Transfer<voidptr>\n"
         .. "cdef function submit_request(takes request: voidptr)\n"
         .. "local request = begin_request()\nsubmit_request(request)\nreturn 0\n",
         related = {"NUPP2601", "NUPP2602", "NUPP2605"},
@@ -704,14 +703,15 @@ local ENTRIES: {any} = {
     },
     {
         code = "NUPP2615",
-        summary = "An owned value names an invalid cleanup operation",
-        rule = "The cleanup named by `Owned<T, cleanup>` must be visible and accept the " .. "owned value's raw type.",
+        summary = "An affine value names an invalid terminal",
+        rule = "The terminal must be visible and have the exact shape "
+        .. "`nosuspend function(takes Representation): nil`.",
         wrong = "local record Resource\nend\nlocal record Other\nend\n"
-        .. "local function release(value: Other): nil\nend\n"
+        .. "local function release(takes value: Other): nil\nend\n"
         .. "local function acquire(): Owned<Resource, release>\n"
         .. "    return new Resource()\nend\nreturn acquire\n",
         right = "local record Resource\nend\nlocal record Other\nend\n"
-        .. "local function release(value: Resource): nil\nend\n"
+        .. "local function release(takes value: Resource): nil\nend\n"
         .. "local function acquire(): Owned<Resource, release>\n"
         .. "    return new Resource()\nend\nreturn acquire\n",
         related = {"NUPP2602", "NUPP2603"},

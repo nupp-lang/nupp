@@ -104,7 +104,7 @@ end
 function M.automaticCleanupParticipatesInTheRaisingSummary()
    local found = refusals(table.concat({
       "local record Resource end",
-      "@drop",
+      "@effects(yields = false)",
       "local function close(takes value: Resource): nil error('close') end",
       "local function open(): Owned<Resource, close> return new Resource() end",
       "local function use(): nil local value = open() end",

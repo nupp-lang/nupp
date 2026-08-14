@@ -16,11 +16,9 @@ local free_nosuspend = free as nosuspend function(takes pointer: voidptr): nil
 
 local function finish_array(takes self: any): nil
     nosuspend do
-        unsafe do
-            local raw = intoRaw(self)
-            local pointer = fromRaw(raw.pointer as voidptr, free_nosuspend)
-            free_nosuspend(pointer)
-        end
+        local raw = unsafe release self
+        local pointer = unsafe adopt raw.pointer as Owned<voidptr, free_nosuspend>
+        free_nosuspend(pointer)
     end
 end
 
@@ -34,7 +32,8 @@ record heap.Array<T>
     readonly count: integer
 
     --- Releases the allocation. Scope exit invokes this automatically.
-    @drop
+    drop: nosuspend function(takes self: Array<T>): nil
+
     close: nosuspend function(takes self: Array<T>): nil
 
     --- Borrows the whole allocation as a shared checked span.
@@ -50,6 +49,10 @@ end
 
 function heap.Array.close<T>(takes self: heap.Array<T>): nil
     finish_array_nosuspend(self)
+end
+
+function heap.Array.drop<T>(takes self: heap.Array<T>): nil
+    self:close()
 end
 
 function heap.Array.write<T>(exclusive self: heap.Array<T>): Owned<span.WriteSpan<T>> borrows (self)

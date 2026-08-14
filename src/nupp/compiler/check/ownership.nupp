@@ -44,15 +44,6 @@ type ownership.Ops = {
     --- Checks that a value's declared cleanups exist and take it.
     validateCleanups: function(valueT: Type?, cleanups: any, at: any, code: string?),
 
-    --- The cleanups an owning result carries once an inherited `@drop` has been read.
-    resolvedOwnedCleanups: function(
-        valueT: Type?,
-        cleanups: any,
-        opaque: any,
-        at: any,
-        registrationNode: any?
-    ): {T.Cleanup},
-
     --- Resolves free cleanup names once, where their contract is declared.
     resolveCleanups: function(cleanups: any, at: any, registrationNode: any?): {T.Cleanup},
 
@@ -61,24 +52,11 @@ type ownership.Ops = {
     --- that reaches no declaration answers nil.
     cleanupKeyFor: function(name: string): (string?, any),
 
-    --- Records a `@drop` operation as the default cleanup of what it takes.
-    registerDefaultDropOperation: function(ft: Type?, path: string, at: any, registrationNode: any?, declaration: any?),
-
-    --- Adds a resolved default cleanup to a nominal, idempotently across rechecks.
-    addDefaultDropOperation: function(resourceT: Type?, cleanup: T.Cleanup),
-
-    --- A return pack with each result written bare `Owned<T>` given the terminal `T`
-    --- declared. Written nodes decide; unions and computed tails are left alone.
-    normalizeOwnedResults: function(pack: any, writtenPack: any, at: any): any,
-
-    --- The terminals a nominal has registered, without resolving or reporting.
-    inheritedTerminals: function(resourceT: any): {T.Cleanup},
-
     --- The resource an owner carries, behind its qualifier and behind an optional.
     resourceBehind: function(t: any): any,
 
-    --- Reports bare producers whose result never acquired one default drop operation.
-    finalizeDefaultCleanups: function(),
+    --- Finishes generic terminal validation after all structural members are known.
+    finalizeCleanupBounds: function(),
 
     --- The binding an expression's ownership is recorded on, and the name it was
     --- reached through.
@@ -116,10 +94,10 @@ type ownership.Ops = {
 --- @return the operations the walk calls
 function ownership.install(c: state.Checker): ownership.Ops
     local own = {}
-    local pendingDefaultCleanups = {}
+    local pendingGenericCleanupBounds = {}
 
     function own.ownershipKind(t)
-        return t and (t.tag == "owned" or t.tag == "borrowed" or t.tag == "pinned") and t.tag or nil
+        return t and (t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") and t.tag or nil
     end
 
     function own.ownershipState(entry)
@@ -159,7 +137,7 @@ function ownership.install(c: state.Checker): ownership.Ops
 
     function own.optionalOwned(t)
         local inner = rawType(t)
-        return own.ownershipKind(t) == "owned" and inner.tag == "union" and inner.hasNil
+        return own.ownershipKind(t) == "affine" and inner.tag == "union" and inner.hasNil
     end
 
     -- Terminal lookup reaches through an optional owner, while the owner itself still
@@ -205,6 +183,13 @@ function ownership.install(c: state.Checker): ownership.Ops
     local cleanupOrdinals: {[string]: integer} = {}
     local cleanupKeys: {[any]: string} = {}
 
+    local function stableOrigin(origin: string): string
+        while origin:sub(1, 2) == "./" or origin:sub(1, 2) == ".\\" do
+            origin = origin:sub(3)
+        end
+        return origin
+    end
+
     local function cleanupKey(origin: string, name: string, definition: any): string
         local base = ("%s#%s"):format(origin, name)
         if not definition then
@@ -232,12 +217,18 @@ function ownership.install(c: state.Checker): ownership.Ops
     -- after binding the function. That matters for a top-level owner, which can be
     -- discharged before a module-level registration appended near the return runs.
     function own.cleanupKeyFor(name)
-        local entry = c.lookupEntry(name)
+        local entry = c.lookupEntry(name) or c.qualifiedFunctionEntries[name]
         local definition = entry and entry.definition or nil
         if not definition then
             return nil, nil
         end
-        local origin = c.result.moduleName or c.filename or "<module>"
+        local definitionModule = definition.filename and c.env and c.env.moduleNameForPath and c.env.moduleNameForPath(
+            c.env,
+            definition.filename
+        )
+        local origin = stableOrigin(
+            definitionModule or definition and definition.filename or c.result.moduleName or c.filename or "<module>"
+        )
         local key = cleanupKey(origin, name, definition)
         local bound = entry and entry.t or nil
         if bound and bound.tag == "func" then
@@ -250,7 +241,17 @@ function ownership.install(c: state.Checker): ownership.Ops
     local function resolvedFunctionCleanup(name, at, registrationNode, after, knownType)
         local entry = c.lookupEntry(name)
         local definition = entry and entry.definition or nil
-        local origin = c.result.moduleName or c.filename or "<module>"
+        local definitionModule = definition
+            and definition.filename
+            and c.env
+            and c.env.moduleNameForPath
+            and c.env.moduleNameForPath(
+            c.env,
+            definition.filename
+        )
+        local origin = stableOrigin(
+            definitionModule or definition and definition.filename or c.result.moduleName or c.filename or "<module>"
+        )
         local key = cleanupKey(origin, name, definition)
         local cleanup = T.functionCleanup(key, name, knownType or entry and entry.t or nil)
         addRegistration(registrationNode, cleanup, after == true)
@@ -280,6 +281,8 @@ function ownership.install(c: state.Checker): ownership.Ops
     function own.validateCleanups(valueT, cleanups, at, code)
         code = code or "NUPP2602"
         local cleanupValue = rawType(valueT)
+        -- Optional ownership carries no obligation in its nil state, so the terminal
+        -- contract is the present representation and lowering guards the call.
         if cleanupValue.tag == "union" and cleanupValue.hasNil then
             local present = {}
             for _, member in ipairs(cleanupValue.members) do
@@ -305,13 +308,32 @@ function ownership.install(c: state.Checker): ownership.Ops
             end
             local cleanupT = cleanup.functionType or c.lookupVar(cleanup.name)
             local cleanupFunc = cleanupT and cleanupT.tag == "func" and cleanupT or nil
+            local cleanupEntry = c.lookupEntry(cleanup.name) or c.qualifiedFunctionEntries[cleanup.name]
+            local cVoidTerminal = cleanupFunc
+                and #cleanupFunc.rets == 0
+                and cleanupFunc.retPack.tail == nil
+                and cleanupEntry
+                and cleanupEntry.definition
+                and cleanupEntry.definition.cdef
             if cleanup.kind == "function" and c.nosuspend and c.nosuspend.cleanup then
-                local entry = c.lookupEntry(cleanup.name)
-                cleanup.token = entry and entry.definition and entry.definition.token or nil
-                cleanup.visibleBody = entry and entry.definition and not c.declarationFile or nil
+                local localDefinition = cleanupEntry
+                    and cleanupEntry.definition
+                    and cleanupEntry.definition.filename == c.filename
+                    and cleanupEntry.definition
+                    or nil
+                cleanup.token = localDefinition and localDefinition.token or nil
+                cleanup.visibleBody = localDefinition and not c.declarationFile or nil
                 c.nosuspend.cleanup(cleanup, at)
             end
             local firstParam = cleanupFunc and cleanupFunc.params[1] or nil
+            local genericBound = nil
+            if firstParam and firstParam.tag == "typevar" and cleanupFunc then
+                for parameter, typeParameter in ipairs(cleanupFunc.typeParams or {}) do
+                    if typeParameter == firstParam then
+                        genericBound = cleanupFunc.typeBounds and cleanupFunc.typeBounds[parameter] or nil
+                    end
+                end
+            end
             if not cleanupT then
                 c.diag(code, at, ("cleanup %q is not declared"):format(cleanup.name), nil, {
                     notes = {
@@ -320,8 +342,26 @@ function ownership.install(c: state.Checker): ownership.Ops
                         .. "can see"
                     }
                 })
-            elseif cleanupT and cleanupT ~= T.any and (not firstParam or not isA(cleanupValue, firstParam)) then
-                c.diag(code, at, ("cleanup %q must accept %s"):format(cleanup.name, T.tostring(cleanupValue)))
+            elseif genericBound and not isA(cleanupValue, genericBound) then
+                pendingGenericCleanupBounds[
+                    #pendingGenericCleanupBounds + 1
+                ] = {cleanup = cleanup, value = cleanupValue, bound = genericBound, at = at, code = code,}
+            elseif cleanupT and cleanupT ~= T.any and not cleanupFunc then
+                c.diag(code, at, ("terminal %q must be a function"):format(cleanup.name))
+            elseif cleanupFunc and (
+                #cleanupFunc.params ~= 1 or cleanupFunc.paramPack.tail ~= nil or cleanupFunc.paramModes[1] ~= "takes"
+            ) then
+                c.diag(code, at, ("terminal %q must take exactly one consuming argument"):format(cleanup.name))
+            elseif cleanupFunc and not genericBound and (not firstParam or firstParam.id ~= cleanupValue.id) then
+                c.diag(code, at, ("terminal %q must take exactly %s"):format(cleanup.name, T.tostring(cleanupValue)))
+            elseif cleanupFunc and (
+                not cVoidTerminal and (
+                    #cleanupFunc.rets ~= 1 or cleanupFunc.retPack.tail ~= nil or cleanupFunc.rets[1] ~= T.nil_
+                )
+            ) then
+                c.diag(code, at, ("terminal %q must return nil"):format(cleanup.name))
+            elseif cleanupFunc and not cleanupFunc.noYield and cleanup.visibleBody ~= true then
+                c.diag(code, at, ("terminal %q must be nosuspend"):format(cleanup.name))
             elseif cleanupFunc and j < #(cleanups or {}) and cleanupFunc.paramModes[1] == "takes" then
                 c.diag("NUPP2615", at, ("cleanup %q takes before the final step"):format(cleanup.name))
             end
@@ -329,217 +369,18 @@ function ownership.install(c: state.Checker): ownership.Ops
         end
     end
 
-    function own.resolvedOwnedCleanups(valueT, cleanups, opaque, at, registrationNode)
-        local resource = own.resourceBehind(valueT)
-        if resource.tag == "nominal" then
-            resource.affineResource = true
-        end
-        if #(cleanups or {}) > 0 then
-            return own.resolveCleanups(cleanups, at, registrationNode)
-        elseif opaque then
-            return {}
-        end
-        local base = resource
-        local defaults = base.tag == "nominal" and base.defaultDropOperations or nil
-        if not defaults or #defaults == 0 then
-            if base.tag ~= "nominal" then
+    function own.finalizeCleanupBounds()
+        for _, pending in ipairs(pendingGenericCleanupBounds) do
+            if not isA(pending.value, pending.bound) then
                 c.diag(
-                    "NUPP2602",
-                    at,
-                    "bare Owned<T> needs exactly one inherited @drop operation; "
-                    .. "use Owned<T, cleanup> or Owned<T, opaque>"
-                )
-                return {}
-            end
-            defaults = defaults or {}
-            base.defaultDropOperations = defaults
-            pendingDefaultCleanups[#pendingDefaultCleanups + 1] = {at = at, defaults = defaults}
-            return defaults
-        elseif #defaults > 1 then
-            c.diag(
-                "NUPP2602",
-                at,
-                "bare Owned<T> has multiple inherited @drop operations; " .. "choose one with Owned<T, cleanup>"
-            )
-            return {}
-        end
-
-        return {defaults[1]}
-    end
-
-    function own.finalizeDefaultCleanups()
-        for _, pending in ipairs(pendingDefaultCleanups) do
-            if #pending.defaults == 0 then
-                c.diag(
-                    "NUPP2602",
+                    pending.code,
                     pending.at,
-                    "bare Owned<T> needs exactly one inherited @drop operation; "
-                    .. "use Owned<T, cleanup> or Owned<T, opaque>"
-                )
-            elseif #pending.defaults > 1 then
-                c.diag(
-                    "NUPP2602",
-                    pending.at,
-                    "bare Owned<T> has multiple inherited @drop operations; " .. "choose one with Owned<T, cleanup>"
+                    (
+                        "cleanup %q requires %s to satisfy %s"
+                    ):format(pending.cleanup.name, T.tostring(pending.value), T.tostring(pending.bound))
                 )
             end
         end
-    end
-
-    function own.addDefaultDropOperation(resourceT, cleanup)
-        if not resourceT then
-            return
-        end
-        local base = rawType(resourceT)
-        if base.tag ~= "nominal" then
-            return
-        end
-        local defaults = base.defaultDropOperations or {}
-        base.defaultDropOperations = defaults
-        for _, current in ipairs(defaults) do
-            if current.id == cleanup.id then
-                return
-            end
-        end
-        defaults[#defaults + 1] = cleanup
-    end
-
-    function own.registerDefaultDropOperation(ft, path, at, registrationNode, declaration)
-        if not ft or ft.tag ~= "func" or not ft.params[1] or ft.paramModes[1] ~= "takes" then
-            c.diag("NUPP2602", at, "@drop requires a function whose first parameter takes " .. "the resource")
-            return
-        end
-        -- One descriptor per decorated declaration, kept on it. A `@drop` is registered
-        -- twice -- once statically, so a result written `Owned<T>` can inherit it
-        -- wherever in the file the terminal was declared, and once while the
-        -- declaration is checked, which is what emits the runtime write. Both have to
-        -- name the same cleanup: two descriptors would be two identities, and an owned
-        -- type interns on the identities of the cleanups it carries.
-        local cleanup = declaration and declaration.dropCleanup
-        if not cleanup then
-            cleanup = resolvedFunctionCleanup(path, at, registrationNode, true, ft)
-            if declaration then
-                declaration.dropCleanup = cleanup
-            end
-        else
-            addRegistration(registrationNode, cleanup, true)
-        end
-        own.addDefaultDropOperation(ft.params[1], cleanup)
-    end
-
-    -- A result written bare `Owned<T>` takes the terminal `T` declared. One helper for
-    -- every path that builds a signature, so a callable field, a bodyless declaration
-    -- and a function statement all say the same thing by saying it once.
-    --
-    -- Written nodes decide, not resolved shapes: a type can be owned for reasons the
-    -- signature never spelled -- an affine closure is -- and inheriting for one of
-    -- those would demand a `@drop` its author never claimed to have. `Owned<T, f>`
-    -- already named its terminal and is left alone, and so is anything that is not a
-    -- nominal, because a closure carries its own terminal and a C pointer has none.
-    -- Reads what is registered and says nothing. Every path normalizes, but only one
-    -- of them speaks for the declaration, and the others must not resolve their way
-    -- into a diagnostic on the way past.
-    function own.inheritedTerminals(resourceT)
-        return resourceT and resourceT.tag == "nominal" and resourceT.defaultDropOperations or {}
-    end
-
-    local reportedResults: {[any]: boolean} = {}
-
-    -- Once per written result, not once per pass. The same signature is normalized
-    -- where it is read as a function type, again when it is published while hoisting,
-    -- and again when the declaration is checked. The mistake is in the source, so the
-    -- report belongs to the node.
-    --
-    -- Declared here rather than beside its callers so that the loop holding them can be
-    -- compiled: a function built inside a loop is one LuaJIT cannot record.
-    local function reportOwnedResult(site, message, help)
-        if not site or reportedResults[site] then
-            return
-        end
-        reportedResults[site] = true
-        c.diag("NUPP2602", site, message, nil, {help = help})
-    end
-
-    function own.normalizeOwnedResults(pack, writtenPack, at)
-        -- Narrowed once here rather than at each caller: a `returnPack` is an ordinary
-        -- node until its kind says otherwise, and a pack union has arms rather than
-        -- result slots for a written node to map onto.
-        local writtenTypes = writtenPack ~= nil and writtenPack.kind == "tpack" and (
-            writtenPack as cst.Tpack
-        ).types or nil
-        -- A union has arms rather than result slots, so there is nothing to map a
-        -- written node onto. A tail is computed and equally unmapped; its fixed head
-        -- still is.
-        if not pack or pack.alternatives or not writtenTypes or #pack.head == 0 then
-            return pack
-        end
-        local head, changed = nil, false
-        for j, resolved in ipairs(pack.head) do
-            local written = cst.resultValueType(writtenTypes[j])
-            local bare = written ~= nil
-                and written.kind == "tname"
-                and written.base ~= nil
-                and written.base.text == "Owned"
-                and not (
-                written.typeArgs and written.typeArgs[2]
-            )
-            if bare and resolved.tag == "owned" and not resolved.opaque and #(resolved.cleanups or {}) == 0 then
-                -- A producer says what discharges what it hands over. Bare `Owned<T>`
-                -- means the one terminal `T` declared, so no terminal and several are
-                -- both unanswerable here -- and answering silently is the hole this
-                -- closes: it is what made a result carrying no cleanup mean either
-                -- "transfer-only on purpose" or "nothing was found".
-                --
-                -- Results only. A field written bare `Owned<T>` stays a cleanup-erased
-                -- shape, because a field is written from a `takes` parameter whose type
-                -- carries no contract to match against.
-                -- The declared resource is what the result carries; only terminal
-                -- lookup reaches behind its optional arm.
-                local declared = rawType(resolved)
-                local resource = own.resourceBehind(declared)
-                local terminals = own.inheritedTerminals(resource)
-                if resource.tag == "func" then
-                    -- A closure carries its own terminal, discharged through the
-                    -- capture it took. There is no `@drop` for it to be missing.
-                elseif resource.tag ~= "nominal" or #terminals == 0 then
-                    -- The case the rule exists for. A result carrying no cleanup used
-                    -- to
-                    -- mean either "transfer-only on purpose" or "nothing was found",
-                    -- and
-                    -- nothing in the source said which.
-                    reportOwnedResult(
-                        written or at,
-                        "an owning result needs a terminal",
-                        "give the type a `@drop`, name one with `Owned<T, cleanup>`, "
-                        .. "or say `Owned<T, opaque>` for a transfer-only owner"
-                    )
-                elseif #terminals > 1 then
-                    reportOwnedResult(
-                        written or at,
-                        (
-                            "an owning result of %s has %d terminals to choose from"
-                        ):format(T.tostring(resource), #terminals),
-                        "name the one this result means with `Owned<T, cleanup>`"
-                    )
-                else
-                    local cleanups = own.resolvedOwnedCleanups(resource, nil, false, written or at, nil)
-                    head = head or {}
-                    if not changed then
-                        for k, slot in ipairs(pack.head) do
-                            head[k] = slot
-                        end
-                        changed = true
-                    end
-                    head[j] = T.owned(declared, cleanups)
-                    own.validateCleanups(head[j], cleanups, written or at, "NUPP2615")
-                end
-            end
-        end
-        if not changed then
-            return pack
-        end
-
-        return T.pack(head, pack.tail, pack.modes)
     end
 
     -- One fix builder serves function statements and callable fields. What resolved
@@ -759,10 +600,10 @@ function ownership.install(c: state.Checker): ownership.Ops
     end
 
     function own.moveExpression(expr, t, reason, expectedKind, allowPartial)
-        expectedKind = expectedKind or "owned"
-        local dropOperation = c.dropOperationFieldStack[#c.dropOperationFieldStack]
+        expectedKind = expectedKind or "affine"
+        local dropOperation = c.consumingFieldStack[#c.consumingFieldStack]
         if dropOperation
-            and expectedKind == "owned"
+            and expectedKind == "affine"
             and expr
             and expr.kind == "dotIndex"
             and expr.obj
@@ -785,12 +626,14 @@ function ownership.install(c: state.Checker): ownership.Ops
             c.diag("NUPP2602", expr, (reason or "ownership transfer") .. " requires a " .. expectedKind .. " value")
             return false
         end
-        if expr and expr.kind == "dotIndex" and expectedKind == "owned" then
+        if expr and expr.kind == "dotIndex" and expectedKind == "affine" then
             local container = expr.obj and own.ownershipState((own.ownershipEntry(expr.obj))) or nil
             local field = expr.name and expr.name.text
             local aggregate = container and rawType(container.t) or nil
             local declared = aggregate and aggregate.tag == "nominal" and aggregate.byname[field] or nil
-            if not container or own.ownershipKind(container.t) ~= "owned" or own.ownershipKind(declared) ~= "owned" then
+            if not container or own.ownershipKind(
+                container.t
+            ) ~= "affine" or own.ownershipKind(declared) ~= "affine" then
                 c.diag("NUPP2602", expr, "only a declared affine field of a named owning record can move")
                 return false
             end
@@ -821,7 +664,7 @@ function ownership.install(c: state.Checker): ownership.Ops
                 container.automaticOwner.movedFields[field] = true
             end
             return true
-        elseif expr and expr.kind == "bracketIndex" and expectedKind == "owned" then
+        elseif expr and expr.kind == "bracketIndex" and expectedKind == "affine" then
             c.diag("NUPP2602", expr, "computed partial moves cannot prove which affine field moved")
             return false
         end

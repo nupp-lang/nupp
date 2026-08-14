@@ -26,7 +26,6 @@ local functions = {}
 --- @param c the run's state
 --- @return the statement kinds this family answers
 function functions.install(c: state.Checker): state.StatHandlers
-    local registerDefaultDropOperation = c.own.registerDefaultDropOperation
 
     local ownershipState, pointerShaped = c.ownershipState, c.pointerShaped
     local expectedFuncbodies: {[any]: Type} = {}
@@ -95,17 +94,15 @@ function functions.install(c: state.Checker): state.StatHandlers
                 local calleeName = directName(node.obj)
                 local calleeT = calleeName and c.lookupVar(calleeName) or nil
                 -- By spelling, because this reads modes out of a body before anything
-                -- has resolved the names in it. Both spellings of an intrinsic have to
-                -- answer here, or a body written with `nupp.drop` gives its
-                -- parameter
-                -- a weaker mode than the one beside it written with `drop`.
-                local intrinsic = cst.ownershipIntrinsicSpelling(node.obj)
+                -- has resolved the names in it. A `drop` operation has to answer here
+                -- or its parameter gets a weaker mode than the operation requires.
+                local intrinsic = node.ownershipSyntax or cst.ownershipIntrinsicSpelling(node.obj)
                 local args = node.args and node.args.exprs or {}
                 for j, arg in ipairs(args) do
                     local name = directName(arg)
                     if name then
                         local effect
-                        if intrinsic == "drop" or intrinsic == "intoRaw" then
+                        if intrinsic == "drop" then
                             effect = "takes"
                         elseif intrinsic == "borrow" or intrinsic == "pin" then
                             effect = "borrows"
@@ -368,7 +365,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                 local valueType = state and state.t or nil
                 if not state then
                     c.diag("NUPP2109", token, ("%s names no value to capture"):format(token.text))
-                elseif c.ownershipKind(valueType) ~= "owned" then
+                elseif c.ownershipKind(valueType) ~= "affine" then
                     c.diag(
                         "NUPP2602",
                         token,
@@ -384,7 +381,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                     )
                 else
                     local moveNode = {kind = "name", token = token}
-                    c.moveExpression(moveNode, valueType, "closure capture", "owned")
+                    c.moveExpression(moveNode, valueType, "closure capture", "affine")
                     captures[
                         #captures + 1
                     ] = {
@@ -476,16 +473,14 @@ function functions.install(c: state.Checker): state.StatHandlers
             explicitSelf = nil
         end
         local inferredModes, declaredModes = inferredParameterModes(body)
+        local receiverMode = nil
         if explicitSelf then
             local mode = inferredModes[1] or "borrows"
-            if not declaredModes[
-                1
-            ] and mode ~= "takes" and not pointerShaped(
-                selfType
-            ) and not (selfType.tag == "nominal" and selfType.affineResource) then
+            if not declaredModes[1] and mode ~= "takes" and not pointerShaped(selfType) then
                 mode = "plain"
             end
             body.receiverMode = mode
+            receiverMode = mode
         end
         local scopedCandidates = scopedCallbackParameters(body, true)
         local vararg = false
@@ -525,9 +520,12 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
         body.takenCaptures = captures
         if selfType then
+            local receiverType = receiverMode == "takes" and T.affine(
+                selfType
+            ) or (receiverMode == "borrows" or receiverMode == "exclusive") and T.borrowed(selfType) or selfType
             c.bindVar(
                 "self",
-                selfType,
+                receiverType,
                 explicitSelf and explicitSelf.type ~= nil,
                 explicitSelf and explicitSelf.name or nil,
                 "parameter"
@@ -565,16 +563,16 @@ function functions.install(c: state.Checker): state.StatHandlers
                 end
                 c.bindVar(p.name.text, T.table_, false, p.name, "parameter", true)
             elseif p.name then
-                local pt = p.type and c.resolveType(p.type) or (expectedParams and expectedParams[#params + 1]) or T.any
+                local pt = p.constDomainTok and T.functionConst or p.type and c.resolveType(
+                    p.type
+                ) or (expectedParams and expectedParams[#params + 1]) or T.any
                 params[#params + 1] = pt
                 paramNames[#params] = p.name.text
                 local mode = inferredModes[sourceIndex] or "borrows"
                 if not declaredModes[sourceIndex] and scopedCandidates[p.name.text] and rawType(pt).tag == "func" then
                     mode = "scoped"
                 end
-                if not declaredModes[
-                    sourceIndex
-                ] and mode ~= "takes" and not pointerShaped(pt) and not (pt.tag == "nominal" and pt.affineResource) then
+                if not declaredModes[sourceIndex] and mode ~= "takes" and not pointerShaped(pt) then
                     mode = "plain"
                 end
                 paramModes[#params] = mode
@@ -584,8 +582,12 @@ function functions.install(c: state.Checker): state.StatHandlers
                 if (mode == "retains" or mode == "releases") and not pointerShaped(pt) then
                     c.diag("NUPP2602", p, mode .. " parameters must have a pointer-shaped type")
                 end
-                local bound = mode == "takes" and T.owned(
-                    pt
+                -- An explicitly affine annotation already names the exact terminal.
+                -- Wrapping it in the terminal-less internal `takes` capability would
+                -- erase that identity and let a body return it as an owner with a
+                -- different cleanup function.
+                local bound = mode == "takes" and (
+                    pt.tag == "affine" and pt or T.affine(pt)
                 ) or (mode == "borrows" or mode == "exclusive") and T.borrowed(pt) or pt
                 c.bindVar(p.name.text, bound, p.type ~= nil, p.name, "parameter")
                 if mode == "exclusive" then
@@ -659,32 +661,23 @@ function functions.install(c: state.Checker): state.StatHandlers
             annotated[1] = rawType(annotated[1])
             rets[1] = annotated[1]
         end
-        -- `Owned<T>` written as a return type states ownership in the position it is
-        -- about. Every position is resolved, so a function may own any result and not
-        -- only its first, and a terminal comes from the type's own `@drop` rather than
-        -- being restated at each producer.
+        -- An affine return type states ownership in the position it is about. Every
+        -- position is resolved, so a function may own any result and not only its
+        -- first; the selected terminal is already part of the type descriptor.
         local ownedReturns = {}
         local ownsAResult = false
-        local writtenResults = body.rets
         -- The same normalization every other signature path uses, so a declaration says
         -- one thing whether it was read here, published while hoisting, or written as a
         -- function type. The helper leaves a slot that carries cleanups alone.
-        local normalized = c.own.normalizeOwnedResults(T.pack(annotated or {}, nil), body.returnPack, body)
+        local normalized = T.pack(annotated or {}, nil)
         for j, ret in ipairs(normalized.head or {}) do
             annotated[j], rets[j] = ret, ret
-            if ret.tag == "owned" then
-                local written = cst.resultValueType(writtenResults and writtenResults[j])
-                local wroteOwned = written ~= nil
-                    and written.kind == "tname"
-                    and written.base ~= nil
-                    and written.base.text == "Owned"
-                if wroteOwned and j == 1 then
+            if ret.tag == "affine" then
+                if j == 1 then
                     body.ownCleanups = ret.cleanups
                 end
-                if wroteOwned then
-                    ownsAResult = true
-                    ownedReturns[j] = rawType(ret)
-                end
+                ownsAResult = true
+                ownedReturns[j] = rawType(ret)
             end
         end
         -- Rebuilt so the adjustments above, which write through `rets`, reach the pack
@@ -708,29 +701,29 @@ function functions.install(c: state.Checker): state.StatHandlers
         c.borrowReturnStack[
             #c.borrowReturnStack + 1
         ] = (body.rets and body.rets[1] and body.rets[1].kind == "tborrows" and body.rets[1]) or false
-        local dropOperationContext, dropRoot
-        if body.dropContract then
-            local resource, root = selfType, selfType and "self" or nil
-            if not resource then
-                for j, p in ipairs(body.params or {}) do
-                    if p.name and paramModes[j] == "takes" then
-                        resource, root = params[j], p.name.text
-                        break
-                    end
+        local consumingContext, consumingRoot
+        local resource, root = nil, nil
+        if selfType and receiverMode == "takes" then
+            resource, root = selfType, "self"
+        else
+            for j, p in ipairs(body.params or {}) do
+                if p.name and paramModes[j] == "takes" then
+                    resource, root = params[j], p.name.text
+                    break
                 end
-            end
-            resource = resource and rawType(resource) or nil
-            dropRoot = root
-            local affineFields = resource and resource.tag == "nominal" and resource.affineFields or nil
-            if affineFields and #affineFields > 0 then
-                local owned = {}
-                for _, field in ipairs(affineFields) do
-                    owned[field] = true
-                end
-                dropOperationContext = {root = root, allowed = owned, done = {}}
             end
         end
-        c.dropOperationFieldStack[#c.dropOperationFieldStack + 1] = dropOperationContext or false
+        resource = resource and rawType(resource) or nil
+        consumingRoot = root
+        local affineFields = resource and resource.tag == "nominal" and resource.affineFields or nil
+        if affineFields and #affineFields > 0 then
+            local owned = {}
+            for _, field in ipairs(affineFields) do
+                owned[field] = true
+            end
+            consumingContext = {root = root, allowed = owned, done = {}}
+        end
+        c.consumingFieldStack[#c.consumingFieldStack + 1] = consumingContext or false
         -- Started here rather than with the scope: the parameters are bound by now, so
         -- the body reading one of them resolves inside the watch and is not a capture.
         local loopClosure = c.loops.begin(c.functionDepth - 1)
@@ -826,17 +819,17 @@ function functions.install(c: state.Checker): state.StatHandlers
                 )
             end
         end
-        if body.dropContract and dropRoot and dropRoot ~= "self" then
-            local terminal = ownershipState(c.lookupEntry(dropRoot))
+        if consumingRoot then
+            local terminal = ownershipState(c.lookupEntry(consumingRoot))
             if terminal then
                 terminal.moved = true
             end
         end
-        c.dropOperationFieldStack[#c.dropOperationFieldStack] = nil
-        if dropOperationContext then
-            for field in pairs(dropOperationContext.allowed) do
-                if not dropOperationContext.done[field] then
-                    c.diag("NUPP2603", body.dropTok or body, ("@drop leaves owned field %q live"):format(field))
+        c.consumingFieldStack[#c.consumingFieldStack] = nil
+        if consumingContext then
+            for field in pairs(consumingContext.allowed) do
+                if not consumingContext.done[field] then
+                    c.diag("NUPP2603", body, ("consuming function leaves owned field %q live"):format(field))
                 end
             end
         end
@@ -927,7 +920,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         -- An owning result that borrows keeps its owned type: it still has to be
         -- discharged, and the borrow it holds is tracked on the value rather than in
         -- the type, the way a lexical borrow is.
-        if (borrowsParam or borrowsSelf or borrowsParams) and rets[1] and rets[1].tag ~= "owned" then
+        if (borrowsParam or borrowsSelf or borrowsParams) and rets[1] and rets[1].tag ~= "affine" then
             rets[1] = T.borrowed(rawType(rets[1]))
         end
         if body.returnPack and not retPack.alternatives then
@@ -963,7 +956,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             body.partitionResults
         )
         if #captures > 0 then
-            return T.owned(callable, {T.methodCleanup("__drop")})
+            return T.affine(callable, {T.closureCleanup()})
         end
 
         return callable
@@ -990,11 +983,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             local mode = "plain"
             if explicitSelf then
                 mode = inferredModes[1] or "borrows"
-                if not declaredModes[
-                    1
-                ] and mode ~= "takes" and not pointerShaped(
-                    selfType
-                ) and not (selfType.tag == "nominal" and selfType.affineResource) then
+                if not declaredModes[1] and mode ~= "takes" and not pointerShaped(selfType) then
                     mode = "plain"
                 end
                 body.receiverMode = mode
@@ -1009,14 +998,12 @@ function functions.install(c: state.Checker): state.StatHandlers
             if p == explicitSelf then
                 -- The receiver added above is the leading `self` spelling.
             elseif p.name and not p.namedVararg then
-                local pt = p.type and c.resolveType(p.type) or T.any
+                local pt = p.constDomainTok and T.functionConst or p.type and c.resolveType(p.type) or T.any
                 local mode = inferredModes[sourceIndex] or "borrows"
                 if not declaredModes[sourceIndex] and scopedCandidates[p.name.text] and rawType(pt).tag == "func" then
                     mode = "scoped"
                 end
-                if not declaredModes[
-                    sourceIndex
-                ] and mode ~= "takes" and not pointerShaped(pt) and not (pt.tag == "nominal" and pt.affineResource) then
+                if not declaredModes[sourceIndex] and mode ~= "takes" and not pointerShaped(pt) then
                     mode = "plain"
                 end
                 params[#params + 1] = pt
@@ -1050,7 +1037,6 @@ function functions.install(c: state.Checker): state.StatHandlers
         -- terminal a result inherits has to be settled here too. Otherwise a caller
         -- reached through the published signature and one reached after the body was
         -- checked would disagree about the same declaration.
-        retPack = c.own.normalizeOwnedResults(retPack, body and body.returnPack, body)
         local rets = body and body.returnPack and retPack.head or {T.any}
         local yieldPack = body and body.yieldPack and c.resolvePack(body.yieldPack) or nil
         local resumePack = body and body.resumePack and c.resolvePack(body.resumePack) or nil
@@ -1118,7 +1104,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         if functionEntry then
             functionEntry.jitTarget = functionEntry.definition
         end
-        if ft.tag == "owned" then
+        if ft.tag == "affine" then
             local entry = c.scope.vars[nameTok.text]
             local automatic = entry and entry.automaticOwner
             local initializer = {kind = "funcExpr", body = body, affineLocal = true}
@@ -1137,9 +1123,6 @@ function functions.install(c: state.Checker): state.StatHandlers
         -- recorded that read and is not mistaken for one nothing uses.
         c.unused.declared(nameTok, c.scope.vars[nameTok.text], "function")
         c.raises.check(stat, body)
-        if body.dropContract then
-            registerDefaultDropOperation(ft, nameTok.text, body.dropTok or stat, body.cleanupRegistrationNode, body)
-        end
     end
 
     handlers.funcStmt = function(stat: cst.FuncStmt)
@@ -1177,6 +1160,9 @@ function functions.install(c: state.Checker): state.StatHandlers
             memberDefinition.type = ft
             c.markToken(memberTok, memberDefinition, ft, memberDefinition.kind)
         end
+        if not fname.method and ownerKey and memberTok and memberDefinition then
+            c.qualifiedFunctionEntries[ownerKey .. "." .. memberTok.text] = {t = ft, definition = memberDefinition,}
+        end
         if stat.comptimeFunction then
             stat.comptimeSignature = ft
             stat.comptimeDefinition = memberDefinition
@@ -1211,12 +1197,6 @@ function functions.install(c: state.Checker): state.StatHandlers
         if not fname.method and not owner and ownerKey and memberTok then
             c.applyFacts({[ownerKey .. "." .. memberTok.text] = ft})
         end
-        if body.dropContract and not owner then
-            local path = ownerKey and memberTok and (
-                ownerKey .. "." .. memberTok.text
-            ) or fname.base and fname.base.text or "<drop>"
-            registerDefaultDropOperation(ft, path, body.dropTok or stat, body.cleanupRegistrationNode, body)
-        end
         if owner and owner.declKind == "struct" then
             -- reified receivers get their members through ffi.metatype
             stat.structOwner = owner.runtimePath or ownerKey
@@ -1231,7 +1211,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                 for _, p in ipairs(ft.params) do
                     params[#params + 1] = p
                 end
-                local modes = {body.dropMethod and "takes" or "plain"}
+                local modes = {body.receiverMode or "plain"}
                 local names = {"self"}
                 for _, mode in ipairs(ft.paramModes or {}) do
                     modes[#modes + 1] = mode
@@ -1302,19 +1282,6 @@ function functions.install(c: state.Checker): state.StatHandlers
                     signature = stored,
                     body = body,
                 }
-            end
-            if body.dropMethod then
-                if fname.method then
-                    c.own.addDefaultDropOperation(owner, T.methodCleanup(member))
-                else
-                    registerDefaultDropOperation(
-                        ft,
-                        (owner.runtimePath or ownerKey) .. "." .. member,
-                        body.dropTok or stat,
-                        body.cleanupRegistrationNode,
-                        body
-                    )
-                end
             end
             if owner.fieldOrder and (fname.method or owner.declKind == "struct") then
                 owner.fieldOrder[#owner.fieldOrder + 1] = member

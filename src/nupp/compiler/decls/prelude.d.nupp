@@ -21,6 +21,25 @@ This file is parsed and checked by `nupp` itself: the first dogfooded `.d.nupp`
 declaration file.
 ]]
 
+--- A resource with one conventional structural terminal.
+local interface Drop
+    drop: nosuspend function(takes self: self): nil
+end
+
+--- Invokes `Drop.drop`; used as the ordinary default const-function argument of
+--- `Owned<T>`. This body is compiled as the bundled prelude implementation before
+--- user-module code, through the same checker and generator as any package terminal.
+const __nuppDropDefault: nosuspend function<T is Drop>(takes value: T): nil
+
+--- A transparent affine owner. Its second argument is a declaration identity, so two
+--- cleanups with equal signatures still produce different ownership types.
+local affine type Owned<T, const cleanup: function = __nuppDropDefault> = T terminal cleanup
+end
+
+--- A deliberately terminal-less affine value which must be transferred or released.
+local affine type Transfer<T> = T
+end
+
 --- Writes every argument to standard output, converted with `tostring`, separated by
 --- tabs and followed by a newline.
 ---
@@ -1581,12 +1600,14 @@ record nupp.io
         --- @return whether the view is released
         isReleased: function(self: ByteView): boolean
 
-        --- Releases this snapshot. Repeated calls are safe.
+        --- Releases this snapshot as an ownership terminal. Repeated calls are safe.
+        --- @param self this byte view
+        drop: nosuspend function(takes self: ByteView): nil
+
+        --- Releases this snapshot and reports whether it succeeded.
         --- @param self this byte view
         --- @return whether the release succeeded
         --- @return a failure reason, when unsuccessful
-        @drop
-
         close: function(takes self: ByteView): (boolean, string?)
     end
 
@@ -1620,12 +1641,14 @@ record nupp.io
         --- @return a failure reason, when unsuccessful
         transferTo: function(self: Reader, borrows destination: Writer): (integer?, string?)
 
-        --- Closes this reader. Repeated calls are safe.
+        --- Closes this reader as an ownership terminal. Repeated calls are safe.
+        --- @param self this reader
+        drop: nosuspend function(takes self: Reader): nil
+
+        --- Closes this reader and reports whether it succeeded.
         --- @param self this reader
         --- @return whether the close succeeded
         --- @return a failure reason, when unsuccessful
-        @drop
-
         close: function(takes self: Reader): (boolean, string?)
     end
 
@@ -1672,12 +1695,14 @@ record nupp.io
         --- @return a failure reason, when unsuccessful
         flush: function(self: Writer): (boolean, string?)
 
-        --- Closes this writer. Repeated calls are safe.
+        --- Closes this writer as an ownership terminal. Repeated calls are safe.
+        --- @param self this writer
+        drop: nosuspend function(takes self: Writer): nil
+
+        --- Closes this writer and reports whether it succeeded.
         --- @param self this writer
         --- @return whether the close succeeded
         --- @return a failure reason, when unsuccessful
-        @drop
-
         close: function(takes self: Writer): (boolean, string?)
     end
 
@@ -1742,12 +1767,14 @@ record nupp.io
         --- @return whether the buffer is released
         isReleased: function(self: Buffer): boolean
 
-        --- Releases this buffer. Repeated calls are safe.
+        --- Releases this buffer as an ownership terminal. Repeated calls are safe.
+        --- @param self this buffer
+        drop: nosuspend function(takes self: Buffer): nil
+
+        --- Releases this buffer and reports whether it succeeded.
         --- @param self this buffer
         --- @return whether the release succeeded
         --- @return a failure reason, when unsuccessful
-        @drop
-
         close: function(takes self: Buffer): (boolean, string?)
     end
 
@@ -1848,13 +1875,15 @@ record nupp.io
         --- @return the value
         readFloat64: function(self: ScalarReader): number
 
-        --- Closes this reader, and the reader it was opened over. Repeated calls are
-        --- safe.
+        --- Closes this reader and its source as an ownership terminal. Repeated calls
+        --- are safe.
+        --- @param self this reader
+        drop: nosuspend function(takes self: ScalarReader): nil
+
+        --- Closes this reader and its source, reporting whether it succeeded.
         --- @param self this reader
         --- @return whether the close succeeded
         --- @return a failure reason, when unsuccessful
-        @drop
-
         close: function(takes self: ScalarReader): (boolean, string?)
     end
 
@@ -1942,13 +1971,15 @@ record nupp.io
         --- @return a failure reason, when unsuccessful
         flush: function(self: ScalarWriter): (boolean, string?)
 
-        --- Closes this writer, and the writer it was opened over. Repeated calls are
-        --- safe.
+        --- Closes this writer and its destination as an ownership terminal. Repeated
+        --- calls are safe.
+        --- @param self this writer
+        drop: nosuspend function(takes self: ScalarWriter): nil
+
+        --- Closes this writer and its destination, reporting whether it succeeded.
         --- @param self this writer
         --- @return whether the close succeeded
         --- @return a failure reason, when unsuccessful
-        @drop
-
         close: function(takes self: ScalarWriter): (boolean, string?)
     end
 
@@ -2040,11 +2071,13 @@ record nupp.io
             --- @return whether it is closed
             isReleased: nosuspend function(self: File): boolean
 
-            --- Closes the file. Repeated calls are safe.
+            --- Closes the file as an ownership terminal. Repeated calls are safe.
+            --- @param self this file
+            drop: nosuspend function(takes self: File): nil
+
+            --- Closes the file and reports whether it succeeded.
             --- @param self this file
             --- @return whether the close succeeded
-            @drop
-
             close: nosuspend function(takes self: File): boolean
         end
 
@@ -2071,12 +2104,14 @@ record nupp.io
             --- @return whether it is settled
             isReleased: nosuspend function(self: TemporaryPath): boolean
 
-            --- Removes the path. Repeated calls, and a call after `persist`, are
-            --- safe and do nothing.
+            --- Removes the path as an ownership terminal. Repeated calls, and a call
+            --- after `persist`, are safe and do nothing.
+            --- @param self this temporary path
+            drop: nosuspend function(takes self: TemporaryPath): nil
+
+            --- Removes the path and reports whether it succeeded.
             --- @param self this temporary path
             --- @return whether the removal succeeded
-            @drop
-
             close: nosuspend function(takes self: TemporaryPath): boolean
         end
 

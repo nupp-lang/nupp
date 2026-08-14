@@ -6,7 +6,7 @@ record m.Handle
     id: integer
 
     --- Releases it. Scope exit invokes this automatically.
-    @drop
+    @deprecated("use close")
     close: function(takes self: m.Handle): nil
 
     --- Reads the whole thing.

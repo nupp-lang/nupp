@@ -395,10 +395,9 @@ The rest is formatting, and none of it is negotiable per page:
   ```
    Not                                       Write
    ────────────────────────────────────────  ─────────────────────────────
-   Two contracts. `@drop` marks the          `@drop` marks the operation
-   operation that consumes the resource,     that consumes the resource;
-   and `Owned<T>` marks the result that      `Owned<T>` marks the result
-   carries one.                              that carries one.
+   Two facts. `Drop` supplies cleanup,        `Drop` supplies cleanup;
+   and `Owned<T>` carries the                 `Owned<T>` carries the
+   obligation.                               obligation.
   ```
 - Ordinary quotes, not curly, everywhere except inside prose already using
   them.

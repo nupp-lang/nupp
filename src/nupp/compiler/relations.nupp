@@ -278,6 +278,11 @@ end
 --- function still observes ordinary parameter/return variance.
 local function memberIsA(have: Type, want: Type): boolean
     if have.tag == "func" and want.tag == "func" and #have.params >= 1 and #want.params >= 1 then
+        local haveReceiverMode = have.paramModes and have.paramModes[1] or "plain"
+        local wantReceiverMode = want.paramModes and want.paramModes[1] or "plain"
+        if (haveReceiverMode == "takes") ~= (wantReceiverMode == "takes") then
+            return false
+        end
         local hp, wp = {}, {}
         for j = 2, #have.params do
             hp[#hp + 1] = have.params[j]
@@ -363,7 +368,7 @@ local function affine(t)
     if not t then
         return false
     end
-    if t.tag == "owned" or t.tag == "pinned" then
+    if t.tag == "affine" or t.tag == "pinned" then
         return true
     end
     if t.tag == "union" or t.tag == "intersection" then
@@ -551,12 +556,17 @@ local function check(a: Type, b: Type): boolean, string?
     -- Ownership is affine metadata over pointer values. Owners and borrows erase to
     -- cdata. Pinned handles deliberately do not: their runtime table must cross C only
     -- through a declared FFI parameter mode.
-    if atag == "owned" then
-        if btag == "owned" then
+    if atag == "affine" then
+        if btag == "affine" then
             -- An empty expected list is an opaque, transfer-only owner. It may accept a
             -- more specific owner, but cannot manufacture cleanups for an opaque
             -- source.
-            if #(b.cleanups or {}) > 0 and not sameCleanups(a.cleanups, b.cleanups) then
+            -- A cleanup-erased owner is also the internal type of a `takes p: T`
+            -- parameter. It already carries one obligation, so transferring it into a
+            -- destination that names the terminal does not mint ownership. Deliberate
+            -- transfer-only affinity (`opaque`) remains unable to acquire a terminal.
+            local takingSource = #(a.cleanups or {}) == 0 and not a.transferOnly
+            if #(b.cleanups or {}) > 0 and not takingSource and not sameCleanups(a.cleanups, b.cleanups) then
                 return fail(a, b)
             end
             return isA(a.inner, b.inner)
@@ -570,7 +580,7 @@ local function check(a: Type, b: Type): boolean, string?
         if btag == "borrowed" then
             return isA(a.inner, b.inner)
 
-        elseif btag == "owned" then
+        elseif btag == "affine" then
             return fail(a, b)
         end
         return isA(a.inner, b)
@@ -581,7 +591,7 @@ local function check(a: Type, b: Type): boolean, string?
         end
         return fail(a, b)
     end
-    if btag == "owned" or btag == "borrowed" or btag == "pinned" then
+    if btag == "affine" or btag == "borrowed" or btag == "pinned" then
         return fail(a, b)
     end
 

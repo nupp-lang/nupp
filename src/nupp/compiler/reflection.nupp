@@ -305,14 +305,14 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
             out.name = t.name
         elseif tag == "array"
             or tag == "ptr"
-            or tag == "owned"
+            or tag == "affine"
             or tag == "borrowed"
             or tag == "pinned"
             or tag == "const"
         then
             out.element = intern(t.elem or t.inner)
-            if tag == "owned" then
-                out.opaque = t.opaque == true
+            if tag == "affine" then
+                out.transferOnly = t.transferOnly == true
                 out.cleanups = {}
                 for position, cleanup in ipairs(t.cleanups or {}) do
                     out.cleanups[

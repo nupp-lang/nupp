@@ -348,7 +348,7 @@ function M.affinePackResultsCannotBeSilentlyDiscarded()
       "local function acquire(): Owned<voidptr, release>",
       "   return acquire_c()",
       "end",
-      "local function make(): (number, Owned<voidptr, opaque>)",
+      "local function make(): (number, Transfer<voidptr>)",
       "   return 1, acquire()",
       "end",
    }, "\n")

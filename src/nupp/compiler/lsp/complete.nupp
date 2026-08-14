@@ -397,7 +397,7 @@ complete.completionWords = {
     "nil",
     "not",
     "or",
-    "owned",
+    "affine",
     "borrowed",
     "borrows",
     "exclusive",

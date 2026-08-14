@@ -591,23 +591,12 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
             end
         end
-        local intrinsic = ownershipIntrinsic(c, callee)
+        local intrinsic = node.ownershipSyntax or ownershipIntrinsic(c, callee)
         if intrinsic then
             local args = argExprs
-            if intrinsic == "intoRaw" then
+            if intrinsic == "borrow" then
                 local valueT = args[1] and c.infer(args[1]) or T.any
-                if #args ~= 1 then
-                    c.diag("NUPP2602", node, "intoRaw expects one owned value")
-                end
-                if c.unsafeDepth == 0 then
-                    c.diag("NUPP2604", node, "intoRaw requires an unsafe do block")
-                end
-                c.moveExpression(args[1] or node, valueT, "intoRaw")
-                node.ownershipIntrinsic = "intoRaw"
-                return rawType(valueT)
-            elseif intrinsic == "borrow" then
-                local valueT = args[1] and c.infer(args[1]) or T.any
-                if #args ~= 1 or c.ownershipKind(valueT) ~= "owned" then
+                if #args ~= 1 or c.ownershipKind(valueT) ~= "affine" then
                     c.diag("NUPP2602", node, "borrow expects one live owned value")
                 end
                 node.ownershipIntrinsic = "borrow"
@@ -684,34 +673,6 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
                 node.ownershipIntrinsic = "pin"
                 return T.pinned(rawType(pointerT))
-            elseif intrinsic == "fromRaw" then
-                local valueT = args[1] and c.infer(args[1]) or T.any
-                local cleanups = {}
-                for j = 2, #args do
-                    local cleanupT = c.infer(args[j])
-                    local cleanupNode = args[j]
-                    local cleanupTok = cleanupNode.kind == "name" and cleanupNode.token or nil
-                    if not cleanupTok then
-                        c.diag("NUPP2602", args[j], "fromRaw cleanup arguments must be function names")
-                    else
-                        cleanups[#cleanups + 1] = cleanupTok.text
-                    end
-                    if cleanupT ~= T.any and (
-                        cleanupT.tag ~= "func" or not cleanupT.params[1] or not isA(rawType(valueT), cleanupT.params[1])
-                    ) then
-                        c.diag("NUPP2602", args[j], "fromRaw cleanup must accept the pointer type")
-                    end
-                end
-                if c.unsafeDepth == 0 then
-                    c.diag("NUPP2604", node, "fromRaw requires an unsafe do block")
-                end
-                if c.ownershipKind(valueT) or not c.pointerShaped(valueT) then
-                    c.diag("NUPP2602", args[1] or node, "fromRaw expects an unmanaged pointer")
-                end
-                cleanups = c.own.resolveCleanups(cleanups, node)
-                node.ownershipIntrinsic = "fromRaw"
-                node.ownerCleanups = cleanups
-                return T.owned(rawType(valueT), cleanups)
             elseif intrinsic == "attemptAll" then
                 -- An ordered list of operations, as one terminal. `drop` stops where a
                 -- cleanup raises, which is right for a single one and wrong for a list:
@@ -763,12 +724,12 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 -- Dropping something that is not an owner is reported below rather
                 -- than refused here, so the cleanup list is read off whatever was
                 -- passed and comes back empty when there is none.
-                local dropped = valueT as T.Owned
+                local dropped = valueT as T.Affine
                 if #args ~= 1 then
                     c.diag("NUPP2602", node, "drop expects one owned value")
                 end
                 c.moveExpression(args[1] or node, valueT, "drop", nil, true)
-                if c.ownershipKind(valueT) == "owned" and #(dropped.cleanups or {}) == 0 then
+                if c.ownershipKind(valueT) == "affine" and #(dropped.cleanups or {}) == 0 then
                     c.diag(
                         "NUPP2602",
                         args[1] or node,
@@ -840,11 +801,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             callee.callCallee = true
         end
         local calleeT = callee and c.infer(callee) or T.any
-        if callee and c.ownershipKind(calleeT) == "owned" and rawType(calleeT).tag == "func" then
+        if callee and c.ownershipKind(calleeT) == "affine" and rawType(calleeT).tag == "func" then
             if node.kind == "safeCall" then
                 c.diag("NUPP2602", callee, "an affine closure call cannot be conditional; narrow it first")
             else
-                c.moveExpression(callee, calleeT, "affine closure call", "owned")
+                c.moveExpression(callee, calleeT, "affine closure call", "affine")
                 if callee.automaticOwnerMove then
                     node.automaticOwnerMoves = node.automaticOwnerMoves or {}
                     node.automaticOwnerMoves[#node.automaticOwnerMoves + 1] = callee.automaticOwnerMove
@@ -1493,7 +1454,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             )
             if owner.tag == "nominal" and owner.resourceSet and member.text == "adopt" then
                 local adopted = node.argumentPack and T.packAt(node.argumentPack, 1) or nil
-                local cleanups = adopted and adopted.tag == "owned" and adopted.cleanups or nil
+                local cleanups = adopted and adopted.tag == "affine" and adopted.cleanups or nil
                 local actualArgs = node.args and node.args.kind == "args" and node.args.exprs or {}
                 if cleanups and #cleanups > 0 then
                     if actualArgs[2] then

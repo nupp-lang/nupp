@@ -29,6 +29,7 @@ local record typeprovider
     operator: function(any, string, any, any): (any, typeprovider.Failure?)
     finalize: function(any, any): (any, typeprovider.Failure?)
     importDescriptor: function(any, any, any?, string?): (any, typeprovider.Failure?)
+    importFunctionConst: function(any, string): any
 end
 
 typeprovider.SCHEMA = 1
@@ -287,7 +288,31 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     unary("constof", "const")
     unary("borrowed", "borrowed")
     unary("pinned", "pinned")
-    unary("owned", "owned")
+    installIntrinsic(state, library, "affine", function(at, args)
+        local inner = entry(state, args[1], "Type")
+        if not inner then
+            return nil, failure("NUPP2415", "nupp.types.affine needs a representation type handle")
+        end
+        local terminal = args[2] and entry(state, args[2], "FunctionConst") or nil
+        if args[2] ~= nil and not terminal then
+            return nil, failure("NUPP2415", "nupp.types.affine terminal must be a const-function parameter")
+        end
+        local terminalKey = terminal and terminal.payload.key or nil
+
+        return make(
+            state,
+            opaque,
+            "Type",
+            {
+                kind = "affine",
+                inner = args[1],
+                terminal = terminalKey,
+                transferOnly = terminal == nil,
+                key = "affine:" .. inner.payload.key .. ":" .. (terminalKey or "transfer")
+            },
+            provenance(at, "affine")
+        )
+    end)
 
     installIntrinsic(state, library, "carray", function(at, args)
         local element = entry(state, args[1], "Type")
@@ -451,7 +476,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         local keys, copiedModes = {}, {}
         for index, member in ipairs(head) do
             local mode = modes[index] or "plain"
-            if mode ~= "plain" and mode ~= "owned" and mode ~= "borrowed" and mode ~= "pinned" then
+            if mode ~= "plain" and mode ~= "affine" and mode ~= "borrowed" and mode ~= "pinned" then
                 return nil, failure("NUPP2415", "nupp.types.pack has an invalid mode at " .. tostring(index))
             end
             copiedModes[index] = mode
@@ -564,7 +589,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
             or payload.kind == "const"
             or payload.kind == "borrowed"
             or payload.kind == "pinned"
-            or payload.kind == "owned"
+            or payload.kind == "affine"
         then
             return {payload.inner}
         end
@@ -678,6 +703,18 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
 
     env.nupp = env.nupp or {}
     env.nupp.types = library
+end
+
+--- Imports one closed const-function identity as a worker-opaque handle. Only the
+--- compiler can mint the handle; provider code can pass it to affine construction but
+--- cannot recover or forge its registry key.
+function typeprovider.importFunctionConst(state: any, key: string): any
+    local opaque = state.typeOpaque
+    if not opaque or type(key) ~= "string" then
+        return nil
+    end
+
+    return make(state, opaque, "FunctionConst", {key = key}, nil)
 end
 
 function typeprovider.importDescriptor(
@@ -901,10 +938,13 @@ function typeprovider.importDescriptor(
                     nil
                 )
             end
-        elseif kind == "ptr" or kind == "const" or kind == "borrowed" or kind == "pinned" or kind == "owned" then
+        elseif kind == "ptr" or kind == "const" or kind == "borrowed" or kind == "pinned" or kind == "affine" then
             local inner = import(node.element)
             if inner then
-                local intentionalOpaque = kind == "owned" and node.opaque == true
+                local transferOnly = kind == "affine" and node.transferOnly == true
+                local terminal = kind == "affine" and not transferOnly and node.cleanups and node.cleanups[
+                    1
+                ] and node.cleanups[1].key or nil
                 made = make(
                     state,
                     opaque,
@@ -912,8 +952,11 @@ function typeprovider.importDescriptor(
                     {
                         kind = kind,
                         inner = inner,
-                        opaque = intentionalOpaque,
-                        key = kind .. (intentionalOpaque and ":opaque" or "") .. ":" .. keyOf(state, inner),
+                        transferOnly = transferOnly,
+                        terminal = terminal,
+                        key = kind .. (
+                            transferOnly and ":transfer" or terminal and ":" .. terminal or ""
+                        ) .. ":" .. keyOf(state, inner),
                     },
                     nil
                 )
@@ -1057,11 +1100,12 @@ local function finalizeGraph(state, root)
             or payload.kind == "const"
             or payload.kind == "borrowed"
             or payload.kind == "pinned"
-            or payload.kind == "owned"
+            or payload.kind == "affine"
         then
             node.inner = intern(payload.inner)
-            if payload.kind == "owned" then
-                node.opaque = payload.opaque == true
+            if payload.kind == "affine" then
+                node.transferOnly = payload.transferOnly == true
+                node.terminal = payload.terminal
             end
         elseif payload.kind == "tuple" or payload.kind == "union" or payload.kind == "intersection" then
             node.members = {}

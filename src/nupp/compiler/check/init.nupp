@@ -19,6 +19,7 @@ reference for their shape and their families.
 ]]
 
 local T = require("nupp.compiler.types")
+local relations = require("nupp.compiler.relations")
 local consteval = require("nupp.compiler.consteval")
 local lints = require("nupp.compiler.lints")
 local fixits = require("nupp.compiler.check.fixits")
@@ -276,11 +277,54 @@ local function provenNonYielding(node: cst.Node?, body: cst.Node?): boolean
     if not summary then
         return false
     end
-    if summary.top == true or summary.external == true then
+    if summary.yields == true then
         return false
     end
+    if summary.top == true or summary.external == true then
+        -- Effect inference widens at external calls, but an exact callable type can
+        -- still promise that the call does not suspend. This is the same proof cleanup
+        -- contracts use: every reached call is either ownership syntax or carries the
+        -- public `nosuspend` guarantee. Nested functions are separate definitions.
+        local visited: {[cst.Node]: boolean} = {}
+        local function callsAreNonYielding(current: cst.Node?): boolean
+            if not current or cst.isToken(current) then
+                return true
+            end
+            if visited[current] then
+                return true
+            end
+            visited[current] = true
+            local kind = current.kind
+            if current ~= body and (
+                kind == "funcExpr" or kind == "shortfn" or kind == "localFuncStmt" or kind == "funcStmt"
+            ) then
+                return true
+            end
+            if kind == "call" or kind == "safeCall" or kind == "methodCall" then
+                local call = current as cst.Call
+                local target = call.calleeType or call.signatureType
+                if not call.ownershipIntrinsic and (not target or target.tag ~= "func" or not target.noYield) then
+                    return false
+                end
+            end
+            for _, child in ipairs((current as any).stats or {}) do
+                if not callsAreNonYielding(child) then
+                    return false
+                end
+            end
+            for _, child in ipairs(current) do
+                if not callsAreNonYielding(child as cst.Node) then
+                    return false
+                end
+            end
 
-    return summary.yields ~= true
+            return true
+        end
+
+        return callsAreNonYielding(body)
+    end
+
+    return true
 end
 
 -- Stamps a callable leaf with what its own definition proved.
@@ -480,10 +524,10 @@ local function finalizeNominalEffects(c: state.Checker)
         if not body then
             return surface or entry and entry.signature
         end
-        -- Preserve the published surface's receiver ownership mode. In particular an
-        -- `@drop` method is checked with a taking receiver while ordinary method lookup
-        -- retains the nominal's established callable shape; effect finalization changes
-        -- only the suspension bit.
+        -- Preserve the published surface's receiver ownership mode. A consuming method
+        -- is checked with a taking receiver while ordinary method lookup retains the
+        -- nominal's established callable shape; effect finalization changes only the
+        -- suspension bit.
         local qualified = qualifyExport(surface or entry.signature, body)
         entry.signature = qualified
         if entry.definition then
@@ -528,13 +572,18 @@ local function finalizeNominalEffects(c: state.Checker)
     -- A `function M.Thing:method` declaration is not one of the inline dispatch
     -- entries above. Its exact owner and slot were retained while it was checked.
     for _, entry in ipairs(c.nominalEffectEntries or {}) do
-        local qualified = qualifyExport(entry.signature, entry.body)
-        local reads = entry.static and entry.owner.staticByname or entry.owner.byname
-        local writes = entry.static and entry.owner.staticWriteByname or entry.owner.writeByname
-        reads[entry.member] = qualified
-        writes[entry.member] = qualified
-        if entry.definition then
-            entry.definition.type = qualified
+        local inlineEntries = entry.static and entry.owner.staticEntries and entry.owner.staticEntries[
+            entry.member
+        ] or entry.owner.methodDispatchEntries and entry.owner.methodDispatchEntries[entry.member]
+        if not inlineEntries or #inlineEntries == 0 then
+            local qualified = qualifyExport(entry.signature, entry.body)
+            local reads = entry.static and entry.owner.staticByname or entry.owner.byname
+            local writes = entry.static and entry.owner.staticWriteByname or entry.owner.writeByname
+            reads[entry.member] = qualified
+            writes[entry.member] = qualified
+            if entry.definition then
+                entry.definition.type = qualified
+            end
         end
     end
 
@@ -644,6 +693,7 @@ function checkMod.check(
     -- Effects are compiler-recognized runtime requirements. They are not manifest
     -- switches: the build derives its native feature set from them.
     result.effects = {}
+    result.preludeRuntime = env and env.preludeRuntime or nil
     result.moduleName = opts and opts.moduleName or env and env.moduleNameForPath and env.moduleNameForPath(
         env,
         filename
@@ -714,7 +764,7 @@ function checkMod.check(
         yieldPackStack = {},
         resumePackStack = {},
         protocolStack = {},
-        dropOperationFieldStack = {},
+        consumingFieldStack = {},
         validatedCleanupContracts = {},
         unsafeDepth = 0,
         noSuspendDepth = 0,
@@ -734,6 +784,7 @@ function checkMod.check(
         moduleFields = {},
         moduleFieldTokens = {},
         moduleFieldDefs = {},
+        qualifiedFunctionEntries = {},
         moduleFunctionDeclarations = {},
         moduleFieldConst = {},
         moduleFieldValues = {},
@@ -802,9 +853,23 @@ function checkMod.check(
                             "argument" .. tostring(position) .. ":" .. tostring(index)
                         ] = {source = descriptor.sources[index], fingerprint = node.referenceFingerprint,}
                     end
+                    local source = descriptor.sources[index]
+                    if node.kind == "affine" and source and not source.transferOnly then
+                        local cleanup = source.cleanups and source.cleanups[1]
+                        if cleanup and cleanup.key then
+                            permitted["function:" .. cleanup.key] = {cleanup = cleanup}
+                        end
+                    end
                 end
                 descriptor.sources = nil
                 transported[position] = {kind = argument.kind, descriptor = descriptor}
+            elseif argument.kind == "const" and value.tag == "constLiteral" and value.domain == "function" then
+                local cleanup = c.functionConstCleanup and c.functionConstCleanup(value) or nil
+                if cleanup and cleanup.key then
+                    permitted["function:" .. cleanup.key] = {cleanup = cleanup}
+                end
+                transported[position] = {kind = "function", key = value.value}
+                keyParts[#keyParts + 1] = "function:" .. tostring(value.value)
             else
                 transported[position] = {kind = argument.kind, value = value}
                 keyParts[#keyParts + 1] = argument.kind .. ":" .. stable(value)
@@ -969,13 +1034,13 @@ function checkMod.check(
             local state = entry.ownershipOrigin or entry
             if not entry.ownershipOrigin and ownershipKind and ownershipKind(
                 state.t
-            ) == "owned" and not state.moved and not (state.automaticOwner and state.automaticOwner.lowerable) then
+            ) == "affine" and not state.moved and not (state.automaticOwner and state.automaticOwner.lowerable) then
                 c.diag(
                     "NUPP2603",
                     entry.definition and entry.definition.token,
                     (
                         "owned value %q leaves scope without being consumed, "
-                        .. "dropped, returned, or converted with intoRaw"
+                        .. "dropped, returned, or released with unsafe release"
                     ):format(name)
                 )
             elseif not entry.ownershipOrigin and state.retained and not state.moved then
@@ -1178,7 +1243,7 @@ function checkMod.check(
             ann = annotated ~= nil and annotated or old and old.ann or false,
             constant = constant == true or (tok == nil and old and old.constant) or false,
             definition = def,
-            ownership = t and (t.tag == "owned" or t.tag == "borrowed" or t.tag == "pinned") and t.tag or nil,
+            ownership = t and (t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") and t.tag or nil,
             moved = false,
             functionDepth = c.functionDepth,
         }
@@ -1187,7 +1252,7 @@ function checkMod.check(
         -- says responsibility transferred, but its payload type does not say which
         -- producer supplied the owner. Ordinary locals carry the exact cleanup list
         -- and can therefore become lexical automatic-cleanup entries.
-        if kind ~= "parameter" and t and t.tag == "owned" and #(t.cleanups or {}) > 0 then
+        if kind ~= "parameter" and t and t.tag == "affine" and #(t.cleanups or {}) > 0 then
             local automatic = {
                 name = name,
                 token = tok,
@@ -1462,7 +1527,7 @@ function checkMod.check(
         if not t then
             return false
         end
-        if t.tag == "owned" or t.tag == "pinned" then
+        if t.tag == "affine" or t.tag == "pinned" then
             return true
         end
         if t.tag == "union" or t.tag == "intersection" then
@@ -1480,7 +1545,7 @@ function checkMod.check(
         if not t then
             return "plain"
         end
-        if t.tag == "owned" or t.tag == "pinned" then
+        if t.tag == "affine" or t.tag == "pinned" then
             return "takes"
         end
         if t.tag == "borrowed" then
@@ -1857,27 +1922,6 @@ function checkMod.check(
         end
     end
 
-    --- Registers member terminals on one hoisted nominal and every nominal nested
-    --- beneath it. The declaration pass repeats this idempotently after validation;
-    --- this scan exists so an earlier owning result sees the same terminal.
-    local function registerHoistedDropMembers(decl)
-        if not decl or decl.kind ~= "recordDecl" or not decl.hoistedType then
-            return
-        end
-        for _, entry in ipairs(decl.entries or {}) do
-            if entry.kind == "recordDecl" then
-                registerHoistedDropMembers(entry)
-            else
-                local named = entry.name and entry.name.text
-                for _, application in ipairs(named and entry.annotations or {}) do
-                    if application.name and application.name.text == "drop" then
-                        c.own.addDefaultDropOperation(decl.hoistedType, T.methodCleanup(named))
-                    end
-                end
-            end
-        end
-    end
-
     -- Binds every type a block declares before any body is checked, so declarations in
     -- one block may name each other whatever the order. A nominal is created and bound
     -- here and filled in when its statement is reached; an alias's value waits until
@@ -1936,74 +1980,8 @@ function checkMod.check(
                 c.scope.pending[c.declKey(decl)] = waiting
             end
         end
-        -- Every record's `@drop` members, once every nominal in the block exists and
-        -- before any of their fields resolve. A field of one record may say
-        -- `Owned<Other>`, so registering as each record is hoisted would make the
-        -- terminal it inherits depend on which was written first. A member terminal is
-        -- named rather than resolved, so this is a scan of the entries and nothing
-        -- more; the declaration pass registers it again, idempotently.
-        for _, stat in ipairs(block.stats or {}) do
-            local decl = stat
-            while decl and decl.kind == "pragmaStmt" do
-                decl = decl.stat
-            end
-            registerHoistedDropMembers(decl)
-        end
-
         local wasHoisting = c.hoisting
         c.hoisting = true
-        -- `@drop` contracts first, before any signature below resolves. A result
-        -- written `Owned<T>` inherits the terminal `T` declared, and it has to inherit
-        -- the same
-        -- one whether the terminal is written above the result or below it -- so the
-        -- terminal has to exist before the first consumer annotation is read. Static
-        -- registration only: the runtime write still goes out where the function is.
-        for _, stat in ipairs(block.stats or {}) do
-            local decl, dropTok = stat, nil
-            while decl and decl.kind == "pragmaStmt" do
-                if decl.name and decl.name.text == "drop" then
-                    dropTok = decl.name
-                end
-                decl = decl.stat
-            end
-            local functionDecl = decl and (decl.kind == "localFuncStmt" or decl.kind == "funcStmt")
-            if dropTok and functionDecl and decl.body and not decl.body.dropCleanup then
-                local named = decl.name
-                local ownerKey, memberTok = nil, nil
-                if named and named.kind == "funcname" then
-                    ownerKey, memberTok = c.funcOwner(named)
-                end
-                local owner = ownerKey and c.lookupType(ownerKey) or nil
-                -- A colon method's receiver is implicit in the body node, so asking
-                -- `signatureOf` for the body as a free function sees no taking first
-                -- parameter and registers nothing. The ordinary declaration path
-                -- records the method cleanup directly; do the same here. A dotted
-                -- function has an explicit first parameter and follows the free
-                -- function path below, just as ordinary checking does.
-                if owner and owner.tag == "nominal" and named.method and memberTok then
-                    c.own.addDefaultDropOperation(owner, T.methodCleanup(memberTok.text))
-                else
-                    local path = nil
-                    if decl.kind == "localFuncStmt" and named then
-                        path = named.text
-                    elseif named and named.kind == "funcname" and not named.method then
-                        -- Function declarations keep their qualifier inside the
-                        -- `funcname`; unlike nominal declarations, the statement has
-                        -- no `qualifiers` array for `declKey` to read. Reconstruct the
-                        -- same path `funcOwner` split so both `function close` and
-                        -- `function m.close` register before result annotations are
-                        -- resolved.
-                        path = ownerKey and memberTok and (
-                            ownerKey .. "." .. memberTok.text
-                        ) or named.base and named.base.text or nil
-                    end
-                    if path then
-                        c.own.registerDefaultDropOperation(c.signatureOf(decl.body, nil), path, dropTok, nil, decl.body)
-                    end
-                end
-            end
-        end
-
         -- Methods, once the types they name are bound: publishing each signature now is
         -- what lets two methods call each other. Direct functions on the table this
         -- file returns are declarations of that module's surface in the same sense.
@@ -2128,6 +2106,8 @@ function checkMod.check(
             local function cleanupName(cleanup)
                 if cleanup.kind == "function" then
                     return cleanup.name or cleanup.id
+                elseif cleanup.kind == "closure" then
+                    return "generated closure terminal"
                 elseif cleanup.kind == "method" then
                     return ":" .. cleanup.name
                 elseif cleanup.kind == "field" then
@@ -2187,7 +2167,6 @@ function checkMod.check(
         end
     end
     c.derives.finalize()
-    own.finalizeDefaultCleanups()
     auditScope(c.rootScope)
 
     -- A module's type is what it returned. Declarations that carry a runtime value put
@@ -2195,6 +2174,20 @@ function checkMod.check(
     -- nothing that could collide with a field already there.
 
     if opts and opts.declareGlobals and env then
+        -- A declaration prelude exports aliases whether or not another declaration in
+        -- that same file happened to mention them. Ordinary modules can leave aliases
+        -- lazy, but copying only the already-resolved table here would make an unused
+        -- generic such as `Transfer` disappear from the global environment.
+        local pendingNames = {}
+        for name in pairs(c.rootScope.pending) do
+            pendingNames[#pendingNames + 1] = name
+        end
+        for _, name in ipairs(pendingNames) do
+            local waiting = c.rootScope.pending[name]
+            if waiting then
+                c.resolvePendingAlias(name, waiting, c.rootScope)
+            end
+        end
         env.globals = env.globals or {}
         env.globalTypes = env.globalTypes or {}
         for name, entry in pairs(c.rootScope.vars) do
@@ -2251,6 +2244,11 @@ function checkMod.check(
         end
     end
     finalizeNominalEffects(c)
+    relations.invalidate()
+    -- Structural bounds on generic terminals can depend on the inferred
+    -- `nosuspend` guarantee of an inline method. Nominal callable slots receive that
+    -- guarantee only after effect analysis, so close deferred terminal bounds here.
+    own.finalizeCleanupBounds()
     finalizeCallGuarantees(c, effectQueries)
     finalizeBoundary(c)
     -- Both of these needed the whole file before they could answer, so they answer here

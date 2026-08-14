@@ -457,32 +457,6 @@ function pragma.install(c: state.Checker): state.StatHandlers
             end
             return
 
-        elseif written == "drop" then
-            local ownerKey = nil
-            if target and target.kind == "funcStmt" then
-                local fname = target.name
-                if fname and fname.kind == "funcname" then
-                    ownerKey = c.funcOwner(fname)
-                end
-            end
-            if valid and targetKind == "funcStmt" and targetBody then
-                targetBody.dropContract = true
-                targetBody.dropMethod = ownerKey ~= nil
-                targetBody.dropTok = annotationName
-                targetBody.cleanupRegistrationNode = stat
-            elseif valid and targetKind == "localFuncStmt" and targetBody then
-                targetBody.dropContract = true
-                targetBody.dropTok = annotationName
-                targetBody.cleanupRegistrationNode = stat
-            elseif valid and target and targetKind == "cdefFunc" then
-                target.dropContract = true
-                target.dropTok = stat.name
-                target.cleanupRegistrationNode = stat
-            end
-            if stat.stat then
-                c.checkStat(stat.stat)
-            end
-            return
         end
 
         if written ~= "allow" then

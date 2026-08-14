@@ -400,9 +400,7 @@ local function startService(executable: string): any, worker.Failure?
     end
     child.stdin:setTimeout(WORKER_TIMEOUT_MS)
     child.stdout:setTimeout(5)
-    unsafe do
-        service = nupp.intoRaw(child)
-    end
+    service = unsafe release child
     serviceExecutable = executable
 
     return service, nil

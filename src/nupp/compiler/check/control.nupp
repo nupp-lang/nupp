@@ -16,6 +16,7 @@ local state = require("nupp.compiler.check.state")
 
 local isA = relations.isA
 local packIsA = relations.packIsA
+local rawType = T.unwrapOwnership
 local memberSet = narrowing.memberSet
 
 local control = {}
@@ -245,7 +246,7 @@ function control.install(c: state.Checker): state.StatHandlers
                     expr,
                     ownCode and "an owning result cannot retain an input borrow" or "borrowed value cannot be returned"
                 )
-            elseif ownershipKind(valueT) == "owned" or ownershipKind(valueT) == "pinned" then
+            elseif ownershipKind(valueT) == "affine" or ownershipKind(valueT) == "pinned" then
                 -- The branch above is what proves it has one.
                 local valueKind = ownershipKind(valueT) as string
                 local expected = annotatedPack and T.packAt(
@@ -346,12 +347,17 @@ function control.install(c: state.Checker): state.StatHandlers
             for j, rt in ipairs(annotated) do
                 local got = ts[j] or T.nil_
                 local expected = rt
+                local expr = stat.exprs and stat.exprs[j]
+                local freshConstruction = expr and (
+                    expr.kind == "newExpr" or expr.kind == "call" and expr.recordConstruct ~= nil
+                )
                 -- A fresh value satisfies an owning result: the declaration is what
                 -- makes
                 -- it one, so the body is checked against the raw type it actually
                 -- built.
-                if ownReturns and ownReturns[j] and not ownershipKind(got) then
+                if ownReturns and ownReturns[j] and (not ownershipKind(got) or freshConstruction) then
                     expected = ownReturns[j]
+                    got = rawType(got)
                 end
                 local ok, why = isA(got, expected)
                 if not ok then
@@ -376,8 +382,13 @@ function control.install(c: state.Checker): state.StatHandlers
             end
             for j, expected in ipairs(annotatedPack.head) do
                 local got = T.packAt(returnedPack, j) or T.nil_
-                if ownReturns and ownReturns[j] and not ownershipKind(got) then
+                local expr = stat.exprs and stat.exprs[j]
+                local freshConstruction = expr and (
+                    expr.kind == "newExpr" or expr.kind == "call" and expr.recordConstruct ~= nil
+                )
+                if ownReturns and ownReturns[j] and (not ownershipKind(got) or freshConstruction) then
                     expected = ownReturns[j]
+                    got = rawType(got)
                 end
                 local ok, why = isA(got, expected)
                 if not ok then

@@ -104,6 +104,9 @@ local function baseName(t: any): string?, string?
 end
 
 local function renderDeclaration(t: any, name: string, eraseOrdinaryPointer: boolean?): string?, string?
+    while t and (t.tag == "affine" or t.tag == "borrowed") do
+        t = t.inner
+    end
     local optional = optionalPointer(t)
     if optional then
         t = optional

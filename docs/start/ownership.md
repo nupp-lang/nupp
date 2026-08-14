@@ -1,28 +1,20 @@
 # Ownership
 
-A file, a socket, a C allocation, or anything else that needs exactly one
-cleanup carries that obligation in its type. The checker finds the missing
-cleanup, the double free, and the use-after-move before the program runs.
+A file, socket, C allocation, or any other value that needs one final action can
+carry that obligation in its type. Nupp checks moves, borrows, explicit drops,
+and automatic lexical destruction.
 
-The model is deliberately smaller than Rust's: no named lifetimes, no
-typestate, and no borrow checker over arbitrary object graphs. It is aimed at
-the failures that happen at a C boundary, and it costs one annotation on the
-producer.
+The [ownership reference](../ownership.md) covers the complete model.
 
-This page is the working subset. The [ownership reference](../ownership.md) has
-the complete model.
+## Structural `Drop`
 
-## Declaring a resource
-
-`@drop` marks the operation that consumes the resource; `Owned<T>` marks the
-result that carries one:
+The ordinary prelude interface `Drop` requires one exact member:
 
 ```nupp:playground
 local record File
     closed: boolean
 
-    @drop
-    function close(self)
+    function drop(takes self): nil
         self.closed = true
     end
 end
@@ -32,20 +24,18 @@ local function openFile(): Owned<File>
 end
 ```
 
-The annotation, rather than the name, is what makes `close` the drop operation.
-Bare `Owned<T>` is accepted only when the result type has exactly one, so the
-compiler never has to guess between close, free, flush, and stop.
+`Owned<T>` is itself an ordinary prelude affine type. Its default terminal calls
+`T.drop`, so `T` must structurally implement `Drop`. Neither `Owned` nor `Drop`
+is a compiler-known name.
 
-For a type you do not own, the drop operation can be a free function, and the
-producer names it:
+A type with no canonical method names an explicit terminal instead:
 
 ```nupp
 local record Session
     id: integer
 end
 
-@drop
-local function closeSession(takes session: Session)
+local function closeSession(takes session: Session): nil
     print("closing", session.id)
 end
 
@@ -54,46 +44,28 @@ local function openSession(id: integer): Owned<Session, closeSession>
 end
 ```
 
-A drop operation must `takes` its resource. That is what makes it consuming.
+The terminal must be a non-suspending function that takes the represented value
+and returns `nil`. It may raise.
 
-## Discharging the obligation
+## Discharging an owner
 
-Once you bind an owner, its exact cleanup runs automatically at the binding's
-lexical boundary:
-
-```nupp
-local f = openFile()
-print(f.closed)
--- close runs here, including when code above raises
-```
-
-There are three ways to end or transfer the obligation before that boundary.
-
-**Drop it** at the point you choose:
+An owner is destroyed automatically at its lexical boundary. You can consume it
+earlier with either spelling of the `drop` operator:
 
 ```nupp
-local f = openFile()
-nupp.drop(f)
+local file = openFile()
+drop file
+
+local another = openFile()
+drop(another)
 ```
 
-**Hand it on** to a parameter that takes it:
+Passing it to a `takes` parameter or returning it through an affine result moves
+the same obligation. A second use or move is rejected.
 
-```nupp
-local function enqueue(takes session: Session)
-    closeSession(session)
-end
-
-local s = openSession(1)
-enqueue(s)
-```
-
-**Return it** from a function whose own result is `Owned<T>`.
-
-Inside a function, a `takes` parameter is discharged by passing it to another
-`takes` parameter, either the drop operation or something that adopts it.
-`nupp.drop()` needs a value whose *static type* carries a cleanup list, and a
-bare `takes` binding does not have one, so `nupp.drop(session)` there reports
-NUPP2602 and names the fix.
+`Transfer<T>` is deliberately terminal-less. It may be forwarded to another
+owner or consuming parameter, returned, or released in `unsafe`; it cannot be
+dropped locally.
 
 ## Borrowing
 
@@ -101,99 +73,76 @@ A `borrows` parameter gets access for the duration of the call without taking
 responsibility:
 
 ```nupp
-local function inspect(borrows session: Session)
+local function inspect(borrows session: Session): nil
     print(session.id)
 end
 
-local s = openSession(1)
-inspect(s)
-closeSession(s)
+local session = openSession(1)
+inspect(session)
+drop session
 ```
 
-`borrows` is a lifetime and aliasing contract rather than a `const` qualifier,
-so mutating through one is allowed. Use `exclusive` for a call that needs sole
-access because it may invalidate views derived from the value.
+`borrows` is a lifetime and aliasing contract, not a const qualifier. Use
+`exclusive` for a call that needs sole access because it may invalidate views.
 
-For a Nupp function with a body, the checker infers whether a resource
-parameter escapes, so a read-only helper needs no annotation at all. Writing
-`borrows` anyway pins the contract: a later change that stores the value errors
-inside the function instead of silently changing its interface and breaking
-callers.
+## Resource fields
 
-A borrow may be read, mutated, and reborrowed. It may not be returned without a
-contract, stored in a table or field, assigned to an outer binding, or captured
-by a closure.
-
-## Lexical destruction
-
-Cleanup runs on fallthrough, `return`, `break`, `continue`, a `goto` leaving
-the block, and an error raised anywhere inside. Several resources are acquired
-left to right and released right to left.
-
-```nupp
-do
-    local input = openFile()
-    local output = openFile()
-    print(input.closed, output.closed)
-end
-```
-
-The bindings remain owners: they may be moved, returned under an owning
-contract, or explicitly dropped early. Each successful transfer deactivates
-automatic cleanup exactly once.
-
-## Records that hold resources
-
-A record with `Owned<T>` fields is itself a resource, and cleanup is
-synthesized in reverse field order:
+A record containing affine fields is itself affine. Its synthesized terminal
+destroys still-live fields in reverse declaration order. A structural
+`function drop(takes self): nil` may override that behavior, but must discharge
+every affine field on every path.
 
 ```nupp
 local record Bundle
-    input: Owned<Session>
-    output: Owned<Session>
+    first: Owned<Session, closeSession>
+    second: Owned<Session, closeSession>
 end
 
-local bundle = new Bundle(input = openSession(1), output = openSession(2))
-nupp.drop(bundle)
+local bundle = new Bundle(
+    first = openSession(1),
+    second = openSession(2)
+)
+drop bundle
 ```
 
-A custom `@drop` method has to discharge every affine field, and it does
-that by calling their drop operation directly:
+## Unsafe representation boundaries
+
+Affine types are transparent: they add no runtime wrapper or allocation. That
+does not permit an unrestricted conversion from the representation, because it
+would mint a second obligation for an aliased value.
+
+Fresh function and C results introduce ownership normally. At an audited raw
+boundary, use the explicit operators:
 
 ```nupp
-local record Pair
-    first: Owned<Session>
-    second: Owned<Session>
-
-    @drop
-    function close(self)
-        closeSession(self.second)
-        closeSession(self.first)
-    end
+unsafe do
+    local raw = unsafe release owner
+    local restored = unsafe adopt raw as Owned<voidptr, free>
+    drop restored
 end
 ```
 
-## Where it stops
+`unsafe` authorizes that representation assertion; it does not suppress move,
+borrow, or discharge checking.
 
-`unsafe do` grants permission for pointer operations the checker cannot prove:
-raw dereference, `intoRaw`, `fromRaw`, and `borrowFrom`. It grants nothing else:
-owners still have to be discharged inside one, borrows still cannot escape, and
-ordinary lexical cleanup still runs.
+## User-defined affine policy
 
-The trusted parts are written down. Whether a C function really consumes,
-retains, or releases a pointer comes from its declaration, because a header has
-no body to inspect. Whether a returned resource is genuinely exclusive is not
-observable from a pointer value. Cleanup bodies are not verified. Those are the
-auditable edges; everything inside them is checked.
+Packages have the same facility as the prelude:
 
-## Diagnostics
+```nupp
+local affine type Locked<T, const unlock: function> = T
+    terminal unlock
+end
 
-- **NUPP2602**: a value was dropped whose static type records the obligation
-  without recording how to discharge it, such as a `takes` parameter. The
-  message names the fix.
+local affine type MustForward<T> = T
+end
+```
+
+An affine type's static identity is its representation plus the exact terminal
+function identity, or deliberate terminal absence. The declaration name does
+not add runtime or nominal identity.
 
 ## Next
 
-- [The ownership reference](../ownership.md): the complete model, C output
-  parameters, pinning, and the proved-versus-trusted table.
-- [C interop](../c-interop.md): parameter modes at a C boundary.
+- [Ownership reference](../ownership.md)
+- [C interop](../c-interop.md)

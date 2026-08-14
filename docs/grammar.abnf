@@ -269,12 +269,11 @@ annotatedstat  = annotation stat
 annotation     = "@" Name [annotationargs]
 annotationargs = "(" [annotationarg *("," annotationarg)] ")"
 annotationarg  = [Name "="] exp
-; Owned<T> is the spelling of an owning result: it is a typename, so it needs no
-; rule of its own, it may be written at any result position, and its terminal
-; comes from the inner type's @drop. Owned<T, cleanup> names one when the inner
-; type cannot declare it, and Owned<T, opaque> is explicitly transfer-only. On
-; cdef functions, @borrowed(out = p, from = source, success = zero) describes a
-; logical borrowed output; there is no owned equivalent.
+; Owned<T, cleanup> is an ordinary prelude affine type application, and Owned<T>
+; uses the prelude's structural Drop default. Transfer<T> is the terminal-less
+; prelude affine type. On cdef functions, @borrowed(out = p, from = source,
+; success = zero) describes a logical borrowed output; there is no owned
+; equivalent.
 
 stat           =/ unsafestat
 unsafestat     = %s"unsafe" "do" block "end"  ; permit unproved FFI operations;
@@ -295,6 +294,8 @@ bindname       = Name [":" type]
 
 typedeclstat   = ["local" / "global"] typedecl
 typedecl       = "type" declname [generics] "=" type
+               / "affine" "type" declname [generics] "=" type
+                 ["terminal" typename] "end"
                / ["sealed"] "interface" declname [generics] [contracts]
                  [refinement] recordbody "end"
                / ("record" / "struct") declname [generics] [contracts] [refinement]

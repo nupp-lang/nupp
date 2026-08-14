@@ -179,8 +179,8 @@ record state.Checker
     resumePackStack: {any}
     protocolStack: {any}
 
-    --- The owned fields a `@drop` body still has to discharge.
-    dropOperationFieldStack: {any}
+    --- The affine fields a consuming function still has to discharge.
+    consumingFieldStack: {any}
 
     --- Cleanup contracts already validated, so one is not re-reported.
     validatedCleanupContracts: any
@@ -449,6 +449,11 @@ record state.Checker
     --- field types because structural types deliberately carry no source provenance.
     moduleFieldDefs: {[string]: any}
 
+    --- Qualified function declarations visible by their authored value path. Const
+    --- function arguments use this because ordinary lexical lookup accepts one name,
+    --- while a terminal may name `module.close`.
+    qualifiedFunctionEntries: {[string]: any}
+
     --- Direct function declarations on the returned module table, collected before
     --- bodies are checked so a read may resolve a later declaration's signature.
     moduleFunctionDeclarations: {[string]: any}
@@ -603,6 +608,10 @@ record state.Checker
 
     --- Successful and failed closed applications memoized for this checker run.
     typeFunctionMemo: {[any]: any}
+
+    --- Resolves a closed const-function term to the checked declaration metadata
+    --- transported into a comptime type-function evaluation.
+    functionConstCleanup: (function(any): any)?
 
     --- Query callback supplied to generic normalization when an open type call closes.
     reductionControl: any
