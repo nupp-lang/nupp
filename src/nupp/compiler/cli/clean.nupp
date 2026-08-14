@@ -11,11 +11,12 @@ local spec = require("nupp.compiler.cli.spec")
 local command = spec.command{
     name = "clean",
     summary = "Remove build outputs configured in nupp.lua",
-    usage = {"nupp clean [--target NAME] [--dry-run] [--format text|json]"},
+    usage = {"nupp clean [--target NAME] [--platform NAME|all] [--dry-run] [--format text|json]"},
     options = require(
         "nupp.compiler.cli.options"
     ).join(
         {name = "--target", value = "NAME", help = "Clean only the named build target"},
+        {name = "--platform", value = "NAME", help = "Clean one configured binary platform, or all"},
         {name = "--dry-run", help = "Print output paths without removing them"},
         require("nupp.compiler.cli.options").format()
     ),
@@ -45,10 +46,14 @@ local function run(parsed: any): integer
     local values = parsed.values
     local asJson = values.format == "json"
     local dryRun = values.dryRun and true or false
+    if values.platform and not values.target then
+        return command:usageError("--platform requires --target")
+    end
     local project = require("nupp.compiler.build.project")
     local removed: {string} = {}
     local code = project.clean(".", {
         target = values.target,
+        platform = values.platform,
         dryRun = values.dryRun,
         removed = asJson and removed or nil
     })

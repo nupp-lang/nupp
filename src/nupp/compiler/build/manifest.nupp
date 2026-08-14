@@ -42,6 +42,11 @@ type manifest.Target = {
     --- The prebuilt host a `binary` target's payload is stamped into.
     stub: string?,
 
+    --- Compiler-owned distribution platforms. Their public spellings are target
+    --- triples; only triples with cataloged native stubs are accepted.
+    platforms: {string}?,
+    platformOutputs: {[string]: string}?,
+
     entries: {string}?,
     sources: {string}?,
     resources: {string | manifest.Resource}?,
@@ -219,6 +224,8 @@ local DOCS_KEYS = {
     "resources",
     "output",
     "stub",
+    "platforms",
+    "platformOutputs",
     "nativeFeatures",
     "layoutTarget",
 }
@@ -270,6 +277,8 @@ local TARGET_KEYS = {
     "outDir",
     "output",
     "stub",
+    "platforms",
+    "platformOutputs",
     "entries",
     "sources",
     "resources",
@@ -460,6 +469,72 @@ local function validateTarget(target, label, dependencies)
         local valid, err = validateString(target.stub, label .. ".stub")
         if not valid then
             return nil, err
+        end
+    end
+    if target.platforms ~= nil then
+        if kind ~= "binary" then
+            return nil, label .. ".platforms is only valid for a binary target"
+        end
+        if target.stub ~= "nupp" then
+            return nil, label .. ".platforms requires the compiler-owned stub = \"nupp\""
+        end
+        local valid, err = validateArray(target.platforms, label .. ".platforms", "string", true)
+        if not valid then
+            return nil, err
+        end
+        local distribution = require("nupp.compiler.build.platform")
+        local layouts = require("nupp.compiler.target_layout")
+        local seen = {}
+        for index, name in ipairs(target.platforms) do
+            if seen[name] then
+                return nil, label .. ".platforms[" .. index .. "] duplicates " .. name
+            end
+            seen[name] = true
+            if not distribution.has(name) then
+                return nil, label
+                    .. ".platforms names unsupported binary platform "
+                    .. name
+                    .. "; supported platforms: "
+                    .. table.concat(
+                    distribution.keys(),
+                    ", "
+                )
+            end
+            if not layouts.has(name) then
+                return nil, label .. ".platforms names a platform with no C layout model " .. name
+            end
+        end
+        if target.layoutTarget ~= nil and (#target.platforms ~= 1 or target.layoutTarget ~= target.platforms[1]) then
+            return nil, label .. ".layoutTarget must equal the selected binary platform; omit it for platform selection"
+        end
+        if #target.platforms > 1 and target.output ~= nil then
+            return nil, label .. ".output cannot name several platform binaries; use platformOutputs"
+        end
+    end
+    if target.platformOutputs ~= nil then
+        if target.platforms == nil then
+            return nil, label .. ".platformOutputs requires platforms"
+        end
+        if type(target.platformOutputs) ~= "table" then
+            return nil, label .. ".platformOutputs must be a table"
+        end
+        local configured = {}
+        local outputs = {}
+        for _, name in ipairs(target.platforms) do
+            configured[name] = true
+        end
+        for name, output in pairs(target.platformOutputs) do
+            if type(name) ~= "string" or not configured[name] then
+                return nil, label .. ".platformOutputs names unconfigured platform " .. tostring(name)
+            end
+            local valid, err = validateString(output, label .. ".platformOutputs." .. name)
+            if not valid then
+                return nil, err
+            end
+            if outputs[output] then
+                return nil, label .. ".platformOutputs maps several platforms to " .. output
+            end
+            outputs[output] = true
         end
     end
     if target.description ~= nil and type(target.description) ~= "string" then

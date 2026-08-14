@@ -20,28 +20,32 @@ the trivial test host and Nupp itself, before any third party is invited.
 
 ## Container
 
-The payload is **appended to the end of the stub file**, followed by a fixed
-trailer. Not a platform section: an ELF section, a Mach-O segment and a PE
-resource are three formats and three writers, and appending is one that works on
-all of them and on a platform nobody has thought of yet.
+The payload is **appended to the stub file**, followed by a fixed trailer. Not a
+platform section: an ELF section, a Mach-O section and a PE resource are three
+formats and three writers, and the payload contract does not need any of them.
 
-What appending costs is code signatures. A signed Mach-O has a recorded code
-limit, and bytes past it are outside what the signature covers, which turns out
-to be exactly what makes this work, provided nothing touches the signature
-afterwards. Stripping it, or re-signing, both fail. See "Signing" below.
+An unsigned file ends at the trailer. A signed Mach-O has Apple's code-signature
+blob after it, with any zero alignment padding in between. The stub finds that
+boundary through `LC_CODE_SIGNATURE`; the payload and trailer remain covered by
+the signature because the packager extends `__LINKEDIT` over them before the
+native signer runs. See "Signing for macOS" below.
 
     ┌──────────────────────┐
     │ stub executable      │  an ordinary ELF / Mach-O / PE
     ├──────────────────────┤
     │ payload              │  one Lua chunk, see below
     ├──────────────────────┤
-    │ trailer (48 bytes)   │  fixed size, at the very end of the file
+    │ trailer (48 bytes)   │  fixed size
+    ├──────────────────────┤
+    │ Mach-O signature     │  signed macOS only; absent elsewhere
     └──────────────────────┘
 
 ### Trailer
 
-48 bytes, little-endian, at the end of the file. A stub reads the last 48 bytes,
-checks the magic, and knows the rest without searching.
+48 bytes, little-endian, at the end of an unsigned file. For a signed Mach-O it
+is immediately before the zero alignment padding and code-signature offset
+named by `LC_CODE_SIGNATURE`. A stub checks only those format-defined
+boundaries; it does not search arbitrary executable bytes for the magic.
 
      offset  size  field
      ──────  ────  ─────────────────────────────────────────────────────
@@ -61,6 +65,26 @@ signature over the payload, and appending one is a version-2 question.
 
 Reserved bytes are zero and are checked to be zero, so a later version can use
 them and an older stub will refuse rather than misread.
+
+### Compiler host ABI
+
+The container format version answers whether a stub can locate a payload. The
+compiler host ABI answers whether that host can run what the compiler put in the
+payload. It is currently `1` and is published to the payload as
+`__nuppHost.hostAbi`, beside a `hostFeatures` set.
+
+The ABI changes when an older compiler-owned host cannot correctly run a new
+payload: incompatible preload registration, bootstrap capability records,
+worker startup protocol, or generated-runtime requirements. Adding a compatible
+optional host feature does not change it. A trailer change changes the container
+format version, and changes the host ABI too only when it also changes the
+payload/host runtime contract. Target C layout ABI is separate from both.
+
+A compiler compares a catalog stub's host ABI before stamping it. The payload
+repeats the comparison before user code runs, checks its required host features,
+and removes unselected native preloads. That exposure mask depends only on the
+target's selected features, so selecting a universal catalog stub does not
+change payload bytes or make unused modules observable.
 
 ## Payload
 
@@ -163,6 +187,27 @@ after the output cache and source directory miss. `NUPP_HOST_OFFLINE` accepts
 corresponding false values to allow it. An offline miss names the archive and
 the source-directory setting needed to supply it.
 
+## Cross-target stub acquisition
+
+A binary target with `stub = "nupp"` and `platforms` stamps verified prebuilt
+compiler hosts instead of invoking a target linker. The initial catalog is
+local-only: `NUPP_STUB_CATALOG` may name an immutable JSON catalog and
+`NUPP_STUB_DIR` names the directory containing its artifacts. Embedded release
+catalogs use the same shape.
+
+Every stub is checked for host ABI, required host features, byte length,
+SHA-256, executable format and target architecture. Accepted bytes are cached
+under `.nupp/stubs/<catalogRelease>/<hostAbi>/<platform>/<sha256>/`; changing a
+catalog or override digest therefore forces a restamp. A cache or directory
+miss is an error and does not invoke `curl` or another system downloader.
+
+Cross-target POSIX results include a deterministic `.tar` containing the raw
+binary at mode `0755`, so a Windows build host cannot erase the executable bit.
+PE results need no mode operation. Cross-stamped macOS binaries are unsigned
+development artifacts. Run `codesign --force --sign - <binary>` on macOS to
+make one locally executable. Release CI uses a Developer ID identity and
+notarizes the final stamped bytes.
+
 ## Third-party notices
 
 The compiler-owned stub links LuaJIT, and, where the features are on, LPeg,
@@ -180,48 +225,36 @@ false statement rather than a stale file.
 
 ## Signing for macOS
 
-**The signature is not touched, and on macOS that is the whole trick.**
+The catalog stub arrives ad-hoc signed from its linker. Appending after that
+signature produces trailing bytes Apple's signer refuses. The packager instead:
 
-A stub arrives ad-hoc signed from its linker, and the signature covers the image
-up to a recorded *code limit*. Bytes appended past that limit are simply outside
-what was signed, and the kernel loads the image regardless. This was measured,
-along with both of the things that do not work:
+1. validates and removes the final `LC_CODE_SIGNATURE` command and blob;
+2. appends the payload and trailer;
+3. extends `__LINKEDIT` through the trailer; and
+4. leaves explicit cross-target output unsigned for a native signer.
 
-     What the emitter does           Result on macOS arm64
-     ──────────────────────────────  ─────────────────────────────────────
-     append, leave the signature     runs
-     strip signature, append         Killed: 9 before main runs
-     append, then re-sign            codesign: main executable failed
-                                     strict validation
-     strip, append, then sign        the same refusal
+`codesign` then appends a new signature blob in the ordinary Apple-supported
+layout. The host reads the trailer just before that blob, including the small
+zero padding `codesign` may insert for alignment. Strict signature verification
+therefore covers the payload instead of tolerating it as unsealed trailing data.
 
-Apple's `codesign` will not accept a Mach-O with anything after its signature,
-because its parser rejects bytes past everything the load commands describe. And
-unsigned is not a fallback, because arm64 kills an unsigned executable outright.
-Doing nothing is what works.
+A source-built current-macOS target is ad-hoc signed automatically with a fixed
+identifier and no timestamp so it runs immediately and remains deterministic.
+Explicit cross-target output is the same unsigned bytes regardless of compiler
+host. Release CI applies a timestamped Developer ID signature and submits the
+archive for notarization. Windows developer artifacts remain unsigned unless a
+release policy supplies Authenticode; ELF needs no signing step.
 
-     Platform  State
-     ────────  ─────────────────────────────────────────────────────────
-     macOS     works; the stub's own signature is left alone
-     Linux     works; nothing to sign
-     Windows   expected to work; Authenticode only if distributing
+Tagged release CI requires these GitHub Actions secrets:
 
-### Cost
+- `APPLE_CERTIFICATE`: the base64-encoded Developer ID Application `.p12`;
+- `APPLE_CERTIFICATE_PASSWORD` and `APPLE_SIGNING_IDENTITY`;
+- `APPLE_ID`, `APPLE_APP_PASSWORD` and `APPLE_TEAM_ID` for `notarytool`.
 
-`codesign --verify` reports strict validation failure on the result, and with it
-notarization. That is fine for a binary you run, and not fine for one handed to
-somebody else's Mac, where Gatekeeper will refuse it. Distributing to other
-people needs a signer that signs *over* the payload rather than around it:
-nothing in the format requires the code limit to stop where the load commands
-do, and a third-party implementation can set it to cover everything. Apple's
-tool will not.
-
-That signer is the same component cross-building needs, which is worth noticing.
-Linking a Mach-O off-platform is impossible, since the Apple SDK is not
-redistributable, but *appending to one already linked* needs no SDK at all. Once
-signing is ours rather than Apple's, a Linux machine can produce a runnable,
-distributable macOS binary. Fetching a prebuilt stub is what turns
-cross-compilation from a licensing problem into a download.
+The job refuses a tag when any credential is absent, verifies the final code
+signature, waits for notarization, and assesses the executable before release
+assets are created. Windows release binaries are intentionally unsigned; the
+archive says so rather than implying Authenticode was applied.
 
 ## Packaging fixpoint
 

@@ -1,0 +1,45 @@
+--[[
+The distribution platforms Nupp can stamp from a compiler-owned stub catalog.
+
+A C layout model is necessary but not sufficient: this list means a native
+runner publishes a host for the triple and the compiler knows its executable
+and archive rules. Keep it smaller than targetLayout.keys().
+]]
+
+local platform = {}
+
+local ORDERED = {"x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-pc-windows-msvc",}
+
+local RECORDS = {
+    ["x86_64-unknown-linux-gnu"] = {executableSuffix = "", posix = true},
+    ["aarch64-apple-darwin"] = {executableSuffix = "", posix = true},
+    ["x86_64-pc-windows-msvc"] = {executableSuffix = ".exe", posix = false},
+}
+
+function platform.keys(): {string}
+    local keys = {}
+    for index, key in ipairs(ORDERED) do
+        keys[index] = key
+    end
+
+    return keys
+end
+
+function platform.has(key: string?): boolean
+    return key ~= nil and RECORDS[key] ~= nil
+end
+
+function platform.executableSuffix(key: string): string
+    return assert(RECORDS[key], "unsupported binary platform").executableSuffix
+end
+
+function platform.isPosix(key: string): boolean
+    return assert(RECORDS[key], "unsupported binary platform").posix
+end
+
+function platform.hostKey(): string?
+    local key = require("nupp.compiler.target_layout").hostKey()
+    return platform.has(key) and key or nil
+end
+
+return platform

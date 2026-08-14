@@ -34,6 +34,9 @@ type project.BuildOptions = {
     --- Which target to build; the manifest's default when absent.
     target: string?,
 
+    --- One configured binary platform, or "all" at the public build boundary.
+    platform: string?,
+
     --- Overrides the manifest's own `strict`.
     strict: boolean?,
 
@@ -100,6 +103,9 @@ type project.CleanOptions = {
     --- One target's output directory rather than every target's.
     target: string?,
 
+    --- One configured platform or "all". Meaningful only with `target`.
+    platform: string?,
+
     --- Say what would go, and remove nothing.
     dryRun: boolean?,
 
@@ -132,6 +138,7 @@ local targetConfig = tasks.targetConfig
 local buildDependencies = deps.build
 local buildModules = modules.build
 local bundleText, bundleOutput = packaging.bundleText, packaging.bundleOutput
+local binaryOutput = packaging.binaryOutput
 local stampFile = packaging.stampFile
 
 --- Reads and validates a project's manifest. See nupp.compiler.build.manifest.
@@ -147,7 +154,7 @@ json.decode_invalid_numbers(false)
 json.encode_empty_table_as_object(true)
 json.encode_invalid_numbers(false)
 
-function project.build(root: string?, opts: project.BuildOptions?): integer
+local function buildOne(root: string?, opts: project.BuildOptions?): integer
     root, opts = root or ".", (opts or {}) as project.BuildOptions
     -- Started before the manifest is read, because a build takes as long as it takes
     -- from where the caller asked for one, and a reader timing it with a wristwatch is
@@ -170,7 +177,53 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
         io.stderr:write("nupp: " .. tostring(targetErr) .. "\n");
         return 1
     end
+    local selectedPlatform = opts.platform
+    if target.platforms then
+        if selectedPlatform == nil then
+            if #target.platforms == 1 then
+                selectedPlatform = target.platforms[1]
+            else
+                io.stderr:write(
+                    "nupp: binary target " .. tostring(
+                        target.name or opts.target or "default"
+                    ) .. " configures several platforms; select one with --platform or use --platform all\n"
+                )
+                return 1
+            end
+        end
+        local configured = false
+        for _, name in ipairs(target.platforms) do
+            configured = configured or name == selectedPlatform
+        end
+        if not configured then
+            io.stderr:write(
+                "nupp: platform " .. tostring(
+                    selectedPlatform
+                ) .. " is not configured on binary target " .. tostring(target.name or opts.target or "default") .. "\n"
+            )
+            return 1
+        end
+        target.layoutTarget = selectedPlatform
+    elseif selectedPlatform ~= nil then
+        io.stderr:write(
+            "nupp: --platform requires a binary target with a platforms list; target " .. tostring(
+                target.name or opts.target or "default"
+            ) .. " has none\n"
+        )
+        return 1
+    end
+    if selectedPlatform and not opts.checkOnly then
+        local record, recordErr = require("nupp.compiler.build.stubs").record(selectedPlatform)
+        if not record then
+            io.stderr:write("nupp: " .. tostring(recordErr) .. "\n")
+            return 1
+        end
+        target._stubRecord = record
+        config._stubCatalogRelease = record.catalogRelease
+        config._stubSha256 = record.sha256
+    end
     config._target = target
+    config._platform = selectedPlatform
     config._strict = strict and true or false
     -- The optimization level belongs to the build key. It reaches the config before the
     -- config is hashed, so changing -O invalidates every artifact built at the old
@@ -239,6 +292,9 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
         newState.targets[name] = produced
     end
     local targetKey = target.name or opts.target or "default"
+    if selectedPlatform then
+        targetKey = targetKey .. "@" .. selectedPlatform
+    end
     report:at("dependencies")
     report:step("resolving dependencies")
     local dependencies, depErr = buildDependencies(root, outDir, config, oldState.dependencies)
@@ -273,6 +329,11 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
         return 1
     end
     if opts.checkOnly then
+        if opts.produced then
+            opts.produced.target = target.name or opts.target or "default"
+            opts.produced.platform = selectedPlatform
+            opts.produced.outputs = cache.jsonArray({})
+        end
         return 0
     end
     for output in pairs(result.outputs) do
@@ -296,7 +357,7 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
     end
     report:at("native")
     report:step("building native providers")
-    local nativeOutputs, nativeErr = native.build(root, outDir, resolvedEffects)
+    local nativeOutputs, nativeErr = native.build(root, outDir, resolvedEffects, selectedPlatform)
     report:clear()
     if not nativeOutputs then
         io.stderr:write("nupp: " .. tostring(nativeErr) .. "\n")
@@ -311,12 +372,17 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
         report:at("bundle")
         report:step("bundling " .. (target.name or target.kind))
         local runtimeModules = {}
+        local requiredHostFeatures = {}
         for _, feature in ipairs(nativeFeatures.features(resolvedEffects)) do
             if feature.runtimeModule then
                 runtimeModules[#runtimeModules + 1] = feature.runtimeModule
             end
+            if feature.host then
+                requiredHostFeatures[#requiredHostFeatures + 1] = feature.host
+            end
         end
         table.sort(runtimeModules)
+        table.sort(requiredHostFeatures)
         local text, bundleErr, unreachable = bundleText(
             root,
             config,
@@ -324,7 +390,8 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
             nil,
             newState.modules,
             resolvedEffects["native.workers"] == true,
-            runtimeModules
+            runtimeModules,
+            target.kind == "binary" and target.stub == "nupp" and requiredHostFeatures or nil
         )
         if not text then
             io.stderr:write("nupp: " .. tostring(bundleErr) .. "\n")
@@ -339,7 +406,7 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
                 ):format(#unreachable, #unreachable == 1 and "" or "s", unreachable[1])
             )
         end
-        local name = target.name or target.kind
+        local name = target.name or opts.target or (target.platforms and "default") or target.kind
         local output
         if target.kind == "binary" then
             local stubPath, hostErr = native.hostStub(root, outDir, target, resolvedEffects)
@@ -353,11 +420,14 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
                 io.stderr:write(("nupp: cannot read the stub %s: %s\n"):format(resolvedStub, tostring(stubErr)))
                 return 1
             end
-            output = join(root, target.output or join(outDir, name))
-            local stamped, stampErr = stampFile(output, stub, text)
+            output = binaryOutput(root, target, name, outDir, selectedPlatform)
+            local stamped, stampErr, archive = stampFile(output, stub, text, selectedPlatform)
             if not stamped then
                 io.stderr:write("nupp: " .. tostring(stampErr) .. "\n")
                 return 1
+            end
+            if archive then
+                newState.outputs[archive] = true
             end
         else
             output = bundleOutput(root, target, name)
@@ -396,7 +466,12 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
     -- What the build produced, for a caller that has to report it rather than leave it
     -- on disk to be discovered. Same shape of favour as opts.diagnostics.
     if opts.produced then
-        opts.produced.target = targetKey
+        opts.produced.target = target.name or opts.target or "default"
+        opts.produced.platform = selectedPlatform
+        if selectedPlatform == "aarch64-apple-darwin" then
+            opts.produced.distributionReady = false
+            opts.produced.notice = "the macOS binary must be signed on macOS and has not passed notarization"
+        end
         opts.produced.outputs = mine
         opts.produced.materializations = materializeObserve.public(result.materializations)
         opts.produced.derives = result.derives
@@ -420,6 +495,69 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
     end
 
     return 0
+end
+
+--- Builds one selected platform or every configured platform. The per-platform loop
+--- lives above `buildOne` so each result commits its own state and a later failure does
+--- not invalidate an earlier output.
+function project.build(root: string?, opts: project.BuildOptions?): integer
+    root, opts = root or ".", (opts or {}) as project.BuildOptions
+    if opts.platform ~= "all" then
+        return buildOne(root, opts)
+    end
+    local config, loadErr = project.loadManifest(root)
+    if not config then
+        io.stderr:write(tostring(loadErr) .. "\n")
+        return 1
+    end
+    local target, targetErr = targetConfig(config, opts.target)
+    if not target then
+        io.stderr:write("nupp: " .. tostring(targetErr) .. "\n")
+        return 1
+    end
+    if not target.platforms then
+        io.stderr:write("nupp: --platform all requires a binary target with a platforms list\n")
+        return 1
+    end
+    local aggregate = opts.produced
+    if aggregate then
+        aggregate.target = target.name or opts.target or "default"
+        aggregate.outputs = cache.jsonArray({})
+        aggregate.platforms = cache.jsonArray({})
+    end
+    local failed = false
+    for _, selected in ipairs(target.platforms) do
+        local childOptions: any = {}
+        for key, value in pairs(opts) do
+            if key ~= "produced" then
+                childOptions[key] = value
+            end
+        end
+        childOptions.platform = selected
+        local produced: any = aggregate and {} or nil
+        childOptions.produced = produced
+        local code = buildOne(root, childOptions)
+        failed = failed or code ~= 0
+        if aggregate then
+            local entry = {
+                platform = selected,
+                status = code == 0 and "built" or "failed",
+                outputs = cache.jsonArray(produced.outputs or {}),
+                error = code == 0 and nil or "platform build failed; see diagnostics or standard error",
+                distributionReady = produced.distributionReady,
+                notice = produced.notice,
+            }
+            aggregate.platforms[#aggregate.platforms + 1] = entry
+            for _, output in ipairs(produced.outputs or {}) do
+                aggregate.outputs[#aggregate.outputs + 1] = output
+            end
+        end
+    end
+    if aggregate then
+        table.sort(aggregate.outputs)
+    end
+
+    return failed and 1 or 0
 end
 
 function project.check(root: string?, opts: project.BuildOptions?): integer
@@ -574,6 +712,88 @@ end
 
 function project.clean(root: string?, opts: project.CleanOptions?): integer
     root, opts = root or ".", (opts or {}) as project.CleanOptions
+    if opts.target then
+        local config, loadErr = project.loadManifest(root)
+        if not config then
+            io.stderr:write(tostring(loadErr) .. "\n")
+            return 1
+        end
+        local target, targetErr = targetConfig(config, opts.target)
+        if not target then
+            io.stderr:write("nupp: " .. tostring(targetErr) .. "\n")
+            return 1
+        end
+        if target.platforms then
+            local selected = {}
+            if opts.platform == nil or opts.platform == "all" then
+                for _, name in ipairs(target.platforms) do
+                    selected[#selected + 1] = name
+                end
+            else
+                for _, name in ipairs(target.platforms) do
+                    if name == opts.platform then
+                        selected[1] = name
+                    end
+                end
+                if #selected == 0 then
+                    io.stderr:write(
+                        "nupp: platform "
+                        .. opts.platform
+                        .. " is not configured on binary target "
+                        .. opts.target
+                        .. "\n"
+                    )
+                    return 1
+                end
+            end
+            local outDir = normalize(target.outDir or "build")
+            local candidates = {}
+            for _, selectedPlatform in ipairs(selected) do
+                local raw = binaryOutput(".", target, target.name or opts.target, outDir, selectedPlatform)
+                candidates[#candidates + 1] = raw
+                if require("nupp.compiler.build.platform").isPosix(selectedPlatform) then
+                    candidates[#candidates + 1] = raw .. ".tar"
+                end
+            end
+            local collected = opts.removed
+            for _, candidate in ipairs(candidates) do
+                local safe, safeErr = safeCleanPath(candidate)
+                if not safe then
+                    io.stderr:write("nupp: refusing to clean " .. safeErr .. "\n")
+                    return 1
+                end
+                if not opts.dryRun and removeTree(join(root, safe)) ~= 0 then
+                    io.stderr:write("nupp: cannot remove build output " .. safe .. "\n")
+                    return 1
+                end
+                if collected then
+                    collected[#collected + 1] = safe
+                elseif opts.dryRun then
+                    io.write("would remove " .. safe .. "\n")
+                else
+                    io.write("removed " .. safe .. "\n")
+                end
+            end
+            if not opts.dryRun then
+                local statePath = join(root, join(outDir, ".nupp-state.json"))
+                if readFile(statePath) then
+                    local state = loadState(statePath)
+                    for _, selectedPlatform in ipairs(selected) do
+                        state.targets[(target.name or opts.target) .. "@" .. selectedPlatform] = nil
+                    end
+                    local saved, saveErr = saveState(statePath, state)
+                    if not saved then
+                        io.stderr:write("nupp: " .. tostring(saveErr) .. "\n")
+                        return 1
+                    end
+                end
+            end
+            return 0
+        elseif opts.platform then
+            io.stderr:write("nupp: --platform requires a binary target with a platforms list\n")
+            return 1
+        end
+    end
     local described, err = project.describeTasks(root, opts.target, {buildOnly = true})
     if not described then
         io.stderr:write(tostring(err) .. "\n");

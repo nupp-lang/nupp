@@ -14,11 +14,13 @@ local command = spec.command{
     name = "build",
     summary = "Build source files or a configured project target",
     usage = {
-        "nupp build [--strict] [-O<n>] [--target NAME] [--out-dir DIR]" .. " [-q] [--format text|json]",
+        "nupp build [--strict] [-O<n>] [--target NAME] [--platform NAME|all] [--out-dir DIR]"
+        .. " [-q] [--format text|json]",
         "nupp build [--strict] [-O<n>] [-o DIR] [-q] [--format text|json] <file...>",
     },
     options = optionsMod.join(
         {name = "--target", value = "NAME", help = "Build a named manifest target"},
+        {name = "--platform", value = "NAME", help = "Build one configured binary platform, or all"},
         -- Two directories, not two spellings of one: --out-dir moves a manifest
         -- target's output, -o says where a named file's Lua goes. Distinct keys, so
         -- giving both is a contradiction the command can see.
@@ -43,6 +45,28 @@ local command = spec.command{
                 type = "string",
                 description = "The manifest target that was built. Absent for a "
                 .. "build of explicitly named source files."
+            },
+            platform = {type = "string", description = "The selected binary platform for a one-platform build."},
+            distributionReady = {
+                type = "boolean",
+                description = "Whether the selected platform output is ready for public distribution."
+            },
+            notice = {type = "string"},
+            platforms = {
+                type = "array",
+                description = "Per-platform outcomes for --platform all.",
+                items = {
+                    type = "object",
+                    properties = {
+                        platform = {type = "string"},
+                        status = {type = "string", enum = {"built", "failed"}},
+                        outputs = {type = "array", items = {type = "string"}},
+                        error = {type = "string"},
+                        distributionReady = {type = "boolean"},
+                        notice = {type = "string"},
+                    },
+                    required = {"platform", "status", "outputs"},
+                },
             },
             written = {
                 type = "array",
@@ -190,8 +214,8 @@ local function run(parsed: any): integer
     -- they are separate keys rather than aliases of one.
     local outDir, projectOutDir = values.outDir, values.projectOutDir
     local target = values.target
-    if #paths > 0 and (projectOutDir or target) then
-        return command:usageError("--target and --out-dir cannot be used with explicit source files")
+    if #paths > 0 and (projectOutDir or target or values.platform) then
+        return command:usageError("--target, --platform and --out-dir cannot be used with explicit source files")
     end
     if #paths == 0 and outDir then
         return command:usageError("-o requires at least one explicit source file")
@@ -226,13 +250,21 @@ local function run(parsed: any): integer
         outputs: {string},
         observed: {any}?,
         observedDerives: {any}?,
-        timing: any?
+        timing: any?,
+        selectedPlatform: string?,
+        platformResults: {any}?,
+        distributionReady: boolean?,
+        notice: string?
     ): integer
         if asJson then
             reportMod.write({
                 ok = code == 0,
                 diagnostics = reportMod.diagnosticValues(diagnostics),
                 target = builtTarget,
+                platform = selectedPlatform,
+                platforms = platformResults,
+                distributionReady = distributionReady,
+                notice = notice,
                 written = outputs,
                 materializations = observed or materializations,
                 derives = observedDerives or derives,
@@ -249,6 +281,7 @@ local function run(parsed: any): integer
         local code = project.build(".", {
             outDir = projectOutDir,
             target = target,
+            platform = values.platform,
             strict = settings.strict,
             optLevel = settings.optLevel,
             remarks = settings.remarks,
@@ -264,7 +297,11 @@ local function run(parsed: any): integer
             produced.outputs or {},
             produced.materializations,
             produced.derives,
-            produced.timing
+            produced.timing,
+            produced.platform,
+            produced.platforms,
+            produced.distributionReady,
+            produced.notice
         )
     end
     local process = require("nupp.compiler.build.process")

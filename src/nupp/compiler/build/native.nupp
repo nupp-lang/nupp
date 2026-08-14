@@ -55,6 +55,24 @@ function stage.hostStub(
     if target.stub ~= "nupp" then
         return target.stub
     end
+    if target.platforms then
+        local required = {}
+        for _, feature in ipairs(native.features(effects)) do
+            if feature.host then
+                required[#required + 1] = feature.host
+            end
+        end
+        table.sort(required)
+        local stubs = require("nupp.compiler.build.stubs")
+        local record, recordErr = target._stubRecord, nil
+        if not record then
+            record, recordErr = stubs.record(assert(target.layoutTarget))
+        end
+        if not record then
+            return nil, recordErr
+        end
+        return stubs.acquire(root, record, required)
+    end
     local compilerRoot = envMod.compilerRoot()
     if not compilerRoot then
         return nil, "the compiler-owned Nupp stub needs compiler source; "
@@ -103,7 +121,12 @@ local function libraryFile(name: string): string
 end
 
 --- Builds and stages every native feature in `effects`, returning its files.
-function stage.build(root: string, outDir: string, effects: {[string]: any}?): {[string]: boolean}?, string?
+function stage.build(
+    root: string,
+    outDir: string,
+    effects: {[string]: any}?,
+    selectedPlatform: string?
+): {[string]: boolean}?, string?
     local outputs = {}
     local providers: {[string]: {
         cargo: string,
@@ -114,6 +137,16 @@ function stage.build(root: string, outDir: string, effects: {[string]: any}?): {
     local providerKeys = {}
     for _, feature in ipairs(native.features(effects)) do
         if feature.cargo then
+            if selectedPlatform and feature.host then
+                -- The compiler-owned catalog stub carries this implementation. A
+                -- current-machine sidecar beside a foreign executable is invalid.
+                goto continue
+            end
+            if selectedPlatform and not feature.host then
+                return nil, (
+                    "binary target %s needs sidecar-only native feature %s; no %s provider artifact exists"
+                ):format(tostring(selectedPlatform), feature.name, tostring(selectedPlatform))
+            end
             local libraryName = feature.library as string
             local key = feature.cargo .. "\0" .. libraryName
             local provider = providers[key]
@@ -127,6 +160,7 @@ function stage.build(root: string, outDir: string, effects: {[string]: any}?): {
                 provider.cargoFeatures[#provider.cargoFeatures + 1] = feature.cargoFeature
             end
         end
+        ::continue::
     end
     local compilerRoot = envMod.compilerRoot()
     table.sort(providerKeys)

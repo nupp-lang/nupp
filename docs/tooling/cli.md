@@ -276,11 +276,12 @@ closure the compiler's own lowerings put in a loop, which is what this reads.
 Type-check source without emitting Lua
 
 Usage:
-  nupp check [--strict] [--target NAME] [--format text|json] [file...]
+  nupp check [--strict] [--target NAME] [--platform NAME|all] [--format text|json] [file...]
 
 Options:
   --strict         Treat strict checker rules as errors
   --target NAME    Check a named manifest target
+  --platform NAME  Check one configured binary platform, or all
   --format FORMAT  Output format: text (default) or json
   --json           Shorthand for --format json
   --text           Shorthand for --format text
@@ -424,11 +425,12 @@ See [the formatter](fmt.md) for the rules it applies.
 Build source files or a configured project target
 
 Usage:
-  nupp build [--strict] [-O<n>] [--target NAME] [--out-dir DIR] [-q] [--format text|json]
+  nupp build [--strict] [-O<n>] [--target NAME] [--platform NAME|all] [--out-dir DIR] [-q] [--format text|json]
   nupp build [--strict] [-O<n>] [-o DIR] [-q] [--format text|json] <file...>
 
 Options:
   --target NAME      Build a named manifest target
+  --platform NAME    Build one configured binary platform, or all
   --out-dir DIR      Override the manifest target's output directory
   -o DIR             Output directory for explicit source-file builds
   --strict           Treat strict checker rules as errors
@@ -532,10 +534,11 @@ See [the build system](build.md).
 Remove build outputs configured in nupp.lua
 
 Usage:
-  nupp clean [--target NAME] [--dry-run] [--format text|json]
+  nupp clean [--target NAME] [--platform NAME|all] [--dry-run] [--format text|json]
 
 Options:
   --target NAME    Clean only the named build target
+  --platform NAME  Clean one configured binary platform, or all
   --dry-run        Print output paths without removing them
   --format FORMAT  Output format: text (default) or json
   --json           Shorthand for --format json

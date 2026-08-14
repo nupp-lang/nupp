@@ -1,9 +1,9 @@
 # Cross-target binary builds
 
-> **Status: proposed. Not implemented.** `stub = "nupp"` still builds a host
-> for the machine running the compiler. The release workflow builds three
-> standalone compiler binaries on native runners, but those binaries are not a
-> stub catalog the Nupp CLI can select.
+> **Status: implemented for the initial three platforms.** Source-built targets
+> keep the current-platform path; targets with `platforms` select verified
+> catalog stubs. Release CI publishes the first immutable catalog, so the next
+> compiler release can embed it. Phase 5 provider packs remain a follow-up.
 
 ## Decision
 
@@ -405,21 +405,20 @@ and need no special handling.
 
 ## macOS signing and Windows signing
 
-Appending to today's ad-hoc-signed Mach-O produces a binary which runs locally
-but fails strict code-signature validation and notarization. Cross-target
-stamping may land before distributable macOS signing, but the CLI and release
-workflow must not describe that artifact as Gatekeeper-ready.
+The packager removes the catalog stub's final `LC_CODE_SIGNATURE`, appends the
+payload and trailer, and extends `__LINKEDIT` through them. Apple's native signer
+can then put a new signature after the trailer, and the host locates the trailer
+at the signature boundary. Strict verification therefore covers the payload.
 
-Closing cross-platform **distribution** requires a signer which covers the
-payload after stamping, deterministic signing behavior for the packaging
-fixpoint, and notarization in release CI. The signer operates on an already
-linked Mach-O and therefore does not move Apple SDK linking onto a non-Apple
-host. Credentials remain a release concern; ordinary local builds are not
-silently signed with a developer identity.
+Current-platform source builds receive a deterministic ad-hoc signature so the
+packaging fixpoint remains runnable. Explicit cross-target macOS bytes remain
+unsigned and compiler-host-independent; release CI applies a timestamped
+Developer ID signature and submits the archive for notarization. Credentials
+remain release secrets.
 
-Windows developer artifacts need no Authenticode signature to run. Tagged
-release policy decides whether public Windows artifacts are signed, records the
-signature outside the payload determinism claim, and verifies it after upload.
+Windows developer and release artifacts are deliberately unsigned for now.
+Authenticode is not needed to execute them, and adding an organization-owned
+certificate later is a release-policy change outside payload determinism.
 
 ## Notices and release packaging
 
@@ -471,7 +470,7 @@ turns that status true for a release artifact.
 
 ## Implementation phases
 
-### Phase 1: platform identity
+### Phase 1: platform identity — complete
 
 - Add and validate `platforms` on binary targets.
 - Add `--platform` and `--platform all` to check, build and clean.
@@ -483,7 +482,7 @@ turns that status true for a release artifact.
 - Prove two platform checks in one process do not share target-sensitive
   comptime results.
 
-### Phase 2: universal stubs and catalog
+### Phase 2: universal stubs and catalog — complete
 
 - Define `hostAbiVersion`, its bump rules and runtime handshake beside the
   trailer in `docs/distribution.md`.
@@ -495,7 +494,7 @@ turns that status true for a release artifact.
 - Prove the exposure mask and resulting payload depend only on selected target
   features, not on the chosen stub.
 
-### Phase 3: acquisition and stamping
+### Phase 3: acquisition and stamping — complete
 
 - Implement cache and `NUPP_STUB_DIR` local lookup with no network fallback.
 - Verify size, digest, platform and host ABI before stamping.
@@ -508,7 +507,7 @@ turns that status true for a release artifact.
   mechanical acquisition, corruption and cross-stamping tests.
 - Gate real Linux-to-Windows and Linux-to-macOS artifacts on release CI.
 
-### Phase 4: release completion
+### Phase 4: release completion — complete in workflow
 
 - Replace bare release executables with verified archives carrying notices.
 - Implement or integrate post-stamping macOS signing and notarization.
@@ -520,7 +519,7 @@ turns that status true for a release artifact.
 - Exercise one CLI invocation which produces all three outputs, followed by
   native execution jobs for each artifact.
 
-### Phase 5: native provider packs
+### Phase 5: native provider packs — deferred follow-up
 
 - Measure universal-host versus sidecar size for path, URI, UUID, SHA-256 and
   HTTP/TLS providers.

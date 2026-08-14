@@ -29,6 +29,8 @@ extern "C" {
     fn lua_settop(state: *mut lua_State, index: c_int);
     fn lua_createtable(state: *mut lua_State, narr: c_int, nrec: c_int);
     fn lua_pushlstring(state: *mut lua_State, s: *const c_char, length: usize);
+    fn lua_pushinteger(state: *mut lua_State, value: isize);
+    fn lua_pushboolean(state: *mut lua_State, value: c_int);
     fn lua_rawseti(state: *mut lua_State, index: c_int, n: c_int);
     fn lua_setfield(state: *mut lua_State, index: c_int, name: *const c_char);
     #[cfg(any(feature = "cjson", feature = "lpeg", feature = "lua-utf8", feature = "workers"))]
@@ -83,6 +85,39 @@ impl Lua {
         self.preload("lua-utf8", luaopen_utf8);
         #[cfg(feature = "workers")]
         self.preload("nupp.workers.native", crate::workers::luaopen);
+        self.install_host_record();
+    }
+
+    /// Publishes the private payload/host handshake before any payload code runs.
+    /// The keys are wire names shared with the compiler, not Rust feature syntax.
+    fn install_host_record(&self) {
+        unsafe {
+            lua_createtable(self.state, 0, 2);
+            lua_pushinteger(self.state, 1);
+            lua_setfield(self.state, -2, c"hostAbi".as_ptr());
+            lua_createtable(self.state, 0, 6);
+            #[cfg(feature = "cjson")]
+            Self::set_boolean_field(self.state, c"cjson");
+            #[cfg(feature = "lpeg")]
+            Self::set_boolean_field(self.state, c"lpeg");
+            #[cfg(feature = "lua-utf8")]
+            Self::set_boolean_field(self.state, c"lua-utf8");
+            #[cfg(feature = "native-files")]
+            Self::set_boolean_field(self.state, c"native-files");
+            #[cfg(feature = "native-process")]
+            Self::set_boolean_field(self.state, c"native-process");
+            #[cfg(feature = "workers")]
+            Self::set_boolean_field(self.state, c"workers");
+            lua_setfield(self.state, -2, c"hostFeatures".as_ptr());
+            lua_setfield(self.state, LUA_GLOBALSINDEX, c"__nuppHost".as_ptr());
+        }
+    }
+
+    unsafe fn set_boolean_field(state: *mut lua_State, name: &std::ffi::CStr) {
+        unsafe {
+            lua_pushboolean(state, 1);
+            lua_setfield(state, -2, name.as_ptr());
+        }
     }
 
     /// Puts a C module in `package.preload`, so `require` finds it without a
@@ -182,5 +217,35 @@ impl Drop for Lua {
             unsafe { lua_close(self.state) };
             self.state = ptr::null_mut();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_record_describes_the_compiled_capabilities() {
+        let lua = Lua::new().expect("Lua state");
+        lua.open_libraries();
+        let mut script = String::from(
+            "assert(type(__nuppHost) == 'table')\n\
+             assert(__nuppHost.hostAbi == 1)\n\
+             assert(type(__nuppHost.hostFeatures) == 'table')\n",
+        );
+        #[cfg(feature = "cjson")]
+        script.push_str("assert(__nuppHost.hostFeatures.cjson)\n");
+        #[cfg(feature = "lpeg")]
+        script.push_str("assert(__nuppHost.hostFeatures.lpeg)\n");
+        #[cfg(feature = "lua-utf8")]
+        script.push_str("assert(__nuppHost.hostFeatures['lua-utf8'])\n");
+        #[cfg(feature = "native-files")]
+        script.push_str("assert(__nuppHost.hostFeatures['native-files'])\n");
+        #[cfg(feature = "native-process")]
+        script.push_str("assert(__nuppHost.hostFeatures['native-process'])\n");
+        #[cfg(feature = "workers")]
+        script.push_str("assert(__nuppHost.hostFeatures.workers)\n");
+        lua.run(script.as_bytes(), "=host-record")
+            .expect("host record assertions");
     }
 }

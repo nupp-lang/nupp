@@ -112,6 +112,42 @@ end
 local MAGIC = "NUPPLOAD"
 local TRAILER_LENGTH = 48
 
+local function u32(bytes, at)
+   local a, b, c, d = bytes:byte(at, at + 3)
+   if not d then return nil end
+   return a + b * 256 + c * 65536 + d * 16777216
+end
+
+--- The trailer starts at EOF except in a signed Mach-O, where codesign puts
+--- aligned zero padding and its signature blob after it.
+local function payloadTrailer(bytes)
+   local at = #bytes - TRAILER_LENGTH
+   if bytes:sub(at + 1, at + 8) == MAGIC then return at, bytes:sub(at + 1) end
+   if bytes:sub(1, 4) ~= "\207\250\237\254" or #bytes < 32 then return nil end
+   local commands, commandBytes = u32(bytes, 17), u32(bytes, 21)
+   if not commands or not commandBytes or 32 + commandBytes > #bytes then return nil end
+   local cursor = 33
+   for _ = 1, commands do
+      local kind, size = u32(bytes, cursor), u32(bytes, cursor + 4)
+      if not kind or not size or size < 8 or cursor + size - 1 > 32 + commandBytes then return nil end
+      if kind == 0x1d then
+         local signatureAt, signatureSize = u32(bytes, cursor + 8), u32(bytes, cursor + 12)
+         if not signatureAt or not signatureSize or signatureAt + signatureSize ~= #bytes then return nil end
+         for padding = 0, math.min(signatureAt, 4095) do
+            local candidate = signatureAt - padding - TRAILER_LENGTH
+            if candidate >= 0 and bytes:sub(candidate + 1, candidate + 8) == MAGIC
+               and bytes:sub(candidate + TRAILER_LENGTH + 1, signatureAt)
+                  == string.rep("\0", padding) then
+               return candidate, bytes:sub(candidate + 1, candidate + TRAILER_LENGTH)
+            end
+         end
+         return nil
+      end
+      cursor = cursor + size
+   end
+   return nil
+end
+
 --- Where the payload starts, read out of the trailer the way the stub reads it:
 --- eight little-endian bytes, sixteen in.
 ---
@@ -119,13 +155,13 @@ local TRAILER_LENGTH = 48
 --- at or after it, because a stub whose own machine code has been rewritten says
 --- nothing about the container.
 local function payloadOffset(bytes)
-   local trailer = bytes:sub(#bytes - TRAILER_LENGTH + 1)
-   assert(trailer:sub(1, 8) == MAGIC, "the built binary carries no payload trailer")
+   local trailerAt, trailer = payloadTrailer(bytes)
+   assert(trailerAt and trailer, "the built binary carries no payload trailer")
    local offset = 0
    for index = 24, 17, -1 do
       offset = offset * 256 + trailer:byte(index)
    end
-   return offset
+   return offset, trailerAt
 end
 
 -- A fixed sequence, because a fuzzer that finds something on one machine and
@@ -158,6 +194,12 @@ end
 
 local function corrupted(name, bytes, out, status)
    if status == KILLED then
+      if jit.os == "OSX" then
+         -- A signed macOS binary is authenticated before `main`. Damage to the
+         -- covered payload is correctly refused by the kernel; the parser's same
+         -- cases are exercised without that outer signature in host unit tests.
+         return
+      end
       test.skip("the machine killed a run of the stamped binary twice over (" .. name .. ")")
    end
    assert(status < 128,
@@ -182,8 +224,7 @@ end
 --- All of them are inside the payload or the trailer. Rewriting the stub's own
 --- machine code would be fuzzing the linker.
 local function damage(bytes, pick)
-   local offset = payloadOffset(bytes)
-   local trailerAt = #bytes - TRAILER_LENGTH
+   local offset, trailerAt = payloadOffset(bytes)
    local cases = {}
    local function mutate(name, at, byte)
       cases[#cases + 1] = {
@@ -227,6 +268,11 @@ end
 --- is running the payload anyway, or a crash from the language the stub is
 --- written in showing through as a panic.
 function M.damageIsDiagnosedRatherThanRun()
+   if jit.os == "OSX" then
+      test.skip(
+         "macOS rejects damage to the signed payload before main; host parser unit tests cover the container cases"
+      )
+   end
    local binary = binaryOrSkip()
    local bytes = assert(readFile(binary), "the built binary cannot be read")
    local dir = makeDir()

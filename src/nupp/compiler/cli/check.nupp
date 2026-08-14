@@ -19,15 +19,20 @@ local optionsMod = require("nupp.compiler.cli.options")
 local command = spec.command{
     name = "check",
     summary = "Type-check source without emitting Lua",
-    usage = {"nupp check [--strict] [--target NAME] [--format text|json] [file...]"},
+    usage = {"nupp check [--strict] [--target NAME] [--platform NAME|all] [--format text|json] [file...]"},
     options = optionsMod.join(
         optionsMod.strict,
         {name = "--target", value = "NAME", help = "Check a named manifest target"},
+        {name = "--platform", value = "NAME", help = "Check one configured binary platform, or all"},
         optionsMod.format()
     ),
     schema = {
         type = "object",
-        properties = {diagnostics = require("nupp.compiler.cli.report").DIAGNOSTICS},
+        properties = {
+            diagnostics = require("nupp.compiler.cli.report").DIAGNOSTICS,
+            platform = {type = "string"},
+            platforms = {type = "array", items = {type = "object"}},
+        },
         required = {"diagnostics"},
     },
     detail = "With no files, checks the default target from nupp.lua.",
@@ -37,21 +42,28 @@ local function run(parsed: any): integer
     local paths: {string} = parsed.positional
     local values = parsed.values
     local target = values.target
-    if target and #paths > 0 then
-        return command:usageError("--target cannot be combined with source files")
+    if (target or values.platform) and #paths > 0 then
+        return command:usageError("--target and --platform cannot be combined with source files")
     end
     local asJson = values.format == "json"
     local reportMod = require("nupp.compiler.cli.report")
     local diagnostics: {any} = {}
     if #paths == 0 then
         local project = require("nupp.compiler.build.project")
+        local produced: {[string]: any} = {}
         local code = project.check(".", {
             strict = values.strict,
             target = target,
-            diagnostics = asJson and diagnostics or nil
+            platform = values.platform,
+            diagnostics = asJson and diagnostics or nil,
+            produced = asJson and produced or nil
         })
         if asJson then
-            reportMod.json(diagnostics)
+            reportMod.write({
+                diagnostics = reportMod.diagnosticValues(diagnostics),
+                platform = produced.platform,
+                platforms = produced.platforms,
+            })
         end
         return code
     end

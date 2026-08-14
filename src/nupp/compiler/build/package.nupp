@@ -22,6 +22,10 @@ local resourceOutput = modulesMod.resourceOutput
 
 local package_ = {}
 
+--- Runtime contract between a compiler-owned payload and host. Container format
+--- compatibility remains `PAYLOAD_VERSION`; target C layout has its own ABI.
+local hostAbiVersion = 1
+
 -- Named by module path rather than required: nothing of these is wanted at run time.
 local type Config = nupp.compiler.build.manifest.Config
 local type Target = nupp.compiler.build.manifest.Target
@@ -85,11 +89,48 @@ local function bundleText(
     banner: string?,
     modules: {[string]: ModuleRecord}?,
     workerDispatch: boolean?,
-    runtimeModules: {string}?
+    runtimeModules: {string}?,
+    hostFeatures: {string}?
 ): string?, string?, {string}?
     local outDir = target.outDir or "build"
     local mainName, mainPath = entryModule(root, outDir, target)
     local chunks = {banner or ""}
+
+    if hostFeatures then
+        local selected = {}
+        for _, feature in ipairs(hostFeatures) do
+            selected[feature] = true
+        end
+        chunks[#chunks + 1] = "do\nlocal __nuppHost = rawget(_G, \"__nuppHost\")\n"
+        chunks[
+            #chunks + 1
+        ] = (
+            "if type(__nuppHost) ~= \"table\" or __nuppHost.hostAbi ~= %d then "
+            .. "error(\"nupp: payload requires host ABI %d\", 0) end\n"
+        ):format(hostAbiVersion, hostAbiVersion)
+        chunks[#chunks + 1] = "local __nuppHostFeatures = __nuppHost.hostFeatures or {}\n"
+        for _, feature in ipairs(hostFeatures) do
+            chunks[
+                #chunks + 1
+            ] = (
+                "if not __nuppHostFeatures[%q] then error(%q, 0) end\n"
+            ):format(feature, "nupp: payload requires host feature " .. feature)
+        end
+        local preloads = {
+            {feature = "cjson", modules = {"cjson", "cjson.safe"}},
+            {feature = "lpeg", modules = {"lpeg"}},
+            {feature = "lua-utf8", modules = {"lua-utf8"}},
+            {feature = "workers", modules = {"nupp.workers.native"}},
+        }
+        for _, feature in ipairs(preloads) do
+            if not selected[feature.feature] then
+                for _, moduleName in ipairs(feature.modules) do
+                    chunks[#chunks + 1] = ("package.preload[%q] = nil\n"):format(moduleName)
+                end
+            end
+        end
+        chunks[#chunks + 1] = "rawset(_G, \"__nuppHost\", nil)\nend\n"
+    end
 
     -- The modules this build compiled, under the names it compiled them as.
     --
@@ -216,6 +257,23 @@ local function bundleOutput(root: string, target: Target, name: string): string
     return join(root, target.output or join(outDir, name .. ".lua"))
 end
 
+--- Where one binary platform writes its raw stamped executable.
+local function binaryOutput(
+    root: string,
+    target: Target,
+    name: string,
+    outDir: string,
+    selectedPlatform: string?
+): string
+    if selectedPlatform then
+        local configured = target.platformOutputs and target.platformOutputs[selectedPlatform]
+        local suffix = require("nupp.compiler.build.platform").executableSuffix(selectedPlatform)
+        return join(root, configured or join(outDir, join(name, join(selectedPlatform, name .. suffix))))
+    end
+
+    return join(root, target.output or join(outDir, name))
+end
+
 -- The trailer a stub reads to find its payload. Specified in docs/distribution.md; the
 -- two implementations are this one and the host's, and they are meant to be read side
 -- by side.
@@ -234,6 +292,107 @@ local function littleEndian(value, width)
     return table.concat(bytes)
 end
 
+local function integerAt(text: string, offset: number, width: integer): number?
+    if offset < 0 or offset + width > #text then
+        return nil
+    end
+    local value = 0
+    for index = width - 1, 0, -1 do
+        value = value * 256 + text:byte(offset + index + 1)
+    end
+
+    return value
+end
+
+local function replaceAt(text: string, offset: number, replacement: string): string
+    return text:sub(1, offset) .. replacement .. text:sub(offset + #replacement + 1)
+end
+
+--- Updates the file-backed size of Mach-O's __LINKEDIT segment. Code signing
+--- requires every byte before its signature to belong to a segment; the payload is
+--- deliberately part of __LINKEDIT even though the loader itself reads the trailer.
+local function sizeMachOLinkedit(text: string): string?, string?
+    if text:sub(1, 4) ~= "\207\250\237\254" then
+        return text
+    end
+    local commands = integerAt(text, 16, 4)
+    local commandBytes = integerAt(text, 20, 4)
+    if not commands or not commandBytes or 32 + commandBytes > #text then
+        return nil, "cannot stamp malformed arm64 Mach-O load commands"
+    end
+    local cursor: number = 32
+    for _ = 1, commands do
+        local kind = integerAt(text, cursor, 4)
+        local length = integerAt(text, cursor + 4, 4)
+        if not kind or not length or length < 8 or cursor + length > 32 + commandBytes then
+            return nil, "cannot stamp malformed arm64 Mach-O load command"
+        end
+        if kind == 0x19 and text:sub(cursor + 9, cursor + 24):match("^__LINKEDIT") then
+            local fileOffset = integerAt(text, cursor + 40, 8)
+            if not fileOffset or fileOffset > #text then
+                return nil, "cannot stamp malformed arm64 Mach-O __LINKEDIT segment"
+            end
+            return replaceAt(text, cursor + 48, littleEndian(#text - fileOffset, 8))
+        end
+        cursor = cursor + length
+    end
+
+    return text
+end
+
+--- Removes an existing Mach-O signature before stamping. Leaving it in place creates
+--- trailing bytes which Apple's signer refuses; removing its load command and blob
+--- lets a native release signer cover the complete payload afterwards.
+local function unsignedMachOStub(text: string): string?, string?
+    if text:sub(1, 4) ~= "\207\250\237\254" then
+        return text
+    end
+    local commands = integerAt(text, 16, 4)
+    local commandBytes = integerAt(text, 20, 4)
+    if not commands or not commandBytes or 32 + commandBytes > #text then
+        return nil, "cannot stamp malformed arm64 Mach-O load commands"
+    end
+    local cursor: number = 32
+    local signatureAt: number?
+    local signatureSize: number?
+    local signatureCommand: number?
+    local signatureCommandSize: number?
+    for _ = 1, commands do
+        local kind = integerAt(text, cursor, 4)
+        local length = integerAt(text, cursor + 4, 4)
+        if not kind or not length or length < 8 or cursor + length > 32 + commandBytes then
+            return nil, "cannot stamp malformed arm64 Mach-O load command"
+        end
+        if kind == 0x1d then
+            signatureAt = integerAt(text, cursor + 8, 4)
+            signatureSize = integerAt(text, cursor + 12, 4)
+            signatureCommand, signatureCommandSize = cursor, length
+            break
+        end
+        cursor = cursor + length
+    end
+    if not signatureCommand then
+        return text
+    end
+    if not signatureAt or not signatureSize or signatureAt + signatureSize ~= #text then
+        return nil, "cannot stamp a Mach-O whose code signature is not its final blob"
+    end
+    local foundCommand = assert(signatureCommand)
+    local foundCommandSize = assert(signatureCommandSize)
+    local loadCommands = text:sub(33, 32 + commandBytes)
+    local relative = foundCommand - 32
+    loadCommands = loadCommands:sub(
+        1,
+        relative
+    ) .. loadCommands:sub(relative + foundCommandSize + 1) .. ("\0"):rep(foundCommandSize)
+    text = replaceAt(text, 16, littleEndian(commands - 1, 4))
+    text = replaceAt(text, 20, littleEndian(commandBytes - foundCommandSize, 4))
+    text = replaceAt(text, 32, loadCommands)
+    text = text:sub(1, signatureAt)
+
+    return sizeMachOLinkedit(text)
+end
+
 --- A hex digest's first `count` bytes, as bytes.
 local function digestPrefix(hex, count)
     local bytes = {}
@@ -247,13 +406,20 @@ local function digestPrefix(hex, count)
     return table.concat(bytes)
 end
 
---- A stub with `payload` appended and a trailer saying where it starts.
----
---- Appending rather than writing a section: an ELF section, a Mach-O segment and a PE
---- resource are three formats and three writers, and this is one that works on all of
---- them. What it costs is the stub's code signature, which the caller repairs
---- afterwards on the platforms that check.
-local function stampBinary(stubText, payload)
+--- A stub with `payload` appended and a trailer saying where it starts. A signed
+--- Mach-O is first made unsigned and its __LINKEDIT segment grows over the appended
+--- bytes, so Apple's native signer can put a new signature after the trailer.
+local function stampBinary(stubText, payload, selectedPlatform)
+    local macTarget = selectedPlatform == "aarch64-apple-darwin" or (
+        selectedPlatform == nil and jit.os == "OSX" and stubText:sub(1, 4) == "\207\250\237\254"
+    )
+    if macTarget then
+        local unsigned, unsignedErr = unsignedMachOStub(stubText)
+        if not unsigned then
+            return nil, unsignedErr
+        end
+        stubText = unsigned
+    end
     local offset = #stubText
     local trailer = PAYLOAD_MAGIC .. littleEndian(
         PAYLOAD_VERSION,
@@ -267,39 +433,128 @@ local function stampBinary(stubText, payload)
     ) .. littleEndian(#payload, 8) .. digestPrefix(hash.sha256(payload), 8) .. littleEndian(TRAILER_LENGTH, 8)
     assert(#trailer == TRAILER_LENGTH, "the trailer is a fixed size")
 
-    return stubText .. payload .. trailer
+    local stamped = stubText .. payload .. trailer
+    if macTarget then
+        return sizeMachOLinkedit(stamped)
+    end
+
+    return stamped
+end
+
+local function tarField(value: string, width: integer): string
+    assert(#value < width, "tar field fits its fixed width")
+    return value .. ("\0"):rep(width - #value)
+end
+
+--- A deterministic single-file POSIX tar. It is emitted on every compiler host so a
+--- Windows filesystem never gets to erase the executable mode in transit.
+local function posixArchive(output: string, text: string): string?, string?
+    local name = fs.basename(output)
+    if #name >= 100 then
+        return nil, "cannot archive " .. output .. ": executable name exceeds the tar header limit"
+    end
+    local parts = {
+        tarField(name, 100),
+        "0000755\0",
+        "0000000\0",
+        "0000000\0",
+        ("%011o\0"):format(#text),
+        "00000000000\0",
+        "        ",
+        "0",
+        ("\0"):rep(100),
+        "ustar\0",
+        "00",
+        ("\0"):rep(32),
+        ("\0"):rep(32),
+        ("\0"):rep(8),
+        ("\0"):rep(8),
+        ("\0"):rep(155),
+        ("\0"):rep(12),
+    }
+    local header = table.concat(parts)
+    assert(#header == 512, "tar header is one block")
+    local checksum = 0
+    for index = 1, #header do
+        checksum = checksum + header:byte(index)
+    end
+    local checksumField = ("%06o\0 "):format(checksum)
+    header = header:sub(1, 148) .. checksumField .. header:sub(157)
+    local padding = (512 - (#text % 512)) % 512
+    local archive = output .. ".tar"
+    local written, writeErr = writeFile(archive, header .. text .. ("\0"):rep(padding) .. ("\0"):rep(1024))
+    if not written then
+        return nil, tostring(writeErr)
+    end
+
+    return archive
 end
 
 --- Writes `payload` into a copy of the stub at `output`.
 ---
---- The signature is not touched, and on macOS that is the whole trick. A stub arrives
---- ad-hoc signed, and its signature covers the image up to a recorded code limit; bytes
---- appended past that limit are outside what was signed, and the kernel loads the image
---- regardless. Stripping the signature instead gets the binary killed on arm64 before
---- `main` runs, and re-signing afterwards is refused outright — `codesign` will not
---- accept a Mach-O with anything after its signature. Doing nothing is what works.
----
---- What that costs is `codesign --verify`, which reports strict validation failure on
---- the result, and with it notarization. A binary handed to somebody else's Mac needs a
---- signer that can sign over the payload rather than around it; see
---- [distribution.md](../../../docs/distribution.md).
-local function stampFile(output: string, stubText: string, payload: string): boolean?, string?
-    local written, writeErr = writeFile(output, stampBinary(stubText, payload))
+--- A selected macOS result is deliberately unsigned. On a Mac, `codesign --sign -`
+--- makes a development artifact runnable; release automation uses a Developer ID and
+--- notarizes the archive. See [distribution.md](../../../docs/distribution.md).
+local function stampFile(
+    output: string,
+    stubText: string,
+    payload: string,
+    selectedPlatform: string?
+): boolean?, string?, string?
+    local stampedText, stampErr = stampBinary(stubText, payload, selectedPlatform)
+    if not stampedText then
+        return nil, stampErr
+    end
+    local written, writeErr = writeFile(output, stampedText)
     if not written then
         return nil, tostring(writeErr)
     end
-    local code, chmodErr = process.capture({"chmod", "+x", output})
-    if code ~= 0 then
-        return nil, "cannot make " .. output .. " executable: " .. tostring(chmodErr)
+    local posixTarget = selectedPlatform == nil or require("nupp.compiler.build.platform").isPosix(selectedPlatform)
+    if posixTarget and jit.os ~= "Windows" then
+        local code, chmodErr = process.capture({"chmod", "+x", output})
+        if code ~= 0 then
+            return nil, "cannot make " .. output .. " executable: " .. tostring(chmodErr)
+        end
     end
 
-    return true
+    -- A current-platform source build must be immediately runnable. Ad-hoc signing
+    -- has no timestamp and a fixed identifier, so it preserves the packaging
+    -- fixpoint. Explicit cross-target output remains unsigned and byte-identical on
+    -- every compiler host; release automation signs it on macOS.
+    if selectedPlatform == nil and jit.os == "OSX" and stubText:sub(1, 4) == "\207\250\237\254" then
+        local code, signErr = process.capture({
+            "codesign",
+            "--force",
+            "--sign",
+            "-",
+            "--identifier",
+            "org.nupp.binary",
+            output
+        })
+        if code ~= 0 then
+            return nil, "cannot ad-hoc sign " .. output .. ": " .. tostring(signErr)
+        end
+    end
+
+    local archive
+    if selectedPlatform and posixTarget then
+        local archiveErr
+        archive, archiveErr = posixArchive(output, stampedText)
+        if not archive then
+            return nil, archiveErr
+        end
+    end
+
+    return true, nil, archive
 end
 
 package_.longString = longString
 package_.entryModule = entryModule
 package_.bundleText = bundleText
 package_.bundleOutput = bundleOutput
+package_.binaryOutput = binaryOutput
 package_.stampFile = stampFile
+package_.posixArchive = posixArchive
+package_.hostAbiVersion = hostAbiVersion
 
 return package_

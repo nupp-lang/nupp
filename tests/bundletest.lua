@@ -86,6 +86,83 @@ return greet
 
 local M = {}
 
+function M.compilerHostPreambleMasksUniversalStubFeaturesBeforeUserCode()
+   local dir = tempProject({
+      ["build/main.lua"] = [[
+assert(rawget(_G, "__nuppHost") == nil)
+local name = "lp" .. "eg"
+local loaded = pcall(require, name)
+return loaded
+]],
+   })
+   local target = {kind = "binary", outDir = "build", entries = {"main"}}
+   local modules = {main = {output = dir .. "/build/main.lua"}}
+   local text = assert(packaging.bundleText(
+      dir, {}, target, nil, modules, false, {}, {"cjson"}
+   ))
+   local again = assert(packaging.bundleText(
+      dir, {}, target, nil, modules, false, {}, {"cjson"}
+   ))
+   assert(text == again, "the payload depends on selected features, not ambient stub state")
+
+   local savedPreloads, savedLoaded = {}, package.loaded.lpeg
+   local savedPath, savedCpath = package.path, package.cpath
+   for _, name in ipairs({"cjson", "cjson.safe", "lpeg", "lua-utf8", "nupp.workers.native"}) do
+      savedPreloads[name] = package.preload[name]
+      package.preload[name] = function() return name end
+   end
+   package.loaded.lpeg = nil
+   package.path, package.cpath = "", ""
+   _G.__nuppHost = {hostAbi = 1, hostFeatures = {
+      cjson = true,
+      lpeg = true,
+      ["lua-utf8"] = true,
+      workers = true,
+   }}
+   local loaded = assert(loadstring(text))()
+   assert(not loaded, "a computed require cannot observe an unselected universal feature")
+   assert(package.preload.cjson and package.preload["cjson.safe"],
+      "selected cjson openers remain visible")
+   assert(package.preload.lpeg == nil and package.preload["lua-utf8"] == nil
+      and package.preload["nupp.workers.native"] == nil,
+      "unselected universal openers are removed")
+   assert(_G.__nuppHost == nil, "the private handshake is gone before user code")
+   package.loaded.lpeg = savedLoaded
+   package.path, package.cpath = savedPath, savedCpath
+   for name, opener in pairs(savedPreloads) do package.preload[name] = opener end
+   package.preload["nupp.embedded"] = nil
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.machOPackagingReplacesTheStubSignatureWithASignableLayout()
+   local function little(value, width)
+      local bytes = {}
+      for index = 1, width do
+         bytes[index] = string.char(value % 256)
+         value = math.floor(value / 256)
+      end
+      return table.concat(bytes)
+   end
+   local header = "\207\250\237\254" .. little(0x0100000c, 4)
+      .. little(0, 4) .. little(2, 4) .. little(2, 4) .. little(88, 4)
+      .. little(0, 4) .. little(0, 4)
+   local linkedit = little(0x19, 4) .. little(72, 4) .. "__LINKEDIT" .. ("\0"):rep(6)
+      .. little(0x1000, 8) .. little(0x1000, 8) .. little(120, 8) .. little(8, 8)
+      .. little(1, 4) .. little(1, 4) .. little(0, 4) .. little(0, 4)
+   local signature = little(0x1d, 4) .. little(16, 4) .. little(120, 4) .. little(8, 4)
+   local stub = header .. linkedit .. signature .. "SIGNHERE"
+   local dir = tempProject({})
+   local output = dir .. "/app"
+   assert(packaging.stampFile(output, stub, "return true\n", "aarch64-apple-darwin"))
+   local bytes = assert(readFile(output))
+   assert(bytes:sub(-48, -41) == "NUPPLOAD", "the unsigned trailer ends the stamped file")
+   assert(bytes:sub(17, 20) == little(1, 4), "the old signature load command is removed")
+   assert(bytes:sub(21, 24) == little(72, 4), "the load-command byte count is updated")
+   assert(bytes:sub(81, 88) == little(#bytes - 120, 8),
+      "__LINKEDIT covers the payload and trailer for the next signer")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.aWorkerPayloadCarriesRuntimeModulesAndDispatchesItsEntry()
    local dir = tempProject({
       ["build/main.lua"] = "return 'main'\n",

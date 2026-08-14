@@ -1,9 +1,11 @@
 //! Finding the payload appended to this executable.
 //!
-//! The trailer is the last 48 bytes of the file and says where the payload
-//! starts, how long it is, and what its digest begins with. A file with no
-//! magic there has no payload; a file with a version this stub does not know
-//! is refused rather than read hopefully.
+//! The trailer is the last 48 bytes of an unsigned file and says where the
+//! payload starts, how long it is, and what its digest begins with. A signed
+//! Mach-O puts Apple's code-signature blob after that trailer; its load command
+//! gives the boundary. A file with no magic at either valid boundary has no
+//! payload; a file with a version this stub does not know is refused rather
+//! than read hopefully.
 
 use std::fmt;
 use std::path::Path;
@@ -57,6 +59,62 @@ fn u64_at(bytes: &[u8], offset: usize) -> u64 {
     u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap())
 }
 
+fn mach_o_signature_offset(bytes: &[u8]) -> Option<usize> {
+    // Thin little-endian 64-bit Mach-O. The initial catalog intentionally has
+    // one architecture per artifact; a future universal artifact needs its own
+    // outer fat-header selection before reaching this parser.
+    if bytes.len() < 32 || bytes.get(..4)? != [0xcf, 0xfa, 0xed, 0xfe] {
+        return None;
+    }
+    let commands = u32_at(bytes, 16) as usize;
+    let command_bytes = u32_at(bytes, 20) as usize;
+    let command_end = 32usize.checked_add(command_bytes)?;
+    if command_end > bytes.len() {
+        return None;
+    }
+    let mut cursor = 32usize;
+    for _ in 0..commands {
+        if cursor.checked_add(8)? > command_end {
+            return None;
+        }
+        let command = u32_at(bytes, cursor);
+        let command_size = u32_at(bytes, cursor + 4) as usize;
+        if command_size < 8 || cursor.checked_add(command_size)? > command_end {
+            return None;
+        }
+        if command == 0x1d {
+            if command_size < 16 {
+                return None;
+            }
+            let offset = u32_at(bytes, cursor + 8) as usize;
+            let size = u32_at(bytes, cursor + 12) as usize;
+            if offset.checked_add(size)? == bytes.len() {
+                return Some(offset);
+            }
+            return None;
+        }
+        cursor += command_size;
+    }
+    None
+}
+
+fn mach_o_trailer_start(bytes: &[u8]) -> Option<usize> {
+    let signature_at = mach_o_signature_offset(bytes)?;
+    // codesign aligns the signature blob and fills the gap with zero bytes. The
+    // trailer remains immediately before that alignment padding.
+    let maximum_padding = signature_at.min(4095);
+    for padding in 0..=maximum_padding {
+        let trailer_end = signature_at.checked_sub(padding)?;
+        let trailer_start = trailer_end.checked_sub(TRAILER_LENGTH as usize)?;
+        if &bytes[trailer_start..trailer_start + 8] == MAGIC
+            && bytes[trailer_end..signature_at].iter().all(|byte| *byte == 0)
+        {
+            return Some(trailer_start);
+        }
+    }
+    None
+}
+
 /// The payload this executable carries, or `None` when it carries none.
 pub fn read(exe: &Path) -> Result<Option<Vec<u8>>, Error> {
     let bytes = std::fs::read(exe).map_err(|e| Error::Unreadable(e.to_string()))?;
@@ -65,10 +123,14 @@ pub fn read(exe: &Path) -> Result<Option<Vec<u8>>, Error> {
         return Ok(None);
     }
 
-    let trailer = &bytes[(size - TRAILER_LENGTH) as usize..];
-    if &trailer[..8] != MAGIC {
-        return Ok(None);
+    let mut trailer_start = (size - TRAILER_LENGTH) as usize;
+    if &bytes[trailer_start..trailer_start + 8] != MAGIC {
+        let Some(found) = mach_o_trailer_start(&bytes) else {
+            return Ok(None);
+        };
+        trailer_start = found;
     }
+    let trailer = &bytes[trailer_start..trailer_start + TRAILER_LENGTH as usize];
 
     let version = u32_at(trailer, 8);
     if version != FORMAT_VERSION {
@@ -84,7 +146,7 @@ pub fn read(exe: &Path) -> Result<Option<Vec<u8>>, Error> {
 
     // Checked before slicing, so a damaged file is a message rather than a
     // panic in a binary somebody else is running.
-    if offset > size || length > size - offset || offset + length > size - TRAILER_LENGTH {
+    if offset > size || length > size - offset || offset + length > trailer_start as u64 {
         return Err(Error::Truncated { offset, length, size });
     }
 
@@ -128,6 +190,25 @@ mod tests {
         let file = written(&stamped(b"STUBSTUBSTUB", b"print('hi')"));
         let found = read(file.path()).unwrap();
         assert_eq!(found.as_deref(), Some(&b"print('hi')"[..]));
+    }
+
+    #[test]
+    fn reads_a_trailer_before_a_mach_o_code_signature() {
+        let mut bytes = vec![0u8; 48];
+        bytes[..4].copy_from_slice(&[0xcf, 0xfa, 0xed, 0xfe]);
+        bytes[16..20].copy_from_slice(&1u32.to_le_bytes());
+        bytes[20..24].copy_from_slice(&16u32.to_le_bytes());
+        bytes[32..36].copy_from_slice(&0x1du32.to_le_bytes());
+        bytes[36..40].copy_from_slice(&16u32.to_le_bytes());
+        let payload = b"print('signed')";
+        bytes = stamped(&bytes, payload);
+        bytes.extend_from_slice(&[0; 6]);
+        let signature_at = bytes.len() as u32;
+        bytes[40..44].copy_from_slice(&signature_at.to_le_bytes());
+        bytes[44..48].copy_from_slice(&8u32.to_le_bytes());
+        bytes.extend_from_slice(b"SIGNHERE");
+        let file = written(&bytes);
+        assert_eq!(read(file.path()).unwrap().as_deref(), Some(&payload[..]));
     }
 
     #[test]

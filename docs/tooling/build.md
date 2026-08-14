@@ -34,6 +34,10 @@ help tasks` for the complete interface. A named task also runs with `nupp task
 the paths without changing them. Clean rejects absolute paths, parent
 traversal, and the project root before removing anything.
 
+A multi-platform binary also accepts `nupp clean --target <name> --platform
+<triple>`; `--platform all` and an omitted platform remove all platform outputs
+owned by that target. A platform option without a target is refused.
+
 The manifest is validated before builds, checks, tests, and task queries.
 Validation covers dense string arrays, required target inputs, supported
 dependency kinds, named target and dependency references, and dependency
@@ -175,6 +179,34 @@ that provider, the resulting program fails at runtime in the usual way.
 A binary target may use `stub = "nupp"` to ask the source compiler to build its
 own host with exactly the resolved host features. A path-valued `stub` remains
 a prebuilt or third-party artifact and is never silently relinked.
+
+The same compiler-owned target can name catalog platforms:
+
+```lua
+platforms = {
+   "x86_64-unknown-linux-gnu",
+   "aarch64-apple-darwin",
+   "x86_64-pc-windows-msvc",
+}
+```
+
+Build one with `nupp build --target app --platform <triple>` or all in manifest
+order with `--platform all`. A multi-platform default output is
+`<outDir>/<target>/<platform>/<target><executableSuffix>`; `platformOutputs`
+may map configured triples to custom raw paths. POSIX platforms also own a
+deterministic `.tar` which records mode `0755`.
+
+An explicit macOS result is unsigned and build JSON reports
+`distributionReady = false` with a signing notice. Sign it on macOS with
+`codesign --force --sign - <binary>` for local execution; the release workflow
+uses Developer ID signing and notarization instead.
+
+Platform selection sets `layoutTarget` for that build and separates its cache
+and completion state. The selected compiler-owned catalog stub satisfies every
+resolved feature that has a host implementation, so files and process do not
+stage a current-machine sidecar beside a foreign executable. Sidecar-only
+features such as path, URI, UUID, HTTP and SHA-256 are refused until the catalog
+has a provider artifact for that platform.
 
 Native artifacts are sidecars for modules targets and ordinary prebuilt stubs.
 Ship the target's `lib` directory with a binary unless its selected stub links

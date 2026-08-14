@@ -1,0 +1,248 @@
+--[[
+Verified compiler-owned stub acquisition.
+
+Phase 3 is intentionally local: an embedded or explicitly selected catalog
+authenticates bytes found in the project cache or NUPP_STUB_DIR. Network
+acquisition waits until the standalone compiler carries HTTP/TLS itself.
+]]
+
+local fs = require("nupp.compiler.fs")
+local hash = require("nupp.compiler.build.hash")
+local packaging = require("nupp.compiler.build.package")
+local distribution = require("nupp.compiler.build.platform")
+
+local stubs = {}
+
+local type StubRecord = {
+    catalogRelease: string,
+    platform: string,
+    hostAbi: integer,
+    artifact: string,
+    sha256: string,
+    size: integer,
+    executableSuffix: string,
+    hostFeatures: {string},
+    noticeArtifact: string?,
+    [string]: unknown
+}
+
+local function safeComponent(value: any): boolean
+    return type(
+        value
+    ) == "string" and value ~= "" and not value:find(
+        "/",
+        1,
+        true
+    ) and not value:find("\\", 1, true) and value ~= "." and value ~= ".."
+end
+
+local function decodeCatalog(path: string): any?, string?
+    local text, readErr = fs.readFile(path)
+    if not text then
+        return nil, "cannot read stub catalog " .. path .. ": " .. tostring(readErr)
+    end
+    local json = require("cjson").new()
+    json.decode_array_with_array_mt(false)
+    json.decode_invalid_numbers(false)
+    local ok, value = pcall(json.decode, text)
+    if not ok then
+        return nil, "cannot decode stub catalog " .. path .. ": " .. tostring(value)
+    end
+
+    return value
+end
+
+local function catalog(): any?, string?
+    local path = os.getenv("NUPP_STUB_CATALOG")
+    local value, err
+    if path and path ~= "" then
+        value, err = decodeCatalog(path)
+    else
+        value = require("nupp.compiler.build.stub_catalog")
+    end
+    if not value then
+        return nil, err
+    end
+    if type(value) ~= "table" or not safeComponent(value.catalogRelease) then
+        return nil, "stub catalog requires a safe non-empty catalogRelease"
+    end
+    if value.hostAbi ~= packaging.hostAbiVersion then
+        return nil, (
+            "stub catalog %s has hostAbi %s but this compiler requires %d"
+        ):format(value.catalogRelease, tostring(value.hostAbi), packaging.hostAbiVersion)
+    end
+    if type(value.stubs) ~= "table" then
+        return nil, "stub catalog " .. value.catalogRelease .. " requires a stubs table"
+    end
+
+    return value
+end
+
+function stubs.record(selectedPlatform: string): StubRecord?, string?
+    local selectedCatalog, catalogErr = catalog()
+    if not selectedCatalog then
+        return nil, catalogErr
+    end
+    local record = selectedCatalog.stubs[selectedPlatform]
+    if type(record) ~= "table" then
+        return nil, (
+            "stub catalog %s has no %s host; set NUPP_STUB_CATALOG to an immutable catalog which does"
+        ):format(selectedCatalog.catalogRelease, selectedPlatform)
+    end
+    if record.platform ~= nil and record.platform ~= selectedPlatform then
+        return nil, "stub catalog record for " .. selectedPlatform .. " claims platform " .. tostring(record.platform)
+    end
+    if record.hostAbi ~= nil and record.hostAbi ~= selectedCatalog.hostAbi then
+        return nil, "stub catalog record for " .. selectedPlatform .. " disagrees about hostAbi"
+    end
+    if record.catalogRelease ~= nil and record.catalogRelease ~= selectedCatalog.catalogRelease then
+        return nil, "stub catalog record for " .. selectedPlatform .. " disagrees about catalogRelease"
+    end
+    if not safeComponent(record.artifact) then
+        return nil, "stub catalog record for " .. selectedPlatform .. " has an unsafe artifact name"
+    end
+    if type(record.sha256) ~= "string" or not record.sha256:match("^[0-9a-f][0-9a-f]+$") or #record.sha256 ~= 64 then
+        return nil, "stub catalog record for " .. selectedPlatform .. " requires a lowercase SHA-256"
+    end
+    if type(record.size) ~= "number" or record.size < 1 or record.size ~= math.floor(record.size) then
+        return nil, "stub catalog record for " .. selectedPlatform .. " requires a positive integer size"
+    end
+    if record.executableSuffix ~= distribution.executableSuffix(selectedPlatform) then
+        return nil, "stub catalog record for " .. selectedPlatform .. " has the wrong executableSuffix"
+    end
+    if type(record.hostFeatures) ~= "table" then
+        return nil, "stub catalog record for " .. selectedPlatform .. " requires hostFeatures"
+    end
+    local featureCount, highest, seenFeatures = 0, 0, {}
+    for index, feature in pairs(record.hostFeatures) do
+        if type(index) ~= "number" or index < 1 or index ~= math.floor(index) or type(feature) ~= "string" then
+            return nil, "stub catalog record for " .. selectedPlatform .. " requires a string-array hostFeatures"
+        end
+        if seenFeatures[feature] then
+            return nil, "stub catalog record for " .. selectedPlatform .. " duplicates host feature " .. feature
+        end
+        seenFeatures[feature] = true
+        featureCount = featureCount + 1
+        highest = math.max(highest, index)
+    end
+    if featureCount ~= highest then
+        return nil, "stub catalog record for " .. selectedPlatform .. " has gaps in hostFeatures"
+    end
+    if not safeComponent(record.noticeArtifact) then
+        return nil, "stub catalog record for " .. selectedPlatform .. " requires a safe noticeArtifact"
+    end
+    record.catalogRelease = selectedCatalog.catalogRelease
+    record.hostAbi = selectedCatalog.hostAbi
+    record.platform = selectedPlatform
+
+    return record as StubRecord
+end
+
+local function validateBytes(record: StubRecord, text: string, path: string): boolean?, string?
+    if #text ~= record.size then
+        return nil, ("stub %s has %d bytes, expected %d"):format(path, #text, record.size)
+    end
+    local digest = hash.sha256(text)
+    if digest ~= record.sha256 then
+        return nil, ("stub %s has SHA-256 %s, expected %s"):format(path, digest, record.sha256)
+    end
+    local platform = record.platform
+    if platform == "x86_64-unknown-linux-gnu" then
+        if text:sub(1, 4) ~= "\127ELF" or text:byte(5) ~= 2 or text:byte(19) ~= 62 or text:byte(20) ~= 0 then
+            return nil, "stub " .. path .. " is not an x86-64 ELF executable"
+        end
+    elseif platform == "aarch64-apple-darwin" then
+        if text:sub(1, 4) ~= "\207\250\237\254" or text:byte(5) ~= 12 or text:byte(8) ~= 1 then
+            return nil, "stub " .. path .. " is not an arm64 Mach-O executable"
+        end
+    elseif platform == "x86_64-pc-windows-msvc" then
+        local offset = #text >= 64 and (
+            text:byte(61) + text:byte(62) * 256 + text:byte(63) * 65536 + text:byte(64) * 16777216
+        ) or -1
+        if text:sub(
+            1,
+            2
+        ) ~= "MZ" or offset < 0 or text:sub(
+            offset + 1,
+            offset + 4
+        ) ~= "PE\0\0" or text:byte(offset + 5) ~= 100 or text:byte(offset + 6) ~= 134 then
+            return nil, "stub " .. path .. " is not an x86-64 PE executable"
+        end
+    end
+
+    return true
+end
+
+local function hasFeatures(record: StubRecord, required: {string}): boolean?, string?
+    local available = {}
+    for _, feature in ipairs(record.hostFeatures) do
+        available[feature] = true
+    end
+    for _, feature in ipairs(required) do
+        if not available[feature] then
+            return nil, (
+                "stub %s for %s lacks required host feature %s"
+            ):format(record.artifact, record.platform, feature)
+        end
+    end
+
+    return true
+end
+
+function stubs.acquire(root: string, record: StubRecord, required: {string}): string?, string?
+    local featuresOk, featureErr = hasFeatures(record, required)
+    if not featuresOk then
+        return nil, featureErr
+    end
+    local relativeCache = fs.join(
+        ".nupp/stubs",
+        fs.join(
+            record.catalogRelease,
+            fs.join(tostring(record.hostAbi), fs.join(record.platform, fs.join(record.sha256, record.artifact)))
+        )
+    )
+    local cached = fs.join(root, relativeCache)
+    local cachedText = fs.readFile(cached)
+    if cachedText then
+        local valid = validateBytes(record, cachedText, cached)
+        if valid then
+            return cached
+        end
+        os.remove(cached)
+    end
+    local directory = os.getenv("NUPP_STUB_DIR")
+    if not directory or directory == "" then
+        return nil, (
+            "missing %s for %s; put it in NUPP_STUB_DIR or populate %s"
+        ):format(record.artifact, record.platform, relativeCache)
+    end
+    local source = fs.join(directory, record.artifact)
+    local text, readErr = fs.readFile(source)
+    if not text then
+        return nil, "cannot read required stub " .. source .. ": " .. tostring(readErr)
+    end
+    local valid, validErr = validateBytes(record, text, source)
+    if not valid then
+        return nil, validErr
+    end
+    -- Keep the installation on the cache filesystem so the final rename is atomic,
+    -- but do not make concurrent compilers share one temporary name. `writeFile`
+    -- performs its own atomic replacement; this outer sibling is the verified file
+    -- which becomes the immutable cache entry.
+    local nonce = hash.sha256(cached .. tostring({}) .. tostring(os.clock())):sub(1, 16)
+    local temporary = cached .. ".tmp-" .. nonce
+    local written, writeErr = fs.writeFile(temporary, text)
+    if not written then
+        return nil, "cannot cache stub " .. cached .. ": " .. tostring(writeErr)
+    end
+    os.remove(cached)
+    local renamed, renameErr = os.rename(temporary, cached)
+    if not renamed then
+        os.remove(temporary)
+        return nil, "cannot install cached stub " .. cached .. ": " .. tostring(renameErr)
+    end
+
+    return cached
+end
+
+return stubs
