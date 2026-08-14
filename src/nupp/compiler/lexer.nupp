@@ -28,6 +28,12 @@ type lexer.Trivia = {
     kind: string,
 
     --- The exact bytes, so reprinting is lossless.
+    ---
+    --- Cut while lexing rather than on demand, which was tried: deferring it behind a
+    --- metatable raised the build's collector share from 3.3% to 5.2%, because the
+    --- build reads most of it after all -- `docblock`, `cst` and the incremental hash
+    --- all walk trivia -- and filling the field afterwards rehashes a table that was
+    --- sized without it.
     text: string,
 
     --- Byte offset of the first character, 1-based.
@@ -224,6 +230,32 @@ for op in ("+ - * / % ^ # & ~ | < > = ( ) { } [ ] ; : , . ? @ !"):gmatch("%S+") 
     OPS1[op] = true
 end
 
+-- The same four tables keyed by their bytes packed into one integer, which is how the
+-- scanner reads them. Matching an operator by string meant cutting four candidate
+-- substrings out of the source at every operator, and punctuation is the most common
+-- thing in a file; the packed key is arithmetic on bytes already in registers. The
+-- value is the operator itself, so the token that comes out of a hit carries the
+-- table's own string rather than another cut of the same bytes.
+local OPS1BYTE: {[number]: string} = {}
+local OPS2BYTE: {[number]: string} = {}
+local OPS3BYTE: {[number]: string} = {}
+local OPS4BYTE: {[number]: string} = {}
+for op in pairs(OPS1) do
+    OPS1BYTE[string.byte(op, 1)] = op
+end
+for op in pairs(OPS2) do
+    local a, b = string.byte(op, 1, 2)
+    OPS2BYTE[a * 256 + b] = op
+end
+for op in pairs(OPS3) do
+    local a, b, c = string.byte(op, 1, 3)
+    OPS3BYTE[(a * 256 + b) * 256 + c] = op
+end
+for op in pairs(OPS4) do
+    local a, b, c, d = string.byte(op, 1, 4)
+    OPS4BYTE[((a * 256 + b) * 256 + c) * 256 + d] = op
+end
+
 -- LuaJIT 3.0's "customary operators" are alternate spellings, not new operators, so
 -- they are folded into the classic token kind here and the rest of the compiler never
 -- learns they exist. `text` keeps the bytes that were written, which is what the round
@@ -305,18 +337,18 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
         return offset - lineStart + 1
     end
 
-    -- Update line accounting for a chunk of consumed text ending at `endpos`
-    -- (exclusive). Called for any consumed span that may contain newlines.
-    local function trackNewlines(text: string, startpos: integer)
-        local search: integer = 1
-        while true do
-            local nl = find(text, "\n", search, true)
-            if not nl then
-                break
-            end
+    -- The next newline at or after everything consumed so far, or one past the end when
+    -- there is none left. Held across tokens because the scan only ever moves forward:
+    -- the file is searched once between them all rather than once per token, and the
+    -- span that was consumed no longer has to exist as a string to be counted.
+    local nextNewline: integer = find(source, "\n", 1, true) or (len + 1)
+
+    -- Update line accounting for everything consumed up to `endpos` (exclusive).
+    local function advanceLines(endpos: integer)
+        while nextNewline < endpos do
             line = line + 1
-            lineStart = startpos + nl
-            search = nl + 1
+            lineStart = nextNewline + 1
+            nextNewline = find(source, "\n", nextNewline + 1, true) or (len + 1)
         end
     end
 
@@ -334,9 +366,14 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
         }
     end
 
+    -- Every token carries a trivia list and `cst` tells a token by having one, so a
+    -- token with no leading trivia needs a list rather than nothing. It cannot be
+    -- written to -- nothing outside this function appends to one -- so they share it.
+    local NO_TRIVIA: {lexer.Trivia} = {}
+
     -- Collect leading trivia starting at `pos`; returns the trivia list.
     local function scanTrivia(): {lexer.Trivia}
-        local trivia: {lexer.Trivia} = {}
+        local trivia: {lexer.Trivia}? = nil
         while pos <= len do
             local start = pos
             local l, c = line, colOf(pos)
@@ -369,12 +406,14 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
             else
                 break
             end
-            local text = sub(source, start, pos - 1)
-            trivia[#trivia + 1] = {kind = kind, text = text, offset = start, line = l, col = c}
-            trackNewlines(text, start)
+            trivia = trivia or {}
+            trivia[
+                #trivia + 1
+            ] = {kind = kind, text = sub(source, start, pos - 1), offset = start, line = l, col = c}
+            advanceLines(pos)
         end
 
-        return trivia
+        return trivia or NO_TRIVIA
     end
 
     -- Scan one short-string token starting at the quote character. Returns endpos
@@ -556,12 +595,16 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
         local l, c = line, colOf(pos)
         local ch = byte(source, pos)
         local kind
+        -- Set by any branch that already knows the bytes it consumed, so the token can
+        -- be built without cutting them out of the source a second time. Every operator
+        -- and every keyword knows them: the text is the table key that matched.
+        local text: string? = nil
 
         if isNameStart(ch) then
             repeat
                 pos = pos + 1
             until not isNameChar(byte(source, pos))
-            local text = sub(source, start, pos - 1)
+            text = sub(source, start, pos - 1)
             kind = KEYWORDS[text] and text or "name"
         elseif isDigit(ch) or (ch == 46 and isDigit(byte(source, pos + 1))) then
             local endpos, ok = scanNumber()
@@ -607,33 +650,45 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
                 kind = "["
             end
         else
-            local op3 = sub(source, pos, pos + 2)
-            local op2 = sub(source, pos, pos + 1)
-            local op1 = sub(source, pos, pos)
-            local op4 = sub(source, pos, pos + 3)
-            if OPS4[op4] then
-                pos = pos + 4
-                kind = op4
-            elseif OPS3[op3] then
-                pos = pos + 3
-                kind = op3
-            elseif OPS2[op2] then
-                pos = pos + 2
-                kind = op2
-            elseif OPS1[op1] then
-                pos = pos + 1
-                kind = op1
+            local remaining = len - pos + 1
+            local b1 = ch as integer
+            local packed = b1
+            local matched: string? = OPS1BYTE[packed]
+            if remaining >= 2 then
+                packed = packed * 256 + (byte(source, pos + 1) as integer)
+                matched = OPS2BYTE[packed] or matched
+                if remaining >= 3 then
+                    packed = packed * 256 + (byte(source, pos + 2) as integer)
+                    matched = OPS3BYTE[packed] or matched
+                    if remaining >= 4 then
+                        packed = packed * 256 + (byte(source, pos + 3) as integer)
+                        matched = OPS4BYTE[packed] or matched
+                    end
+                end
+            end
+            if matched then
+                pos = pos + #matched
+                kind = matched
+                text = matched
             else
                 pos = pos + 1
                 kind = "error"
-                addError(start, l, c, ("unexpected character %q"):format(op1))
+                addError(start, l, c, ("unexpected character %q"):format(sub(source, start, start)))
             end
         end
 
-        local text = sub(source, start, pos - 1)
         kind = CUSTOMARY[kind] or kind
-        tokens[#tokens + 1] = {kind = kind, text = text, offset = start, line = l, col = c, trivia = trivia}
-        trackNewlines(text, start)
+        tokens[
+            #tokens + 1
+        ] = {
+            kind = kind,
+            text = text or sub(source, start, pos - 1),
+            offset = start,
+            line = l,
+            col = c,
+            trivia = trivia
+        }
+        advanceLines(pos)
     end
 
     return tokens, errors
