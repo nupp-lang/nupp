@@ -877,6 +877,74 @@ function queries.body(body: any, byDefinition: any): any
         return count(region or body)
     end
 
+    --- Whether every mention of `definition` in this body is a direct call of it.
+    ---
+    --- The question lambda lifting has to ask, and a narrower one than "does this value
+    --- escape". A local function whose name is only ever called can be lifted out of the
+    --- body with what it captured passed as parameters instead. One that is handed
+    --- somewhere as a value -- returned, stored, or passed to something that will call
+    --- it with an arity of its own -- cannot, whether or not the value outlives the
+    --- body.
+    ---
+    --- Worth the pass it enables: LuaJIT records neither `FNEW` nor `UCLO`, so a hot
+    --- function that builds a closure aborts every trace through it and runs
+    --- interpreted however hot it gets. Lifting one measured 3.2x on
+    --- `bench/closure-lifting.lua`.
+    ---
+    --- The declaring occurrence is not a mention. Recursion is, and a recursive call is
+    --- a call like any other, so a self-recursive local function still answers true.
+    ---
+    --- @param definition the binding the function was bound to
+    --- @return true when every mention is a callee, with the mention count
+    function facts.calledOnly(definition: any): boolean, integer
+        if not definition then
+            return false, 0
+        end
+        local callees = {}
+        local declared = {}
+        local function collect(node: any)
+            if not node or cst.isToken(node) then
+                return
+            end
+            if node.kind == "call" then
+                local callee = directName(node.obj)
+                if callee then
+                    callees[callee] = true
+                end
+            elseif node.kind == "localFuncStmt" and node.name then
+                declared[node.name] = true
+            end
+            for _, child in ipairs(node) do
+                collect(child)
+            end
+        end
+        collect(body)
+
+        local mentions: integer = 0
+        local only = true
+        local function walk(node: any)
+            if not node then
+                return
+            end
+            if cst.isToken(node) then
+                if node.kind == "name" and node.definition == definition and not declared[node] then
+                    mentions = mentions + 1
+                    if not callees[node] then
+                        only = false
+                    end
+                end
+
+                return
+            end
+            for _, child in ipairs(node) do
+                walk(child)
+            end
+        end
+        walk(body)
+
+        return only and mentions > 0, mentions
+    end
+
     --- Whether anything in `region` can change the shape of the value in `class`.
     ---
     --- Shape rather than contents: an assignment through an index, or a call whose

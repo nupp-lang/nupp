@@ -327,4 +327,39 @@ function test.noAnalysisMeansNoQueries()
    assertEq(analysis.queries({}), nil, "and a run that resolved nothing answers nothing")
 end
 
+-- `calledOnly` is the question lambda lifting asks: a nested function every mention
+-- of which is a direct call can be lifted out with its captures passed instead. One
+-- handed somewhere as a value cannot, whether or not it outlives the body.
+local function calledOnly(inner, rest)
+   local src = ("local function outer(t)\n   local function %s\n   %s\nend\nreturn outer\n")
+      :format(inner, rest)
+   local queries, result = analysed(src)
+   local owner = findKind(result.root, "funcbody")
+   local target = findKind(owner, "localFuncStmt")
+   assert(target and target.name, "no nested function in the fixture")
+   return queries.body(owner).calledOnly(target.name.definition)
+end
+
+function test.calledOnlyAcceptsACalleeAndNothingElse()
+   assertEq(calledOnly("pick(x) return x end", "return pick(1) + pick(2)"), true,
+      "every mention is a call")
+   assertEq(calledOnly("pick(x) return x end", "return pick"), false, "returned")
+   assertEq(calledOnly("pick(x) return x end", "return {pick}"), false, "stored")
+   assertEq(calledOnly("cmp(a, b) return a < b end", "table.sort(t, cmp) return t"), false,
+      "passed to something that will call it with an arity of its own")
+   assertEq(calledOnly("pick(x) return x end", "table.sort(t, pick) return pick(1)"), false,
+      "one value use is enough")
+end
+
+function test.calledOnlyCountsRecursionAsACall()
+   assertEq(calledOnly("down(k) if k > 0 then return down(k - 1) end return 0 end",
+      "return down(3)"), true, "a recursive call is a call")
+end
+
+function test.calledOnlyIgnoresTheDeclaringName()
+   -- the name in `local function pick` binds rather than mentions, so a function
+   -- declared and never called has no mentions at all and is not a candidate
+   assertEq(calledOnly("pick(x) return x end", "return t"), false, "never called")
+end
+
 return test
