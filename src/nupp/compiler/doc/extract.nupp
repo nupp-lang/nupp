@@ -130,8 +130,34 @@ local function firstToken(node)
     return nil
 end
 
+-- Source text carries the indentation of wherever it was written, and every use of it
+-- here renders at the left edge of a code block instead. Trimming puts the first line
+-- on that edge and leaves the rest stepped by a margin that is no longer there, so a
+-- declaration written eight columns in reads as though its arguments were indented
+-- twelve. Taking away what the continuation lines have in common restores the shape
+-- the author wrote without flattening what they nested inside it.
+local function dedent(text: string): string
+    if not text:find("\n", 1, true) then
+        return text
+    end
+    local margin, found = "", false
+    for line in text:gmatch("\n([^\n]*)") do
+        if not line:match("^[ \t]*$") then
+            local indent = line:match("^[ \t]*") or ""
+            if not found or #indent < #margin then
+                margin, found = indent, true
+            end
+        end
+    end
+    if margin == "" then
+        return text
+    end
+
+    return (text:gsub("\n" .. margin, "\n"))
+end
+
 local function syntax(node)
-    return trim(cst.textOf(node))
+    return dedent(trim(cst.textOf(node)))
 end
 
 -- The `---` run and its tags are read by nupp.compiler.docblock, because the checker
