@@ -11,8 +11,8 @@ checksums), [](nupp.io) (buffers, byte views, readers, writers, and the typed
 scalar cursors over them),
 `nupp.io.Path` and `nupp.io.URI` (filesystem paths and resource identifiers),
 [](nupp.math) (scalar helpers and two-dimensional vectors), `nupp.peg` (textual
-parsing-expression grammars compiled at either phase), and `nupp.fieldcodec`
-(reflection-driven keyed codecs).
+parsing-expression grammars compiled at either phase), and `nupp.reflect`
+(semantic type descriptors and reflection-driven keyed codecs).
 
 The compiler-provided ownership operations also live under this global:
 `nupp.drop`, `nupp.borrow`, `nupp.intoRaw`, `nupp.fromRaw`,

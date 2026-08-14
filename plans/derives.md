@@ -65,7 +65,7 @@ each generated member by the derive that owns it.
 
 - Generate checked instance methods, static functions, interface contracts,
   and private materialized constants for one nominal declaration.
-- Reuse the canonical member view, `TypeInfo`, semantic fingerprints,
+- Reuse the canonical member view, `nupp.reflect.Info`, semantic fingerprints,
   annotation checking, comptime isolation, and materialization limits already
   in the compiler.
 - Preserve declaration order, nominal identity, module-interface cutoff, and
@@ -342,7 +342,7 @@ existing descriptor before generated members merge, retaining:
 The canonical member view remains the one answer to field enumeration.
 Reflection and derives project it differently; neither reimplements record,
 interface, intersection or generic-instantiation member rules. A future public
-provider, if later evidence justifies one, may receive the versioned `TypeInfo`
+provider, if later evidence justifies one, may receive the versioned `nupp.reflect.Info`
 serialization directly. The
 compiler-owned providers use its semantic source view so freezing does not
 round-trip through JSON inside the checker.
@@ -426,7 +426,7 @@ types remain unnecessary for this projection.
 ### JSON
 
 The prelude already has `interface nupp.data.json.JSON` for the bundled raw
-JSON runtime and `nupp.fieldcodec.KeyedCodec<T>` for the reflected keyed
+JSON runtime and `nupp.reflect.FieldCodec<T>` for the reflected keyed
 encoder. D4 adds no public `nupp.JSONCodec<T>` or sibling provider. It extends
 the shipped field-codec blueprint with typed decode and separately materializes
 a direct JSON emitter. The two runtime products share the reflection walk,
@@ -447,10 +447,10 @@ over declaration tables uses the projected `fieldCodec()` static factory after
 D1. The two paths serve different receivers and do not require a second codec
 type.
 
-`KeyedCodec<T>` gains one method:
+`FieldCodec<T>` gains one method:
 
 ```nupp
-record nupp.fieldcodec.KeyedCodec<T>
+record nupp.reflect.FieldCodec<T>
     encode: function(self, value: T): {[string]: any}
     decode: function(self, value: {[string]: any}): (T?, string?)
     fingerprint: string
@@ -466,7 +466,7 @@ User.toJSON: function(self): string
 
 -- Generated static members on the declaration table:
 User.fromJSON: function(text: string): (User?, string?)
-User.fieldCodec: function(): nupp.fieldcodec.KeyedCodec<User>
+User.fieldCodec: function(): nupp.reflect.FieldCodec<User>
 ```
 
 `fieldCodec()` returns the private keyed materialization; it does not rebuild
@@ -719,13 +719,13 @@ magnitude and never claims `uint64` round trips through a JSON number.
 `JSON` initially rejects generic record declarations. Nupp erases a record's
 type arguments, so one declaration table cannot hold a different materialized
 codec for every `Box<T>` instantiation. A later surface may derive a codec
-factory that accepts `nupp.fieldcodec.KeyedCodec<T>` explicitly; it will not
+factory that accepts `nupp.reflect.FieldCodec<T>` explicitly; it will not
 smuggle runtime type arguments into ordinary generics.
 
 The compiler-shipped JSON provider consumes the immutable `Info` and checked
 `@json` annotations, asks the existing field-codec provider to finalize a
 canonical bidirectional blueprint, and lowers one
-`nupp.fieldcodec.KeyedCodec<User>` and one private JSON emitter through the
+`nupp.reflect.FieldCodec<User>` and one private JSON emitter through the
 closed materialization layer. This synthetic boundary is internal to
 `@derive(nupp.derive.JSON)` and does not relax the ordinary rule that user-written opaque
 comptime results need an explicit materializable expected type. D4 extends the
@@ -999,7 +999,7 @@ type DeriveProvider = {
     name: string,
     version: string,
     targets: {string},
-    plan: function(info: TypeInfo): DeriveResult,
+    plan: function(info: nupp.reflect.Info): DeriveResult,
 }
 ```
 
@@ -1009,7 +1009,7 @@ without adding it to the language:
 ```nupp
 @deriveProvider(name = "RedactedDebug")
 @comptime
-local function deriveRedactedDebug(info: TypeInfo): nupp.DeriveResult
+local function deriveRedactedDebug(info: nupp.reflect.Info): nupp.DeriveResult
     -- Return checked semantic additions, never source or syntax.
 end
 
@@ -1069,7 +1069,7 @@ record its resolved identity and ABI in the module interface.
   with one of the newly reserved names.
 - Split declaration checking into base, derive-merge and final-conformance
   stages without changing programs that use no derives.
-- Freeze a pre-merge projection of the landed `TypeInfo`/member view and add the
+- Freeze a pre-merge projection of the landed `nupp.reflect.Info`/member view and add the
   canonical derive recipe envelope; do not add a second descriptor vocabulary.
 - Collect the module-wide request index and run an internal test provider that
   reports observations but generates no members. Public `@derive` remains
@@ -1120,7 +1120,7 @@ and infers `Config`.
 
 - Activate the reserved typed `@json` annotation schemas and contradiction
   checking.
-- Extend `nupp.fieldcodec.KeyedCodec<T>` and its existing provider/runtime with
+- Extend `nupp.reflect.FieldCodec<T>` and its existing provider/runtime with
   typed object decode; do not add a sibling JSON codec type or provider.
 - Reuse the reflection graph, annotation edges, worker envelope,
   materialization relation, private expression IR and runtime effect manifest,

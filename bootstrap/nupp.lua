@@ -37,8 +37,11 @@ const nupp = { }
 return nupp
 
 end
-package.preload["nupp.bitsetimpl"] = function(...)
+package.preload["nupp._bitset"] = function(...)
 local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
 
 
 
@@ -13661,7 +13664,9 @@ return T . any
 end
 local descriptor = reflection . describe ( reflected , key )
 node . reflectedType , node . reflectedTypeKey = descriptor , key
-local typeInfo = c . lookupType ( "TypeInfo" )
+local reflectTypes = c . env and c . env . globalTypes and c . env . globalTypes [ "nupp.reflect" ]
+local typeInfo = reflectTypes and reflectTypes . nestedTypes
+and reflectTypes . nestedTypes . Info
 
 return typeInfo or T . any
 end
@@ -49473,11 +49478,11 @@ local TYPES = "The types the declarations above name in their signatures. They a
 .. "written by the prelude rather than by a program, which is why they have no "
 .. "module of their own to be documented from."
 
-local REFLECTION = "What the compiler hands a program about the program's own types. "
-.. "`nupp.reflect` answers with a [](TypeInfo) inside a `comptime` block and "
-.. "`layoutof` answers with a [](Layout) for a reified `struct`; everything else "
-.. "here is reached from one of those two. They sit apart from the types above "
-.. "because reading them is metaprogramming rather than calling a library."
+local REFLECTION = "What the compiler hands a program about a reified `struct`'s "
+.. "memory. `layoutof` answers with a [](Layout); semantic descriptors instead "
+.. "live with the callable `nupp.reflect` namespace. Layout types sit apart from "
+.. "the types above because reading them is metaprogramming rather than calling "
+.. "a library."
 
 
 
@@ -49487,12 +49492,6 @@ local REFLECTION = "What the compiler hands a program about the program's own ty
 local REFLECTION_TYPES = {
 Layout = true ,
 LayoutField = true ,
-TypeInfo = true ,
-TypeInfoAnnotation = true ,
-TypeInfoAnnotationArgument = true ,
-TypeInfoEntry = true ,
-TypeInfoField = true ,
-TypeInfoNode = true ,
 }
 
 
@@ -70827,19 +70826,19 @@ state . intrinsics [ token ] = function ( at , args )
 local reflected = state . opaque [ args [ 1 ] ]
 if args . n ~= 1 or not reflected or reflected . provider ~= "reflection"
 or reflected . family ~= "TypeInfo" then
-return nil , failure ( "NUPP2418" , "nupp.fieldcodec.compile needs one reflected type" )
+return nil , failure ( "NUPP2418" , "nupp.reflect.fieldCodec needs one reflected type" )
 end
 
 return newOpaque (
 "fieldcodec" ,
 "Blueprint" ,
 { descriptor = reflected . payload } ,
-provenance ( at , "nupp.fieldcodec.compile" )
+provenance ( at , "nupp.reflect.fieldCodec" )
 )
 end
-library . compile = token
+library . fieldCodec = token
 env . nupp = env . nupp or { }
-env . nupp . fieldcodec = library
+env . nupp . reflect = library
 end
 
 function fieldcodec . finalize ( state , value )
@@ -70894,7 +70893,7 @@ if not expected then
 return nil , failure (
 "NUPP2414" ,
 "a field-codec blueprint needs a directly declared runtime type" ,
-"write nupp.fieldcodec.KeyedCodec<Record> on the declaration initialized by this comptime block"
+"write nupp.reflect.FieldCodec<Record> on the declaration initialized by this comptime block"
 )
 end
 if envelope . schema ~= 1 or envelope . family ~= "KeyedCodecBlueprint"
@@ -70915,13 +70914,13 @@ local canonical = table . concat ( fields , "\0" ) .. "\0" .. envelope . payload
 if envelope . fingerprint ~= hash . sha256 ( "nupp.fieldcodec\0v1\0" .. canonical ) then
 return nil , failure ( "NUPP2415" , "field-codec blueprint fingerprint does not match" )
 end
-local namespace = env and env . globalTypes and env . globalTypes [ "nupp.fieldcodec" ]
-local codec = namespace and namespace . nestedTypes and namespace . nestedTypes . KeyedCodec
+local namespace = env and env . globalTypes and env . globalTypes [ "nupp.reflect" ]
+local codec = namespace and namespace . nestedTypes and namespace . nestedTypes . FieldCodec
 local target = expected and expected . typeArgs and expected . typeArgs [ 1 ]
 if not codec or not expected or ( expected . origin or expected ) ~= codec
 or not target or target . tag ~= "nominal" or target . declKind ~= "record"
 or target . name ~= envelope . payload . typeName then
-return nil , failure ( "NUPP2415" , "field-codec blueprint needs nupp.fieldcodec.KeyedCodec<Record>" )
+return nil , failure ( "NUPP2415" , "field-codec blueprint needs nupp.reflect.FieldCodec<Record>" )
 end
 local order = target . fieldOrder or { }
 if # order ~= # fields then
@@ -76511,7 +76510,7 @@ globals = { "nupp.peg.compile" } ,
 "stdlib.fieldcodec"
 ] = {
 name = "fieldcodec" ,
-globals = { "nupp.fieldcodec.compile" } ,
+globals = { "nupp.reflect.fieldCodec" } ,
 } , [
 "stdlib.derives"
 ] = {
@@ -83172,7 +83171,7 @@ worker with step, call-depth, time, memory, result, and protocol limits, so a
 crash or oversized result fails only that block.
 
 File-private `@comptime` helpers are normally typed, share the caller's budgets,
-may inspect `TypeInfo`, and erase from runtime output. They are callable only by
+may inspect `nupp.reflect.Info`, and erase from runtime output. They are callable only by
 comptime code and are not yet generic, variadic, or cross-module.
 
 Comptime produces data, never declarations or source. `nupp build --json`
@@ -83366,7 +83365,7 @@ return m
 { "NUPP2414" , "NUPP2415" , "NUPP2416" , "NUPP2418" } ,  body =
 [=[
 `nupp.reflect(T)` resolves `T` in a type position and creates an immutable,
-target-independent semantic descriptor for comptime. Schema 2 represents the
+target-independent semantic descriptor for comptime. Schema 3 represents the
 possibly recursive type as an acyclic indexed graph: `root` selects a node in
 `types`, and edges between nodes are integer indices. The graph covers nominal
 records, interfaces and structs; shapes, fields and indexers; function
@@ -83386,8 +83385,8 @@ layout; `nupp.sizeof`, `nupp.alignof`, and `nupp.offsetof` use the build's
 participate in the fingerprint, so changing serialization metadata invalidates a
 cached comptime result even when the field types themselves are unchanged.
 
-`nupp.fieldcodec.compile(nupp.reflect(R))` is the first non-PEG materializer.
-For a record `R`, it produces a `nupp.fieldcodec.KeyedCodec<R>` whose `encode`
+`nupp.reflect.fieldCodec(nupp.reflect(R))` is the first non-PEG materializer.
+For a record `R`, it produces a `nupp.reflect.FieldCodec<R>` whose `encode`
 method copies exactly the record's present declared fields with `rawget`. Its
 stable compatibility fingerprint is `t:` followed by those field names in
 declaration order. The declared codec type must name the same nominal record.
@@ -83404,8 +83403,8 @@ local record Position
     y: number
 end
 
-const PositionCodec: nupp.fieldcodec.KeyedCodec<Position> = comptime do
-    return nupp.fieldcodec.compile(nupp.reflect(Position))
+const PositionCodec: nupp.reflect.FieldCodec<Position> = comptime do
+    return nupp.reflect.fieldCodec(nupp.reflect(Position))
 end
 
 function m.encode(position: Position): {[string]: any}
@@ -87052,9 +87051,10 @@ end
 
 
 
+
 local BITSET = compact (
 [=[
-__nuppLazy(__nuppData,"bitset",function()return require("nupp.bitsetimpl")end)
+__nuppLazy(__nuppData,"bitset",function()return require("nupp._bitset")end)
 ]=]
 )
 
@@ -97785,9 +97785,6 @@ local nupp: {
     --- @namespace
     peg: nupp.peg,
 
-    --- Type-directed keyed codecs materialized from semantic reflection.
-    fieldcodec: nupp.fieldcodec,
-
     --- Compiler-only type inspection and construction inside `@comptime` functions.
     --- Kept gradual until the bootstrap compiler admits compiler-only handle types.
     types: any,
@@ -97795,8 +97792,8 @@ local nupp: {
     --- Compiler-only derive inspection and closed forwarding recipes.
     derive: nupp.derive,
 
-    --- Reflects a concrete type for use inside a `comptime` block.
-    reflect: function(typeName: any): TypeInfo,
+    --- Semantic type reflection and reflection-driven field codecs.
+    reflect: nupp.reflect,
 
     --- Size in bytes under the build target's declared C ABI.
     sizeof: function(typeName: any): integer,
@@ -98064,7 +98061,7 @@ record nupp.derive
 
         --- The field's typed annotations in source order, `@json` and `@debug` among
         --- them.
-        readonly annotations: {TypeInfoAnnotation}
+        readonly annotations: {nupp.reflect.Annotation}
 
         --- Points this provider's `error` at this field.
         readonly reference: Reference
@@ -98106,7 +98103,7 @@ record nupp.derive
         readonly fields: {Field}
 
         --- The owner's own typed annotations, in source order.
-        readonly annotations: {TypeInfoAnnotation}
+        readonly annotations: {nupp.reflect.Annotation}
 
         --- Whether the declaration writes a constructor.
         readonly hasConstructor: boolean
@@ -98605,96 +98602,122 @@ record nupp.peg
     compile: function(source: string, options: CompileOptions?): Peg<...any>
 end
 
---- One checked member supplied to a reflected typed annotation.
+--- Semantic type reflection and reflection-driven field codecs.
 ---
---- `value` is present for `kind = "value"`; `type` is an index into the owning
---- `TypeInfo.types` graph for `kind = "type"`. `kind = "nil"` preserves an
---- explicitly supplied nil without pretending an absent table field contains it.
-record TypeInfoAnnotationArgument
-    readonly name: string
-    readonly kind: "value" | "nil" | "type"
-    readonly value: any?
-    readonly type: integer?
-end
+--- Call the namespace with a concrete type inside `comptime` to obtain an immutable,
+--- target-independent descriptor. `fieldCodec` materializes the stored fields of a
+--- reflected record into a keyed runtime codec.
+record nupp.reflect
+    --- One checked member supplied to a reflected typed annotation.
+    ---
+    --- `value` is present for `kind = "value"`; `type` is an index into the owning
+    --- `Info.types` graph for `kind = "type"`. `kind = "nil"` preserves an explicitly
+    --- supplied nil without pretending an absent table field contains it.
+    record AnnotationArgument
+        readonly name: string
+        readonly kind: "value" | "nil" | "type"
+        readonly value: any?
+        readonly type: integer?
+    end
 
---- One typed annotation application, retaining source order.
-record TypeInfoAnnotation
-    readonly name: string
-    readonly arguments: {TypeInfoAnnotationArgument}
-end
+    --- One typed annotation application, retaining source order.
+    record Annotation
+        readonly name: string
+        readonly arguments: {AnnotationArgument}
+    end
 
-record TypeInfoField
-    readonly name: string
-    readonly kind: string
-    readonly typeName: string?
-    readonly type: integer?
-    readonly readable: boolean
-    readonly writable: boolean
-    readonly hasDefault: boolean
-    readonly defaultValue: any
-    readonly annotations: {TypeInfoAnnotation}
-end
+    --- One stored field projected directly from the reflected root type.
+    record Field
+        readonly name: string
+        readonly kind: string
+        readonly typeName: string?
+        readonly type: integer?
+        readonly readable: boolean
+        readonly writable: boolean
+        readonly hasDefault: boolean
+        readonly defaultValue: any
+        readonly annotations: {Annotation}
+    end
 
---- One named or positional edge in the indexed semantic type graph.
-record TypeInfoEntry
-    readonly name: string?
-    readonly type: integer?
-    readonly read: integer?
-    readonly write: integer?
-    readonly readable: boolean?
-    readonly writable: boolean?
-    readonly hasDefault: boolean?
-    readonly defaultValue: any
-    readonly mode: string?
-    readonly bound: integer?
-    readonly answer: integer?
-    readonly default: boolean?
-    readonly annotations: {TypeInfoAnnotation}?
-    readonly [string]: any
-end
+    --- One named or positional edge in the indexed semantic type graph.
+    record Entry
+        readonly name: string?
+        readonly type: integer?
+        readonly read: integer?
+        readonly write: integer?
+        readonly readable: boolean?
+        readonly writable: boolean?
+        readonly hasDefault: boolean?
+        readonly defaultValue: any
+        readonly mode: string?
+        readonly bound: integer?
+        readonly answer: integer?
+        readonly default: boolean?
+        readonly annotations: {Annotation}?
+        readonly [string]: any
+    end
 
-record TypeInfoNode
-    readonly kind: string
-    readonly name: string?
-    readonly nominal: boolean?
-    readonly annotations: {TypeInfoAnnotation}?
-    readonly fields: {TypeInfoEntry}?
-    readonly staticFields: {TypeInfoEntry}?
-    readonly metamethods: {TypeInfoEntry}?
-    readonly nestedTypes: {TypeInfoEntry}?
-    readonly associatedTypes: {TypeInfoEntry}?
-    readonly members: {integer}?
-    readonly parameters: {TypeInfoEntry}?
-    readonly returns: {integer}?
-    readonly typeParameters: {integer}?
-    readonly typeBounds: {integer}?
-    readonly packParameters: {integer}?
-    readonly constParameters: {integer}?
-    readonly parameterKinds: {string}?
-    readonly typeArguments: {integer}?
-    readonly packArguments: {integer}?
-    readonly constArguments: {integer}?
-    readonly supertypes: {integer}?
-    readonly element: integer?
-    readonly body: integer?
-    readonly of: integer?
-    readonly origin: integer?
-    readonly noReturn: boolean?
-    readonly noYield: boolean?
-    readonly [string]: any
-end
+    --- One node in an `Info` semantic type graph.
+    record Node
+        readonly kind: string
+        readonly name: string?
+        readonly nominal: boolean?
+        readonly annotations: {Annotation}?
+        readonly fields: {Entry}?
+        readonly staticFields: {Entry}?
+        readonly metamethods: {Entry}?
+        readonly nestedTypes: {Entry}?
+        readonly associatedTypes: {Entry}?
+        readonly members: {integer}?
+        readonly parameters: {Entry}?
+        readonly returns: {integer}?
+        readonly typeParameters: {integer}?
+        readonly typeBounds: {integer}?
+        readonly packParameters: {integer}?
+        readonly constParameters: {integer}?
+        readonly parameterKinds: {string}?
+        readonly typeArguments: {integer}?
+        readonly packArguments: {integer}?
+        readonly constArguments: {integer}?
+        readonly supertypes: {integer}?
+        readonly element: integer?
+        readonly body: integer?
+        readonly of: integer?
+        readonly origin: integer?
+        readonly noReturn: boolean?
+        readonly noYield: boolean?
+        readonly [string]: any
+    end
 
---- An immutable compile-time description of one resolved semantic type.
-record TypeInfo
-    readonly schema: integer
-    readonly root: integer
-    readonly types: {TypeInfoNode}
-    readonly kind: string
-    readonly name: string
-    readonly qualifiedName: string
-    readonly fields: {TypeInfoField}
-    readonly annotations: {TypeInfoAnnotation}
-    readonly fingerprint: string
+    --- An immutable compile-time description of one resolved semantic type.
+    record Info
+        readonly schema: integer
+        readonly root: integer
+        readonly types: {Node}
+        readonly kind: string
+        readonly name: string
+        readonly qualifiedName: string
+        readonly fields: {Field}
+        readonly annotations: {Annotation}
+        readonly fingerprint: string
+    end
+
+    --- An opaque field-codec recipe returned inside `comptime`.
+    record FieldCodecBlueprint
+    end
+
+    --- A keyed runtime codec materialized from a reflected record.
+    record FieldCodec<T>
+        encode: function(self, value: T): {[string]: any}
+        decode: function(self, value: {[string]: any}): (T?, string?)
+        fingerprint: string
+    end
+
+    --- Reflects a concrete type for use inside a `comptime` block.
+    metamethod __call: function(self, typeName: any): Info
+
+    --- Builds a keyed field-codec recipe from a reflected record.
+    fieldCodec: function(info: Info): FieldCodecBlueprint
 end
 
 --- Internal typed schema for the compiler-owned @deprecated annotation.
@@ -98710,20 +98733,6 @@ end
 --- Values with deterministic compiler-generated debug formatting.
 interface nupp.Debug
     debug: function(self): string
-end
-
---- Type-directed keyed codecs materialized from semantic reflection.
-record nupp.fieldcodec
-    record Blueprint
-    end
-
-    record KeyedCodec<T>
-        encode: function(self, value: T): {[string]: any}
-        decode: function(self, value: {[string]: any}): (T?, string?)
-        fingerprint: string
-    end
-
-    compile: function(info: TypeInfo): Blueprint
 end
 
 --- JSON, UTF-8, UUIDs, hashes and checksums.
@@ -102014,7 +102023,7 @@ end
 
 record derive.Entry
     schema: {data: {[string]: any}}
-    codec: nupp.fieldcodec.KeyedCodec<any>
+    codec: nupp.reflect.FieldCodec<any>
 end
 
 @comptime
@@ -102198,7 +102207,7 @@ function derive.fromJSON<T>(text: string, entry: derive.Entry): (T?, string?)
     return _G.nupp.__derive.fromJSON(text, entry)
 end
 
-function derive.fieldCodec(entry: derive.Entry): nupp.fieldcodec.KeyedCodec<any>
+function derive.fieldCodec(entry: derive.Entry): nupp.reflect.FieldCodec<any>
     return entry.codec
 end
 

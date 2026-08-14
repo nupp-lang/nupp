@@ -286,7 +286,7 @@ the DR0 success case.
 ### Input descriptor
 
 `nupp.derive.Info` is the compiler-only projection. It is not the existing
-global `TypeInfo`: reflection schema 2 is a plain index graph whose field types
+`nupp.reflect.Info`: reflection schema 2 is a plain index graph whose field types
 are integer edges, while derives receive immutable semantic handles directly.
 The projection reuses reflection's canonical graph interning and the existing
 `nupp.types` handle transport.
@@ -776,7 +776,7 @@ expression language.
 
 - Build the new immutable `nupp.derive.Info` projection; reuse reflection graph
   interning and `nupp.types` transport, but do not mutate or rename global
-  `TypeInfo` schema 2.
+  `nupp.reflect.Info` schema 2.
 - Add `RuntimeHelper`, argument blueprints and canonical `forward.v1` to the
   internal derive recipe.
 - Run a compiler-owned test provider through the same validation and lowering

@@ -102,8 +102,8 @@ local record Position
     y: number
 end
 
-const PositionCodec: nupp.fieldcodec.KeyedCodec<Position> = comptime do
-    return nupp.fieldcodec.compile(nupp.reflect(Position))
+const PositionCodec: nupp.reflect.FieldCodec<Position> = comptime do
+    return nupp.reflect.fieldCodec(nupp.reflect(Position))
 end
 
 function m.encode(position: Position): {[string]: any}

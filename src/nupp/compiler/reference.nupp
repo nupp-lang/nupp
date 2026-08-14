@@ -1389,7 +1389,7 @@ worker with step, call-depth, time, memory, result, and protocol limits, so a
 crash or oversized result fails only that block.
 
 File-private `@comptime` helpers are normally typed, share the caller's budgets,
-may inspect `TypeInfo`, and erase from runtime output. They are callable only by
+may inspect `nupp.reflect.Info`, and erase from runtime output. They are callable only by
 comptime code and are not yet generic, variadic, or cross-module.
 
 Comptime produces data, never declarations or source. `nupp build --json`
@@ -1583,7 +1583,7 @@ return m
         codes = {"NUPP2414", "NUPP2415", "NUPP2416", "NUPP2418"},
         body = [=[
 `nupp.reflect(T)` resolves `T` in a type position and creates an immutable,
-target-independent semantic descriptor for comptime. Schema 2 represents the
+target-independent semantic descriptor for comptime. Schema 3 represents the
 possibly recursive type as an acyclic indexed graph: `root` selects a node in
 `types`, and edges between nodes are integer indices. The graph covers nominal
 records, interfaces and structs; shapes, fields and indexers; function
@@ -1603,8 +1603,8 @@ layout; `nupp.sizeof`, `nupp.alignof`, and `nupp.offsetof` use the build's
 participate in the fingerprint, so changing serialization metadata invalidates a
 cached comptime result even when the field types themselves are unchanged.
 
-`nupp.fieldcodec.compile(nupp.reflect(R))` is the first non-PEG materializer.
-For a record `R`, it produces a `nupp.fieldcodec.KeyedCodec<R>` whose `encode`
+`nupp.reflect.fieldCodec(nupp.reflect(R))` is the first non-PEG materializer.
+For a record `R`, it produces a `nupp.reflect.FieldCodec<R>` whose `encode`
 method copies exactly the record's present declared fields with `rawget`. Its
 stable compatibility fingerprint is `t:` followed by those field names in
 declaration order. The declared codec type must name the same nominal record.
@@ -1621,8 +1621,8 @@ local record Position
     y: number
 end
 
-const PositionCodec: nupp.fieldcodec.KeyedCodec<Position> = comptime do
-    return nupp.fieldcodec.compile(nupp.reflect(Position))
+const PositionCodec: nupp.reflect.FieldCodec<Position> = comptime do
+    return nupp.reflect.fieldCodec(nupp.reflect(Position))
 end
 
 function m.encode(position: Position): {[string]: any}

@@ -144,7 +144,7 @@ evaluator able to return declarations.
 
 The first ones are compiler-owned: `Debug`, `Default`, and `JSON`. If
 user-defined derives later earn their place, the interface is a
-restricted semantic provider that accepts immutable `TypeInfo` and produces
+restricted semantic provider that accepts immutable `nupp.reflect.Info` and produces
 constrained declaration IR — structural generation under a checked contract,
 not source text and not an AST. `@soa` belongs in the same category.
 
@@ -230,10 +230,10 @@ that would make exporting one awkward later.
 Comptime functions may recurse within the evaluation budget.
 
 Type-driven helpers do not have to wait for generic comptime functions. A helper
-can take a `TypeInfo` as an ordinary value:
+can take a `nupp.reflect.Info` as an ordinary value:
 
 ```lua
-@comptime local function schema(info: TypeInfo): Schema
+@comptime local function schema(info: nupp.reflect.Info): Schema
 ```
 
 which is the reflection-consuming shape most of the interesting cases want, and
@@ -257,13 +257,13 @@ smaller than Lua's constant vocabulary — cdata, floats, and calls are excluded
 because their representation, rounding, and errors are not a rewrite's business.
 
 Comptime needs a third thing neither provides: a value that is known *and*
-carries a comptime-only handle, such as a `TypeInfo`, which can be inspected
+carries a comptime-only handle, such as a `nupp.reflect.Info`, which can be inspected
 during evaluation but never quoted back. So the lattice is still:
 
 ```text
 unknown at compile time
 known quotable value
-known comptime-only handle (for example TypeInfo)
+known comptime-only handle (for example nupp.reflect.Info)
 ```
 
 but its first two rungs should be read off what the checker already records
@@ -385,7 +385,7 @@ not bypass assignment, return, or field checks.
 The public intrinsics are:
 
 ```lua
-nupp.reflect(T): TypeInfo             -- target-independent
+nupp.reflect(T): nupp.reflect.Info             -- target-independent
 nupp.sizeof(T): integer               -- target-specific
 nupp.alignof(T): integer              -- target-specific
 nupp.offsetof(T, fieldName): integer  -- target-specific
@@ -416,8 +416,8 @@ the declaration.
     name = "User",
     qualifiedName = "accounts.User",
     fields = {
-        {name = "id", type = <TypeInfo>, annotations = {...}},
-        {name = "name", type = <TypeInfo>, annotations = {...}},
+        {name = "id", type = <nupp.reflect.Info>, annotations = {...}},
+        {name = "name", type = <nupp.reflect.Info>, annotations = {...}},
     },
 }
 ```
@@ -433,7 +433,7 @@ the type has a layout, they are available separately, so that a reader can tell
 which answers travel with the program and which travel with the machine.
 
 Field order is declaration order. Recursive types are represented by stable
-read-only indexed views, not recursively copied tables. A `TypeInfo` handle can
+read-only indexed views, not recursively copied tables. A `nupp.reflect.Info` handle can
 be inspected, deterministically iterated and compared during comptime
 evaluation but cannot be returned as a quoted runtime value. Its fingerprint
 hashes the canonical semantic graph, not process-local nominal identifiers.
@@ -774,7 +774,7 @@ cut off both in-process and persisted build invalidation.
 Target-independent, and not blocked on anything. Everything here is a fact the
 checker established while checking the declaration.
 
-- Define the versioned immutable `TypeInfo` schema over the checker's full
+- Define the versioned immutable `nupp.reflect.Info` schema over the checker's full
   structural vocabulary: fields and field types, declaration order, annotations,
   generic arguments, unions, interfaces, function signatures, nominal identity.
 - Add semantic type fingerprints and cross-module interface dependencies, so a
@@ -800,7 +800,7 @@ in persistent build caches.
   answers asked of whichever FFI is running.
 - Define target selection, since a layout is meaningless without knowing whose.
 - Then: target-aware `nupp.sizeof`, `nupp.alignof`, and `nupp.offsetof`, and
-  the layout facts exposed alongside `TypeInfo` rather than inside it.
+  the layout facts exposed alongside `nupp.reflect.Info` rather than inside it.
 - Test target keys and layout cache separation.
 
 `layoutof` and `nupp.sizeof` both exist with deliberately different names and
@@ -813,7 +813,7 @@ which is the purpose of selecting a target rather than measuring the host.
 - Give `@comptime` a checked function-declaration meaning.
 - Erase comptime functions from runtime output.
 - Add comptime call stacks, recursion limits, and direct-call checking.
-- Support helpers taking a `TypeInfo` parameter, which is the reflection-driven
+- Support helpers taking a `nupp.reflect.Info` parameter, which is the reflection-driven
   shape and needs nothing from the generic system.
 - Keep functions file-private for now, while avoiding decisions that would make
   exporting one awkward: cross-module helpers are an expected extension, and
@@ -905,7 +905,7 @@ in C1 and C3 should keep the way clear for them:
   `comptime T: type` to express, so this is the actual gap between the two
   models rather than a rounding error in it. Still an explicit extension to the
   generic system, not an implicit comptime parameter.
-- Compiler-owned derives, consuming the same `TypeInfo` — see §What a derive
+- Compiler-owned derives, consuming the same `nupp.reflect.Info` — see §What a derive
   would be.
 
 **Open questions**, genuinely undecided:

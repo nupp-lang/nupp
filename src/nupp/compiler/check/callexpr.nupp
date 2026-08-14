@@ -559,7 +559,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
             local descriptor = reflection.describe(reflected, key)
             node.reflectedType, node.reflectedTypeKey = descriptor, key
-            local typeInfo = c.lookupType("TypeInfo")
+            local reflectTypes = c.env and c.env.globalTypes and c.env.globalTypes["nupp.reflect"]
+            local typeInfo = reflectTypes and reflectTypes.nestedTypes
+                and reflectTypes.nestedTypes.Info
 
             return typeInfo or T.any
         end

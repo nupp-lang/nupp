@@ -642,7 +642,7 @@ pattern-table dispatch and an extra Lua call per match while retaining the same
 
 ## Second proving case: type-directed field codecs
 
-The second provider consumes immutable `TypeInfo` rather than a PEG graph. Its
+The second provider consumes immutable `nupp.reflect.Info` rather than a PEG graph. Its
 acceptance case is the keyed table-component codec `fieldcodec.tl` builds with
 runtime `load()` from each component's declared `fields`, as described in
 `plans/layout.md`.

@@ -61,7 +61,7 @@ local FEATURES: {
     "stdlib.fieldcodec"
 ] = {
     name = "fieldcodec",
-    globals = {"nupp.fieldcodec.compile"},
+    globals = {"nupp.reflect.fieldCodec"},
 }, [
     "stdlib.derives"
 ] = {

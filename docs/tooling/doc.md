@@ -360,10 +360,10 @@ the signature the checker enforces, because the two read the same file.
 
 The ambient globals come first, then one section per library table — `string`,
 `table`, `math` and the rest — then the modules `require` loads, then the types
-those signatures name, and last the reflection those types describe: the
-`TypeInfo` graph a `comptime` block walks and the `Layout` a reified `struct`
-is measured by, which are reached by asking about a type rather than by calling
-a library.
+those signatures name, and last the `Layout` graph a reified `struct` is measured
+by. The semantic descriptor graph a `comptime` block walks is documented with
+the callable `nupp.reflect` namespace instead of leaking ambient types onto this
+page.
 
 A name on the page is the name a program writes. `print` is a global and
 `string.format` is a member, so that is what each one's heading, anchor and

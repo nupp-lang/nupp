@@ -13,8 +13,8 @@ local record Position
     y: number
 end
 
-const PositionCodec: nupp.fieldcodec.KeyedCodec<Position> = comptime do
-    return nupp.fieldcodec.compile(nupp.reflect(Position))
+const PositionCodec: nupp.reflect.FieldCodec<Position> = comptime do
+    return nupp.reflect.fieldCodec(nupp.reflect(Position))
 end
 
 function m.encode(position: Position): {[string]: any}
@@ -28,7 +28,7 @@ Adding a field to `Position` changes what `encode` writes. Nothing else changes.
 
 ## Descriptors are graphs, not trees
 
-A type can refer to itself, so schema 2 represents it as an acyclic indexed
+A type can refer to itself, so schema 3 represents it as an acyclic indexed
 graph: `root` selects a node in `types`, and edges between nodes are integer
 indices into the same array.
 

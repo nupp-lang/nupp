@@ -9,7 +9,7 @@ end
 
 record derive.Entry
     schema: {data: {[string]: any}}
-    codec: nupp.fieldcodec.KeyedCodec<any>
+    codec: nupp.reflect.FieldCodec<any>
 end
 
 @comptime
@@ -193,7 +193,7 @@ function derive.fromJSON<T>(text: string, entry: derive.Entry): (T?, string?)
     return _G.nupp.__derive.fromJSON(text, entry)
 end
 
-function derive.fieldCodec(entry: derive.Entry): nupp.fieldcodec.KeyedCodec<any>
+function derive.fieldCodec(entry: derive.Entry): nupp.reflect.FieldCodec<any>
     return entry.codec
 end
 

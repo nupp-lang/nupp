@@ -70,26 +70,20 @@ local TYPES = "The types the declarations above name in their signatures. They a
     .. "written by the prelude rather than by a program, which is why they have no "
     .. "module of their own to be documented from."
 
-local REFLECTION = "What the compiler hands a program about the program's own types. "
-    .. "`nupp.reflect` answers with a [](TypeInfo) inside a `comptime` block and "
-    .. "`layoutof` answers with a [](Layout) for a reified `struct`; everything else "
-    .. "here is reached from one of those two. They sit apart from the types above "
-    .. "because reading them is metaprogramming rather than calling a library."
+local REFLECTION = "What the compiler hands a program about a reified `struct`'s "
+    .. "memory. `layoutof` answers with a [](Layout); semantic descriptors instead "
+    .. "live with the callable `nupp.reflect` namespace. Layout types sit apart from "
+    .. "the types above because reading them is metaprogramming rather than calling "
+    .. "a library."
 
 -- The reflection surface, by name. A type belongs here when a program reaches it by
--- asking about a type rather than by calling something: the `TypeInfo` graph a comptime
--- block walks, and the `Layout` a struct's memory is described by. Naming them is what
--- keeps the list honest -- a prelude type added later stays under Types until someone
--- decides it is reflection.
+-- asking about a type rather than by calling something. The semantic descriptor graph
+-- now belongs to `nupp.reflect`; this page retains only the ambient `Layout` graph a
+-- struct's memory is described by. Naming those types is what keeps the list honest --
+-- a prelude type added later stays under Types until someone decides it is reflection.
 local REFLECTION_TYPES: {[string]: boolean} = {
     Layout = true,
     LayoutField = true,
-    TypeInfo = true,
-    TypeInfoAnnotation = true,
-    TypeInfoAnnotationArgument = true,
-    TypeInfoEntry = true,
-    TypeInfoField = true,
-    TypeInfoNode = true,
 }
 
 -- A value is a global, a type is a type, and everything else on this page is a library

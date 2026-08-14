@@ -47,8 +47,8 @@ local record Position
     y: number
 end
 
-const PositionCodec: nupp.fieldcodec.KeyedCodec<Position> = comptime do
-    return nupp.fieldcodec.compile(nupp.reflect(Position))
+const PositionCodec: nupp.reflect.FieldCodec<Position> = comptime do
+    return nupp.reflect.fieldCodec(nupp.reflect(Position))
 end
 
 local payload: {string: any} = PositionCodec:encode(new Position {
@@ -57,7 +57,7 @@ local payload: {string: any} = PositionCodec:encode(new Position {
 })
 ```
 
-`KeyedCodec<T>:encode(T)` returns a fresh table containing exactly `T`'s
+`FieldCodec<T>:encode(T)` returns a fresh table containing exactly `T`'s
 declared fields in declaration order. It reads each with `rawget`, so an absent
 field stays absent instead of falling through an instance metatable. Its
 fingerprint is `"t:"` followed by the comma-separated ordered field names,

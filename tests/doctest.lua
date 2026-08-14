@@ -770,6 +770,41 @@ function M.standardPegApiDocumentsItsTypesExpressionsAndExamples()
    end
 end
 
+function M.standardReflectApiKeepsItsGraphAndMaterializerTogether()
+   local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
+   local module, errors = doc.extract(source,
+      "src/nupp/compiler/decls/prelude.d.nupp", "nupp.compiler.decls.prelude")
+   assert(module, errors and errors[1] and errors[1].msg)
+
+   local reflect
+   for _, item in ipairs(module.items) do
+      if item.name == "reflect" then reflect = item end
+   end
+   assert(reflect, "the prelude did not document nupp.reflect")
+
+   local expected = {
+      AnnotationArgument = true,
+      Annotation = true,
+      Field = true,
+      Entry = true,
+      Node = true,
+      Info = true,
+      FieldCodecBlueprint = true,
+      FieldCodec = true,
+      fieldCodec = true,
+   }
+   for _, member in ipairs(reflect.members) do
+      if expected[member.name] then
+         assert(member.text ~= "", "nupp.reflect." .. member.name
+            .. " has no documentation")
+         expected[member.name] = nil
+      end
+   end
+   for name in pairs(expected) do
+      error("the prelude did not document nupp.reflect." .. name)
+   end
+end
+
 function M.standardLibraryBackingRecordsStayInternal()
    local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
    local module, errors, extra = doc.extract(source,
@@ -836,8 +871,8 @@ function M.standardLibraryBackingRecordsStayInternal()
          end
       end
    end
-   -- Path, URI, Log and FieldCodec have all folded their own Library away by
-   -- now; only Files.Library, nested two levels down under nupp.io, remains.
+   -- Path, URI and Log have all folded their own Library away by now; only
+   -- Files.Library, nested two levels down under nupp.io, remains.
    assert(topLevelLibraries == 3, "private docs lost top-level backing records")
    assert(nestedLibraries == 1, "private docs lost nested backing records")
 end
@@ -2321,9 +2356,9 @@ function M.stdlibIndexIsStaticThroughout()
    assert(not page.markdown:find(":playground", 1, true), "a fence would open as an editor")
 end
 
--- Reflection is reached by asking about a type rather than by calling a library, so
--- the `TypeInfo` graph and the `Layout` a struct is described by sit apart from the
--- types the signatures above merely name.
+-- Layout is reached by asking about a reified type rather than by calling a library,
+-- so its graph sits apart from the types the signatures above merely name. Semantic
+-- reflection owns its graph under `nupp.reflect` instead of leaking ambient types.
 function M.stdlibIndexSectionsReflectionApartFromTypes()
    local stdlib = require("nupp.compiler.doc.stdlib")
    local page = assert(stdlib.page({path = "luajit"}))
@@ -2331,8 +2366,8 @@ function M.stdlibIndexSectionsReflectionApartFromTypes()
    local types = assert(page.markdown:find("\n## Types\n", 1, true))
 
    assert(types < reflection, "reflection is a section of its own after the types")
-   assert(page.markdown:find("### `TypeInfo`", 1, true) > reflection, "TypeInfo left behind")
    assert(page.markdown:find("### `Layout`", 1, true) > reflection, "Layout left behind")
+   assert(not page.markdown:find("### `TypeInfo`", 1, true), "TypeInfo still ambient")
    assert(page.markdown:find("### `LuaFile`", 1, true) < reflection, "an ordinary type was moved")
 end
 

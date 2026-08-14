@@ -559,7 +559,7 @@ members(T) -> {
 ```
 
 The view is internal semantic data, not the mutable tables on `types.Nominal`
-and not the public `TypeInfo` schema. Its rules cover shapes, records,
+and not the public `nupp.reflect.Info` schema. Its rules cover shapes, records,
 interfaces, structs, generic nominal applications, intersections, const views,
 and gradual table types exactly once.
 
@@ -574,7 +574,7 @@ Consumers project it differently:
   annotations.
 
 Metamethods, static members, nested types, associated-type requirements, and
-constructors remain separate semantic categories even if a future `TypeInfo`
+constructors remain separate semantic categories even if a future `nupp.reflect.Info`
 descriptor exposes them. They never become ordinary `keyof` results merely
 because reflection can see them.
 
