@@ -4,84 +4,9 @@
 bitsets. Reach it directly from the global [`nupp` namespace](stdlib.md); the C
 and Rust providers remain hidden.
 
-## JSON
-
-`nupp.data.json` holds the whole JSON surface. `encodeJSON` and `decodeJSON` use
-the mature cjson implementation without exposing its module name:
-
-```nupp:playground
-local encoded = nupp.data.json.encodeJSON({name = "Nupp", ready = true})
-local decoded = nupp.data.json.decodeJSON(encoded)
-assert(decoded.name == "Nupp")
-```
-
-`NULL`, `EMPTY_ARRAY`, `ARRAY_MT`, and `EMPTY_ARRAY_MT` preserve distinctions Lua
-tables cannot express by themselves. The configuration methods match cjson's
-established semantics, but live on `nupp.data.json`. `newJSON()` returns an
-independent `nupp.data.json.JSON` encoder/decoder with its own settings:
-
-```nupp
-local compact = nupp.data.json.newJSON()
-compact.encodeKeepBuffer(false)
-local text = compact.encodeJSON({1, 2, 3})
-```
-
-JSON selects the `cjson` native feature. No `require("cjson")` is needed or
-recommended.
-
-| Member | Result | Purpose |
-| --- | --- | --- |
-| `encodeJSON(value)` | string | Encode one Lua value. |
-| `decodeJSON(text)` | any | Decode one JSON document. |
-| `newJSON()` | nupp.data.json.JSON | Create a separately configured codec. |
-| `NULL`, `EMPTY_ARRAY` | sentinel values | JSON values plain Lua cannot express. |
-| `ARRAY_MT`, `EMPTY_ARRAY_MT` | metatables | Mark array-shaped tables explicitly. |
-
-Both `nupp.data.json` and an object returned by `newJSON` provide the
-configuration methods `encodeEmptyTableAsObject`, `decodeArrayWithArrayMt`,
-`encodeSparseArray`, `encodeMaxDepth`, `decodeMaxDepth`,
-`encodeNumberPrecision`, `encodeKeepBuffer`, `encodeInvalidNumbers`,
-`decodeInvalidNumbers`, and `encodeEscapeForwardSlash`. Omitting a method's
-setting reads the current value where the provider supports that form; passing
-a setting changes only that codec.
-
-## UTF-8
-
-`nupp.data.utf8` treats strings and [`nupp.io.ByteView`](io.md#byte-views)
-values as byte sequences. Byte offsets are 1-based here so they compose with Lua
-string positions. Invalid input decodes as U+FFFD while validation remains
-explicit.
-
-```nupp
-local utf8 = nupp.data.utf8
-assert(utf8.length("A€") == 2)
-
-local codepoint, nextByte = utf8.decodeAt("A€", 2)
-assert(codepoint == 0x20ac and nextByte == 5)
-
-codepoint, nextByte = utf8.decodeBefore("A€", nextByte)
-assert(codepoint == 0x20ac and nextByte == 2)
-
-assert(utf8.encode(0x20ac) == "€")
-assert(utf8.isValid("café"))
-assert(not utf8.isValid("\xff"))
-assert(utf8.truncate("A€B", 4) == "A€")
-```
-
-`validPrefixLength(value, maxBytes)` returns the largest valid prefix no longer
-than the byte budget. `truncate` applies that operation to a string. The
-underlying lua-utf8 provider loads only when this namespace is selected and
-reached.
-
-| Member | Result | Position rule |
-| --- | --- | --- |
-| `length(value)` | integer | Counts scalars, replacing malformed bytes one by one. |
-| decodeAt(value, byteOffset) | integer?, integer | Decodes forward from a 1-based offset, then the next. |
-| decodeBefore(value, byteOffset) | integer?, integer | Decodes the scalar ending before a 1-based offset. |
-| `encode(codepoint)` | string | Encodes one Unicode scalar value. |
-| `isValid(value)` | boolean | Validates the complete byte sequence. |
-| validPrefixLength(value, maxBytes) | integer | Finds a valid prefix within a byte budget. |
-| truncate(text, maxBytes) | string | Copies that valid prefix. |
+The two nested modules large enough to need a page of their own have one:
+[`nupp.data.json`](json.md) and [`nupp.data.utf8`](utf8.md). What is described
+here is what the namespace holds directly.
 
 ## UUIDs
 

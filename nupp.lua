@@ -617,6 +617,16 @@ nupp lsp            # start the language server]],
                   source = "docs/data.md",
                },
                {
+                  path = "modules/nupp/data/json",
+                  title = "Module: nupp.data.json",
+                  source = "docs/json.md",
+               },
+               {
+                  path = "modules/nupp/data/utf8",
+                  title = "Module: nupp.data.utf8",
+                  source = "docs/utf8.md",
+               },
+               {
                   path = "modules/nupp/derive",
                   title = "Module: nupp.derive",
                   source = "docs/derives.md",
