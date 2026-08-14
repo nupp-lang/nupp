@@ -1,5 +1,10 @@
 host/notices/*.txt text eol=lf
 
+# `nupp fmt` writes LF and `nupp fmt --check` holds this tree to what it writes,
+# so a checkout that translates line endings has an unformatted tree by the time
+# anything reads it. Windows is where that happens.
+*.nupp text eol=lf
+
 # The formatter corpus is bytes under test: a case exists to prove what the
 # formatter does with the line endings it was given, so nothing normalizes them.
 tests/fmtcorpus/** -text
