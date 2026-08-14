@@ -1,0 +1,15 @@
+-- A checked whole-span boundary around the generated width-polymorphic plans.
+
+cdef function ss_overlaps(
+    borrows left: const uint32* countedBy(wordCount),
+    borrows right: const uint32* countedBy(wordCount),
+    wordCount: uint64
+): int32 from"bench/simd-polymorphism-spike/build/libsimd_spike"
+
+cdef function ss_contains_all(
+    borrows left: const uint32* countedBy(wordCount),
+    borrows right: const uint32* countedBy(wordCount),
+    wordCount: uint64
+): int32 from"bench/simd-polymorphism-spike/build/libsimd_spike"
+
+return {overlaps = ss_overlaps, containsAll = ss_contains_all,}
