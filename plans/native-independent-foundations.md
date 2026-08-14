@@ -76,8 +76,8 @@ In particular:
   runtime representation to remove later;
 - fixed-width operations live only under the existing `nupp.math` namespace;
   there are no parallel `require("nupp.f32")` modules;
-- boxed, scratch-cdata, or one-FFI-call-per-operation numeric fallbacks do not
-  land;
+- per-call cdata boxes, per-call scratch allocation, and
+  one-FFI-call-per-operation numeric fallbacks do not land;
 - a public strided span lands only if ordinary non-native uses justify its final
   API before implementation;
 - complete effect summaries remain file-local; only the stable positive facts
@@ -87,6 +87,11 @@ In particular:
   reimplements it in the compiler or standard library. The existing spike may
   consume a released feature for validation, but it is not an implementation
   stage.
+
+A throwaway measurement in an uncommitted temporary directory may answer a
+feasibility question such as LuaJIT trace recording. It is deleted after the
+answer and never becomes a public or internal implementation stage. The rule
+above forbids shipped transitional surfaces, not measurement.
 
 If the final implementation required by a track is not yet feasible, stop at
 the preceding decision or semantic test work. Do not land an implementation
@@ -154,18 +159,34 @@ overrides a struct layout.
 Add one command:
 
 ```text
-./bin/nupp export-c -o game_types.h src/game.nupp game.Position game.Motion
+./bin/nupp export-c -o game.h src/game.nupp \
+    game.Position game.Motion game.integrate
 ```
+
+The hyphenated spelling deliberately mirrors the existing public `import-c`
+command; the implementation file's `importc.nupp` name is not CLI syntax.
 
 It emits an include-guarded header containing the selected exported structs,
 their transitive by-value dependencies, canonical C names, layout fingerprint
-constants, and compile-time layout assertions. The command reports a source
-diagnostic for a selected type that cannot be represented for the configured
-target.
+constants, compile-time layout assertions, and typed prototypes for selected
+`cdef function` declarations. The command reports a source diagnostic for a
+selected declaration that cannot be represented for the configured target.
 
 A `cdef function` may name a pointer or array of one of those ordinary structs
 directly. The checker and generator map it to the same canonical C description;
 the user does not repeat the declaration as `cdef struct`.
+
+One canonical function-signature record owns parameter count and order, scalar
+types, ordinary-struct pointer types, constness, ownership projection,
+`countedBy` relationships, result type, calling convention, and symbol name.
+The typed header prototype and the physically erased LuaJIT FFI declaration
+are two renderings of that record. Neither rendering is parsed to reconstruct
+the other.
+
+Pointer erasure removes constness from LuaJIT's physical slot. It does not
+remove constness from the header or Nupp type, and it is never permission to
+pass a shared span to a mutable C parameter. The checker and generated span
+wrapper enforce that distinction before the erased call.
 
 ### C declaration rules
 
@@ -198,8 +219,8 @@ specific diagnostic; the emitter does not ask the build host and guess.
 
 **A1 — `nupp export-c`**
 
-- Emit the final deterministic C declaration graph for selected structs and a
-  target.
+- Emit the final deterministic C declaration graph and typed function
+  prototypes for selected declarations and a target.
 - Add independent parser/compile fixtures that compare the emitted declaration
   against Nupp's target layout record.
 - Validate with Clang for every supported target triple available in CI, but do
@@ -211,6 +232,8 @@ specific diagnostic; the emitter does not ask the build host and guess.
   whose canonical description can be emitted.
 - Generate the one final pointer bridge while keeping ownership modes,
   `countedBy`, and span adaptation typed at source.
+- Render its erased FFI declaration from the same canonical signature record as
+  the header prototype.
 - Keep ordinary user-written `cdef` behavior unchanged: external C aggregates
   remain explicitly declared `cdef struct` types.
 - Make `nupp export-c` the only way to publish an ordinary Nupp struct layout to
@@ -230,6 +253,9 @@ specific diagnostic; the emitter does not ask the build host and guess.
 - A fixture defines structs once in Nupp, exports the header, compiles a small C
   function against it, and calls that function through typed ordinary-struct
   pointers without a duplicate `cdef struct`.
+- Changing parameter count, order, pointer/value shape, constness, count
+  relation, or result type changes both renderings from the canonical record;
+  a fixture compiles the typed prototype and exercises the erased wrapper.
 - Clean, incremental, hot-reloaded, and reversed-module-order runs agree and
   register no generated named aggregate in the live LuaJIT C namespace.
 - `./bin/nupp bc --check` accepts the generated pointer wrapper.
@@ -260,18 +286,23 @@ The resolved prelude member identity is the intrinsic identity. Aliasing that
 member preserves the identity; shadowing `nupp`, `math`, or a member produces
 an ordinary call and receives no intrinsic treatment.
 
-The ordinary runtime representation is decided now:
+The ordinary result representation is decided now:
 
 - `i32` is a Lua number in the canonical inclusive range -2^31 through
   2^31-1;
 - `u32` is a Lua number in the canonical inclusive range 0 through 2^32-1;
-- `f32` is a Lua number whose value is exactly representable as binary32.
+- every `f32` operation returns a Lua number whose value is exactly
+  representable as binary32.
 
 The static result types remain `int32`, `uint32`, and `float`. The operations do
 not return scalar cdata boxes. `u32` bit operations convert through LuaJIT's
 signed `bit.*` representation internally and normalize negative results by
 adding 2^32. Wrapping multiplication uses exact 16-bit partial products rather
 than `a * b`, which can lose low product bits in binary64.
+
+The `f32` property is an output guarantee, not an invariant of every value whose
+static type is `float`. An ordinary local or expression may hold a wider Lua
+number. Each `f32` operation rounds its inputs explicitly.
 
 The exact first surface is deliberately small:
 
@@ -289,12 +320,12 @@ same-width arithmetic only by continuing to call the fixed-width operations.
 
 Write the contract before optimizing the implementation:
 
-- `f32` arguments are converted to IEEE-754 binary32 before the operation and
-  the result is rounded once to binary32, using round-to-nearest ties-to-even;
+- each `f32` argument is rounded to IEEE-754 binary32 before the operation, and
+  the result is rounded to binary32 using round-to-nearest ties-to-even;
 - `fma` is one fused operation, never an alias for `add(mul(a, b), c)`;
 - signed zero, infinity, subnormals, and each operation's NaN behavior are
-  specified; bit conversion preserves all bits, while arithmetic may use the
-  documented canonical NaN policy;
+  specified; `fromBits`/`toBits` preserve every non-NaN bit pattern and map all
+  NaNs to one documented quiet NaN, with no second raw-payload API;
 - `i32` and `u32` arithmetic wraps modulo 2^32;
 - every 32-bit shift count is masked with `count & 31`;
 - signed right shift is arithmetic and unsigned right shift is logical;
@@ -307,20 +338,34 @@ annotation alter results.
 
 ### Ordinary implementation
 
-The implementation is ordinary allocation-free Nupp plus compiler-owned
-standard-library primitives where a final bit conversion or rounding operation
-cannot be expressed traceably. It never makes one foreign call per operation.
+The final ordinary implementation uses one module-lifetime `float[1]` holder
+and typed views of its four bytes, matching the allocation pattern already used
+by scalar I/O in `src/nupp/compiler/stdlib.nupp`. Module initialization
+allocates the holder once. Calls allocate nothing, create no scalar cdata box,
+and make no foreign call.
+
+Each rounding step stores to the holder and immediately loads the rounded value.
+No holder contents remain live across a function call, callback, error edge, or
+suspension point. A Lua state executes the store/load sequence without yielding;
+separate Lua states have separate module storage. This is the reentrancy rule,
+not a convention an implementation may relax.
 
 For binary32 inputs, binary64 has enough precision to compute add, subtract,
 multiply, divide, square root, and the exact multiply/add needed by the first
 `fma` contract before one final binary32 rounding. The oracle must confirm the
 result-bit claim, especially at subnormal, overflow, cancellation, and halfway
-boundaries. The final rounding and bit-conversion path must be allocation-free
-and recordable by LuaJIT.
+boundaries.
 
-Do not land a scratch array, scalar cdata box, FFI helper call, or slower public
-fallback while waiting for that final path. If the recordable implementation is
-not available, land the integer surface and leave `f32` absent.
+Inputs are not assumed to be binary32. A binary operation performs
+`round32(round32(a) op round32(b))`: two input roundings plus one result
+rounding. `fma` rounds three inputs and its one fused result. Benchmarks measure
+that complete cost rather than an already-rounded-input shortcut.
+
+The module-lifetime holder and its typed views are the final ordinary
+implementation and remain load-bearing after compiler recognition. If that
+exact path is not allocation-free and recordable by LuaJIT, land the integer
+surface and leave `f32` absent; do not add a compiler primitive or a second
+fallback to rescue it.
 
 ### Milestones
 
@@ -332,7 +377,9 @@ not available, land the integer surface and leave `f32` absent.
 - Build a small independently compiled C oracle at strict floating settings and
   a software reference for cases where the host floating environment is not a
   sufficient oracle.
-- Prove the final integer multiplication and binary32 rounding algorithms
+- Include inputs not representable as binary32, especially values on both sides
+  of input-rounding halfway boundaries.
+- Prove the final integer multiplication and module-holder binary32 algorithms
   against the oracle before adding public members.
 
 **N1 — `nupp.math.i32` and `nupp.math.u32`**
@@ -446,6 +493,13 @@ S1; Nupp does not have that spelling today. If that feature is not accepted,
 skip S1. Do not substitute allocating tables, consuming plain varargs, or
 `range2`/`range3` fixed-arity alternatives.
 
+The typed-vararg feature resolves every argument at its call site against the
+sealed contract and passes the original span value unchanged. `CountedSpan` is
+a static constraint, not an existential runtime value: the call creates no
+interface box, wrapper, table, or closure. A design that requires boxing does
+not satisfy this prerequisite, so S1 is skipped rather than implemented that
+way.
+
 The constructor checks all dynamic counts once, accepts the canonical empty
 range, and returns ordinary integer bounds. When all counts and bounds are
 static, the checker discharges the validation at compile time. The range
@@ -523,8 +577,9 @@ interleaved storage is not admitted in this track.
 - Fixed spans discharge static range checks and preserve their count refinement
   through field projections. Writable slices deliberately return the one
   dynamic child type.
-- `./bin/nupp bc --check` accepts representative range, writable-slice, and any
-  approved strided-view loops without closure construction or trace aborts.
+- `./bin/nupp bc --check` accepts a representative writable-slice loop and,
+  when those optional phases land, range and strided-view loops without boxing,
+  closure construction, or trace aborts.
 - The existing span API remains source-compatible.
 
 ## Track E: allocation and raising guarantees
@@ -572,16 +627,21 @@ Store them in a `callGuarantees` sidecar, not the module result's existing
 `effects` field, which already means requested native-library features. The
 sidecar is also separate from the ordinary type/interface fingerprint.
 
-An importing checker records an observation only when a checked region or
-optimization actually consults one of these facts for an exact exported
-definition. Its incremental dependency then includes that one observed bit.
-Consequently:
+An importing checker records an observation whenever a checked region or
+optimization consults one of these facts for an exact exported definition. The
+observation stores the consulted value, including absence; a rejected proof and
+its cached diagnostic therefore depend on `absent` just as a successful proof
+depends on `present`. The incremental dependency key contains the export
+identity, guarantee name, and observed value. Consequently:
 
 - a private body edit still invalidates only its own module;
 - a body edit that leaves both exported facts unchanged invalidates no
   dependant;
 - changing a fact does not recheck dependants that never observed it;
-- every dependant that did observe the changed fact is rechecked.
+- every dependant that observed a different present-or-absent value is
+  rechecked;
+- when a callee gains a guarantee, a dependant previously rejected for its
+  absence is rechecked and the cached diagnostic disappears.
 
 Do not place these facts on `types.Func` in this phase, because doing so would
 fold them into the normal interface identity and destroy that granularity.
@@ -643,6 +703,8 @@ expressed without them.
 - A private helper body edit rechecks one module.
 - Changing an exported guarantee rechecks only dependants whose cached proof
   observed that exact fact; an unobserving dependant remains reusable.
+- A callee gaining `noAllocate` or `noRaise` clears a dependant's cached
+  checked-region error without a clean build.
 - Unknown callbacks, gradual calls, unresolved methods, and uncontracted C
   functions fail both checked regions.
 - Tables, records, closures, strings requiring construction, cdata, owners,
@@ -698,9 +760,9 @@ program using these features valid and semantically unchanged.
 
 Before this plan is complete:
 
-- one ordinary Tecs-shaped system uses the fixed-width numeric namespaces, a
-  checked common range, writable slices, and a non-allocating/non-raising helper
-  contract with native compilation disabled;
+- one ordinary Tecs-shaped system uses the fixed-width numeric namespaces,
+  writable slices, and a non-allocating/non-raising helper contract with native
+  compilation disabled; it also uses the checked common range if S1 lands;
 - the same source passes with JIT enabled and disabled;
 - `nupp export-c` emits the only C declaration of its ordinary structs, and an
   independent C fixture compiles and interoperates through typed pointers;
