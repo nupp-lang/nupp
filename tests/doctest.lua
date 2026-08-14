@@ -1036,6 +1036,69 @@ function M.standardResourcesApiHasCompleteDocumentation()
    assert(next(expected) == nil, "nupp.resources is missing part of its public API")
 end
 
+function M.documentsACdefOnlyWhereItReachesAReader()
+   local plumbing = table.concat({
+      "local m = {}",
+      "",
+      "--- Allocates.",
+      "cdef function malloc(size: uint64): voidptr",
+      "",
+      "cdef struct Header",
+      "   size: uint64",
+      "end",
+      "",
+      "--- Reserves a block.",
+      "function m.reserve(size: uint64): voidptr",
+      "   return malloc(size)",
+      "end",
+      "",
+      "return m",
+   }, "\n")
+   local module = assert(doc.extract(plumbing, "src/m.nupp", "m"))
+   local listed = {}
+   for _, item in ipairs(module.items) do
+      listed[item.name] = item
+   end
+   assert(listed["m.reserve"], "the module's own function must stay listed")
+   assert(not listed["malloc"] and not listed["Header"],
+      "a cdef this module only calls is not part of what it publishes")
+   local complete = assert(doc.extract(plumbing, "src/m.nupp", "m", {includeAll = true}))
+   local everything = {}
+   for _, item in ipairs(complete.items) do
+      everything[item.name] = true
+   end
+   assert(everything["malloc"] and everything["Header"], "--all must still show them")
+
+   -- A generated binding module hands its declarations straight back, which is the
+   -- one way a name bound by `cdef` reaches whoever requires the module.
+   local bindings = table.concat({
+      "--- Absolute value.",
+      "cdef function labs(n: int32): int32",
+      "",
+      "cdef struct Point",
+      "   x: float",
+      "end",
+      "",
+      "return { labs = labs, Point = Point }",
+   }, "\n")
+   local published = assert(doc.extract(bindings, "src/libm.nupp", "libm"))
+   local exported = {}
+   for _, item in ipairs(published.items) do
+      exported[item.name] = item.kind
+   end
+   assert(exported["labs"] == "function", "a returned cdef function must document")
+   assert(exported["Point"] == "struct", "a returned cdef struct must document")
+
+   -- A declaration file states what exists elsewhere, so every cdef in one is the
+   -- surface it was written to describe.
+   local declared = assert(doc.extract(plumbing, "src/m.d.nupp", "m"))
+   local stated = {}
+   for _, item in ipairs(declared.items) do
+      stated[item.name] = true
+   end
+   assert(stated["malloc"] and stated["Header"], "a declaration file publishes its cdefs")
+end
+
 function M.hidesPrivateMembersUnlessExplicitlyIncluded()
    local source = table.concat({
       "record Public",

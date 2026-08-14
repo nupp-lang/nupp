@@ -674,7 +674,7 @@ local function byKindThenName(left, right)
     return left.kind < right.kind
 end
 
-local declarationItem: function(any, string, boolean, boolean, boolean): extract.Item?
+local declarationItem: function(any, string, boolean, boolean, boolean, {[string]: boolean}?): extract.Item?
 
 -- What a shape-typed thing holds: an inline shape's own fields, or the fields of the
 -- record a field spelled as a name refers to, when the same file declares one. A field
@@ -885,11 +885,42 @@ local function buildMembers(
     return members
 end
 
+-- What a file hands back by name in a returned table literal, which is the one way a
+-- declaration bound to a bare identifier reaches a requirer. `function m.thing()` says
+-- where it lands in its own spelling and needs no such list; a `cdef` does not, so
+-- `return {labs = labs}` is all that separates a published binding from the plumbing a
+-- module happens to call C for. A file returning anything else -- the usual `return m`
+-- -- publishes no bare name and gets an empty answer.
+local function returnedNames(root): {[string]: boolean}
+    local names: {[string]: boolean} = {}
+    local function record(value)
+        if value and value.kind == "name" and value.token then
+            names[value.token.text] = true
+        end
+    end
+
+    for _, block in ipairs(root.blocks or {}) do
+        for _, stat in ipairs(block.stats or {}) do
+            if stat.kind == "returnStmt" then
+                for _, expr in ipairs(stat.exprs or {}) do
+                    if expr.kind == "tableExpr" then
+                        for _, field in ipairs(expr.fields or {}) do
+                            record(field.value)
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return names
+end
+
 -- Statement annotations wrap the declaration they modify in `pragmaStmt` nodes. The
 -- wrapper owns the leading trivia, so documentation comes from the outside while the
 -- name, signature and visibility come from the declaration at the centre. Following
 -- every wrapper also handles stacked annotations.
-declarationItem = function(stat, moduleName, includeAll, declarationFile, includePrivate)
+declarationItem = function(stat, moduleName, includeAll, declarationFile, includePrivate, published)
     local documented = stat
     local applied = {}
     while stat.kind == "pragmaStmt" and stat.stat do
@@ -909,7 +940,12 @@ declarationItem = function(stat, moduleName, includeAll, declarationFile, includ
         kind = stat.name and stat.name.method and "method" or "function"
         signature = functionSignature(stat, name)
     elseif stat.kind == "cdefFunc" then
-        name, kind, public = stat.name.text, "function", true
+        -- A `cdef` binds a bare name in this file, the way a `local` does. It is
+        -- public when a declaration file says the whole file is, when the author
+        -- exports it, or when the module hands it back by name; a module that merely
+        -- calls C for its own reasons publishes the functions it wrote, not `malloc`.
+        name, kind = stat.name.text, "function"
+        public = public or (published or {})[name] == true
         signature = cdefSignature(stat)
     elseif stat.kind == "typeAlias" then
         name, kind = stat.name.text, "type"
@@ -922,7 +958,8 @@ declarationItem = function(stat, moduleName, includeAll, declarationFile, includ
         public = public or stat.visibility == "module" or stat.visibility == "global"
         signature = structureSignature(stat, includePrivate)
     elseif stat.kind == "cdefStruct" then
-        name, kind, public = stat.name.text, "struct", true
+        name, kind = stat.name.text, "struct"
+        public = public or (published or {})[name] == true
         signature = "cdef struct " .. name
     elseif stat.kind == "localStmt" then
         if #(stat.names or {}) ~= 1 then
@@ -1141,6 +1178,7 @@ function extract.extract(
     local declarationFile = path ~= nil and path:match("%.d%.nupp$") ~= nil
     local extraModules = {}
     local declaredTypes: {[string]: boolean} = {}
+    local published = returnedNames(parsed.root)
     for _, block in ipairs(parsed.root.blocks or {}) do
         for _, stat in ipairs(block.stats or {}) do
             local typePath = declaredTypePath(stat, name)
@@ -1184,7 +1222,14 @@ function extract.extract(
                     extraModules[#extraModules + 1] = module
                 end
             else
-                local item = declarationItem(stat, name, opts.includeAll, declarationFile, opts.includePrivate)
+                local item = declarationItem(
+                    stat,
+                    name,
+                    opts.includeAll,
+                    declarationFile,
+                    opts.includePrivate,
+                    published
+                )
                 if item then
                     result.items[#result.items + 1] = item
                 end
