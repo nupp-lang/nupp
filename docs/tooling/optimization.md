@@ -403,6 +403,10 @@ end
 Suppress an intentional case with `@allow("loop-invariant-closure")`; see
 [lints](../lints.md).
 
+A closure that does depend on the iteration cannot be lifted, and costs the loop
+its trace all the same. `jit-loop-closure` says so where a project asks for it,
+and says so anyway inside a function annotated `@jit`.
+
 ## Observable behavior
 
 Current passes change nothing observable. Optimizations that would trade a

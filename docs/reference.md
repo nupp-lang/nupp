@@ -1683,6 +1683,7 @@ says more.
  positional-record-construction  NUPP2512  style        warning
  deprecated                      NUPP2513  suspicious   warning
  jit-boundary                    NUPP2514  suspicious   warning
+ jit-loop-closure                NUPP2515  performance  off
 ```
 
 ### Diagnostic codes with a worked example
@@ -1733,6 +1734,7 @@ says more.
 - **NUPP2512**: A record is built by field order rather than by naming its
   fields.
 - **NUPP2513**: An API marked deprecated is used.
+- **NUPP2515**: A loop builds a function and so never compiles.
 - **NUPP2603**: An ownership obligation is not discharged or cannot escape.
 - **NUPP2605**: Adjusting a value pack would discard an affine value.
 - **NUPP2615**: An owned value names an invalid cleanup operation.

@@ -750,6 +750,29 @@ ENTRIES[
     docs = "docs/reference.md#allocation-and-raising-regions",
 }
 
+ENTRIES[
+    #ENTRIES + 1
+] = {
+    code = "NUPP2515",
+    summary = "A loop builds a function and so never compiles",
+    -- No worked example: the lint is off until a project asks for it, and an example
+    -- that reported nothing would read as one the compiler had stopped reporting.
+    rule = "LuaJIT has no recording for the bytecode that builds a function, so a "
+    .. "loop containing one aborts trace recording, is blacklisted after enough "
+    .. "attempts, and then runs interpreted however hot it gets. A function that "
+    .. "reads nothing from the iteration is `loop-invariant-closure` and lifts out "
+    .. "unchanged; this is the other one, which reads the iteration and cannot. The "
+    .. "way out where there is one is to declare a function above the loop that takes "
+    .. "what varies as arguments, so the loop calls one rather than builds one.\n\n"
+    .. "Nothing about the program's answers changes either way, which is why this is "
+    .. "off until a project asks for it. `@jit` is where it is not optional: that "
+    .. "annotation promises the function compiles, so the same hazard inside one is "
+    .. "reported as NUPP2707, and `jit.off` on the enclosing function silences it. "
+    .. "`nupp bc --check` finds the same loops in any file without running it.",
+    related = {"NUPP2505", "NUPP2707"},
+    docs = "docs/lints.md",
+}
+
 local byCode: {[string]: any} = {}
 for _, entry in ipairs(ENTRIES) do
     byCode[entry.code] = entry

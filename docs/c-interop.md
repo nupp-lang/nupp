@@ -265,6 +265,12 @@ or containing cold function with `jit.off` when the boundary is intentional.
 Annotating a function with `@jit` turns either hazard into the non-suppressible
 `NUPP2707` contract error.
 
+A third hazard is not about C at all: LuaJIT cannot record the bytecode that
+builds a function, so a loop containing one never compiles. `@jit` reports that
+as the same contract error, and `jit.off` on the enclosing function silences it
+the same way. Outside `@jit` it is `jit-loop-closure` (`NUPP2515`), off until a
+project asks for it; see [lints](lints.md).
+
 ## Read a struct's layout
 
 `layoutof(T)` answers how a reified `struct` sits in memory:

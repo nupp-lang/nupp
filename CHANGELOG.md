@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Say when a closure that reads its iteration costs a loop its trace. The new
+  `jit-loop-closure` lint (`NUPP2515`) is off until a project asks for it,
+  since the code it reports is correct and has no mechanical fix, but a
+  function annotated `@jit` promised that it compiles and reports the same
+  hazard as `NUPP2707` whatever level the lint is at.
 - Say what a build is doing while it runs, and where its wall-clock time went
   and which modules cost the most when it ends. Reported to a terminal only;
   `--progress`, `-q` and `NUPP_PROGRESS` say otherwise, and `build --json`

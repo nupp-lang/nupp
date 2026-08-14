@@ -36,6 +36,36 @@ local function assertQuiet(src, label)
    end
 end
 
+-- What a source says about a closure that reads its iteration: the lint when the
+-- project asked for it, the broken `@jit` promise whether it asked or not.
+local function traceLint(src, opts)
+   local result = parser.parse(src, "test.g.nupp")
+   assertEq(#result.errors, 0, "syntax errors in test source")
+   local diags = check.check(result, "test.g.nupp", envMod.new("."), opts or
+      {lints = {["jit-loop-closure"] = "note"}})
+   local found = {}
+   for _, diag in ipairs(diags) do
+      if diag.code == "NUPP2515" or diag.code == "NUPP2707" then
+         found[#found + 1] = diag
+      end
+   end
+   return found
+end
+
+local function assertTraceLost(src, label, opts)
+   local found = traceLint(src, opts)
+   assertEq(#found, 1, (label or "expected one report") .. "\n" .. src)
+   return found[1]
+end
+
+local function assertTraceQuiet(src, label, opts)
+   local found = traceLint(src, opts)
+   if #found ~= 0 then
+      error(("%s: reported %s at line %d\n%s"):format(
+         label or "expected no report", found[1].code, found[1].line, src), 2)
+   end
+end
+
 local M = {}
 
 function M.flagsAClosureThatIgnoresTheIteration()
@@ -241,6 +271,106 @@ end
 ]])
    assertEq(at.help, "declare it once above the loop and pass the name",
       "help text")
+end
+
+-- A closure that reads the iteration. It cannot be lifted, so there is no edit to
+-- suggest and nothing is said unless the project asks -- but the loop still never
+-- compiles, and a function that promised to compile hears about it either way.
+
+function M.saysNothingAboutACapturingClosureByDefault()
+   assertTraceQuiet([[
+for _, item in ipairs(items) do
+   register(function() return item.id end)
+end
+]], "correct code with no mechanical fix is not reported unprompted", {})
+end
+
+function M.reportsACapturingClosureWhenTheProjectAsks()
+   local at = assertTraceLost([[
+for _, item in ipairs(items) do
+   register(function() return item.id end)
+end
+]])
+   assertEq(at.code, "NUPP2515", "the lint, not the broken promise")
+   assertEq(at.lint, "jit-loop-closure", "lint name")
+   assertEq(at.severity, "note", "at the level the project asked for")
+   assertEq(at.line, 2, "reported at the function, not the loop")
+end
+
+function M.reportsTheLiftableClosureAsTheOtherLintInstead()
+   assertTraceQuiet([[
+for _, item in ipairs(items) do
+   register(function() return 1 end)
+end
+]], "one that reads nothing from the iteration has an edit to suggest, and "
+   .. "loop-invariant-closure is where it is suggested")
+end
+
+function M.saysNothingWhereTheLoopRunsOnce()
+   assertTraceQuiet([[
+for _, item in ipairs(items) do
+   register(function() return item.id end)
+   break
+end
+]], "a loop that goes round once is never hot")
+end
+
+function M.reportsOnceForAClosurePassedToATypedParameter()
+   local found = traceLint([[
+local function use(f: function(): integer): nil
+   f()
+end
+
+for i = 1, 10 do
+   use(function(): integer return i end)
+end
+]])
+   assertEq(#found, 1, "an argument inferred twice is one function to judge")
+end
+
+function M.aJitFunctionHearsItWhateverTheLevelIs()
+   local at = assertTraceLost([[
+@jit
+local function hot(items: {integer}): nil
+   for _, item in ipairs(items) do
+      register(function(): integer return item end)
+   end
+end
+
+return hot
+]], "the annotation promised this function compiles", {})
+   assertEq(at.code, "NUPP2707", "a promise broken, not a suggestion declined")
+   assertEq(at.severity, "error", "and a build that stops")
+end
+
+function M.aDisabledFunctionSaysNothing()
+   assertTraceQuiet([[
+local function cold(items: {integer}): nil
+   for _, item in ipairs(items) do
+      register(function(): integer return item end)
+   end
+end
+
+jit.off(cold)
+]], "a function taken off the JIT has no trace to lose")
+end
+
+function M.theCapturingReportCanBeAllowed()
+   assertTraceQuiet([[
+for _, item in ipairs(items) do
+   @allow("jit-loop-closure")
+   register(function() return item.id end)
+end
+]], "a lint is a judgement a statement may disagree with")
+end
+
+function M.theCapturingReportCanBeAllowedByCode()
+   assertTraceQuiet([[
+for _, item in ipairs(items) do
+   @allow("NUPP2515")
+   register(function() return item.id end)
+end
+]], "either spelling reaches the lint")
 end
 
 function M.canBeAllowed()

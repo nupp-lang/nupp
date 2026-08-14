@@ -54,6 +54,7 @@ Every lint has a name and a stable code:
 | positional-record-construction | `NUPP2512` | style | warning |
 | deprecated | `NUPP2513` | suspicious | warning |
 | jit-boundary | `NUPP2514` | suspicious | warning |
+| jit-loop-closure | `NUPP2515` | performance | off |
 
 The name is what you write in configuration and suppressions; the code is what
 survives renaming and what tooling keys on. Either is accepted everywhere.
@@ -301,11 +302,45 @@ to bother with.
 
 It reports only what it can prove pointless: a function reading nothing from the
 iteration, which therefore lifts out with no change in meaning. One that does
-read the iteration is not reported, because moving it is not a mechanical edit
-and may not be possible at all — but the trace dies just the same. Where a hot
-loop has to build a closure, the way out is usually to change what varies rather
-than where the function sits: hand the varying part to one function declared
-outside the loop, so the loop calls instead of builds.
+read the iteration costs the same trace and cannot be lifted, so it is
+`jit-loop-closure` below rather than this.
+
+### `jit-loop-closure`
+
+The other half of the pair, for a function that reads the iteration. There is
+nothing to lift and no mechanical edit to suggest, so this is off until a
+project asks for it — but the loop does not compile, which is worth being able
+to ask about.
+
+::: code-group
+```nupp [src/jit-loop-closure.nupp]
+for _, item in ipairs(items) do
+    register(item, function(event)
+        return event.kind == item.kind
+    end)
+end
+```
+
+```text [nupp check output]
+src/jit-loop-closure.nupp:2:28: note: NUPP2515 jit-loop-closure: this function is built once per iteration and reads the iteration, so it cannot be declared above the loop, and LuaJIT does not record building a function, so this loop never compiles
+ 2 |     register(item, function(event)
+   |                            ^
+help: hand what varies to a function declared outside the loop, so the loop calls one rather than builds one
+```
+:::
+
+The way out, where there is one, is to change what varies rather than where the
+function sits: declare one function above the loop that takes the varying part
+as an argument, so the loop calls it instead of building one. Where the closure
+really has to be built per iteration, the honest answer is that the loop runs
+interpreted, and the choice belongs to whoever wrote it.
+
+Two things report it without being asked. Inside an `@jit` function it is the
+non-suppressible `NUPP2707`, because that annotation promised the function
+compiles; `jit.off` on the enclosing function silences it, since a function
+taken off the JIT has no trace to lose. And `nupp bc --check` reads the
+bytecode of any file and reports the same loops, together with the ones the
+compiler's own lowerings could introduce.
 
 ### `undocumented-raise`
 
@@ -522,10 +557,10 @@ configures when it wants to move a group of them at once:
   these off.
 - **suspicious**: legal, and probably not meant.
 - **style**: it works and reads badly.
-- **performance**: a declaration is paying for something it does not use. The
-  only opt-in category: its members default to `off`, and a project asks for
-  them as a class. Whether a faster declaration is worth having depends on how
-  many values are built and where, which no declaration states, so reported
+- **performance**: the code pays for something it did not have to. The only
+  opt-in category: its members default to `off`, and a project asks for them as
+  a class. What is being paid for is real; whether it is worth changing depends
+  on how hot the code is, which the source does not state, so reported
   unprompted these would fire on code that is not hot and teach their reader to
   silence the category before meeting the case they were written for. `nupp
   lints` lists them whatever their level, which is where they are discovered.

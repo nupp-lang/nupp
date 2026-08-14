@@ -263,10 +263,12 @@ no recording for it, so the loop holding one aborts recording, is blacklisted
 after enough attempts, and then runs interpreted however hot it gets. Nothing
 else reports that, because the program's answers do not change.
 
-This is a stronger reading than [`loop-invariant-closure`](../lints.md), which
-only reports a function that could be lifted out unchanged. One that reads the
-iteration cannot be lifted and is not reported, and it costs the loop its trace
-just the same.
+It reads further than the two source lints, which see what was written rather
+than what was generated: [`loop-invariant-closure`](../lints.md) reports a
+function that could be lifted out of its loop unchanged, and
+[`jit-loop-closure`](../lints.md) — off until a project asks for it — reports
+one that reads the iteration and so cannot be. Neither says anything about a
+closure the compiler's own lowerings put in a loop, which is what this reads.
 
 ### `check`
 
@@ -642,7 +644,9 @@ discarded-result                suspicious   warning  a call with nothing to do 
 else-if                         style        warning  a conditional chain written as separate ifs
 exhaustiveness                  correctness  warning  a dispatch leaves members of a closed set unhandled
 gradual-projection              suspicious   warning  an associated type was erased because inference did not reach its head
+jit-boundary                    suspicious   warning  an FFI boundary cannot safely run on a compiled trace
 jit-callback                    suspicious   warning  a C callback left on the JIT
+jit-loop-closure                performance  off      a loop builds a function and so never compiles
 loop-invariant-closure          suspicious   warning  a loop builds the same function every iteration
 lossy-narrowing                 suspicious   warning  lossy integer narrowing
 missing-require                 correctness  error    a project module is used without being required

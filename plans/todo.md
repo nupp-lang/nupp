@@ -177,6 +177,18 @@ type-system work: whole-project check 0.15 s against 1.26 s cold; `fmt --check`
 23 ms, against 2 ms for a bare `luajit -e ""`. These are stale; remeasure on an
 otherwise idle machine before using them as current priorities.
 
+A closure in a loop now has all three defences. `gen` refuses to build a function
+inside a loop unless the site says why it cannot be declared once
+(`src/nupp/compiler/gen.nupp`), `nupp bc --check` reads the bytecode of anything
+and reports the same thing without running it, and user code is `NUPP2505` where
+the closure lifts out unchanged and `jit-loop-closure` (`NUPP2515`) where it
+reads the iteration and cannot. The second is off until a project asks for it,
+because it reports correct code with no mechanical fix; what gives it teeth is
+that it goes out through `c.jitHazards`, so a function annotated `@jit` promised
+that it compiles and gets `NUPP2707` whatever the lint's level, and `jit.off` on
+the enclosing function says nothing. It found fourteen sites in this compiler,
+all of them real.
+
 What is left:
 
 - [ ] **The prelude image, if its cost becomes worth it.** `env.new` measured
@@ -195,31 +207,6 @@ What is left:
 - [ ] **The store never shrinks below what a run touched.** `KEEP_COLD = 2048`
       (`src/nupp/compiler/build/store.nupp:36`) bounds the cold entries, which is fine
       for a project this size and unmeasured for a large one.
-- [ ] **Say when a closure in a loop costs that loop its trace.** LuaJIT has no
-      recording for the bytecode that builds a function, so a loop containing
-      one aborts recording, is blacklisted after enough attempts, and then never
-      compiles — however hot it gets and whatever else is in it. Nothing about
-      the program's answers changes, which is why six of this compiler's own
-      lowerings had it wrong before anything looked.
-      Two of the three defences are in. `gen` refuses to build a function inside
-      a loop unless the site says why it cannot be declared once
-      (`src/nupp/compiler/gen.nupp`, held by `tests/loweringinvarianttest.lua`),
-      and `nupp bc --check` reads the bytecode of anything and reports the same
-      thing without running it. Both cover generated code.
-      What is left is user code. `loop-invariant-closure` (`NUPP2505`) reports
-      only a closure that reads nothing from the iteration, because that one
-      lifts out unchanged and there is an edit to suggest. One that does read
-      the iteration cannot be lifted, is not reported, and costs the loop its
-      trace just the same — the gap `nupp bc --check` was written against.
-      The question is what to say rather than whether to say it. Widening
-      `NUPP2505` to warn on capturing closures would fire on correct code with
-      no mechanical fix, which is how a lint gets turned off. A note in the
-      `jit-boundary` family (`NUPP2514`) fits better: state that the loop will
-      not compile, leave the judgement with the author, and say the way out
-      where there is one — hand the varying part to a function declared outside
-      the loop, so the loop calls rather than builds. Decide the severity and
-      the category before writing it; the detection is the easy half and already
-      exists in `nupp bc`.
 - [ ] **A cleanup region inside a loop still builds a function every iteration.**
       An owned binding needs its body run under `xpcall`, and `xpcall` takes a
       function. Where that function is built per entry, the loop holding it

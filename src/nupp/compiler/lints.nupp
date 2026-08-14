@@ -145,6 +145,13 @@ lints.all = {
         level = "warning",
         summary = "an FFI boundary cannot safely run on a compiled trace"
     ),
+    new lints.Lint(
+        name = "jit-loop-closure",
+        code = "NUPP2515",
+        category = "performance",
+        level = "off",
+        summary = "a loop builds a function and so never compiles"
+    ),
 }
 
 -- Both spellings reach the same lint: a name is what a person writes, a code is what
@@ -164,7 +171,7 @@ local CATEGORIES: {
     correctness = "the program is very likely wrong",
     suspicious = "legal, and probably not meant",
     style = "it works and reads badly",
-    performance = "a declaration is paying for something it does not use",
+    performance = "the code pays for something it did not have to",
 }
 
 -- The levels a lint may be configured to. `off` is a lint's alone: a type error is not
@@ -181,6 +188,12 @@ local LEVELS: {[string]: boolean} = {off = true, note = true, warning = true, er
 -- fire on every small record of numbers, most of which are not hot, and a lint that is
 -- usually noise trains its reader to silence the category before ever meeting the case
 -- it was written for. `nupp lints` is where these are discovered.
+--
+-- `jit-loop-closure` does know its loop, and still belongs here: what it cannot know is
+-- whether that loop is hot, and the code it reports is correct with no mechanical fix.
+-- It has teeth where the source asked for them, since a function annotated `@jit`
+-- promised that it compiles and reports the same hazard as an error whatever level this
+-- lint is at.
 --
 -- Migration lints report spellings that remain correct while a replacement is being
 -- adopted. Migration tooling opts in to find them without adding noise to every build.
