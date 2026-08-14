@@ -249,6 +249,88 @@ local function capture(argv)
    return out
 end
 
+local function captureAt(directory, argv)
+   local pipe = assert(io.popen(("cd '%s' && NO_COLOR= CLICOLOR_FORCE= '%s' %s 2>&1")
+      :format(directory, NUPP, argv)))
+   local out = pipe:read("*a")
+   local ok = pipe:close()
+   return out, ok
+end
+
+function M.exportCEmitsTheCanonicalTypedHeader()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+   local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+   manifest:write([[return {
+   include = {"src"},
+   build = {entries = {"game"}, layoutTarget = "x86_64-unknown-linux-gnu"},
+}
+]])
+   manifest:close()
+   local source = assert(io.open(dir .. "/src/game.nupp", "wb"))
+   source:write([[
+local game = {}
+struct game.Position
+   x: float
+   y: float
+end
+cdef function integrate(exclusive position: game.Position*, dt: float)
+function game.run(): float
+   local positions = carray(game.Position, 1)
+   positions[0].x = 1
+   integrate(positions, 2)
+   return positions[0].x
+end
+return game
+]])
+   source:close()
+
+   local output, ok = captureAt(dir,
+      "export-c -o game.h src/game.nupp game.Position game.integrate")
+   assert(ok, "export-c succeeds: " .. output)
+   assert(output == "game.h\n", "the written path is reported: " .. output)
+   local header = assert(io.open(dir .. "/game.h", "rb")):read("*a")
+   assert(header:find("typedef struct nupp_4_game_8_Position_tag", 1, true),
+      "the canonical ordinary-struct identity is emitted")
+   assert(header:find(
+      "void integrate(nupp_4_game_8_Position *position, float dt);", 1, true),
+      "the public prototype remains typed")
+   assert(header:find("_Static_assert(offsetof(nupp_4_game_8_Position, y) == 4", 1, true),
+      "every field offset is asserted")
+
+   local generated, built = captureAt(dir, "build --json")
+   assert(built, "the ordinary module builds: " .. generated)
+   local lua = assert(io.open(dir .. "/build/game.lua", "rb")):read("*a")
+   assert(lua:find('cdef, "void integrate(void *, float);"', 1, true),
+      "the same checked signature erases only the physical FFI pointer slot")
+   assert(os.execute(("cd '%s' && cc -std=c11 -fsyntax-only game.h"):format(dir)) == 0,
+      "an independent C compiler accepts the exported header")
+   local c = assert(io.open(dir .. "/game.c", "wb"))
+   c:write([[#include "game.h"
+void integrate(nupp_4_game_8_Position *position, float dt) {
+    position->x += dt;
+    position->y = position->x * 2.0f;
+}
+]])
+   c:close()
+   local library = dir .. (jit.os == "OSX" and "/libgame.dylib" or "/libgame.so")
+   local shared = jit.os == "OSX" and "-dynamiclib" or "-shared -fPIC"
+   assert(os.execute(("cd '%s' && cc -std=c11 %s -o '%s' game.c"):format(
+      dir, shared, library)) == 0, "the independent typed C implementation compiles")
+   local loaded = require("ffi").load(library, true)
+   local priorPath = package.path
+   package.path = dir .. "/build/?.lua;" .. package.path
+   package.loaded.game = nil
+   local game = require("game")
+   assert(game.run() == 3, "typed ordinary-struct storage crosses the erased FFI slot")
+   package.loaded.game = nil
+   package.path = priorPath
+   loaded = nil
+   collectgarbage()
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.theBinaryHonoursColourFlagsOnRealDiagnostics()
    local dir = os.tmpname()
    os.remove(dir)

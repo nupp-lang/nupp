@@ -1,0 +1,44 @@
+local span = require("nupp.span")
+local system = {}
+
+local struct State
+    x: float
+    flags: uint32
+end
+
+local function advance(value: float, scale: float): (float, uint32)
+    local position: float = value
+    local flags: uint32 = 0
+    noalloc do
+        noraise do
+            position = nupp.math.f32.fma(value, scale, 0.1)
+            flags = nupp.math.u32.rotateLeft(nupp.math.u32.add(flags, 1), 3)
+        end
+    end
+
+    return position, flags
+end
+
+function system.run(): (float, uint32)
+    const storage = carray(State, 8)
+    const writable = span.writeCarray(storage, 8)
+    do
+        const active = writable:slice(2, 7)
+        const rows = span.range(1, active.count, active)
+        for index = rows.first, rows.last do
+            noalloc do
+                noraise do
+                    local state = active:getMut(index)
+                    state.x, state.flags = advance(state.x, 2.0)
+                end
+            end
+        end
+    end
+    writable:commit()
+
+    const readable = span.fromCarray(storage, 8)
+
+    return readable:get(2).x, readable:get(7).flags
+end
+
+return system

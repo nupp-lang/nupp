@@ -69,6 +69,8 @@ end}, {name = "run", load = function(): specMod.Handler
     return require("nupp.compiler.cli.run")
 end}, {name = "import-c", load = function(): specMod.Handler
     return require("nupp.compiler.cli.importc")
+end}, {name = "export-c", load = function(): specMod.Handler
+    return require("nupp.compiler.cli.exportc")
 end}, {name = "rock", load = function(): specMod.Handler
     return require("nupp.compiler.cli.rock")
 end}, {name = "lsp", load = function(): specMod.Handler

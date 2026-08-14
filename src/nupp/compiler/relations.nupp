@@ -254,21 +254,14 @@ local function associatedAnswersFit(a: Type, b: Type): boolean, string?
         local found = associated.lookup(a, name)
         if not found.gradual then
             if not found.resolved then
-                return false, ("%s is not a %s (%s is %s)"):format(
-                    T.tostring(a),
-                    T.tostring(b),
-                    name,
-                    found.reason or "unanswered"
-                )
+                return false, (
+                    "%s is not a %s (%s is %s)"
+                ):format(T.tostring(a), T.tostring(b), name, found.reason or "unanswered")
             end
             if found.bound and not isA(found.resolved, found.bound) then
-                return false, ("%s is not a %s (%s = %s does not fit %s)"):format(
-                    T.tostring(a),
-                    T.tostring(b),
-                    name,
-                    T.tostring(found.resolved),
-                    T.tostring(found.bound)
-                )
+                return false, (
+                    "%s is not a %s (%s = %s does not fit %s)"
+                ):format(T.tostring(a), T.tostring(b), name, T.tostring(found.resolved), T.tostring(found.bound))
             end
         end
     end
@@ -648,7 +641,9 @@ local function check(a: Type, b: Type): boolean, string?
                 names[name] = true
             end
             for name in pairs(names) do
-                fields[#fields + 1] = {
+                fields[
+                    #fields + 1
+                ] = {
                     name = name,
                     read = owner.staticByname and owner.staticByname[name] or nil,
                     write = owner.staticWriteByname and owner.staticWriteByname[name] or nil,
@@ -740,9 +735,9 @@ local function check(a: Type, b: Type): boolean, string?
             if want then
                 local ok, why = relations.packIsA(have, want)
                 if not ok then
-                    return false, ("%s is not a %s (pack argument %d: %s)"):format(
-                        T.tostring(a), T.tostring(b), j, why or "incompatible pack"
-                    )
+                    return false, (
+                        "%s is not a %s (pack argument %d: %s)"
+                    ):format(T.tostring(a), T.tostring(b), j, why or "incompatible pack")
                 end
             end
         end
@@ -1094,6 +1089,12 @@ local function check(a: Type, b: Type): boolean, string?
         -- anything and says nothing.
         if a.varargType and b.varargType and not isA(b.varargType, a.varargType) then
             return false, ("%s is not a %s (extra arguments)"):format(T.tostring(a), T.tostring(b))
+        end
+        local aTail, bTail = a.paramPack.tail, b.paramPack.tail
+        if aTail and bTail and aTail.kind == "homogeneous" and bTail.kind == "homogeneous" and (
+            aTail.mode or "plain"
+        ) ~= (bTail.mode or "plain") then
+            return false, ("%s is not a %s (extra argument ownership mode)"):format(T.tostring(a), T.tostring(b))
         end
         local rn = #a.rets
         if #b.rets < rn then

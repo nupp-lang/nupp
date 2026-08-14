@@ -420,4 +420,43 @@ function M.potentiallyAffineGenericPacksMustTransferExactlyOnce()
    }, "\n")), "NUPP2605")
 end
 
+function M.typedVarargOwnershipChecksEveryOriginalArgument()
+   local declaration = table.concat({
+      "cdef struct resource value: int32 end",
+      "@owned(resource_free)",
+      "cdef function resource_new(): resource*",
+      "cdef function resource_free(takes value: resource*)",
+   }, "\n")
+   clean(declaration .. "\n" .. table.concat({
+      "local function observe(borrows ...: resource*): nil end",
+      "local observer: function(borrows ...: resource*): nil = observe",
+      "local owner = resource_new()",
+      "observer(owner, owner)",
+      "resource_free(owner)",
+   }, "\n"))
+
+   clean(declaration .. "\n" .. table.concat({
+      "local function consume(...: resource*): nil end",
+      "local owner = resource_new()",
+      "consume(owner)",
+      "resource_free(owner)",
+   }, "\n"))
+
+   assertEq(codes("local function invalid(borrows ...): nil end"),
+      "NUPP2602", "an ownership-qualified tail must be typed")
+   assertEq(codes("local function invalid(takes ...: string): nil end"),
+      "NUPP2602", "an unnamed tail cannot silently consume owners")
+end
+
+function M.typedVarargModesParticipateInFunctionCompatibility()
+   clean(table.concat({
+      "local function observe(borrows ...: string): nil end",
+      "local same: function(borrows ...: string): nil = observe",
+   }, "\n"))
+   assertEq(codes(table.concat({
+      "local function observe(borrows ...: string): nil end",
+      "local plain: function(...: string): nil = observe",
+   }, "\n")), "NUPP2001", "pack-tail ownership is part of the function contract")
+end
+
 return M

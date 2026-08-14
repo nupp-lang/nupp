@@ -4,13 +4,55 @@ Nupp turns C declarations into checked LuaJIT FFI calls. Start by importing a
 header, then add ownership and borrowing contracts where the C signature alone
 cannot describe lifetime behavior.
 
-There are three ways in, and they suit different sizes of problem:
+There are three ways to bring C declarations in, and one canonical way to
+publish ordinary Nupp structs to C:
 
 | Route | Use it when |
 | --- | --- |
 | cdef declarations | The API is small, or you want exact control |
 | `cheader("mini.h")` | You want the header typed with no generated file |
 | nupp import-c mini.h | You want a committed module you can edit |
+| nupp export-c -o mini.h ... | C needs to consume Nupp struct layouts |
+
+## Export ordinary structs to C
+
+Define an ordinary reified struct once in Nupp, then select it and any typed C
+entry points that use it:
+
+```bash
+nupp export-c -o game.h src/game.nupp game.Position game.integrate
+```
+
+The command emits a deterministic, include-guarded C header. Each ordinary
+struct receives a collision-safe module-qualified typedef, a semantic and
+target-layout fingerprint, and static assertions for its size, alignment, and
+every field offset. Embedded structs are ordered by value; pointer-recursive
+types use forward declarations. The configured target's `layoutTarget` is the
+authority, so generation never guesses from the build host and never invokes a
+C compiler.
+
+An ordinary struct may appear behind a pointer or array in a `cdef function`:
+
+```nupp
+local game = {}
+
+struct game.Position
+    x: float
+    y: float
+end
+
+cdef function integrate(exclusive position: game.Position*, dt: float)
+
+return game
+```
+
+The emitted prototype stays typed. Internally LuaJIT receives a compiler-owned
+`void *` physical slot because Nupp's sole runtime representation remains the
+existing anonymous ctype; source checking, ownership, constness, counted
+relationships, and the external C definition all retain the ordinary struct
+type. Ordinary structs do not cross this boundary by value. `export-c` is the
+only publisher: there is no annotation, user-selected C tag, or parallel header
+generator.
 
 ## Import a header
 

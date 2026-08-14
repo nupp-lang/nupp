@@ -1007,6 +1007,12 @@ top = false ,
 }
 end
 
+local function unknownSummary ( )
+local out = summary ( )
+out . top = true
+return out
+end
+
 local function fromContract ( contract )
 local out = summary ( )
 for _ , name in ipairs ( LISTS ) do
@@ -1170,7 +1176,7 @@ body = body ,
 params = { } ,
 paramNames = { } ,
 contract = body . effectContract ,
-summary = summary ( ) ,
+summary = unknownSummary ( ) ,
 }
 for _ , param in ipairs ( body . params or { } ) do
 if param . name and not param . namedVararg then
@@ -1198,7 +1204,7 @@ definition = definitionOfFunction ( target ) ,
 params = { } ,
 paramNames = { } ,
 contract = target . effectContract or body and body . effectContract ,
-summary = summary ( ) ,
+summary = unknownSummary ( ) ,
 }
 if target . name and target . name . method then
 info . paramNames [ 1 ] = "self"
@@ -1394,6 +1400,29 @@ return "$capture"
 end
 
 local function applyCall ( call )
+if call . scalarIntrinsic then
+
+
+return
+end
+if call . spanAccessorNoAllocate then
+
+
+
+if not call . rangeProvenNoRaise then
+out . raises = true
+end
+local receiver = rootOf ( call . obj )
+if receiver then
+local method = call . name and call . name . text or ""
+if method == "set" or method == "getMut" then
+out . writes [ receiver .. "[*]" ] = true
+else
+out . reads [ receiver .. "[*]" ] = true
+end
+end
+return
+end
 local known = knownCall ( call , byDefinition )
 local args = callArgs ( call )
 if known then
@@ -1478,6 +1507,21 @@ out . allocates = true
 return
 elseif kind == "tableExpr" then
 out . allocates = true
+elseif kind == "newExpr" then
+out . allocates = true
+elseif kind == "istring" then
+out . allocates = true
+if # ( node . parts or { } ) > 0 then
+
+out . top = true
+end
+elseif kind == "binop" and node . op and node . op . kind == ".." then
+out . allocates = true
+if not node . plainConcat then
+out . top = true
+end
+elseif node . effectUnknownOperation then
+out . top = true
 elseif kind == "call" or kind == "methodCall" then
 applyCall ( node )
 elseif kind == "name" and not targetContext then
@@ -1557,6 +1601,52 @@ end
 end
 end
 walk ( info . body and info . body . body , false )
+
+
+
+local function cleanupEffects ( node )
+if not node or cst . isToken ( node ) then
+return
+end
+if node ~= info . body and (
+node . kind == "localFuncStmt"
+or node . kind == "funcStmt"
+or node . kind == "inlineMethod"
+or node . kind == "constructorDecl"
+or node . kind == "funcExpr"
+or node . kind == "shortfn"
+) then
+return
+end
+for _ , owner in ipairs ( node . automaticOwners or { } ) do
+for _ , cleanup in ipairs ( owner . cleanups or { } ) do
+local operation = cleanup
+while operation and operation . kind == "field" do
+operation = operation . cleanup
+end
+local token = operation and operation . kind == "function" and operation . token or nil
+local known = token and byDefinition [ token . definition ] or nil
+if not known or not known . summary or known . summary . top then
+out . top = true
+else
+if known . summary . allocates then
+out . allocates = true
+end
+if known . summary . raises then
+out . raises = true
+end
+if known . summary . yields then
+out . yields = true
+end
+end
+end
+end
+for _ , child in ipairs ( node ) do
+cleanupEffects ( child )
+end
+end
+
+cleanupEffects ( info . body and info . body . body )
 
 return out
 end
@@ -1820,6 +1910,77 @@ return total
 end
 
 return count ( region or body )
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function facts . calledOnly ( definition )
+if not definition then
+return false , 0
+end
+local callees = { }
+local declared = { }
+local function collect ( node )
+if not node or cst . isToken ( node ) then
+return
+end
+if node . kind == "call" then
+local callee = directName ( node . obj )
+if callee then
+callees [ callee ] = true
+end
+elseif node . kind == "localFuncStmt" and node . name then
+declared [ node . name ] = true
+end
+for _ , child in ipairs ( node ) do
+collect ( child )
+end
+end
+
+collect ( body )
+
+local mentions = 0
+local only = true
+local function walk ( node )
+if not node then
+return
+end
+if cst . isToken ( node ) then
+if node . kind == "name" and node . definition == definition and not declared [ node ] then
+mentions = mentions + 1
+if not callees [ node ] then
+only = false
+end
+end
+
+return
+end
+for _ , child in ipairs ( node ) do
+walk ( child )
+end
+end
+
+walk ( body )
+
+return only and mentions > 0 , mentions
 end
 
 
@@ -5522,7 +5683,9 @@ local tailFingerprint = "-"
 if tail and tail . kind == "generic" then
 tailFingerprint = "generic:" .. binderFingerprint ( tail . var , binders , "packvar" )
 elseif tail and tail . type then
-tailFingerprint = tail . kind .. ":" .. typeFingerprint ( tail . type , active , binders )
+tailFingerprint = tail . kind .. ":" .. (
+tail . mode or "plain"
+) .. ":" .. typeFingerprint ( tail . type , active , binders )
 end
 
 return "pack(" .. table . concat ( head , "," ) .. ";" .. tailFingerprint .. ")"
@@ -8585,6 +8748,423 @@ end
 return bundled
 
 end
+package.preload["nupp.compiler.cabi"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+
+
+
+
+
+
+local targetLayout = require ( "nupp.compiler.target_layout" )
+local reflection = require ( "nupp.compiler.reflection" )
+local hash = require ( "nupp.compiler.build.hash" )
+
+const cabi = {} cabi.__index = cabi
+
+
+
+
+
+
+
+
+
+cabi . ABI = 1
+
+local SCALARS
+
+= {
+boolean = "_Bool" ,
+float = "float" ,
+number = "double" ,
+integer = "int32_t" ,
+int8 = "int8_t" ,
+int16 = "int16_t" ,
+int32 = "int32_t" ,
+int64 = "int64_t" ,
+uint8 = "uint8_t" ,
+uint16 = "uint16_t" ,
+uint32 = "uint32_t" ,
+uint64 = "uint64_t" ,
+cstring = "const char *" ,
+string = "const char *" ,
+voidptr = "void *" ,
+}
+
+local function optionalPointer ( t )
+if t and t . tag == "union" and t . hasNil and # ( t . members or { } ) == 2 then
+local first , second = t . members [ 1 ] , t . members [ 2 ]
+local other = first and first . tag == "nil" and second or first
+if other and ( other . tag == "ptr" or other . tag == "cstring" or other . tag == "voidptr" ) then
+return other
+end
+end
+
+return nil
+end
+
+local function identityOf ( t )
+local origin = t and ( t . origin or t ) or nil
+local moduleName = origin and origin . moduleName or nil
+local name = origin and origin . name or "anonymous"
+return ( moduleName and moduleName .. "." or "" ) .. name
+end
+
+local function encodeNameByte ( byte )
+return ( "_%02X" ) : format ( byte : byte ( ) )
+end
+
+function cabi . identity ( t )
+return identityOf ( t )
+end
+
+
+
+local function cName ( identity )
+local out = { "nupp" }
+for component in identity : gmatch ( "[^%.]+" ) do
+local encoded = component : gsub ( "[^%w]" , encodeNameByte )
+out [ # out + 1 ] = tostring ( # component )
+out [ # out + 1 ] = encoded
+end
+
+return table . concat ( out , "_" )
+end
+
+local function ordinaryStruct ( t )
+return t ~= nil and t . tag == "nominal" and t . declKind == "struct" and not t . cdefName
+end
+
+local function baseName ( t )
+local scalar = t and SCALARS [ t . tag ] or nil
+if scalar then
+return scalar
+end
+if t and t . tag == "nominal" and t . declKind == "struct" then
+if t . cdefName then
+return ( t . cdefKind or "struct" ) .. " " .. t . cdefName
+end
+return cName ( identityOf ( t ) )
+end
+
+return nil , ( t and tostring ( t . tag ) or "unresolved type" ) .. " has no C spelling"
+end
+
+local function renderDeclaration ( t , name , eraseOrdinaryPointer )
+local optional = optionalPointer ( t )
+if optional then
+t = optional
+end
+if not t then
+return nil , "the type is unresolved"
+end
+if t . tag == "const" then
+local rendered , why = renderDeclaration ( t . inner , name , eraseOrdinaryPointer )
+if not rendered then
+return nil , why
+end
+return "const " .. rendered
+elseif t . tag == "ptr" then
+local pointee = t . elem
+if eraseOrdinaryPointer then
+local unqualified = pointee and pointee . tag == "const" and pointee . inner or pointee
+if ordinaryStruct ( unqualified ) then
+return "void *" .. ( # name > 0 and " " .. name or "" )
+end
+end
+local pointerName = "*" .. name
+if pointee and pointee . tag == "carray" then
+pointerName = "(" .. pointerName .. ")"
+end
+return renderDeclaration ( pointee , pointerName , eraseOrdinaryPointer )
+elseif t . tag == "carray" then
+if eraseOrdinaryPointer then
+local element = t . elem and t . elem . tag == "const" and t . elem . inner or t . elem
+if ordinaryStruct ( element ) then
+return "void *" .. ( # name > 0 and " " .. name or "" )
+end
+end
+local count = t . count and tostring ( t . count ) or ""
+return renderDeclaration ( t . elem , name .. "[" .. count .. "]" , eraseOrdinaryPointer )
+elseif t . tag == "func" then
+local parameters = { }
+for index , parameter in ipairs ( t . params or { } ) do
+local rendered , why = renderDeclaration ( parameter , "" , eraseOrdinaryPointer )
+if not rendered then
+return nil , ( "callback parameter %d %s" ) : format ( index , why or "has no C spelling" )
+end
+parameters [ # parameters + 1 ] = rendered
+end
+if t . varargs then
+parameters [ # parameters + 1 ] = "..."
+end
+if # parameters == 0 then
+parameters [ 1 ] = "void"
+end
+local result = "void"
+if t . rets and t . rets [ 1 ] then
+local rendered , why = renderDeclaration ( t . rets [ 1 ] , "" , false )
+if not rendered then
+return nil , "callback result " .. tostring ( why )
+end
+result = rendered
+end
+return result .. " (*" .. name .. ")(" .. table . concat ( parameters , ", " ) .. ")"
+end
+local base , why = baseName ( t )
+if not base then
+return nil , why
+end
+
+return base .. ( # name > 0 and " " .. name or "" )
+end
+
+function cabi . declaration ( t , name , view )
+return renderDeclaration ( t , name , view == "ffi" )
+end
+
+local function collectDependencies (
+t ,
+byValue ,
+byPointer ,
+valueSeen ,
+pointerSeen ,
+throughPointer
+)
+if not t then
+return
+end
+if t . tag == "const" then
+collectDependencies ( t . inner , byValue , byPointer , valueSeen , pointerSeen , throughPointer )
+elseif t . tag == "ptr" then
+collectDependencies ( t . elem , byValue , byPointer , valueSeen , pointerSeen , true )
+elseif t . tag == "carray" then
+collectDependencies ( t . elem , byValue , byPointer , valueSeen , pointerSeen , throughPointer )
+elseif ordinaryStruct ( t ) then
+if throughPointer and not pointerSeen [ t ] then
+pointerSeen [ t ] = true
+byPointer [ # byPointer + 1 ] = t
+elseif not throughPointer and not valueSeen [ t ] then
+valueSeen [ t ] = true
+byValue [ # byValue + 1 ] = t
+end
+end
+end
+
+function cabi . aggregate ( t , target )
+if not ordinaryStruct ( t ) then
+return nil , "only ordinary Nupp structs have canonical exported C identities"
+end
+local layout , why = targetLayout . of ( t , target )
+if not layout then
+return nil , why
+end
+local identity = identityOf ( t )
+local semantic = reflection . describe ( t , identity ) . fingerprint
+local dependencies , pointerDependencies , seen , pointerSeen = { } , { } , { } , { }
+local fields = { }
+for index , name in ipairs ( t . fieldOrder or { } ) do
+local fieldType = t . byname and t . byname [ name ] or nil
+local declaration , fieldWhy = renderDeclaration ( fieldType , name )
+if not declaration then
+return nil , ( "field %q %s" ) : format ( name , fieldWhy or "has no C spelling" )
+end
+collectDependencies ( fieldType , dependencies , pointerDependencies , seen , pointerSeen )
+local measured = layout . fields [ index ]
+fields [
+# fields + 1
+] = {
+name = name ,
+type = fieldType ,
+cType = declaration ,
+offset = measured . offset ,
+size = measured . size ,
+alignment = measured . alignment ,
+}
+end
+local typedef = cName ( identity )
+local layoutFingerprint = hash . sha256 (
+"nupp.cabi\0v" .. tostring ( cabi . ABI ) .. "\0" .. semantic .. "\0" .. layout . fingerprint
+)
+
+return {
+schema = cabi . ABI ,
+identity = identity ,
+semanticFingerprint = semantic ,
+target = target ,
+layoutSchema = targetLayout . ABI ,
+layoutFingerprint = layoutFingerprint ,
+size = layout . size ,
+alignment = layout . alignment ,
+fields = fields ,
+dependencies = dependencies ,
+pointerDependencies = pointerDependencies ,
+tag = typedef .. "_tag" ,
+typedef = typedef ,
+type = t ,
+}
+end
+
+function cabi . functionRecord ( symbol , params , result , varargs , convention )
+return {
+schema = cabi . ABI ,
+symbol = symbol ,
+params = params ,
+result = result ,
+varargs = varargs == true ,
+convention = convention or "c" ,
+}
+end
+
+function cabi . prototype ( signature , erased )
+if not signature or signature . schema ~= cabi . ABI then
+return nil , "the C function signature has an unsupported schema"
+end
+local params = { }
+for index , parameter in ipairs ( signature . params or { } ) do
+local declaration , why = renderDeclaration (
+parameter . type ,
+erased and "" or ( parameter . name or ( "arg" .. tostring ( index ) ) ) ,
+erased
+)
+if not declaration then
+return nil , ( "parameter %d %s" ) : format ( index , why or "has no C spelling" )
+end
+params [ # params + 1 ] = declaration
+end
+if signature . varargs then
+params [ # params + 1 ] = "..."
+end
+if # params == 0 then
+params [ 1 ] = "void"
+end
+local result = "void"
+if signature . result then
+local rendered , why = renderDeclaration ( signature . result , "" , false )
+if not rendered then
+return nil , "result " .. tostring ( why )
+end
+result = rendered
+end
+
+return result .. " " .. signature . symbol .. "(" .. table . concat ( params , ", " ) .. ");"
+end
+
+local function macroName ( name )
+local rendered = name : upper ( ) : gsub ( "[^A-Z0-9]" , "_" )
+return rendered
+end
+
+function cabi . header ( aggregates , functions , guard )
+local descriptions , byType = { } , { }
+local visiting , visited = { } , { }
+local function visit ( t )
+if visited [ t ] then
+return nil
+end
+if visiting [ t ] then
+return "a by-value struct dependency cycle has no finite C declaration"
+end
+visiting [ t ] = true
+local description = byType [ t ]
+if not description then
+return "a dependency was not described for the selected target"
+end
+for _ , dependency in ipairs ( description . dependencies or { } ) do
+local why = visit ( dependency )
+if why then
+return why
+end
+end
+visiting [ t ] , visited [ t ] = nil , true
+descriptions [ # descriptions + 1 ] = description
+
+return nil
+end
+
+for _ , description in ipairs ( aggregates or { } ) do
+byType [ description . type ] = description
+end
+for _ , description in ipairs ( aggregates or { } ) do
+local why = visit ( description . type )
+if why then
+return nil , why
+end
+end
+
+guard = macroName ( guard or "NUPP_EXPORTED_C_H" )
+local out = {
+"#ifndef " .. guard ,
+"#define " .. guard ,
+"" ,
+"#include <stddef.h>" ,
+"#include <stdint.h>" ,
+"" ,
+"#if defined(__cplusplus)" ,
+"extern \"C\" {" ,
+"#endif" ,
+"" ,
+}
+for _ , description in ipairs ( descriptions ) do
+out [ # out + 1 ] = "typedef struct " .. description . tag .. " " .. description . typedef .. ";"
+end
+if # descriptions > 0 then
+out [ # out + 1 ] = ""
+end
+for _ , description in ipairs ( descriptions ) do
+out [ # out + 1 ] = "struct " .. description . tag .. " {"
+for _ , field in ipairs ( description . fields ) do
+out [ # out + 1 ] = "    " .. field . cType .. ";"
+end
+out [ # out + 1 ] = "};"
+local prefix = macroName ( description . typedef )
+out [ # out + 1 ] = "#define " .. prefix .. "_LAYOUT_FINGERPRINT \"" .. description . layoutFingerprint .. "\""
+out [
+# out + 1
+] = (
+"_Static_assert(sizeof(%s) == %d, \"%s size\");"
+) : format ( description . typedef , description . size , description . identity )
+out [
+# out + 1
+] = (
+"_Static_assert(_Alignof(%s) == %d, \"%s alignment\");"
+) : format ( description . typedef , description . alignment , description . identity )
+for _ , field in ipairs ( description . fields ) do
+out [
+# out + 1
+] = (
+"_Static_assert(offsetof(%s, %s) == %d, \"%s.%s offset\");"
+) : format ( description . typedef , field . name , field . offset , description . identity , field . name )
+end
+out [ # out + 1 ] = ""
+end
+for _ , signature in ipairs ( functions or { } ) do
+local prototype , why = cabi . prototype ( signature , false )
+if not prototype then
+return nil , why
+end
+out [ # out + 1 ] = prototype
+end
+if # ( functions or { } ) > 0 then
+out [ # out + 1 ] = ""
+end
+out [ # out + 1 ] = "#if defined(__cplusplus)"
+out [ # out + 1 ] = "}"
+out [ # out + 1 ] = "#endif"
+out [ # out + 1 ] = ""
+out [ # out + 1 ] = "#endif"
+out [ # out + 1 ] = ""
+
+return table . concat ( out , "\n" )
+end
+
+return cabi
+
+end
 package.preload["nupp.compiler.cdecl"] = function(...)
 local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
@@ -9674,6 +10254,7 @@ local undocumentedraise = require ( "nupp.compiler.check.undocumentedraise" )
 local unused = require ( "nupp.compiler.check.unused" )
 local discard = require ( "nupp.compiler.check.discard" )
 local nosuspendMod = require ( "nupp.compiler.check.nosuspend" )
+local effectregionsMod = require ( "nupp.compiler.check.effectregions" )
 local analysis = require ( "nupp.compiler.analysis" )
 local narrow = require ( "nupp.compiler.check.narrow" )
 local calls = require ( "nupp.compiler.check.calls" )
@@ -10027,6 +10608,79 @@ end
 
 
 
+local function finalizeCallGuarantees ( c , queries )
+local published = { }
+local function localSummary ( value )
+if not value or cst . isToken ( value ) then
+return nil
+end
+if value . kind == "funcbody" then
+return value . effectSummary
+elseif value . kind == "funcExpr" or value . kind == "shortfn" then
+return value . body and value . body . effectSummary
+elseif value . kind == "name" and value . token and queries then
+local known = queries . known ( value . token )
+return known and known . summary or nil
+end
+
+return nil
+end
+
+local function imported ( value )
+local exact = value and not cst . isToken ( value ) and value . exactCallExport or nil
+if not exact and value and not cst . isToken (
+value
+) and value . kind == "name" and value . token and value . token . definition then
+exact = value . token . definition . exactCallExport
+end
+if not exact or not c . env or not c . env . resolveCallGuarantees then
+return nil
+end
+
+return c . env . resolveCallGuarantees ( c . env , exact . module , exact . member )
+end
+
+local function publish ( member , value )
+local summary = localSummary ( value )
+local source = not summary and imported ( value ) or nil
+if summary or source then
+local noAllocate , noRaise
+if source then
+noAllocate , noRaise = source . noAllocate , source . noRaise
+else
+noAllocate = not summary . top and summary . allocates ~= true and true or nil
+noRaise = not summary . top and summary . raises ~= true and true or nil
+end
+published [
+member
+] = {
+identity = source and source . identity or (
+( c . result . moduleName or c . filename or "<module>" ) .. "." .. member
+) ,
+noAllocate = noAllocate ,
+noRaise = noRaise ,
+}
+end
+end
+
+for member , value in pairs ( c . moduleFieldValues or { } ) do
+publish ( member , value )
+end
+local returned = c . moduleReturnValue
+if returned and not cst . isToken ( returned ) and returned . kind == "tableExpr" then
+for _ , field in ipairs ( returned . fields or { } ) do
+if field . kind == "fieldNamed" and field . name and field . value then
+publish ( field . name . text , field . value )
+end
+end
+elseif returned then
+publish ( "$return" , returned )
+end
+c . moduleExports . callGuarantees = published
+end
+
+
+
 
 
 local function finalizeNominalEffects ( c )
@@ -10258,6 +10912,7 @@ typeDefs = { } ,
 values = { } ,
 valueDefs = { } ,
 comptimeFunctions = { } ,
+callGuarantees = { } ,
 } ,  seenDefinitions =  { } ,  scope =  {
 vars = { } ,
 types = { } ,
@@ -10268,7 +10923,10 @@ automaticOwners = { } ,
 depth = 0 ,
 completionScope = result . root ,
 parent = nil
-} ,  retStack =  { } ,  retPackStack =  { } ,  ownReturnStack =  { } ,  borrowReturnStack =  { } ,  varargPackStack =  { } ,  yieldPackStack =  { } ,  resumePackStack =  { } ,  protocolStack =  { } ,  dropOperationFieldStack =  { } ,  validatedCleanupContracts =  { } ,  unsafeDepth =  0 ,  noSuspendDepth =  0 ,  handledDepth =  0 ,  functionDepth =  0 ,  functionBodies =  { } ,  jitHazards =  { } ,  scopedCaptureDepth =  0 ,  closureCaptureStack =  { } ,  captureWatches =  { } ,  allowed =  { } ,  nextStat =  nil ,  hoisting =  false ,  resolvingAlias =  { } ,  lastCallRets =  nil ,  moduleFields =  { } ,  moduleFieldTokens =  { } ,  moduleFieldDefs =  { } ,  moduleFunctionDeclarations =  { } ,  moduleFieldConst =  { } ,  moduleFieldValues =  { } ,  nominalEffectOwners =  { } ,  nominalEffectEntries =  { } ,  constModulePaths =  { } ,  moduleLocalAnnotated =  false }, state.Checker)
+} ,  retStack =  { } ,  retPackStack =  { } ,  ownReturnStack =  { } ,  borrowReturnStack =  { } ,  varargPackStack =  { } ,  yieldPackStack =  { } ,  resumePackStack =  { } ,  protocolStack =  { } ,  dropOperationFieldStack =  { } ,  validatedCleanupContracts =  { } ,  unsafeDepth =  0 ,  noSuspendDepth =  0 ,  effectRegionDepths =  {
+allocates = 0 ,
+raises = 0
+} ,  handledDepth =  0 ,  functionDepth =  0 ,  functionBodies =  { } ,  jitHazards =  { } ,  scopedCaptureDepth =  0 ,  closureCaptureStack =  { } ,  captureWatches =  { } ,  allowed =  { } ,  nextStat =  nil ,  hoisting =  false ,  resolvingAlias =  { } ,  lastCallRets =  nil ,  moduleFields =  { } ,  moduleFieldTokens =  { } ,  moduleFieldDefs =  { } ,  moduleFunctionDeclarations =  { } ,  moduleFieldConst =  { } ,  moduleFieldValues =  { } ,  nominalEffectOwners =  { } ,  nominalEffectEntries =  { } ,  constModulePaths =  { } ,  moduleLocalAnnotated =  false }, state.Checker)
 c . rootScope = c . scope
 c . moduleExports . valueDefs = c . moduleExports . valueDefs or { }
 c . moduleExports . comptimeFunctions = c . moduleExports . comptimeFunctions or { }
@@ -10309,6 +10967,7 @@ c . raises = undocumentedraise . install ( c )
 c . unused = unused . install ( c )
 c . discard = discard . install ( c )
 c . nosuspend = nosuspendMod . install ( c )
+c . effectRegions = effectregionsMod . install ( c )
 c . typeFunctionEvaluator = function ( helper , arguments , helpers )
 local program = comptime . typeFunctionProgram ( helper , helpers )
 local memo = c . typeFunctionMemo [ program . identity ]
@@ -10632,7 +11291,7 @@ def . scopeDepth = c . scope . depth or 0
 end
 if tok . deprecation then
 def . deprecated = tok . deprecation
-def . documentationTrivia = tok . deprecationTrivia
+def . documentationToken = tok . deprecationToken
 end
 tok . definition = def
 
@@ -11782,12 +12441,14 @@ end
 end
 end
 finalizeNominalEffects ( c )
+finalizeCallGuarantees ( c , effectQueries )
 finalizeBoundary ( c )
 
 
 c . unused . sweep ( )
 c . discard . sweep ( analysis . queries ( facts ) )
 c . nosuspend . sweep ( analysis . queries ( facts ) )
+c . effectRegions . sweep ( effectQueries )
 local comptimeNames , comptimeIdentities = { } , { }
 for name in pairs ( c . moduleExports . comptimeFunctions or { } ) do
 comptimeNames [ # comptimeNames + 1 ] = name
@@ -12586,6 +13247,83 @@ boundEntry . requiredModule = initNode . requiredModule
 if boundEntry . definition then
 boundEntry . definition . requiredModule = initNode . requiredModule
 end
+if boundEntry . t and T . unwrapOwnership ( boundEntry . t ) . tag == "func" then
+boundEntry . exactCallExport = {
+module = initNode . requiredModule ,
+member = "$return" ,
+identity = initNode . requiredModule .. ".$return" ,
+}
+if boundEntry . definition then
+boundEntry . definition . exactCallExport = boundEntry . exactCallExport
+end
+end
+end
+if boundEntry and initNode and initNode . exactCallExport then
+boundEntry . exactCallExport = initNode . exactCallExport
+if boundEntry . definition then
+boundEntry . definition . exactCallExport = initNode . exactCallExport
+end
+elseif boundEntry
+and initNode
+and initNode . kind == "name"
+and initNode . token
+and initNode . token . definition
+and initNode . token . definition . exactCallExport
+then
+boundEntry . exactCallExport = initNode . token . definition . exactCallExport
+if boundEntry . definition then
+boundEntry . definition . exactCallExport = boundEntry . exactCallExport
+end
+end
+
+
+
+local rangeExport = initNode
+and initNode . kind == "call"
+and initNode . obj
+and initNode . obj . exactCallExport
+or nil
+if boundEntry
+and boundEntry . definition
+and stat . isConst
+and rangeExport
+and rangeExport . module == "nupp.span"
+and rangeExport . member == "range"
+then
+local rangeCall = initNode
+local args = rangeCall . args and rangeCall . args . kind == "args" and (
+rangeCall . args
+) . exprs or { }
+local spanDefinitions , valid = { } , # args >= 3
+for index = 3 , # args do
+local argument = args [ index ]
+local definition = argument
+and argument . kind == "name"
+and argument . token
+and argument . token . definition
+or nil
+if not definition or not definition . constant then
+valid = false
+break
+end
+spanDefinitions [ definition ] = true
+end
+if valid then
+boundEntry . definition . spanRangeWitness = { spans = spanDefinitions , }
+end
+end
+local scalarIdentity = initNode
+and initNode . scalarIntrinsic
+or initNode
+and initNode . kind == "name"
+and initNode . token
+and initNode . token . definition
+and initNode . token . definition . scalarIntrinsic
+if boundEntry and scalarIdentity then
+boundEntry . scalarIntrinsic = scalarIdentity
+if boundEntry . definition then
+boundEntry . definition . scalarIntrinsic = scalarIdentity
+end
 end
 
 
@@ -12619,15 +13357,17 @@ if boundEntry and expandedCall and expandedCall . resourceCapability and j == ex
 boundEntry . resourceCapability = expandedCall . resourceCapability
 end
 if boundEntry and returnRegionPath then
-local regionRoot = expandedCall and expandedCall . regionRoot
-or returnBorrowOwners and returnBorrowOwners [ 1 ]
+local regionRoot = expandedCall
+and expandedCall . regionRoot
+or returnBorrowOwners
+and returnBorrowOwners [
+1
+]
 boundEntry . regionRoot = regionRoot
 boundEntry . regionPath = returnRegionPath
 if regionRoot then
 regionRoot . activeRegions = regionRoot . activeRegions or { }
-regionRoot . activeRegions [ returnRegionPath ] = (
-regionRoot . activeRegions [ returnRegionPath ] or 0
-) + 1
+regionRoot . activeRegions [ returnRegionPath ] = ( regionRoot . activeRegions [ returnRegionPath ] or 0 ) + 1
 end
 elseif boundEntry and initNode then
 local regionRoot , regionPath = c . regionOf ( initNode )
@@ -12648,9 +13388,9 @@ boundEntry . borrowOwner = returnBorrowOwners [ 1 ]
 returnBorrowOwners [ 1 ] . activeBorrows = ( returnBorrowOwners [ 1 ] . activeBorrows or 0 ) + 1
 if returnExclusiveBorrow then
 boundEntry . exclusiveBorrow = true
-returnBorrowOwners [ 1 ] . activeExclusiveBorrows = (
-returnBorrowOwners [ 1 ] . activeExclusiveBorrows or 0
-) + 1
+returnBorrowOwners [
+1
+] . activeExclusiveBorrows = ( returnBorrowOwners [ 1 ] . activeExclusiveBorrows or 0 ) + 1
 end
 elseif boundEntry and (
 boundKind == "borrowed" or boundKind == "owned"
@@ -12659,9 +13399,7 @@ boundEntry . borrowOwner = initNode . borrowOwner
 initNode . borrowOwner . activeBorrows = ( initNode . borrowOwner . activeBorrows or 0 ) + 1
 if returnExclusiveBorrow then
 boundEntry . exclusiveBorrow = true
-initNode . borrowOwner . activeExclusiveBorrows = (
-initNode . borrowOwner . activeExclusiveBorrows or 0
-) + 1
+initNode . borrowOwner . activeExclusiveBorrows = ( initNode . borrowOwner . activeExclusiveBorrows or 0 ) + 1
 end
 end
 if boundEntry and (
@@ -13665,8 +14403,7 @@ end
 local descriptor = reflection . describe ( reflected , key )
 node . reflectedType , node . reflectedTypeKey = descriptor , key
 local reflectTypes = c . env and c . env . globalTypes and c . env . globalTypes [ "nupp.reflect" ]
-local typeInfo = reflectTypes and reflectTypes . nestedTypes
-and reflectTypes . nestedTypes . Info
+local typeInfo = reflectTypes and reflectTypes . nestedTypes and reflectTypes . nestedTypes . Info
 
 return typeInfo or T . any
 end
@@ -13934,6 +14671,13 @@ if node . kind == "safeCall" then
 calleeT = withoutNil ( calleeT )
 end
 node . calleeType = rawType ( calleeT )
+node . scalarIntrinsic = callee
+and callee . scalarIntrinsic
+or callee
+and callee . kind == "name"
+and callee . token
+and callee . token . definition
+and callee . token . definition . scalarIntrinsic
 c . nosuspend . call ( node )
 
 
@@ -14534,6 +15278,18 @@ end
 end
 c . nosuspend . call ( node )
 local owner = rawType ( ot )
+local spanMethods = { get = true , getMut = true , set = true }
+local spanTypes = { Span = true , FixedSpan = true , WriteSpan = true , FixedWriteSpan = true }
+if owner . tag == "nominal" then
+local nominal = owner
+local origin = nominal . origin
+if origin and origin . tag == "nominal" then
+nominal = origin
+end
+if nominal . moduleName == "nupp.span" and spanTypes [ nominal . name ] and spanMethods [ member . text ] then
+node . spanAccessorNoAllocate = true
+end
+end
 node . overloadMember = pegReplacementMember (
 ot ,
 member . text ,
@@ -14624,11 +15380,14 @@ and entry . regionRoot == regionRoot
 and entry . regionPath == regionPath
 and 1
 or 0
-if ( activePath == regionPath and count > own )
-or ( activePath ~= regionPath
-and c . regionsOverlap ( activePath , regionPath )
-and activePath : sub ( 1 , # regionPath ) == regionPath )
-then
+if (
+activePath == regionPath and count > own
+) or (
+activePath ~= regionPath and c . regionsOverlap (
+activePath ,
+regionPath
+) and activePath : sub ( 1 , # regionPath ) == regionPath
+) then
 blocked = true
 break
 end
@@ -14668,11 +15427,14 @@ and entry . regionRoot == regionRoot
 and entry . regionPath == regionPath
 and 1
 or 0
-if ( activePath == regionPath and count > own )
-or ( activePath ~= regionPath
-and c . regionsOverlap ( activePath , regionPath )
-and activePath : sub ( 1 , # regionPath ) == regionPath )
-then
+if (
+activePath == regionPath and count > own
+) or (
+activePath ~= regionPath and c . regionsOverlap (
+activePath ,
+regionPath
+) and activePath : sub ( 1 , # regionPath ) == regionPath
+) then
 blocked = true
 break
 end
@@ -14751,6 +15513,7 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 local T = require ( "nupp.compiler.types" )
+local lexer = require ( "nupp.compiler.lexer" )
 local members = require ( "nupp.compiler.members" )
 local relations = require ( "nupp.compiler.relations" )
 local generics = require ( "nupp.compiler.generics" )
@@ -14868,12 +15631,7 @@ end
 return nil
 end
 
-local function probeArm (
-ft ,
-argPack ,
-cdefCall ,
-control
-)
+local function probeArm ( ft , argPack , cdefCall , control )
 local map = { }
 if T . hasTypevar (
 ft
@@ -14942,6 +15700,13 @@ end
 local tail = params . tail
 if tail and tail . kind == "homogeneous" then
 for j = # params . head + 1 , actualCount do
+local mode = tail . mode
+local actual = argPack . head [ j ]
+if mode == "takes" and actual . tag ~= "owned" then
+return nil , ( "argument %d requires an owned value" ) : format ( j )
+elseif mode == "scoped" and ( actual . tag == "owned" or actual . tag == "pinned" ) then
+return nil , ( "argument %d cannot borrow an affine value as a repeatable callback" ) : format ( j )
+end
 local ok , why = isA ( argPack . head [ j ] , tail . type )
 if not ok then
 return nil , ( "argument %d in pack tail: %s" ) : format ( j , why or "mismatch" )
@@ -14960,12 +15725,7 @@ end
 return specialized
 end
 
-local function probeSignature (
-ft ,
-argPack ,
-cdefCall ,
-control
-)
+local function probeSignature ( ft , argPack , cdefCall , control )
 if not argPack . alternatives then
 return probeArm ( ft , argPack , cdefCall , control )
 end
@@ -15061,7 +15821,8 @@ end
 
 
 local gap = nil
-for _ , trivia in ipairs ( open . trivia or { } ) do
+for index = 1 , open . triviaCount do
+local trivia = lexer . triviaRecord ( open , index )
 if trivia . kind ~= "whitespace" or trivia . text : find ( "\n" , 1 , true ) then
 gap = nil
 break
@@ -15350,6 +16111,10 @@ end
 
 
 function ops . applyContract ( ft , ats , argNodes , site , operation )
+
+
+
+site . effectUnknownOperation = true
 local overloads = ft and callableMembers ( ft ) or nil
 if overloads then
 local survivors , rejections = { } , { }
@@ -15687,10 +16452,7 @@ if sealedConstruction then
 c . diag (
 "NUPP2209" ,
 node ,
-( "record %s has fields private to module %q" ) : format (
-calleeT . name ,
-declaration . moduleName or "?"
-) ,
+( "record %s has fields private to module %q" ) : format ( calleeT . name , declaration . moduleName or "?" ) ,
 nil ,
 { help = "use a public constructor declared by that module" }
 )
@@ -16474,7 +17236,9 @@ end
 
 local jitBody = c . functionBodies [ # c . functionBodies ]
 local function jitHazard ( code , at , message , help , disabledDefinition , disabledBody )
-c . jitHazards [ # c . jitHazards + 1 ] = {
+c . jitHazards [
+# c . jitHazards + 1
+] = {
 code = code ,
 at = at ,
 body = jitBody ,
@@ -16485,6 +17249,7 @@ disabledBody = disabledBody ,
 suppressed = not ( jitBody and jitBody . jitRequired ) and c . suppressed ( code ) ,
 }
 end
+
 if node . cdefCall and calleeT . vararg then
 jitHazard (
 "jit-boundary" ,
@@ -16548,22 +17313,13 @@ end
 end
 
 
-if varargType then
-for j = nparams + 1 , actualCount do
-local ok , why = isA ( ats [ j ] or T . any , varargType )
-if not ok then
-c . diag (
-"NUPP2006" ,
-cst . isToken ( argNodes [ j ] ) and node or argNodes [ j ] ,
-( "argument %d: %s" ) : format ( j , why ) ,
-nil ,
-callDetails ( node )
+
+local parameterTail = paramPack . tail
+for j = 1 , actualCount do
+local tailSlot = j > nparams
+local mode = tailSlot and parameterTail and parameterTail . kind == "homogeneous" and parameterTail . mode or (
+not tailSlot and ( paramModes [ j ] or "plain" ) or nil
 )
-end
-end
-end
-for j = 1 , math . min ( actualCount , nparams ) do
-local mode = paramModes [ j ] or "plain"
 local actualForCheck = ats [ j ]
 local preservationResult = preservedByParam [ j ]
 if preservationResult then
@@ -16579,7 +17335,7 @@ local ok , why
 if constInferenceFailed then
 ok = true
 else
-ok , why = isA ( actualForCheck , params [ j ] )
+ok , why = isA ( actualForCheck , tailSlot and ( varargType or T . any ) or params [ j ] )
 end
 if not ok then
 c . diag (
@@ -16594,7 +17350,7 @@ end
 
 
 if not cst . isToken ( argNodes [ j ] ) then
-c . checkMetatableLiteral ( argNodes [ j ] , ats [ j ] , params [ j ] )
+c . checkMetatableLiteral ( argNodes [ j ] , ats [ j ] , tailSlot and ( varargType or T . any ) or params [ j ] )
 end
 if mode == "takes" then
 local conditional = node . kind == "safeCall" or node . kind == "methodCall" and (
@@ -16680,18 +17436,24 @@ end
 exclusiveRegions [ # exclusiveRegions + 1 ] = { root = regionRoot , path = regionPath }
 end
 if c . ownershipKind ( ats [ j ] ) == "borrowed" then
+local sole
+if entry and entry . exclusiveBorrow then
+sole = ( entry . activeBorrows or 0 ) == 0
+else
 local roots = { }
 if entry and entry . borrowOwner then
 roots [ 1 ] = entry . borrowOwner
 elseif entry and entry . borrowOwners then
 roots = entry . borrowOwners
 end
-local sole = # roots > 0
+sole = # roots > 0
 for _ , root in ipairs ( roots ) do
+
 
 
 if ( root . activeBorrows or 0 ) > 1 then
 sole = false
+end
 end
 end
 if regionPath and regionPath ~= "" then
@@ -16702,11 +17464,14 @@ and entry . regionRoot == regionRoot
 and entry . regionPath == regionPath
 and 1
 or 0
-if ( activePath == regionPath and count > own )
-or ( activePath ~= regionPath
-and c . regionsOverlap ( activePath , regionPath )
-and activePath : sub ( 1 , # regionPath ) == regionPath )
-then
+if (
+activePath == regionPath and count > own
+) or (
+activePath ~= regionPath and c . regionsOverlap (
+activePath ,
+regionPath
+) and activePath : sub ( 1 , # regionPath ) == regionPath
+) then
 sole = false
 end
 end
@@ -16730,7 +17495,7 @@ elseif mode == "borrows" then
 
 local entry , nameNode = c . ownershipEntry ( argNodes [ j ] )
 entry = c . ownershipState ( entry )
-if not ( entry and entry . exclusiveBorrow ) then
+if not ( entry and entry . exclusiveBorrow and ( entry . activeBorrows or 0 ) == 0 ) then
 local regionRoot , regionPath = c . regionOf ( argNodes [ j ] )
 local roots = entry and { entry } or c . own . provenanceOwners ( argNodes [ j ] )
 for _ , root in ipairs ( roots ) do
@@ -16743,11 +17508,14 @@ and entry . regionRoot == regionRoot
 and entry . regionPath == regionPath
 and 1
 or 0
-if ( activePath == regionPath and count > own )
-or ( activePath ~= regionPath
-and c . regionsOverlap ( activePath , regionPath )
-and activePath : sub ( 1 , # regionPath ) == regionPath )
-then
+if (
+activePath == regionPath and count > own
+) or (
+activePath ~= regionPath and c . regionsOverlap (
+activePath ,
+regionPath
+) and activePath : sub ( 1 , # regionPath ) == regionPath
+) then
 blocked = true
 break
 end
@@ -16866,8 +17634,7 @@ local sourceEntry = source and c . ownershipEntry ( source ) or nil
 sourceEntry = c . own . ownershipState ( sourceEntry )
 local found
 if sourceEntry and (
-c . ownershipKind ( sourceEntry . t ) == "owned"
-or c . ownershipKind ( sourceEntry . t ) == "pinned"
+c . ownershipKind ( sourceEntry . t ) == "owned" or c . ownershipKind ( sourceEntry . t ) == "pinned"
 ) then
 found = { sourceEntry }
 else
@@ -16888,8 +17655,7 @@ elseif # owners > 1 then
 node . borrowOwners = owners
 node . returnBorrowOwners = { [ 1 ] = owners }
 end
-local exclusiveResult = calleeT . borrowsParam
-and calleeT . paramModes [ calleeT . borrowsParam ] == "exclusive"
+local exclusiveResult = calleeT . borrowsParam and calleeT . paramModes [ calleeT . borrowsParam ] == "exclusive"
 if not exclusiveResult then
 for _ , at in ipairs ( calleeT . borrowsParams or { } ) do
 if calleeT . paramModes [ at ] == "exclusive" then
@@ -17014,6 +17780,7 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 local T = require ( "nupp.compiler.types" )
 local narrowing = require ( "nupp.compiler.narrowing" )
 local generics = require ( "nupp.compiler.generics" )
+local cabi = require ( "nupp.compiler.cabi" )
 local cst = require ( "nupp.compiler.cst" )
 local state = require ( "nupp.compiler.check.state" )
 
@@ -17025,9 +17792,13 @@ local cdef = { }
 
 
 local function stringLiteral ( token )
-if not token then return nil end
+if not token then
+return nil
+end
 local chunk = loadstring ( "return " .. token . text )
-if not chunk then return nil end
+if not chunk then
+return nil
+end
 local ok , value = pcall ( chunk )
 
 return ok and type ( value ) == "string" and value or nil
@@ -17102,10 +17873,7 @@ c . markToken ( fieldName , fieldDef , ft , "property" )
 n . fieldOrder [ # n . fieldOrder + 1 ] = text
 semanticFields [
 # semanticFields + 1
-] = table . concat (
-{ text , T . tostring ( ft ) , bitWidth and bitWidth . text or "" } ,
-":"
-)
+] = table . concat ( { text , T . tostring ( ft ) , bitWidth and bitWidth . text or "" } , ":" )
 if not reifiableField ( ft , true ) then
 c . diag ( "NUPP2203" , e , ( "cdef field %q: %s is not a C type" ) : format ( text , T . tostring ( ft ) ) )
 end
@@ -17146,6 +17914,7 @@ end
 handlers . cdefFunc = function ( stat )
 c . raises . checkParams ( stat , stat . params or { } )
 local params , paramModes , paramNames = { } , { } , { }
+local abiParams = { }
 local physicalNodes , physicalDefs = { } , { }
 local outputByName = { }
 for _ , output in ipairs ( stat . ownedOuts or { } ) do
@@ -17177,6 +17946,22 @@ c . markToken ( pname , pdef , pt , "parameter" )
 if not ( reifiableField ( pt , true ) or pt == T . number or pt == T . string or pt . tag == "func" ) then
 c . diag ( "NUPP2203" , p , ( "cdef parameter: %s is not a C type" ) : format ( T . tostring ( pt ) ) )
 end
+if pt . tag == "nominal" and pt . declKind == "struct" and not pt . cdefName then
+c . diag (
+"NUPP2203" ,
+p ,
+"an ordinary Nupp struct crosses a C boundary by pointer or array, not by value"
+)
+end
+local abiCountedBy = ( p ) . countedBy
+abiParams [
+# abiParams + 1
+] = {
+name = pname and pname . text or ( "arg" .. tostring ( parameterIndex ) ) ,
+type = pt ,
+mode = mode ,
+countedBy = abiCountedBy and abiCountedBy . text or nil ,
+}
 if mode ~= "plain" and not pointerShaped ( pt ) then
 c . diag ( "NUPP2602" , p , mode .. " parameters must have a pointer-shaped type" )
 end
@@ -17217,11 +18002,13 @@ for name , output in pairs ( outputByName ) do
 c . diag ( "NUPP2602" , output . at or stat , ( "output contract %q names no out parameter" ) : format ( name ) )
 end
 local rets = { }
+local abiResult = nil
 if stat . ownCleanups and not stat . ret then
 c . diag ( "NUPP2602" , stat . ownTok or stat , "@owned requires an annotated pointer return type" )
 end
 if stat . ret then
 local rt = c . resolveType ( stat . ret )
+abiResult = rt
 rets [ 1 ] = rt
 if stat . ownCleanups then
 local base = rt
@@ -17242,6 +18029,9 @@ rets [ 1 ] = T . owned ( rt , stat . ownCleanups )
 end
 if not ( reifiableField ( rt , true ) or rt == T . number ) then
 c . diag ( "NUPP2203" , stat . ret , ( "cdef return: %s is not a C type" ) : format ( T . tostring ( rt ) ) )
+end
+if rt . tag == "nominal" and rt . declKind == "struct" and not rt . cdefName then
+c . diag ( "NUPP2203" , stat . ret , "an ordinary Nupp struct crosses a C boundary by pointer, not by value" )
 end
 end
 for _ , output in ipairs ( ffiOut ) do
@@ -17434,6 +18224,7 @@ stat . signatureType = cdefType
 if not cdefName then
 return
 end
+stat . cAbiSignature = cabi . functionRecord ( cdefName . text , abiParams , abiResult , stat . varargs or false , "c" )
 if not stat . countedAbi then
 c . cDefinedFunctions [ cdefName . text ] = cdefType
 end
@@ -17631,14 +18422,17 @@ local expanded = exprs [ # exprs ]
 if expanded and expanded . returnPartitionFields then
 return { partitionFields = expanded . returnPartitionFields [ result - # exprs + 1 ] }
 end
+
 return nil
 end
+
 local function partitionFieldsOf ( returned )
 while returned and ( returned . kind == "paren" or returned . kind == "castExpr" ) do
 returned = returned . expr
 end
 return returned and returned . partitionFields or nil
 end
+
 local functionBody = c . functionBodies [ # c . functionBodies ]
 if functionBody then
 for result = 1 , # ts do
@@ -17724,9 +18518,7 @@ c . diag ( "NUPP2603" , stat . exprs [ j ] or stat , valueKind .. " return needs
 else
 local source = ownershipState ( ( c . ownershipEntry ( stat . exprs [ j ] ) ) )
 local ownReturns = c . ownReturnStack [ # c . ownReturnStack ]
-local promoted = ownReturns and ownReturns [
-j
-] and source and ownershipKind ( source . t ) ~= valueKind
+local promoted = ownReturns and ownReturns [ j ] and source and ownershipKind ( source . t ) ~= valueKind
 if not promoted then
 moveExpression ( stat . exprs [ j ] , valueT , "return" , valueKind )
 end
@@ -17813,6 +18605,8 @@ if annotated and not annotatedPack then
 for j , rt in ipairs ( annotated ) do
 local got = ts [ j ] or T . nil_
 local expected = rt
+
+
 
 
 if ownReturns and ownReturns [ j ] and not ownershipKind ( got ) then
@@ -18227,6 +19021,16 @@ c . popScope ( )
 c . noSuspendDepth = c . noSuspendDepth - 1
 end
 
+handlers . effectRegionStmt = function ( stat )
+local effect = stat . effect
+c . effectRegionDepths [ effect ] = ( c . effectRegionDepths [ effect ] or 0 ) + 1
+c . effectRegions . region ( stat )
+c . pushScope ( )
+c . checkBlock ( stat . body , true )
+c . popScope ( )
+c . effectRegionDepths [ effect ] = ( c . effectRegionDepths [ effect ] or 1 ) - 1
+end
+
 handlers . unsafeStmt = function ( stat )
 c . unsafeDepth = c . unsafeDepth + 1
 c . pushScope ( )
@@ -18252,8 +19056,54 @@ c . numericOperand ( et , to , "for" )
 c . pushScope ( )
 c . scope . completionScope = stat . body
 c . bindVar ( var . text , ( isA ( st , T . integer ) and isA ( et , T . integer ) ) and T . integer or T . number , false , var )
+
+
+local function rangeField ( node , field )
+if not node or node . kind ~= "dotIndex" or not node . name or node . name . text ~= field then
+return nil
+end
+local object = node . obj
+
+return object and object . kind == "name" and object . token and object . token . definition or nil
+end
+
+local rangeDefinition = not stat . step and rangeField ( from , "first" ) or nil
+local witness = rangeDefinition and rangeDefinition == rangeField (
+to ,
+"last"
+) and rangeDefinition . spanRangeWitness or nil
 c . loops . push ( stat . body )
 c . checkBlock ( stat . body , true )
+if witness and stat . body and var . definition then
+local function markRangeAccess ( node )
+if not node or cst . isToken ( node ) then
+return
+end
+if node . kind == "methodCall" and node . spanAccessorNoAllocate then
+local receiver = node . obj
+local receiverDefinition = receiver
+and receiver . kind == "name"
+and receiver . token
+and receiver . token . definition
+or nil
+local args = node . args and node . args . kind == "args" and node . args . exprs or { }
+local index = args [ 1 ]
+local indexDefinition = index
+and index . kind == "name"
+and index . token
+and index . token . definition
+or nil
+if witness . spans [ receiverDefinition ] and indexDefinition == var . definition then
+node . rangeProvenNoRaise = true
+end
+end
+for _ , child in ipairs ( node ) do
+markRangeAccess ( child )
+end
+end
+
+markRangeAccess ( stat . body )
+end
 c . loops . pop ( )
 c . popScope ( )
 end
@@ -18337,6 +19187,22 @@ local methodslots = require ( "nupp.compiler.methodslots" )
 local state = require ( "nupp.compiler.check.state" )
 
 local declare = { }
+
+
+
+
+local BITFIELD_BASE = {
+boolean = true ,
+integer = true ,
+int8 = true ,
+int16 = true ,
+int32 = true ,
+int64 = true ,
+uint8 = true ,
+uint16 = true ,
+uint32 = true ,
+uint64 = true ,
+}
 
 local isA = relations . isA
 
@@ -20066,6 +20932,37 @@ n . writeByname [ name ] = ft
 n . writeFieldDefs [ name ] = definition
 end
 c . markToken ( e . name , definition , ft , "property" )
+if e . bitWidth then
+
+
+
+
+
+
+if stat . declKind ~= "struct" or stat . isAnnotationDefinition then
+c . diag (
+"NUPP2201" ,
+e . bitWidth ,
+(
+"field %q: a bit width belongs to a struct field, " .. "which is the only kind laid out in C memory"
+) : format ( e . name . text ) ,
+nil ,
+{ help = "drop the width, or declare the type a struct" }
+)
+elseif not BITFIELD_BASE [ ft . tag ] then
+c . diag (
+"NUPP2201" ,
+e . bitWidth ,
+(
+"struct field %q: %s carries no bit width; C allows " .. "one on an integer or boolean field only"
+) : format ( e . name . text , T . tostring ( ft ) ) ,
+nil ,
+{
+help = "drop the width, or give the field an " .. "integer or boolean type"
+}
+)
+end
+end
 if stat . declKind == "struct" and not stat . isAnnotationDefinition and not reifiableField ( ft ) then
 c . diag (
 "NUPP2201" ,
@@ -22294,6 +23191,257 @@ end
 return discard
 
 end
+package.preload["nupp.compiler.check.effectregions"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+
+
+
+
+
+local cst = require ( "nupp.compiler.cst" )
+local state = require ( "nupp.compiler.check.state" )
+
+local effectregions = { }
+
+
+
+
+
+
+local MAX_CHAIN = 8
+local PURE_BUILTINS = {
+type = true ,
+tonumber = true ,
+select = true ,
+rawequal = true ,
+rawget = true ,
+rawlen = true ,
+ipairs = true ,
+pairs = true ,
+next = true ,
+}
+
+local function callName ( call )
+local callee = call and call . obj
+if not callee then
+return nil
+end
+if callee . kind == "name" then
+return callee . token and callee . token . text
+end
+if callee . kind == "dotIndex" and callee . obj and callee . obj . kind == "name" then
+return callee . obj . token . text .. "." .. callee . name . text
+end
+
+return nil
+end
+
+function effectregions . install ( c )
+local ops , regions = { } , { }
+
+function ops . region ( stat )
+regions [ # regions + 1 ] = stat
+end
+
+local function exactExport ( call )
+local callee = call and call . obj
+if not callee then
+return nil
+end
+if callee . exactCallExport then
+return callee . exactCallExport
+end
+if callee . kind == "name" and callee . token and callee . token . definition then
+return callee . token . definition . exactCallExport
+end
+
+return nil
+end
+
+local function firstEffectCall ( queries , body , effect )
+local found = nil
+local function walk ( node )
+if not node or found or cst . isToken ( node ) then
+return
+end
+local kind = node . kind
+if kind == "localFuncStmt"
+or kind == "funcStmt"
+or kind == "inlineMethod"
+or kind == "constructorDecl"
+or kind == "funcExpr"
+or kind == "shortfn"
+then
+return
+end
+if kind == "call" or kind == "safeCall" or kind == "methodCall" then
+local reached = queries . callee and queries . callee ( node ) or nil
+if reached and reached . summary and ( reached . summary . top or reached . summary [ effect ] ) then
+found = { info = reached , at = node }
+return
+end
+end
+for _ , child in ipairs ( node ) do
+walk ( child )
+end
+end
+
+walk ( body )
+
+return found
+end
+
+local function chain ( queries , info , effect )
+local related , seen , current = { } , { } , info
+while current and # related < MAX_CHAIN do
+if seen [ current ] or not current . body then
+break
+end
+seen [ current ] = true
+local step = firstEffectCall ( queries , current . body , effect )
+if not step then
+break
+end
+local callee = step . at . obj
+local token = callee and ( callee . token or callee . name ) or nil
+if token then
+related [
+# related + 1
+] = {
+line = token . line ,
+col = token . col ,
+offset = token . offset ,
+length = # token . text ,
+msg = effect == "allocates" and ( token . text .. " may allocate" ) or ( token . text .. " may raise" ) ,
+}
+end
+current = step . info
+end
+
+return related
+end
+
+local function callIsFree ( call , effect , queries )
+if call . scalarIntrinsic then
+return true
+end
+if call . spanAccessorNoAllocate then
+if effect == "allocates" or call . rangeProvenNoRaise then
+return true
+end
+return false , "performs a checked span access without a dominating range proof" , nil
+end
+if call . constructorEntry and effect == "allocates" then
+return false , "constructs a new value" , nil
+end
+local info = queries and queries . callee and queries . callee ( call ) or nil
+if info and info . summary then
+if info . summary . top then
+return false , "reaches code with unknown effects" , info
+end
+if info . summary [ effect ] then
+return false , effect == "allocates" and "may allocate" or "may raise" , info
+end
+
+
+return true , nil , info
+end
+local name = callName ( call )
+if PURE_BUILTINS [ name or "" ] then
+return true
+end
+local exact = exactExport ( call )
+if exact and c . env and c . env . observeCallGuarantee then
+local guarantee = effect == "allocates" and "noAllocate" or "noRaise"
+if c . env . observeCallGuarantee ( c . env , exact . module , exact . member , exact . identity , guarantee ) then
+return true
+end
+return false , ( "has no observed %s guarantee" ) : format ( guarantee ) , nil
+end
+
+return false , "cannot be resolved, so its effects are unknown" , nil
+end
+
+local function report ( effect , node , why , info , queries )
+local callee = node . obj
+local token = callee and ( callee . token or callee . name ) or cst . firstToken ( node )
+local shown = token and ( "`" .. token . text .. "`" ) or "this operation"
+local region = effect == "allocates" and "noalloc" or "noraise"
+local action = effect == "allocates" and "allocation" or "raising"
+c . diag (
+effect == "allocates" and "NUPP2710" or "NUPP2711" ,
+callee or node ,
+( "%s %s, and this %s region forbids %s" ) : format ( shown , why , region , action ) ,
+nil ,
+{
+help = effect == "allocates"
+and "remove the allocation, call an exact noAllocate export, or move this out of the region"
+or "remove the error path, call an exact noRaise export, or move this out of the region" ,
+related = info and chain ( queries , info , effect ) or nil ,
+}
+)
+end
+
+function ops . sweep ( queries )
+local diagnosed = { }
+for _ , region in ipairs ( regions ) do
+local effect = region . effect
+local function walk ( node )
+if not node or cst . isToken ( node ) then
+return
+end
+local kind = node . kind
+if node ~= region . body and (
+kind == "localFuncStmt"
+or kind == "funcStmt"
+or kind == "inlineMethod"
+or kind == "constructorDecl"
+or kind == "funcExpr"
+or kind == "shortfn"
+) then
+if effect == "allocates" and not diagnosed [ node ] then
+diagnosed [ node ] = true
+report ( effect , node , "allocates a closure" , nil , queries )
+end
+return
+elseif (
+kind == "tableExpr"
+or kind == "newExpr"
+or kind == "istring"
+or kind == "binop"
+and node . op
+and node . op . kind == ".."
+) and effect == "allocates" and not diagnosed [ node ] then
+diagnosed [ node ] = true
+report ( effect , node , "constructs a managed value" , nil , queries )
+elseif node . effectUnknownOperation and not diagnosed [ node ] then
+diagnosed [ node ] = true
+report ( effect , node , "may invoke code with unknown effects" , nil , queries )
+elseif kind == "call" or kind == "safeCall" or kind == "methodCall" then
+local free , why , info = callIsFree ( node , effect , queries )
+if not free and not diagnosed [ node ] then
+diagnosed [ node ] = true
+report ( effect , node , why , info , queries )
+end
+end
+for _ , child in ipairs ( node ) do
+walk ( child )
+end
+end
+
+walk ( region . body )
+end
+end
+
+return ops
+end
+
+return effectregions
+
+end
 package.preload["nupp.compiler.check.expr"] = function(...)
 local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
@@ -23417,7 +24565,10 @@ if not countT or not ( countT == T . any or isA ( countT , T . number ) ) then
 c . diag ( "NUPP2401" , node , "carray needs an element count as its second argument" )
 return T . any
 end
-node . carrayElem = elemT . name
+
+
+
+node . carrayElem = args [ 1 ]
 local count = countT . tag == "literal" and type (
 countT . constant
 ) == "number" and countT . constant >= 0 and countT . constant % 1 == 0 and countT . constant or nil
@@ -24538,6 +25689,8 @@ end
 local scopedCandidates = scopedCallbackParameters ( body , true )
 local vararg = false
 local varargType = nil
+local varargMode = nil
+local varargModeToken = nil
 local typeParams , typeBounds , packParams , constParams , paramKinds
 local expectedParams = nil
 local expected = expectedFuncbodies [ body ]
@@ -24592,6 +25745,15 @@ if p == explicitSelf then
 
 elseif p . namedVararg then
 vararg = true
+varargMode = p . modeTok and p . modeTok . text or nil
+varargModeToken = p . modeTok
+if p . modeTok then
+c . diag (
+"NUPP2602" ,
+p . modeTok ,
+"an ownership-qualified typed vararg is unnamed and passes each original value directly"
+)
+end
 if p . type then
 if p . type . kind == "tpack" then
 local pack = c . resolvePack ( p . type )
@@ -24625,8 +25787,16 @@ local bound = mode == "takes" and T . owned (
 pt
 ) or ( mode == "borrows" or mode == "exclusive" ) and T . borrowed ( pt ) or pt
 c . bindVar ( p . name . text , bound , p . type ~= nil , p . name , "parameter" )
+if mode == "exclusive" then
+
+
+
+c . scope . vars [ p . name . text ] . exclusiveBorrow = true
+end
 else
 vararg = true
+varargMode = p . modeTok and p . modeTok . text or nil
+varargModeToken = p . modeTok
 if p . type then
 if p . type . kind == "tpack" then
 local pack = c . resolvePack ( p . type )
@@ -24637,10 +25807,26 @@ end
 end
 end
 end
+if varargModeToken and not varargType then
+c . diag ( "NUPP2602" , varargModeToken , "an ownership-qualified vararg needs one homogeneous type" )
+end
+if varargMode == "retains" or varargMode == "releases" then
+c . diag ( "NUPP2602" , varargModeToken or body , varargMode .. " is only valid on imported cdef parameters" )
+elseif varargMode == "takes" then
+c . diag (
+"NUPP2602" ,
+varargModeToken or body ,
+"takes is not valid on an unnamed typed vararg because the body cannot discharge individual owners"
+)
+end
 local paramPack = T . pack (
 params ,
 paramPackTail or (
-vararg and { kind = varargType and "homogeneous" or "unknown" , type = varargType or T . any } or nil
+vararg and {
+kind = varargType and "homogeneous" or "unknown" ,
+type = varargType or T . any ,
+mode = varargMode ,
+} or nil
 ) ,
 paramModes
 )
@@ -24972,10 +26158,7 @@ end
 
 
 
-if ( borrowsParam or borrowsSelf or borrowsParams )
-and rets [ 1 ]
-and rets [ 1 ] . tag ~= "owned"
-then
+if ( borrowsParam or borrowsSelf or borrowsParams ) and rets [ 1 ] and rets [ 1 ] . tag ~= "owned" then
 rets [ 1 ] = T . borrowed ( rawType ( rets [ 1 ] ) )
 end
 if body . returnPack and not retPack . alternatives then
@@ -25395,6 +26578,7 @@ local T = require ( "nupp.compiler.types" )
 local relations = require ( "nupp.compiler.relations" )
 local cst = require ( "nupp.compiler.cst" )
 local state = require ( "nupp.compiler.check.state" )
+local scalarIntrinsics = require ( "nupp.compiler.scalar_intrinsics" )
 
 local isA = relations . isA
 local rawType = T . unwrapOwnership
@@ -25495,6 +26679,31 @@ end
 end
 end
 local trackedObject = c . infer ( target )
+local intrinsicPath = c . pathKey ( node )
+if intrinsicPath then
+local root = target
+while root and ( root . kind == "dotIndex" or root . kind == "safeIndex" ) do
+root = root . obj
+end
+local token = root and root . kind == "name" and root . token or nil
+local builtin = c . env and c . env . globals and c . env . globals . nupp or nil
+if token and builtin and token . definition == builtin . definition then
+node . scalarIntrinsic = scalarIntrinsics . forPath ( intrinsicPath )
+end
+end
+
+
+
+if not node . writeContext and holderName ~= "" then
+local holder = c . lookupEntry ( holderName )
+if holder and holder . requiredModule then
+node . exactCallExport = {
+module = holder . requiredModule ,
+member = memberName ,
+identity = holder . requiredModule .. "." .. memberName ,
+}
+end
+end
 local ot = trackedObject
 local base = kind == "safeIndex" and ot . tag == "union" and T . union ( ot . members ) or ot
 base = rawType ( base )
@@ -25566,9 +26775,9 @@ ft , fieldDef , fieldDefs = c . fieldType ( base , memberName )
 end
 local nominal = base . tag == "nominal" and base or nil
 local declaration = nominal and ( ( ( nominal ) . origin or nominal ) ) or nil
-if declaration and declaration . privateFields and declaration . privateFields [ memberName ]
-and declaration . moduleName ~= c . result . moduleName
-then
+if declaration and declaration . privateFields and declaration . privateFields [
+memberName
+] and declaration . moduleName ~= c . result . moduleName then
 c . diag (
 "NUPP2209" ,
 member ,
@@ -29019,7 +30228,7 @@ local function deprecate ( tok )
 if tok then
 tok . deprecation = targetAny . deprecation
 local annotationToken = cst . firstToken ( stat )
-tok . deprecationTrivia = annotationToken and annotationToken . trivia or nil
+tok . deprecationToken = annotationToken or nil
 end
 end
 
@@ -30671,6 +31880,8 @@ elseif kind == "tfunc" then
 local params , rets , paramModes , paramNames = { } , { } , { } , { }
 local vararg = false
 local varargType = nil
+local varargMode = nil
+local varargModeToken = nil
 local typeParams , typeBounds , packParams , constParams , paramKinds
 if node . generics then
 c . pushScope ( )
@@ -30687,8 +31898,10 @@ if p . pack then
 local pp = c . resolvePack ( p . type )
 paramPackTail = pp . tail
 vararg = true
-elseif first and cst . isToken ( first ) and first . kind == "..." then
+elseif p . vararg or first and cst . isToken ( first ) and first . kind == "..." then
 vararg = true
+varargMode = p . modeTok and p . modeTok . text or nil
+varargModeToken = p . modeTok
 if p . type then
 varargType = c . resolveType ( p . type )
 end
@@ -30700,10 +31913,26 @@ paramNames [ # params ] = p . name and p . name . text or ""
 end
 end
 end
+if varargModeToken and not varargType then
+c . diag ( "NUPP2602" , varargModeToken , "an ownership-qualified vararg needs one homogeneous type" )
+end
+if varargMode == "retains" or varargMode == "releases" then
+c . diag ( "NUPP2602" , varargModeToken or node , varargMode .. " is only valid on imported cdef parameters" )
+elseif varargMode == "takes" then
+c . diag (
+"NUPP2602" ,
+varargModeToken or node ,
+"takes is not valid on an unnamed typed vararg because a body cannot discharge individual owners"
+)
+end
 local paramPack = T . pack (
 params ,
 paramPackTail or (
-vararg and { kind = varargType and "homogeneous" or "unknown" , type = varargType or T . any } or nil
+vararg and {
+kind = varargType and "homogeneous" or "unknown" ,
+type = varargType or T . any ,
+mode = varargMode ,
+} or nil
 ) ,
 paramModes
 )
@@ -30973,7 +32202,14 @@ local state = { }
 
 
 
+
 state.Checker = {} state.Checker.__index = state.Checker
+
+
+
+
+
+
 
 
 
@@ -31839,6 +33075,8 @@ end } , { name = "run" , load = function ( )
 return require ( "nupp.compiler.cli.run" )
 end } , { name = "import-c" , load = function ( )
 return require ( "nupp.compiler.cli.importc" )
+end } , { name = "export-c" , load = function ( )
+return require ( "nupp.compiler.cli.exportc" )
 end } , { name = "rock" , load = function ( )
 return require ( "nupp.compiler.cli.rock" )
 end } , { name = "lsp" , load = function ( )
@@ -32062,6 +33300,7 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 local spec = require ( "nupp.compiler.cli.spec" )
+local lexer = require ( "nupp.compiler.lexer" )
 local optionsMod = require ( "nupp.compiler.cli.options" )
 
 local command = spec . command {
@@ -32134,10 +33373,8 @@ fails.]] ,
 local function syntaxTreeValue ( cst , value )
 if cst . isToken ( value ) then
 local trivia = { }
-for _ , item in ipairs ( value . trivia ) do
-trivia [
-# trivia + 1
-] = { kind = item . kind , text = item . text , offset = item . offset , line = item . line , col = item . col }
+for index = 1 , value . triviaCount do
+trivia [ # trivia + 1 ] = lexer . triviaRecord ( value , index )
 end
 return {
 tag = "token" ,
@@ -33882,6 +35119,260 @@ out [ # out + 1 ] = style . faint ( "Reference: " ) .. entry . docs
 io . write ( table . concat ( out , "\n" ) , "\n" )
 
 return 0
+end
+
+return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
+
+end
+package.preload["nupp.compiler.cli.exportc"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+local spec = require ( "nupp.compiler.cli.spec" )
+local optionsMod = require ( "nupp.compiler.cli.options" )
+
+local command = spec . command {
+name = "export-c" ,
+summary = "Export canonical C declarations for Nupp structs" ,
+usage = {
+"nupp export-c -o FILE [--target NAME] [--format text|json] " .. "<source.nupp>... <module.Declaration>..."
+} ,
+options = optionsMod . join (
+{ names = { "-o" , "--output" } , value = "FILE" , key = "output" , help = "Write the generated header to FILE" } ,
+{ name = "--target" , value = "NAME" , help = "Use a named manifest build target" } ,
+optionsMod . format ( )
+) ,
+schema = {
+type = "object" ,
+properties = {
+ok = { type = "boolean" } ,
+output = { type = "string" } ,
+target = { type = "string" } ,
+declarations = { type = "array" , items = { type = "string" } } ,
+diagnostics = require ( "nupp.compiler.cli.report" ) . DIAGNOSTICS ,
+} ,
+required = { "ok" , "target" , "declarations" , "diagnostics" } ,
+} ,
+detail = [[The selected build target supplies layoutTarget. When it has none, the
+compiler host is used. Header generation itself invokes no C compiler.]] ,
+}
+
+local function walk ( node , visit )
+if not node or require ( "nupp.compiler.cst" ) . isToken ( node ) then
+return
+end
+visit ( node )
+for _ , child in ipairs ( node ) do
+walk ( child , visit )
+end
+end
+
+local function diagnostic ( path , node , code , message , help )
+local token = node and ( node . name or node [ 1 ] ) or nil
+return {
+filename = path ,
+line = token and token . line or 1 ,
+col = token and token . col or 1 ,
+offset = token and token . offset or 0 ,
+length = token and # ( token . text or "" ) or 1 ,
+severity = "error" ,
+code = code ,
+msg = message ,
+help = help ,
+}
+end
+
+local function run ( parsed )
+local fs = require ( "nupp.compiler.fs" )
+local paths , selections = { } , { }
+for _ , value in ipairs ( parsed . positional ) do
+if fs . exists ( value ) then
+paths [ # paths + 1 ] = value
+else
+selections [ # selections + 1 ] = value
+end
+end
+if # paths == 0 or # selections == 0 then
+return command : usageError ( "at least one source file and one selected declaration are required" )
+end
+local output = parsed . values . output
+if not output then
+return command : usageError ( "-o FILE is required" )
+end
+
+local manifest = require ( "nupp.compiler.build.manifest" )
+local config , configErr = manifest . load ( "." )
+if not config then
+io . stderr : write ( "nupp: " .. tostring ( configErr ) .. "\n" )
+return 1
+end
+local target , targetErr = require ( "nupp.compiler.build.tasks" ) . targetConfig ( config , parsed . values . target )
+if not target then
+io . stderr : write ( "nupp: " .. tostring ( targetErr ) .. "\n" )
+return 1
+end
+config . _target = target
+local targetLayout = require ( "nupp.compiler.target_layout" )
+local layoutKey = target . layoutTarget or targetLayout . hostKey ( )
+if not layoutKey then
+io . stderr : write ( "nupp: the compiler host has no modeled C layout; configure build.layoutTarget\n" )
+return 1
+end
+
+local envMod = require ( "nupp.compiler.env" )
+local env = envMod . new ( "." , { config = config } )
+local parser = require ( "nupp.compiler.parser" )
+local checker = require ( "nupp.compiler.check" )
+local allDiagnostics , types , functions , sites = { } , { } , { } , { }
+for _ , path in ipairs ( paths ) do
+local source , readErr = fs . readFile ( path )
+if not source then
+allDiagnostics [ # allDiagnostics + 1 ] = diagnostic ( path , nil , "NUPP0001" , tostring ( readErr ) )
+else
+local result = parser . parse ( source , path )
+for _ , one in ipairs ( result . errors ) do
+allDiagnostics [ # allDiagnostics + 1 ] = one
+end
+if # result . errors == 0 then
+local moduleName = envMod . moduleNameForPath ( env , path )
+local diagnostics , _ , exports = checker . check (
+result ,
+path ,
+env ,
+{ moduleName = moduleName }
+)
+for _ , one in ipairs ( diagnostics ) do
+allDiagnostics [ # allDiagnostics + 1 ] = one
+end
+for name , t in pairs ( exports and exports . types or { } ) do
+local qualified = ( moduleName and moduleName .. "." or "" ) .. name
+types [ qualified ] , sites [ qualified ] = t , exports . typeDefs [ name ]
+end
+walk ( result . root , function ( node )
+if node . kind == "cdefFunc" and node . name and node . cAbiSignature then
+local qualified = ( moduleName and moduleName .. "." or "" ) .. node . name . text
+functions [ qualified ] , sites [ qualified ] = node . cAbiSignature , node
+end
+end )
+end
+end
+end
+
+local reportMod = require ( "nupp.compiler.cli.report" )
+local failed = false
+for _ , one in ipairs ( allDiagnostics ) do
+if reportMod . fatal ( one ) then
+failed = true
+end
+end
+local cabi = require ( "nupp.compiler.cabi" )
+local aggregateDescriptions , functionSignatures = { } , { }
+local described = { }
+local function describe ( t , selection )
+if described [ t ] then
+return true
+end
+local description , why = cabi . aggregate ( t , layoutKey )
+if not description then
+local site = sites [ selection ]
+allDiagnostics [
+# allDiagnostics + 1
+] = diagnostic (
+site and site . filename or paths [ 1 ] ,
+site and site . token or site ,
+"NUPP2203" ,
+( "cannot export %s to C: %s" ) : format ( selection , tostring ( why ) ) ,
+"select a reified struct representable by the configured layout target"
+)
+failed = true
+return false
+end
+described [ t ] = true
+for _ , dependency in ipairs ( description . dependencies or { } ) do
+if not describe ( dependency , cabi . identity ( dependency ) ) then
+return false
+end
+end
+for _ , dependency in ipairs ( description . pointerDependencies or { } ) do
+if not describe ( dependency , cabi . identity ( dependency ) ) then
+return false
+end
+end
+aggregateDescriptions [ # aggregateDescriptions + 1 ] = description
+
+return true
+end
+
+for _ , selection in ipairs ( selections ) do
+if types [ selection ] then
+describe ( types [ selection ] , selection )
+elseif functions [ selection ] then
+functionSignatures [ # functionSignatures + 1 ] = functions [ selection ]
+for _ , parameter in ipairs ( functions [ selection ] . params or { } ) do
+local t = parameter . type
+while t and ( t . tag == "ptr" or t . tag == "const" or t . tag == "carray" ) do
+t = t . elem or t . inner
+end
+if t and t . tag == "nominal" and t . declKind == "struct" and not t . cdefName then
+describe ( t , cabi . identity ( t ) )
+end
+end
+local t = functions [ selection ] . result
+while t and ( t . tag == "ptr" or t . tag == "const" or t . tag == "carray" ) do
+t = t . elem or t . inner
+end
+if t and t . tag == "nominal" and t . declKind == "struct" and not t . cdefName then
+describe ( t , cabi . identity ( t ) )
+end
+else
+allDiagnostics [
+# allDiagnostics + 1
+] = diagnostic (
+paths [ 1 ] ,
+nil ,
+"NUPP2101" ,
+"selected C export does not exist: " .. selection ,
+"select a module-qualified exported struct or cdef function from the named sources"
+)
+failed = true
+end
+end
+
+local text = nil
+if not failed then
+local rendered , why = cabi . header ( aggregateDescriptions , functionSignatures , output )
+if not rendered then
+allDiagnostics [
+# allDiagnostics + 1
+] = diagnostic ( paths [ 1 ] , nil , "NUPP2203" , "cannot export C header: " .. tostring ( why ) )
+failed = true
+else
+text = rendered
+end
+end
+if text then
+local written , writeErr = fs . writeFileIfChanged ( output , text )
+if not written then
+allDiagnostics [ # allDiagnostics + 1 ] = diagnostic ( output , nil , "NUPP0001" , tostring ( writeErr ) )
+failed = true
+end
+end
+
+if parsed . values . format == "json" then
+reportMod . write ( {
+ok = not failed ,
+output = not failed and output or nil ,
+target = layoutKey ,
+declarations = selections ,
+diagnostics = allDiagnostics ,
+} )
+else
+require ( "nupp.compiler.diagnostics" ) . report ( allDiagnostics )
+if not failed then
+io . write ( output .. "\n" )
+end
+end
+
+return failed and 1 or 0
 end
 
 return setmetatable({ spec =  command ,  run =  run }, spec.Handler)
@@ -39725,6 +41216,14 @@ cjson . encode_invalid_numbers ( false )
 
 local MAX_PROTOCOL_BYTES = 2 * 1024 * 1024
 
+
+
+local WORKER_TIMEOUT_MS = 10000
+
+local function timeoutMessage ( )
+return ( "comptime evaluation exceeded the %d ms worker timeout" ) : format ( WORKER_TIMEOUT_MS )
+end
+
 local function read ( path )
 local file , err = io . open ( path , "rb" )
 if not file then
@@ -40011,7 +41510,7 @@ local code , output = process . captureIsolated (
 { executable , "__comptime-worker" , requestPath } ,
 {
 env = { NUPP_COMPTIME_WORKER_CHILD = "1" } ,
-timeoutMs = 2000 ,
+timeoutMs = WORKER_TIMEOUT_MS ,
 memoryMb = 256 ,
 pump = host and host . pump or nil ,
 cancelled = host and host . cancelled or nil ,
@@ -40021,7 +41520,7 @@ os . remove ( requestPath )
 if code == 124 then
 return nil , {
 code = "NUPP2412" ,
-message = "comptime evaluation exceeded the 2000 ms worker timeout" ,
+message = timeoutMessage ( ) ,
 help = "make the computation smaller or move the unbounded work to run time" ,
 }
 elseif code == 125 then
@@ -40085,7 +41584,7 @@ child : close ( )
 end
 return nil , { code = "NUPP2412" , message = "cannot start comptime worker service: " .. tostring ( problem ) }
 end
-child . stdin : setTimeout ( 2000 )
+child . stdin : setTimeout ( WORKER_TIMEOUT_MS )
 child . stdout : setTimeout ( 5 )
 do
 service = child
@@ -40112,7 +41611,7 @@ code = "NUPP2412" ,
 message = "comptime worker service stopped accepting requests: " .. tostring ( writeFailure )
 }
 end
-local deadline = child . backend : now ( ) + 2000
+local deadline = child . backend : now ( ) + WORKER_TIMEOUT_MS
 while true do
 local newline = serviceBuffer : find ( "\n" , 1 , true )
 if newline then
@@ -40140,7 +41639,7 @@ if child . backend : now ( ) >= deadline then
 stopService ( true )
 return nil , {
 code = "NUPP2412" ,
-message = "comptime evaluation exceeded the 2000 ms worker timeout" ,
+message = timeoutMessage ( ) ,
 help = "make the computation smaller or move the unbounded work to run time" ,
 }
 end
@@ -41554,6 +43053,20 @@ local cst = { }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 cst.Chunk = {} cst.Chunk.__index = cst.Chunk
 
 
@@ -41713,6 +43226,20 @@ cst.NoSuspendStmt = {} cst.NoSuspendStmt.__index = cst.NoSuspendStmt
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+cst.EffectRegionStmt = {} cst.EffectRegionStmt.__index = cst.EffectRegionStmt
 
 
 
@@ -42290,6 +43817,10 @@ cst.CdefFunc = {} cst.CdefFunc.__index = cst.CdefFunc
 
 
 
+
+
+
+
 cst.CdefStruct = {} cst.CdefStruct.__index = cst.CdefStruct
 
 
@@ -42340,6 +43871,9 @@ cst.Generics = {} cst.Generics.__index = cst.Generics
 
 
 cst.Param = {} cst.Param.__index = cst.Param
+
+
+
 
 
 
@@ -43176,6 +44710,8 @@ cst.TfuncParam = {} cst.TfuncParam.__index = cst.TfuncParam
 
 
 
+
+
 cst.Topt = {} cst.Topt.__index = cst.Topt
 
 
@@ -43303,6 +44839,7 @@ cst.Tborrows = {} cst.Tborrows.__index = cst.Tborrows
 
 
 cst.Tpreserves = {} cst.Tpreserves.__index = cst.Tpreserves
+
 
 
 
@@ -43618,8 +45155,8 @@ function cst . textOf ( x )
 local parts = { }
 local function walk ( y )
 if isToken ( y ) then
-for _ , tr in ipairs ( y . trivia ) do
-parts [ # parts + 1 ] = tr . text
+for index = 1 , y . triviaCount do
+parts [ # parts + 1 ] = lexer . triviaText ( y , index )
 end
 parts [ # parts + 1 ] = y . text
 else
@@ -43632,6 +45169,22 @@ end
 walk ( x )
 
 return table . concat ( parts )
+end
+
+
+
+function cst . lastName ( x )
+local found = nil
+if not x or cst . isToken ( x ) then
+return x and x . kind == "name" and x . text or nil
+end
+for _ , child in ipairs ( x ) do
+if cst . isToken ( child ) and child . kind == "name" then
+found = child . text
+end
+end
+
+return found
 end
 
 
@@ -46028,6 +47581,7 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 local cst = require ( "nupp.compiler.cst" )
+local lexer = require ( "nupp.compiler.lexer" )
 local parser = require ( "nupp.compiler.parser" )
 local docblock = require ( "nupp.compiler.docblock" )
 local formatter = require ( "nupp.compiler.fmt" )
@@ -46262,11 +47816,12 @@ local function walk ( child )
 if cst . isToken ( child ) then
 local triviaParts = { }
 local removedDocumentation = false
-for _ , trivia in ipairs ( leading and { } or child . trivia ) do
-if trivia . kind == "comment" and trivia . text : match ( "^%-%-%-" ) then
+for index = 1 , leading and 0 or child . triviaCount do
+local text = lexer . triviaText ( child , index )
+if lexer . triviaKind ( child , index ) == "comment" and text : match ( "^%-%-%-" ) then
 removedDocumentation = true
 else
-triviaParts [ # triviaParts + 1 ] = trivia . text
+triviaParts [ # triviaParts + 1 ] = text
 end
 end
 local triviaText = table . concat ( triviaParts )
@@ -47080,12 +48635,12 @@ end
 
 local function headerDoc ( root )
 local token = firstToken ( root )
-for _ , trivia in ipairs ( token and token . trivia or { } ) do
-if trivia . kind ~= "comment" then
+for index = 1 , token and token . triviaCount or 0 do
+local text = lexer . triviaText ( token , index )
+if lexer . triviaKind ( token , index ) ~= "comment" then
 
-elseif trivia . text : match ( "^%-%-%[=*%[" ) then
-local text = trivia . text : gsub ( "^%-%-%[=*%[" , "" ) : gsub ( "%]=*%]$" , "" )
-return trim ( text )
+elseif text : match ( "^%-%-%[=*%[" ) then
+return trim ( ( text : gsub ( "^%-%-%[=*%[" , "" ) : gsub ( "%]=*%]$" , "" ) ) )
 else
 return nil
 end
@@ -47694,11 +49249,13 @@ local tokens = parsed . tokens
 local syntaxKinds = semantic . syntaxKinds ( parsed )
 local memberUrls = containerMemberUrls ( parsed , memberLinks )
 for index , token in ipairs ( tokens ) do
-for _ , trivia in ipairs ( token . trivia ) do
-if trivia . kind == "comment" or trivia . kind == "hashbang" then
-out . append ( trivia . text , "token comment nuppdoc-token-comment" )
+for index = 1 , token . triviaCount do
+local kind = lexer . triviaKind ( token , index )
+local text = lexer . triviaText ( token , index )
+if kind == "comment" or kind == "hashbang" then
+out . append ( text , "token comment nuppdoc-token-comment" )
 else
-out . append ( trivia . text )
+out . append ( text )
 end
 end
 if token . kind ~= "eof" then
@@ -49996,6 +51553,7 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 local cst = require ( "nupp.compiler.cst" )
+local lexer = require ( "nupp.compiler.lexer" )
 
 local docblock = { }
 
@@ -50058,13 +51616,15 @@ function docblock . linesOf ( node )
 local token = firstToken ( node )
 local lines = { }
 local pending = { }
-for _ , trivia in ipairs ( token and token . trivia or { } ) do
-if trivia . kind == "comment" and trivia . text : match ( "^%-%-%-" ) then
-pending [ # pending + 1 ] = trivia . text : gsub ( "^%-%-%- ?" , "" , 1 ) : gsub ( "\r$" , "" )
-elseif trivia . kind == "comment" then
+for index = 1 , token and token . triviaCount or 0 do
+local kind = lexer . triviaKind ( token , index )
+local text = lexer . triviaText ( token , index )
+if kind == "comment" and text : match ( "^%-%-%-" ) then
+pending [ # pending + 1 ] = text : gsub ( "^%-%-%- ?" , "" , 1 ) : gsub ( "\r$" , "" )
+elseif kind == "comment" then
 pending = { }
-elseif trivia . kind == "whitespace" then
-local _ , newlines = trivia . text : gsub ( "\n" , "" )
+elseif kind == "whitespace" then
+local _ , newlines = text : gsub ( "\n" , "" )
 if newlines > 1 then
 pending = { }
 end
@@ -50210,6 +51770,7 @@ local parser = require ( "nupp.compiler.parser" )
 local check = require ( "nupp.compiler.check" )
 local diagnostics = require ( "nupp.compiler.diagnostics" )
 local cst = require ( "nupp.compiler.cst" )
+local lexer = require ( "nupp.compiler.lexer" )
 local T = require ( "nupp.compiler.types" )
 local annotationMod = require ( "nupp.compiler.annotations" )
 local native = require ( "nupp.compiler.native" )
@@ -50217,6 +51778,21 @@ local fs = require ( "nupp.compiler.fs" )
 local bundledMod = require ( "nupp.compiler.bundled" )
 
 local envMod = { }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -50863,9 +52439,12 @@ end
 
 
 local function declarationToken ( tok )
+
+
+
 local trivia = { }
-for index , item in ipairs ( tok . trivia or { } ) do
-trivia [ index ] = { kind = item . kind , text = item . text , offset = item . offset , line = item . line , col = item . col }
+for index = 1 , tok and tok . triviaCount or 0 do
+trivia [ index ] = lexer . triviaRecord ( tok , index )
 end
 
 return { kind = tok . kind , text = tok . text , offset = tok . offset , line = tok . line , col = tok . col , trivia = trivia }
@@ -51314,6 +52893,31 @@ local record = loadModule ( env , name )
 return record and record . exports or nil
 end
 
+function envMod . resolveCallGuarantees ( env , module , member )
+local exports = envMod . resolveModuleExports ( env , module )
+return exports and exports . callGuarantees and exports . callGuarantees [ member ] or nil
+end
+
+function envMod . observeCallGuarantee (
+env ,
+module ,
+member ,
+identity ,
+guarantee
+)
+local entry = envMod . resolveCallGuarantees ( env , module , member )
+if not entry then
+return false
+end
+if guarantee == "noAllocate" then
+return entry . noAllocate == true
+elseif guarantee == "noRaise" then
+return entry . noRaise == true
+end
+
+return false
+end
+
 
 
 
@@ -51535,7 +53139,7 @@ end
 function envMod . new ( rootDir , opts )
 rootDir = rootDir or "."
 local env = { globals = { } , globalTypes = { } , globalTypeDefs = { } , annotations = annotationMod . new ( ) , loaded = { } , loadedPaths = { } , bundled = { } ,
-resolveModule = envMod . resolveModule , resolveModuleExports = envMod . resolveModuleExports , resolveProjectType = envMod . resolveProjectType , resolveProjectValue = envMod . resolveProjectValue , resolveProjectAnnotation = envMod . resolveProjectAnnotation , resolveQualifiedType = envMod . resolveQualifiedType , exportedNominal = envMod . exportedNominal , modulesNamed = envMod . modulesNamed , modulesExporting = envMod . modulesExporting , declarationType = envMod . declarationType , moduleNameForPath = envMod . moduleNameForPath , ensureProjectIndex = envMod . ensureProjectIndex , openTypeFunctionStore = envMod . typeFunctionStore , rootDir = rootDir ,
+resolveModule = envMod . resolveModule , resolveModuleExports = envMod . resolveModuleExports , observeCallGuarantee = envMod . observeCallGuarantee , resolveCallGuarantees = envMod . resolveCallGuarantees , resolveProjectType = envMod . resolveProjectType , resolveProjectValue = envMod . resolveProjectValue , resolveProjectAnnotation = envMod . resolveProjectAnnotation , resolveQualifiedType = envMod . resolveQualifiedType , exportedNominal = envMod . exportedNominal , modulesNamed = envMod . modulesNamed , modulesExporting = envMod . modulesExporting , declarationType = envMod . declarationType , moduleNameForPath = envMod . moduleNameForPath , ensureProjectIndex = envMod . ensureProjectIndex , openTypeFunctionStore = envMod . typeFunctionStore , rootDir = rootDir ,
 
 
 
@@ -52454,10 +54058,18 @@ docs = "docs/derives.md#json" ,
 } , {
 code = "NUPP2807" ,
 summary = "A derive dependency cycle has no valid lowering" ,
-rule = "Recursive Debug and JSON graphs are supported. A package provider " .. "dependency cycle must still reduce to a closed recipe rather than require " .. "another unfinished provider result." ,
+rule = "Recursive Debug and JSON graphs are supported. A package provider "
+.. "dependency cycle must still reduce to a closed recipe rather than require "
+.. "another unfinished provider result." ,
 related = { "NUPP2803" , "NUPP2806" , "NUPP2810" } ,
 docs = "docs/derives.md" ,
-} , { code = "NUPP2808" , summary = "A derive exceeds a compiler generation limit" , rule = "Generated recipes, expressions, locals, upvalues, and emitted output are " .. "bounded compiler resources. Reduce the derived declaration or split the " .. "schema rather than depending on an unbounded generated function." , related = { "NUPP2807" } , docs = "docs/derives.md" , } , { code = "NUPP2809" , summary = "A comptime derive provider declaration or reference is invalid" , rule = "A public derive provider is an exported, nongeneric @comptime function " .. "with the exact shape function(nupp.derive.Info): nupp.derive.Result<I>, where " .. "I is one existing interface. @derive must name that resolved export." , related = { "NUPP2411" , "NUPP2801" } , docs = "docs/derives.md#comptime-providers" , } , { code = "NUPP2810" , summary = "A comptime derive provider failed or returned an invalid blueprint" , rule = "Providers execute in the bounded comptime worker and must return only " .. "nupp.derive.implement or nupp.derive.error. Closed builders reject foreign, " .. "cyclic, malformed, stale, and over-limit recipe graphs." , related = { "NUPP2412" , "NUPP2808" } , docs = "docs/derives.md#comptime-providers" , } , { code = "NUPP2811" , summary = "A derive recipe declares an invalid generated member" , rule = "A bare forward fills a bodyless callable requirement of Result<I>. A member " .. "recipe may instead provide a bounded function signature. Neither form may " .. "replace written members or interface defaults." , related = { "NUPP2118" , "NUPP2802" } , docs = "docs/derives.md#closed-forwarding-recipes" , } , { code = "NUPP2812" , summary = "A forwarding argument does not exist on the generated method" , rule = "A forwarding recipe may pass its receiver, a named method parameter, a " .. "readable stored field, a bounded frozen constant, or a fresh array of those. " .. "Every name is resolved against the written owner and interface requirement." , related = { "NUPP2004" , "NUPP2811" } , docs = "docs/derives.md#closed-forwarding-recipes" , } , { code = "NUPP2813" , summary = "A runtime forwarding helper does not satisfy the generated call" , rule = "The helper must be an ordinary exported Nupp function. Forwarded argument " .. "types must fit its parameters, its result pack must satisfy the interface " .. "requirement, and it may not suspend where the requirement cannot." , related = { "NUPP2001" , "NUPP2701" , "NUPP2812" } , docs = "docs/derives.md#runtime-helpers" , } , { code = "NUPP2701" , summary = "A non-suspending region can reach suspension" , rule = "A `nosuspend` region and every cleanup contract must finish without " .. "parking the current coroutine. Remove the yielding call, move it before " .. "the protected region, or call an operation whose type or visible body " .. "proves that it cannot suspend." , wrong = "local function wait(): nil\n    coroutine.yield()\nend\n\n" .. "nosuspend do\n    wait()\nend\n" , right = "local function finish(): nil\nend\n\n" .. "nosuspend do\n    finish()\nend\n" , related = { "NUPP2602" , "NUPP2603" } , docs = "docs/reference.md#suspension-regions" , } , { code = "NUPP2702" , summary = "A non-yieldable C callback can reach suspension" , rule = "LuaJIT cannot yield through every C frame. Make the callback and every " .. "call it reaches non-suspending, or invoke it from a yieldable Lua boundary." , wrong = "table.sort({2, 1}, function(a, b): boolean\n" .. "    coroutine.yield()\n    return a < b\nend)\n" , right = "table.sort({2, 1}, function(a, b): boolean\n" .. "    return a < b\nend)\n" , related = { "NUPP2701" } , docs = "docs/reference.md#suspension-regions" , } , { code = "NUPP2706" , summary = "Control cannot jump into a handled suspension region" , rule = "Entering a `handle suspension` body from outside would bypass handler " .. "installation and its cleanup obligation. Move the label outside the region " .. "or move the jump inside it. Structured exits from the region are allowed." , wrong = "goto inside\nhandle suspension with handler do\n" .. "    ::inside::\nend\n" , right = "handle suspension with handler do\nend\n::outside::\n" , related = { "NUPP2701" , "NUPP2702" } , docs = "docs/reference.md#suspension-regions" , } , { code = "NUPP2206" , summary = "Only a record or a struct can be constructed" , rule = "`new` names a type and builds a value of it, so the operand " .. "has to be a declaration with something to build. An interface " .. "declares a contract and has no runtime table to stamp; an enum " .. "value is one of its declared strings, written directly. The " .. "operand is answered as a type rather than through whatever " .. "value stands under the name, because an interface binds none." , wrong = "local interface Named\n    name: string\nend\n\n" .. "local n = new Named(name = \"ada\")\n\nreturn n\n" , right = "local interface Named\n    name: string\nend\n\n" .. "local record User is Named\n    name: string\nend\n\n" .. "local n = new User(name = \"ada\")\n\nreturn n\n" , related = { "NUPP2202" } , docs = "docs/reference.md#records" , } , { code = "NUPP2207" , summary = "A binding is read before it holds a value" , rule = "`local v: Vec2` used to construct one where it was declared, " .. "which was a construction the source did not say. It no longer " .. "does, so the binding holds nil until something assigns to it, " .. "and reading it before that indexes nil at run time rather than " .. "yielding a value of the declared type. Assign it first, or " .. "declare it optional if it is meant to start empty. A " .. "declaration file states what exists elsewhere and assigns " .. "nothing, so it is exempt." , wrong = "local record Point\n    x: integer\nend\n\n" .. "local p: Point\n\nreturn p.x\n" , right = "local record Point\n    x: integer\nend\n\n" .. "local p: Point = new Point(x = 0)\n\nreturn p.x\n" , related = { "NUPP2202" , "NUPP2206" } , docs = "docs/reference.md#records" , } , { code = "NUPP2512" , summary = "A record is built by field order rather than by naming its fields" , rule = "A record without a declared constructor may be built either way, " .. "and both build the same table. Naming the fields says at the call " .. "site which value lands where; leaving it to the order says it in " .. "the declaration, so a reader has to go there, and adding a field " .. "silently changes what an existing call means. A struct is exempt: " .. "it is its C layout, and that order is the layout's rather than the " .. "program's to name. Turn it off by name or by its `style` category, " .. "or write `@allow(\"positional-record-construction\")`." , wrong = "local record Point\n    x: integer\n    y: integer\nend\n\n" .. "local p = new Point(1, 2)\n\nreturn p\n" , right = "local record Point\n    x: integer\n    y: integer\nend\n\n" .. "local p = new Point(x = 1, y = 2)\n\nreturn p\n" , related = { "NUPP2202" , "NUPP2208" } , docs = "docs/lints.md" , } , { code = "NUPP2513" , summary = "An API marked deprecated is used" , rule = "`@deprecated` keeps an API available while telling callers to move " .. "away from it. The optional reason explains why and the replacement names " .. "what to use instead. The annotation changes tooling only: it reports this " .. "suppressible lint at use sites and emits no runtime behavior." , wrong = "local function current(): integer return 1 end\n\n" .. "@deprecated(replacement = \"current\")\n" .. "local function legacy(): integer return current() end\n\nreturn legacy()\n" , right = "local function current(): integer return 1 end\n\n" .. "@deprecated(replacement = \"current\")\n" .. "local function legacy(): integer return current() end\n\nreturn current()\n" , related = { "NUPP2115" } , docs = "docs/lints.md" , } , { code = "NUPP2208" , summary = "A constructor does not hold up its declaration" , rule = "A `constructor(self, ...)` body is what `new T(...)` runs. The " .. "instance is made before it and returned after it, so its whole " .. "job is to fill the fields in — and every field that cannot hold " .. "nil has to be filled, or the value handed back does not match " .. "the declaration it claims. That guarantee is the reason to " .. "prefer a constructor over a literal, so declaring one closes " .. "the literal form for that declaration. An interface builds " .. "nothing and cannot carry one, and there is one constructor per " .. "declaration until overloads arrive with intersection types." , wrong = "local record Account\n    name: string\n    balance: number\n" .. "\n    constructor(self, name: string)\n        self.name = name\n" .. "    end\nend\n\nreturn Account\n" , right = "local record Account\n    name: string\n    balance: number\n" .. "\n    constructor(self, name: string)\n        self.name = name\n" .. "        self.balance = 0\n    end\nend\n\nreturn Account\n" , related = { "NUPP2202" , "NUPP2207" } , docs = "docs/reference.md#records" , } , { code = "NUPP3005" , summary = "Generated code that a Lua VM will not load" , rule = "The generator writes Lua and this is that Lua refusing to parse. Almost always it is one limit: a function may capture at most sixty names from around it, and one that reaches past that cannot be loaded at all. A function reading that many things from its scope is usually reading a record it could take as one argument instead — pass what varies, or gather what it reads into one value and capture that.\n\nAny other spelling of this is a bug in the compiler rather than in the program, and `nupp bc FILE` shows the code it wrote. It is reported where the file is built rather than where the module is first required, because the line a VM would name belongs to generated text and the line here is the one that was written." , related = { "NUPP3004" } , docs = "docs/diagnostics.md#code-families" , } , { code = "NUPP3001" , summary = "`is` has nothing to test against this type" , rule = "A record is identified by the metatable it stamps and a struct " .. "by its ctype, so both answer `is` exactly. An interface has " .. "neither, by design — it is conformance rather than provenance — " .. "so something has to stand in for one.\n\n" .. "Three things can. A literal-typed field is a tag, and the test " .. "is read off it with nothing written. A `satisfies` declaration " .. "says the test outright, for a shape no tag describes. And a subject " .. "whose own type declares the interface needs no test at all: the " .. "declaration already answered, so the `is` compiles to `true`. " .. "An alias has none of these and never will." , wrong = "local interface Drawable\n    width: number\nend\n\n" .. "local record Sprite is Drawable\n    width: number\nend\n\n" .. "local unknown: any = new Sprite(width = 1)\n\n" .. "return unknown is Drawable\n" , right = "local interface Drawable\n    kind: \"drawable\"\n" .. "    width: number\nend\n\n" .. "local record Sprite is Drawable\n    kind: \"drawable\"\n" .. "    width: number\nend\n\n" .. "local unknown: any = new Sprite(kind = \"drawable\", width = 1)\n\n" .. "return unknown is Drawable\n" , related = { "NUPP2122" } , docs = "docs/type-system/interfaces.md" , } , }
+} , {
+code = "NUPP2808" ,
+summary = "A derive exceeds a compiler generation limit" ,
+rule = "Generated recipes, expressions, locals, upvalues, and emitted output are " .. "bounded compiler resources. Reduce the derived declaration or split the " .. "schema rather than depending on an unbounded generated function." ,
+related = { "NUPP2807" } ,
+docs = "docs/derives.md" ,
+} , { code = "NUPP2809" , summary = "A comptime derive provider declaration or reference is invalid" , rule = "A public derive provider is an exported, nongeneric @comptime function " .. "with the exact shape function(nupp.derive.Info): nupp.derive.Result<I>, where " .. "I is one existing interface. @derive must name that resolved export." , related = { "NUPP2411" , "NUPP2801" } , docs = "docs/derives.md#comptime-providers" , } , { code = "NUPP2810" , summary = "A comptime derive provider failed or returned an invalid blueprint" , rule = "Providers execute in the bounded comptime worker and must return only " .. "nupp.derive.implement or nupp.derive.error. Closed builders reject foreign, " .. "cyclic, malformed, stale, and over-limit recipe graphs." , related = { "NUPP2412" , "NUPP2808" } , docs = "docs/derives.md#comptime-providers" , } , { code = "NUPP2811" , summary = "A derive recipe declares an invalid generated member" , rule = "A bare forward fills a bodyless callable requirement of Result<I>. A member " .. "recipe may instead provide a bounded function signature. Neither form may " .. "replace written members or interface defaults." , related = { "NUPP2118" , "NUPP2802" } , docs = "docs/derives.md#closed-forwarding-recipes" , } , { code = "NUPP2812" , summary = "A forwarding argument does not exist on the generated method" , rule = "A forwarding recipe may pass its receiver, a named method parameter, a " .. "readable stored field, a bounded frozen constant, or a fresh array of those. " .. "Every name is resolved against the written owner and interface requirement." , related = { "NUPP2004" , "NUPP2811" } , docs = "docs/derives.md#closed-forwarding-recipes" , } , { code = "NUPP2813" , summary = "A runtime forwarding helper does not satisfy the generated call" , rule = "The helper must be an ordinary exported Nupp function. Forwarded argument " .. "types must fit its parameters, its result pack must satisfy the interface " .. "requirement, and it may not suspend where the requirement cannot." , related = { "NUPP2001" , "NUPP2701" , "NUPP2812" } , docs = "docs/derives.md#runtime-helpers" , } , { code = "NUPP2701" , summary = "A non-suspending region can reach suspension" , rule = "A `nosuspend` region and every cleanup contract must finish without " .. "parking the current coroutine. Remove the yielding call, move it before " .. "the protected region, or call an operation whose type or visible body " .. "proves that it cannot suspend." , wrong = "local function wait(): nil\n    coroutine.yield()\nend\n\n" .. "nosuspend do\n    wait()\nend\n" , right = "local function finish(): nil\nend\n\n" .. "nosuspend do\n    finish()\nend\n" , related = { "NUPP2602" , "NUPP2603" } , docs = "docs/reference.md#suspension-regions" , } , { code = "NUPP2702" , summary = "A non-yieldable C callback can reach suspension" , rule = "LuaJIT cannot yield through every C frame. Make the callback and every " .. "call it reaches non-suspending, or invoke it from a yieldable Lua boundary." , wrong = "table.sort({2, 1}, function(a, b): boolean\n" .. "    coroutine.yield()\n    return a < b\nend)\n" , right = "table.sort({2, 1}, function(a, b): boolean\n" .. "    return a < b\nend)\n" , related = { "NUPP2701" } , docs = "docs/reference.md#suspension-regions" , } , { code = "NUPP2706" , summary = "Control cannot jump into a handled suspension region" , rule = "Entering a `handle suspension` body from outside would bypass handler " .. "installation and its cleanup obligation. Move the label outside the region " .. "or move the jump inside it. Structured exits from the region are allowed." , wrong = "goto inside\nhandle suspension with handler do\n" .. "    ::inside::\nend\n" , right = "handle suspension with handler do\nend\n::outside::\n" , related = { "NUPP2701" , "NUPP2702" } , docs = "docs/reference.md#suspension-regions" , } , { code = "NUPP2206" , summary = "Only a record or a struct can be constructed" , rule = "`new` names a type and builds a value of it, so the operand " .. "has to be a declaration with something to build. An interface " .. "declares a contract and has no runtime table to stamp; an enum " .. "value is one of its declared strings, written directly. The " .. "operand is answered as a type rather than through whatever " .. "value stands under the name, because an interface binds none." , wrong = "local interface Named\n    name: string\nend\n\n" .. "local n = new Named(name = \"ada\")\n\nreturn n\n" , right = "local interface Named\n    name: string\nend\n\n" .. "local record User is Named\n    name: string\nend\n\n" .. "local n = new User(name = \"ada\")\n\nreturn n\n" , related = { "NUPP2202" } , docs = "docs/reference.md#records" , } , { code = "NUPP2207" , summary = "A binding is read before it holds a value" , rule = "`local v: Vec2` used to construct one where it was declared, " .. "which was a construction the source did not say. It no longer " .. "does, so the binding holds nil until something assigns to it, " .. "and reading it before that indexes nil at run time rather than " .. "yielding a value of the declared type. Assign it first, or " .. "declare it optional if it is meant to start empty. A " .. "declaration file states what exists elsewhere and assigns " .. "nothing, so it is exempt." , wrong = "local record Point\n    x: integer\nend\n\n" .. "local p: Point\n\nreturn p.x\n" , right = "local record Point\n    x: integer\nend\n\n" .. "local p: Point = new Point(x = 0)\n\nreturn p.x\n" , related = { "NUPP2202" , "NUPP2206" } , docs = "docs/reference.md#records" , } , { code = "NUPP2512" , summary = "A record is built by field order rather than by naming its fields" , rule = "A record without a declared constructor may be built either way, " .. "and both build the same table. Naming the fields says at the call " .. "site which value lands where; leaving it to the order says it in " .. "the declaration, so a reader has to go there, and adding a field " .. "silently changes what an existing call means. A struct is exempt: " .. "it is its C layout, and that order is the layout's rather than the " .. "program's to name. Turn it off by name or by its `style` category, " .. "or write `@allow(\"positional-record-construction\")`." , wrong = "local record Point\n    x: integer\n    y: integer\nend\n\n" .. "local p = new Point(1, 2)\n\nreturn p\n" , right = "local record Point\n    x: integer\n    y: integer\nend\n\n" .. "local p = new Point(x = 1, y = 2)\n\nreturn p\n" , related = { "NUPP2202" , "NUPP2208" } , docs = "docs/lints.md" , } , { code = "NUPP2513" , summary = "An API marked deprecated is used" , rule = "`@deprecated` keeps an API available while telling callers to move " .. "away from it. The optional reason explains why and the replacement names " .. "what to use instead. The annotation changes tooling only: it reports this " .. "suppressible lint at use sites and emits no runtime behavior." , wrong = "local function current(): integer return 1 end\n\n" .. "@deprecated(replacement = \"current\")\n" .. "local function legacy(): integer return current() end\n\nreturn legacy()\n" , right = "local function current(): integer return 1 end\n\n" .. "@deprecated(replacement = \"current\")\n" .. "local function legacy(): integer return current() end\n\nreturn current()\n" , related = { "NUPP2115" } , docs = "docs/lints.md" , } , { code = "NUPP2208" , summary = "A constructor does not hold up its declaration" , rule = "A `constructor(self, ...)` body is what `new T(...)` runs. The " .. "instance is made before it and returned after it, so its whole " .. "job is to fill the fields in — and every field that cannot hold " .. "nil has to be filled, or the value handed back does not match " .. "the declaration it claims. That guarantee is the reason to " .. "prefer a constructor over a literal, so declaring one closes " .. "the literal form for that declaration. An interface builds " .. "nothing and cannot carry one, and there is one constructor per " .. "declaration until overloads arrive with intersection types." , wrong = "local record Account\n    name: string\n    balance: number\n" .. "\n    constructor(self, name: string)\n        self.name = name\n" .. "    end\nend\n\nreturn Account\n" , right = "local record Account\n    name: string\n    balance: number\n" .. "\n    constructor(self, name: string)\n        self.name = name\n" .. "        self.balance = 0\n    end\nend\n\nreturn Account\n" , related = { "NUPP2202" , "NUPP2207" } , docs = "docs/reference.md#records" , } , { code = "NUPP3005" , summary = "Generated code that a Lua VM will not load" , rule = "The generator writes Lua and this is that Lua refusing to parse. Almost always it is one limit: a function may capture at most sixty names from around it, and one that reaches past that cannot be loaded at all. A function reading that many things from its scope is usually reading a record it could take as one argument instead — pass what varies, or gather what it reads into one value and capture that.\n\nAny other spelling of this is a bug in the compiler rather than in the program, and `nupp bc FILE` shows the code it wrote. It is reported where the file is built rather than where the module is first required, because the line a VM would name belongs to generated text and the line here is the one that was written." , related = { "NUPP3004" } , docs = "docs/diagnostics.md#code-families" , } , { code = "NUPP3001" , summary = "`is` has nothing to test against this type" , rule = "A record is identified by the metatable it stamps and a struct " .. "by its ctype, so both answer `is` exactly. An interface has " .. "neither, by design — it is conformance rather than provenance — " .. "so something has to stand in for one.\n\n" .. "Three things can. A literal-typed field is a tag, and the test " .. "is read off it with nothing written. A `satisfies` declaration " .. "says the test outright, for a shape no tag describes. And a subject " .. "whose own type declares the interface needs no test at all: the " .. "declaration already answered, so the `is` compiles to `true`. " .. "An alias has none of these and never will." , wrong = "local interface Drawable\n    width: number\nend\n\n" .. "local record Sprite is Drawable\n    width: number\nend\n\n" .. "local unknown: any = new Sprite(width = 1)\n\n" .. "return unknown is Drawable\n" , right = "local interface Drawable\n    kind: \"drawable\"\n" .. "    width: number\nend\n\n" .. "local record Sprite is Drawable\n    kind: \"drawable\"\n" .. "    width: number\nend\n\n" .. "local unknown: any = new Sprite(kind = \"drawable\", width = 1)\n\n" .. "return unknown is Drawable\n" , related = { "NUPP2122" } , docs = "docs/type-system/interfaces.md" , } , }
 
 ENTRIES [
 # ENTRIES + 1
@@ -52471,6 +54083,36 @@ wrong = "cdef function printf(format: cstring, ...): int32\n\n@jit\nlocal functi
 right = "cdef function printf(format: cstring, ...): int32\n\nlocal function cold(): nil\n    printf('%d', 1)\nend\n\njit.off(cold)\n" ,
 related = { "NUPP2502" , "NUPP2514" } ,
 docs = "docs/c-interop.md" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2710" ,
+summary = "A non-allocating region can reach allocation" ,
+rule = "A `noalloc` region may only call operations whose visible bodies or "
+.. "exact exported guarantees prove they perform no managed allocation. Remove "
+.. "the construction, move it outside the region, or give an unseen declaration "
+.. "a truthful trusted @effects contract." ,
+wrong = "local function build(): nil\n    local values = {}\nend\n\nnoalloc do\n    build()\nend\n" ,
+right = "local function update(): nil\n    local n = 1\nend\n\nnoalloc do\n    update()\nend\n" ,
+related = { "NUPP2112" , "NUPP2711" } ,
+docs = "docs/reference.md#allocation-and-raising-regions" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2711" ,
+summary = "A non-raising region can reach an error path" ,
+rule = "A `noraise` region may only call operations whose visible bodies or "
+.. "exact exported guarantees prove they cannot raise a catchable language "
+.. "error. Validate the precondition first, remove the error path, or move the "
+.. "operation outside the region." ,
+wrong = "local function fail(): nil\n    error('failed')\nend\n\nnoraise do\n    fail()\nend\n" ,
+right = "local function finish(): nil\nend\n\nnoraise do\n    finish()\nend\n" ,
+related = { "NUPP2112" , "NUPP2710" } ,
+docs = "docs/reference.md#allocation-and-raising-regions" ,
 }
 
 local byCode = { }
@@ -53254,7 +54896,8 @@ items [ # items + 1 ] = item
 end
 
 for _ , tok in ipairs ( tokens ) do
-for _ , tr in ipairs ( tok . trivia ) do
+for triviaIndex = 1 , tok . triviaCount do
+local tr = lexer . triviaRecord ( tok , triviaIndex )
 if tr . kind == "whitespace" then
 local _ , n = tr . text : gsub ( "\n" , "" )
 pending = pending + n
@@ -53831,8 +55474,8 @@ end
 end
 
 local function triviaIsWhitespace ( tok )
-for _ , trivia in ipairs ( tok and tok . trivia or { } ) do
-if trivia . kind ~= "whitespace" then
+for index = 1 , tok and tok . triviaCount or 0 do
+if lexer . triviaKind ( tok , index ) ~= "whitespace" then
 return false
 end
 end
@@ -53890,7 +55533,9 @@ text = "(" ,
 offset = first . offset ,
 line = first . line ,
 col = first . col ,
-trivia = first . trivia
+trivia = first . trivia ,
+triviaFirst = first . triviaFirst ,
+triviaCount = first . triviaCount
 }
 local close = {
 kind = ")" ,
@@ -53898,9 +55543,11 @@ text = ")" ,
 offset = last . offset ,
 line = last . line ,
 col = last . col ,
-trivia = { }
+trivia = last . trivia ,
+triviaFirst = 1 ,
+triviaCount = 0
 }
-first . trivia = { }
+first . triviaCount = 0
 args [ 1 ] , args [ 2 ] , args [ 3 ] = open , sugar , close
 before [ first ] , after [ last ] = open , close
 end
@@ -54829,6 +56476,7 @@ continueStmt = true ,
 gotoStmt = true ,
 unsafeStmt = true ,
 noSuspendStmt = true ,
+effectRegionStmt = true ,
 }
 
 
@@ -54894,7 +56542,7 @@ if not rendered then
 return nil
 end
 params [ # params + 1 ] = rendered
-elseif param [ 1 ] and cst . isToken ( param [ 1 ] ) and param [ 1 ] . kind == "..." then
+elseif param . vararg or param [ 1 ] and cst . isToken ( param [ 1 ] ) and param [ 1 ] . kind == "..." then
 params [ # params + 1 ] = "..."
 end
 end
@@ -55222,8 +56870,9 @@ end
 if t . kind == "tptr" then
 t = t . inner
 end
-if t and t . kind == "tname" and t . base and indexOf [ t . base . text ] then
-return t . base . text
+local leaf = t and t . kind == "tname" and cst . lastName ( t ) or nil
+if leaf and indexOf [ leaf ] then
+return leaf
 end
 
 return nil
@@ -55238,10 +56887,11 @@ local t = entry . type
 if t . kind == "topt" then
 t = t . inner
 end
-if t . kind == "tptr" and t . inner and t . inner . kind == "tname" and t . inner . base then
-local targetAt = indexOf [ t . inner . base . text ]
+if t . kind == "tptr" and t . inner and t . inner . kind == "tname" then
+local target = cst . lastName ( t . inner )
+local targetAt = target and indexOf [ target ] or nil
 if targetAt and targetAt >= at then
-tagFor ( t . inner . base . text )
+tagFor ( target )
 end
 end
 end
@@ -55568,9 +57218,7 @@ structural = structural . stat
 end
 if planned then
 hotState . structure [ # hotState . structure + 1 ] = "function\0" .. planned . id
-elseif structural
-and ( structural . kind == "cdefFunc" or structural . kind == "cdefStruct" )
-then
+elseif structural and ( structural . kind == "cdefFunc" or structural . kind == "cdefStruct" ) then
 
 
 
@@ -57161,16 +58809,21 @@ if entry . kind == "fieldDecl" then
 local fname = entry . name . text
 local t = entry . type
 
+
+
+
+local width = entry . bitWidth and ( " : " .. entry . bitWidth . text ) or ""
+
 if t . kind == "topt" then
 t = t . inner
 end
 if t . kind == "tname" and C_PRIM [ t . base . text ] then
-cdecl [ # cdecl + 1 ] = C_PRIM [ t . base . text ] .. " " .. fname .. ";"
-elseif t . kind == "tname" and structTag [ t . base . text ] then
-cdecl [ # cdecl + 1 ] = "struct " .. structTag [ t . base . text ] .. " " .. fname .. ";"
+cdecl [ # cdecl + 1 ] = C_PRIM [ t . base . text ] .. " " .. fname .. width .. ";"
+elseif t . kind == "tname" and structTag [ cst . lastName ( t ) or "" ] then
+cdecl [ # cdecl + 1 ] = "struct " .. structTag [ cst . lastName ( t ) ] .. " " .. fname .. ";"
 elseif t . kind == "tname" then
 cdecl [ # cdecl + 1 ] = "$ " .. fname .. ";"
-params [ # params + 1 ] = t . base . text
+params [ # params + 1 ] = ( t . reified or cst . textOf ( t ) )
 elseif t . kind == "tcarray" and t . count then
 
 
@@ -57179,15 +58832,15 @@ local element = t . element
 local spelling = element and element . kind == "tname" and C_PRIM [ element . base . text ] or nil
 if spelling then
 cdecl [ # cdecl + 1 ] = spelling .. " " .. fname .. "[" .. cst . textOf ( t . count ) .. "];"
-elseif element and element . kind == "tname" and structTag [ element . base . text ] then
+elseif element and element . kind == "tname" and structTag [ cst . lastName ( element ) or "" ] then
 cdecl [
 # cdecl + 1
 ] = "struct " .. structTag [
-element . base . text
+cst . lastName ( element )
 ] .. " " .. fname .. "[" .. cst . textOf ( t . count ) .. "];"
 elseif element and element . kind == "tname" then
 cdecl [ # cdecl + 1 ] = "$ " .. fname .. "[" .. cst . textOf ( t . count ) .. "];"
-params [ # params + 1 ] = element . base . text
+params [ # params + 1 ] = ( element . reified or cst . textOf ( element ) )
 else
 diag ( entry . name , "NUPP3002" , "cannot reify this array element type" )
 end
@@ -57195,13 +58848,15 @@ elseif t . kind == "tptr" then
 local inner = t . inner
 if inner . kind == "tname" and C_PRIM [ inner . base . text ] then
 cdecl [ # cdecl + 1 ] = C_PRIM [ inner . base . text ] .. " *" .. fname .. ";"
-elseif inner . kind == "tname" and structTag [ inner . base . text ] then
+elseif inner . kind == "tname" and structTag [ cst . lastName ( inner ) or "" ] then
 
 
-cdecl [ # cdecl + 1 ] = "struct " .. structTag [ inner . base . text ] .. " *" .. fname .. ";"
+cdecl [
+# cdecl + 1
+] = "struct " .. structTag [ cst . lastName ( inner ) ] .. " *" .. fname .. ";"
 elseif inner . kind == "tname" then
 cdecl [ # cdecl + 1 ] = "$ *" .. fname .. ";"
-params [ # params + 1 ] = inner . base . text
+params [ # params + 1 ] = ( inner . reified or cst . textOf ( inner ) )
 else
 diag ( entry . name , "NUPP3002" , "cannot reify this pointer field type" )
 end
@@ -57290,29 +58945,15 @@ return
 
 elseif kind == "cdefFunc" then
 needsFfi = true
-local params = { }
-for _ , p in ipairs ( x . params ) do
-if p . type then
-local ct = cdefCType ( p . type )
-if not ct then
-diag ( p . name , "NUPP3003" , "cdef parameter type has no C spelling" )
-ct = "void *"
-end
-params [ # params + 1 ] = ct
-elseif p [ 1 ] and cst . isToken ( p [ 1 ] ) and p [ 1 ] . kind == "..." then
-params [ # params + 1 ] = "..."
-end
-end
-local rett = "void"
-if x . ret then
-rett = cdefCType ( x . ret )
-if not rett then
-diag ( x . name , "NUPP3003" , "cdef return type has no C spelling" )
-rett = "void *"
-end
-end
 local name = x . name . text
-local sig = ( "%s %s(%s);" ) : format ( rett , name , # params > 0 and table . concat ( params , ", " ) or "void" )
+
+
+
+local sig , signatureWhy = require ( "nupp.compiler.cabi" ) . prototype ( x . cAbiSignature , true )
+if not sig then
+diag ( x . name , "NUPP3003" , "cdef signature has no C spelling: " .. tostring ( signatureWhy ) )
+sig = "void " .. name .. "(void);"
+end
 local first = x [ 1 ]
 local line = first and cst . isToken ( first ) and first . line or nil
 
@@ -58037,7 +59678,9 @@ needsFfi = true
 needsArrayCache = true
 local first = x [ 1 ]
 local line = first and cst . isToken ( first ) and first . line or nil
-e ( ( "__nuppArray(%s)(" ) : format ( x . carrayElem ) , line )
+e ( "__nuppArray(" , line )
+emit ( x . carrayElem )
+e ( ")(" )
 local args = x . args and x . args . exprs or { }
 if args [ 2 ] then
 emit ( args [ 2 ] )
@@ -58266,7 +59909,7 @@ elseif p . namedVararg then
 names [ # names + 1 ] = "..."
 elseif p . name then
 names [ # names + 1 ] = p . name . text
-elseif p [ 1 ] and cst . isToken ( p [ 1 ] ) and p [ 1 ] . kind == "..." then
+elseif p . vararg or p [ 1 ] and cst . isToken ( p [ 1 ] ) and p [ 1 ] . kind == "..." then
 names [ # names + 1 ] = "..."
 end
 end
@@ -58330,7 +59973,7 @@ if p . namedVararg then
 names [ # names + 1 ] = "..."
 elseif p . name then
 names [ # names + 1 ] = p . name . text
-elseif p [ 1 ] and cst . isToken ( p [ 1 ] ) and p [ 1 ] . kind == "..." then
+elseif p . vararg or p [ 1 ] and cst . isToken ( p [ 1 ] ) and p [ 1 ] . kind == "..." then
 names [ # names + 1 ] = "..."
 end
 end
@@ -58399,7 +60042,7 @@ if p . namedVararg then
 names [ # names + 1 ] = "..."
 elseif p . name then
 names [ # names + 1 ] = p . name . text
-elseif p [ 1 ] and cst . isToken ( p [ 1 ] ) and p [ 1 ] . kind == "..." then
+elseif p . vararg or p [ 1 ] and cst . isToken ( p [ 1 ] ) and p [ 1 ] . kind == "..." then
 names [ # names + 1 ] = "..."
 end
 end
@@ -59031,6 +60674,14 @@ emit ( x . body )
 end
 e ( "end" , x . endTok and x . endTok . line or nil )
 
+elseif kind == "effectRegionStmt" then
+
+e ( "do" , x . keywordTok and x . keywordTok . line or nil )
+if x . body then
+emit ( x . body )
+end
+e ( "end" , x . endTok and x . endTok . line or nil )
+
 elseif kind == "unsafeStmt" then
 e ( "do" , x . unsafeTok and x . unsafeTok . line or nil )
 if x . body then
@@ -59060,8 +60711,8 @@ e ( ( "%s(%d,%d)" ) : format ( name , x . presize . narr , x . presize . nhash )
 
 elseif kind == "param" then
 
-if x . namedVararg then
-emit ( x [ 1 ] )
+if x . vararg then
+e ( "..." , sourceLine ( x ) )
 elseif x . name then
 emit ( x . name )
 else
@@ -63198,6 +64849,11 @@ incremental.Inc = {} incremental.Inc.__index = incremental.Inc
 
 
 
+
+
+
+
+
 function incremental . new ( rootDir , opts )
 opts = opts or { }
 local env = envMod . new ( rootDir , opts )
@@ -63428,6 +65084,12 @@ local interface = self : get ( "moduleInterface" , name )
 return interface and interface . type or nil
 end , resolveModuleExports = function ( _ , name )
 return self : get ( "moduleExports" , name )
+end , observeCallGuarantee = function ( _ , module , member , identity , guarantee )
+local key = table . concat ( { module , member , identity , guarantee } , "\0" )
+local observed = self : get ( "moduleCallGuarantee" , key )
+return observed and observed : sub ( - 8 ) == "\0present" or false
+end , resolveCallGuarantees = function ( _ , module , member )
+return self : get ( "moduleCallGuarantees" , module .. "\0" .. member )
 end , projectEntries = function ( _ , name )
 return self : get ( "projectEntries" , name )
 end , projectPathEntries = function ( _ , requestedPath )
@@ -63564,6 +65226,32 @@ return r and r . exports or nil
 end , sameExports )
 
 
+
+q : define ( "moduleCallGuarantees" , function ( self , key )
+local module , member = key : match ( "^([^%z]+)%z(.+)$" )
+local path = module and modulePath ( self , module ) or nil
+local exports
+if path then
+local checked = self : get ( "checkModule" , path )
+exports = checked and checked . exports or nil
+else
+local bundled = module and env . bundled and env . bundled [ module ]
+exports = bundled and bundled . exports or nil
+end
+
+return exports and exports . callGuarantees and exports . callGuarantees [ member ] or nil
+end , sameStable )
+
+q : define ( "moduleCallGuarantee" , function ( self , key )
+local module , member , identity , guarantee = key : match ( "^([^%z]+)%z([^%z]+)%z([^%z]+)%z([^%z]+)$" )
+local entry = module and self : get ( "moduleCallGuarantees" , module .. "\0" .. member ) or nil
+local actualIdentity = entry and entry . identity or identity or ( ( module or "?" ) .. "." .. ( member or "?" ) )
+local present = entry and entry [ guarantee ] == true
+
+return actualIdentity .. ( present and "\0present" or "\0absent" )
+end )
+
+
 function inc . openDocument ( path , text )
 local wasOpen = openPaths [ path ]
 if envMod . moduleNameForPath ( env , path ) then
@@ -63664,6 +65352,8 @@ projectPathEntries = true ,
 projectModulePath = true ,
 projectModuleBasenames = true ,
 projectAnnotations = true ,
+moduleCallGuarantees = true ,
+moduleCallGuarantee = true ,
 }
 
 local function projectFingerprint ( name , key )
@@ -63685,7 +65375,10 @@ paths [ # paths + 1 ] = path
 end
 end
 
-if name == "projectModulePath" then
+if name == "moduleCallGuarantees" or name == "moduleCallGuarantee" then
+local module = key : match ( "^([^%z]+)" )
+add ( module and modulePath ( q , module ) or nil )
+elseif name == "projectModulePath" then
 add ( value )
 elseif name == "projectPathEntries" then
 add ( key )
@@ -63786,6 +65479,105 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 local lexer = { }
+local ffi = require ( "ffi" )
+
+
+const TRIVIA_WHITESPACE = 1
+const TRIVIA_COMMENT = 2
+const TRIVIA_HASHBANG = 3
+const TRIVIA_BOM = 4
+const TRIVIA_KIND_NAMES = { "whitespace" , "comment" , "hashbang" , "bom" }
+
+
+const TRIVIA_STRIDE = 5
+
+
+
+
+
+
+
+
+
+
+
+
+
+lexer.TriviaArena = {} lexer.TriviaArena.__index = lexer.TriviaArena
+
+
+
+
+
+
+
+
+
+
+
+function lexer.TriviaArena:append(kind, offset, length, line, col)
+
+
+
+
+
+
+
+if self . count >= self . capacity then
+local grown = self . capacity > 0 ? self . capacity * 2 : 32
+local fresh = ffi . new ( "uint32_t[?]" , grown * TRIVIA_STRIDE )
+ffi . copy ( fresh , self . words , self . count * TRIVIA_STRIDE * 4 )
+self . words = fresh
+self . capacity = grown
+end
+
+local at = self . count * TRIVIA_STRIDE
+do
+self . words [ at ] = kind
+self . words [ at + 1 ] = offset
+self . words [ at + 2 ] = length
+self . words [ at + 3 ] = line
+self . words [ at + 4 ] = col
+end
+self . count = self . count + 1
+
+return self . count
+end
+
+
+
+function lexer . arena ( source )
+return setmetatable({ source =
+source ,  count =
+0 ,  capacity =
+0 ,  words =
+ffi . new ( "uint32_t[?]" , 0 ) }, lexer.TriviaArena)
+
+end
+
+
+
+lexer . EMPTY_TRIVIA = lexer . arena ( "" )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -63996,6 +65788,32 @@ end
 
 
 
+local OPS1BYTE = { }
+local OPS2BYTE = { }
+local OPS3BYTE = { }
+local OPS4BYTE = { }
+for op in pairs ( OPS1 ) do
+OPS1BYTE [ string . byte ( op , 1 ) ] = op
+end
+for op in pairs ( OPS2 ) do
+local a , b = string . byte ( op , 1 , 2 )
+OPS2BYTE [ a * 256 + b ] = op
+end
+for op in pairs ( OPS3 ) do
+local a , b , c = string . byte ( op , 1 , 3 )
+OPS3BYTE [ ( a * 256 + b ) * 256 + c ] = op
+end
+for op in pairs ( OPS4 ) do
+local a , b , c , d = string . byte ( op , 1 , 4 )
+OPS4BYTE [ ( ( a * 256 + b ) * 256 + c ) * 256 + d ] = op
+end
+
+
+
+
+
+
+
 
 
 
@@ -64058,6 +65876,7 @@ end
 function lexer . lex ( source , filename )
 local tokens = { }
 local errors = { }
+local arena = lexer . arena ( source )
 local pos = 1
 local line = 1
 local lineStart = 1
@@ -64073,16 +65892,16 @@ end
 
 
 
-local function trackNewlines ( text , startpos )
-local search = 1
-while true do
-local nl = find ( text , "\n" , search , true )
-if not nl then
-break
-end
+
+
+local nextNewline = find ( source , "\n" , 1 , true ) or ( len + 1 )
+
+
+local function advanceLines ( endpos )
+while nextNewline < endpos do
 line = line + 1
-lineStart = startpos + nl
-search = nl + 1
+lineStart = nextNewline + 1
+nextNewline = find ( source , "\n" , nextNewline + 1 , true ) or ( len + 1 )
 end
 end
 
@@ -64101,27 +65920,29 @@ filename = filename
 end
 
 
+
 local function scanTrivia ( )
-local trivia = { }
+local first = arena . count + 1
+local taken = 0
 while pos <= len do
 local start = pos
 local l , c = line , colOf ( pos )
 local ch = byte ( source , pos )
 local kind
 if pos == 1 and sub ( source , 1 , 3 ) == "\239\187\191" then
-kind , pos = "bom" , 4
+kind , pos = TRIVIA_BOM , 4
 elseif pos == 1 and sub ( source , 1 , 1 ) == "#" then
-kind = "hashbang"
+kind = TRIVIA_HASHBANG
 local nl = find ( source , "\n" , pos , true )
 pos = nl and ( nl + 1 ) or ( len + 1 )
 elseif ch == 32 or ch == 9 or ch == 13 or ch == 10 or ch == 11 or ch == 12 then
-kind = "whitespace"
+kind = TRIVIA_WHITESPACE
 repeat
 pos = pos + 1
 ch = byte ( source , pos )
 until not ( ch == 32 or ch == 9 or ch == 13 or ch == 10 or ch == 11 or ch == 12 )
 elseif ch == 45 and byte ( source , pos + 1 ) == 45 then
-kind = "comment"
+kind = TRIVIA_COMMENT
 local after , terminated = scanLongBracket ( source , pos + 2 )
 if after and terminated then
 pos = after
@@ -64135,12 +65956,12 @@ end
 else
 break
 end
-local text = sub ( source , start , pos - 1 )
-trivia [ # trivia + 1 ] = { kind = kind , text = text , offset = start , line = l , col = c }
-trackNewlines ( text , start )
+arena : append ( kind , start , pos - start , l , c )
+taken = taken + 1
+advanceLines ( pos )
 end
 
-return trivia
+return first , taken
 end
 
 
@@ -64307,14 +66128,23 @@ return p , wellformed
 end
 
 while true do
-local trivia = scanTrivia ( )
+local triviaFirst , triviaCount = scanTrivia ( )
 if pos > len then
 if # interp > 0 then
 addError ( pos , line , colOf ( pos ) , "unterminated interpolated string" )
 end
 tokens [
 # tokens + 1
-] = { kind = "eof" , text = "" , offset = pos , line = line , col = colOf ( pos ) , trivia = trivia }
+] = {
+kind = "eof" ,
+text = "" ,
+offset = pos ,
+line = line ,
+col = colOf ( pos ) ,
+trivia = arena ,
+triviaFirst = triviaFirst ,
+triviaCount = triviaCount
+}
 break
 end
 
@@ -64323,11 +66153,15 @@ local l , c = line , colOf ( pos )
 local ch = byte ( source , pos )
 local kind
 
+
+
+local text = nil
+
 if isNameStart ( ch ) then
 repeat
 pos = pos + 1
 until not isNameChar ( byte ( source , pos ) )
-local text = sub ( source , start , pos - 1 )
+text = sub ( source , start , pos - 1 )
 kind = KEYWORDS [ text ] and text or "name"
 elseif isDigit ( ch ) or ( ch == 46 and isDigit ( byte ( source , pos + 1 ) ) ) then
 local endpos , ok = scanNumber ( )
@@ -64373,44 +66207,117 @@ pos = pos + 1
 kind = "["
 end
 else
-local op3 = sub ( source , pos , pos + 2 )
-local op2 = sub ( source , pos , pos + 1 )
-local op1 = sub ( source , pos , pos )
-local op4 = sub ( source , pos , pos + 3 )
-if OPS4 [ op4 ] then
-pos = pos + 4
-kind = op4
-elseif OPS3 [ op3 ] then
-pos = pos + 3
-kind = op3
-elseif OPS2 [ op2 ] then
-pos = pos + 2
-kind = op2
-elseif OPS1 [ op1 ] then
-pos = pos + 1
-kind = op1
+local remaining = len - pos + 1
+local b1 = ch
+local packed = b1
+local matched = OPS1BYTE [ packed ]
+if remaining >= 2 then
+packed = packed * 256 + ( byte ( source , pos + 1 ) )
+matched = OPS2BYTE [ packed ] or matched
+if remaining >= 3 then
+packed = packed * 256 + ( byte ( source , pos + 2 ) )
+matched = OPS3BYTE [ packed ] or matched
+if remaining >= 4 then
+packed = packed * 256 + ( byte ( source , pos + 3 ) )
+matched = OPS4BYTE [ packed ] or matched
+end
+end
+end
+if matched then
+pos = pos + # matched
+kind = matched
+text = matched
 else
 pos = pos + 1
 kind = "error"
-addError ( start , l , c , ( "unexpected character %q" ) : format ( op1 ) )
+addError ( start , l , c , ( "unexpected character %q" ) : format ( sub ( source , start , start ) ) )
 end
 end
 
-local text = sub ( source , start , pos - 1 )
 kind = CUSTOMARY [ kind ] or kind
-tokens [ # tokens + 1 ] = { kind = kind , text = text , offset = start , line = l , col = c , trivia = trivia }
-trackNewlines ( text , start )
+tokens [
+# tokens + 1
+] = {
+kind = kind ,
+text = text or sub ( source , start , pos - 1 ) ,
+offset = start ,
+line = l ,
+col = c ,
+trivia = arena ,
+triviaFirst = triviaFirst ,
+triviaCount = triviaCount
+}
+advanceLines ( pos )
 end
 
 return tokens , errors
 end
 
 
+local function triviaWordAt ( tok , index )
+return ( tok . triviaFirst + index - 2 ) * TRIVIA_STRIDE
+end
+
+
+function lexer . triviaCount ( tok )
+return tok . triviaCount
+end
+
+
+function lexer . triviaKind ( tok , index )
+local at = triviaWordAt ( tok , index )
+local code
+do
+code = tok . trivia . words [ at ]
+end
+
+return TRIVIA_KIND_NAMES [ code ]
+end
+
+
+function lexer . triviaText ( tok , index )
+local arena = tok . trivia
+local at = triviaWordAt ( tok , index )
+local offset
+local length
+do
+offset = arena . words [ at + 1 ]
+length = arena . words [ at + 2 ]
+end
+
+return sub ( arena . source , offset , offset + length - 1 )
+end
+
+
+function lexer . triviaAt ( tok , index )
+local at = triviaWordAt ( tok , index )
+do
+local words = tok . trivia . words
+
+return words [ at + 1 ] , words [ at + 3 ] , words [ at + 4 ]
+end
+end
+
+
+
+function lexer . triviaRecord ( tok , index )
+local offset , line , col = lexer . triviaAt ( tok , index )
+
+return {
+kind = lexer . triviaKind ( tok , index ) ,
+text = lexer . triviaText ( tok , index ) ,
+offset = offset ,
+line = line ,
+col = col
+}
+end
+
+
 function lexer . textOf ( tokens )
 local parts = { }
 for _ , tok in ipairs ( tokens ) do
-for _ , tr in ipairs ( tok . trivia ) do
-parts [ # parts + 1 ] = tr . text
+for index = 1 , tok . triviaCount do
+parts [ # parts + 1 ] = lexer . triviaText ( tok , index )
 end
 parts [ # parts + 1 ] = tok . text
 end
@@ -68026,6 +69933,7 @@ local findDeclaration , tokenAt = tree . findDeclaration , tree . tokenAt
 local symbolKey , memberOccurrences = tree . symbolKey , tree . memberOccurrences
 local moduleMemberAt , documentationAt = tree . moduleMemberAt , tree . documentationAt
 local fromTrivia , functionSignature = tree . fromTrivia , tree . functionSignature
+local documentationOf = tree . documentationOf
 local membersOf = complete . membersOf
 
 local json = wire . json
@@ -68164,7 +70072,7 @@ if def . generatedBy and def . generatedOrigin then
 def = {
 token = def . generatedOrigin ,
 filename = def . generatedOrigin . filename or def . filename ,
-documentationTrivia = def . documentationTrivia ,
+documentationToken = def . documentationToken ,
 }
 end
 local source = definitionSource ( def )
@@ -68199,10 +70107,17 @@ end
 local function documentationFor ( def )
 local _ , tokens , index = resolveDefinition ( def )
 if not tokens then
-return def and fromTrivia ( def . documentationTrivia or def . token and def . token . trivia )
+if not def then
+return nil
+end
+if def . documentationToken then
+return documentationOf ( def . documentationToken )
 end
 
-return documentationAt ( tokens , index ) or fromTrivia ( def . documentationTrivia )
+return def . token and fromTrivia ( def . token . trivia )
+end
+
+return documentationAt ( tokens , index ) or documentationOf ( def . documentationToken )
 end
 
 local function documentAt ( params )
@@ -68892,7 +70807,8 @@ local entries = { }
 local syntax = syntaxKinds ( doc . result )
 local embedded = embeddedStringTokens ( doc . result )
 for _ , tok in ipairs ( doc . result . tokens or { } ) do
-for _ , trivia in ipairs ( tok . trivia or { } ) do
+for triviaIndex = 1 , tok . triviaCount do
+local trivia = lexer . triviaRecord ( tok , triviaIndex )
 local docComment = trivia . kind == "comment" and trivia . text : sub (
 1 ,
 3
@@ -69567,21 +71483,43 @@ end
 return def . filename .. ":" .. tostring ( def . token . offset )
 end
 
-function tree . fromTrivia ( triviaList )
+local function documentationFrom ( kindAt , textAt , count )
 local lines = { }
-for _ , trivia in ipairs ( triviaList or { } ) do
-if trivia . kind == "comment" then
-local text = trivia . text
+for index = 1 , count do
+local kind = kindAt ( index )
+if kind == "comment" then
+local text = textAt ( index )
 text = text : gsub ( "^%-%-%-?%s?" , "" )
 text = text : gsub ( "^%-%-%[=*%[" , "" )
 text = text : gsub ( "%]=*%]$" , "" )
 lines [ # lines + 1 ] = text
-elseif trivia . kind == "whitespace" and trivia . text : find ( "\n%s*\n" ) then
+elseif kind == "whitespace" and textAt ( index ) : find ( "\n%s*\n" ) then
 lines = { }
 end
 end
 
 return # lines > 0 and table . concat ( lines , "\n" ) or nil
+end
+
+
+function tree . documentationOf ( tok )
+if not tok then
+return nil
+end
+
+return documentationFrom (
+|index| -> ( lexer . triviaKind ( tok , index ) ) ,
+|index| -> ( lexer . triviaText ( tok , index ) ) ,
+tok . triviaCount
+)
+end
+
+
+
+function tree . fromTrivia ( triviaList )
+local list = triviaList or { }
+
+return documentationFrom ( |index| -> ( list [ index ] . kind ) , |index| -> ( list [ index ] . text ) , # list )
 end
 
 
@@ -69594,7 +71532,7 @@ local tok = tokens [ index ]
 if not tok then
 return nil
 end
-local docs = tree . fromTrivia ( tok . trivia )
+local docs = tree . documentationOf ( tok )
 if docs then
 return docs
 end
@@ -69603,7 +71541,7 @@ local candidate = tokens [ cursor ]
 if candidate . line ~= tok . line then
 break
 end
-docs = tree . fromTrivia ( candidate . trivia )
+docs = tree . documentationOf ( candidate )
 if docs then
 return docs
 end
@@ -69795,8 +71733,8 @@ return
 end
 if cst . isToken ( node ) then
 if not first then
-for _ , trivia in ipairs ( node . trivia ) do
-parts [ # parts + 1 ] = trivia . text
+for index = 1 , node . triviaCount do
+parts [ # parts + 1 ] = lexer . triviaText ( node , index )
 end
 end
 first = false
@@ -77009,8 +78947,9 @@ or stat . automaticOwner
 or stat . automaticOwnerMove
 or stat . automaticOwnerMoves
 or stat . automaticOwnerReinit
-or # ( stat . targets or { } ) ~= 1
-or # ( stat . exprs or { } ) ~= 1 then
+or # (
+stat . targets or { }
+) ~= 1 or # ( stat . exprs or { } ) ~= 1 then
 return nil
 end
 local target = stat . targets [ 1 ]
@@ -77140,21 +79079,13 @@ end
 end
 local message
 if constructorFields then
-message = ( "presize: %s is created with %d named fields" ) : format (
-name ,
-# constructorFields
-)
+message = ( "presize: %s is created with %d named fields" ) : format ( name , # constructorFields )
 else
 message = (
 "presize: %s is created with room for %d array and %d hash entries"
 ) : format ( name , array , hash )
 end
-remark (
-remarks ,
-constructor ,
-"OPT-1" ,
-message
-)
+remark ( remarks , constructor , "OPT-1" , message )
 elseif stoppedAt then
 local token = firstToken ( stoppedAt )
 remark (
@@ -77201,6 +79132,7 @@ local NESTED_FUNCTION = { localFuncStmt = true , funcStmt = true , inlineMethod 
 
 
 
+
 local function denseLiteralLengths ( body )
 local lengths = { }
 local function collect ( node )
@@ -77234,6 +79166,7 @@ collect ( body )
 
 return lengths
 end
+
 
 
 
@@ -77493,6 +79426,7 @@ end
 
 
 local MAX_EXACT_INTEGER = 9007199254740991
+local scalarIntrinsics = require ( "nupp.compiler.scalar_intrinsics" )
 
 
 
@@ -77831,8 +79765,24 @@ end
 return nil
 elseif kind == "call" or kind == "safeCall" then
 foldExpr ( node . obj , current )
+local arguments , allNumbers = { } , true
 for _ , arg in ipairs ( node . args and node . args . exprs or { } ) do
-foldExpr ( arg , current )
+local value = foldExpr ( arg , current )
+arguments [ # arguments + 1 ] = value and value . value or nil
+allNumbers = allNumbers and value ~= nil and value . kind == "number"
+end
+if node . scalarIntrinsic and allNumbers then
+local answer = scalarIntrinsics . fold ( node . scalarIntrinsic , arguments )
+if type ( answer ) == "number" and math . abs ( answer ) <= MAX_EXACT_INTEGER then
+local numeric = answer
+local folded = literal ( "number" , numeric , ( "%.0f" ) : format ( numeric ) )
+node . folded = folded . code
+return folded
+elseif type ( answer ) == "boolean" then
+local folded = literal ( "boolean" , answer , tostring ( answer ) )
+node . folded = folded . code
+return folded
+end
 end
 elseif kind == "methodCall" then
 foldExpr ( node . obj , current )
@@ -78507,7 +80457,17 @@ end
 
 local function missing ( kind )
 local at = cur ( )
-return { kind = kind , text = "" , missing = true , trivia = { } , offset = at . offset , line = at . line , col = at . col }
+return {
+kind = kind ,
+text = "" ,
+missing = true ,
+trivia = at . trivia ,
+triviaFirst = 1 ,
+triviaCount = 0 ,
+offset = at . offset ,
+line = at . line ,
+col = at . col
+}
 end
 
 
@@ -78544,7 +80504,16 @@ if genericCloseHalfAt == i then
 genericCloseHalfAt = nil
 local at = cur ( )
 
-return { kind = ">" , text = "" , trivia = { } , offset = at . offset , line = at . line , col = at . col }
+return {
+kind = ">" ,
+text = "" ,
+trivia = at . trivia ,
+triviaFirst = 1 ,
+triviaCount = 0 ,
+offset = at . offset ,
+line = at . line ,
+col = at . col
+}
 end
 if cur ( ) . kind == ">>" then
 local tok = advance ( )
@@ -79036,8 +81005,19 @@ n . params = { }
 if cur ( ) . kind ~= ")" then
 repeat
 local p = setmetatable({ kind =  "tfuncParam" }, cst.TfuncParam)
+if cur ( ) . kind == "name" and (
+cur ( ) . text == "takes"
+or cur ( ) . text == "borrows"
+or cur ( ) . text == "scoped"
+or cur ( ) . text == "exclusive"
+or cur ( ) . text == "retains"
+or cur ( ) . text == "releases"
+) and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "..." then
+p . modeTok = add ( p , advance ( ) )
+end
 if cur ( ) . kind == "..." then
 add ( p , advance ( ) )
+p . vararg = true
 if cur ( ) . kind == ":" then
 annotationColon ( p , "in vararg type" )
 if cur ( ) . kind == "name" and (
@@ -79788,8 +81768,9 @@ end
 
 local function parseSimpleexp ( )
 local kind = cur ( ) . kind
-if kind == "name" and cur ( ) . text == "dedent" and tokens [ i + 1 ]
-and tokens [ i + 1 ] . kind == "string" and tokens [ i + 1 ] . text : sub ( 1 , 1 ) == "[" then
+if kind == "name" and cur ( ) . text == "dedent" and tokens [
+i + 1
+] and tokens [ i + 1 ] . kind == "string" and tokens [ i + 1 ] . text : sub ( 1 , 1 ) == "[" then
 local n = setmetatable({ kind =  "dedentString" }, cst.DedentString)
 n . keyword = add ( n , advance ( ) )
 n . token = add ( n , advance ( ) )
@@ -79943,8 +81924,19 @@ n . params = { }
 if cur ( ) . kind ~= ")" then
 repeat
 local p = setmetatable({ kind =  "param" }, cst.Param)
+if cur ( ) . kind == "name" and (
+cur ( ) . text == "takes"
+or cur ( ) . text == "borrows"
+or cur ( ) . text == "scoped"
+or cur ( ) . text == "exclusive"
+or cur ( ) . text == "retains"
+or cur ( ) . text == "releases"
+) and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "..." then
+p . modeTok = add ( p , advance ( ) )
+end
 if cur ( ) . kind == "..." then
 local dots = add ( p , advance ( ) )
+p . vararg = true
 if cur ( ) . kind == "name" and cur ( ) . offset == dots . offset + # dots . text then
 local nameTok = advance ( )
 p . name = add ( p , nameTok )
@@ -80618,6 +82610,20 @@ n . keywordTok = add ( n , advance ( ) )
 n . doTok = add ( n , advance ( ) )
 n . body = add ( n , parseBlock ( ) )
 n . endTok = add ( n , expect ( "end" , "to close 'nosuspend do'" ) )
+return n
+
+elseif kind == "name" and (
+cur ( ) . text == "noalloc" or cur ( ) . text == "noraise"
+) and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "do" then
+local written = cur ( ) . text
+local n = setmetatable({ kind =
+"effectRegionStmt" ,  effect =
+written == "noalloc" and "allocates" or "raises" }, cst.EffectRegionStmt)
+
+n . keywordTok = add ( n , advance ( ) )
+n . doTok = add ( n , advance ( ) )
+n . body = add ( n , parseBlock ( ) )
+n . endTok = add ( n , expect ( "end" , "to close '" .. written .. " do'" ) )
 return n
 
 elseif kind == "name" and cur ( ) . text == "unsafe" and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "do" then
@@ -82568,6 +84574,13 @@ of the struct's own bytes. A `T[?]` field is refused, because a struct whose
 size depends on a count nobody wrote has none. A GC-managed type is refused too,
 so a `string` field means this wants to be a `record`; that is **NUPP2201**.
 
+A field may state a bit width after its type, which is the C bitfield it lowers
+to: `typeColon: boolean : 1` is one bit, and consecutive narrow fields share a
+word. Twenty-three `boolean` fields occupy twenty-three bytes; twenty-three
+`boolean : 1` fields occupy four. The field is still read and written as its
+declared type -- a one-bit `boolean` reads `true`, not `1` -- so packing changes
+the layout and nothing else.
+
 A struct may point at itself, which is how a linked structure is written. By
 value it cannot: that would have no size.
 
@@ -82737,6 +84750,11 @@ those contracts without a runtime length check. `nupp.heap.allocate` gives
 suspension cannot cross an obligation; handled suspension requires its
 cancellation contract.
 
+`WriteSpan.getMut(index)` returns a checked mutable element pointer borrowed
+from the writer for reading or writing, so another shared or
+exclusive use cannot overlap it. An exclusive parameter may be forwarded to
+another exclusive call while no such derived borrow is live.
+
 `WriteSpan.splitAt(mid)` produces disjoint sibling regions. `countedBy(count)`
 maps borrowed cdef pointer/count parameters to checked spans. The wrapper checks
 shared lengths, projects slice-adjusted pointers, and calls C once even at zero
@@ -82794,6 +84812,14 @@ return m
 time. `nupp import-c` ejects the same declarations as an editable module. Both
 preserve unions and bitfields.
 
+`nupp export-c -o game.h src/game.nupp game.Position game.integrate` goes the
+other direction. It gives an ordinary reified Nupp struct one deterministic,
+module-qualified C typedef, emits target-specific layout fingerprints and
+static assertions, and publishes selected typed `cdef function` prototypes.
+Ordinary structs cross this boundary through pointers or arrays, not by value;
+Nupp keeps its anonymous runtime ctype and owns the physical pointer bridge.
+Generating a header invokes no C compiler.
+
 C callback positions survive aliases. Passing Lua to one reports
 `jit-callback`; a variadic C call reports `jit-boundary`. Disable the cold
 function with `jit.off`. `@jit` makes avoiding both boundaries a checked
@@ -82813,6 +84839,76 @@ cdef function labs(n: int32): int32
 
 function m.magnitude(n: int32): int32
     return labs(n)
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Fixed-width scalar arithmetic" ,  codes =
+{ "NUPP2001" , "NUPP2004" } ,  body =
+[=[
+Ordinary `+`, `*`, and a `float` annotation retain LuaJIT's existing numeric
+meaning. Code that requires one explicitly sized operation calls
+`nupp.math.i32`, `nupp.math.u32`, or `nupp.math.f32` instead.
+
+The integer namespaces wrap modulo 2^32; shift counts are masked by 31 and
+signedness is stated by the operation. The binary32 namespace rounds every
+input and result to nearest, ties to even. It preserves signed zero,
+subnormals, and infinities, canonicalizes every NaN, and makes `fma` one fused
+operation. `fromBits` and `toBits` expose the canonical bit contract.
+
+Calls use Lua numbers in canonical ranges rather than allocating scalar cdata.
+Aliasing a standard member preserves its intrinsic identity; shadowing its
+spelling is an ordinary call.
+]=] ,  example =
+[=[
+local m = {}
+
+function m.step(flags: uint32, distance: number, inverseTime: number): (uint32, float)
+    local rotated = nupp.math.u32.rotateLeft(flags, 7)
+    local speed = nupp.math.f32.mul(distance, inverseTime)
+    return rotated, speed
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Checked span views" ,  codes =
+{ "NUPP2001" , "NUPP2004" , "NUPP2602" , "NUPP2604" } ,  body =
+[=[
+`nupp.span` wraps rooted C arrays in sealed, bounds-checked shared and writable
+views. `WriteSpan.slice(first, last)` returns one affine child writer; its
+parent remains blocked until that child is committed or dropped. Empty slices
+use the inclusive `first, first - 1` convention.
+
+`span.range(first, last, ...)` validates one inclusive range against every
+supplied standard span and returns ordinary `first` and `last` integers. Its
+typed borrowed vararg passes each original span unchanged and allocates no
+container. A const-bound range over const-bound spans also proves matching
+`get`, `getMut`, and `set` indices non-raising in the dominated numeric loop.
+The access itself remains an ordinary checked span operation.
+]=] ,  example =
+[=[
+local span = require("nupp.span")
+local m = {}
+
+local struct Value
+    n: integer
+end
+
+function m.total(): number
+    const storage = carray(Value, 4)
+    const values = span.fromCarray(storage, 4)
+    const rows = span.range(1, 4, values)
+    local total = 0
+    for index = rows.first, rows.last do
+        total = total + values:get(index).n
+    end
+    return total
 end
 
 return m
@@ -83108,6 +85204,47 @@ function m.commit(values: {integer}, report: nosuspend function(n: number): nil)
     end
 
     return answer
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Allocation and raising regions" ,  codes =
+{ "NUPP2710" , "NUPP2711" , "NUPP2112" } ,  body =
+[=[
+`noalloc do ... end` requires every reachable modeled operation to avoid
+Nupp/Lua-managed allocation. `noraise do ... end` independently requires that
+no modeled path raises a catchable Nupp/Lua error. Both are lexical static
+checks and erase to ordinary `do` blocks without guards or protected calls.
+
+Visible functions are inferred to a pessimistic fixed point, including
+automatic cleanup. Exact direct exports transport only the positive
+`noAllocate` and `noRaise` facts a dependant observes; complete read, write,
+escape, and return summaries remain file-local. Unknown callbacks, methods,
+gradual calls, and uncontracted C functions prove neither fact.
+
+A bodyless or foreign declaration may establish a fact with a trusted
+`@effects` contract. That is a promise about the unseen implementation, not a
+proof about an OS, driver, or process-wide allocator. A visible body is still
+checked against its contract under NUPP2112.
+]=] ,  example =
+[=[
+local m = {}
+
+local function quiet(value: uint32): uint32
+    return nupp.math.u32.add(value, 1)
+end
+
+function m.advance(value: uint32): uint32
+    local result = value
+    noalloc do
+        noraise do
+            result = quiet(value)
+        end
+    end
+    return result
 end
 
 return m
@@ -84403,21 +86540,14 @@ for _ , name in ipairs ( owed ) do
 local found = associated . lookup ( a , name )
 if not found . gradual then
 if not found . resolved then
-return false , ( "%s is not a %s (%s is %s)" ) : format (
-T . tostring ( a ) ,
-T . tostring ( b ) ,
-name ,
-found . reason or "unanswered"
-)
+return false , (
+"%s is not a %s (%s is %s)"
+) : format ( T . tostring ( a ) , T . tostring ( b ) , name , found . reason or "unanswered" )
 end
 if found . bound and not isA ( found . resolved , found . bound ) then
-return false , ( "%s is not a %s (%s = %s does not fit %s)" ) : format (
-T . tostring ( a ) ,
-T . tostring ( b ) ,
-name ,
-T . tostring ( found . resolved ) ,
-T . tostring ( found . bound )
-)
+return false , (
+"%s is not a %s (%s = %s does not fit %s)"
+) : format ( T . tostring ( a ) , T . tostring ( b ) , name , T . tostring ( found . resolved ) , T . tostring ( found . bound ) )
 end
 end
 end
@@ -84797,7 +86927,9 @@ for name in pairs ( owner . staticWriteByname or { } ) do
 names [ name ] = true
 end
 for name in pairs ( names ) do
-fields [ # fields + 1 ] = {
+fields [
+# fields + 1
+] = {
 name = name ,
 read = owner . staticByname and owner . staticByname [ name ] or nil ,
 write = owner . staticWriteByname and owner . staticWriteByname [ name ] or nil ,
@@ -84889,9 +87021,9 @@ local want = bPacks [ j ]
 if want then
 local ok , why = relations . packIsA ( have , want )
 if not ok then
-return false , ( "%s is not a %s (pack argument %d: %s)" ) : format (
-T . tostring ( a ) , T . tostring ( b ) , j , why or "incompatible pack"
-)
+return false , (
+"%s is not a %s (pack argument %d: %s)"
+) : format ( T . tostring ( a ) , T . tostring ( b ) , j , why or "incompatible pack" )
 end
 end
 end
@@ -85243,6 +87375,12 @@ end
 
 if a . varargType and b . varargType and not isA ( b . varargType , a . varargType ) then
 return false , ( "%s is not a %s (extra arguments)" ) : format ( T . tostring ( a ) , T . tostring ( b ) )
+end
+local aTail , bTail = a . paramPack . tail , b . paramPack . tail
+if aTail and bTail and aTail . kind == "homogeneous" and bTail . kind == "homogeneous" and (
+aTail . mode or "plain"
+) ~= ( bTail . mode or "plain" ) then
+return false , ( "%s is not a %s (extra argument ownership mode)" ) : format ( T . tostring ( a ) , T . tostring ( b ) )
 end
 local rn = # a . rets
 if # b . rets < rn then
@@ -85833,6 +87971,121 @@ end
 return runtime
 
 end
+package.preload["nupp.compiler.scalar_intrinsics"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+local scalar = { }
+
+
+
+local PATHS = { }
+for _ , family in ipairs ( { "i32" , "u32" } ) do
+for _ , operation in ipairs ( {
+"add" ,
+"sub" ,
+"mul" ,
+"andBits" ,
+"orBits" ,
+"xorBits" ,
+"notBits" ,
+"shiftLeft" ,
+"rotateLeft" ,
+"rotateRight" ,
+"lessThan" ,
+"lessOrEqual" ,
+} ) do
+PATHS [ "nupp.math." .. family .. "." .. operation ] = family .. "." .. operation
+end
+end
+PATHS [ "nupp.math.i32.shiftRightArithmetic" ] = "i32.shiftRightArithmetic"
+PATHS [ "nupp.math.i32.fromU32" ] = "i32.fromU32"
+PATHS [ "nupp.math.i32.toU32" ] = "i32.toU32"
+PATHS [ "nupp.math.u32.shiftRightLogical" ] = "u32.shiftRightLogical"
+PATHS [ "nupp.math.u32.fromI32" ] = "u32.fromI32"
+PATHS [ "nupp.math.u32.toI32" ] = "u32.toI32"
+for _ , operation in ipairs ( { "round" , "add" , "sub" , "mul" , "div" , "sqrt" , "min" , "max" , "fma" , "fromBits" , "toBits" , } ) do
+PATHS [ "nupp.math.f32." .. operation ] = "f32." .. operation
+end
+
+function scalar . forPath ( path )
+return PATHS [ path ]
+end
+
+local function u32 ( value )
+value = bit . tobit ( value )
+return value < 0 and value + 4294967296 or value
+end
+
+local function mul32 ( a , b )
+a , b = u32 ( a ) , u32 ( b )
+local al , bl = a % 65536 , b % 65536
+local ah , bh = math . floor ( a / 65536 ) , math . floor ( b / 65536 )
+return bit . tobit ( al * bl + ( ( ah * bl + al * bh ) % 65536 ) * 65536 )
+end
+
+
+
+
+function scalar . fold ( identity , args )
+local family , operation = identity : match ( "^(i32)%.(.+)$" )
+if not family then
+family , operation = identity : match ( "^(u32)%.(.+)$" )
+end
+if not family then
+return nil
+end
+local a , b = args [ 1 ] , args [ 2 ]
+if operation == "add" then
+local out = bit . tobit ( a + b )
+return family == "u32" and u32 ( out ) or out
+elseif operation == "sub" then
+local out = bit . tobit ( a - b )
+return family == "u32" and u32 ( out ) or out
+elseif operation == "mul" then
+local out = mul32 ( a , b )
+return family == "u32" and u32 ( out ) or out
+elseif operation == "andBits" then
+local out = bit . band ( a , b )
+return family == "u32" and u32 ( out ) or out
+elseif operation == "orBits" then
+local out = bit . bor ( a , b )
+return family == "u32" and u32 ( out ) or out
+elseif operation == "xorBits" then
+local out = bit . bxor ( a , b )
+return family == "u32" and u32 ( out ) or out
+elseif operation == "notBits" then
+local out = bit . bnot ( a )
+return family == "u32" and u32 ( out ) or out
+elseif operation == "shiftLeft" then
+local out = bit . lshift ( a , bit . band ( b , 31 ) )
+return family == "u32" and u32 ( out ) or out
+elseif operation == "shiftRightArithmetic" then
+return bit . arshift ( a , bit . band ( b , 31 ) )
+elseif operation == "shiftRightLogical" then
+return u32 ( bit . rshift ( a , bit . band ( b , 31 ) ) )
+elseif operation == "rotateLeft" then
+local out = bit . rol ( a , bit . band ( b , 31 ) )
+return family == "u32" and u32 ( out ) or out
+elseif operation == "rotateRight" then
+local out = bit . ror ( a , bit . band ( b , 31 ) )
+return family == "u32" and u32 ( out ) or out
+elseif operation == "lessThan" then
+return family == "u32" and u32 ( a ) < u32 ( b ) or bit . tobit ( a ) < bit . tobit ( b )
+elseif operation == "lessOrEqual" then
+return family == "u32" and u32 ( a ) <= u32 ( b ) or bit . tobit ( a ) <= bit . tobit ( b )
+elseif operation == "fromU32" or operation == "toI32" then
+return bit . tobit ( a )
+elseif operation == "toU32" or operation == "fromI32" then
+return u32 ( a )
+end
+
+return nil
+end
+
+return scalar
+
+end
 package.preload["nupp.compiler.stdlib"] = function(...)
 local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
@@ -85947,6 +88200,36 @@ local m=__nuppMath;local pi,tau=math.pi,2*math.pi
 function m.lerp(from,to,t)if t==0 then return from elseif t==1 then return to end;return from+(to-from)*t end
 function m.wrapAngle(radians)return(radians+pi)%tau-pi end
 function m.deltaAngle(from,to)return m.wrapAngle(to-from)end
+local b=bit;local function ui32(x)x=b.tobit(x);return x<0 and x+4294967296 or x end
+local function mul32(a,c)local al,cl=a%65536,c%65536;local ah,ch=math.floor(a/65536),math.floor(c/65536);return b.tobit(al*cl+((ah*cl+al*ch)%65536)*65536)end
+local i32,u32={},{};m.i32=i32;m.u32=u32
+function i32.add(a,c)return b.tobit(a+c)end;function i32.sub(a,c)return b.tobit(a-c)end;function i32.mul(a,c)return mul32(ui32(a),ui32(c))end
+function i32.andBits(a,c)return b.band(a,c)end;function i32.orBits(a,c)return b.bor(a,c)end;function i32.xorBits(a,c)return b.bxor(a,c)end;function i32.notBits(a)return b.bnot(a)end
+function i32.shiftLeft(a,c)return b.lshift(a,b.band(c,31))end;function i32.shiftRightArithmetic(a,c)return b.arshift(a,b.band(c,31))end
+function i32.rotateLeft(a,c)return b.rol(a,b.band(c,31))end;function i32.rotateRight(a,c)return b.ror(a,b.band(c,31))end
+function i32.lessThan(a,c)return b.tobit(a)<b.tobit(c)end;function i32.lessOrEqual(a,c)return b.tobit(a)<=b.tobit(c)end
+function i32.fromU32(a)return b.tobit(a)end;function i32.toU32(a)return ui32(a)end
+function u32.add(a,c)return ui32(a+c)end;function u32.sub(a,c)return ui32(a-c)end;function u32.mul(a,c)return ui32(mul32(ui32(a),ui32(c)))end
+function u32.andBits(a,c)return ui32(b.band(a,c))end;function u32.orBits(a,c)return ui32(b.bor(a,c))end;function u32.xorBits(a,c)return ui32(b.bxor(a,c))end;function u32.notBits(a)return ui32(b.bnot(a))end
+function u32.shiftLeft(a,c)return ui32(b.lshift(a,b.band(c,31)))end;function u32.shiftRightLogical(a,c)return ui32(b.rshift(a,b.band(c,31)))end
+function u32.rotateLeft(a,c)return ui32(b.rol(a,b.band(c,31)))end;function u32.rotateRight(a,c)return ui32(b.ror(a,b.band(c,31)))end
+function u32.lessThan(a,c)return ui32(a)<ui32(c)end;function u32.lessOrEqual(a,c)return ui32(a)<=ui32(c)end
+function u32.fromI32(a)return ui32(a)end;function u32.toI32(a)return b.tobit(a)end
+local ffi=require("ffi");local fh=ffi.new("union {float f;uint32_t u;}[1]");local f32={};m.f32=f32
+local CANON=2143289344;local PINF=2139095040;local NINF=4286578688;local MAX=2139095039;local NMAX=4286578687
+local function nanbits(bits)return b.band(bits,2139095040)==2139095040 and b.band(bits,8388607)~=0 end
+local function putbits(bits)if nanbits(bits)then bits=CANON end;fh[0].u=bits;return tonumber(fh[0].f)end
+local function bits32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then bits=CANON;fh[0].u=bits end;return bits end
+local function round32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then fh[0].u=CANON end;return tonumber(fh[0].f)end
+local function comparedd(hi,lo,value)local d=hi-value;if d>-lo then return 1 elseif d<-lo then return-1 end;return 0 end
+local function nextup(value,bits)if bits==PINF then return value,bits end;if bits==NINF then return putbits(NMAX),NMAX end;if b.band(bits,2147483648)~=0 then if bits==2147483648 then return putbits(1),1 end;bits=bits-1 else bits=bits+1 end;return putbits(bits),bits end
+local function nextdown(value,bits)if bits==NINF then return value,bits end;if bits==PINF then return putbits(MAX),MAX end;if b.band(bits,2147483648)~=0 then bits=bits+1 else if bits==0 then return putbits(2147483649),2147483649 end;bits=bits-1 end;return putbits(bits),bits end
+local function rounddd(hi,lo)local value=round32(hi);local bits=bits32(value);if nanbits(bits)then return putbits(CANON)end;if bits==PINF then local threshold=3.4028235677973366e38;if comparedd(hi,lo,threshold)<0 then return putbits(MAX)end;return value elseif bits==NINF then local threshold=-3.4028235677973366e38;if comparedd(hi,lo,threshold)>0 then return putbits(NMAX)end;return value end;local side=comparedd(hi,lo,value);if side==0 then return value end;local other,otherbits;if side>0 then other,otherbits=nextup(value,bits)else other,otherbits=nextdown(value,bits)end;local midpoint=(value+other)*0.5;local toward=comparedd(hi,lo,midpoint);if side<0 then toward=-toward end;if toward>0 or toward==0 and b.band(bits,1)~=0 then return putbits(otherbits)end;return value end
+function f32.round(a)return round32(a)end;function f32.add(a,c)return round32(round32(a)+round32(c))end;function f32.sub(a,c)return round32(round32(a)-round32(c))end;function f32.mul(a,c)return round32(round32(a)*round32(c))end;function f32.div(a,c)return round32(round32(a)/round32(c))end;function f32.sqrt(a)return round32(math.sqrt(round32(a)))end
+function f32.min(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and(b.band(ab,2147483648)~=0 or b.band(cb,2147483648)~=0)then return putbits(2147483648)end;return a end;return a<c and a or c end
+function f32.max(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and b.band(ab,2147483648)~=0 and b.band(cb,2147483648)~=0 then return putbits(2147483648)elseif a==0 then return putbits(0)end;return a end;return a>c and a or c end
+function f32.fma(a,c,d)a,c,d=round32(a),round32(c),round32(d);local product=a*c;if product~=product or product==math.huge or product==-math.huge then return round32(product+d)end;local sum=product+d;local carry=sum-product;local error=(product-(sum-carry))+(d-carry);return rounddd(sum,error)end
+function f32.fromBits(bits)return putbits(ui32(bits))end;function f32.toBits(value)return bits32(round32(value))end
 local v={};m.vec2=v
 function v.add(ax,ay,bx,by)return ax+bx,ay+by end
 function v.subtract(ax,ay,bx,by)return ax-bx,ay-by end
@@ -87052,11 +89335,9 @@ end
 
 
 
-local BITSET = compact (
-[=[
+local BITSET = compact ( [=[
 __nuppLazy(__nuppData,"bitset",function()return require("nupp._bitset")end)
-]=]
-)
+]=] )
 
 local SHA256 = compact (
 [=[
@@ -87163,6 +89444,7 @@ const targetLayout = {} targetLayout.__index = targetLayout
 
 
 
+
 targetLayout . ABI = 1
 
 
@@ -87240,6 +89522,18 @@ end
 
 function targetLayout . has ( key )
 return key ~= nil and MODELS [ key ] ~= nil
+end
+
+
+
+function targetLayout . hostKey ( )
+local architectures = { x64 = "x86_64" , x86 = "i686" , arm64 = "aarch64" }
+local systems = { OSX = "apple-darwin" , Linux = "unknown-linux-gnu" , Windows = "pc-windows-msvc" }
+local architecture = architectures [ jit . arch ]
+local system = systems [ jit . os ]
+local key = architecture and system and architecture .. "-" .. system or nil
+
+return key and MODELS [ key ] and key or nil
 end
 
 local function roundUp ( value , alignment )
@@ -88748,17 +91042,18 @@ end
 
 
 
-local function intern ( key , build )
+local function intern ( key , made )
 local found = arena [ key ]
 if found then
 return found
 end
-local made = build ( )
 made . id = inheritedMarks ( key ) .. serial ( "t" )
 arena [ key ] = made
 
 return made
 end
+
+
 
 
 
@@ -88777,9 +91072,12 @@ end
 
 
 local function prim ( tag )
-return interned ( tag ) or intern ( tag , function ( )
-return setmetatable({ tag =  tag }, types.Prim)
-end )
+local existing = interned ( tag )
+if existing then
+return existing
+end
+
+return intern ( tag , setmetatable({ tag =  tag }, types.Prim) )
 end
 
 types . any = prim ( "any" )
@@ -88871,9 +91169,12 @@ types . builtins = builtins
 function types . array ( elem )
 local internKey = "{" .. elem . id .. "}"
 
-return interned ( internKey ) or intern ( internKey , function ( )
-return setmetatable({ tag =  "array" ,  elem =  elem }, types.Array)
-end )
+local existing = interned ( internKey )
+if existing then
+return existing
+end
+
+return intern ( internKey , setmetatable({ tag =  "array" ,  elem =  elem }, types.Array) )
 end
 
 
@@ -88897,8 +91198,14 @@ readKey and readKey . id or "-"
 readValue and readValue . id or "-"
 ) .. "," .. ( writeKey and writeKey . id or "-" ) .. ":" .. ( writeValue and writeValue . id or "-" ) .. ")"
 
-return interned ( id ) or intern ( id , function ( )
-return setmetatable({ tag =
+local existing = interned ( id )
+if existing then
+return existing
+end
+
+return intern (
+id , setmetatable({ tag =
+
 "map" ,  key =
 key ,  value =
 value ,  readable =
@@ -88906,7 +91213,7 @@ readValue ~= nil ,  writeKey =
 writeKey ,  writeValue =
 writeValue }, types.Map)
 
-end )
+)
 end
 
 
@@ -88918,9 +91225,12 @@ end
 
 local internKey = "tuple(" .. table . concat ( ids , "," ) .. ")"
 
-return interned ( internKey ) or intern ( internKey , function ( )
-return setmetatable({ tag =  "tuple" ,  elems =  elems }, types.Tuple)
-end )
+local existing = interned ( internKey )
+if existing then
+return existing
+end
+
+return intern ( internKey , setmetatable({ tag =  "tuple" ,  elems =  elems }, types.Tuple) )
 end
 
 
@@ -88971,8 +91281,14 @@ irk and irk . id or "-"
 ) .. ":" .. ( irv and irv . id or "-" ) .. ":w=" .. ( iwk and iwk . id or "-" ) .. ":" .. ( iwv and iwv . id or "-" ) .. "]"
 local key = "shape(" .. table . concat ( parts , "," ) .. ")" .. ( fresh and "!fresh" or "" )
 
-return interned ( key ) or intern ( key , function ( )
-return setmetatable({ tag =
+local existing = interned ( key )
+if existing then
+return existing
+end
+
+return intern (
+key , setmetatable({ tag =
+
 "shape" ,  fields =
 sorted ,  byname =
 byname ,  writeByname =
@@ -88983,7 +91299,7 @@ iwk ,  indexWriteValue =
 iwv ,  fresh =
 fresh or nil }, types.Shape)
 
-end )
+)
 end
 
 
@@ -88992,14 +91308,16 @@ end
 
 
 
-function types . union ( members )
-local seen = { }
-local flat = { }
-local functionByContract = { }
-local function push ( t )
+
+local function pushUnionMember (
+t ,
+seen ,
+flat ,
+functionByContract
+)
 if t . tag == "union" then
 for _ , m in ipairs ( t . members ) do
-push ( m )
+pushUnionMember ( m , seen , flat , functionByContract )
 end
 elseif t . tag == "func" and functionByContract [ t . unlabeledId ] then
 local at = functionByContract [ t . unlabeledId ]
@@ -89047,8 +91365,19 @@ end
 end
 end
 
+
+
+
+
+
+
+function types . union ( members )
+local seen = { }
+local flat = { }
+local functionByContract = { }
+
 for _ , m in ipairs ( members ) do
-push ( m )
+pushUnionMember ( m , seen , flat , functionByContract )
 end
 if # flat == 1 then
 return flat [ 1 ]
@@ -89090,7 +91419,11 @@ end
 
 local internKey = "union(" .. table . concat ( ids , "|" ) .. ")"
 
-return interned ( internKey ) or intern ( internKey , function ( )
+local existing = interned ( internKey )
+if existing then
+return existing
+end
+
 local hasNil = false
 for _ , m in ipairs ( flat ) do
 if m == types . nil_ then
@@ -89098,8 +91431,33 @@ hasNil = true
 end
 end
 
-return setmetatable({ tag =  "union" ,  members =  flat ,  hasNil =  hasNil }, types.Union)
-end )
+return intern ( internKey , setmetatable({ tag =  "union" ,  members =  flat ,  hasNil =  hasNil }, types.Union) )
+end
+
+
+
+
+
+
+
+local function pushIntersectionMember ( t , seen , flat )
+if t == types . never then
+for index = # flat , 1 , - 1 do
+flat [ index ] = nil
+end
+for member in pairs ( seen ) do
+seen [ member ] = nil
+end
+flat [ 1 ] = types . never
+seen [ types . never ] = true
+elseif t . tag == "intersection" then
+for _ , m in ipairs ( t . members ) do
+pushIntersectionMember ( m , seen , flat )
+end
+elseif t ~= types . unknown and t ~= types . any and not seen [ t ] and not seen [ types . never ] then
+seen [ t ] = true
+flat [ # flat + 1 ] = t
+end
 end
 
 
@@ -89109,22 +91467,9 @@ end
 function types . intersection ( members )
 local seen = { }
 local flat = { }
-local function push ( t )
-if t == types . never then
-flat = { types . never }
-seen = { [ types . never ] = true }
-elseif t . tag == "intersection" then
-for _ , m in ipairs ( t . members ) do
-push ( m )
-end
-elseif t ~= types . unknown and t ~= types . any and not seen [ t ] and not seen [ types . never ] then
-seen [ t ] = true
-flat [ # flat + 1 ] = t
-end
-end
 
 for _ , m in ipairs ( members ) do
-push ( m )
+pushIntersectionMember ( m , seen , flat )
 end
 if # flat == 0 then
 return types . unknown
@@ -89140,9 +91485,12 @@ end
 
 local internKey = "intersection(" .. table . concat ( ids , "&" ) .. ")"
 
-return interned ( internKey ) or intern ( internKey , function ( )
-return setmetatable({ tag =  "intersection" ,  members =  flat }, types.Intersection)
-end )
+local existing = interned ( internKey )
+if existing then
+return existing
+end
+
+return intern ( internKey , setmetatable({ tag =  "intersection" ,  members =  flat }, types.Intersection) )
 end
 
 
@@ -89154,9 +91502,12 @@ end
 function types . ptr ( t )
 local internKey = t . id .. "*"
 
-return interned ( internKey ) or intern ( internKey , function ( )
-return setmetatable({ tag =  "ptr" ,  elem =  t }, types.Ptr)
-end )
+local existing = interned ( internKey )
+if existing then
+return existing
+end
+
+return intern ( internKey , setmetatable({ tag =  "ptr" ,  elem =  t }, types.Ptr) )
 end
 
 
@@ -89206,17 +91557,23 @@ end
 
 local internKey = "owned(" .. table . concat ( ids , "," ) .. ":" .. t . id .. ( opaque and ":opaque" or "" ) .. ")"
 
-return interned ( internKey ) or intern ( internKey , function ( )
-return setmetatable({ tag =  "owned" ,  inner =  t ,  cleanups =  list ,  opaque =  opaque == true }, types.Owned)
-end )
+local existing = interned ( internKey )
+if existing then
+return existing
+end
+
+return intern ( internKey , setmetatable({ tag =  "owned" ,  inner =  t ,  cleanups =  list ,  opaque =  opaque == true }, types.Owned) )
 end
 
 function types . borrowed ( t )
 local internKey = "borrowed(" .. t . id .. ")"
 
-return interned ( internKey ) or intern ( internKey , function ( )
-return setmetatable({ tag =  "borrowed" ,  inner =  t }, types.Borrowed)
-end )
+local existing = interned ( internKey )
+if existing then
+return existing
+end
+
+return intern ( internKey , setmetatable({ tag =  "borrowed" ,  inner =  t }, types.Borrowed) )
 end
 
 
@@ -89225,9 +91582,12 @@ end
 function types . pinned ( t )
 local internKey = "pinned(" .. t . id .. ")"
 
-return interned ( internKey ) or intern ( internKey , function ( )
-return setmetatable({ tag =  "pinned" ,  inner =  t }, types.Pinned)
-end )
+local existing = interned ( internKey )
+if existing then
+return existing
+end
+
+return intern ( internKey , setmetatable({ tag =  "pinned" ,  inner =  t }, types.Pinned) )
 end
 
 
@@ -89316,7 +91676,7 @@ if not tail then
 return ""
 end
 if tail . kind == "homogeneous" then
-return "..." .. tail . type . id
+return "..." .. ( tail . mode or "plain" ) .. ":" .. tail . type . id
 end
 if tail . kind == "generic" then
 return tail . var . id .. "..."
@@ -89494,15 +91854,21 @@ yieldPack ,
 returnPack
 )
 local key = "thread<" .. startPack . id .. "," .. resumePack . id .. "," .. yieldPack . id .. "," .. returnPack . id .. ">"
-return interned ( key ) or intern ( key , function ( )
-return setmetatable({ tag =
+local existing = interned ( key )
+if existing then
+return existing
+end
+
+return intern (
+key , setmetatable({ tag =
+
 "protocolThread" ,  startPack =
 startPack ,  resumePack =
 resumePack ,  yieldPack =
 yieldPack ,  returnPack =
 returnPack }, types.ProtocolThread)
 
-end )
+)
 end
 
 function types . genericAlias (
@@ -89526,8 +91892,14 @@ parts [ # parts + 1 ] = cv . id
 end
 local key = table . concat ( parts , "|" ) .. ")"
 
-return interned ( key ) or intern ( key , function ( )
-return setmetatable({ tag =
+local existing = interned ( key )
+if existing then
+return existing
+end
+
+return intern (
+key , setmetatable({ tag =
+
 "genericAlias" ,  name =
 name ,  body =
 body ,  typeParams =
@@ -89537,7 +91909,7 @@ packParams or { } ,  constParams =
 constParams or { } ,  paramKinds =
 paramKinds or { } }, types.GenericAlias)
 
-end )
+)
 end
 
 function types . tostringPack ( pack )
@@ -89721,8 +92093,14 @@ if paramNames then
 key = key .. "|names(" .. table . concat ( names , "," ) .. ")"
 end
 
-return interned ( key ) or intern ( key , function ( )
-return setmetatable({ tag =
+local existing = interned ( key )
+if existing then
+return existing
+end
+
+return intern (
+key , setmetatable({ tag =
+
 "func" ,  params =
 params ,  rets =
 rets ,  vararg =
@@ -89751,7 +92129,7 @@ paramKinds ,  yieldPack =
 yieldPack ,  resumePack =
 resumePack }, types.Func)
 
-end )
+)
 end
 
 
@@ -89930,9 +92308,12 @@ function types . literal ( value , base )
 local of = base or types . string
 local internKey = "lit(" .. of . tag .. ":" .. tostring ( value ) .. ")"
 
-return interned ( internKey ) or intern ( internKey , function ( )
-return setmetatable({ tag =  "literal" ,  constant =  value ,  base =  of }, types.Literal)
-end )
+local existing = interned ( internKey )
+if existing then
+return existing
+end
+
+return intern ( internKey , setmetatable({ tag =  "literal" ,  constant =  value ,  base =  of }, types.Literal) )
 end
 
 
@@ -89943,9 +92324,12 @@ function types . carray ( elem , count , countTerm )
 local term = countTerm or ( count and types . constLiteral ( "integer" , count ) or nil )
 local internKey = "carray(" .. elem . id .. "," .. ( term and term . id or "?" ) .. ")"
 
-return interned ( internKey ) or intern ( internKey , function ( )
-return setmetatable({ tag =  "carray" ,  elem =  elem ,  count =  count ,  countTerm =  term }, types.CArray)
-end )
+local existing = interned ( internKey )
+if existing then
+return existing
+end
+
+return intern ( internKey , setmetatable({ tag =  "carray" ,  elem =  elem ,  count =  count ,  countTerm =  term }, types.CArray) )
 end
 
 
@@ -89956,18 +92340,24 @@ return t
 end
 local internKey = "const(" .. t . id .. ")"
 
-return interned ( internKey ) or intern ( internKey , function ( )
-return setmetatable({ tag =  "const" ,  inner =  t }, types.Const)
-end )
+local existing = interned ( internKey )
+if existing then
+return existing
+end
+
+return intern ( internKey , setmetatable({ tag =  "const" ,  inner =  t }, types.Const) )
 end
 
 
 function types . ctype ( t )
 local internKey = "ctype(" .. t . id .. ")"
 
-return interned ( internKey ) or intern ( internKey , function ( )
-return setmetatable({ tag =  "ctype" ,  of =  t }, types.CType)
-end )
+local existing = interned ( internKey )
+if existing then
+return existing
+end
+
+return intern ( internKey , setmetatable({ tag =  "ctype" ,  of =  t }, types.CType) )
 end
 
 
@@ -89978,23 +92368,32 @@ function types . typevar ( name , identity )
 
 local internKey = "!ttv(" .. ( identity or name ) .. ")"
 
-return interned ( internKey ) or intern ( internKey , function ( )
-return setmetatable({ tag =  "typevar" ,  name =  name }, types.TypeVar)
-end )
+local existing = interned ( internKey )
+if existing then
+return existing
+end
+
+return intern ( internKey , setmetatable({ tag =  "typevar" ,  name =  name }, types.TypeVar) )
 end
 
 function types . typeHandle ( bound )
 local key = "type<" .. bound . id .. ">"
-return interned ( key ) or intern ( key , function ( )
-return setmetatable({ tag =  "typeHandle" ,  bound =  bound }, types.TypeHandle)
-end )
+local existing = interned ( key )
+if existing then
+return existing
+end
+
+return intern ( key , setmetatable({ tag =  "typeHandle" ,  bound =  bound }, types.TypeHandle) )
 end
 
 function types . packResult ( pack )
 local key = "packResult(" .. pack . id .. ")"
-return interned ( key ) or intern ( key , function ( )
-return setmetatable({ tag =  "packResult" ,  pack =  pack }, types.PackResult)
-end )
+local existing = interned ( key )
+if existing then
+return existing
+end
+
+return intern ( key , setmetatable({ tag =  "packResult" ,  pack =  pack }, types.PackResult) )
 end
 
 
@@ -90041,8 +92440,14 @@ value and value . id or "-"
 remap and remap . id or "-"
 ) .. ":" .. ( constTerm and constTerm . id or "-" ) .. ":" .. table . concat ( templateIds , "," ) .. ")"
 
-return interned ( id ) or intern ( id , function ( )
-return setmetatable({ tag =
+local existing = interned ( id )
+if existing then
+return existing
+end
+
+return intern (
+id , setmetatable({ tag =
+
 "neutral" ,  op =
 op ,  capability =
 capability ,  subject =
@@ -90055,7 +92460,7 @@ remap ,  constTerm =
 constTerm ,  templateParts =
 templateParts }, types.Neutral)
 
-end )
+)
 end
 
 
@@ -90080,8 +92485,14 @@ end
 end
 local id = "neutral(comptime:" .. table . concat ( ids , "," ) .. ")"
 
-return interned ( id ) or intern ( id , function ( )
-return setmetatable({ tag =
+local existing = interned ( id )
+if existing then
+return existing
+end
+
+return intern (
+id , setmetatable({ tag =
+
 "neutral" ,  op =
 "comptimeCall" ,  comptimeIdentity =
 identity ,  comptimeHelper =
@@ -90090,24 +92501,30 @@ arguments ,  comptimeBound =
 bound or types . unknown ,  comptimeResultPack =
 resultPack }, types.Neutral)
 
-end )
+)
 end
 
 function types . metatable ( t )
 local internKey = "metatable(" .. t . id .. ")"
 
-return interned ( internKey ) or intern ( internKey , function ( )
-return setmetatable({ tag =  "metatable" ,  of =  t }, types.Metatable)
-end )
+local existing = interned ( internKey )
+if existing then
+return existing
+end
+
+return intern ( internKey , setmetatable({ tag =  "metatable" ,  of =  t }, types.Metatable) )
 end
 
 
 function types . projection ( of , name )
 local internKey = "!jproj(" .. of . id .. "," .. name .. ")"
 
-return interned ( internKey ) or intern ( internKey , function ( )
-return setmetatable({ tag =  "projection" ,  of =  of ,  name =  name }, types.Projection)
-end )
+local existing = interned ( internKey )
+if existing then
+return existing
+end
+
+return intern ( internKey , setmetatable({ tag =  "projection" ,  of =  of ,  name =  name }, types.Projection) )
 end
 
 
@@ -90430,7 +92847,11 @@ end
 local paramTail = t . paramPack . tail
 if paramTail then
 if paramTail . kind == "homogeneous" then
-ps [ # ps + 1 ] = "...: " .. types . tostring ( paramTail . type )
+ps [
+# ps + 1
+] = (
+paramTail . mode and paramTail . mode ~= "plain" and paramTail . mode .. " " or ""
+) .. "...: " .. types . tostring ( paramTail . type )
 elseif paramTail . kind == "generic" then
 ps [ # ps + 1 ] = paramTail . var . name .. "..."
 elseif paramTail . kind == "computed" then
@@ -94833,6 +97254,14 @@ local span = { }
 
 
 
+span.Span = {}
+
+
+
+
+
+
+
 const SpanImpl = {} SpanImpl.__index = SpanImpl
 
 
@@ -94934,6 +97363,12 @@ span.WriteSplit = {} span.WriteSplit.__index = span.WriteSplit
 
 
 
+span.WriteSpan = {}
+
+
+
+
+
 
 
 
@@ -94964,6 +97399,19 @@ const WriteSpanImpl = {} WriteSpanImpl.__index = WriteSpanImpl
 
 
 
+
+
+function WriteSpanImpl:getMut(index)
+if index < 1 or index > self . count then
+error ( "write span index out of bounds" , 2 )
+end
+do
+local elementOffset = self . offset + index - 1
+local pointer = ( self . pointer ) + elementOffset
+return pointer
+end
+end
+
 function WriteSpanImpl:set(index, value)
 if index < 1 or index > self . count then
 error ( "write span index out of bounds" , 2 )
@@ -94988,6 +97436,26 @@ self ,  pointer =
 self . pointer ,  offset =
 self . offset ,  count =
 self . count }, SpanImpl)
+
+end
+
+
+
+function WriteSpanImpl:slice(first, last)
+
+
+
+
+local finish = last or self . count
+if first < 1 or finish < first - 1 or finish > self . count then
+error ( "write span slice out of bounds" , 2 )
+end
+
+return setmetatable({ anchor =
+self ,  pointer =
+self . pointer ,  offset =
+self . offset + first - 1 ,  count =
+finish - first + 1 }, WriteSpanImpl)
 
 end
 
@@ -95029,6 +97497,17 @@ const FixedWriteSpanImpl = {} FixedWriteSpanImpl.__index = FixedWriteSpanImpl
 
 
 
+function FixedWriteSpanImpl:getMut(index)
+if index < 1 or index > ( self . count ) then
+error ( "write span index out of bounds" , 2 )
+end
+do
+local elementOffset = self . offset + index - 1
+local pointer = ( self . pointer ) + elementOffset
+return pointer
+end
+end
+
 function FixedWriteSpanImpl:set(index, value)
 if index < 1 or index > ( self . count ) then
 error ( "write span index out of bounds" , 2 )
@@ -95051,6 +97530,24 @@ self ,  pointer =
 self . pointer ,  offset =
 self . offset ,  count =
 self . count }, FixedSpanImpl)
+
+end
+
+function FixedWriteSpanImpl:slice(first, last)
+
+
+
+
+local finish = last or ( self . count )
+if first < 1 or finish < first - 1 or finish > ( self . count ) then
+error ( "write span slice out of bounds" , 2 )
+end
+
+return setmetatable({ anchor =
+self ,  pointer =
+self . pointer ,  offset =
+self . offset + first - 1 ,  count =
+finish - first + 1 }, WriteSpanImpl)
 
 end
 
@@ -95156,6 +97653,33 @@ count
 return ( setmetatable({ anchor =
 source ,  pointer =  source ,  offset =  0 ,  count =  count }, FixedWriteSpanImpl)
 )
+end
+
+
+
+span.Range = {} span.Range.__index = span.Range
+
+
+
+
+
+
+
+
+
+function span . range ( first , last , ... )
+local count = select ( "#" , ... )
+if count < 1 or first < 1 or last < first - 1 then
+error ( "span range out of bounds" , 2 )
+end
+for index = 1 , count do
+local candidate = select ( index , ... )
+if last > candidate . count then
+error ( "span range out of bounds" , 2 )
+end
+end
+
+return setmetatable({ first =  first ,  last =  last }, span.Range)
 end
 
 return span
@@ -97954,7 +100478,8 @@ record nupp.derive
     --- Generates `debug(self): string` and `nupp.Debug` conformance, rendering the
     --- declaration's own fields in declaration order.
     ---
-    --- `@debug(redact = true)` keeps a field's name and hides its value, which is what a
+    --- `@debug(redact = true)` keeps a field's name and hides its value, which is what
+    --- a
     --- secret wants; `@debug(skip = true)` removes the field from the output entirely.
     ---
     --- ```nupp
@@ -98776,45 +101301,48 @@ record nupp.data
             --- @return whether empty tables encode as objects
             encodeEmptyTableAsObject: function(setting: boolean | string?): boolean
 
-            --- Sets whether decoded arrays carry `ARRAY_MT`, or reads the current setting
+            --- Sets whether decoded arrays carry `ARRAY_MT`, or reads the current
+            --- setting
             --- when omitted.
             --- @param setting the new setting
             --- @return whether decoded arrays carry `ARRAY_MT`
             decodeArrayWithArrayMt: function(setting: boolean | string?): boolean
 
-            --- Configures how excessively sparse arrays are encoded, or reads the current
+            --- Configures how excessively sparse arrays are encoded, or reads the
+            --- current
             --- settings when every argument is omitted.
-            --- @param convert whether sparse arrays become JSON objects instead of raising
+            --- @param convert whether sparse arrays become JSON objects instead of
+            ---     raising
             --- @param ratio the maximum ratio between the highest index and item count
             --- @param safe the array size below which sparsity is always accepted
             --- @return whether sparse arrays are converted
             --- @return the current ratio limit
             --- @return the current safe size
-            encodeSparseArray: function(
-                convert: boolean?,
-                ratio: integer?,
-                safe: integer?
-            ): (boolean, integer, integer)
+            encodeSparseArray: function(convert: boolean?, ratio: integer?, safe: integer?): (boolean, integer, integer)
 
-            --- Sets the maximum nested-container depth accepted by the encoder, or reads
+            --- Sets the maximum nested-container depth accepted by the encoder, or
+            --- reads
             --- the current limit when omitted.
             --- @param depth the new maximum depth
             --- @return the current maximum depth
             encodeMaxDepth: function(depth: integer?): integer
 
-            --- Sets the maximum nested-container depth accepted by the decoder, or reads
+            --- Sets the maximum nested-container depth accepted by the decoder, or
+            --- reads
             --- the current limit when omitted.
             --- @param depth the new maximum depth
             --- @return the current maximum depth
             decodeMaxDepth: function(depth: integer?): integer
 
-            --- Sets the significant-digit precision used to encode numbers, or reads the
+            --- Sets the significant-digit precision used to encode numbers, or reads
+            --- the
             --- current precision when omitted.
             --- @param precision the new number of significant digits
             --- @return the current precision
             encodeNumberPrecision: function(precision: integer?): integer
 
-            --- Sets whether the encoder reuses its internal buffer, or reads the current
+            --- Sets whether the encoder reuses its internal buffer, or reads the
+            --- current
             --- setting when omitted.
             --- @param keep the new setting
             --- @return whether the internal buffer is retained
@@ -98822,18 +101350,21 @@ record nupp.data
 
             --- Configures encoding of NaN and infinities, or reads the current setting
             --- when omitted.
-            --- @param setting false to reject them, true to emit them, or "null" to emit
+            --- @param setting false to reject them, true to emit them, or "null" to
+            ---     emit
             ---     null
             --- @return the active invalid-number setting
             encodeInvalidNumbers: function(setting: boolean | string?): boolean | string
 
-            --- Sets whether the decoder accepts NaN and infinities, or reads the current
+            --- Sets whether the decoder accepts NaN and infinities, or reads the
+            --- current
             --- setting when omitted.
             --- @param setting the new setting
             --- @return whether invalid numbers are accepted
             decodeInvalidNumbers: function(setting: boolean | string?): boolean
 
-            --- Sets whether `/` is escaped in JSON strings, or reads the current setting
+            --- Sets whether `/` is escaped in JSON strings, or reads the current
+            --- setting
             --- when omitted.
             --- @param setting the new setting
             --- @return whether forward slashes are escaped
@@ -98887,11 +101418,7 @@ record nupp.data
         --- @return whether sparse arrays are converted
         --- @return the current ratio limit
         --- @return the current safe size
-        encodeSparseArray: function(
-            convert: boolean?,
-            ratio: integer?,
-            safe: integer?
-        ): (boolean, integer, integer)
+        encodeSparseArray: function(convert: boolean?, ratio: integer?, safe: integer?): (boolean, integer, integer)
 
         --- Sets the maximum nested-container depth accepted by the encoder, or reads
         --- the current limit when omitted.
@@ -99051,12 +101578,7 @@ record nupp.data
             --- @return how many were written, and the position to resume from when
             ---     `target` filled first, or -1 when the set is exhausted
             --- @raises when capacity is negative
-            positionsInto: function(
-                self,
-                target: int32[?],
-                capacity: integer,
-                from: integer
-            ): (integer, integer)
+            positionsInto: function(self, target: int32[?], capacity: integer, from: integer): (integer, integer)
 
             --- Whether every bit set in `other` is also set here.
             --- @param other read and not modified
@@ -100372,10 +102894,80 @@ end
 
 --- Scalar angle helpers and two-dimensional vector operations.
 --- @internal
+--- Explicit wrapping signed 32-bit arithmetic and bit operations.
+--- @internal
+record nupp.I32MathLibrary
+    add: nosuspend function(a: int32, b: int32): int32
+    sub: nosuspend function(a: int32, b: int32): int32
+    mul: nosuspend function(a: int32, b: int32): int32
+    andBits: nosuspend function(a: int32, b: int32): int32
+    orBits: nosuspend function(a: int32, b: int32): int32
+    xorBits: nosuspend function(a: int32, b: int32): int32
+    notBits: nosuspend function(a: int32): int32
+    shiftLeft: nosuspend function(a: int32, count: integer): int32
+    shiftRightArithmetic: nosuspend function(a: int32, count: integer): int32
+    rotateLeft: nosuspend function(a: int32, count: integer): int32
+    rotateRight: nosuspend function(a: int32, count: integer): int32
+    lessThan: nosuspend function(a: int32, b: int32): boolean
+    lessOrEqual: nosuspend function(a: int32, b: int32): boolean
+    fromU32: nosuspend function(a: uint32): int32
+    toU32: nosuspend function(a: int32): uint32
+end
+
+--- Explicit wrapping unsigned 32-bit arithmetic and bit operations.
+--- @internal
+record nupp.U32MathLibrary
+    add: nosuspend function(a: uint32, b: uint32): uint32
+    sub: nosuspend function(a: uint32, b: uint32): uint32
+    mul: nosuspend function(a: uint32, b: uint32): uint32
+    andBits: nosuspend function(a: uint32, b: uint32): uint32
+    orBits: nosuspend function(a: uint32, b: uint32): uint32
+    xorBits: nosuspend function(a: uint32, b: uint32): uint32
+    notBits: nosuspend function(a: uint32): uint32
+    shiftLeft: nosuspend function(a: uint32, count: integer): uint32
+    shiftRightLogical: nosuspend function(a: uint32, count: integer): uint32
+    rotateLeft: nosuspend function(a: uint32, count: integer): uint32
+    rotateRight: nosuspend function(a: uint32, count: integer): uint32
+    lessThan: nosuspend function(a: uint32, b: uint32): boolean
+    lessOrEqual: nosuspend function(a: uint32, b: uint32): boolean
+    fromI32: nosuspend function(a: int32): uint32
+    toI32: nosuspend function(a: uint32): int32
+end
+
+--- Explicit IEEE-754 binary32 arithmetic. Every input and output is rounded to
+--- nearest, ties-to-even; NaNs use the canonical quiet payload 0x7fc00000.
+--- @internal
+record nupp.F32MathLibrary
+    round: nosuspend function(value: number): float
+    add: nosuspend function(a: number, b: number): float
+    sub: nosuspend function(a: number, b: number): float
+    mul: nosuspend function(a: number, b: number): float
+    div: nosuspend function(a: number, b: number): float
+    sqrt: nosuspend function(value: number): float
+    min: nosuspend function(a: number, b: number): float
+    max: nosuspend function(a: number, b: number): float
+    fma: nosuspend function(a: number, b: number, c: number): float
+    fromBits: nosuspend function(bits: uint32): float
+    toBits: nosuspend function(value: number): uint32
+end
+
+--- @internal
 record nupp.MathLibrary
     --- Two-dimensional vector operations over `(x, y)` number pairs.
     --- @namespace
     vec2: nupp.Vec2Library
+
+    --- Signed 32-bit wrapping arithmetic.
+    --- @namespace
+    i32: nupp.I32MathLibrary
+
+    --- Unsigned 32-bit wrapping arithmetic.
+    --- @namespace
+    u32: nupp.U32MathLibrary
+
+    --- IEEE-754 binary32 arithmetic with explicit rounding.
+    --- @namespace
+    f32: nupp.F32MathLibrary
 
     --- Linearly interpolates between two numbers without clamping the factor.
     --- @param from the value returned when `t` is zero
@@ -100575,6 +103167,7 @@ local function __NuppFormatArguments(Format: type, Debug: type): typepack
             end
         end
     end
+
     return nupp.types.pack(arguments)
 end
 
@@ -100612,6 +103205,7 @@ local function __NuppMatchResults(Pattern: type): typepack
             results[index] = capture
         end
     end
+
     return nupp.types.pack(results)
 end
 
@@ -100642,6 +103236,7 @@ local function __NuppFindResults(Pattern: type, Plain: type): typepack
             endpoints[#endpoints + 1] = nupp.types.string
         end
     end
+
     return nupp.types.pack(endpoints)
 end
 
@@ -100668,6 +103263,7 @@ local function __NuppGmatchResults(Pattern: type): typepack
         end
     end
     local iterator = nupp.types.function_(nupp.types.pack({}), nupp.types.pack(results))
+
     return nupp.types.pack({iterator})
 end
 
@@ -100682,6 +103278,7 @@ local function __NuppGsubResults(Pattern: type): typepack
             return nupp.types.error("invalid Lua pattern: " .. parsed.error)
         end
     end
+
     return nupp.types.pack({nupp.types.string, nupp.types.integer})
 end
 
@@ -100844,7 +103441,10 @@ local string: {
     --- @param fmt the format string
     --- @param ... the values that the directives consume
     --- @return the formatted string
-    format: nosuspend function<Format is string>(fmt: Format, ...: unpackof __NuppFormatArguments(Format, nupp.Debug)): string,
+    format: nosuspend function<Format is string>(
+        fmt: Format,
+        ...: unpackof __NuppFormatArguments(Format, nupp.Debug)
+    ): string,
 
     --- Returns an iterator over each successive match of `pat` in `s`, or over that
     --- match's captures when the pattern has any. Anchors have no special meaning here.
@@ -105953,10 +108553,18 @@ contract or dereference or offset its raw pointer.
 
 local span = {}
 
+--- The sealed common count capability carried by every bundled span view.
+--- It is a static constraint for `span.range`; no interface wrapper exists at
+--- run time and outside modules cannot forge an implementation.
+--- @export
+sealed interface span.CountedSpan
+    readonly count: integer
+end
+
 --- A checked, shared view over contiguous elements. Only this module can declare an
 --- implementation, so the contract is proof that `ref()` and `count` agree.
 --- @export
-sealed interface span.Span<T>
+sealed interface span.Span<T> is span.CountedSpan
     readonly count: integer
     get: function(self: Span<T>, index: integer): T
     slice: function(self: Span<T>, first: integer, last: integer?): Span<T> borrows(self)
@@ -106065,13 +108673,19 @@ end
 --- incompatible-borrow barrier until `span.commit` or scope exit consumes it. Only
 --- this module can declare an implementation.
 --- @export
-sealed interface span.WriteSpan<T>
+sealed interface span.WriteSpan<T> is span.CountedSpan
     readonly count: integer
     @drop
     commit: nosuspend function(takes self: WriteSpan<T>): nil
+    getMut: function(exclusive self: WriteSpan<T>, index: integer): T* borrows(self)
     set: function(exclusive self: WriteSpan<T>, index: integer, value: T): nil
     ref: function(exclusive self: WriteSpan<T>): (T[?] borrows(self), integer)
     shared: function(borrows self: WriteSpan<T>): span.Span<T> borrows(self)
+    slice: function(
+        exclusive self: WriteSpan<T>,
+        first: integer,
+        last: integer?
+    ): Owned<span.WriteSpan<T>> borrows(self)
     @partition(left, right)
     splitAt: function(exclusive self: WriteSpan<T>, mid: integer): span.WriteSplit<T> borrows(self)
 end
@@ -106094,6 +108708,19 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
     @drop
 
     commit: nosuspend function(takes self: WriteSpanImpl<T>): nil
+
+    --- Returns a checked mutable element reference tied to this write borrow.
+    --- @raises when index is outside 1 through count
+    function getMut(exclusive self: WriteSpanImpl<T>, index: integer): T* borrows(self)
+        if index < 1 or index > self.count then
+            error("write span index out of bounds", 2)
+        end
+        unsafe do
+            local elementOffset = self.offset + index - 1
+            local pointer = (self.pointer as T*) + elementOffset
+            return borrowFrom(pointer, self)
+        end
+    end
 
     function set(exclusive self: WriteSpanImpl<T>, index: integer, value: T): nil
         if index < 1 or index > self.count then
@@ -106120,6 +108747,26 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
             offset = self.offset,
             count = self.count
         ) as span.Span<T>
+    end
+
+    --- Returns an affine writable subspan, inclusive at both ends.
+    --- @raises when the requested range is outside this span
+    function slice(
+        exclusive self: WriteSpanImpl<T>,
+        first: integer,
+        last: integer?
+    ): Owned<span.WriteSpan<T>> borrows(self)
+        local finish = last or self.count
+        if first < 1 or finish < first - 1 or finish > self.count then
+            error("write span slice out of bounds", 2)
+        end
+
+        return new WriteSpanImpl(
+            anchor = self,
+            pointer = self.pointer as any,
+            offset = self.offset + first - 1,
+            count = finish - first + 1
+        ) as span.WriteSpan<T>
     end
 
     --- Partitions this range at a zero-based boundary count.
@@ -106160,6 +108807,17 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
     @drop
     commit: nosuspend function(takes self: FixedWriteSpanImpl<T, N>): nil
 
+    function getMut(exclusive self: FixedWriteSpanImpl<T, N>, index: integer): T* borrows(self)
+        if index < 1 or index > (self.count as integer) then
+            error("write span index out of bounds", 2)
+        end
+        unsafe do
+            local elementOffset = self.offset + index - 1
+            local pointer = (self.pointer as T*) + elementOffset
+            return borrowFrom(pointer, self)
+        end
+    end
+
     function set(exclusive self: FixedWriteSpanImpl<T, N>, index: integer, value: T): nil
         if index < 1 or index > (self.count as integer) then
             error("write span index out of bounds", 2)
@@ -106183,6 +108841,24 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
             offset = self.offset,
             count = self.count
         ) as span.FixedSpan<T, N>
+    end
+
+    function slice(
+        exclusive self: FixedWriteSpanImpl<T, N>,
+        first: integer,
+        last: integer?
+    ): Owned<span.WriteSpan<T>> borrows(self)
+        local finish = last or (self.count as integer)
+        if first < 1 or finish < first - 1 or finish > (self.count as integer) then
+            error("write span slice out of bounds", 2)
+        end
+
+        return new WriteSpanImpl(
+            anchor = self,
+            pointer = self.pointer as any,
+            offset = self.offset + first - 1,
+            count = finish - first + 1
+        ) as span.WriteSpan<T>
     end
 
     function splitAt(exclusive self: FixedWriteSpanImpl<T, N>, mid: integer): span.WriteSplit<T> borrows(self)
@@ -106287,6 +108963,33 @@ function span.writeFixedCarray<T, const N: integer>(
     return (
         new FixedWriteSpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)
     ) as span.FixedWriteSpan<T, N>
+end
+
+--- Inclusive integer bounds validated once against every supplied span.
+--- @export
+record span.Range
+    readonly first: integer
+    readonly last: integer
+end
+
+--- Creates one checked inclusive iteration range shared by several spans.
+--- The typed borrowed vararg checks each original span directly and builds no
+--- collection or interface box.
+--- @export
+--- @raises when no span is supplied or the bounds exceed any supplied span
+function span.range(first: integer, last: integer, borrows ...: span.CountedSpan): span.Range
+    local count = select("#", ...)
+    if count < 1 or first < 1 or last < first - 1 then
+        error("span range out of bounds", 2)
+    end
+    for index = 1, count do
+        local candidate = select(index, ...)
+        if last > candidate.count then
+            error("span range out of bounds", 2)
+        end
+    end
+
+    return new span.Range(first = first, last = last)
 end
 
 return span

@@ -942,6 +942,14 @@ Reports: `NUPP2603`, `NUPP2615`. `nupp explain <code>` says more.
 time. `nupp import-c` ejects the same declarations as an editable module. Both
 preserve unions and bitfields.
 
+`nupp export-c -o game.h src/game.nupp game.Position game.integrate` goes the
+other direction. It gives an ordinary reified Nupp struct one deterministic,
+module-qualified C typedef, emits target-specific layout fingerprints and
+static assertions, and publishes selected typed `cdef function` prototypes.
+Ordinary structs cross this boundary through pointers or arrays, not by value;
+Nupp keeps its anonymous runtime ctype and owns the physical pointer bridge.
+Generating a header invokes no C compiler.
+
 C callback positions survive aliases. Passing Lua to one reports
 `jit-callback`; a variadic C call reports `jit-boundary`. Disable the cold
 function with `jit.off`. `@jit` makes avoiding both boundaries a checked
@@ -968,6 +976,75 @@ return m
 
 Reports: `NUPP2203`, `NUPP2101`, `NUPP2502`, `NUPP2514`, `NUPP2707`. `nupp
 explain <code>` says more.
+
+### Fixed-width scalar arithmetic
+
+Ordinary `+`, `*`, and a `float` annotation retain LuaJIT's existing numeric
+meaning. Code that requires one explicitly sized operation calls
+`nupp.math.i32`, `nupp.math.u32`, or `nupp.math.f32` instead.
+
+The integer namespaces wrap modulo 2^32; shift counts are masked by 31 and
+signedness is stated by the operation. The binary32 namespace rounds every
+input and result to nearest, ties to even. It preserves signed zero,
+subnormals, and infinities, canonicalizes every NaN, and makes `fma` one fused
+operation. `fromBits` and `toBits` expose the canonical bit contract.
+
+Calls use Lua numbers in canonical ranges rather than allocating scalar cdata.
+Aliasing a standard member preserves its intrinsic identity; shadowing its
+spelling is an ordinary call.
+
+```nupp
+local m = {}
+
+function m.step(flags: uint32, distance: number, inverseTime: number): (uint32, float)
+    local rotated = nupp.math.u32.rotateLeft(flags, 7)
+    local speed = nupp.math.f32.mul(distance, inverseTime)
+    return rotated, speed
+end
+
+return m
+```
+
+Reports: `NUPP2001`, `NUPP2004`. `nupp explain <code>` says more.
+
+### Checked span views
+
+`nupp.span` wraps rooted C arrays in sealed, bounds-checked shared and writable
+views. `WriteSpan.slice(first, last)` returns one affine child writer; its
+parent remains blocked until that child is committed or dropped. Empty slices
+use the inclusive `first, first - 1` convention.
+
+`span.range(first, last, ...)` validates one inclusive range against every
+supplied standard span and returns ordinary `first` and `last` integers. Its
+typed borrowed vararg passes each original span unchanged and allocates no
+container. A const-bound range over const-bound spans also proves matching
+`get`, `getMut`, and `set` indices non-raising in the dominated numeric loop.
+The access itself remains an ordinary checked span operation.
+
+```nupp
+local span = require("nupp.span")
+local m = {}
+
+local struct Value
+    n: integer
+end
+
+function m.total(): number
+    const storage = carray(Value, 4)
+    const values = span.fromCarray(storage, 4)
+    const rows = span.range(1, 4, values)
+    local total = 0
+    for index = rows.first, rows.last do
+        total = total + values:get(index).n
+    end
+    return total
+end
+
+return m
+```
+
+Reports: `NUPP2001`, `NUPP2004`, `NUPP2602`, `NUPP2604`. `nupp explain <code>`
+says more.
 
 ### Annotations
 
@@ -1246,6 +1323,46 @@ return m
 ```
 
 Reports: `NUPP2701`, `NUPP2702`, `NUPP2706`. `nupp explain <code>` says more.
+
+### Allocation and raising regions
+
+`noalloc do ... end` requires every reachable modeled operation to avoid
+Nupp/Lua-managed allocation. `noraise do ... end` independently requires that
+no modeled path raises a catchable Nupp/Lua error. Both are lexical static
+checks and erase to ordinary `do` blocks without guards or protected calls.
+
+Visible functions are inferred to a pessimistic fixed point, including
+automatic cleanup. Exact direct exports transport only the positive
+`noAllocate` and `noRaise` facts a dependant observes; complete read, write,
+escape, and return summaries remain file-local. Unknown callbacks, methods,
+gradual calls, and uncontracted C functions prove neither fact.
+
+A bodyless or foreign declaration may establish a fact with a trusted
+`@effects` contract. That is a promise about the unseen implementation, not a
+proof about an OS, driver, or process-wide allocator. A visible body is still
+checked against its contract under NUPP2112.
+
+```nupp
+local m = {}
+
+local function quiet(value: uint32): uint32
+    return nupp.math.u32.add(value, 1)
+end
+
+function m.advance(value: uint32): uint32
+    local result = value
+    noalloc do
+        noraise do
+            result = quiet(value)
+        end
+    end
+    return result
+end
+
+return m
+```
+
+Reports: `NUPP2710`, `NUPP2711`, `NUPP2112`. `nupp explain <code>` says more.
 
 ### Comptime
 
@@ -1618,6 +1735,8 @@ says more.
 - **NUPP2706**: Control cannot jump into a handled suspension region.
 - **NUPP2707**: A function required to compile crosses an unsupported JIT
   boundary.
+- **NUPP2710**: A non-allocating region can reach allocation.
+- **NUPP2711**: A non-raising region can reach an error path.
 - **NUPP2801**: A derive provider name is unknown or duplicated.
 - **NUPP2802**: A generated derive member conflicts with the declaration.
 - **NUPP2803**: A field cannot participate in derived Debug.

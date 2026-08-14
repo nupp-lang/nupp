@@ -128,12 +128,7 @@ local function constInferenceProblem(ft: T.Func, map: {[any]: any}): string?
     return nil
 end
 
-local function probeArm(
-    ft: T.Func,
-    argPack: T.Pack,
-    cdefCall: boolean?,
-    control: any?
-): T.Func?, string?
+local function probeArm(ft: T.Func, argPack: T.Pack, cdefCall: boolean?, control: any?): T.Func?, string?
     local map = {}
     if T.hasTypevar(
         ft
@@ -202,6 +197,13 @@ local function probeArm(
     local tail = params.tail
     if tail and tail.kind == "homogeneous" then
         for j = #params.head + 1, actualCount do
+            local mode = tail.mode
+            local actual = argPack.head[j]
+            if mode == "takes" and actual.tag ~= "owned" then
+                return nil, ("argument %d requires an owned value"):format(j)
+            elseif mode == "scoped" and (actual.tag == "owned" or actual.tag == "pinned") then
+                return nil, ("argument %d cannot borrow an affine value as a repeatable callback"):format(j)
+            end
             local ok, why = isA(argPack.head[j], tail.type)
             if not ok then
                 return nil, ("argument %d in pack tail: %s"):format(j, why or "mismatch")
@@ -220,12 +222,7 @@ local function probeArm(
     return specialized
 end
 
-local function probeSignature(
-    ft: T.Func,
-    argPack: T.Pack,
-    cdefCall: boolean?,
-    control: any?
-): T.Func?, string?
+local function probeSignature(ft: T.Func, argPack: T.Pack, cdefCall: boolean?, control: any?): T.Func?, string?
     if not argPack.alternatives then
         return probeArm(ft, argPack, cdefCall, control)
     end
@@ -611,6 +608,10 @@ function calls.install(c: state.Checker): calls.Ops
     -- Checks one declared operation contract against already-inferred arguments. Unlike
     -- inferCall this never evaluates expressions again.
     function ops.applyContract(ft, ats, argNodes, site, operation)
+        -- Effect inference has no type-side noalloc/noraise qualifiers. A dispatched
+        -- metamethod or other contract is therefore unknown unless its exact body is a
+        -- normal checked call elsewhere in the file.
+        site.effectUnknownOperation = true
         local overloads = ft and callableMembers(ft) or nil
         if overloads then
             local survivors, rejections = {}, {}
@@ -661,7 +662,7 @@ function calls.install(c: state.Checker): calls.Ops
                 local bound = ft.typeBounds and ft.typeBounds[j]
                 local actual = map[tv]
                 if bound and actual then
-                local ok, why = isA(actual, substType(bound, map, nil, c.reductionControl))
+                    local ok, why = isA(actual, substType(bound, map, nil, c.reductionControl))
                     if not ok then
                         c.diag(
                             "NUPP2116",
@@ -948,10 +949,7 @@ function calls.install(c: state.Checker): calls.Ops
                 c.diag(
                     "NUPP2209",
                     node,
-                    ("record %s has fields private to module %q"):format(
-                        calleeT.name,
-                        declaration.moduleName or "?"
-                    ),
+                    ("record %s has fields private to module %q"):format(calleeT.name, declaration.moduleName or "?"),
                     nil,
                     {help = "use a public constructor declared by that module"}
                 )
@@ -1735,7 +1733,9 @@ function calls.install(c: state.Checker): calls.Ops
 
         local jitBody = c.functionBodies[#c.functionBodies]
         local function jitHazard(code, at, message, help, disabledDefinition, disabledBody)
-            c.jitHazards[#c.jitHazards + 1] = {
+            c.jitHazards[
+                #c.jitHazards + 1
+            ] = {
                 code = code,
                 at = at,
                 body = jitBody,
@@ -1746,6 +1746,7 @@ function calls.install(c: state.Checker): calls.Ops
                 suppressed = not (jitBody and jitBody.jitRequired) and c.suppressed(code),
             }
         end
+
         if node.cdefCall and calleeT.vararg then
             jitHazard(
                 "jit-boundary",
@@ -1807,24 +1808,15 @@ function calls.install(c: state.Checker): calls.Ops
                 end
             end
         end
-        -- A declared element type applies to every argument past the last named
-        -- parameter; an undeclared `...` still accepts anything.
-        if varargType then
-            for j = nparams + 1, actualCount do
-                local ok, why = isA(ats[j] or T.any, varargType)
-                if not ok then
-                    c.diag(
-                        "NUPP2006",
-                        cst.isToken(argNodes[j]) and node or argNodes[j],
-                        ("argument %d: %s"):format(j, why),
-                        nil,
-                        callDetails(node)
-                    )
-                end
-            end
-        end
-        for j = 1, math.min(actualCount, nparams) do
-            local mode = paramModes[j] or "plain"
+        -- A typed pack tail is a parameter contract for every surplus argument,
+        -- including its ownership mode. No collection or existential value is
+        -- introduced: each original argument is checked and passed unchanged.
+        local parameterTail = paramPack.tail
+        for j = 1, actualCount do
+            local tailSlot = j > nparams
+            local mode = tailSlot and parameterTail and parameterTail.kind == "homogeneous" and parameterTail.mode or (
+                not tailSlot and (paramModes[j] or "plain") or nil
+            )
             local actualForCheck = ats[j]
             local preservationResult = preservedByParam[j]
             if preservationResult then
@@ -1840,7 +1832,7 @@ function calls.install(c: state.Checker): calls.Ops
             if constInferenceFailed then
                 ok = true
             else
-                ok, why = isA(actualForCheck, params[j])
+                ok, why = isA(actualForCheck, tailSlot and (varargType or T.any) or params[j])
             end
             if not ok then
                 c.diag(
@@ -1855,7 +1847,7 @@ function calls.install(c: state.Checker): calls.Ops
             -- metatable this argument is. That is how `setmetatable` and any registrar
             -- taking one reach the receiver's contracts, a bounded generic's included.
             if not cst.isToken(argNodes[j]) then
-                c.checkMetatableLiteral(argNodes[j], ats[j], params[j])
+                c.checkMetatableLiteral(argNodes[j], ats[j], tailSlot and (varargType or T.any) or params[j])
             end
             if mode == "takes" then
                 local conditional = node.kind == "safeCall" or node.kind == "methodCall" and (
@@ -1879,11 +1871,11 @@ function calls.install(c: state.Checker): calls.Ops
                         end
                     else
                         c.moveExpression(movedNode, ats[j], ("argument %d"):format(j))
-                    if movedNode.automaticOwnerMove then
-                        node.automaticOwnerMoves = node.automaticOwnerMoves or {}
-                        node.automaticOwnerMoves[#node.automaticOwnerMoves + 1] = movedNode.automaticOwnerMove
+                        if movedNode.automaticOwnerMove then
+                            node.automaticOwnerMoves = node.automaticOwnerMoves or {}
+                            node.automaticOwnerMoves[#node.automaticOwnerMoves + 1] = movedNode.automaticOwnerMove
+                        end
                     end
-                end
                 end
             elseif preservationResult then
                 local kind = c.ownershipKind(ats[j])
@@ -1953,7 +1945,8 @@ function calls.install(c: state.Checker): calls.Ops
                         end
                         sole = #roots > 0
                         for _, root in ipairs(roots) do
-                            -- One live borrow is this named argument itself. Any more means
+                            -- One live borrow is this named argument itself. Any more
+                            -- means
                             -- another view exists and the borrow cannot be upgraded.
                             if (root.activeBorrows or 0) > 1 then
                                 sole = false
@@ -1968,11 +1961,14 @@ function calls.install(c: state.Checker): calls.Ops
                                 and entry.regionPath == regionPath
                                 and 1
                                 or 0
-                            if (activePath == regionPath and count > own)
-                                or (activePath ~= regionPath
-                                    and c.regionsOverlap(activePath, regionPath)
-                                    and activePath:sub(1, #regionPath) == regionPath)
-                            then
+                            if (
+                                activePath == regionPath and count > own
+                            ) or (
+                                activePath ~= regionPath and c.regionsOverlap(
+                                    activePath,
+                                    regionPath
+                                ) and activePath:sub(1, #regionPath) == regionPath
+                            ) then
                                 sole = false
                             end
                         end
@@ -2009,11 +2005,14 @@ function calls.install(c: state.Checker): calls.Ops
                                     and entry.regionPath == regionPath
                                     and 1
                                     or 0
-                                if (activePath == regionPath and count > own)
-                                    or (activePath ~= regionPath
-                                        and c.regionsOverlap(activePath, regionPath)
-                                        and activePath:sub(1, #regionPath) == regionPath)
-                                then
+                                if (
+                                    activePath == regionPath and count > own
+                                ) or (
+                                    activePath ~= regionPath and c.regionsOverlap(
+                                        activePath,
+                                        regionPath
+                                    ) and activePath:sub(1, #regionPath) == regionPath
+                                ) then
                                     blocked = true
                                     break
                                 end
@@ -2071,32 +2070,32 @@ function calls.install(c: state.Checker): calls.Ops
         for result = 1, #calleeT.rets do
             local source = preservesResults[result]
             if source then
-            local owners = argumentBorrowOwners[source]
-            if not owners then
-                local sourceNode = argNodes[source]
-                local entry = sourceNode and c.ownershipEntry(sourceNode)
-                if entry then
-                    owners = {c.borrowRoot(entry)}
-                end
-            end
-            if owners then
-                node.returnBorrowOwners = node.returnBorrowOwners or {}
-                node.returnBorrowOwners[result] = owners
-                if result == 1 then
-                    if #owners == 1 then
-                        node.borrowOwner = owners[1]
-                    else
-                        node.borrowOwners = owners
+                local owners = argumentBorrowOwners[source]
+                if not owners then
+                    local sourceNode = argNodes[source]
+                    local entry = sourceNode and c.ownershipEntry(sourceNode)
+                    if entry then
+                        owners = {c.borrowRoot(entry)}
                     end
                 end
-            end
-            local sourceNode = argNodes[source]
-            local entry = sourceNode and c.ownershipEntry(sourceNode)
-            entry = c.ownershipState(entry)
-            if entry then
-                node.returnOwnershipStates = node.returnOwnershipStates or {}
+                if owners then
+                    node.returnBorrowOwners = node.returnBorrowOwners or {}
+                    node.returnBorrowOwners[result] = owners
+                    if result == 1 then
+                        if #owners == 1 then
+                            node.borrowOwner = owners[1]
+                        else
+                            node.borrowOwners = owners
+                        end
+                    end
+                end
+                local sourceNode = argNodes[source]
+                local entry = sourceNode and c.ownershipEntry(sourceNode)
+                entry = c.ownershipState(entry)
+                if entry then
+                    node.returnOwnershipStates = node.returnOwnershipStates or {}
                     node.returnOwnershipStates[result] = {retained = entry.retained or nil, ownershipOrigin = entry,}
-            end
+                end
             end
         end
         if calleeT and calleeT.tag == "func" and calleeT.partitionResults then
@@ -2132,8 +2131,7 @@ function calls.install(c: state.Checker): calls.Ops
                 sourceEntry = c.own.ownershipState(sourceEntry)
                 local found
                 if sourceEntry and (
-                    c.ownershipKind(sourceEntry.t) == "owned"
-                    or c.ownershipKind(sourceEntry.t) == "pinned"
+                    c.ownershipKind(sourceEntry.t) == "owned" or c.ownershipKind(sourceEntry.t) == "pinned"
                 ) then
                     found = {sourceEntry}
                 else
@@ -2154,8 +2152,7 @@ function calls.install(c: state.Checker): calls.Ops
                 node.borrowOwners = owners
                 node.returnBorrowOwners = {[1] = owners}
             end
-            local exclusiveResult = calleeT.borrowsParam
-                and calleeT.paramModes[calleeT.borrowsParam] == "exclusive"
+            local exclusiveResult = calleeT.borrowsParam and calleeT.paramModes[calleeT.borrowsParam] == "exclusive"
             if not exclusiveResult then
                 for _, at in ipairs(calleeT.borrowsParams or {}) do
                     if calleeT.paramModes[at] == "exclusive" then

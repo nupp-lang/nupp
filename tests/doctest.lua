@@ -929,9 +929,10 @@ function M.standardLibraryBackingRecordsStayInternal()
          end
       end
    end
-   -- Path, URI and Log have all folded their own Library away by now; only
+   -- Math, Vec2 and the three fixed-width namespaces retain private top-level
+   -- backing records. Path, URI and Log have folded theirs away; only
    -- Files.Library, nested two levels down under nupp.io, remains.
-   assert(topLevelLibraries == 3, "private docs lost top-level backing records")
+   assert(topLevelLibraries == 6, "private docs lost top-level backing records")
    assert(nestedLibraries == 1, "private docs lost nested backing records")
 end
 

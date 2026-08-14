@@ -560,8 +560,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             local descriptor = reflection.describe(reflected, key)
             node.reflectedType, node.reflectedTypeKey = descriptor, key
             local reflectTypes = c.env and c.env.globalTypes and c.env.globalTypes["nupp.reflect"]
-            local typeInfo = reflectTypes and reflectTypes.nestedTypes
-                and reflectTypes.nestedTypes.Info
+            local typeInfo = reflectTypes and reflectTypes.nestedTypes and reflectTypes.nestedTypes.Info
 
             return typeInfo or T.any
         end
@@ -829,6 +828,13 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             calleeT = withoutNil(calleeT)
         end
         node.calleeType = rawType(calleeT)
+        node.scalarIntrinsic = callee
+            and callee.scalarIntrinsic
+            or callee
+            and callee.kind == "name"
+            and callee.token
+            and callee.token.definition
+            and callee.token.definition.scalarIntrinsic
         c.nosuspend.call(node)
         -- A raw yield has nobody responsible for it: the coroutine may never be resumed
         -- and the cleanup would never run. A *handled* suspension is different -- a
@@ -1429,6 +1435,18 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
             c.nosuspend.call(node)
             local owner = rawType(ot)
+            local spanMethods = {get = true, getMut = true, set = true}
+            local spanTypes = {Span = true, FixedSpan = true, WriteSpan = true, FixedWriteSpan = true}
+            if owner.tag == "nominal" then
+                local nominal = owner as T.Nominal
+                local origin = nominal.origin
+                if origin and origin.tag == "nominal" then
+                    nominal = origin as T.Nominal
+                end
+                if nominal.moduleName == "nupp.span" and spanTypes[nominal.name] and spanMethods[member.text] then
+                    node.spanAccessorNoAllocate = true
+                end
+            end
             node.overloadMember = pegReplacementMember(
                 ot,
                 member.text,
@@ -1519,11 +1537,14 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                                     and entry.regionPath == regionPath
                                     and 1
                                     or 0
-                                if (activePath == regionPath and count > own)
-                                    or (activePath ~= regionPath
-                                        and c.regionsOverlap(activePath, regionPath)
-                                        and activePath:sub(1, #regionPath) == regionPath)
-                                then
+                                if (
+                                    activePath == regionPath and count > own
+                                ) or (
+                                    activePath ~= regionPath and c.regionsOverlap(
+                                        activePath,
+                                        regionPath
+                                    ) and activePath:sub(1, #regionPath) == regionPath
+                                ) then
                                     blocked = true
                                     break
                                 end
@@ -1563,11 +1584,14 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                                 and entry.regionPath == regionPath
                                 and 1
                                 or 0
-                            if (activePath == regionPath and count > own)
-                                or (activePath ~= regionPath
-                                    and c.regionsOverlap(activePath, regionPath)
-                                    and activePath:sub(1, #regionPath) == regionPath)
-                            then
+                            if (
+                                activePath == regionPath and count > own
+                            ) or (
+                                activePath ~= regionPath and c.regionsOverlap(
+                                    activePath,
+                                    regionPath
+                                ) and activePath:sub(1, #regionPath) == regionPath
+                            ) then
                                 blocked = true
                                 break
                             end

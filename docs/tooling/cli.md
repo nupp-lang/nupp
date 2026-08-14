@@ -23,6 +23,7 @@ it has any.
 - [`fixpoint`](#fixpoint): verify a byte-identical self-hosting rebuild
 - [`run`](#run): compile and run a Nupp or Lua program
 - [`import-c`](#import-c): generate typed Nupp bindings from a C header
+- [`export-c`](#export-c): export canonical C declarations for Nupp structs
 - [`rock`](#rock): create and package typed LuaRocks libraries
 - [`lsp`](#lsp): language-server and semantic source operations
 - [`help`](#help): show general or command-specific help
@@ -54,9 +55,9 @@ nupp check --schema
 ```
 
 That covers `ast`, `check`, `fmt`, `build`, `clean`, `tasks`, `lints`,
-`ownership-audit`, `explain`, `test`, `coverage`, `fixpoint`, `import-c`, and
-every `lsp` operation. `doc` reports what it wrote; `run`, `task`, `rock` and
-`completions` produce no structured result and take neither.
+`ownership-audit`, `explain`, `test`, `coverage`, `fixpoint`, `import-c`,
+`export-c`, and every `lsp` operation. `doc` reports what it wrote; `run`,
+`task`, `rock` and `completions` produce no structured result and take neither.
 
 A test runs each command for real and validates its output against its own
 `--schema`, so the schema cannot drift from what the command emits.
@@ -1135,6 +1136,34 @@ return { mini_point = mini_point, mini_length = mini_length, mini_version = mini
 A declaration the importer cannot type is left out with a comment saying so,
 and `--json` reports those as warnings. See [C interop](../c-interop.md).
 
+### `export-c`
+
+```text [nupp export-c --help]
+Export canonical C declarations for Nupp structs
+
+Usage:
+  nupp export-c -o FILE [--target NAME] [--format text|json] <source.nupp>... <module.Declaration>...
+
+Options:
+  -o, --output FILE  Write the generated header to FILE
+  --target NAME      Use a named manifest build target
+  --format FORMAT    Output format: text (default) or json
+  --json             Shorthand for --format json
+  --text             Shorthand for --format text
+  --schema           Print the JSON Schema of --json output and exit
+  --color[=WHEN]     When to colour output: always, never, or auto (default)
+  --no-color         Never colour output; the same as --color=never
+  -h, --help         Show this help
+
+The selected build target supplies layoutTarget. When it has none, the
+compiler host is used. Header generation itself invokes no C compiler.
+```
+
+The command writes one target-specific header from selected exported structs
+and `cdef` functions. It includes transitive layout dependencies, stable C
+names, layout assertions, and the typed declarations used by native wrappers.
+See [C interop](../c-interop.md).
+
 ### `rock`
 
 ```text [nupp rock --help]
@@ -1327,6 +1356,7 @@ Commands:
   fixpoint         Verify a byte-identical self-hosting rebuild
   run              Compile and run a Nupp or Lua program
   import-c         Generate typed Nupp bindings from a C header
+  export-c         Export canonical C declarations for Nupp structs
   rock             Create and package typed LuaRocks libraries
   lsp              Language-server and semantic source operations
   help             Show general or command-specific help

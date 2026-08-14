@@ -55,7 +55,8 @@ type state.ModuleExports = {
     nominalEffectFingerprint: string?,
     deriveInterfaceFingerprint: string?,
     comptimeFunctions: {[string]: any},
-    comptimeFunctionFingerprint: string?
+    comptimeFunctionFingerprint: string?,
+    callGuarantees: {[string]: any}?
 }
 
 --- One thing to report about a file.
@@ -190,6 +191,9 @@ record state.Checker
     --- The `nosuspend` region check, which judges after inference settles.
     nosuspend: any
 
+    --- Allocation- and raising-free region checks, judged after effect inference.
+    effectRegions: any
+
     --- How many `handle suspension` regions enclose the statement being checked. A
     --- suspension inside one has somebody responsible for resuming or cancelling it,
     --- which is the fact the resource rules will rest on rather than an ambient
@@ -199,6 +203,9 @@ record state.Checker
     --- How many `nosuspend` regions enclose the statement being checked. A call whose
     --- callee may suspend is refused while this is above zero.
     noSuspendDepth: integer
+
+    --- Active `noalloc` and `noraise` nesting, keyed by summary flag name.
+    effectRegionDepths: {[string]: integer}
 
     --- How deep inside function bodies it is, which is how a capture is recognized.
     functionDepth: integer

@@ -29,6 +29,7 @@ local undocumentedraise = require("nupp.compiler.check.undocumentedraise")
 local unused = require("nupp.compiler.check.unused")
 local discard = require("nupp.compiler.check.discard")
 local nosuspendMod = require("nupp.compiler.check.nosuspend")
+local effectregionsMod = require("nupp.compiler.check.effectregions")
 local analysis = require("nupp.compiler.analysis")
 local narrow = require("nupp.compiler.check.narrow")
 local calls = require("nupp.compiler.check.calls")
@@ -380,6 +381,79 @@ local function finalizeBoundary(c: state.Checker)
     c.moduleType = qualifyExport(c.moduleType, c.moduleReturnValue) as Type
 end
 
+-- The boundary transports only exact definition identity and two positive facts.
+-- Complete summaries stay on bodies in this file and never enter a function type.
+local function finalizeCallGuarantees(c: state.Checker, queries: any)
+    local published = {}
+    local function localSummary(value)
+        if not value or cst.isToken(value) then
+            return nil
+        end
+        if value.kind == "funcbody" then
+            return value.effectSummary
+        elseif value.kind == "funcExpr" or value.kind == "shortfn" then
+            return value.body and value.body.effectSummary
+        elseif value.kind == "name" and value.token and queries then
+            local known = queries.known(value.token)
+            return known and known.summary or nil
+        end
+
+        return nil
+    end
+
+    local function imported(value)
+        local exact = value and not cst.isToken(value) and value.exactCallExport or nil
+        if not exact and value and not cst.isToken(
+            value
+        ) and value.kind == "name" and value.token and value.token.definition then
+            exact = value.token.definition.exactCallExport
+        end
+        if not exact or not c.env or not c.env.resolveCallGuarantees then
+            return nil
+        end
+
+        return c.env.resolveCallGuarantees(c.env, exact.module, exact.member)
+    end
+
+    local function publish(member, value)
+        local summary = localSummary(value)
+        local source = not summary and imported(value) or nil
+        if summary or source then
+            local noAllocate, noRaise
+            if source then
+                noAllocate, noRaise = source.noAllocate, source.noRaise
+            else
+                noAllocate = not summary.top and summary.allocates ~= true and true or nil
+                noRaise = not summary.top and summary.raises ~= true and true or nil
+            end
+            published[
+                member
+            ] = {
+                identity = source and source.identity or (
+                    (c.result.moduleName or c.filename or "<module>") .. "." .. member
+                ),
+                noAllocate = noAllocate,
+                noRaise = noRaise,
+            }
+        end
+    end
+
+    for member, value in pairs(c.moduleFieldValues or {}) do
+        publish(member, value)
+    end
+    local returned = c.moduleReturnValue
+    if returned and not cst.isToken(returned) and returned.kind == "tableExpr" then
+        for _, field in ipairs(returned.fields or {}) do
+            if field.kind == "fieldNamed" and field.name and field.value then
+                publish(field.name.text, field.value)
+            end
+        end
+    elseif returned then
+        publish("$return", returned)
+    end
+    c.moduleExports.callGuarantees = published
+end
+
 -- Rebuilds nominal callable slots from their own declarations after effect analysis.
 -- Nominal identity deliberately does not expand members, so this is provenance-led in
 -- the same way as ordinary module exports: each method body qualifies exactly the slot
@@ -613,6 +687,7 @@ function checkMod.check(
         values = {},
         valueDefs = {},
         comptimeFunctions = {},
+        callGuarantees = {},
     }, seenDefinitions = {}, scope = {
         vars = {},
         types = {},
@@ -623,7 +698,10 @@ function checkMod.check(
         depth = 0,
         completionScope = result.root,
         parent = nil
-    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, dropOperationFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, handledDepth = 0, functionDepth = 0, functionBodies = {}, jitHazards = {}, scopedCaptureDepth = 0, closureCaptureStack = {}, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldDefs = {}, moduleFunctionDeclarations = {}, moduleFieldConst = {}, moduleFieldValues = {}, nominalEffectOwners = {}, nominalEffectEntries = {}, constModulePaths = {}, moduleLocalAnnotated = false)
+    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, dropOperationFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, effectRegionDepths = {
+        allocates = 0,
+        raises = 0
+    }, handledDepth = 0, functionDepth = 0, functionBodies = {}, jitHazards = {}, scopedCaptureDepth = 0, closureCaptureStack = {}, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldDefs = {}, moduleFunctionDeclarations = {}, moduleFieldConst = {}, moduleFieldValues = {}, nominalEffectOwners = {}, nominalEffectEntries = {}, constModulePaths = {}, moduleLocalAnnotated = false)
     c.rootScope = c.scope
     c.moduleExports.valueDefs = c.moduleExports.valueDefs or {}
     c.moduleExports.comptimeFunctions = c.moduleExports.comptimeFunctions or {}
@@ -664,6 +742,7 @@ function checkMod.check(
     c.unused = unused.install(c)
     c.discard = discard.install(c)
     c.nosuspend = nosuspendMod.install(c)
+    c.effectRegions = effectregionsMod.install(c)
     c.typeFunctionEvaluator = function(helper, arguments, helpers)
         local program = comptime.typeFunctionProgram(helper, helpers)
         local memo = c.typeFunctionMemo[program.identity]
@@ -2137,12 +2216,14 @@ function checkMod.check(
         end
     end
     finalizeNominalEffects(c)
+    finalizeCallGuarantees(c, effectQueries)
     finalizeBoundary(c)
     -- Both of these needed the whole file before they could answer, so they answer here
     -- and their diagnostics are put back in source order with everything else.
     c.unused.sweep()
     c.discard.sweep(analysis.queries(facts))
     c.nosuspend.sweep(analysis.queries(facts))
+    c.effectRegions.sweep(effectQueries)
     local comptimeNames, comptimeIdentities = {}, {}
     for name in pairs(c.moduleExports.comptimeFunctions or {}) do
         comptimeNames[#comptimeNames + 1] = name

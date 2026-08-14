@@ -147,8 +147,9 @@ local function constructorField(stat, name, keys)
         or stat.automaticOwnerMove
         or stat.automaticOwnerMoves
         or stat.automaticOwnerReinit
-        or #(stat.targets or {}) ~= 1
-        or #(stat.exprs or {}) ~= 1 then
+        or #(
+        stat.targets or {}
+    ) ~= 1 or #(stat.exprs or {}) ~= 1 then
         return nil
     end
     local target = stat.targets[1]
@@ -278,21 +279,13 @@ local function presizeBlock(stats, remarks)
                 end
                 local message
                 if constructorFields then
-                    message = ("presize: %s is created with %d named fields"):format(
-                        name,
-                        #constructorFields
-                    )
+                    message = ("presize: %s is created with %d named fields"):format(name, #constructorFields)
                 else
                     message = (
                         "presize: %s is created with room for %d array and %d hash entries"
                     ):format(name, array, hash)
                 end
-                remark(
-                    remarks,
-                    constructor,
-                    "OPT-1",
-                    message
-                )
+                remark(remarks, constructor, "OPT-1", message)
             elseif stoppedAt then
                 local token = firstToken(stoppedAt)
                 remark(
@@ -337,7 +330,8 @@ local NESTED_FUNCTION = {localFuncStmt = true, funcStmt = true, inlineMethod = t
 
 -- A dense table literal is the only bound this pass accepts, and how long it is is
 -- policy rather than a fact about effects: another pass could take its bound from a
--- declared C array without changing what `nupp.compiler.analysis` knows. So it is collected
+-- declared C array without changing what `nupp.compiler.analysis` knows. So it is
+-- collected
 -- here, beside the decision it serves.
 local function denseLiteralLengths(body)
     local lengths = {}
@@ -375,7 +369,8 @@ end
 
 --- Proves the loops in one body, and rewrites the ones that hold.
 ---
---- The proof used to live in `nupp.compiler.analysis`, which meant the analysis knew what
+--- The proof used to live in `nupp.compiler.analysis`, which meant the analysis knew
+--- what
 --- this
 --- pass wanted. It asks now instead: the shape question goes to the query surface, and
 --- what stays here is the part that is this pass's opinion -- that a dense literal is
@@ -631,6 +626,7 @@ end
 -- exact double range and primitive values have the same result when emitted back as Lua
 -- source.
 local MAX_EXACT_INTEGER = 9007199254740991
+local scalarIntrinsics = require("nupp.compiler.scalar_intrinsics")
 
 -- BitOp is the declared semantics of `&`, `|`, `~`, `<<`, `>>` and `~>>` rather than a
 -- coincidence about them (`decls/prelude.d.nupp`): operands normalize to 32 bits and
@@ -969,8 +965,24 @@ local function foldExpr(node, current)
         return nil
     elseif kind == "call" or kind == "safeCall" then
         foldExpr(node.obj, current)
+        local arguments, allNumbers = {}, true
         for _, arg in ipairs(node.args and node.args.exprs or {}) do
-            foldExpr(arg, current)
+            local value = foldExpr(arg, current)
+            arguments[#arguments + 1] = value and value.value or nil
+            allNumbers = allNumbers and value ~= nil and value.kind == "number"
+        end
+        if node.scalarIntrinsic and allNumbers then
+            local answer = scalarIntrinsics.fold(node.scalarIntrinsic, arguments)
+            if type(answer) == "number" and math.abs(answer as number) <= MAX_EXACT_INTEGER then
+                local numeric = answer as number
+                local folded = literal("number", numeric, ("%.0f"):format(numeric))
+                node.folded = folded.code
+                return folded
+            elseif type(answer) == "boolean" then
+                local folded = literal("boolean", answer, tostring(answer))
+                node.folded = folded.code
+                return folded
+            end
         end
     elseif kind == "methodCall" then
         foldExpr(node.obj, current)

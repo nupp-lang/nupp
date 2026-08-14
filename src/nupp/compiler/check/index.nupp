@@ -14,6 +14,7 @@ local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.relations")
 local cst = require("nupp.compiler.cst")
 local state = require("nupp.compiler.check.state")
+local scalarIntrinsics = require("nupp.compiler.scalar_intrinsics")
 
 local isA = relations.isA
 local rawType = T.unwrapOwnership
@@ -114,6 +115,31 @@ function index.install(c: state.Checker): state.ExprHandlers
             end
         end
         local trackedObject = c.infer(target)
+        local intrinsicPath = c.pathKey(node)
+        if intrinsicPath then
+            local root = target
+            while root and (root.kind == "dotIndex" or root.kind == "safeIndex") do
+                root = root.obj
+            end
+            local token = root and root.kind == "name" and root.token or nil
+            local builtin = c.env and c.env.globals and c.env.globals.nupp or nil
+            if token and builtin and token.definition == builtin.definition then
+                node.scalarIntrinsic = scalarIntrinsics.forPath(intrinsicPath)
+            end
+        end
+        -- Keep the exact value identity beside the projection. Function types are
+        -- intentionally not qualified with allocation/raising facts; a checked region
+        -- can nevertheless ask for this one exported definition's sidecar entry.
+        if not node.writeContext and holderName ~= "" then
+            local holder = c.lookupEntry(holderName)
+            if holder and holder.requiredModule then
+                node.exactCallExport = {
+                    module = holder.requiredModule,
+                    member = memberName,
+                    identity = holder.requiredModule .. "." .. memberName,
+                }
+            end
+        end
         local ot = trackedObject
         local base = kind == "safeIndex" and ot.tag == "union" and T.union(ot.members) or ot
         base = rawType(base)
@@ -185,9 +211,9 @@ function index.install(c: state.Checker): state.ExprHandlers
         end
         local nominal = base.tag == "nominal" and base or nil
         local declaration = nominal and (((nominal as T.Nominal).origin or nominal) as T.Nominal) or nil
-        if declaration and declaration.privateFields and declaration.privateFields[memberName]
-            and declaration.moduleName ~= c.result.moduleName
-        then
+        if declaration and declaration.privateFields and declaration.privateFields[
+            memberName
+        ] and declaration.moduleName ~= c.result.moduleName then
             c.diag(
                 "NUPP2209",
                 member,

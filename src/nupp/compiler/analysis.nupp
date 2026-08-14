@@ -62,6 +62,12 @@ local function summary(): analysis.Summary
     }
 end
 
+local function unknownSummary(): analysis.Summary
+    local out = summary()
+    out.top = true
+    return out
+end
+
 local function fromContract(contract: {[string]: any}): analysis.Summary
     local out = summary()
     for _, name in ipairs(LISTS) do
@@ -225,7 +231,7 @@ local function collectFunctions(root)
                     params = {},
                     paramNames = {},
                     contract = body.effectContract,
-                    summary = summary(),
+                    summary = unknownSummary(),
                 }
                 for _, param in ipairs(body.params or {}) do
                     if param.name and not param.namedVararg then
@@ -253,7 +259,7 @@ local function collectFunctions(root)
                 params = {},
                 paramNames = {},
                 contract = target.effectContract or body and body.effectContract,
-                summary = summary(),
+                summary = unknownSummary(),
             }
             if target.name and target.name.method then
                 info.paramNames[1] = "self"
@@ -449,6 +455,29 @@ local function inferFunction(info, byDefinition)
     end
 
     local function applyCall(call)
+        if call.scalarIntrinsic then
+            -- Released fixed-width intrinsics operate only on scalar values and their
+            -- module-lifetime binary32 holder. No per-call allocation or error path.
+            return
+        end
+        if call.spanAccessorNoAllocate then
+            -- The sealed span implementations only touch existing storage. Bounds
+            -- remain a raising edge unless a dominating `span.range` proved this
+            -- exact receiver/index pair.
+            if not call.rangeProvenNoRaise then
+                out.raises = true
+            end
+            local receiver = rootOf(call.obj)
+            if receiver then
+                local method = call.name and call.name.text or ""
+                if method == "set" or method == "getMut" then
+                    out.writes[receiver .. "[*]"] = true
+                else
+                    out.reads[receiver .. "[*]"] = true
+                end
+            end
+            return
+        end
         local known = knownCall(call, byDefinition)
         local args = callArgs(call)
         if known then
@@ -533,6 +562,21 @@ local function inferFunction(info, byDefinition)
             return
         elseif kind == "tableExpr" then
             out.allocates = true
+        elseif kind == "newExpr" then
+            out.allocates = true
+        elseif kind == "istring" then
+            out.allocates = true
+            if #(node.parts or {}) > 0 then
+                -- Each interpolation invokes a conversion that may be user code.
+                out.top = true
+            end
+        elseif kind == "binop" and node.op and node.op.kind == ".." then
+            out.allocates = true
+            if not node.plainConcat then
+                out.top = true
+            end
+        elseif node.effectUnknownOperation then
+            out.top = true
         elseif kind == "call" or kind == "methodCall" then
             applyCall(node)
         elseif kind == "name" and not targetContext then
@@ -612,6 +656,52 @@ local function inferFunction(info, byDefinition)
         end
     end
     walk(info.body and info.body.body, false)
+
+    -- Automatic cleanup executes on an ordinary exit even though lowering has not yet
+    -- inserted a source call. Its effects therefore belong to the function summary.
+    local function cleanupEffects(node)
+        if not node or cst.isToken(node) then
+            return
+        end
+        if node ~= info.body and (
+            node.kind == "localFuncStmt"
+            or node.kind == "funcStmt"
+            or node.kind == "inlineMethod"
+            or node.kind == "constructorDecl"
+            or node.kind == "funcExpr"
+            or node.kind == "shortfn"
+        ) then
+            return
+        end
+        for _, owner in ipairs(node.automaticOwners or {}) do
+            for _, cleanup in ipairs(owner.cleanups or {}) do
+                local operation = cleanup
+                while operation and operation.kind == "field" do
+                    operation = operation.cleanup
+                end
+                local token = operation and operation.kind == "function" and operation.token or nil
+                local known = token and byDefinition[token.definition] or nil
+                if not known or not known.summary or known.summary.top then
+                    out.top = true
+                else
+                    if known.summary.allocates then
+                        out.allocates = true
+                    end
+                    if known.summary.raises then
+                        out.raises = true
+                    end
+                    if known.summary.yields then
+                        out.yields = true
+                    end
+                end
+            end
+        end
+        for _, child in ipairs(node) do
+            cleanupEffects(child)
+        end
+    end
+
+    cleanupEffects(info.body and info.body.body)
 
     return out
 end
@@ -880,7 +970,8 @@ function queries.body(body: any, byDefinition: any): any
     --- Whether every mention of `definition` in this body is a direct call of it.
     ---
     --- The question lambda lifting has to ask, and a narrower one than "does this value
-    --- escape". A local function whose name is only ever called can be lifted out of the
+    --- escape". A local function whose name is only ever called can be lifted out of
+    --- the
     --- body with what it captured passed as parameters instead. One that is handed
     --- somewhere as a value -- returned, stored, or passed to something that will call
     --- it with an arity of its own -- cannot, whether or not the value outlives the
@@ -918,6 +1009,7 @@ function queries.body(body: any, byDefinition: any): any
                 collect(child)
             end
         end
+
         collect(body)
 
         local mentions: integer = 0
@@ -940,6 +1032,7 @@ function queries.body(body: any, byDefinition: any): any
                 walk(child)
             end
         end
+
         walk(body)
 
         return only and mentions > 0, mentions

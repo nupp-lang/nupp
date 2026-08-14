@@ -9,10 +9,18 @@ contract or dereference or offset its raw pointer.
 
 local span = {}
 
+--- The sealed common count capability carried by every bundled span view.
+--- It is a static constraint for `span.range`; no interface wrapper exists at
+--- run time and outside modules cannot forge an implementation.
+--- @export
+sealed interface span.CountedSpan
+    readonly count: integer
+end
+
 --- A checked, shared view over contiguous elements. Only this module can declare an
 --- implementation, so the contract is proof that `ref()` and `count` agree.
 --- @export
-sealed interface span.Span<T>
+sealed interface span.Span<T> is span.CountedSpan
     readonly count: integer
     get: function(self: Span<T>, index: integer): T
     slice: function(self: Span<T>, first: integer, last: integer?): Span<T> borrows(self)
@@ -121,7 +129,7 @@ end
 --- incompatible-borrow barrier until `span.commit` or scope exit consumes it. Only
 --- this module can declare an implementation.
 --- @export
-sealed interface span.WriteSpan<T>
+sealed interface span.WriteSpan<T> is span.CountedSpan
     readonly count: integer
     @drop
     commit: nosuspend function(takes self: WriteSpan<T>): nil
@@ -129,6 +137,11 @@ sealed interface span.WriteSpan<T>
     set: function(exclusive self: WriteSpan<T>, index: integer, value: T): nil
     ref: function(exclusive self: WriteSpan<T>): (T[?] borrows(self), integer)
     shared: function(borrows self: WriteSpan<T>): span.Span<T> borrows(self)
+    slice: function(
+        exclusive self: WriteSpan<T>,
+        first: integer,
+        last: integer?
+    ): Owned<span.WriteSpan<T>> borrows(self)
     @partition(left, right)
     splitAt: function(exclusive self: WriteSpan<T>, mid: integer): span.WriteSplit<T> borrows(self)
 end
@@ -190,6 +203,26 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
             offset = self.offset,
             count = self.count
         ) as span.Span<T>
+    end
+
+    --- Returns an affine writable subspan, inclusive at both ends.
+    --- @raises when the requested range is outside this span
+    function slice(
+        exclusive self: WriteSpanImpl<T>,
+        first: integer,
+        last: integer?
+    ): Owned<span.WriteSpan<T>> borrows(self)
+        local finish = last or self.count
+        if first < 1 or finish < first - 1 or finish > self.count then
+            error("write span slice out of bounds", 2)
+        end
+
+        return new WriteSpanImpl(
+            anchor = self,
+            pointer = self.pointer as any,
+            offset = self.offset + first - 1,
+            count = finish - first + 1
+        ) as span.WriteSpan<T>
     end
 
     --- Partitions this range at a zero-based boundary count.
@@ -264,6 +297,24 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
             offset = self.offset,
             count = self.count
         ) as span.FixedSpan<T, N>
+    end
+
+    function slice(
+        exclusive self: FixedWriteSpanImpl<T, N>,
+        first: integer,
+        last: integer?
+    ): Owned<span.WriteSpan<T>> borrows(self)
+        local finish = last or (self.count as integer)
+        if first < 1 or finish < first - 1 or finish > (self.count as integer) then
+            error("write span slice out of bounds", 2)
+        end
+
+        return new WriteSpanImpl(
+            anchor = self,
+            pointer = self.pointer as any,
+            offset = self.offset + first - 1,
+            count = finish - first + 1
+        ) as span.WriteSpan<T>
     end
 
     function splitAt(exclusive self: FixedWriteSpanImpl<T, N>, mid: integer): span.WriteSplit<T> borrows(self)
@@ -368,6 +419,33 @@ function span.writeFixedCarray<T, const N: integer>(
     return (
         new FixedWriteSpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)
     ) as span.FixedWriteSpan<T, N>
+end
+
+--- Inclusive integer bounds validated once against every supplied span.
+--- @export
+record span.Range
+    readonly first: integer
+    readonly last: integer
+end
+
+--- Creates one checked inclusive iteration range shared by several spans.
+--- The typed borrowed vararg checks each original span directly and builds no
+--- collection or interface box.
+--- @export
+--- @raises when no span is supplied or the bounds exceed any supplied span
+function span.range(first: integer, last: integer, borrows ...: span.CountedSpan): span.Range
+    local count = select("#", ...)
+    if count < 1 or first < 1 or last < first - 1 then
+        error("span range out of bounds", 2)
+    end
+    for index = 1, count do
+        local candidate = select(index, ...)
+        if last > candidate.count then
+            error("span range out of bounds", 2)
+        end
+    end
+
+    return new span.Range(first = first, last = last)
 end
 
 return span

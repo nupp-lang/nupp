@@ -125,7 +125,8 @@ function M.arrayCtypeIsBuiltOncePerElementType()
    local code = gen.generate(result, "test")
    assert(code:find("__nuppArrayCache", 1, true),
       "the array ctype is cached rather than rebuilt:\n" .. code)
-   assert(code:find("__nuppArray(P)(", 1, true), "allocates through the cache")
+   assert(code:find("__nuppArray%(%s*P%s*%)%(") ~= nil,
+      "allocates through the cache:\n" .. code)
 end
 
 return M

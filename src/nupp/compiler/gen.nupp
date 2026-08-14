@@ -60,6 +60,7 @@ local COVERAGE_STATEMENTS = {
     gotoStmt = true,
     unsafeStmt = true,
     noSuspendStmt = true,
+    effectRegionStmt = true,
 }
 
 -- Node kinds that exist only in the type layer: emitted as nothing.
@@ -125,7 +126,7 @@ local function cdefCType(t)
                     return nil
                 end
                 params[#params + 1] = rendered
-            elseif param[1] and cst.isToken(param[1]) and param[1].kind == "..." then
+            elseif param.vararg or param[1] and cst.isToken(param[1]) and param[1].kind == "..." then
                 params[#params + 1] = "..."
             end
         end
@@ -453,8 +454,9 @@ function gen.generate(
             if t.kind == "tptr" then
                 t = t.inner
             end
-            if t and t.kind == "tname" and t.base and indexOf[t.base.text] then
-                return t.base.text
+            local leaf = t and t.kind == "tname" and cst.lastName(t) or nil
+            if leaf and indexOf[leaf] then
+                return leaf
             end
 
             return nil
@@ -469,10 +471,11 @@ function gen.generate(
                     if t.kind == "topt" then
                         t = t.inner
                     end
-                    if t.kind == "tptr" and t.inner and t.inner.kind == "tname" and t.inner.base then
-                        local targetAt = indexOf[t.inner.base.text]
+                    if t.kind == "tptr" and t.inner and t.inner.kind == "tname" then
+                        local target = cst.lastName(t.inner)
+                        local targetAt = target and indexOf[target] or nil
                         if targetAt and targetAt >= at then
-                            tagFor(t.inner.base.text)
+                            tagFor(target as string)
                         end
                     end
                 end
@@ -799,13 +802,11 @@ function gen.generate(
                         end
                         if planned then
                             hotState.structure[#hotState.structure + 1] = "function\0" .. planned.id
-                        elseif structural
-                            and (structural.kind == "cdefFunc" or structural.kind == "cdefStruct")
-                        then
-                            -- Keyed checked C metadata owns declaration presence,
-                            -- semantics, and runtime-binding compatibility. Keeping
-                            -- source spelling in the structural stream would turn a
-                            -- harmless reorder into a restart before that comparison.
+                        elseif structural and (structural.kind == "cdefFunc" or structural.kind == "cdefStruct") then
+                        -- Keyed checked C metadata owns declaration presence,
+                        -- semantics, and runtime-binding compatibility. Keeping
+                        -- source spelling in the structural stream would turn a
+                        -- harmless reorder into a restart before that comparison.
                         else
                             local shape = compactSource(statement)
                             local first, last = cst.firstToken(statement), cst.lastToken(statement)
@@ -2393,7 +2394,8 @@ function gen.generate(
                     local t = entry.type
                     -- A declared bit width is the C bitfield it lowers to, and C allows
                     -- one only on a scalar. The cases below that are not scalars ignore
-                    -- it, which the field rule has already refused by the time this runs.
+                    -- it, which the field rule has already refused by the time this
+                    -- runs.
                     local width = entry.bitWidth and (" : " .. entry.bitWidth.text) or ""
                     -- unwrap optional wrapper (S*? has the same representation)
                     if t.kind == "topt" then
@@ -2401,11 +2403,11 @@ function gen.generate(
                     end
                     if t.kind == "tname" and C_PRIM[t.base.text] then
                         cdecl[#cdecl + 1] = C_PRIM[t.base.text] .. " " .. fname .. width .. ";"
-                    elseif t.kind == "tname" and structTag[t.base.text] then
-                        cdecl[#cdecl + 1] = "struct " .. structTag[t.base.text] .. " " .. fname .. ";"
+                    elseif t.kind == "tname" and structTag[cst.lastName(t) or ""] then
+                        cdecl[#cdecl + 1] = "struct " .. structTag[cst.lastName(t) as string] .. " " .. fname .. ";"
                     elseif t.kind == "tname" then
                         cdecl[#cdecl + 1] = "$ " .. fname .. ";"
-                        params[#params + 1] = t.base.text
+                        params[#params + 1] = (t.reified or cst.textOf(t)) as string
                     elseif t.kind == "tcarray" and t.count then
                         -- `T[N]` sits inline: the elements are the struct's own bytes.
                         -- `T[?]` has no size and never reaches here, since the field
@@ -2414,15 +2416,15 @@ function gen.generate(
                         local spelling = element and element.kind == "tname" and C_PRIM[element.base.text] or nil
                         if spelling then
                             cdecl[#cdecl + 1] = spelling .. " " .. fname .. "[" .. cst.textOf(t.count) .. "];"
-                        elseif element and element.kind == "tname" and structTag[element.base.text] then
+                        elseif element and element.kind == "tname" and structTag[cst.lastName(element) or ""] then
                             cdecl[
                                 #cdecl + 1
                             ] = "struct " .. structTag[
-                                element.base.text
+                                cst.lastName(element) as string
                             ] .. " " .. fname .. "[" .. cst.textOf(t.count) .. "];"
                         elseif element and element.kind == "tname" then
                             cdecl[#cdecl + 1] = "$ " .. fname .. "[" .. cst.textOf(t.count) .. "];"
-                            params[#params + 1] = element.base.text
+                            params[#params + 1] = (element.reified or cst.textOf(element)) as string
                         else
                             diag(entry.name, "NUPP3002", "cannot reify this array element type")
                         end
@@ -2430,13 +2432,15 @@ function gen.generate(
                         local inner = t.inner
                         if inner.kind == "tname" and C_PRIM[inner.base.text] then
                             cdecl[#cdecl + 1] = C_PRIM[inner.base.text] .. " *" .. fname .. ";"
-                        elseif inner.kind == "tname" and structTag[inner.base.text] then
+                        elseif inner.kind == "tname" and structTag[cst.lastName(inner) or ""] then
                             -- Forward-declared above, so the tag resolves even though
                             -- the body may not have been emitted yet.
-                            cdecl[#cdecl + 1] = "struct " .. structTag[inner.base.text] .. " *" .. fname .. ";"
+                            cdecl[
+                                #cdecl + 1
+                            ] = "struct " .. structTag[cst.lastName(inner) as string] .. " *" .. fname .. ";"
                         elseif inner.kind == "tname" then
                             cdecl[#cdecl + 1] = "$ *" .. fname .. ";"
-                            params[#params + 1] = inner.base.text
+                            params[#params + 1] = (inner.reified or cst.textOf(inner)) as string
                         else
                             diag(entry.name, "NUPP3002", "cannot reify this pointer field type")
                         end
@@ -2525,29 +2529,15 @@ function gen.generate(
 
         elseif kind == "cdefFunc" then
             needsFfi = true
-            local params = {}
-            for _, p in ipairs(x.params) do
-                if p.type then
-                    local ct = cdefCType(p.type)
-                    if not ct then
-                        diag(p.name, "NUPP3003", "cdef parameter type has no C spelling")
-                        ct = "void *"
-                    end
-                    params[#params + 1] = ct
-                elseif p[1] and cst.isToken(p[1]) and p[1].kind == "..." then
-                    params[#params + 1] = "..."
-                end
-            end
-            local rett = "void"
-            if x.ret then
-                rett = cdefCType(x.ret)
-                if not rett then
-                    diag(x.name, "NUPP3003", "cdef return type has no C spelling")
-                    rett = "void *"
-                end
-            end
             local name = x.name.text
-            local sig = ("%s %s(%s);"):format(rett, name, #params > 0 and table.concat(params, ", ") or "void")
+            -- `emit` already closes over `require` for materialization. Resolve the
+            -- canonical renderer through that same name instead of capturing another
+            -- module local; coverage instrumentation needs one capture slot of its own.
+            local sig, signatureWhy = require("nupp.compiler.cabi").prototype(x.cAbiSignature, true)
+            if not sig then
+                diag(x.name, "NUPP3003", "cdef signature has no C spelling: " .. tostring(signatureWhy))
+                sig = "void " .. name .. "(void);"
+            end
             local first = x[1]
             local line = first and cst.isToken(first) and first.line or nil
             -- symbols come from the default namespace unless a library is named, in
@@ -3272,7 +3262,9 @@ function gen.generate(
             needsArrayCache = true
             local first = x[1]
             local line = first and cst.isToken(first) and first.line or nil
-            e(("__nuppArray(%s)("):format(x.carrayElem), line)
+            e("__nuppArray(", line)
+            emit(x.carrayElem)
+            e(")(")
             local args = x.args and x.args.exprs or {}
             if args[2] then
                 emit(args[2])
@@ -3501,7 +3493,7 @@ function gen.generate(
                     names[#names + 1] = "..."
                 elseif p.name then
                     names[#names + 1] = p.name.text
-                elseif p[1] and cst.isToken(p[1]) and p[1].kind == "..." then
+                elseif p.vararg or p[1] and cst.isToken(p[1]) and p[1].kind == "..." then
                     names[#names + 1] = "..."
                 end
             end
@@ -3565,7 +3557,7 @@ function gen.generate(
                     names[#names + 1] = "..."
                 elseif p.name then
                     names[#names + 1] = p.name.text
-                elseif p[1] and cst.isToken(p[1]) and p[1].kind == "..." then
+                elseif p.vararg or p[1] and cst.isToken(p[1]) and p[1].kind == "..." then
                     names[#names + 1] = "..."
                 end
             end
@@ -3634,7 +3626,7 @@ function gen.generate(
                     names[#names + 1] = "..."
                 elseif p.name then
                     names[#names + 1] = p.name.text
-                elseif p[1] and cst.isToken(p[1]) and p[1].kind == "..." then
+                elseif p.vararg or p[1] and cst.isToken(p[1]) and p[1].kind == "..." then
                     names[#names + 1] = "..."
                 end
             end
@@ -4266,6 +4258,14 @@ function gen.generate(
             end
             e("end", x.endTok and x.endTok.line or nil)
 
+        elseif kind == "effectRegionStmt" then
+            -- Like `nosuspend`, checked effect regions erase to an ordinary block.
+            e("do", x.keywordTok and x.keywordTok.line or nil)
+            if x.body then
+                emit(x.body)
+            end
+            e("end", x.endTok and x.endTok.line or nil)
+
         elseif kind == "unsafeStmt" then
             e("do", x.unsafeTok and x.unsafeTok.line or nil)
             if x.body then
@@ -4295,8 +4295,8 @@ function gen.generate(
 
         elseif kind == "param" then
             -- name (or '...'); annotation tokens skip via the token rule
-            if x.namedVararg then
-                emit(x[1])
+            if x.vararg then
+                e("...", sourceLine(x))
             elseif x.name then
                 emit(x.name)
             else

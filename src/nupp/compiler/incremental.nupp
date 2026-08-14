@@ -133,6 +133,11 @@ record incremental.Inc
     --- Source paths that contributed to one keyed project-index answer.
     projectDependencyPaths: function(name: string, key: string): {string}
 
+    --- Exact exported call facts consulted while checking, kept out of function types.
+    observeCallGuarantee: function(module: string, member: string, identity: string, guarantee: string): boolean
+
+    resolveCallGuarantees: function(module: string, member: string): any
+
     --- Writes back what this run worked out that the next one can reuse.
     ---
     --- Nothing depends on it being called: skipping it costs the next command the work
@@ -384,6 +389,12 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             return interface and interface.type or nil
         end, resolveModuleExports = function(_, name)
             return self:get("moduleExports", name)
+        end, observeCallGuarantee = function(_, module, member, identity, guarantee)
+            local key = table.concat({module, member, identity, guarantee}, "\0")
+            local observed = self:get("moduleCallGuarantee", key)
+            return observed and observed:sub(-8) == "\0present" or false
+        end, resolveCallGuarantees = function(_, module, member)
+            return self:get("moduleCallGuarantees", module .. "\0" .. member)
         end, projectEntries = function(_, name)
             return self:get("projectEntries", name)
         end, projectPathEntries = function(_, requestedPath)
@@ -519,6 +530,32 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return r and r.exports or nil
     end, sameExports)
 
+    -- Sidecar queries deliberately cut off below `moduleExports`. A caller which never
+    -- asks one of these does not observe a body-only guarantee change.
+    q:define("moduleCallGuarantees", function(self, key)
+        local module, member = key:match("^([^%z]+)%z(.+)$")
+        local path = module and modulePath(self, module) or nil
+        local exports
+        if path then
+            local checked = self:get("checkModule", path)
+            exports = checked and checked.exports or nil
+        else
+            local bundled = module and env.bundled and env.bundled[module]
+            exports = bundled and bundled.exports or nil
+        end
+
+        return exports and exports.callGuarantees and exports.callGuarantees[member] or nil
+    end, sameStable)
+
+    q:define("moduleCallGuarantee", function(self, key)
+        local module, member, identity, guarantee = key:match("^([^%z]+)%z([^%z]+)%z([^%z]+)%z([^%z]+)$")
+        local entry = module and self:get("moduleCallGuarantees", module .. "\0" .. member) or nil
+        local actualIdentity = entry and entry.identity or identity or ((module or "?") .. "." .. (member or "?"))
+        local present = entry and entry[guarantee] == true
+
+        return actualIdentity .. (present and "\0present" or "\0absent")
+    end)
+
     -- Editor overlay management.
     function inc.openDocument(path: string, text: string)
         local wasOpen = openPaths[path]
@@ -620,6 +657,8 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         projectModulePath = true,
         projectModuleBasenames = true,
         projectAnnotations = true,
+        moduleCallGuarantees = true,
+        moduleCallGuarantee = true,
     }
 
     local function projectFingerprint(name, key)
@@ -641,7 +680,10 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             end
         end
 
-        if name == "projectModulePath" then
+        if name == "moduleCallGuarantees" or name == "moduleCallGuarantee" then
+            local module = key:match("^([^%z]+)")
+            add(module and modulePath(q, module) or nil)
+        elseif name == "projectModulePath" then
             add(value)
         elseif name == "projectPathEntries" then
             add(key)

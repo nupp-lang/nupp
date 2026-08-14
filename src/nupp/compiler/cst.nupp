@@ -200,6 +200,13 @@ interface cst.Hints
     --- Conservative effect facts inferred for a visible function body.
     effectSummary: any
 
+    --- Exact module-export endpoint for sidecar call-guarantee observation. This is
+    --- provenance, not a function-type qualifier.
+    exactCallExport: any
+
+    --- Canonical fixed-width scalar operation selected by resolved prelude identity.
+    scalarIntrinsic: string?
+
     --- A checker-recognized call to the stable prelude `ipairs` binding.
     builtinIpairs: any
 
@@ -331,6 +338,13 @@ interface cst.Hints
 
     --- Element type of a C array construction.
     carrayElem: any
+
+    --- A method on one of the sealed standard span contracts. Its implementation
+    --- mutates or reads existing storage and performs no managed allocation.
+    spanAccessorNoAllocate: boolean?
+
+    --- A preceding `span.range` witness proves this accessor's index is in bounds.
+    rangeProvenNoRaise: boolean?
 
     --- Header declarations a cheader call brought in.
     cheaderCdef: any
@@ -664,6 +678,20 @@ record cst.NoSuspendStmt is cst.Hints
     body: cst.Node?
 
     --- The `end`.
+    endTok: lexer.Token?
+end
+
+--- `noalloc do ... end` or `noraise do ... end`: a region which requires one
+--- negative call-graph guarantee. Both spellings share one production because their
+--- only difference is the effect flag the checker asks about.
+record cst.EffectRegionStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'effectRegionStmt'
+    keywordTok: lexer.Token?
+    effect: 'allocates' | 'raises'
+    doTok: lexer.Token?
+    body: cst.Node?
     endTok: lexer.Token?
 end
 
@@ -1227,6 +1255,10 @@ record cst.CdefFunc is cst.Hints
 
     physicalSignatureType: any
 
+    --- One checked signature rendered as the typed header prototype and the
+    --- physically erased LuaJIT declaration.
+    cAbiSignature: any
+
     --- Canonical checked identity and ABI/ownership semantics for hot reload.
     cdefIdentity: string?
 
@@ -1297,6 +1329,9 @@ record cst.Param is cst.Hints
 
     --- Whether it is a named vararg, `...rest`.
     namedVararg: boolean?
+
+    --- Whether this is either spelling of a variadic parameter.
+    vararg: boolean?
 
     --- Its annotation, when one was written.
     type: cst.Node?
@@ -2117,6 +2152,8 @@ record cst.TfuncParam is cst.Hints
     type: cst.Node?
 
     pack: boolean?
+
+    vararg: boolean?
 end
 
 --- `T?`, which admits nil.
@@ -2273,6 +2310,7 @@ type cst.Node = cst.Chunk
     | cst.DoStmt
     | cst.UnsafeStmt
     | cst.NoSuspendStmt
+    | cst.EffectRegionStmt
     | cst.FornumStmt
     | cst.ForinStmt
     | cst.RepeatStmt
@@ -2576,6 +2614,22 @@ function cst.textOf(x: cst.Child): string
     walk(x)
 
     return table.concat(parts)
+end
+
+--- Last name token in a syntax node. A qualified type's `base` is its leading
+--- component, while generators that match a local declaration need the leaf.
+function cst.lastName(x: cst.Child?): string?
+    local found = nil
+    if not x or cst.isToken(x) then
+        return x and x.kind == "name" and x.text or nil
+    end
+    for _, child in ipairs(x) do
+        if cst.isToken(child) and child.kind == "name" then
+            found = child.text
+        end
+    end
+
+    return found
 end
 
 --- The name of the local a file returns, which is the table its qualified declarations

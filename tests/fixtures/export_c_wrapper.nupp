@@ -1,0 +1,14 @@
+local bridge = {}
+
+struct bridge.Position
+    x: float
+    y: float
+end
+
+cdef function integrate(exclusive position: bridge.Position*, dt: float)
+
+function bridge.apply(exclusive position: bridge.Position*, dt: float): nil
+    integrate(position, dt)
+end
+
+return bridge

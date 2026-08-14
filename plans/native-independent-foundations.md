@@ -1,6 +1,34 @@
 # Independent foundations for native lowering
 
-Status: planned; each track ships without `@native`
+Status: implemented; each track ships without `@native`
+
+## Landed scope
+
+- A0-A2: one canonical target ABI record, deterministic `nupp export-c`, and
+  the final typed ordinary-struct pointer bridge.
+- N0-N3: allocation-free `i32`, `u32`, and binary32 operations, their semantic
+  oracle, and canonical compiler intrinsic identities.
+- S0-S1: affine writable slices, ownership-qualified typed varargs, and the
+  sealed checked common range.
+- E0-E2: observed cross-module `noAllocate`/`noRaise` guarantees, erased
+  `noalloc`/`noraise` regions, cleanup-aware fixed-point inference, and
+  range-dominated span bounds proofs.
+- Required compiler support: the one isolated comptime-worker deadline is now
+  10 seconds. The larger compiler made the previous 2-second budget count
+  process startup and reject small valid evaluations under ordinary parallel
+  build contention; evaluation remains bounded and has no alternate path.
+
+S2 is deliberately omitted. The available ordinary non-native examples did
+not justify a permanent public strided-span API, and copy-based alternatives
+were already out of scope. Future native IR may keep field stride and offset
+projection internal unless an independent ordinary use establishes a final
+safe surface.
+
+The acceptance fixture is
+`tests/fixtures/native_foundations.nupp`. It uses every landed ordinary
+foundation with no native annotation or generated native code and is exercised
+with the JIT enabled and disabled. `tests/clitest.lua` independently compiles
+the exported header and calls C through the typed pointer bridge.
 
 ## Decision
 

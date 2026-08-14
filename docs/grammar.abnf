@@ -282,6 +282,9 @@ annotationarg  = [Name "="] exp
 stat           =/ unsafestat
 unsafestat     = %s"unsafe" "do" block "end"  ; permit unproved FFI operations;
                                                 ; affine checks remain active
+stat           =/ effectregionstat
+effectregionstat = (%s"noalloc" / %s"noraise") "do" block "end"
+                                                ; erased checked effect regions
 
 ; Typed declaration visibility is contextual [CS-5]. `local` is file-private,
 ; no modifier exports from the module, and `global` enters the project globals.
@@ -348,7 +351,8 @@ funcbody       = [generics] "(" [parlist] ")" [":" rettypes]
                  [coroutineprotocol] block "end"
 parlist        = param *("," param)
 param          = [ownershipmode] Name [":" type]
-               / "..." [":" (type / typepack)]  ; must be last
+               / [ownershipmode] "..." [":" (type / typepack)]
+                                                ; must be last; ownership needs a type
                / "..." Name [":" type]          ; named vararg [CS-12]
 ownershipmode  = %s"takes" / %s"borrows" / %s"exclusive" / %s"retains"
                / %s"releases"                    ; contextual before a name
@@ -435,7 +439,7 @@ functype       = "function" [generics] "(" [ftparams] ")"
                  [":" typepack] [coroutineprotocol]
 ftparams       = ftparam *("," ftparam)
 ftparam        = [ownershipmode] Name ":" type  ; named [CS-8 lookahead]
-               / "..." [":" (type / typepack)]
+               / [ownershipmode] "..." [":" (type / typepack)]
                / Name "..."                   ; a generic pack argument [CS-21]
                / type
 

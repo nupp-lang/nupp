@@ -776,8 +776,19 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             if cur().kind ~= ")" then
                 repeat
                     local p = new cst.TfuncParam(kind = "tfuncParam")
+                    if cur().kind == "name" and (
+                        cur().text == "takes"
+                        or cur().text == "borrows"
+                        or cur().text == "scoped"
+                        or cur().text == "exclusive"
+                        or cur().text == "retains"
+                        or cur().text == "releases"
+                    ) and tokens[i + 1] and tokens[i + 1].kind == "..." then
+                        p.modeTok = add(p, advance())
+                    end
                     if cur().kind == "..." then
                         add(p, advance())
+                        p.vararg = true
                         if cur().kind == ":" then
                             annotationColon(p, "in vararg type")
                             if cur().kind == "name" and (
@@ -1528,8 +1539,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- A literal, constructor, function, or suffixed expression.
     local function parseSimpleexp(): Node
         local kind = cur().kind
-        if kind == "name" and cur().text == "dedent" and tokens[i + 1]
-            and tokens[i + 1].kind == "string" and tokens[i + 1].text:sub(1, 1) == "[" then
+        if kind == "name" and cur().text == "dedent" and tokens[
+            i + 1
+        ] and tokens[i + 1].kind == "string" and tokens[i + 1].text:sub(1, 1) == "[" then
             local n = new cst.DedentString(kind = "dedentString")
             n.keyword = add(n, advance())
             n.token = add(n, advance())
@@ -1683,8 +1695,19 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if cur().kind ~= ")" then
             repeat
                 local p = new cst.Param(kind = "param")
+                if cur().kind == "name" and (
+                    cur().text == "takes"
+                    or cur().text == "borrows"
+                    or cur().text == "scoped"
+                    or cur().text == "exclusive"
+                    or cur().text == "retains"
+                    or cur().text == "releases"
+                ) and tokens[i + 1] and tokens[i + 1].kind == "..." then
+                    p.modeTok = add(p, advance())
+                end
                 if cur().kind == "..." then
                     local dots = add(p, advance())
+                    p.vararg = true
                     if cur().kind == "name" and cur().offset == dots.offset + #dots.text then
                         local nameTok = advance()
                         p.name = add(p, nameTok)
@@ -2358,6 +2381,20 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.doTok = add(n, advance())
             n.body = add(n, parseBlock())
             n.endTok = add(n, expect("end", "to close 'nosuspend do'"))
+            return n
+
+        elseif kind == "name" and (
+            cur().text == "noalloc" or cur().text == "noraise"
+        ) and tokens[i + 1] and tokens[i + 1].kind == "do" then
+            local written = cur().text
+            local n = new cst.EffectRegionStmt(
+                kind = "effectRegionStmt",
+                effect = written == "noalloc" and "allocates" or "raises"
+            )
+            n.keywordTok = add(n, advance())
+            n.doTok = add(n, advance())
+            n.body = add(n, parseBlock())
+            n.endTok = add(n, expect("end", "to close '" .. written .. " do'"))
             return n
 
         elseif kind == "name" and cur().text == "unsafe" and tokens[i + 1] and tokens[i + 1].kind == "do" then

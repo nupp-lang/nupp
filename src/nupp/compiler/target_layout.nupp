@@ -11,6 +11,7 @@ local record targetLayout
     ABI: integer
     keys: function(): {string}
     has: function(string?): boolean
+    hostKey: function(): string?
     of: function(any, string): (any?, string?)
 end
 
@@ -91,6 +92,18 @@ end
 
 function targetLayout.has(key: string?): boolean
     return key ~= nil and MODELS[key] ~= nil
+end
+
+--- The explicit target key for the VM running the compiler, when modeled.
+--- Cross-target callers pass their own key and never reach this function.
+function targetLayout.hostKey(): string?
+    local architectures: {[string]: string} = {x64 = "x86_64", x86 = "i686", arm64 = "aarch64"}
+    local systems: {[string]: string} = {OSX = "apple-darwin", Linux = "unknown-linux-gnu", Windows = "pc-windows-msvc"}
+    local architecture = architectures[jit.arch]
+    local system = systems[jit.os]
+    local key = architecture and system and architecture .. "-" .. system or nil
+
+    return key and MODELS[key] and key or nil
 end
 
 local function roundUp(value: integer, alignment: integer): integer

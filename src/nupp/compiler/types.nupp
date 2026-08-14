@@ -1135,14 +1135,17 @@ function types.indexer(
         return existing
     end
 
-    return intern(id, new types.Map(
-        tag = "map",
-        key = key,
-        value = value,
-        readable = readValue ~= nil,
-        writeKey = writeKey,
-        writeValue = writeValue
-    ))
+    return intern(
+        id,
+        new types.Map(
+            tag = "map",
+            key = key,
+            value = value,
+            readable = readValue ~= nil,
+            writeKey = writeKey,
+            writeValue = writeValue
+        )
+    )
 end
 
 --- A fixed sequence of types, one per position.
@@ -1215,23 +1218,27 @@ function types.shape(fields: {types.Field}, indexer: types.Indexer?, fresh: bool
         return existing
     end
 
-    return intern(key, new types.Shape(
-        tag = "shape",
-        fields = sorted,
-        byname = byname,
-        writeByname = writeByname,
-        indexReadKey = irk,
-        indexReadValue = irv,
-        indexWriteKey = iwk,
-        indexWriteValue = iwv,
-        fresh = fresh or nil
-    ))
+    return intern(
+        key,
+        new types.Shape(
+            tag = "shape",
+            fields = sorted,
+            byname = byname,
+            writeByname = writeByname,
+            indexReadKey = irk,
+            indexReadValue = irv,
+            indexWriteKey = iwk,
+            indexWriteValue = iwv,
+            fresh = fresh or nil
+        )
+    )
 end
 
 --- Adds `t` to a union under construction, flattening nested unions and merging two
 --- functions that differ only in their labels.
 ---
---- The three tables it works on are arguments rather than upvalues, and this sits beside
+--- The three tables it works on are arguments rather than upvalues, and this sits
+--- beside
 --- `types.union` rather than inside it, because a closure in a constructor costs the
 --- whole trace through it. See `interned`.
 local function pushUnionMember(
@@ -1362,13 +1369,10 @@ end
 --- Adds `t` to an intersection under construction, flattening nested intersections.
 ---
 --- `never` annihilates what came before, and does it by emptying the two tables rather
---- than replacing them: they are arguments here, for the reason `pushUnionMember` gives,
+--- than replacing them: they are arguments here, for the reason `pushUnionMember`
+--- gives,
 --- so the caller keeps whichever tables it passed.
-local function pushIntersectionMember(
-    t: types.Type,
-    seen: {[types.Type]: boolean},
-    flat: {types.Type}
-)
+local function pushIntersectionMember(t: types.Type, seen: {[types.Type]: boolean}, flat: {types.Type})
     if t == types.never then
         for index = #flat, 1, -1 do
             flat[index] = nil
@@ -1604,7 +1608,7 @@ local function packTailId(tail: any): string
         return ""
     end
     if tail.kind == "homogeneous" then
-        return "..." .. tail.type.id
+        return "..." .. (tail.mode or "plain") .. ":" .. tail.type.id
     end
     if tail.kind == "generic" then
         return tail.var.id .. "..."
@@ -1787,13 +1791,16 @@ function types.protocolThread(
         return existing
     end
 
-    return intern(key, new types.ProtocolThread(
-        tag = "protocolThread",
-        startPack = startPack,
-        resumePack = resumePack,
-        yieldPack = yieldPack,
-        returnPack = returnPack
-    ))
+    return intern(
+        key,
+        new types.ProtocolThread(
+            tag = "protocolThread",
+            startPack = startPack,
+            resumePack = resumePack,
+            yieldPack = yieldPack,
+            returnPack = returnPack
+        )
+    )
 end
 
 function types.genericAlias(
@@ -1822,16 +1829,19 @@ function types.genericAlias(
         return existing
     end
 
-    return intern(key, new types.GenericAlias(
-        tag = "genericAlias",
-        name = name,
-        body = body,
-        typeParams = typeParams or {},
-        typeBounds = typeBounds or {},
-        packParams = packParams or {},
-        constParams = constParams or {},
-        paramKinds = paramKinds or {}
-    ))
+    return intern(
+        key,
+        new types.GenericAlias(
+            tag = "genericAlias",
+            name = name,
+            body = body,
+            typeParams = typeParams or {},
+            typeBounds = typeBounds or {},
+            packParams = packParams or {},
+            constParams = constParams or {},
+            paramKinds = paramKinds or {}
+        )
+    )
 end
 
 function types.tostringPack(pack: types.Pack): string
@@ -2020,35 +2030,38 @@ function types.func(
         return existing
     end
 
-    return intern(key, new types.Func(
-        tag = "func",
-        params = params,
-        rets = rets,
-        vararg = vararg or false,
-        varargType = vararg and varargType or nil,
-        paramModes = modes,
-        paramNames = names,
-        unlabeledId = unlabeledId,
-        predicate = predicate,
-        typeParams = typeParams,
-        typeBounds = typeBounds,
-        borrowsParam = borrowsParam,
-        borrowsSelf = borrowsSelf,
-        borrowsParams = borrowsParams,
-        preservesResults = preservesResults,
-        partitionResults = partitionResults,
-        foreign = foreign or nil,
-        ffiOut = ffiOut,
-        noreturn = noreturn or nil,
-        noYield = noYield or nil,
-        paramPack = paramPack,
-        retPack = retPack,
-        packParams = packParams,
-        constParams = constParams,
-        paramKinds = paramKinds,
-        yieldPack = yieldPack,
-        resumePack = resumePack
-    ))
+    return intern(
+        key,
+        new types.Func(
+            tag = "func",
+            params = params,
+            rets = rets,
+            vararg = vararg or false,
+            varargType = vararg and varargType or nil,
+            paramModes = modes,
+            paramNames = names,
+            unlabeledId = unlabeledId,
+            predicate = predicate,
+            typeParams = typeParams,
+            typeBounds = typeBounds,
+            borrowsParam = borrowsParam,
+            borrowsSelf = borrowsSelf,
+            borrowsParams = borrowsParams,
+            preservesResults = preservesResults,
+            partitionResults = partitionResults,
+            foreign = foreign or nil,
+            ffiOut = ffiOut,
+            noreturn = noreturn or nil,
+            noYield = noYield or nil,
+            paramPack = paramPack,
+            retPack = retPack,
+            packParams = packParams,
+            constParams = constParams,
+            paramKinds = paramKinds,
+            yieldPack = yieldPack,
+            resumePack = resumePack
+        )
+    )
 end
 
 --- The same function, with its suspension guarantee set.
@@ -2364,19 +2377,22 @@ function types.neutral(
         return existing
     end
 
-    return intern(id, new types.Neutral(
-        tag = "neutral",
-        op = op,
-        capability = capability,
-        subject = subject,
-        key = key,
-        binder = binder,
-        keys = keys,
-        value = value,
-        remap = remap,
-        constTerm = constTerm,
-        templateParts = templateParts
-    ))
+    return intern(
+        id,
+        new types.Neutral(
+            tag = "neutral",
+            op = op,
+            capability = capability,
+            subject = subject,
+            key = key,
+            binder = binder,
+            keys = keys,
+            value = value,
+            remap = remap,
+            constTerm = constTerm,
+            templateParts = templateParts
+        )
+    )
 end
 
 --- Interns one deferred comptime type-function application. The helper descriptor is
@@ -2406,15 +2422,18 @@ function types.comptimeCall(
         return existing
     end
 
-    return intern(id, new types.Neutral(
-        tag = "neutral",
-        op = "comptimeCall",
-        comptimeIdentity = identity,
-        comptimeHelper = helper,
-        comptimeArguments = arguments,
-        comptimeBound = bound or types.unknown,
-        comptimeResultPack = resultPack
-    ))
+    return intern(
+        id,
+        new types.Neutral(
+            tag = "neutral",
+            op = "comptimeCall",
+            comptimeIdentity = identity,
+            comptimeHelper = helper,
+            comptimeArguments = arguments,
+            comptimeBound = bound or types.unknown,
+            comptimeResultPack = resultPack
+        )
+    )
 end
 
 function types.metatable(t: types.Type): types.Type
@@ -2760,7 +2779,11 @@ function types.tostring(t: types.Type): string
         local paramTail = t.paramPack.tail
         if paramTail then
             if paramTail.kind == "homogeneous" then
-                ps[#ps + 1] = "...: " .. types.tostring(paramTail.type)
+                ps[
+                    #ps + 1
+                ] = (
+                    paramTail.mode and paramTail.mode ~= "plain" and paramTail.mode .. " " or ""
+                ) .. "...: " .. types.tostring(paramTail.type)
             elseif paramTail.kind == "generic" then
                 ps[#ps + 1] = paramTail.var.name .. "..."
             elseif paramTail.kind == "computed" then

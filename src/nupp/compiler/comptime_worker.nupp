@@ -28,6 +28,14 @@ cjson.encode_empty_table_as_object(false)
 cjson.encode_invalid_numbers(false)
 
 local MAX_PROTOCOL_BYTES = 2 * 1024 * 1024
+-- The deadline covers starting and loading an isolated compiler as well as evaluating
+-- the request. Keep one bounded policy for ordinary and persistent workers, with
+-- enough headroom for a full compiler under normal parallel build contention.
+local WORKER_TIMEOUT_MS: integer = 10000
+
+local function timeoutMessage(): string
+    return ("comptime evaluation exceeded the %d ms worker timeout"):format(WORKER_TIMEOUT_MS)
+end
 
 local function read(path)
     local file, err = io.open(path, "rb")
@@ -315,7 +323,7 @@ function worker.evaluate(
         {executable, "__comptime-worker", requestPath},
         {
             env = {NUPP_COMPTIME_WORKER_CHILD = "1"},
-            timeoutMs = 2000,
+            timeoutMs = WORKER_TIMEOUT_MS,
             memoryMb = 256,
             pump = host and host.pump or nil,
             cancelled = host and host.cancelled or nil,
@@ -325,7 +333,7 @@ function worker.evaluate(
     if code == 124 then
         return nil, {
             code = "NUPP2412",
-            message = "comptime evaluation exceeded the 2000 ms worker timeout",
+            message = timeoutMessage(),
             help = "make the computation smaller or move the unbounded work to run time",
         }
     elseif code == 125 then
@@ -389,7 +397,7 @@ local function startService(executable: string): any, worker.Failure?
         end
         return nil, {code = "NUPP2412", message = "cannot start comptime worker service: " .. tostring(problem)}
     end
-    child.stdin:setTimeout(2000)
+    child.stdin:setTimeout(WORKER_TIMEOUT_MS)
     child.stdout:setTimeout(5)
     unsafe do
         service = nupp.intoRaw(child)
@@ -416,7 +424,7 @@ local function requestService(request: any, executable: string, host: any?): any
             message = "comptime worker service stopped accepting requests: " .. tostring(writeFailure)
         }
     end
-    local deadline = child.backend:now() + 2000
+    local deadline = child.backend:now() + WORKER_TIMEOUT_MS
     while true do
         local newline = serviceBuffer:find("\n", 1, true)
         if newline then
@@ -444,7 +452,7 @@ local function requestService(request: any, executable: string, host: any?): any
             stopService(true)
             return nil, {
                 code = "NUPP2412",
-                message = "comptime evaluation exceeded the 2000 ms worker timeout",
+                message = timeoutMessage(),
                 help = "make the computation smaller or move the unbounded work to run time",
             }
         end

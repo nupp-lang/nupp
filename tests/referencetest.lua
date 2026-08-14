@@ -165,7 +165,11 @@ end
 -- replaced, which is what the room between this number and the last one is.
 function M.theReferenceFitsInAPrompt()
    local markdown = reference.markdown()
-   assert(#markdown < 65000,
+   -- Canonical C export, fixed-width arithmetic, span witnesses, and checked
+   -- effect regions are independent public surfaces and each needs enough text
+   -- to state its semantic boundary. Keep the ceiling close to their actual
+   -- addition rather than deleting executable reference examples.
+   assert(#markdown < 70000,
       ("the reference has grown to %d bytes, past what it promises to be")
       :format(#markdown))
 end

@@ -163,14 +163,17 @@ function control.install(c: state.Checker): state.StatHandlers
             if expanded and expanded.returnPartitionFields then
                 return {partitionFields = expanded.returnPartitionFields[result - #exprs + 1]}
             end
+
             return nil
         end
+
         local function partitionFieldsOf(returned)
             while returned and (returned.kind == "paren" or returned.kind == "castExpr") do
                 returned = returned.expr
             end
             return returned and returned.partitionFields or nil
         end
+
         local functionBody = c.functionBodies[#c.functionBodies]
         if functionBody then
             for result = 1, #ts do
@@ -256,9 +259,7 @@ function control.install(c: state.Checker): state.StatHandlers
                 else
                     local source = ownershipState((c.ownershipEntry(stat.exprs[j])))
                     local ownReturns = c.ownReturnStack[#c.ownReturnStack]
-                    local promoted = ownReturns and ownReturns[
-                        j
-                    ] and source and ownershipKind(source.t) ~= valueKind
+                    local promoted = ownReturns and ownReturns[j] and source and ownershipKind(source.t) ~= valueKind
                     if not promoted then
                         moveExpression(stat.exprs[j], valueT, "return", valueKind)
                     end
@@ -345,8 +346,10 @@ function control.install(c: state.Checker): state.StatHandlers
             for j, rt in ipairs(annotated) do
                 local got = ts[j] or T.nil_
                 local expected = rt
-                -- A fresh value satisfies an owning result: the declaration is what makes
-                -- it one, so the body is checked against the raw type it actually built.
+                -- A fresh value satisfies an owning result: the declaration is what
+                -- makes
+                -- it one, so the body is checked against the raw type it actually
+                -- built.
                 if ownReturns and ownReturns[j] and not ownershipKind(got) then
                     expected = ownReturns[j]
                 end
@@ -759,6 +762,16 @@ function control.install(c: state.Checker): state.StatHandlers
         c.noSuspendDepth = c.noSuspendDepth - 1
     end
 
+    handlers.effectRegionStmt = function(stat: cst.EffectRegionStmt)
+        local effect = stat.effect
+        c.effectRegionDepths[effect] = (c.effectRegionDepths[effect] or 0) + 1
+        c.effectRegions.region(stat)
+        c.pushScope()
+        c.checkBlock(stat.body, true)
+        c.popScope()
+        c.effectRegionDepths[effect] = (c.effectRegionDepths[effect] or 1) - 1
+    end
+
     handlers.unsafeStmt = function(stat: cst.UnsafeStmt)
         c.unsafeDepth = c.unsafeDepth + 1
         c.pushScope()
@@ -784,8 +797,54 @@ function control.install(c: state.Checker): state.StatHandlers
         c.pushScope()
         c.scope.completionScope = stat.body
         c.bindVar(var.text, (isA(st, T.integer) and isA(et, T.integer)) and T.integer or T.number, false, var)
+        -- A range witness dominates this loop only when both bounds name the same
+        -- const range and the loop uses the ordinary ascending unit step.
+        local function rangeField(node, field)
+            if not node or node.kind ~= "dotIndex" or not node.name or node.name.text ~= field then
+                return nil
+            end
+            local object = node.obj
+
+            return object and object.kind == "name" and object.token and object.token.definition or nil
+        end
+
+        local rangeDefinition = not stat.step and rangeField(from, "first") or nil
+        local witness = rangeDefinition and rangeDefinition == rangeField(
+            to,
+            "last"
+        ) and rangeDefinition.spanRangeWitness or nil
         c.loops.push(stat.body)
         c.checkBlock(stat.body, true)
+        if witness and stat.body and var.definition then
+            local function markRangeAccess(node)
+                if not node or cst.isToken(node) then
+                    return
+                end
+                if node.kind == "methodCall" and node.spanAccessorNoAllocate then
+                    local receiver = node.obj
+                    local receiverDefinition = receiver
+                        and receiver.kind == "name"
+                        and receiver.token
+                        and receiver.token.definition
+                        or nil
+                    local args = node.args and node.args.kind == "args" and node.args.exprs or {}
+                    local index = args[1]
+                    local indexDefinition = index
+                        and index.kind == "name"
+                        and index.token
+                        and index.token.definition
+                        or nil
+                    if witness.spans[receiverDefinition] and indexDefinition == var.definition then
+                        node.rangeProvenNoRaise = true
+                    end
+                end
+                for _, child in ipairs(node) do
+                    markRangeAccess(child)
+                end
+            end
+
+            markRangeAccess(stat.body)
+        end
         c.loops.pop()
         c.popScope()
     end

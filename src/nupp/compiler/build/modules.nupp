@@ -150,7 +150,9 @@ local function packFingerprint(
     if tail and tail.kind == "generic" then
         tailFingerprint = "generic:" .. binderFingerprint(tail.var, binders, "packvar")
     elseif tail and tail.type then
-        tailFingerprint = tail.kind .. ":" .. typeFingerprint(tail.type, active, binders)
+        tailFingerprint = tail.kind .. ":" .. (
+            tail.mode or "plain"
+        ) .. ":" .. typeFingerprint(tail.type, active, binders)
     end
 
     return "pack(" .. table.concat(head, ",") .. ";" .. tailFingerprint .. ")"

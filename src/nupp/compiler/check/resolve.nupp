@@ -1167,6 +1167,8 @@ function resolve.install(c: state.Checker): nil
             local params, rets, paramModes, paramNames = {}, {}, {}, {}
             local vararg = false
             local varargType = nil
+            local varargMode = nil
+            local varargModeToken = nil
             local typeParams, typeBounds, packParams, constParams, paramKinds
             if node.generics then
                 c.pushScope()
@@ -1183,8 +1185,10 @@ function resolve.install(c: state.Checker): nil
                         local pp = c.resolvePack(p.type)
                         paramPackTail = pp.tail
                         vararg = true
-                    elseif first and cst.isToken(first) and first.kind == "..." then
+                    elseif p.vararg or first and cst.isToken(first) and first.kind == "..." then
                         vararg = true
+                        varargMode = p.modeTok and p.modeTok.text or nil
+                        varargModeToken = p.modeTok
                         if p.type then
                             varargType = c.resolveType(p.type)
                         end
@@ -1196,10 +1200,26 @@ function resolve.install(c: state.Checker): nil
                     end
                 end
             end
+            if varargModeToken and not varargType then
+                c.diag("NUPP2602", varargModeToken, "an ownership-qualified vararg needs one homogeneous type")
+            end
+            if varargMode == "retains" or varargMode == "releases" then
+                c.diag("NUPP2602", varargModeToken or node, varargMode .. " is only valid on imported cdef parameters")
+            elseif varargMode == "takes" then
+                c.diag(
+                    "NUPP2602",
+                    varargModeToken or node,
+                    "takes is not valid on an unnamed typed vararg because a body cannot discharge individual owners"
+                )
+            end
             local paramPack = T.pack(
                 params,
                 paramPackTail or (
-                    vararg and {kind = varargType and "homogeneous" or "unknown", type = varargType or T.any} or nil
+                    vararg and {
+                        kind = varargType and "homogeneous" or "unknown",
+                        type = varargType or T.any,
+                        mode = varargMode,
+                    } or nil
                 ),
                 paramModes
             )

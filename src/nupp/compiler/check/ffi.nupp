@@ -214,7 +214,10 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                 c.diag("NUPP2401", node, "carray needs an element count as its second argument")
                 return T.any
             end
-            node.carrayElem = elemT.name
+            -- Preserve the expression that names the type. A nominal's short name is
+            -- not enough here: `carray(game.Position, n)` must construct the array
+            -- from `game.Position`, not an unrelated global `Position`.
+            node.carrayElem = args[1]
             local count = countT.tag == "literal" and type(
                 countT.constant
             ) == "number" and countT.constant >= 0 and countT.constant % 1 == 0 and countT.constant or nil

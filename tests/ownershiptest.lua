@@ -656,6 +656,78 @@ function M.writeSpanDowngradesAndRefsHoldItsExclusiveBarrier()
    }, "\n")), "NUPP2602 NUPP2602", "a shared downgrade blocks mutation and commit")
 end
 
+function M.writableSlicesAreAffineChildrenOfTheirWriter()
+   assertClean(table.concat({
+      "local spans = require('nupp.span')",
+      "local storage = ffi.new<int32[6]>()",
+      "local writable = spans.writeCarray(storage, 6)",
+      "do",
+      "   local middle = writable:slice(2, 4)",
+      "   middle:set(1, 11 as int32)",
+      "   do",
+      "      local nested = middle:slice(2, 2)",
+      "      nested:set(1, 12 as int32)",
+      "   end",
+      "   middle:set(3, 13 as int32)",
+      "end",
+      "do",
+      "   local empty = writable:slice(4, 3)",
+      "   spans.commit(empty)",
+      "end",
+      "writable:set(6, 14 as int32)",
+      "spans.commit(writable)",
+   }, "\n"))
+
+   assertEq(codes(table.concat({
+      "local spans = require('nupp.span')",
+      "local storage = ffi.new<int32[4]>()",
+      "local writable = spans.writeCarray(storage, 4)",
+      "local child = writable:slice(2, 3)",
+      "writable:set(1, 1 as int32)",
+      "print(child.count)",
+   }, "\n")), "NUPP2602", "a live child blocks exclusive parent use")
+
+   assertClean(table.concat({
+      "local spans = require('nupp.span')",
+      "local storage = ffi.new<int32[4]>()",
+      "local writable = spans.writeFixedCarray(storage, 4)",
+      "local child: Owned<spans.WriteSpan<int32>> = writable:slice(2, 3)",
+      "child:set(1, 7 as int32)",
+      "spans.commit(child)",
+      "spans.commit(writable)",
+   }, "\n"))
+end
+
+function M.commonSpanRangesBorrowEveryInputWithoutBoxingOrConsumption()
+   assertClean(table.concat({
+      "local spans = require('nupp.span')",
+      "local inputStorage = ffi.new<int32[4]>()",
+      "local outputStorage = ffi.new<int32[4]>()",
+      "local input = spans.fromFixedCarray(inputStorage, 4)",
+      "local output = spans.writeFixedCarray(outputStorage, 4)",
+      "local indices = spans.range(1, 4, input, output)",
+      "for index = indices.first, indices.last do",
+      "   output:set(index, input:get(index))",
+      "end",
+      "spans.commit(output)",
+   }, "\n"))
+
+   assertClean(table.concat({
+      "local spans = require('nupp.span')",
+      "local storage = ffi.new<int32[1]>()",
+      "local view = spans.fromCarray(storage, 1)",
+      "local empty = spans.range(1, 0, view)",
+      "print(empty.first, empty.last)",
+   }, "\n"))
+
+   assertEq(codes(table.concat({
+      "local spans = require('nupp.span')",
+      "local fake = {count = 4}",
+      "local indices = spans.range(1, 4, fake)",
+      "print(indices.first)",
+   }, "\n")), "NUPP2006", "an arbitrary count-shaped table cannot forge the sealed contract")
+end
+
 function M.heapArraysAreOwnedAndBecomeCheckedSpans()
    assertClean(table.concat({
       "local heap = require('nupp.heap')",

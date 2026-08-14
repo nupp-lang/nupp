@@ -259,6 +259,83 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 if boundEntry.definition then
                     boundEntry.definition.requiredModule = initNode.requiredModule
                 end
+                if boundEntry.t and T.unwrapOwnership(boundEntry.t).tag == "func" then
+                    boundEntry.exactCallExport = {
+                        module = initNode.requiredModule,
+                        member = "$return",
+                        identity = initNode.requiredModule .. ".$return",
+                    }
+                    if boundEntry.definition then
+                        boundEntry.definition.exactCallExport = boundEntry.exactCallExport
+                    end
+                end
+            end
+            if boundEntry and initNode and initNode.exactCallExport then
+                boundEntry.exactCallExport = initNode.exactCallExport
+                if boundEntry.definition then
+                    boundEntry.definition.exactCallExport = initNode.exactCallExport
+                end
+            elseif boundEntry
+                and initNode
+                and initNode.kind == "name"
+                and initNode.token
+                and initNode.token.definition
+                and initNode.token.definition.exactCallExport
+            then
+                boundEntry.exactCallExport = initNode.token.definition.exactCallExport
+                if boundEntry.definition then
+                    boundEntry.definition.exactCallExport = boundEntry.exactCallExport
+                end
+            end
+            -- A const binding may carry the exact range proof produced by the sealed
+            -- standard span module. Every participating span must itself be const:
+            -- otherwise rebinding it after validation would make the proof unsound.
+            local rangeExport = initNode
+                and initNode.kind == "call"
+                and initNode.obj
+                and initNode.obj.exactCallExport
+                or nil
+            if boundEntry
+                and boundEntry.definition
+                and stat.isConst
+                and rangeExport
+                and rangeExport.module == "nupp.span"
+                and rangeExport.member == "range"
+            then
+                local rangeCall = initNode as cst.Call
+                local args = rangeCall.args and rangeCall.args.kind == "args" and (
+                    rangeCall.args as cst.Args
+                ).exprs or {}
+                local spanDefinitions, valid = {}, #args >= 3
+                for index = 3, #args do
+                    local argument = args[index]
+                    local definition = argument
+                        and argument.kind == "name"
+                        and argument.token
+                        and argument.token.definition
+                        or nil
+                    if not definition or not definition.constant then
+                        valid = false
+                        break
+                    end
+                    spanDefinitions[definition] = true
+                end
+                if valid then
+                    boundEntry.definition.spanRangeWitness = {spans = spanDefinitions,}
+                end
+            end
+            local scalarIdentity = initNode
+                and initNode.scalarIntrinsic
+                or initNode
+                and initNode.kind == "name"
+                and initNode.token
+                and initNode.token.definition
+                and initNode.token.definition.scalarIntrinsic
+            if boundEntry and scalarIdentity then
+                boundEntry.scalarIntrinsic = scalarIdentity
+                if boundEntry.definition then
+                    boundEntry.definition.scalarIntrinsic = scalarIdentity
+                end
             end
             -- `local kind = node.kind` copies a discriminant out of the value it
             -- discriminates. Remembering where it came from is what lets a later test
@@ -292,15 +369,17 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 boundEntry.resourceCapability = expandedCall.resourceCapability
             end
             if boundEntry and returnRegionPath then
-                local regionRoot = expandedCall and expandedCall.regionRoot
-                    or returnBorrowOwners and returnBorrowOwners[1]
+                local regionRoot = expandedCall
+                    and expandedCall.regionRoot
+                    or returnBorrowOwners
+                    and returnBorrowOwners[
+                    1
+                ]
                 boundEntry.regionRoot = regionRoot
                 boundEntry.regionPath = returnRegionPath
                 if regionRoot then
                     regionRoot.activeRegions = regionRoot.activeRegions or {}
-                    regionRoot.activeRegions[returnRegionPath] = (
-                        regionRoot.activeRegions[returnRegionPath] or 0
-                    ) + 1
+                    regionRoot.activeRegions[returnRegionPath] = (regionRoot.activeRegions[returnRegionPath] or 0) + 1
                 end
             elseif boundEntry and initNode then
                 local regionRoot, regionPath = c.regionOf(initNode)
@@ -321,9 +400,9 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 returnBorrowOwners[1].activeBorrows = (returnBorrowOwners[1].activeBorrows or 0) + 1
                 if returnExclusiveBorrow then
                     boundEntry.exclusiveBorrow = true
-                    returnBorrowOwners[1].activeExclusiveBorrows = (
-                        returnBorrowOwners[1].activeExclusiveBorrows or 0
-                    ) + 1
+                    returnBorrowOwners[
+                        1
+                    ].activeExclusiveBorrows = (returnBorrowOwners[1].activeExclusiveBorrows or 0) + 1
                 end
             elseif boundEntry and (
                 boundKind == "borrowed" or boundKind == "owned"
@@ -332,9 +411,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 initNode.borrowOwner.activeBorrows = (initNode.borrowOwner.activeBorrows or 0) + 1
                 if returnExclusiveBorrow then
                     boundEntry.exclusiveBorrow = true
-                    initNode.borrowOwner.activeExclusiveBorrows = (
-                        initNode.borrowOwner.activeExclusiveBorrows or 0
-                    ) + 1
+                    initNode.borrowOwner.activeExclusiveBorrows = (initNode.borrowOwner.activeExclusiveBorrows or 0) + 1
                 end
             end
             if boundEntry and (
