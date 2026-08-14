@@ -73,7 +73,7 @@ semantic.semanticTypes = wire.array({
     "enumMember",
     "function",
     "method",
-    "keyword",
+    "nuppKeyword",
     "comment",
     "string",
     "number",
@@ -83,6 +83,10 @@ semantic.semanticTypes = wire.array({
 })
 
 semantic.semanticModifiers = wire.array({"declaration", "readonly", "deprecated"})
+
+--- The VS Code extension maps this language-specific semantic type to the Nupp
+--- keyword TextMate scope, preserving theme keyword colors.
+semantic.keywordType = "nuppKeyword"
 
 semantic.semanticIndex = {}
 for index, name in ipairs(semantic.semanticTypes) do
@@ -118,6 +122,7 @@ semantic.TYPE_WORDS = {
 
 function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
     local kinds = {}
+    local keywordType = semantic.keywordType
     local function mark(tok, kind)
         if tok and cst.isToken(tok) then
             kinds[tok] = kind
@@ -152,7 +157,7 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
         if kind == "cdefFunc" or kind == "cdefStruct" then
             for _, child in ipairs(node) do
                 if cst.isToken(child) and (child.text == "cdef" or child.text == "struct" or child.text == "from") then
-                    mark(child, "keyword")
+                    mark(child, keywordType)
                 end
             end
         elseif kind == "typeAlias" or kind == "recordDecl" then
@@ -166,33 +171,33 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
                         or child.text == "is"
                         or child.text == "where"
                     then
-                        mark(child, "keyword")
+                        mark(child, keywordType)
                     end
                 end
             end
         elseif kind == "generics" then
             for _, child in ipairs(node) do
                 if cst.isToken(child) and child.kind == "name" and child.text == "is" then
-                    mark(child, "keyword")
+                    mark(child, keywordType)
                 end
             end
             for _, tok in ipairs((node as cst.Generics).names) do
                 mark(tok, "typeParameter")
             end
         elseif kind == "newExpr" or kind == "constructorDecl" or kind == "satisfiesDecl" then
-            mark(node[1], "keyword")
+            mark(node[1], keywordType)
         elseif kind == "whereClause" then
-            mark(node[1], "keyword")
+            mark(node[1], keywordType)
         elseif kind == "metamethodDecl" then
-            mark(node[1], "keyword")
+            mark(node[1], keywordType)
             mark(node.name, "method")
         elseif kind == "inlineMethod" then
-            mark(node[1], "keyword")
+            mark(node[1], keywordType)
             mark(node.name, "method")
         elseif kind == "castExpr" or kind == "isExpr" then
             for _, child in ipairs(node) do
                 if cst.isToken(child) and child.text == "as" then
-                    mark(child, "keyword")
+                    mark(child, keywordType)
                 elseif cst.isToken(child) and child.text == "is" then
                     mark(child, "operator")
                 end
@@ -200,61 +205,61 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
         elseif kind == "tpredicate" then
             for _, child in ipairs(node) do
                 if cst.isToken(child) and child.text == "is" then
-                    mark(child, "keyword")
+                    mark(child, keywordType)
                 end
             end
         elseif kind == "tborrows" then
             for _, child in ipairs(node) do
                 if cst.isToken(child) and child.text == "borrows" then
-                    mark(child, "keyword")
+                    mark(child, keywordType)
                 end
             end
         elseif kind == "tpreserves" then
             for _, child in ipairs(node) do
                 if cst.isToken(child) and child.text == "preserves" then
-                    mark(child, "keyword")
+                    mark(child, keywordType)
                 end
             end
         elseif kind == "tconst" then
-            mark(node[1], "keyword")
+            mark(node[1], keywordType)
         elseif kind == "funcbody" or kind == "tfunc" then
             for _, child in ipairs(node) do
                 if cst.isToken(child) and (child.text == "yields" or child.text == "resumes") then
-                    mark(child, "keyword")
+                    mark(child, keywordType)
                 end
             end
             if kind == "tfunc" and node.noSuspend then
-                mark(node[1], "keyword")
+                mark(node[1], keywordType)
             end
         elseif kind == "pragmaStmt" or kind == "annotationApply" then
             mark(node.name, "decorator")
         elseif kind == "dedentString" then
-            mark(node.keyword, "keyword")
+            mark(node.keyword, keywordType)
         elseif kind == "unsafeStmt" then
-            mark(node.unsafeTok, "keyword")
+            mark(node.unsafeTok, keywordType)
         elseif kind == "noSuspendStmt" then
-            mark(node.keywordTok, "keyword")
+            mark(node.keywordTok, keywordType)
         elseif (kind == "localStmt" or kind == "localFuncStmt") and node.isConst then
-            mark(node[1], "keyword")
+            mark(node[1], keywordType)
         elseif kind == "continueStmt" then
-            mark(node[1], "keyword")
+            mark(node[1], keywordType)
         elseif kind == "labelStmt" or kind == "gotoStmt" then
             mark(node.name, "label")
         elseif kind == "param" or kind == "tfuncParam" then
             if node.modeTok then
-                mark(node.modeTok, "keyword")
+                mark(node.modeTok, keywordType)
             end
             mark(node.name, "parameter")
         elseif kind == "fieldDecl" or kind == "tshapeField" then
             if node.capability then
-                mark(node.capability, "keyword")
+                mark(node.capability, keywordType)
             end
             mark(node.name, "property")
         elseif kind == "fieldNamed" then
             mark(node.name, "property")
         elseif kind == "indexerDecl" or kind == "tmap" then
             if node.capability then
-                mark(node.capability, "keyword")
+                mark(node.capability, keywordType)
             end
         end
     end)
@@ -376,7 +381,7 @@ function semantic.install(s: semantic.Session): semantic.Api
             then
                 kind = not embedded[tok] and "string" or nil
             elseif lexer.KEYWORDS[tok.kind] then
-                kind = "keyword"
+                kind = semantic.keywordType
             elseif tok.kind == "name" then
                 kind = syntax[
                     tok

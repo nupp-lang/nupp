@@ -45,7 +45,11 @@ if (!language || language.icon?.light !== "./nupp.svg"
 }
 const semanticScopes = manifest.contributes.semanticTokenScopes || [];
 const nuppSemanticScopes = semanticScopes.find(({ language }) => language === "nupp");
-if (!nuppSemanticScopes?.scopes?.keyword?.includes("keyword.control.nupp")) {
+const semanticTypes = manifest.contributes.semanticTokenTypes || [];
+if (!semanticTypes.some(({ id }) => id === "nuppKeyword")) {
+  throw new Error("NUPP must declare its keyword semantic token type");
+}
+if (!nuppSemanticScopes?.scopes?.nuppKeyword?.includes("keyword.control.nupp")) {
   throw new Error("NUPP semantic keywords must map to the grammar keyword scope");
 }
 const languageIcon = fs.readFileSync(path.join(root, "nupp.svg"), "utf8");
