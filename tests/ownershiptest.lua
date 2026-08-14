@@ -13,11 +13,11 @@ local function assertEq(got, want, label)
    end
 end
 
-local function checked(source)
+local function checked(source, opts)
    local result = parser.parse(source, "ownership-test.g.nupp")
    assertEq(#result.errors, 0, "syntax: "
       .. (result.errors[1] and result.errors[1].msg or ""))
-   local diags = check.check(result, "ownership-test.g.nupp", env)
+   local diags = check.check(result, "ownership-test.g.nupp", env, opts)
    return result, diags
 end
 
@@ -31,6 +31,23 @@ end
 local function assertClean(source)
    local _, diags = checked(source)
    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+end
+
+local MIGRATION_LINTS = {
+   migration = "warning",
+   ["unused-binding"] = "off",
+   ["discarded-result"] = "off",
+}
+
+local function applyFix(source, fix)
+   local edits = {}
+   for _, edit in ipairs(fix.edits or {}) do edits[#edits + 1] = edit end
+   table.sort(edits, function(a, b) return a.offset > b.offset end)
+   for _, edit in ipairs(edits) do
+      source = source:sub(1, edit.offset - 1) .. edit.newText
+         .. source:sub(edit.offset + edit.length)
+   end
+   return source
 end
 
 local RESOURCE = table.concat({
@@ -2388,6 +2405,102 @@ function M.aFunctionValuedFieldCanDeclareAnOwningProducer()
       "local value = api.open()",
       "drop(value)",
    }, "\n"))
+end
+
+local MIGRATABLE_SESSION = table.concat({
+   "local record Session",
+   "   id: integer",
+   "end",
+   "@drop",
+   "local function close(takes session: Session): nil",
+   "   print(session.id)",
+   "end",
+}, "\n")
+
+function M.ownedAnnotationFixesFunctionStatementsAndCallableFields()
+   local cases = {
+      {
+         MIGRATABLE_SESSION,
+         "@owned",
+         "local function open(): Session",
+         "   return new Session(id = 1)",
+         "end",
+      },
+      {
+         MIGRATABLE_SESSION,
+         "local record Api",
+         "   @owned",
+         "   open: function(): (Session?, string?)",
+         "end",
+      },
+      {
+         MIGRATABLE_SESSION,
+         "local record Pool",
+         "   @owned",
+         "   open: function(exclusive self: Pool): Session borrows(self)",
+         "end",
+      },
+   }
+   local expected = {
+      "local function open(): Owned<Session>",
+      "open: function(): (Owned<Session?>, string?)",
+      "open: function(exclusive self: Pool): Owned<Session> borrows(self)",
+   }
+   for j, lines in ipairs(cases) do
+      local source = table.concat(lines, "\n")
+      local _, diagnostics = checked(source, {lints = MIGRATION_LINTS})
+      assertEq(#diagnostics, 1, "one migration lint")
+      assertEq(diagnostics[1].code, "NUPP2515")
+      assertEq(
+         #(diagnostics[1].fixes or {}),
+         1,
+         ("case %d, one whole fix: %s"):format(j, diagnostics[1].help or "no help")
+      )
+      local rewritten = applyFix(source, diagnostics[1].fixes[1])
+      assert(rewritten:find(expected[j], 1, true), rewritten)
+      assert(not rewritten:find("@owned", 1, true), rewritten)
+      local _, after = checked(rewritten, {lints = MIGRATION_LINTS})
+      assertEq(#after, 0, after[1] and after[1].msg or "rewritten declaration")
+   end
+end
+
+function M.ownedAnnotationFixWrapsEveryCallableIntersectionResult()
+   local source = table.concat({
+      MIGRATABLE_SESSION,
+      "local record Api",
+      "   @owned",
+      "   open: function(): Session & function(code: integer): Session",
+      "end",
+   }, "\n")
+   local _, diagnostics = checked(source, {lints = MIGRATION_LINTS})
+   assertEq(#diagnostics, 1)
+   assertEq(diagnostics[1].code, "NUPP2515")
+   assertEq(#(diagnostics[1].fixes or {}), 1, "one atomic intersection fix")
+   local rewritten = applyFix(source, diagnostics[1].fixes[1])
+   local _, count = rewritten:gsub("Owned<Session>", "")
+   assertEq(count, 2, rewritten)
+   local _, after = checked(rewritten, {lints = MIGRATION_LINTS})
+   assertEq(#after, 0, after[1] and after[1].msg or "rewritten intersection")
+end
+
+function M.ownedCallableFieldInheritsALaterNestedDropOperation()
+   local source = table.concat({
+      "local record Library",
+      "   interface Session",
+      "      @owned",
+      "      open: function(): Session",
+      "      @drop",
+      "      close: function(takes self: Session): nil",
+      "   end",
+      "end",
+   }, "\n")
+   local _, diagnostics = checked(source, {lints = MIGRATION_LINTS})
+   assertEq(#diagnostics, 1)
+   assertEq(diagnostics[1].code, "NUPP2515")
+   assertEq(#(diagnostics[1].fixes or {}), 1, diagnostics[1].help)
+   local rewritten = applyFix(source, diagnostics[1].fixes[1])
+   local _, after = checked(rewritten, {lints = MIGRATION_LINTS})
+   assertEq(#after, 0, after[1] and after[1].msg or "nested terminal")
 end
 
 -- The same fix without the ownership: a qualified function is a typed function,

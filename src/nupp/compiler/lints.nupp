@@ -139,6 +139,13 @@ lints.all = {
         summary = "use of an API marked deprecated"
     ),
     new lints.Lint(
+        name = "owned-annotation",
+        code = "NUPP2515",
+        category = "migration",
+        level = "off",
+        summary = "an owning result stated above the signature rather than in it"
+    ),
+    new lints.Lint(
         name = "jit-boundary",
         code = "NUPP2514",
         category = "suspicious",
@@ -165,6 +172,7 @@ local CATEGORIES: {
     suspicious = "legal, and probably not meant",
     style = "it works and reads badly",
     performance = "a declaration is paying for something it does not use",
+    migration = "a construct a newer spelling replaces",
 }
 
 -- The levels a lint may be configured to. `off` is a lint's alone: a type error is not
@@ -181,7 +189,10 @@ local LEVELS: {[string]: boolean} = {off = true, note = true, warning = true, er
 -- fire on every small record of numbers, most of which are not hot, and a lint that is
 -- usually noise trains its reader to silence the category before ever meeting the case
 -- it was written for. `nupp lints` is where these are discovered.
-local OPT_IN: {[string]: boolean} = {performance = true}
+--
+-- Migration lints report spellings that remain correct while a replacement is being
+-- adopted. Migration tooling opts in to find them without adding noise to every build.
+local OPT_IN: {[string]: boolean} = {performance = true, migration = true}
 
 --- What each category is for, keyed by its name.
 lints.categories = CATEGORIES

@@ -1739,6 +1739,27 @@ function checkMod.check(
         end
     end
 
+    --- Registers member terminals on one hoisted nominal and every nominal nested
+    --- beneath it. The declaration pass repeats this idempotently after validation;
+    --- this scan exists so an earlier owning result sees the same terminal.
+    local function registerHoistedDropMembers(decl)
+        if not decl or decl.kind ~= "recordDecl" or not decl.hoistedType then
+            return
+        end
+        for _, entry in ipairs(decl.entries or {}) do
+            if entry.kind == "recordDecl" then
+                registerHoistedDropMembers(entry)
+            else
+                local named = entry.name and entry.name.text
+                for _, application in ipairs(named and entry.annotations or {}) do
+                    if application.name and application.name.text == "drop" then
+                        c.own.addDefaultDropOperation(decl.hoistedType, T.methodCleanup(named))
+                    end
+                end
+            end
+        end
+    end
+
     -- Binds every type a block declares before any body is checked, so declarations in
     -- one block may name each other whatever the order. A nominal is created and bound
     -- here and filled in when its statement is reached; an alias's value waits until
@@ -1808,16 +1829,7 @@ function checkMod.check(
             while decl and decl.kind == "pragmaStmt" do
                 decl = decl.stat
             end
-            if decl and decl.kind == "recordDecl" and decl.hoistedType then
-                for _, e in ipairs(decl.entries or {}) do
-                    local named = e.name and e.name.text
-                    for _, application in ipairs(named and e.annotations or {}) do
-                        if application.name and application.name.text == "drop" then
-                            c.own.addDefaultDropOperation(decl.hoistedType, T.methodCleanup(named))
-                        end
-                    end
-                end
-            end
+            registerHoistedDropMembers(decl)
         end
 
         local wasHoisting = c.hoisting

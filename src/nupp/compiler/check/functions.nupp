@@ -33,6 +33,15 @@ function functions.install(c: state.Checker): state.StatHandlers
     local validateCleanups = c.validateCleanups
     local expectedFuncbodies: {[any]: Type} = {}
 
+    local function writtenResultOf(body): {any}
+        local written = body.returnPack and body.returnPack.kind == "tpack" and (
+            body.returnPack as cst.Tpack
+        ).types or body.rets
+        local value = cst.resultValueType(written and written[1] or nil)
+
+        return value and {value} or {}
+    end
+
     local function inferredParameterModes(body)
         local modes, byname, declared = {}, {}, {}
         for j, p in ipairs(body.params or {}) do
@@ -645,6 +654,13 @@ function functions.install(c: state.Checker): state.StatHandlers
                 annotated[1] = T.owned(rawType(annotated[1]), body.ownCleanups)
                 rets[1] = annotated[1]
                 validateCleanups(annotated[1], body.ownCleanups, body.ownTok or body, "NUPP2615")
+                c.own.reportOwnedAnnotation(
+                    body.cleanupRegistrationNode,
+                    body.ownTok,
+                    writtenResultOf(body),
+                    body.ownCleanups,
+                    body.ownOpaque
+                )
             end
         end
         -- `Owned<T>` written as a return type says what `@owned` says, in the position
@@ -665,7 +681,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         for j, ret in ipairs(normalized.head or {}) do
             annotated[j], rets[j] = ret, ret
             if ret.tag == "owned" then
-                local written = writtenResults and writtenResults[j]
+                local written = cst.resultValueType(writtenResults and writtenResults[j])
                 local wroteOwned = written ~= nil
                     and written.kind == "tname"
                     and written.base ~= nil

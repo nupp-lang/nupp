@@ -1597,6 +1597,7 @@ function declare.install(
                                 )
                             end
                             local wrapped = {}
+                            local settledCleanups = nil
                             for _, member in ipairs(ownedMembers) do
                                 local callable = member as T.Func
                                 local resultType = callable.rets[1]
@@ -1607,10 +1608,42 @@ function declare.install(
                                     ownedApplication,
                                     ownedApplication
                                 )
+                                settledCleanups = settledCleanups or cleanups
                                 c.own.validateCleanups(resultType, cleanups, ownedApplication)
                                 wrapped[#wrapped + 1] = T.withFirstResult(callable, T.owned(resultType, cleanups))
                             end
                             ft = #wrapped == 1 and wrapped[1] or T.intersection(wrapped)
+                            -- A callable field states an owning result the same way a
+                            -- function statement does. An intersection has one written
+                            -- signature per overload, and the shared builder refuses a
+                            -- contract it cannot move as a whole.
+                            local signatures = {}
+                            if e.type and e.type.kind == "tfunc" then
+                                signatures[1] = e.type
+                            elseif e.type and e.type.kind == "tintersection" then
+                                for _, part in ipairs((e.type as cst.Tintersection).types or {}) do
+                                    if part.kind == "tfunc" then
+                                        signatures[#signatures + 1] = part
+                                    end
+                                end
+                            end
+                            local results = {}
+                            for _, signature in ipairs(signatures) do
+                                local pack = signature.returnPack
+                                local written = pack and pack.kind == "tpack" and (
+                                    pack as cst.Tpack
+                                ).types or signature.rets
+                                local value = cst.resultValueType(written and written[1] or nil)
+                                results[#results + 1] = value
+                            end
+                            ownedApplication.declaresAt = cst.firstToken(e)
+                            c.own.reportOwnedAnnotation(
+                                ownedApplication,
+                                ownedApplication.name,
+                                #results == #signatures and results or {},
+                                settledCleanups or {},
+                                opaque
+                            )
                         end
                     end
                     local fieldBorrowRelation: any = e.type and (

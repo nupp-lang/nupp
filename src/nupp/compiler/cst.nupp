@@ -2504,6 +2504,31 @@ function cst.identifier(name: string): boolean
     return not lexer.KEYWORDS[name] and name:match("^[%a_][%w_]*$") ~= nil
 end
 
+--- The value type a written result states, with what the result says *about* that
+--- value left outside it.
+---
+---   T                 -> T
+---   T?                -> T?
+---   T borrows(source) -> T, leaving the borrowing clause where it was written
+---
+--- By role rather than by token bounds. The last token of a borrowing result is the
+--- closing paren of its source list, so anything reading the outer bounds treats the
+--- clause as part of the value.
+---
+--- @param node the written result
+--- @return its value type, or nil when the result states none
+function cst.resultValueType(node: cst.Child?): cst.Node?
+    if not node or cst.isToken(node) then
+        return nil
+    end
+    local written = node as cst.Node
+    if written.kind == "tborrows" then
+        return (written as cst.Tborrows).type
+    end
+
+    return written
+end
+
 --- The first token under `x`, which is where a diagnostic about it points. A node owns
 --- its children in source order, so this is the leftmost leaf.
 ---

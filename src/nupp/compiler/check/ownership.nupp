@@ -74,6 +74,18 @@ type ownership.Ops = {
     --- The terminals a nominal has registered, without resolving or reporting.
     inheritedTerminals: function(resourceT: any): {T.Cleanup},
 
+    --- The resource an owner carries, behind its qualifier and behind an optional.
+    resourceBehind: function(t: any): any,
+
+    --- Reports `@owned` as migratable, carrying the rewrite when one can be built.
+    reportOwnedAnnotation: function(
+        annotation: any,
+        site: any,
+        results: {any},
+        cleanups: any,
+        opaque: any
+    ),
+
     --- Reports bare producers whose result never acquired one default drop operation.
     finalizeDefaultCleanups: function(),
 
@@ -157,6 +169,22 @@ function ownership.install(c: state.Checker): ownership.Ops
     function own.optionalOwned(t)
         local inner = rawType(t)
         return own.ownershipKind(t) == "owned" and inner.tag == "union" and inner.hasNil
+    end
+
+    -- Terminal lookup reaches through an optional owner, while the owner itself still
+    -- carries the optional resource. Keeping those roles separate is what lets
+    -- `Owned<T?>` inherit T's terminal without ceasing to admit nil.
+    function own.resourceBehind(t)
+        local resource = rawType(t)
+        if resource.tag == "union" then
+            for _, member in ipairs(resource.members) do
+                if member ~= T.nil_ then
+                    return member
+                end
+            end
+        end
+
+        return resource
     end
 
     local function addRegistration(node, cleanup, after)
@@ -317,16 +345,7 @@ function ownership.install(c: state.Checker): ownership.Ops
     end
 
     function own.resolvedOwnedCleanups(valueT, cleanups, opaque, at, registrationNode)
-        local resource = rawType(valueT)
-        if resource.tag == "union" then
-            for _, member in ipairs(resource.members) do
-                if member ~= T.nil_ then
-                    resource = member
-                    ;
-                    break
-                end
-            end
-        end
+        local resource = own.resourceBehind(valueT)
         if resource.tag == "nominal" then
             resource.affineResource = true
         end
@@ -456,7 +475,7 @@ function ownership.install(c: state.Checker): ownership.Ops
         end
         local head, changed = nil, false
         for j, resolved in ipairs(pack.head) do
-            local written = writtenTypes[j]
+            local written = cst.resultValueType(writtenTypes[j])
             local bare = written ~= nil
                 and written.kind == "tname"
                 and written.base ~= nil
@@ -474,7 +493,10 @@ function ownership.install(c: state.Checker): ownership.Ops
                 -- Results only. A field written bare `Owned<T>` stays a cleanup-erased
                 -- shape, because a field is written from a `takes` parameter whose type
                 -- carries no contract to match against.
-                local resource = rawType(resolved)
+                -- The declared resource is what the result carries; only terminal
+                -- lookup reaches behind its optional arm.
+                local declared = rawType(resolved)
+                local resource = own.resourceBehind(declared)
                 -- Once per written result, not once per pass. The same signature is
                 -- normalized where it is read as a function type, again when it is
                 -- published while hoisting, and again when the declaration is checked.
@@ -519,7 +541,7 @@ function ownership.install(c: state.Checker): ownership.Ops
                         end
                         changed = true
                     end
-                    head[j] = T.owned(resource, cleanups)
+                    head[j] = T.owned(declared, cleanups)
                     own.validateCleanups(head[j], cleanups, written or at, "NUPP2615")
                 end
             end
@@ -529,6 +551,87 @@ function ownership.install(c: state.Checker): ownership.Ops
         end
 
         return T.pack(head, pack.tail, pack.modes)
+    end
+
+    -- One fix builder serves function statements and callable fields. What resolved
+    -- decides whether the rewrite is sound; the annotation's written arguments decide
+    -- its spelling, so a bare contract keeps following the type's unique default.
+    function own.reportOwnedAnnotation(annotation, site, results, cleanups, opaque)
+        site = site or annotation
+        if not annotation or not site then
+            return
+        end
+        cleanups = cleanups or {}
+        local refusal = nil
+        if #cleanups > 1 then
+            refusal = "cannot rewrite: a cleanup list composes failure behaviour one terminal does not"
+        elseif #results == 0 then
+            refusal = "cannot rewrite: this declaration states no result to move the contract into"
+        end
+        local inner = nil
+        if opaque then
+            inner = "opaque"
+        else
+            for _, arg in ipairs(annotation.annotationArgs or {}) do
+                local argName = arg.name and arg.name.text or nil
+                local expr = arg.expr
+                local named = expr and expr.kind == "name" and expr.token and expr.token.text or nil
+                if named and (argName == nil or argName == "cleanup") then
+                    inner = named
+                    break
+                end
+            end
+        end
+        if not inner and #cleanups ~= 1 then
+            refusal = refusal or "cannot rewrite: a bare contract resolved to no single terminal"
+        end
+        local spelling = inner and ("Owned<T, %s>"):format(inner) or "Owned<T>"
+        local fixes = nil
+        local annotationStart = cst.firstToken(annotation)
+        local declaration = annotation.stat and cst.firstToken(annotation.stat) or annotation.declaresAt
+        local placements = {}
+        for _, value in ipairs(results) do
+            local valueStart = value and cst.firstToken(value) or nil
+            local valueEnd = value and cst.lastToken(value) or nil
+            if valueStart and valueEnd then
+                placements[#placements + 1] = {first = valueStart, last = valueEnd}
+            end
+        end
+        if not refusal and (
+            #placements ~= #results or not annotationStart or not declaration
+        ) then
+            refusal = "cannot rewrite: the annotation and its result are not both placed"
+        end
+        if not refusal and annotationStart and declaration then
+            local edits: {any} = {
+                {
+                    offset = annotationStart.offset,
+                    length = declaration.offset - annotationStart.offset,
+                    newText = "",
+                },
+            }
+            for _, placement in ipairs(placements) do
+                edits[#edits + 1] = {offset = placement.first.offset, length = 0, newText = "Owned<"}
+                edits[#edits + 1] = {
+                    offset = placement.last.offset + #placement.last.text,
+                    length = 0,
+                    newText = inner and (", " .. inner .. ">") or ">",
+                }
+            end
+            fixes = {
+                c.edits.fix(
+                    ("state the owner as %s"):format(spelling),
+                    unpack(edits)
+                ),
+            }
+        end
+        c.diag(
+            "NUPP2515",
+            site,
+            ("@owned says above the declaration what %s says in its result"):format(spelling),
+            fixes,
+            {help = refusal or "move the contract into the result type"}
+        )
     end
 
     function own.ownershipEntry(expr)
