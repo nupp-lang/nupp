@@ -123,6 +123,12 @@ its answer is correct.
 
 ## Value model
 
+The exact scalar lane operations shared by the fallback and future vector IR
+are planned independently in
+[Independent foundations for native lowering](native-independent-foundations.md#track-n-explicit-fixed-width-scalar-arithmetic).
+Portable vectors must consume that contract rather than define a second set of
+rounding, overflow, shift, or conversion rules.
+
 ### Vectors are immutable snapshots
 
 A vector contains lane values. Loading takes a snapshot of memory; storing

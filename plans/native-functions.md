@@ -267,6 +267,11 @@ growth and cross-module invalidation visible.
 
 ### Tecs 80% slice
 
+The ordinary language facilities this slice should consume are planned in
+[Independent foundations for native lowering](native-independent-foundations.md).
+They land and are accepted without `@native`; this plan owns only their later
+consumption by native verification and lowering.
+
 The first Tecs-oriented slice is an archetype-range function, not a whole ECS
 system. Query selection, scheduling, structural changes, events, dirty tracking,
 and dispatch remain ordinary Nupp. One call receives dense component spans plus
