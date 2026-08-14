@@ -16,6 +16,28 @@
 -- would ask: a nested function every mention of which is a direct call can be
 -- lifted, and one handed somewhere as a value cannot.
 
+-- WHAT THIS BENCHMARK DOES NOT PREDICT
+--
+-- It was written to justify a lifting pass and the pass was then tried by hand, on
+-- the parser, and the result did not transfer. Interleaved against an unmodified
+-- build on the same machine, parsing every source in the tree three times:
+--
+--   main                              1.83-1.95s, 23-220 blacklists
+--   number-scan closures lifted       1.82-2.18s, 74-227 blacklists   (a wash)
+--   those plus four parser closures   3.21-3.81s,   0 blacklists      (50% worse)
+--
+-- Two things this bench cannot see. Its closure sits in the innermost loop of a tiny
+-- function, so lifting it leaves a clean trace; a parser function is large and full
+-- of other constructs the recorder refuses, so lifting the closure removes the FNEW
+-- and the trace still aborts on the next one. And blacklisting is not only a
+-- symptom: it is the JIT giving up on code it cannot compile, which stops it paying
+-- to re-record. Removing every closure from a function without removing every abort
+-- takes the blacklist away and leaves the retries, which is the row above.
+--
+-- So the shape below is real and the inference from it was not. Before building a
+-- pass on this, lift by hand until a whole function is closure-free, and measure the
+-- component interleaved against an unmodified build rather than against itself.
+
 local N = tonumber(os.getenv("N") or "3000000")
 local DATA = {1, 2, 3, 4, 5, 6, 7, 8}
 
