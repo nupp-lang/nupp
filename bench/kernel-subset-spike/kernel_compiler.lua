@@ -41,6 +41,12 @@ local function dotCount(node)
    return receiverName(node.obj)
 end
 
+local function privateSymbol(name)
+   local snake = name:gsub("(%u)(%u%l)", "%1_%2"):gsub("(%l)(%u)", "%1_%2")
+   snake = snake:gsub("[^%w_]", "_"):lower()
+   return "ks_" .. snake
+end
+
 local function diagnostic(filename, node, message)
    local at = site(node)
    return {
@@ -127,16 +133,35 @@ local function parseKernel(source, filename)
                reject(raw, "a writable float span must be declared exclusive")
             end
             if output then reject(raw, "the map-kernel prototype admits one writable span") end
-            param = {kind = "write_span", name = name, type = "f32", source = site(raw)}
+            param = {
+               kind = "write_span",
+               name = name,
+               type = "f32",
+               region = "r" .. tostring(#params),
+               access = "write",
+               ownership = "exclusive",
+               source = site(raw),
+            }
             output = param
          elseif spelling == "span.Span<float>" then
             if mode ~= "borrows" then
                reject(raw, "a readable float span must be declared borrows")
             end
-            param = {kind = "read_span", name = name, type = "f32", source = site(raw)}
+            param = {
+               kind = "read_span",
+               name = name,
+               type = "f32",
+               region = "r" .. tostring(#params),
+               access = "read",
+               ownership = "shared",
+               source = site(raw),
+            }
          elseif spelling == "float" then
             if mode then reject(raw, "a uniform float parameter has no ownership mode") end
-            param = {kind = "uniform", name = name, type = "f32", source = site(raw)}
+            -- Nupp's annotations erase at runtime. A `float` parameter is a Lua
+            -- number in an ordinary function, so the native ABI and expression
+            -- IR must retain its binary64 value.
+            param = {kind = "uniform", name = name, type = "f64", sourceType = "float", source = site(raw)}
          else
             reject(raw.type or raw, "parameter type " .. spelling .. " is not admitted")
          end
@@ -150,6 +175,36 @@ local function parseKernel(source, filename)
          if param.kind == "read_span" then reads[#reads + 1] = param end
       end
       if #reads == 0 then reject(body, "the map-kernel prototype needs a readable float span") end
+
+      local regions, aliasFacts = {}, {}
+      for _, param in ipairs(params) do
+         if param.region then
+            regions[#regions + 1] = {
+               id = param.region,
+               param = param.name,
+               access = param.access,
+               proof = param.ownership .. "_borrow",
+            }
+         end
+      end
+      for _, input in ipairs(reads) do
+         aliasFacts[#aliasFacts + 1] = {
+            relation = "disjoint",
+            left = output.region,
+            right = input.region,
+            proof = "exclusive_borrow",
+         }
+      end
+      for left = 1, #reads do
+         for right = left + 1, #reads do
+            aliasFacts[#aliasFacts + 1] = {
+               relation = "may_alias",
+               left = reads[left].region,
+               right = reads[right].region,
+               proof = "shared_borrows",
+            }
+         end
+      end
 
       local stats = body.body and body.body.stats or {}
       if #stats ~= 2 then
@@ -238,11 +293,11 @@ local function parseKernel(source, filename)
             if not param or param.kind ~= "uniform" then
                reject(node, "only uniform scalar parameters may appear as bare values")
             end
-            return {op = "uniform", name = name, type = "f32", source = site(node)}
+            return {op = "uniform", name = name, type = "f64", source = site(node)}
          elseif node.kind == "number" then
             local value = node.token and node.token.text or ""
             if not tonumber(value) then reject(node, "the kernel needs a finite decimal numeric literal") end
-            return {op = "constant", value = value, type = "f32", source = site(node)}
+            return {op = "constant", value = value, type = "f64", source = site(node)}
          elseif node.kind == "methodCall" then
             local spanName = receiverName(node.obj)
             local param = spanName and byName[spanName] or nil
@@ -253,7 +308,18 @@ local function parseKernel(source, filename)
             if #args ~= 1 or nameOf(args[1]) ~= index then
                reject(node, "span loads must use the loop index exactly")
             end
-            return {op = "load", span = spanName, index = index, type = "f32", source = site(node)}
+            return {
+               op = "widen_f32_f64",
+               type = "f64",
+               value = {
+                  op = "load",
+                  span = spanName,
+                  index = index,
+                  type = "f32",
+                  source = site(node),
+               },
+               source = site(node),
+            }
          elseif node.kind == "binop" and node.op then
             local op = ({["+"] = "add", ["-"] = "sub", ["*"] = "mul", ["/"] = "div"})[node.op.text]
             if not op then reject(node, "operator " .. node.op.text .. " is not admitted in float expressions") end
@@ -261,7 +327,7 @@ local function parseKernel(source, filename)
                op = op,
                left = expression(node.lhs),
                right = expression(node.rhs),
-               type = "f32",
+               type = "f64",
                source = site(node),
             }
          end
@@ -272,14 +338,20 @@ local function parseKernel(source, filename)
       return {
          version = 1,
          name = fn.name.text,
-         symbol = "ks_scale_add",
+         symbol = privateSymbol(fn.name.text),
          params = params,
+         regions = regions,
+         aliasFacts = aliasFacts,
          guards = guards,
          loop = {
             index = index,
             first = 1,
             count = output.name,
-            store = {span = output.name, value = value, source = site(store)},
+            store = {
+               span = output.name,
+               value = {op = "narrow_f64_f32", type = "f32", value = value, source = site(store)},
+               source = site(store),
+            },
             source = site(loop),
          },
          source = site(fn),
@@ -295,13 +367,21 @@ end
 
 local function verifyIR(ir)
    assert(ir.version == 1, "unknown kernel IR version")
-   assert(ir.symbol == "ks_scale_add", "unexpected private symbol")
-   local byName, output = {}, nil
+   assert(ir.symbol == privateSymbol(ir.name), "private symbol does not match function identity")
+   local byName, byRegion, output = {}, {}, nil
    for _, param in ipairs(ir.params) do
       assert(not byName[param.name], "duplicate IR parameter")
-      assert(param.type == "f32", "non-f32 IR parameter")
       assert(param.kind == "write_span" or param.kind == "read_span" or param.kind == "uniform",
          "unknown IR parameter kind")
+      if param.kind == "uniform" then
+         assert(param.type == "f64" and not param.region, "invalid IR uniform")
+      else
+         assert(param.type == "f32" and param.region, "invalid IR span")
+         assert(not byRegion[param.region], "duplicate IR region")
+         assert(param.access == (param.kind == "write_span" and "write" or "read"),
+            "invalid IR region access")
+         byRegion[param.region] = param
+      end
       byName[param.name] = param
       if param.kind == "write_span" then
          assert(not output, "several IR outputs")
@@ -309,6 +389,45 @@ local function verifyIR(ir)
       end
    end
    assert(output and ir.loop.count == output.name, "loop is not bounded by its output")
+
+   local declaredRegions = {}
+   for _, region in ipairs(ir.regions) do
+      assert(not declaredRegions[region.id], "duplicate region declaration")
+      local param = byRegion[region.id]
+      assert(param and region.param == param.name and region.access == param.access,
+         "region declaration does not match its parameter")
+      assert(region.proof == param.ownership .. "_borrow", "invalid region proof")
+      declaredRegions[region.id] = true
+   end
+   for region in pairs(byRegion) do assert(declaredRegions[region], "undeclared parameter region") end
+
+   local facts = {}
+   for _, fact in ipairs(ir.aliasFacts) do
+      assert(byRegion[fact.left] and byRegion[fact.right] and fact.left ~= fact.right,
+         "alias fact references an invalid region")
+      local key = fact.left < fact.right
+         and fact.left .. ":" .. fact.right or fact.right .. ":" .. fact.left
+      assert(not facts[key], "duplicate alias fact")
+      if fact.relation == "disjoint" then
+         assert(fact.proof == "exclusive_borrow", "disjointness lacks an exclusive-borrow proof")
+      else
+         assert(fact.relation == "may_alias" and fact.proof == "shared_borrows",
+            "invalid alias fact")
+      end
+      facts[key] = fact.relation
+   end
+   for _, left in ipairs(ir.params) do
+      if left.kind ~= "uniform" then
+         for _, right in ipairs(ir.params) do
+            if right.kind ~= "uniform" and left.region < right.region then
+               local hasWrite = left.kind == "write_span" or right.kind == "write_span"
+               local expected = hasWrite and "disjoint" or "may_alias"
+               assert(facts[left.region .. ":" .. right.region] == expected,
+                  "missing or invalid alias relationship")
+            end
+         end
+      end
+   end
    local guarded = {}
    for _, guard in ipairs(ir.guards) do
       assert(guard.op == "equal_count" and guard.left == output.name, "invalid IR guard")
@@ -320,15 +439,26 @@ local function verifyIR(ir)
    end
 
    local function verifyExpr(node)
-      assert(node.type == "f32", "non-f32 expression")
+      if node.op == "narrow_f64_f32" then
+         assert(node.type == "f32" and node.value.type == "f64", "invalid narrowing conversion")
+         verifyExpr(node.value)
+         return
+      elseif node.op == "widen_f32_f64" then
+         assert(node.type == "f64" and node.value.type == "f32", "invalid widening conversion")
+         verifyExpr(node.value)
+         return
+      end
       if node.op == "uniform" then
-         assert(byName[node.name] and byName[node.name].kind == "uniform", "invalid uniform")
+         assert(node.type == "f64" and byName[node.name]
+            and byName[node.name].kind == "uniform", "invalid uniform")
       elseif node.op == "load" then
-         assert(byName[node.span] and byName[node.span].kind == "read_span", "invalid load root")
+         assert(node.type == "f32" and byName[node.span]
+            and byName[node.span].kind == "read_span", "invalid load root")
          assert(node.index == ir.loop.index, "unbounded load index")
       elseif node.op == "constant" then
-         assert(tonumber(node.value), "invalid constant")
+         assert(node.type == "f64" and tonumber(node.value), "invalid constant")
       else
+         assert(node.type == "f64", "non-f64 arithmetic")
          assert(node.op == "add" or node.op == "sub" or node.op == "mul" or node.op == "div",
             "unknown expression opcode")
          verifyExpr(node.left)
@@ -340,11 +470,33 @@ local function verifyIR(ir)
    return ir
 end
 
+compiler.verifyIR = verifyIR
+
 local function irLines(ir)
    local lines = {"kernel-ir 1", "function " .. ir.name, "symbol " .. ir.symbol, "params"}
    for _, param in ipairs(ir.params) do
-      lines[#lines + 1] = ("  %s %s:f32 @%d:%d"):format(
-         param.kind, param.name, param.source.line, param.source.column
+      if param.region then
+         lines[#lines + 1] = ("  %s %s:%s region(%s) %s @%d:%d"):format(
+            param.kind, param.name, param.type, param.region, param.access,
+            param.source.line, param.source.column
+         )
+      else
+         lines[#lines + 1] = ("  %s %s:%s source(%s) @%d:%d"):format(
+            param.kind, param.name, param.type, param.sourceType,
+            param.source.line, param.source.column
+         )
+      end
+   end
+   lines[#lines + 1] = "regions"
+   for _, region in ipairs(ir.regions) do
+      lines[#lines + 1] = ("  %s %s %s proof(%s)"):format(
+         region.id, region.param, region.access, region.proof
+      )
+   end
+   lines[#lines + 1] = "aliasing"
+   for _, fact in ipairs(ir.aliasFacts) do
+      lines[#lines + 1] = ("  %s %s %s proof(%s)"):format(
+         fact.relation, fact.left, fact.right, fact.proof
       )
    end
    lines[#lines + 1] = "guards"
@@ -361,11 +513,14 @@ local function irLines(ir)
       if node.op == "load" then
          lines[#lines + 1] = prefix .. "load:f32 " .. node.span .. "[" .. node.index .. "]"
       elseif node.op == "uniform" then
-         lines[#lines + 1] = prefix .. "uniform:f32 " .. node.name
+         lines[#lines + 1] = prefix .. "uniform:f64 " .. node.name
       elseif node.op == "constant" then
-         lines[#lines + 1] = prefix .. "constant:f32 " .. node.value
+         lines[#lines + 1] = prefix .. "constant:f64 " .. node.value
+      elseif node.op == "widen_f32_f64" or node.op == "narrow_f64_f32" then
+         lines[#lines + 1] = prefix .. node.op
+         expression(node.value, depth + 1)
       else
-         lines[#lines + 1] = prefix .. node.op .. ":f32"
+         lines[#lines + 1] = prefix .. node.op .. ":f64"
          expression(node.left, depth + 1)
          expression(node.right, depth + 1)
       end
@@ -375,49 +530,61 @@ local function irLines(ir)
    return table.concat(lines, "\n") .. "\n"
 end
 
-local function floatLiteral(value)
-   if value:find("[%.eE]") then return value .. "f" end
-   return value .. ".0f"
+local function doubleLiteral(value)
+   if value:find("[%.eE]") then return value end
+   return value .. ".0"
 end
 
 local backends = {
    scalar = {
       lanes = 1,
-      load = function(name) return name .. "[i]" end,
+      load = function(name) return "((double)" .. name .. "[i])" end,
       uniform = function(name) return name end,
-      constant = floatLiteral,
+      constant = doubleLiteral,
       ops = {add = "+", sub = "-", mul = "*", div = "/"},
-      store = function(name, value) return name .. "[i] = " .. value .. ";" end,
+      store = function(name, value) return name .. "[i] = (float)(" .. value .. ");" end,
    },
    neon = {
-      lanes = 4,
-      load = function(name) return "vld1q_f32(" .. name .. " + i)" end,
-      uniform = function(name) return "vdupq_n_f32(" .. name .. ")" end,
-      constant = function(value) return "vdupq_n_f32(" .. floatLiteral(value) .. ")" end,
-      ops = {add = "vaddq_f32", sub = "vsubq_f32", mul = "vmulq_f32", div = "vdivq_f32"},
-      store = function(name, value) return "vst1q_f32(" .. name .. " + i, " .. value .. ");" end,
+      lanes = 2,
+      load = function(name) return "vcvt_f64_f32(vld1_f32(" .. name .. " + i))" end,
+      uniform = function(name) return "vdupq_n_f64(" .. name .. ")" end,
+      constant = function(value) return "vdupq_n_f64(" .. doubleLiteral(value) .. ")" end,
+      ops = {add = "vaddq_f64", sub = "vsubq_f64", mul = "vmulq_f64", div = "vdivq_f64"},
+      store = function(name, value)
+         return "vst1_f32(" .. name .. " + i, vcvt_f32_f64(" .. value .. "));"
+      end,
    },
    sse2 = {
-      lanes = 4,
-      load = function(name) return "_mm_loadu_ps(" .. name .. " + i)" end,
-      uniform = function(name) return "_mm_set1_ps(" .. name .. ")" end,
-      constant = function(value) return "_mm_set1_ps(" .. floatLiteral(value) .. ")" end,
-      ops = {add = "_mm_add_ps", sub = "_mm_sub_ps", mul = "_mm_mul_ps", div = "_mm_div_ps"},
-      store = function(name, value) return "_mm_storeu_ps(" .. name .. " + i, " .. value .. ");" end,
+      lanes = 2,
+      load = function(name)
+         return "_mm_cvtps_pd(_mm_castsi128_ps(_mm_loadl_epi64((const __m128i *)("
+            .. name .. " + i))))"
+      end,
+      uniform = function(name) return "_mm_set1_pd(" .. name .. ")" end,
+      constant = function(value) return "_mm_set1_pd(" .. doubleLiteral(value) .. ")" end,
+      ops = {add = "_mm_add_pd", sub = "_mm_sub_pd", mul = "_mm_mul_pd", div = "_mm_div_pd"},
+      store = function(name, value)
+         return "_mm_storel_epi64((__m128i *)(" .. name
+            .. " + i), _mm_castps_si128(_mm_cvtpd_ps(" .. value .. ")));"
+      end,
    },
    avx2 = {
-      lanes = 8,
-      load = function(name) return "_mm256_loadu_ps(" .. name .. " + i)" end,
-      uniform = function(name) return "_mm256_set1_ps(" .. name .. ")" end,
-      constant = function(value) return "_mm256_set1_ps(" .. floatLiteral(value) .. ")" end,
-      ops = {add = "_mm256_add_ps", sub = "_mm256_sub_ps", mul = "_mm256_mul_ps", div = "_mm256_div_ps"},
-      store = function(name, value) return "_mm256_storeu_ps(" .. name .. " + i, " .. value .. ");" end,
+      lanes = 4,
+      load = function(name) return "_mm256_cvtps_pd(_mm_loadu_ps(" .. name .. " + i))" end,
+      uniform = function(name) return "_mm256_set1_pd(" .. name .. ")" end,
+      constant = function(value) return "_mm256_set1_pd(" .. doubleLiteral(value) .. ")" end,
+      ops = {add = "_mm256_add_pd", sub = "_mm256_sub_pd", mul = "_mm256_mul_pd", div = "_mm256_div_pd"},
+      store = function(name, value)
+         return "_mm_storeu_ps(" .. name .. " + i, _mm256_cvtpd_ps(" .. value .. "));"
+      end,
    },
 }
 
 local function renderExpr(node, backendName)
    local backend = backends[backendName]
-   if node.op == "load" then return backend.load(node.span)
+   if node.op == "narrow_f64_f32" then return renderExpr(node.value, backendName)
+   elseif node.op == "widen_f32_f64" then return backend.load(node.value.span)
+   elseif node.op == "load" then error("unwidened f32 load reached backend")
    elseif node.op == "uniform" then return backend.uniform(node.name)
    elseif node.op == "constant" then return backend.constant(node.value)
    end
@@ -431,9 +598,9 @@ end
 local function cParams(ir)
    local params = {}
    for _, param in ipairs(ir.params) do
-      if param.kind == "write_span" then params[#params + 1] = "float *" .. param.name
+      if param.kind == "write_span" then params[#params + 1] = "float *restrict " .. param.name
       elseif param.kind == "read_span" then params[#params + 1] = "const float *" .. param.name
-      else params[#params + 1] = "float " .. param.name
+      else params[#params + 1] = "double " .. param.name
       end
    end
    params[#params + 1] = "size_t count"
@@ -464,15 +631,17 @@ local function renderC(ir)
 
    local params, args = cParams(ir), cArguments(ir)
    local output = ir.loop.store.span
-   local function implementation(suffix, backendName, attribute, exported)
+   local function implementation(suffix, backendName, attribute, exported, forceScalar)
       local backend = backends[backendName]
       if attribute then emit(attribute) end
       emit((exported and "" or "static ") .. "void " .. ir.symbol .. "_" .. suffix .. "(" .. params .. ") {")
       emit("    size_t i = 0;")
       if backendName == "scalar" then
-         emit("#if defined(__clang__)")
-         emit("#pragma clang loop vectorize(disable) interleave(disable)")
-         emit("#endif")
+         if forceScalar then
+            emit("#if defined(__clang__)")
+            emit("#pragma clang loop vectorize(disable) interleave(disable)")
+            emit("#endif")
+         end
          emit("    for (; i < count; ++i) {")
       else
          emit("    for (; i + " .. backend.lanes .. " <= count; i += " .. backend.lanes .. ") {")
@@ -480,6 +649,9 @@ local function renderC(ir)
       emit("        " .. backend.store(output, renderExpr(ir.loop.store.value, backendName)))
       emit("    }")
       if backendName ~= "scalar" then
+         emit("#if defined(__clang__)")
+         emit("#pragma clang loop vectorize(disable) interleave(disable)")
+         emit("#endif")
          emit("    for (; i < count; ++i) {")
          emit("        " .. backends.scalar.store(output, renderExpr(ir.loop.store.value, "scalar")))
          emit("    }")
@@ -488,7 +660,8 @@ local function renderC(ir)
       emit("")
    end
 
-   implementation("scalar", "scalar", "__attribute__((noinline))", true)
+   implementation("forced_scalar", "scalar", "__attribute__((noinline))", true, true)
+   implementation("auto", "scalar", "__attribute__((noinline))", true, false)
    emit("#if defined(__aarch64__) || defined(__arm64__)")
    implementation("neon", "neon")
    emit("#elif defined(__x86_64__) || defined(_M_X64)")
@@ -525,11 +698,11 @@ local function renderC(ir)
    emit("    }")
    emit("}")
    emit("")
-   emit("uint32_t ks_lanes_f32(void) {")
+   emit("uint32_t ks_lanes_f64(void) {")
    emit("    switch (ks_select_backend()) {")
-   emit("        case KS_NEON: return 4;")
-   emit("        case KS_SSE2: return 4;")
-   emit("        case KS_AVX2: return 8;")
+   emit("        case KS_NEON: return 2;")
+   emit("        case KS_SSE2: return 2;")
+   emit("        case KS_AVX2: return 4;")
    emit("        default: return 1;")
    emit("    }")
    emit("}")
@@ -542,7 +715,7 @@ local function renderC(ir)
    emit("        case KS_AVX2: " .. ir.symbol .. "_avx2(" .. args .. "); return;")
    emit("        case KS_SSE2: " .. ir.symbol .. "_sse2(" .. args .. "); return;")
    emit("#endif")
-   emit("        default: " .. ir.symbol .. "_scalar(" .. args .. "); return;")
+   emit("        default: " .. ir.symbol .. "_forced_scalar(" .. args .. "); return;")
    emit("    }")
    emit("}")
    return table.concat(lines, "\n") .. "\n"
@@ -556,13 +729,13 @@ local function renderBinding(ir)
       elseif param.kind == "read_span" then
          lines[#lines + 1] = "    borrows " .. param.name .. ": const float* countedBy(count),"
       else
-         lines[#lines + 1] = "    " .. param.name .. ": float,"
+         lines[#lines + 1] = "    " .. param.name .. ": number,"
       end
    end
    lines[#lines + 1] = "    count: uint64"
    lines[#lines + 1] = ") from\"bench/kernel-subset-spike/build/libkernel_subset_spike\""
    lines[#lines + 1] = ""
-   lines[#lines + 1] = "return {scaleAdd = " .. ir.symbol .. ",}"
+   lines[#lines + 1] = "return {" .. ir.name .. " = " .. ir.symbol .. ",}"
    return table.concat(lines, "\n") .. "\n"
 end
 

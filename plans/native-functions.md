@@ -95,6 +95,12 @@ backend cannot represent, but may not make an otherwise invalid operation
 valid. This is the same shape as `@jit`: an annotation can make an execution
 property a checked requirement without inventing new expression semantics.
 
+Eligibility is a versioned compatibility promise. Within a supported language
+line, a source function accepted for a target remains accepted; the admitted
+subset may widen but does not silently narrow. A backend regression is a build
+error and compiler defect, never permission to run the ordinary Lua lowering.
+The programmer can remove `@native` to select ordinary execution explicitly.
+
 The annotation applies to local and named functions with visible Nupp bodies.
 It is rejected on constructors, inline interface requirements, bodyless
 declarations, `cdef` functions, and arbitrary function-typed bindings in the
@@ -276,8 +282,17 @@ Native scalar operations owe the same specified result as their ordinary Nupp
 counterparts. The native compiler must not inherit whatever overflow, shift,
 NaN, contraction, denormal, or fast-math behavior a C compiler happens to use.
 
-The first release uses fixed C numeric types because their widths are explicit.
-For each admitted operator, the native IR states:
+Fixed C storage types do not imply same-width expression arithmetic. In
+ordinary Nupp today, loading a `float` cdata slot widens to Lua's binary64
+`number`, local type annotations erase, and storing into a `float` slot narrows
+the final result. Native IR must represent those conversions and binary64
+intermediates explicitly. Treating every operation between `float`-typed
+values as binary32 changes answers and violates the annotation invariant. A
+future binary32-per-operation intrinsic or relaxed numeric mode must have
+ordinary Nupp semantics of its own; `@native` cannot introduce it implicitly.
+
+The first release starts with fixed C storage types because their widths are
+explicit. For each admitted operator, the native IR states:
 
 - signed or unsigned interpretation;
 - result width and overflow behavior;
@@ -291,6 +306,13 @@ Default floating expressions are not reassociated and `a * b + c` is not
 contracted implicitly. An explicit future `fma` intrinsic requests a fused
 operation. Reductions state their lane order. No backend uses `-ffast-math` or
 an equivalent flag under the default contract.
+
+Subset growth follows semantics rather than spelling convenience. `sqrt` may
+enter through a closed intrinsic only after its ordinary result and target
+rounding are specified. Stencil loads require affine bounds or explicit halo
+facts plus verified region relationships. Reductions remain source-ordered by
+default; a vector tree reduction needs a separately named fixed-tree or relaxed
+contract because reassociation changes floating-point answers.
 
 Lua `number` and Nupp `integer` wait where ordinary LuaJIT semantics do not map
 cleanly to one target operation. Admitting them requires differential tests and
@@ -391,6 +413,13 @@ semantics.
 The disadvantage is toolchain availability and cache reproducibility. A build
 requiring a host Clang is not the final zero-setup experience unless Nupp ships
 or prebuilds every required target artifact.
+
+During the generated-C experiment, Clang is a conditional dependency: a build
+graph containing `@native` requires the pinned supported Clang, while a program
+without `@native` does not probe for Clang and gains no native artifact or
+startup cost. Production must either ship that toolchain, validate prebuilt
+artifacts for every selected target, or choose direct emission. An annotated
+function never falls back merely because Clang is absent.
 
 ### Direct DynASM emission
 

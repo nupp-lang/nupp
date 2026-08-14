@@ -18,9 +18,41 @@ assert(first.irText == second.irText, "equivalent input produced different kerne
 assert(first.c == second.c, "equivalent input produced different C")
 assert(first.binding == second.binding, "equivalent input produced different checked bindings")
 assert(first.irText:find("load:f32 left[i]", 1, true), "IR lost the left load")
-assert(first.irText:find("mul:f32", 1, true), "IR lost multiplication")
-assert(first.c:find("vaddq_f32", 1, true), "NEON lowering lost vector addition")
-assert(first.c:find("_mm256_mul_ps", 1, true), "AVX2 lowering lost vector multiplication")
+assert(first.irText:find("widen_f32_f64", 1, true), "IR lost ordinary Nupp widening")
+assert(first.irText:find("mul:f64", 1, true), "IR lost binary64 multiplication")
+assert(first.irText:find("disjoint r0 r1 proof(exclusive_borrow)", 1, true),
+   "IR lost output/input disjointness")
+assert(first.irText:find("may_alias r1 r2 proof(shared_borrows)", 1, true),
+   "IR incorrectly made shared inputs disjoint")
+assert(first.c:find("float *restrict output", 1, true), "C lost output restrict")
+assert(not first.c:find("const float *restrict left", 1, true), "C restricted a shared input")
+assert(not first.c:find("const float *restrict right", 1, true), "C restricted a shared input")
+assert(first.c:find("vaddq_f64", 1, true), "NEON lowering lost vector addition")
+assert(first.c:find("_mm256_mul_pd", 1, true), "AVX2 lowering lost vector multiplication")
+assert(first.c:find("ks_scale_add_forced_scalar", 1, true), "C lost the forced-scalar baseline")
+assert(first.c:find("ks_scale_add_auto", 1, true), "C lost the auto-vectorized baseline")
+local autoStart = assert(first.c:find("void ks_scale_add_auto(", 1, true))
+local vectorStart = assert(first.c:find("#if defined(__aarch64__)", autoStart, true))
+local autoBody = first.c:sub(autoStart, vectorStart - 1)
+assert(not autoBody:find("vectorize(disable)", 1, true),
+   "the auto-vectorized baseline still disables vectorization")
+
+do
+   local renamed = assert(source:gsub("scaleAdd", "blendRows"))
+   local result = assert(compiler.compile(renamed, "renamed.nupp"))
+   assert(result.ir.symbol == "ks_blend_rows", "private symbol still depends on the spike workload")
+   assert(result.c:find("void ks_blend_rows(", 1, true), "renamed C symbol was not emitted")
+   assert(result.binding:find("blendRows = ks_blend_rows", 1, true),
+      "renamed checked binding was not emitted")
+end
+
+do
+   local fact = table.remove(first.ir.aliasFacts, 1)
+   local ok, problem = pcall(compiler.verifyIR, first.ir)
+   table.insert(first.ir.aliasFacts, 1, fact)
+   assert(not ok and tostring(problem):find("alias relationship", 1, true),
+      "IR verifier accepted a missing disjointness fact")
+end
 
 local function rejected(label, changed, expected)
    local artifacts, diagnostics = compiler.compile(changed, label .. ".nupp")
