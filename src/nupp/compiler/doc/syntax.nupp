@@ -1,39 +1,46 @@
 -- The line grammars shared by documentation extraction, rendering, and formatting.
 
-local lpeg = require("lpeg")
-local P, R, S, C, Cc, Ct = lpeg.P, lpeg.R, lpeg.S, lpeg.C, lpeg.Cc, lpeg.Ct
-local hspace, byte = S(" \t"), P(1)
-local marker = P("`") ^ 3 * P("`") ^ 0 + P("~") ^ 3 * P("~") ^ 0
-local word = (R("az", "AZ", "09") + S("_-")) ^ 1
-local optionByte = R("az", "AZ", "09") + S("_-")
-local caption = P("[") * C((byte - P("]")) ^ 1) * P("]")
-local lineNumber = P(":line-numbers") * (P("=") * C(R("09") ^ 1) + Cc("1")) * -optionByte
-local playground = P(":playground") * -optionByte
-
 local syntax: {
     [string]: any
 } = {
-    fence = C(hspace ^ 0) * C(marker) * C(byte ^ 0) * -byte,
-    markdownFence = C(P(" ") ^ -3) * C(marker) * C(byte ^ 0) * -byte,
-    tag = P("@") * C(word) * hspace ^ 0 * C(byte ^ 0) * -byte,
-    heading = C(P("#") ^ 1) * hspace ^ 1 * C(byte ^ 1) * -byte,
-    directive = hspace ^ 0 * P(":::") * hspace ^ 1 * C(word) * hspace ^ 0 * C(byte ^ 0) * -byte,
-    comment = P("--") * P("-") ^ 0 * P(" ") ^ -1 * C(byte ^ 0) * -byte,
-    docComment = P("---") * P(" ") ^ -1 * C(byte ^ 0) * -byte,
-    nameValue = C((byte - hspace) ^ 1) * hspace ^ 0 * C(byte ^ 0) * -byte,
-    blank = hspace ^ 0 * -byte,
-    indented = hspace,
-    codeIndented = P("    ") * (byte - S(" \t\r\n")),
-    fenceInfo = hspace ^ 0 * C((R("az", "AZ", "09") + S("_+-")) ^ 0) * hspace ^ 0 * C(byte ^ 0) * -byte,
-    caption = (-#caption * byte) ^ 0 * caption,
-    lineNumber = (-#lineNumber * byte) ^ 0 * lineNumber,
-    playground = (-#playground * byte) ^ 0 * playground,
-    lines = Ct((C((byte - P("\n")) ^ 0) * P("\n")) ^ 0 * C((byte - P("\n")) ^ 0) * -byte),
+    fence = nupp.peg.compile([=[{ %s* } { '```' '`'* / '~~~' '~'* } { .* } !.]=]),
+    markdownFence = nupp.peg.compile([=[{ ' '? ' '? ' '? } { '```' '`'* / '~~~' '~'* } { .* } !.]=]),
+    tag = nupp.peg.compile([=['@' { [a-zA-Z0-9_-]+ } %s* { .* } !.]=]),
+    heading = nupp.peg.compile([=[{ '#'+ } %s+ { .+ } !.]=]),
+    directive = nupp.peg.compile([=[%s* ':::' %s+ { [a-zA-Z0-9_-]+ } %s* { .* } !.]=]),
+    comment = nupp.peg.compile([=['--' '-'* ' '? { .* } !.]=]),
+    docComment = nupp.peg.compile([=['---' ' '? { .* } !.]=]),
+    nameValue = nupp.peg.compile([=[{ (!%s .)+ } %s* { .* } !.]=]),
+    blank = nupp.peg.compile([=[%s* !.]=]),
+    indented = nupp.peg.compile([=[%s]=]),
+    codeIndented = nupp.peg.compile([=['    ' !%s .]=]),
+    fenceInfo = nupp.peg.compile([=[%s* { [a-zA-Z0-9_+-]* } %s* { .* } !.]=]),
+    caption = nupp.peg.compile(
+        [=[
+        start <- (!caption .)* caption
+        caption <- '[' { (!']' .)+ } ']'
+    ]=]
+    ),
+    lineNumber = nupp.peg.compile(
+        [=[
+        start <- (!value .)* value
+        value <- ':line-numbers' ('=' { [0-9]+ } / '' -> '1') ![a-zA-Z0-9_-]
+    ]=]
+    ),
+    playground = nupp.peg.compile(
+        [=[
+        start <- (!value .)* value
+        value <- ':playground' ![a-zA-Z0-9_-]
+    ]=]
+    ),
+    lines = nupp.peg.compile([=[{| ({ (!%nl .)* } %nl)* { (!%nl .)* } |} !.]=]),
 }
 
 function syntax.closes(opened: string, marker: string?, rest: string?): boolean
-    return marker ~= nil and marker:sub(1, 1) == opened:sub(1, 1)
-        and #marker >= #opened and syntax.blank:match(rest or "") ~= nil
+    return marker ~= nil and marker:sub(
+        1,
+        1
+    ) == opened:sub(1, 1) and #marker >= #opened and syntax.blank:match(rest or "") ~= nil
 end
 
 function syntax.fenceState(line: string, opened: string?, markdown: boolean?): (string?, string?, string?)
@@ -43,6 +50,7 @@ function syntax.fenceState(line: string, opened: string?, markdown: boolean?): (
     elseif marker and syntax.closes(opened as string, marker, rest) then
         opened = nil
     end
+
     return opened, marker, rest
 end
 

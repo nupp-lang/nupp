@@ -1703,6 +1703,7 @@ function M.pkgConfigFlagsUseShellWordQuotingWithoutRunningAShell()
       [[-I"include dir" '-DNAME=two words' plain\ flag "" ab"cd"'ef']]))
    assertEq(table.concat(words, "\0"),
       table.concat({"-Iinclude dir", "-DNAME=two words", "plain flag", "", "abcdef"}, "\0"))
+   assertEq(#assert(buildSyntax.shellWords:match(" \t\n")), 0)
    local malformed = buildSyntax.shellWords:match([["unclosed]])
    assertEq(malformed, nil)
 end
