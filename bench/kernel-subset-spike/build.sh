@@ -21,12 +21,15 @@ case $(uname -s) in
     Linux)
         LIB="$OUT/libkernel_subset_spike.so"
         SHARED_FLAGS="-shared"
+        MATH_LIB="-lm"
         ;;
     *)
         echo "kernel-subset-spike: unsupported host $(uname -s)" >&2
         exit 2
         ;;
 esac
+
+MATH_LIB=${MATH_LIB:-}
 
 TARGET_FLAGS=
 if [ "$(uname -m)" = "x86_64" ]; then
@@ -35,7 +38,7 @@ fi
 
 clang -std=c11 -O3 -ffp-contract=off -fno-fast-math \
     -Wall -Wextra -Werror -fPIC $TARGET_FLAGS $SHARED_FLAGS \
-    "$OUT/kernel.c" -o "$LIB"
+    "$OUT/kernel.c" $MATH_LIB -o "$LIB"
 ln -sf "$(basename "$LIB")" "$OUT/libkernel_subset_spike"
 
 # The binding is generated from the same verified IR as the C signature. Build

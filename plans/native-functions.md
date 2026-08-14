@@ -31,6 +31,12 @@ IR and compiled for every selected build target. If it cannot be compiled, the
 build reports why. It does not mean operating-system code, imply a GPU, promise
 SIMD, or permit unsafe operations.
 
+The initial backend is generated private C compiled by a pinned Clang. Native
+IR remains the safety boundary and the stable compiler architecture; C is a
+deterministic backend representation. Direct machine-code emission is deferred
+unless measured toolchain, latency, packaging, or specialization requirements
+show that generated C cannot meet the release gates.
+
 The earlier working name `@kernel` is rejected for the public annotation. In
 numeric computing, a kernel is a small bulk operation, but the word also
 suggests an operating-system kernel, GPU dispatch, implicit parallelism, SIMD,
@@ -439,10 +445,11 @@ runtime specialization. Its cost is building and maintaining the middle and
 back end of a small compiler. Production builds pin or vendor DynASM and ship
 its license; they do not fetch it while compiling a program.
 
-### Selection gate
+### Backend review gate
 
-Use one native IR corpus and compare both backends where possible. Select the
-first production backend only after measuring:
+Use one native IR corpus and retain direct-emission spikes as independent code
+shape evidence where useful. Reconsider the generated-C decision only after
+measuring:
 
 - correctness and target parity;
 - cold compile latency and cache hit latency;
@@ -452,9 +459,9 @@ first production backend only after measuring:
 - executable-memory policy and packaging complexity;
 - ongoing instruction and ABI maintenance.
 
-It is valid to begin with generated C as the oracle and eventually ship direct
-emission. It is not valid to expose backend-specific source semantics and call
-that migration compatible.
+It is valid to replace generated C later when the same verified native IR and
+numeric contracts feed the replacement. It is not valid to expose
+backend-specific source semantics and call that migration compatible.
 
 ## ABI and dispatch
 
@@ -580,10 +587,11 @@ removed, or the missing target support selected. No diagnostic suggests
 
 ### N0: Semantics and backend spike
 
-Keep the surface test-only. Lower one scalar span loop and one explicit
-four-wide float loop to a minimal native IR. Run that corpus through generated
-C/Clang and direct DynASM on the available AArch64 host; add x86-64 execution on
-an actual x86 runner rather than extrapolating.
+Keep the surface test-only. Lower structured scalar span loops to a minimal
+native IR and generated C/Clang. Cover multiple disjoint outputs, potentially
+aliasing inputs, locals, branches, pure static helpers, and closed math
+intrinsics. Add x86-64 execution on an actual x86 runner rather than
+extrapolating from cross-compiled code.
 
 Use the existing integration workload, an arithmetic-heavy register-resident
 chain, a branch-heavy loop, a reduction, zero through seventeen elements, and
@@ -591,8 +599,8 @@ deliberate length and bounds failures.
 
 #### N0 exit criteria
 
-- Both backends match ordinary Nupp or an explicit scalar oracle for all values,
-  failures, and tail lengths.
+- Forced-scalar and optimized C match ordinary Nupp bit-for-bit for all values,
+  failures, and loop lengths.
 - Each complete workload makes one Lua/native transition and no allocation per
   iteration.
 - Native IR contains no unbounded address operation or unmodeled call.
@@ -600,8 +608,8 @@ deliberate length and bounds failures.
   per-lane helper calls.
 - The spike records compile time, warm cache time, code size, wrapper cost, and
   throughput.
-- Clang and direct-emission discrepancies are explained before choosing either
-  as the implementation baseline.
+- Optimized code shape is inspected and every discrepancy from the scalar
+  oracle is explained before widening the admitted subset.
 
 Nothing public lands if N0 cannot keep native IR independent of its backend.
 

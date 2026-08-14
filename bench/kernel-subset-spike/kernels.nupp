@@ -5,20 +5,32 @@ local span = require("nupp.span")
 record kernel
 end
 
+local function clamp(value: number, limit: number): number
+    return math.max(-limit, math.min(value, limit))
+end
+
 @kernel
-local function scaleAdd(
+local function transform(
     exclusive output: span.WriteSpan<float>,
+    exclusive magnitude: span.WriteSpan<float>,
     borrows left: span.Span<float>,
     borrows right: span.Span<float>,
-    scale: float
+    scale: float,
+    limit: float
 ): nil
-    if output.count ~= left.count or output.count ~= right.count then
+    if output.count ~= magnitude.count or output.count ~= left.count or output.count ~= right.count then
         error("length mismatch", 2)
     end
 
     for i = 1, output.count do
-        output:set(i, left:get(i) + right:get(i) * scale)
+        local mixed = clamp(left:get(i) + right:get(i) * scale, limit)
+        output:set(i, mixed)
+        if mixed < 0 then
+            magnitude:set(i, -mixed)
+        else
+            magnitude:set(i, math.sqrt(mixed))
+        end
     end
 end
 
-return {scaleAdd = scaleAdd,}
+return {transform = transform,}

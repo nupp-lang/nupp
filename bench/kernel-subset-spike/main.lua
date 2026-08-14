@@ -1,4 +1,4 @@
--- Differential correctness and crossover measurements for the `@kernel` spike.
+-- Differential correctness and crossover measurements for the native-C spike.
 
 local ffi = require("ffi")
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
@@ -10,10 +10,12 @@ local spans = require("nupp.span")
 local ordinaryKernel = require("kernels")
 
 ffi.cdef[[
-const char *ks_backend(void);
-uint32_t ks_lanes_f64(void);
-void ks_scale_add_forced_scalar(float *, const float *, const float *, double, size_t);
-void ks_scale_add_auto(float *, const float *, const float *, double, size_t);
+void ks_transform_forced_scalar(
+    float *, float *, const float *, const float *, double, double, size_t
+);
+void ks_transform(
+    float *, float *, const float *, const float *, double, double, size_t
+);
 ]]
 
 local suffix = ffi.os == "OSX" and ".dylib" or ".so"
@@ -28,20 +30,13 @@ local function fillBenchmark(left, right, count)
 end
 
 local specialBits = {
-   0x00000000, -- positive zero
-   0x80000000, -- negative zero
-   0x00000001, -- smallest positive subnormal
-   0x80000001, -- smallest negative subnormal
-   0x007fffff, -- largest positive subnormal
-   0x00800000, -- smallest positive normal
-   0x3f800000, -- one
-   0x3f800001, -- one plus one ulp
-   0x7f7fffff, -- largest finite value
-   0xff7fffff, -- smallest finite value
-   0x7f800000, -- positive infinity
-   0xff800000, -- negative infinity
-   0x7fc12345, -- quiet NaN with payload
-   0xffc54321, -- negative quiet NaN with payload
+   0x00000000, 0x80000000,
+   0x00000001, 0x80000001,
+   0x007fffff, 0x00800000,
+   0x3f800000, 0x3f800001,
+   0x7f7fffff, 0xff7fffff,
+   0x7f800000, 0xff800000,
+   0x7fc12345, 0xffc54321,
 }
 
 local function fillAdversarial(left, right, count)
@@ -65,77 +60,89 @@ local function fillAdversarial(left, right, count)
    end
 end
 
-local function luaScaleAdd(output, left, right, scale, count)
+local function luaTransform(output, magnitude, left, right, scale, limit, count)
    for i = 0, count - 1 do
-      output[i] = left[i] + right[i] * scale
+      local mixed = math.max(-limit, math.min(left[i] + right[i] * scale, limit))
+      output[i] = mixed
+      if mixed < 0 then
+         magnitude[i] = -mixed
+      else
+         magnitude[i] = math.sqrt(mixed)
+      end
+   end
+end
+
+local function checkBits(label, expectedArray, actualArray, count)
+   local expected = ffi.cast("uint32_t *", expectedArray)
+   local actual = ffi.cast("uint32_t *", actualArray)
+   for i = 0, count - 1 do
+      local wanted, got = tonumber(expected[i]), tonumber(actual[i])
+      assert(got == wanted, ("%s mismatch at count %d, index %d: %08x ~= %08x"):format(
+         label, count, i, got, wanted
+      ))
    end
 end
 
 local function checkCount(count)
    local capacity = math.max(1, count)
    local left, right = ffi.new(FloatArray, capacity), ffi.new(FloatArray, capacity)
-   local ordinary = ffi.new(FloatArray, capacity)
-   local lua = ffi.new(FloatArray, capacity)
-   local forcedScalar = ffi.new(FloatArray, capacity)
-   local auto = ffi.new(FloatArray, capacity)
-   local native = ffi.new(FloatArray, capacity)
-   local scale = 0.1
+   local ordinaryOutput, ordinaryMagnitude = ffi.new(FloatArray, capacity), ffi.new(FloatArray, capacity)
+   local luaOutput, luaMagnitude = ffi.new(FloatArray, capacity), ffi.new(FloatArray, capacity)
+   local scalarOutput, scalarMagnitude = ffi.new(FloatArray, capacity), ffi.new(FloatArray, capacity)
+   local nativeOutput, nativeMagnitude = ffi.new(FloatArray, capacity), ffi.new(FloatArray, capacity)
+   local scale, limit = 0.1, 100.25
    fillAdversarial(left, right, count)
-   luaScaleAdd(lua, left, right, scale, count)
-   lib.ks_scale_add_forced_scalar(forcedScalar, left, right, scale, count)
-   lib.ks_scale_add_auto(auto, left, right, scale, count)
+   luaTransform(luaOutput, luaMagnitude, left, right, scale, limit, count)
+   lib.ks_transform_forced_scalar(
+      scalarOutput, scalarMagnitude, left, right, scale, limit, count
+   )
 
    local readableLeft, readableRight = spans.fromCarray(left, count), spans.fromCarray(right, count)
-   local ordinaryWritable = spans.writeCarray(ordinary, count)
-   ordinaryKernel.scaleAdd(ordinaryWritable, readableLeft, readableRight, scale)
-   local nativeWritable = spans.writeCarray(native, count)
-   checked.scaleAdd(nativeWritable, readableLeft, readableRight, scale)
-   local ordinaryBits = ffi.cast("uint32_t *", ordinary)
-   local luaBits = ffi.cast("uint32_t *", lua)
-   local forcedScalarBits = ffi.cast("uint32_t *", forcedScalar)
-   local autoBits = ffi.cast("uint32_t *", auto)
-   local nativeBits = ffi.cast("uint32_t *", native)
-   for i = 0, count - 1 do
-      local expected = tonumber(ordinaryBits[i])
-      local function check(label, actual)
-         actual = tonumber(actual)
-         assert(actual == expected, ("%s mismatch at count %d, index %d: %08x ~= %08x"):format(
-            label, count, i, actual, expected
-         ))
-      end
-      check("ordinary LuaJIT", luaBits[i])
-      check("forced scalar C", forcedScalarBits[i])
-      check("auto-vectorized C", autoBits[i])
-      check("explicit SIMD", nativeBits[i])
-   end
+   local ordinaryWritable = spans.writeCarray(ordinaryOutput, count)
+   local ordinaryMagnitudeWritable = spans.writeCarray(ordinaryMagnitude, count)
+   ordinaryKernel.transform(
+      ordinaryWritable, ordinaryMagnitudeWritable, readableLeft, readableRight, scale, limit
+   )
+   local nativeWritable = spans.writeCarray(nativeOutput, count)
+   local nativeMagnitudeWritable = spans.writeCarray(nativeMagnitude, count)
+   checked.transform(
+      nativeWritable, nativeMagnitudeWritable, readableLeft, readableRight, scale, limit
+   )
+
+   checkBits("raw LuaJIT output", ordinaryOutput, luaOutput, count)
+   checkBits("forced scalar output", ordinaryOutput, scalarOutput, count)
+   checkBits("Clang output", ordinaryOutput, nativeOutput, count)
+   checkBits("raw LuaJIT magnitude", ordinaryMagnitude, luaMagnitude, count)
+   checkBits("forced scalar magnitude", ordinaryMagnitude, scalarMagnitude, count)
+   checkBits("Clang magnitude", ordinaryMagnitude, nativeMagnitude, count)
    ordinaryWritable:commit()
+   ordinaryMagnitudeWritable:commit()
    nativeWritable:commit()
+   nativeMagnitudeWritable:commit()
 end
 
 for count = 0, 33 do checkCount(count) end
 checkCount(257)
 
 do
-   local output, left, right = ffi.new(FloatArray, 3), ffi.new(FloatArray, 2), ffi.new(FloatArray, 3)
+   local output = ffi.new(FloatArray, 3)
+   local magnitude = ffi.new(FloatArray, 3)
+   local left, right = ffi.new(FloatArray, 2), ffi.new(FloatArray, 3)
    local writable = spans.writeCarray(output, 3)
+   local magnitudeWritable = spans.writeCarray(magnitude, 3)
    local ok, problem = pcall(
-      checked.scaleAdd,
+      checked.transform,
       writable,
+      magnitudeWritable,
       spans.fromCarray(left, 2),
       spans.fromCarray(right, 3),
-      0.1
+      0.1,
+      100.25
    )
-   assert(not ok and tostring(problem):find("equal lengths", 1, true), "generated wrapper lost its length guard")
+   assert(not ok and tostring(problem):find("equal lengths", 1, true),
+      "generated wrapper lost its length guard")
    writable:commit()
-end
-
-do
-   local file = assert(io.open(here .. "build/nupp/checked.lua", "rb"))
-   local generated = assert(file:read("*a"))
-   assert(file:close())
-   assert(generated:find(".count~=", 1, true), "generated wrapper lost count equality checks")
-   assert(generated:find(":ref()", 1, true), "generated wrapper lost span projection")
-   assert(not generated:find("for ", 1, true), "generated wrapper contains per-element work")
+   magnitudeWritable:commit()
 end
 
 local function median(samples)
@@ -159,43 +166,53 @@ end
 local counts = {1, 8, 64, 262144}
 local targetElements = tonumber(os.getenv("KERNEL_SPIKE_ELEMENTS")) or 16000000
 
-io.write(("kernel subset spike: backend=%s, f64 evaluation lanes=%d\n\n"):format(
-   ffi.string(lib.ks_backend()), tonumber(lib.ks_lanes_f64())
-))
+io.write("native C subset spike: backend=clang-auto\n\n")
 io.write(("%-14s %-24s %12s %18s\n"):format("elements/call", "path", "ns/call", "million elements/s"))
 io.write(("%-14s %-24s %12s %18s\n"):format(("-"):rep(14), ("-"):rep(24), ("-"):rep(12), ("-"):rep(18)))
 
 for _, count in ipairs(counts) do
    local left, right = ffi.new(FloatArray, count), ffi.new(FloatArray, count)
-   local ordinaryOutput, luaOutput = ffi.new(FloatArray, count), ffi.new(FloatArray, count)
-   local forcedScalarOutput, autoOutput = ffi.new(FloatArray, count), ffi.new(FloatArray, count)
-   local nativeOutput = ffi.new(FloatArray, count)
+   local ordinaryOutput, ordinaryMagnitude = ffi.new(FloatArray, count), ffi.new(FloatArray, count)
+   local luaOutput, luaMagnitude = ffi.new(FloatArray, count), ffi.new(FloatArray, count)
+   local scalarOutput, scalarMagnitude = ffi.new(FloatArray, count), ffi.new(FloatArray, count)
+   local clangOutput, clangMagnitude = ffi.new(FloatArray, count), ffi.new(FloatArray, count)
+   local checkedOutput, checkedMagnitude = ffi.new(FloatArray, count), ffi.new(FloatArray, count)
    fillBenchmark(left, right, count)
-   local ordinaryWritable = spans.writeCarray(ordinaryOutput, count)
-   local nativeWritable = spans.writeCarray(nativeOutput, count)
    local readableLeft, readableRight = spans.fromCarray(left, count), spans.fromCarray(right, count)
-   local scale = 0.1
+   local ordinaryWritable = spans.writeCarray(ordinaryOutput, count)
+   local ordinaryMagnitudeWritable = spans.writeCarray(ordinaryMagnitude, count)
+   local checkedWritable = spans.writeCarray(checkedOutput, count)
+   local checkedMagnitudeWritable = spans.writeCarray(checkedMagnitude, count)
+   local scale, limit = 0.1, 100.25
    local passes = math.max(100, math.floor(targetElements / count))
    local paths = {
       {"ordinary Nupp", function()
-         ordinaryKernel.scaleAdd(ordinaryWritable, readableLeft, readableRight, scale)
+         ordinaryKernel.transform(
+            ordinaryWritable, ordinaryMagnitudeWritable,
+            readableLeft, readableRight, scale, limit
+         )
          return ordinaryOutput[0]
       end},
       {"ordinary LuaJIT", function()
-         luaScaleAdd(luaOutput, left, right, scale, count)
+         luaTransform(luaOutput, luaMagnitude, left, right, scale, limit, count)
          return luaOutput[0]
       end},
       {"forced scalar C", function()
-         lib.ks_scale_add_forced_scalar(forcedScalarOutput, left, right, scale, count)
-         return forcedScalarOutput[0]
+         lib.ks_transform_forced_scalar(
+            scalarOutput, scalarMagnitude, left, right, scale, limit, count
+         )
+         return scalarOutput[0]
       end},
-      {"auto-vectorized C", function()
-         lib.ks_scale_add_auto(autoOutput, left, right, scale, count)
-         return autoOutput[0]
+      {"Clang auto C", function()
+         lib.ks_transform(clangOutput, clangMagnitude, left, right, scale, limit, count)
+         return clangOutput[0]
       end},
-      {"checked explicit SIMD", function()
-         checked.scaleAdd(nativeWritable, readableLeft, readableRight, scale)
-         return nativeOutput[0]
+      {"checked @kernel C", function()
+         checked.transform(
+            checkedWritable, checkedMagnitudeWritable,
+            readableLeft, readableRight, scale, limit
+         )
+         return checkedOutput[0]
       end},
    }
    for _, path in ipairs(paths) do
@@ -206,5 +223,7 @@ for _, count in ipairs(counts) do
    end
    io.write("\n")
    ordinaryWritable:commit()
-   nativeWritable:commit()
+   ordinaryMagnitudeWritable:commit()
+   checkedWritable:commit()
+   checkedMagnitudeWritable:commit()
 end

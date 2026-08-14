@@ -1,34 +1,14 @@
-# Checked `@kernel` subset spike
+# Checked native-C subset spike
 
-This spike tests a whole-function annotation as the public face of the existing
-width-polymorphic SIMD mechanism. The source in [`kernels.nupp`](kernels.nupp)
-is ordinary, type-checked Nupp:
+This spike tests ordinary Nupp as the source language for a verified native IR
+that emits private scalar C. Clang, rather than a hand-written intrinsic
+backend, chooses unrolling, vector width, instruction selection, register
+allocation, and tail handling.
 
-```nupp
-@kernel
-local function scaleAdd(
-    exclusive output: span.WriteSpan<float>,
-    borrows left: span.Span<float>,
-    borrows right: span.Span<float>,
-    scale: float
-): nil
-    if output.count ~= left.count or output.count ~= right.count then
-        error("length mismatch", 2)
-    end
-
-    for i = 1, output.count do
-        output:set(i, left:get(i) + right:get(i) * scale)
-    end
-end
-```
-
-`@kernel` is a test-only custom annotation here. The production design document
-currently reserves the name `@native`; this spike uses the spelling under
-discussion without changing the public language.
+`@kernel` remains a test-only custom annotation. The production design calls
+the compilation contract `@native`.
 
 ## Build and run
-
-From the repository root:
 
 ```sh
 bench/kernel-subset-spike/build.sh
@@ -36,117 +16,73 @@ luajit bench/kernel-subset-spike/test.lua
 luajit bench/kernel-subset-spike/main.lua
 ```
 
-The build writes ignored artifacts under `bench/kernel-subset-spike/build`:
+The build writes ignored native IR, generated C, a checked `countedBy` binding,
+the compiled library, and the ordinary Lua lowering under `build/`.
 
-- `kernel.ir`, the deterministic verified native IR;
-- `kernel.c`, private scalar, NEON, SSE2, and AVX2 implementations;
-- `checked.nupp`, a generated `countedBy` declaration;
-- `nupp/checked.lua`, Nupp's checked one-call span wrapper; and
-- `fallback/kernels.lua`, the ordinary Lua lowering of the exact source.
+## Implemented subset
 
-`KERNEL_SPIKE_ELEMENTS` controls approximately how many elements each timing
-row processes. Correctness covers counts zero through 33 and 257 first, along
-with the checked wrapper's unequal-length failure. The larger case includes
-deterministic random mantissas as well as signed zero, subnormals, infinities,
-and NaNs, and compares result bits rather than Lua numeric equality.
+One annotated map function may currently use:
 
-## Admitted subset
+- any number of `exclusive WriteSpan<float>` outputs;
+- one or more shared `Span<float>` inputs, which may alias each other;
+- erased `float` uniforms represented as binary64 at the native ABI;
+- a complete equal-count guard and one one-based loop;
+- numeric and boolean locals without mutation or shadowing;
+- `+`, `-`, `*`, `/`, comparisons, boolean `and`/`or`/`not`, and unary minus;
+- structured `if`/`elseif`/`else`, scoped `do`, `break`, and `continue`;
+- any number of stores to writable spans at the active loop index;
+- pure, statically resolved helpers whose bodies are one return expression; and
+- `math.sqrt`, `abs`, `floor`, `ceil`, `min`, and `max` as closed intrinsics.
 
-The spike consumes Nupp's real lossless syntax tree after the ordinary Nupp
-checker accepts the source. Its separate kernel validator currently admits:
+Unsupported syntax is a source-local hard error. There is no silent Lua
+fallback for an annotation the native compiler accepted.
 
-- one local, non-generic, non-variadic `@kernel` function per compilation unit;
-- one `exclusive span.WriteSpan<float>` output;
-- one or more borrowed `span.Span<float>` inputs;
-- uniform `float` parameters and a `nil` result;
-- a complete input/output length guard;
-- one one-based numeric loop over `output.count`;
-- one `output:set(i, expression)` operation per iteration; and
-- `+`, `-`, `*`, `/`, literals, uniforms, and `input:get(i)` in that expression.
+The example uses two writable outputs, two potentially aliasing inputs, a local
+value, a static clamp helper, `math.min`, `math.max`, `math.sqrt`, and a branch.
+It therefore exercises the structured statement IR rather than recognizing one
+fixed expression tree.
 
-It rejects unsupported parameter types, allocation, arbitrary calls, offset
-loads, missing guards, other loop forms, captures, varargs, and extra statements
-with a source-local diagnostic. [`test.lua`](test.lua) checks representative
-rejections and byte-identical IR, C, and binding generation. Rejection is the
-contract: an annotated function never silently falls back to ordinary Lua.
-Removing the annotation explicitly selects the ordinary implementation.
+## Safety and semantics
 
-The resulting IR names every span root, count relationship, load index,
-mutability, scalar type, conversion, operation, region, alias relationship, and
-source site. It records the output's exclusive borrow as disjoint from every
-input and records shared inputs as potentially aliasing each other. A verifier
-requires a complete relationship for every region pair before either backend
-sees the IR. There is no raw pointer, unchecked address operation, arbitrary
-call, Lua value, or embedded C in the admitted source.
+Every span receives a region identity. The verified alias matrix requires every
+pair containing a writable span to be disjoint and records shared input pairs
+as potentially aliasing. Generated C marks each writable pointer `restrict` and
+never restricts a shared input.
 
-The C emitter uses that proof narrowly: only the output pointer is `restrict`.
-The readable inputs are not restricted because two shared spans may legally
-alias. The generated `cdef` spells every physical counted pointer `borrows`
-because those projections live only for the call; the source-level mutable
-pointer still becomes a `WriteSpan` and must arrive through an exclusive borrow.
-The verified region facts are what transport that source proof into native IR.
+Loads explicitly widen `float` storage to binary64, ordinary Nupp arithmetic is
+performed in binary64, and stores narrow once to `float`. The math min/max
+helpers reproduce LuaJIT's ordered-argument behavior for equal values, signed
+zero, and NaN rather than substituting C `fmin`/`fmax` semantics.
 
-## Execution model
+Correctness compares result bits across ordinary Nupp, a raw LuaJIT loop, C with
+vectorization forcibly disabled, and optimized generated C. Inputs include
+deterministic random mantissas, signed zero, subnormals, infinities, and NaNs.
 
-The IR is rendered into forced-scalar, compiler-auto-vectorized, explicit NEON,
-explicit SSE2, and explicit AVX2 implementations. Host selection is cached
-process-wide. Every explicit vector implementation uses the scalar expression
-for its tail, and no vector value crosses the Lua/native ABI.
+## Generated paths
 
-Ordinary Nupp does not evaluate this expression in binary32. A value loaded
-from a `float` slot widens to Lua's binary64 `number`, function annotations
-erase at runtime, arithmetic rounds as binary64, and `WriteSpan<float>:set`
-narrows once at the store. The first spike incorrectly labeled every operation
-`f32`; its exact-valued test data hid the difference. This version makes the
-conversions load-bearing in IR: `f32 -> f64`, binary64 arithmetic, then
-`f64 -> f32`. Consequently NEON and SSE2 evaluate two source elements per
-explicit vector and AVX2 evaluates four. Choosing binary32-per-operation
-semantics would require a separate ordinary-language contract, not an
-`@kernel` optimization rule.
+The same verified statement IR emits two functions:
 
-The generated Nupp declaration turns the private pointer/count signature back
-into the source-level `WriteSpan<float>` and `Span<float>` parameters. Its Lua
-wrapper checks equal lengths, projects the spans, and makes one physical call.
-It contains no element loop.
+- a forced-scalar C oracle with Clang vectorization and interleaving disabled;
+- an ordinary scalar C loop compiled with optimization enabled.
 
-Clang is built with contraction and fast math disabled. On ARM64, decoded code
-contains explicit float-to-double conversions, separate `fmul.2d` and
-`fadd.2d`, and a final double-to-float conversion. The auto-vectorized row is
-generated from the same loop without the disabling pragma, while the
-forced-scalar row deliberately disables vectorization and interleaving. This
-makes the baseline honest about what explicit intrinsics add beyond optimized
-C generated from the same verified facts.
+The checked binding calls the optimized function. No explicit NEON, SSE, or AVX
+tree is generated. Inspection of the optimized object answers whether Clang
+vectorized a particular source loop.
 
-## Representative result
+## Remaining boundary
 
-An ARM64 development run selected two-lane explicit NEON. It established the
-important comparison: Clang's auto-vectorized C was faster than the simple
-compositional intrinsic lowering on medium and large rows. The benchmark prints
-all five paths so later results cannot describe a speedup over deliberately
-de-vectorized C as a speedup over optimized C. Numbers are intentionally not
-frozen here; this is a compiler seam and correctness experiment, not a stable
-performance claim.
+This is still a map-loop prototype, not a production compiler pass. It does not
+yet admit outer structured control flow, mutated locals, arbitrary numeric loop
+bounds, fixed C arrays, reified structs, multiple return values, status-return
+errors inside the loop, helper statement bodies, several annotated functions in
+one unit, or native-to-native module calls.
 
-## What this does not prove
+Those features now extend a statement IR and C emitter rather than requiring
+new target-specific SIMD backends. Fixed arrays and reified structs still need
+checked layout metadata; errors need explicit status and source-site values;
+multiple results need compiler-owned result structs. Allocation, Lua tables,
+strings, dynamic calls, closures, metamethods, coroutines, and arbitrary FFI
+remain outside the direct native subset.
 
-This is not a production annotation or a general native compiler. The subset
-recognizes one map-loop form, generated C and Clang remain the backend, and only
-the ARM64 implementation executes locally. The x86 implementations are
-cross-compiled and decoded, not run. A differently named single function is
-representable and receives a derived private symbol, but several functions in
-one compilation unit remain an explicit subset rejection.
-
-For this experiment, writing a kernel makes Clang a build dependency. Projects
-without a kernel do not probe for or require Clang. A production release must
-either ship a pinned toolchain, consume validated prebuilt target artifacts, or
-select a direct emitter before it can promise an offline zero-setup build.
-
-The validator is a spike beside the compiler rather than a semantic compiler
-pass. A production implementation would consume checked types and effects
-directly, reserve diagnostics, model several control-flow blocks and failures,
-cache native IR, validate artifacts, and integrate inspection and source maps.
-
-The result does establish the architectural seam: a restricted ordinary Nupp
-function can lower into a small safety-verifiable IR, reuse the portable SIMD
-backend, retain ordinary fallback semantics, and enter native code through one
-checked span call.
+For this experiment, using the annotation makes Clang a conditional build
+dependency. Programs without native functions do not require or probe Clang.
