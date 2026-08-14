@@ -9,7 +9,7 @@
 // cannot load the payload it is carrying. The pin here is the requirement,
 // stated where it can be read.
 //
-// Neither is committed. A generated dependency in the tree is a thing to keep
+// None is committed. A generated dependency in the tree is a thing to keep
 // current by hand, and the one artifact this project accepts on those terms is
 // the bootstrap compiler, which has no alternative.
 
@@ -19,8 +19,10 @@ use std::process::Command;
 const CJSON_VERSION: &str = "2.1.0.14";
 const CJSON_SHA256: &str = "14cac5c7a4520b33449a1fc961344556b8b6a2a2c6b739b0e46e3002e6e605bc";
 
-// What `nupp doc` needs beyond its pure-Lua PEG compatibility layer. Lunamark's
-// entity table needs a utf8.char that Lua 5.1 does not have.
+const LPEG_VERSION: &str = "1.1.0";
+const LPEG_SHA256: &str = "4b155d67d2246c1ffa7ad7bc466c1ea899bbc40fef0257cc9c03cecbaed4352a";
+
+// Lunamark's entity table needs a utf8.char that Lua 5.1 does not have.
 const LUAUTF8_VERSION: &str = "0.2.1";
 const LUAUTF8_SHA256: &str = "ea52075cd960aed8c37512ab31cdc166aa77a6458504d29f33ae40b93d2d8594";
 
@@ -56,6 +58,31 @@ fn main() {
             .define("NDEBUG", None)
             .warnings(false)
             .compile("lua_cjson");
+    }
+
+    if enabled("LPEG") {
+        let lpeg = fetch_archive(
+            &out,
+            &format!("lpeg-{LPEG_VERSION}"),
+            &format!("https://www.inf.puc-rio.br/~roberto/lpeg/lpeg-{LPEG_VERSION}.tar.gz"),
+            LPEG_SHA256,
+            "lptree.c",
+        );
+        verify_embedded_notice(&lpeg.join("lpeg.html"), "LPeg-LICENSE.txt");
+        cc::Build::new()
+            .include(&include)
+            .include(&lpeg)
+            .files([
+                lpeg.join("lpvm.c"),
+                lpeg.join("lpcap.c"),
+                lpeg.join("lptree.c"),
+                lpeg.join("lpcode.c"),
+                lpeg.join("lpprint.c"),
+                lpeg.join("lpcset.c"),
+            ])
+            .define("NDEBUG", None)
+            .warnings(false)
+            .compile("lpeg");
     }
 
     if enabled("LUA_UTF8") {
@@ -352,6 +379,29 @@ fn verify_notice(source: &Path, notice: &str) {
          what says so.",
         source.display()
     );
+}
+
+fn verify_embedded_notice(source: &Path, notice: &str) {
+    let committed = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets it"))
+        .join("notices")
+        .join(notice);
+    println!("cargo:rerun-if-changed=notices/{notice}");
+
+    let found = std::fs::read_to_string(source)
+        .unwrap_or_else(|error| panic!("cannot read {}: {error}", source.display()));
+    let shipped = std::fs::read_to_string(&committed)
+        .unwrap_or_else(|error| panic!("cannot read {}: {error}", committed.display()));
+    for text in [
+        "2007-2023 Lua.org, PUC-Rio",
+        "Permission is hereby granted",
+        "THE SOFTWARE IS PROVIDED \"AS IS\"",
+    ] {
+        assert!(
+            found.contains(text) && shipped.contains(text),
+            "host/notices/{notice} no longer agrees with {}",
+            source.display()
+        );
+    }
 }
 
 fn sha256(path: &Path) -> String {

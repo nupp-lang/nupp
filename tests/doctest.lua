@@ -1657,7 +1657,7 @@ function M.namespaceBackedDeclarationsBelongOnlyToTheirSubmodule()
          "--- Compile parsing-expression grammars.",
          "record nupp.peg",
          "   --- Selects the matcher implementation.",
-         "   type Backend = 'auto' | 'vm'",
+         "   type Backend = 'auto' | 'lpeg'",
          "",
          "   --- Compiles a grammar.",
          "   compile: function(source: string): nupp.peg.Peg<any>",

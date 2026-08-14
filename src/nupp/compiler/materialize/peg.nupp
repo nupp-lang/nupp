@@ -3,8 +3,9 @@ The sealed PEG materializer.
 
 The evaluator side builds identity-bearing pattern handles. Finalization resolves named
 rules, proves the graph safe, and emits a canonical flat blueprint. The compiler side
-validates that untrusted envelope again and lowers it to compact bytecode and constant
-pools. No live handle, source fragment, or lexical binding crosses the worker.
+validates that untrusted envelope again and preserves its canonical graph for native
+LPeg lowering. It may additionally select a proven straight-line matcher kernel from
+that graph. No live handle, source fragment, or lexical binding crosses the worker.
 ]]
 
 local hash = require("nupp.compiler.build.hash")
@@ -261,8 +262,8 @@ function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: 
             return nil, failure("NUPP2417", "nupp.peg.compile options must be a table")
         end
         local backend = options and options.backend or "auto"
-        if backend ~= "auto" and backend ~= "vm" then
-            return nil, failure("NUPP2417", "nupp.peg.compile backend must be 'auto' or 'vm'")
+        if backend ~= "auto" and backend ~= "lpeg" then
+            return nil, failure("NUPP2417", "nupp.peg.compile backend must be 'auto' or 'lpeg'")
         end
         if options and (options.actions ~= nil or options.definitions ~= nil) then
             return nil, failure(
@@ -875,13 +876,13 @@ local function finalizeGraph(state, rootHandle, backend)
     end
     table.sort(slots)
     local payload = {nodes, root, result, #ruleRoots, slots, backend or "auto", general == true}
-    local fingerprint = hash.sha256("nupp.peg\0v4\0" .. canonical(payload))
+    local fingerprint = hash.sha256("nupp.peg\0v5\0" .. canonical(payload))
     local family = #slots > 0 and "FactoryBlueprint" or "Blueprint"
 
     return {
         kind = "materialized",
         provider = "peg",
-        schema = 4,
+        schema = 5,
         family = family,
         payload = payload,
         provenance = origins,
@@ -902,7 +903,7 @@ function peg.finalize(state: any, value: any): any, peg.Failure?
 end
 
 local function validateEnvelope(envelope)
-    if envelope.schema ~= 4 or (
+    if envelope.schema ~= 5 or (
         envelope.family ~= "Blueprint" and envelope.family ~= "FactoryBlueprint"
     ) or type(envelope.payload) ~= "table" then
         return nil, "PEG blueprint has the wrong schema"
@@ -915,7 +916,7 @@ local function validateEnvelope(envelope)
     ) ~= "number" or root < 1 or root > #nodes or type(
         result
     ) ~= "table" and result ~= "any" or type(ruleCount) ~= "number" or type(slots) ~= "table" or (
-        backend ~= "auto" and backend ~= "vm"
+        backend ~= "auto" and backend ~= "lpeg"
     ) or type(general) ~= "boolean" then
         return nil, "PEG blueprint header is malformed"
     end
@@ -1010,7 +1011,7 @@ local function validateEnvelope(envelope)
     if literalBytes > MAX_LITERAL_BYTES then
         return nil, "PEG blueprint exceeds its literal limit"
     end
-    local fingerprint = hash.sha256("nupp.peg\0v4\0" .. canonical(envelope.payload))
+    local fingerprint = hash.sha256("nupp.peg\0v5\0" .. canonical(envelope.payload))
     if envelope.fingerprint ~= fingerprint then
         return nil, "PEG blueprint fingerprint does not match its payload"
     end
@@ -1237,27 +1238,6 @@ function peg.inferSourceResult(source: string, actions: T.Type?): T.Pack?, peg.F
     return finish(packOfResult(validated.result, returns), nil)
 end
 
-local OP_END = 0
-local OP_CHAR = 1
-local OP_SET = 2
-local OP_STRING = 3
-local OP_ANY = 4
-local OP_EOF = 5
-local OP_CHOICE = 6
-local OP_COMMIT = 7
-local OP_PARTIAL_COMMIT = 8
-local OP_BACK_COMMIT = 9
-local OP_FAIL = 10
-local OP_CALL = 11
-local OP_RETURN = 12
-local OP_OPEN_CAPTURE = 13
-local OP_CLOSE_CAPTURE = 14
-local OP_OPEN_COLLECT = 15
-local OP_CLOSE_COLLECT = 16
-local OP_OPEN_ACTION = 17
-local OP_CLOSE_ACTION = 18
-local OP_POSITION = 19
-
 local function singleResult(result, descriptor): boolean
     return result ~= "any" and #result == 1 and result[1] == descriptor
 end
@@ -1288,8 +1268,8 @@ local function searchPlan(validated)
         elseif op == "any" then
             known = false
         elseif op == "eof" or op == "position" or op == "and" or op == "not" then
-            -- These nodes consume no byte. A surrounding sequence contributes the
-            -- first consuming node that follows them.
+        -- These nodes consume no byte. A surrounding sequence contributes the
+        -- first consuming node that follows them.
         elseif op == "sequence" then
             for child = 2, #node do
                 if not collect(node[child], bytes, active) then
@@ -1498,59 +1478,37 @@ local function searchPlan(validated)
     return plan
 end
 
-local function compileBytecode(validated)
+-- Preserve the canonical PEG graph as the general execution plan and derive
+-- only the small, proven straight-line kernels that Nupp can beat LPeg on.
+-- Nothing below constructs or interprets a second instruction language.
+local function compilePlan(validated)
     if validated.general then
-        return {
-            general = {nodes = validated.nodes, root = validated.root},
-            actions = validated.slots,
-            captureful = true,
-        }
-    end
-    local code, strings, sets = {}, {}, {}
-    local stringIndices, setIndices = {}, {}
-    local actionIndices = {}
-    for index, name in ipairs(validated.slots) do
-        actionIndices[name] = index
+        return {graph = {nodes = validated.nodes, root = validated.root}, actions = validated.slots, captureful = true,}
     end
 
-    local function emit(op, argument)
-        local instruction = #code + 1
-        local operand = instruction + 1
-        code[instruction], code[operand] = op, argument or 0
-
-        return operand
-    end
-
-    local function constant(pool, indices, value)
-        local index = indices[value]
-        if not index then
-            index = #pool + 1
-            pool[index], indices[value] = value, index
-        end
-
-        return index
-    end
-
+    local nodes, sets, setIndices = validated.nodes, {}, {}
     local function class(bytes)
         if #bytes == 1 then
             return nil, bytes:byte(1)
         end
-        local included = {}
-        for offset = 1, #bytes do
-            included[bytes:byte(offset)] = true
-        end
-        local bitmap = {}
-        for byte = 0, 255 do
-            bitmap[#bitmap + 1] = included[byte] and "\1" or "\0"
+        local index = setIndices[bytes]
+        if not index then
+            local included, bitmap = {}, {}
+            for offset = 1, #bytes do
+                included[bytes:byte(offset)] = true
+            end
+            for byte = 0, 255 do
+                bitmap[#bitmap + 1] = included[byte] and "\1" or "\0"
+            end
+            index = #sets + 1
+            sets[index], setIndices[bytes] = table.concat(bitmap), index
         end
 
-        return constant(sets, setIndices, table.concat(bitmap)), nil
+        return index, nil
     end
 
-    local nodes = validated.nodes
     local function fixedSequence(index, out)
-        local node = nodes[index]
-        local op = node[1]
+        local node, op = nodes[index], nodes[index][1]
         if op == "literal" then
             if #out + #node[2] > 64 then
                 return nil
@@ -1604,194 +1562,6 @@ local function compileBytecode(validated)
         return out
     end
 
-    local incoming, costs = {}, {}
-    for _, node in ipairs(nodes) do
-        if node[
-            1
-        ] ~= "literal" and node[1] ~= "set" and node[1] ~= "any" and node[1] ~= "eof" and node[1] ~= "position" then
-            local last = node[1] == "action" and 2 or #node
-            for child = 2, last do
-                incoming[node[child]] = (incoming[node[child]] or 0) + 1
-            end
-        end
-    end
-    local function expandedCost(index)
-        if costs[index] then
-            return costs[index]
-        end
-        local node, cost = nodes[index], 1
-        local op = node[1]
-        if op == "reference" then
-            cost = 1
-        elseif op == "sequence" then
-            cost = 0
-            for child = 2, #node do
-                cost = math.min(257, cost + expandedCost(node[child]))
-            end
-        elseif op == "choice" then
-            cost = (#node - 2) * 2
-            for child = 2, #node do
-                cost = math.min(257, cost + expandedCost(node[child]))
-            end
-        elseif op == "difference" then
-            cost = math.min(257, 3 + expandedCost(node[2]) + expandedCost(node[3]))
-        elseif op == "zeroOrMore" or op == "optional" then
-            cost = math.min(257, 2 + expandedCost(node[2]))
-        elseif op == "oneOrMore" then
-            cost = math.min(257, 2 + expandedCost(node[2]) * 2)
-        elseif op == "and" or op == "not" then
-            cost = math.min(257, 3 + expandedCost(node[2]))
-        elseif op == "capture" or op == "collect" or op == "action" then
-            cost = math.min(257, 2 + expandedCost(node[2]))
-        end
-        costs[index] = cost
-
-        return cost
-    end
-
-    for index = 1, #nodes do
-        expandedCost(index)
-    end
-    local calls, scheduled, scheduledSet, addresses = {}, {}, {}, {}
-    local captureful = false
-    local compile
-    local function call(index)
-        calls[#calls + 1] = {operand = emit(OP_CALL), target = index}
-        if not scheduledSet[index] then
-            scheduledSet[index] = true
-            scheduled[#scheduled + 1] = index
-        end
-    end
-
-    compile = function(index, forceInline)
-        local node = nodes[index]
-        local op = node[1]
-        if not forceInline and (
-            incoming[index] or 0
-        ) > 1 and costs[
-            index
-        ] > 32
-            and op ~= "literal"
-            and op ~= "set"
-            and op ~= "any"
-            and op ~= "eof"
-            and op ~= "position"
-            and op ~= "reference" then
-            call(index)
-            return
-        end
-        if op == "literal" then
-            local text = node[2]
-            if #text == 1 then
-                emit(OP_CHAR, text:byte(1))
-            elseif #text > 1 then
-                emit(OP_STRING, constant(strings, stringIndices, text))
-            end
-        elseif op == "set" then
-            local setIndex, byte = class(node[2])
-            emit(setIndex and OP_SET or OP_CHAR, setIndex or byte)
-        elseif op == "any" then
-            emit(OP_ANY)
-        elseif op == "eof" then
-            emit(OP_EOF)
-        elseif op == "sequence" then
-            for child = 2, #node do
-                compile(node[child])
-            end
-        elseif op == "choice" then
-            local commits = {}
-            for child = 2, #node - 1 do
-                local alternate = emit(OP_CHOICE)
-                compile(node[child])
-                commits[#commits + 1] = emit(OP_COMMIT)
-                code[alternate] = #code + 1
-            end
-            compile(node[#node])
-            local finish = #code + 1
-            for _, operand in ipairs(commits) do
-                code[operand] = finish
-            end
-        elseif op == "difference" then
-            local rightFailed = emit(OP_CHOICE)
-            compile(node[3])
-            local rightMatched = emit(OP_COMMIT)
-            local fail = #code + 1
-            emit(OP_FAIL)
-            local left = #code + 1
-            code[rightFailed], code[rightMatched] = left, fail
-            compile(node[2])
-        elseif op == "zeroOrMore" then
-            local stop = emit(OP_CHOICE)
-            local body = #code + 1
-            compile(node[2])
-            emit(OP_PARTIAL_COMMIT, body)
-            code[stop] = #code + 1
-        elseif op == "oneOrMore" then
-            compile(node[2])
-            local stop = emit(OP_CHOICE)
-            local body = #code + 1
-            compile(node[2])
-            emit(OP_PARTIAL_COMMIT, body)
-            code[stop] = #code + 1
-        elseif op == "optional" then
-            local absent = emit(OP_CHOICE)
-            compile(node[2])
-            local present = emit(OP_COMMIT)
-            local finish = #code + 1
-            code[absent], code[present] = finish, finish
-        elseif op == "and" then
-            local failed = emit(OP_CHOICE)
-            compile(node[2])
-            local matched = emit(OP_BACK_COMMIT)
-            local reject = #code + 1
-            emit(OP_FAIL)
-            local accept = #code + 1
-            code[failed], code[matched] = reject, accept
-        elseif op == "not" then
-            local failed = emit(OP_CHOICE)
-            compile(node[2])
-            local matched = emit(OP_COMMIT)
-            local reject = #code + 1
-            emit(OP_FAIL)
-            local accept = #code + 1
-            code[failed], code[matched] = accept, reject
-        elseif op == "capture" then
-            captureful = true
-            emit(OP_OPEN_CAPTURE)
-            compile(node[2])
-            emit(OP_CLOSE_CAPTURE)
-        elseif op == "collect" then
-            captureful = true
-            emit(OP_OPEN_COLLECT)
-            compile(node[2])
-            emit(OP_CLOSE_COLLECT)
-        elseif op == "action" then
-            captureful = true
-            emit(OP_OPEN_ACTION, actionIndices[node[3]])
-            compile(node[2])
-            emit(OP_CLOSE_ACTION)
-        elseif op == "position" then
-            captureful = true
-            emit(OP_POSITION)
-        elseif op == "reference" then
-            call(node[2])
-        end
-    end
-
-    compile(validated.root)
-    emit(OP_END)
-    local nextRule = 1
-    while nextRule <= #scheduled do
-        local index = scheduled[nextRule]
-        addresses[index] = #code + 1
-        compile(index, true)
-        emit(OP_RETURN)
-        nextRule = nextRule + 1
-    end
-    for _, patch in ipairs(calls) do
-        code[patch.operand] = addresses[patch.target]
-    end
-
     local parts = {}
     local function flatten(index)
         local node = nodes[index]
@@ -1805,6 +1575,7 @@ local function compileBytecode(validated)
     end
 
     flatten(validated.root)
+
     local fastFixed
     if singleResult(validated.result, "integer") and #parts > 1 and nodes[parts[#parts]][1] == "eof" then
         local checks = {}
@@ -1871,8 +1642,7 @@ local function compileBytecode(validated)
                 local keys, packedKeys, lengths = {}, {}, {}
                 local canPack = maximum <= 6 and #prefixes <= 8 and #separator[2] == 1
                 for index, text in ipairs(prefixes) do
-                    local key = 1
-                    local packed = 0
+                    local key, packed = 1, 0
                     for offset = 1, #text do
                         key = key * 257 + text:byte(offset)
                         if canPack then
@@ -1898,59 +1668,81 @@ local function compileBytecode(validated)
         end
     end
 
-    -- Recognize the bytecode shape emitted for `head tail*`, including the
-    -- `p+` case where head and tail are the same check. This is deliberately a
-    -- bytecode peephole: both the interpreter and Lua emitter consume the same
-    -- canonical program and no AST-only matcher semantics are introduced.
-    local function encodedCheck(pc)
-        if code[pc] == OP_CHAR then
-            return code[pc + 1]
-        elseif code[pc] == OP_SET then
-            return code[pc + 1] + 255
-        end
-
-        return nil
-    end
     local fastRepeat
     do
-        local start = 1
-        local result = "integer"
-        local boundary = #code - 1
-        if code[1] == OP_OPEN_CAPTURE and code[#code - 3] == OP_CLOSE_CAPTURE then
-            start, boundary, result = 3, #code - 3, "string"
+        local root, result = validated.root, "integer"
+        if singleResult(validated.result, "string") and nodes[root][1] == "capture" then
+            root, result = nodes[root][2], "string"
+        elseif not singleResult(validated.result, "integer") then
+            root = nil
         end
-        local head, tail = encodedCheck(start), encodedCheck(start + 4)
-        if head
-            and tail
-            and code[start + 2] == OP_CHOICE
-            and code[start + 6] == OP_PARTIAL_COMMIT
-            and code[start + 7] == start + 4
-            and code[boundary] == (result == "string" and OP_CLOSE_CAPTURE or OP_END)
-            and code[#code - 1] == OP_END
-        then
-            local stop = code[start + 3]
-            local eof = false
-            if stop == start + 8 and code[start + 8] == OP_EOF and boundary == start + 10 then
-                eof = true
-            elseif stop ~= boundary or boundary ~= start + 8 then
-                stop = nil
+        if root then
+            local repeatParts = {}
+            local function flattenRepeat(index)
+                local node = nodes[index]
+                if node[1] == "sequence" then
+                    for child = 2, #node do
+                        flattenRepeat(node[child])
+                    end
+                else
+                    repeatParts[#repeatParts + 1] = index
+                end
             end
-            if stop then
+
+            flattenRepeat(root)
+            local eof = #repeatParts > 1 and nodes[repeatParts[#repeatParts]][1] == "eof"
+            if eof then
+                table.remove(repeatParts)
+            end
+            local head, tail
+            if #repeatParts == 1 and nodes[repeatParts[1]][1] == "oneOrMore" then
+                local check = fixedSequence(nodes[repeatParts[1]][2], {})
+                if check and #check == 1 then
+                    head, tail = check[1], check[1]
+                end
+            elseif #repeatParts == 2 and nodes[repeatParts[2]][1] == "zeroOrMore" then
+                local first = fixedSequence(repeatParts[1], {})
+                local rest = fixedSequence(nodes[repeatParts[2]][2], {})
+                if first and #first == 1 and rest and #rest == 1 then
+                    head, tail = first[1], rest[1]
+                end
+            end
+            if head then
                 fastRepeat = {head = head, tail = tail, eof = eof, result = result}
             end
         end
     end
 
+    local function hasCaptures(index, seen)
+        if seen[index] then
+            return false
+        end
+        seen[index] = true
+        local node, op = nodes[index], nodes[index][1]
+        if op == "capture" or op == "collect" or op == "action" or op == "position" then
+            return true
+        elseif op == "sequence" or op == "choice" or op == "difference" then
+            for child = 2, #node do
+                if hasCaptures(node[child], seen) then
+                    return true
+                end
+            end
+        elseif op == "zeroOrMore" or op == "oneOrMore" or op == "optional" or op == "and" or op == "not" then
+            return hasCaptures(node[2], seen)
+        end
+
+        return false
+    end
+
     return {
-        code = code,
-        strings = strings,
+        graph = {nodes = nodes, root = validated.root},
         sets = sets,
         fastFixed = fastFixed,
         fastScan = fastScan,
         fastRepeat = fastRepeat,
         search = searchPlan(validated),
         actions = validated.slots,
-        captureful = captureful,
+        captureful = hasCaptures(validated.root, {}),
     }
 end
 
@@ -1996,8 +1788,12 @@ function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?, a
             "a comptime PEG with actions needs a declared matcher factory type",
             "declare function(Actions): nupp.peg.Peg<R> so each action slot and result can be checked"
         )
-    elseif expected and expected.tag == "func"
-        and #expected.params == 1 and #expected.rets == 1 and not expected.vararg then
+    elseif expected
+        and expected.tag == "func"
+        and #expected.params == 1
+        and #expected.rets == 1
+        and not expected.vararg
+    then
         resultPack = matcherResult(expected.rets[1], matcher)
         local actionWhy
         if validated.general then
@@ -2010,19 +1806,17 @@ function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?, a
         end
     end
     if not resultPack or not resultFits(validated.result, resultPack, actionReturns) then
-        return nil, failure(
-            "NUPP2415",
-            "PEG blueprint result pack does not match the declared matcher type"
-        )
+        return nil, failure("NUPP2415", "PEG blueprint result pack does not match the declared matcher type")
     end
-    local backend = validated.backend == "auto" and "nupp.peg.codegen" or "nupp.peg.vm"
-    local machine = {
-        tag = "call",
-        callee = {tag = "helper", name = backend},
-        args = {dataIR(compileBytecode(validated))},
-    }
+    local backend = validated.backend == "auto" and "nupp.peg.codegen" or "nupp.peg.lpeg"
+    local machine = {tag = "call", callee = {tag = "helper", name = backend}, args = {dataIR(compilePlan(validated))},}
     if #validated.slots == 0 then
-        return machine, nil, {backend = validated.backend, emitterAbi = 6, helperAbi = 8, runtimeFeatures = {"stdlib.peg"},}, inferredTarget
+        return machine, nil, {
+            backend = validated.backend,
+            emitterAbi = 7,
+            helperAbi = 9,
+            runtimeFeatures = {"stdlib.peg"},
+        }, inferredTarget
     end
     machine.args[2] = {tag = "local", id = 1}
 
@@ -2030,7 +1824,7 @@ function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?, a
         tag = "function",
         params = {1},
         body = {{tag = "return", value = machine}},
-    }, nil, {backend = validated.backend, emitterAbi = 6, helperAbi = 8, runtimeFeatures = {"stdlib.peg"},}
+    }, nil, {backend = validated.backend, emitterAbi = 7, helperAbi = 9, runtimeFeatures = {"stdlib.peg"},}
 end
 
 return peg

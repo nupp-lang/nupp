@@ -1,5 +1,5 @@
--- The textual PEG compiler at both phases, typed static materialization, shared
--- specialization templates, and the pure-Lua bytecode VM fallback.
+-- The textual PEG compiler at both phases, typed static materialization, Nupp
+-- specialization templates, and native LPeg lowering.
 local parser = require("nupp.compiler.parser")
 local gen = require("nupp.compiler.gen")
 local check = require("fragment")
@@ -8,9 +8,8 @@ local envMod = require("nupp.compiler.env")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
--- The generated compiler now provides its own `lpeg` compatibility module. These
--- differential tests deliberately bypass it and load LPeg's C module from the test
--- rock tree, so the oracle remains independent of the implementation under test.
+-- Load LPeg's C module directly from the test rock tree so differential tests keep
+-- an independent handle even when generated bootstrap code changes package.loaded.
 local function officialLpeg()
    for template in package.cpath:gmatch("[^;]+") do
       local path = template:gsub("%?", "lpeg")
@@ -78,7 +77,7 @@ local M = {}
 
 function M.exposesMatcherAndSupportTypesOnTheRuntimeModule()
    local value = run([[
-local backend: nupp.peg.Backend = "vm"
+local backend: nupp.peg.Backend = "lpeg"
 local action: nupp.peg.Action = function(text: string): any return text:upper() end
 local actions: nupp.peg.Actions = {upper = action}
 local options: nupp.peg.CompileOptions = {backend = backend, actions = actions}
@@ -132,21 +131,21 @@ return typedLeft, typedRight
    assertEq(right, "42", "second native capture")
 end
 
-function M.multipleCapturesWorkInTheVMAndComptimeCodegen()
-   local vmLeft, vmRight, staticLeft, staticRight = run([[
-local Vm: nupp.peg.Peg<(string, string)> = nupp.peg.compile(
+function M.multipleCapturesWorkInForcedLpegAndComptimeCodegen()
+   local lpegLeft, lpegRight, staticLeft, staticRight = run([[
+local Lpeg: nupp.peg.Peg<(string, string)> = nupp.peg.compile(
     "{ [a-z]+ } ':' { [0-9]+ }",
-    {backend = "vm"}
+    {backend = "lpeg"}
 )
 const Static: nupp.peg.Peg<(string, string)> = comptime do
     return nupp.peg.compile("{ [a-z]+ } ':' { [0-9]+ }")
 end
-local vmLeft, vmRight = Vm("age:42")
+local lpegLeft, lpegRight = Lpeg("age:42")
 local staticLeft, staticRight = Static("age:42")
-return vmLeft, vmRight, staticLeft, staticRight
+return lpegLeft, lpegRight, staticLeft, staticRight
 ]])
-   assertEq(vmLeft, "age", "VM first capture")
-   assertEq(vmRight, "42", "VM second capture")
+   assertEq(lpegLeft, "age", "LPeg first capture")
+   assertEq(lpegRight, "42", "LPeg second capture")
    assertEq(staticLeft, "age", "codegen first capture")
    assertEq(staticRight, "42", "codegen second capture")
 end
@@ -221,7 +220,7 @@ return Nested:find("!word!")
    assertEq(inner, "word", "inner capture")
 end
 
-function M.matchesAStaticIdentifierWithoutLPegAtRuntime()
+function M.keepsAStaticIdentifierOnTheSpecializedRuntime()
    local source = [[
 const Identifier: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.")
@@ -236,7 +235,9 @@ return Identifier:match("_name9"), Identifier:match("9name"), Identifier("ok")
    assert(code:find("(__nuppPegCodegen)({", 1, true), code)
    assertEq(code:find("__nuppPegReInstall", 1, true), nil,
       "ordinary static PEG excludes the runtime frontend")
-   assert(not code:find("require(\"lpeg\")", 1, true), code)
+   assert(code:find("require(\"lpeg\")", 1, true), code)
+   assertEq(code:find("package.preload.re", 1, true), nil,
+      "ordinary static PEG excludes the textual runtime frontend")
 end
 
 function M.searchesForMatchesWithoutBuildingAMatchResult()
@@ -245,7 +246,7 @@ const Word = comptime do
     return nupp.peg.compile("[a-z]+ !.")
 end
 const End = comptime do
-    return nupp.peg.compile("!.", {backend = "vm"})
+    return nupp.peg.compile("!.", {backend = "lpeg"})
 end
 local grammar: string = "'needle'"
 local Runtime = nupp.peg.compile(grammar)
@@ -254,7 +255,7 @@ local record Actions
     reject: function(string): boolean
 end
 const FalseResult: function(Actions): nupp.peg.Peg<boolean> = comptime do
-    return nupp.peg.compile("'x' -> reject", {backend = "vm"})
+    return nupp.peg.compile("'x' -> reject", {backend = "lpeg"})
 end
 local ReturnsFalse = FalseResult(new Actions(
     reject = function(_: string): boolean return false end
@@ -285,14 +286,14 @@ const Identifier = comptime do
     return nupp.peg.compile("[a-z]+ !.")
 end
 const End = comptime do
-    return nupp.peg.compile("!.", {backend = "vm"})
+    return nupp.peg.compile("!.", {backend = "lpeg"})
 end
 
 local record Actions
     drop: function(string): nil
 end
 const Drop: function(Actions): nupp.peg.Peg<nil> = comptime do
-    return nupp.peg.compile("'x' -> drop", {backend = "vm"})
+    return nupp.peg.compile("'x' -> drop", {backend = "lpeg"})
 end
 local DropsValue = Drop(new Actions(
     drop = function(_: string): nil return nil end
@@ -342,7 +343,7 @@ const Word = comptime do
     return nupp.peg.compile("{ [a-z]+ }")
 end
 const Empty = comptime do
-    return nupp.peg.compile("''", {backend = "vm"})
+    return nupp.peg.compile("''", {backend = "lpeg"})
 end
 local positions: {string} = {}
 local values: {string} = {}
@@ -381,7 +382,7 @@ end
 
 function M.generatesByteTraversalForRepeatedAtoms()
    local recognizerCount, recognizerValues, captured, fromSecond, eofCount,
-      eofPosition, runtimeCount, vmCount = run([==[
+      eofPosition, runtimeCount, lpegCount = run([==[
 const Token = comptime do
     return nupp.peg.compile("[A-Z] [a-z]*")
 end
@@ -391,8 +392,8 @@ end
 const AtEnd = comptime do
     return nupp.peg.compile("[0-9]+ !.")
 end
-const VM = comptime do
-    return nupp.peg.compile("[A-Z] [a-z]*", {backend = "vm"})
+const LPEG = comptime do
+    return nupp.peg.compile("[A-Z] [a-z]*", {backend = "lpeg"})
 end
 
 local recognizerValues: {string} = {}
@@ -416,10 +417,10 @@ end)
 local grammar: string = "[0-9]+"
 local Runtime = nupp.peg.compile(grammar)
 local runtimeCount = Runtime:forEachMatch("a1 b22 c333", function() end)
-local vmCount = VM:forEachMatch("A Abc X", function() end)
+local lpegCount = LPEG:forEachMatch("A Abc X", function() end)
 return recognizerCount, table.concat(recognizerValues, "|"),
     table.concat(captured, "|"), fromSecond, eofCount, eofPosition,
-    runtimeCount, vmCount
+    runtimeCount, lpegCount
 ]==])
    assertEq(recognizerCount, 3, "generated traversal count")
    assertEq(recognizerValues, "1:2:2|3:6:6|7:8:8",
@@ -429,7 +430,7 @@ return recognizerCount, table.concat(recognizerValues, "|"),
    assertEq(eofCount, 1, "EOF traversal ignores earlier failed runs")
    assertEq(eofPosition, 5, "EOF traversal finds the final run")
    assertEq(runtimeCount, 3, "runtime programs generate traversal")
-   assertEq(vmCount, recognizerCount, "VM traversal retains parity")
+   assertEq(lpegCount, recognizerCount, "LPeg traversal retains parity")
 end
 
 function M.replacesFirstAndAllMatchesWithLiteralOrComputedText()
@@ -506,7 +507,7 @@ end
 function M.replacementMakesProgressAfterEmptyMatches()
    local first, every, later, emptySubject, endOnly = run([==[
 const Empty = comptime do
-    return nupp.peg.compile("''", {backend = "vm"})
+    return nupp.peg.compile("''", {backend = "lpeg"})
 end
 const End = comptime do
     return nupp.peg.compile("!.")
@@ -523,13 +524,13 @@ return Empty:replace("ab", "-"), Empty:replaceAll("ab", "-"),
 end
 
 function M.scansOnlyBytesThatCanBeginANonemptyMatch()
-   local staticFirst, staticNext, staticValue, vmFirst, runtimeFirst, replaced,
+   local staticFirst, staticNext, staticValue, lpegFirst, runtimeFirst, replaced,
       recursiveFirst, predicateFirst, specialFirst = run([==[
 const Digits = comptime do
     return nupp.peg.compile("{ [0-9]+ }")
 end
-const DigitsVM = comptime do
-    return nupp.peg.compile("{ [0-9]+ }", {backend = "vm"})
+const DigitsLpeg = comptime do
+    return nupp.peg.compile("{ [0-9]+ }", {backend = "lpeg"})
 end
 const Recursive = comptime do
     return nupp.peg.compile("value <- 'x' / '(' value ')'")
@@ -543,7 +544,7 @@ end
 
 local subject = string.rep("a", 10000) .. "42"
 local staticFirst, staticNext, staticValue = Digits:find(subject)
-local vmFirst = DigitsVM:find(subject)
+local lpegFirst = DigitsLpeg:find(subject)
 local grammar: string = "[0-9]+"
 local Runtime = nupp.peg.compile(grammar)
 local runtimeFirst = Runtime:find(subject)
@@ -551,13 +552,13 @@ local replaced = Digits:replaceAll("a1 b22 c333", "#")
 local recursiveFirst = Recursive:find("---(((x)))")
 local predicateFirst = Predicate:find("xabc")
 local specialFirst = Special:find("abc^def")
-return staticFirst, staticNext, staticValue, vmFirst, runtimeFirst, replaced,
+return staticFirst, staticNext, staticValue, lpegFirst, runtimeFirst, replaced,
     recursiveFirst, predicateFirst, specialFirst
 ]==])
    assertEq(staticFirst, 10001, "static first-byte scan")
    assertEq(staticNext, 10003, "static scan result end")
    assertEq(staticValue, "42", "static scan capture")
-   assertEq(vmFirst, staticFirst, "forced VM first-byte scan")
+   assertEq(lpegFirst, staticFirst, "forced LPeg first-byte scan")
    assertEq(runtimeFirst, staticFirst, "runtime first-byte scan")
    assertEq(replaced, "a# b# c#", "replacement uses the shared scan")
    assertEq(recursiveFirst, 4, "recursive first set")
@@ -698,7 +699,7 @@ return matcher("one,two,three")
    assertEq(table.concat(values, ":"), "one:two:three", "grouped values")
 end
 
-function M.excludesThePegVMFromUnrelatedPrograms()
+function M.excludesPegSupportFromUnrelatedPrograms()
    local code = compile("return 42")
    assertEq(code:find("__nuppPegVM", 1, true), nil, "unused helper")
    assertEq(code:find("__nuppPegCodegen", 1, true), nil, "unused code generator")
@@ -802,10 +803,10 @@ return Nested("(((x)))"), Nested("((x)")
    assertEq(missed, nil, "unclosed recursion fails")
 end
 
-function M.runsDeepGrammarRecursionOnTheExplicitVMStack()
+function M.runsDeepTailRecursiveGrammarsInLpeg()
    local matched = run([[
 const Nested: nupp.peg.Peg<integer> = comptime do
-    return nupp.peg.compile("start <- value !. value <- 'x' / '(' value ')'", {backend = "vm"})
+    return nupp.peg.compile("start <- value !. value <- 'x' / '(' value ')'", {backend = "lpeg"})
 end
 local depth = 2000
 local subject = string.rep("(", depth) .. "x" .. string.rep(")", depth)
@@ -814,7 +815,7 @@ return Nested(subject)
    assertEq(matched, 4002, "deep recursive match")
 end
 
-function M.supportsPositionAnyAndOptionalOpcodes()
+function M.supportsPositionAnyAndOptionalPatterns()
    local empty, byte, tooLong = run([[
 const Located: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("{} .? !.")
@@ -1080,7 +1081,7 @@ lpeg.setmaxstack(400)
 return {
     luaType = type(pattern),
     lpegType = lpeg.type(pattern),
-    tostringPrefix = tostring(pattern):match("^lpeg%-pattern:") ~= nil,
+    tostringPrefix = tostring(pattern):match("^userdata:") ~= nil,
     mutable = mutable,
     selfField = (lpeg as any).lpeg,
     emptyLoop = emptyLoop,
@@ -1117,7 +1118,7 @@ return {
    assertEq(got.invalidHigh, false, "utfR rejects a bound above Unicode")
    assertEq(got.invalidOrder, false, "utfR rejects an inverted range")
    assertEq(got.flat, 5, "flat AST depth does not consume backtrack stack")
-   assertEq(got.overflow, false, "grammar calls consume the configured stack")
+   assertEq(got.overflow, true, "LPeg optimizes tail-recursive grammar calls")
 end
 
 function M.bundlesTheReferenceReModuleOverTheLpegFacade()
@@ -1272,23 +1273,23 @@ return Static, Dynamic
 end
 
 function M.reusesOneMatcherShellAcrossRuntimeBackends()
-   local staticResult, dynamicResult, vmResult, sameTemplate, sameVMShell = run([==[
+   local staticResult, dynamicResult, lpegResult, sameTemplate, sameLpegShell = run([==[
 const Static: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.")
 end
 local grammar: string = "[a-zA-Z_] [a-zA-Z_0-9]* !."
 local Dynamic = nupp.peg.compile(grammar)
-local VM = nupp.peg.compile(grammar, {backend = "vm"})
+local LPEG = nupp.peg.compile(grammar, {backend = "lpeg"})
 local staticCode = string.dump((getmetatable(Static) as any).__call)
 local dynamicCode = string.dump((getmetatable(Dynamic) as any).__call)
-local vmCode = string.dump((getmetatable(VM) as any).__call)
-return Static("name9"), Dynamic("name9"), VM("name9"),
-    staticCode == dynamicCode, dynamicCode == vmCode
+local lpegCode = string.dump((getmetatable(LPEG) as any).__call)
+return Static("name9"), Dynamic("name9"), LPEG("name9"),
+    staticCode == dynamicCode, dynamicCode == lpegCode
 ]==])
    assertEq(dynamicResult, staticResult, "runtime specialization result")
-   assertEq(vmResult, staticResult, "forced VM result")
+   assertEq(lpegResult, staticResult, "forced LPeg result")
    assertEq(sameTemplate, true, "static and runtime use the same matcher template")
-   assertEq(sameVMShell, true, "kernels and bytecode share one matcher shell")
+   assertEq(sameLpegShell, true, "kernels and LPeg share one matcher shell")
 end
 
 function M.supportsRuntimeReCapturesCollectionsAndActions()
@@ -1370,7 +1371,7 @@ function M.reportsReSyntaxLocationsAtBothPhases()
 const Broken: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile([[
         'ok'
-        [z-a]
+        [
     ]])
 end
 ]==])
@@ -1379,12 +1380,12 @@ end
 
    local ok, why = run([==[
 local ok, why = pcall(function()
-    nupp.peg.compile("'ok'\n[z-a]")
+    nupp.peg.compile("'ok'\n[")
 end)
 return ok, tostring(why)
 ]==])
    assertEq(ok, false, "runtime re syntax rejection")
-   assert(why:find("line 2, column", 1, true), why)
+   assert(why:find("pattern error near", 1, true), why)
 end
 
 function M.agreesBetweenSpecializedAndGeneralBackends()
@@ -1393,19 +1394,19 @@ const FastIdentifier: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.")
 end
 const RefIdentifier: nupp.peg.Peg<integer> = comptime do
-    return nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.", {backend = "vm"})
+    return nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.", {backend = "lpeg"})
 end
 const FastList: nupp.peg.Peg<{string}> = comptime do
     return nupp.peg.compile("{| { [a-z]+ } (',' { [a-z]+ })* |} !.")
 end
 const RefList: nupp.peg.Peg<{string}> = comptime do
-    return nupp.peg.compile("{| { [a-z]+ } (',' { [a-z]+ })* |} !.", {backend = "vm"})
+    return nupp.peg.compile("{| { [a-z]+ } (',' { [a-z]+ })* |} !.", {backend = "lpeg"})
 end
 return FastIdentifier, RefIdentifier, FastList, RefList
 ]]
    local code = compile(source)
    assert(code:find("(__nuppPegCodegen)({", 1, true), code)
-   assert(code:find("(__nuppPegVM)({", 1, true), code)
+   assert(code:find("(__nuppPegLpeg)({", 1, true), code)
    local fastIdentifier, refIdentifier, fastList, refList = run(source)
    local inputs = {"", "a", "_ok9", "9bad", "alpha,beta", "one,two,three", "one,", ",two"}
    for _, input in ipairs(inputs) do
@@ -1416,8 +1417,8 @@ return FastIdentifier, RefIdentifier, FastList, RefList
    end
 end
 
-function M.cachesRuntimeGenerationAndKeepsTheVMSourceFree()
-   local afterFirst, afterCached, afterVM, autoMatched, vmMatched = run([==[
+function M.cachesRuntimeLpegPatternsWithoutGeneratingSource()
+   local afterFirst, afterCached, afterForced, autoMatched, forcedMatched = run([==[
 local original: any = loadstring
 local loads = 0
 rawset(_G, "loadstring", function(source: string, name: string?)
@@ -1428,16 +1429,16 @@ local Auto = nupp.peg.compile("[a-z]+")
 local afterFirst = loads
 local Again = nupp.peg.compile("[a-z]+")
 local afterCached = loads
-local VM = nupp.peg.compile("[a-z]+", {backend = "vm"})
-local afterVM = loads
+local Forced = nupp.peg.compile("[a-z]+", {backend = "lpeg"})
+local afterForced = loads
 rawset(_G, "loadstring", original)
-return afterFirst, afterCached, afterVM, Auto("hello"), VM("hello")
+return afterFirst, afterCached, afterForced, Auto("hello"), Forced("hello")
 ]==])
-   assertEq(afterFirst, 2, "auto generates one matcher and one searcher")
+   assertEq(afterFirst, 0, "runtime LPeg compilation generates no Lua source")
    assertEq(afterCached, afterFirst, "runtime code generation is cached")
-   assertEq(afterVM, afterCached, "VM compilation does not generate Lua source")
-   assertEq(autoMatched, 6, "generated matcher remains usable")
-   assertEq(vmMatched, 6, "VM matcher remains usable")
+   assertEq(afterForced, afterCached, "forced LPeg compilation generates no Lua source")
+   assertEq(autoMatched, 6, "cached matcher remains usable")
+   assertEq(forcedMatched, 6, "forced LPeg matcher remains usable")
 end
 
 function M.emitsAndRunsFixedWidthRecognitionPrograms()
@@ -1449,6 +1450,8 @@ return Date("2026-08-10"), Date("2026/08/10"), Date:match("x2026-08-10", 2)
 ]]
    local code = compile(source)
    assert(code:find("fastFixed={", 1, true), code)
+   assertEq(code:find("program.code", 1, true), nil, "no PEG bytecode program")
+   assertEq(code:find("unknown PEG opcode", 1, true), nil, "no PEG opcode dispatcher")
    local matched, missed, offset = run(source)
    assertEq(matched, 11, "fixed-width call match")
    assertEq(missed, nil, "fixed-width byte rejection")

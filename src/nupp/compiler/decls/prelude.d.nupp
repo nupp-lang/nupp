@@ -798,12 +798,11 @@ end
 record nupp.peg
     --- The implementation selected after the grammar has been parsed.
     ---
-    --- `auto` is the default. For recognition and simple captures it generates cached
-    --- Lua matcher, search, and repeated-traversal functions from canonical bytecode.
-    --- `vm` interprets that program and never invokes runtime source generation.
-    --- LPeg's stateful capture forms use the canonical capture graph executor in both
-    --- modes. All paths share one matcher shell and identical semantics.
-    type Backend = 'auto' | 'vm'
+    --- `auto` is the default. It emits straight-line Lua for the small matcher shapes
+    --- where Nupp is faster and lowers every other grammar to native LPeg. `lpeg`
+    --- disables specialization and always uses LPeg. Both paths share one typed
+    --- matcher shell and identical capture semantics.
+    type Backend = 'auto' | 'lpeg'
 
     --- A legacy substring transformation callback.
     ---
@@ -829,9 +828,8 @@ record nupp.peg
     --- Controls grammar compilation.
     ---
     --- These options are deliberately small. At runtime, grammar source plus
-    --- `backend` identifies the cached parse and plan; definitions are bound to the
-    --- returned matcher and are not part of the cache key. Static grammars may also
-    --- select a backend, while definitions remain typed factory inputs.
+    --- `backend` selects specialization or native LPeg; definitions are bound to the
+    --- returned matcher and are not part of the grammar's compile-time type.
     type CompileOptions = {
         --- Values named by `%name`, `-> name`, `=> name`, `>> name`, or `~> name`.
         definitions: Definitions?,
@@ -1031,8 +1029,8 @@ record nupp.peg
     --- local values = assert(Words("red,green,blue")) as {string}
     --- assert(values[2] == "green")
     ---
-    --- local Portable = nupp.peg.compile("[0-9]+ !.", {backend = "vm"})
-    --- assert(Portable("123") ~= nil)
+    --- local General = nupp.peg.compile("[0-9]+ !.", {backend = "lpeg"})
+    --- assert(General("123") ~= nil)
     --- ```
     --- @param source grammar expression or rule definitions
     --- @param options runtime definitions and backend selection

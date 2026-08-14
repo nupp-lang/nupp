@@ -1568,8 +1568,9 @@ return m
         codes = {"NUPP2414", "NUPP2415", "NUPP2416", "NUPP2417"},
         body = [=[
 `nupp.peg.compile(grammar, options?)` compiles LPeg-re-style byte grammar text
-at either phase into a pure-Lua matcher with no LPeg dependency. In `comptime`,
-its opaque blueprint's capture shape supplies `nupp.peg.Peg<R...>` when
+at either phase into a typed matcher backed by native LPeg and selected Nupp
+specializations. In `comptime`, its opaque blueprint's capture shape supplies
+`nupp.peg.Peg<R...>` when
 unannotated. A literal runtime grammar infers the same type; a dynamic string
 returns `Peg<...any>`. `Peg<R...>` satisfies `Matcher<R...>`, so a generic
 adapter can return `((R...) | (nil))`. `Backend`, `Definitions`, and
@@ -1666,17 +1667,14 @@ materialization boundary and size diagnostics remain **NUPP2414** through
 
 ### Compilation and backends
 
-Both phases produce one validated canonical program and matcher shell.
-Recognition and simple captures lower to bytecode. The default `auto` backend
-generates and caches Lua match, search, traversal, and safe literal replacement
-functions from it. Common shapes become straight-line functions; other ordinary
-grammars use an opcode-specialized dispatch loop. Stateful LPeg captures retain
-the canonical capture graph and use its executor.
+Both phases produce one validated canonical PEG graph and matcher shell. The
+default `auto` backend recognizes fixed-width, repeated-byte, and packed scan
+shapes and emits straight-line Lua for them. Every other graph lowers directly
+to native LPeg; Nupp has no PEG bytecode or general interpreter.
 
-`{backend = "vm"}` interprets bytecode without `loadstring`, which suits cold
-grammars and restricted hosts. Stateful captures use the same graph executor in
-either mode. Runtime parsing, programs, and generation are cached by grammar and
-backend. Runtime definition values use
+`{backend = "lpeg"}` disables those Nupp specializations for reproducible backend
+comparisons. Runtime textual grammars compile through LPeg's `re` module without
+`loadstring` and are cached by grammar. Runtime definition values use
 `{definitions = values}`; static definitions remain factory inputs. The
 expression syntax is LPeg 1.1 `re`; `docs/peg.md` documents native result packs
 and explicit table captures.

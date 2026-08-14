@@ -183,7 +183,7 @@ return Matcher("ok")
    assertEq(#cold.materializations, 1, "the cold build reports its materialization")
    local observation = cold.materializations[1]
    assertEq(observation.provider, "peg", "provider observation")
-   assertEq(observation.schema, 4, "provider schema")
+   assertEq(observation.schema, 5, "provider schema")
    assertEq(observation.backend, "auto", "selected backend")
    assert(observation.blueprintSize > 0 and observation.generatedSize > 0,
       "bounded sizes are reported")

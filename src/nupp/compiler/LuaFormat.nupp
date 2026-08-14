@@ -41,7 +41,7 @@ local function parser()
         malformed <- { '%' (!'%' .)* }
         ordinary <- !'%' .
     ]],
-        {backend = "vm"}
+        {backend = "lpeg"}
     )
 
     return matcher

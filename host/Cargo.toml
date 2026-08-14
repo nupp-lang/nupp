@@ -21,6 +21,7 @@ path = "src/main.rs"
 [features]
 default = []
 cjson = []
+lpeg = []
 lua-utf8 = []
 workers = ["dep:libc"]
 native-files = ["dep:nupp-native", "nupp-native/files"]

@@ -27,11 +27,15 @@ type native.Feature = {
 
 local FEATURES: {
     [string]: native.Feature
-} = {["stdlib.lpeg.compat"] = {
+} = {["native.lpeg"] = {
     name = "lpeg",
-    modules = {"lpeg", "re"},
-    -- Existing Lua libraries see the LPeg pattern API, but its patterns lower into
-    -- Nupp's canonical PEG graph. There is no native host feature or shared module.
+    module = "lpeg",
+    host = "lpeg",
+    binary = true,
+}, ["stdlib.lpeg.re"] = {
+    name = "lpeg_re",
+    module = "re",
+    requires = {"native.lpeg"},
 }, [
     "native.cjson"
 ] = {
@@ -52,11 +56,13 @@ local FEATURES: {
     "stdlib.peg"
 ] = {
     name = "peg",
+    requires = {"native.lpeg"},
 }, [
     "stdlib.peg.compile"
 ] = {
     name = "peg_compile",
     globals = {"nupp.peg.compile"},
+    requires = {"native.lpeg"},
 }, [
     "stdlib.fieldcodec"
 ] = {

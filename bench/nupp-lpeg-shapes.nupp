@@ -1,0 +1,100 @@
+-- Find where Nupp PEG's specialized path stops outperforming native LPeg.
+-- Run with: ./bin/nupp run -O2 bench/nupp-lpeg-shapes.nupp
+
+local jit: any = require("jit")
+local lpeg: any = require("lpeg")
+
+local NuppIdentifier = nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.")
+local NuppCaptures = nupp.peg.compile("{| { [a-zA-Z_]+ } (',' { [a-zA-Z_]+ })* |} !.")
+local NuppRecursive = nupp.peg.compile("start <- value !. value <- '(' value ')' value / ''")
+
+local P, R, C, Ct, Cp, V = lpeg.P, lpeg.R, lpeg.C, lpeg.Ct, lpeg.Cp, lpeg.V
+local head = R("az", "AZ") + P("_")
+local tail = head + R("09")
+local LPegIdentifier = head * tail ^ 0 * Cp() * -P(1)
+local field = C(head ^ 1)
+local LPegCaptures = Ct(field * (P(",") * field) ^ 0) * -P(1)
+local LPegRecursive = P({"S", S = P("(") * V("S") * P(")") * V("S") + P("")}) * Cp() * -P(1)
+
+local record Workload
+    name: string
+    subject: string
+    nupp: function(string): any
+    lpeg: function(string): any
+end
+
+local workloads = {new Workload(name = "identifier", subject = "materialized_identifier_0123456789", nupp = function(
+    subject: string
+): any
+    return NuppIdentifier(subject)
+end, lpeg = function(subject: string): any
+    return lpeg.match(LPegIdentifier, subject)
+end), new Workload(name = "captures", subject = "position,velocity,rotation,scale,health,mana,team,target", nupp = function(
+    subject: string
+): any
+    return NuppCaptures(subject)
+end, lpeg = function(subject: string): any
+    return lpeg.match(LPegCaptures, subject)
+end), new Workload(name = "recursive", subject = string.rep(
+    "(",
+    16
+) .. string.rep(")", 16), nupp = function(subject: string): any
+    return NuppRecursive(subject)
+end, lpeg = function(subject: string): any
+    return lpeg.match(LPegRecursive, subject)
+end),}
+
+local ROUNDS = 7
+local ITERATIONS = 300000
+local sink = 0
+
+local function consume(value: any): nil
+    sink = sink + (type(value) == "table" and #value or value or 0)
+end
+
+local function median(values: {number}): number
+    table.sort(values)
+    return values[math.ceil(#values / 2)]
+end
+
+local function measure(matcher: function(string): any, subject: string): number
+    jit.flush()
+    for _ = 1, 10000 do
+        consume(matcher(subject))
+    end
+    local rates = {}
+    for round = 1, ROUNDS do
+        local started = os.clock()
+        for _ = 1, ITERATIONS do
+            consume(matcher(subject))
+        end
+        rates[round] = ITERATIONS / (os.clock() - started)
+    end
+
+    return median(rates)
+end
+
+print(string.format("Nupp PEG shape controls, %s, %s", jit.version, lpeg.version))
+print("workload       bytes   Nupp matches/s   LPeg matches/s   Nupp/LPeg")
+print("----------  --------  ---------------  ---------------  ----------")
+for _, workload in ipairs(workloads) do
+    local want, got = workload.nupp(workload.subject), workload.lpeg(workload.subject)
+    if type(want) == "table" then
+        assert(table.concat(want, "\0") == table.concat(got, "\0"))
+    else
+        assert(want == got)
+    end
+    local nuppRate = measure(workload.nupp, workload.subject)
+    local lpegRate = measure(workload.lpeg, workload.subject)
+    print(
+        string.format(
+            "%-10s  %8d  %15.0f  %15.0f  %9.2fx",
+            workload.name,
+            #workload.subject,
+            nuppRate,
+            lpegRate,
+            nuppRate / lpegRate
+        )
+    )
+end
+assert(sink > 0)

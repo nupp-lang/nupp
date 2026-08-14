@@ -13,7 +13,7 @@ local MAX_SOURCE_BYTES = 512 * 1024
 
 local HELPERS = {
     ["nupp.peg.codegen"] = "__nuppPegCodegen",
-    ["nupp.peg.vm"] = "__nuppPegVM",
+    ["nupp.peg.lpeg"] = "__nuppPegLpeg",
     ["nupp.fieldcodec.keyed"] = "_G.nupp.fieldcodec.keyed",
 }
 

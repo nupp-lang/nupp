@@ -31,15 +31,15 @@ extern "C" {
     fn lua_pushlstring(state: *mut lua_State, s: *const c_char, length: usize);
     fn lua_rawseti(state: *mut lua_State, index: c_int, n: c_int);
     fn lua_setfield(state: *mut lua_State, index: c_int, name: *const c_char);
-    #[cfg(any(feature = "cjson", feature = "lua-utf8", feature = "workers"))]
+    #[cfg(any(feature = "cjson", feature = "lpeg", feature = "lua-utf8", feature = "workers"))]
     fn lua_getfield(state: *mut lua_State, index: c_int, name: *const c_char);
-    #[cfg(any(feature = "cjson", feature = "lua-utf8", feature = "workers"))]
+    #[cfg(any(feature = "cjson", feature = "lpeg", feature = "lua-utf8", feature = "workers"))]
     fn lua_pushcclosure(state: *mut lua_State, f: LuaFunction, upvalues: c_int);
     #[cfg(feature = "workers")]
     fn lua_pushlightuserdata(state: *mut lua_State, value: *mut c_void);
 }
 
-#[cfg(any(feature = "cjson", feature = "lua-utf8", feature = "workers"))]
+#[cfg(any(feature = "cjson", feature = "lpeg", feature = "lua-utf8", feature = "workers"))]
 pub(crate) type LuaFunction = unsafe extern "C" fn(*mut lua_State) -> c_int;
 
 // The selected vendored C libraries. Each is reached through require like any
@@ -49,6 +49,8 @@ extern "C" {
     fn luaopen_cjson(state: *mut lua_State) -> c_int;
     #[cfg(feature = "cjson")]
     fn luaopen_cjson_safe(state: *mut lua_State) -> c_int;
+    #[cfg(feature = "lpeg")]
+    fn luaopen_lpeg(state: *mut lua_State) -> c_int;
     #[cfg(feature = "lua-utf8")]
     fn luaopen_utf8(state: *mut lua_State) -> c_int;
 }
@@ -73,6 +75,8 @@ impl Lua {
             self.preload("cjson", luaopen_cjson);
             self.preload("cjson.safe", luaopen_cjson_safe);
         }
+        #[cfg(feature = "lpeg")]
+        self.preload("lpeg", luaopen_lpeg);
         // Under the name luautf8 installs it as, since that is the name
         // lunamark asks for; LuaJIT has no utf8 of its own to collide with.
         #[cfg(feature = "lua-utf8")]
@@ -83,7 +87,7 @@ impl Lua {
 
     /// Puts a C module in `package.preload`, so `require` finds it without a
     /// search path and without a shared library on disk.
-    #[cfg(any(feature = "cjson", feature = "lua-utf8", feature = "workers"))]
+    #[cfg(any(feature = "cjson", feature = "lpeg", feature = "lua-utf8", feature = "workers"))]
     fn preload(&self, name: &str, opener: LuaFunction) {
         let key = match CString::new(name) {
             Ok(key) => key,

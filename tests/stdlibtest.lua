@@ -136,11 +136,13 @@ function M.nativeFeaturesAreResolvedEffects()
       "qualified nominals do not leak into the ambient type namespace")
 
    local lpeg = effectsOf("local parser = require('lpeg')")
-   assert(lpeg["stdlib.lpeg.compat"],
-      "require('lpeg') records its pure compatibility effect")
+   assert(lpeg["native.lpeg"],
+      "require('lpeg') records its native effect")
    local re = effectsOf("local parser = require('re')")
-   assert(re["stdlib.lpeg.compat"],
-      "require('re') records the shared compatibility effect")
+   assert(re["stdlib.lpeg.re"],
+      "require('re') records its reference-module effect")
+   assert(native.expand(re)["native.lpeg"],
+      "the re module brings native LPeg")
 
    local cjson = effectsOf("local json = require('cjson')")
    assert(cjson["native.cjson"], "require('cjson') records its native effect")
@@ -188,8 +190,8 @@ function M.nativeFeaturesAreResolvedEffects()
       "local require = function(_) return {} end",
       "require('lpeg')",
    }, "\n"))
-   assert(not shadowedRequire["stdlib.lpeg.compat"],
-      "a local require is not the compatibility module loader")
+   assert(not shadowedRequire["native.lpeg"],
+      "a local require is not the native module loader")
 
    local expected = {
       ["nupp.data.json.encodeJSON({answer = 42})"] = "native.cjson",
@@ -597,7 +599,7 @@ function M.pureAndNativeRuntimeFeaturesComposeAsLua()
    assertEq(path, nil, "the native Path runtime stays lazy")
 end
 
-function M.lpegCompatibilityUsesThePurePegRuntime()
+function M.lpegAndReUseTheNativeRuntime()
    local previousNupp = rawget(_G, "nupp")
    local previousLoaded = package.loaded.lpeg
    local previousPreload = package.preload.lpeg
@@ -606,7 +608,7 @@ function M.lpegCompatibilityUsesThePurePegRuntime()
    package.loaded.lpeg, package.loaded.re = nil, nil
    package.preload.lpeg, package.preload.re = nil, nil
    _G.nupp = nil
-   local source = stdlib.bootstrap({["stdlib.lpeg.compat"] = true}) .. [=[
+   local source = stdlib.bootstrap({["stdlib.lpeg.re"] = true}) .. [=[
 local lpeg = require("lpeg")
 local P, R, V = lpeg.P, lpeg.R, lpeg.V
 local C, Cc, Cp, Ct, Cg, Cb, Cs =
@@ -654,8 +656,8 @@ function M.nativeFeatureOverridesAreTriState()
       "local lpeg = require('lpeg')",
       "local utf8 = require('lua-utf8')",
    }, "\n"), "rock.lua", sharedEnv)
-   assert(external["stdlib.lpeg.compat"],
-      "bundled Lua contributes the LPeg compatibility layer")
+   assert(external["native.lpeg"],
+      "bundled Lua contributes native LPeg")
    assert(external["native.lua_utf8"], "bundled Lua contributes lua-utf8")
 end
 

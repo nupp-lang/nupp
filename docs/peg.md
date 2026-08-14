@@ -1,8 +1,9 @@
 # Parsing-expression grammars
 
-`nupp.peg` compiles textual parsing-expression grammars into reusable pure-Lua
-matchers. The same grammar language works inside `comptime` and at runtime, and
-neither path requires LPeg to be installed.
+`nupp.peg` compiles textual parsing-expression grammars into reusable typed
+matchers. The same grammar language works inside `comptime` and at runtime.
+Nupp ships native LPeg and uses it for general matching while retaining a few
+faster specialized Lua kernels.
 
 ```nupp:playground
 const Identifier = comptime do
@@ -515,40 +516,32 @@ is limited to 256 levels.
 
 ## Backends
 
-`CompileOptions.backend` accepts `"auto"` or `"vm"`.
+`CompileOptions.backend` accepts `"auto"` or `"lpeg"`.
 
-`auto` is the default. Recognition and simple captures lower to validated
-bytecode with constant pools and search metadata. The automatic backend
-translates that program into cached Lua matcher and search functions.
-Fixed-width, repeated-byte, and safe whole-match searches are emitted as
-straight-line functions; other ordinary programs get an opcode-specialized Lua
-dispatch loop. LuaJIT can then compile those functions when they become hot.
-Stateful LPeg captures retain the canonical capture graph and use its executor.
+`auto` is the default. Every static grammar becomes a validated canonical PEG
+graph. Nupp recognizes a few common shapes—fixed-width matches, repeated bytes,
+and packed whole-input scans—and emits straight-line Lua for them. All other
+graphs lower directly to native LPeg patterns. There is no Nupp PEG bytecode or
+general-purpose interpreter.
 
 ```nupp
 local Fast = nupp.peg.compile("[a-z]+ !.")
 ```
 
-`vm` interprets bounded recognition bytecode without generating Lua source:
+`lpeg` disables Nupp's straight-line specializations and always lowers the graph
+to native LPeg. It is useful for backend comparisons:
 
 ```nupp
-local General = nupp.peg.compile("[a-z]+ !.", {backend = "vm"})
+local General = nupp.peg.compile("[a-z]+ !.", {backend = "lpeg"})
 ```
 
-Use `vm` for cold or one-shot dynamic grammars, reproducible backend
-comparisons, or hosts that disallow `loadstring`. It retains bytecode-owned
-fixed and scan peepholes, then uses the opcode loop for ordinary programs.
-Stateful captures use the same graph executor in either backend. The VM never
-invokes runtime source generation. `auto` pays a one-time `loadstring` cost per
-cached program; it does not regenerate code for each match. Neither backend
-directly allocates native executable memory, though LuaJIT may compile hot Lua
-in its usual way.
+Runtime textual grammars are compiled by LPeg's `re` module and cached by source.
+They do not invoke `loadstring`. The `auto` backend invokes `loadstring` only
+when a static graph selects a Nupp specialization; LPeg owns every general match.
 
 Repeated byte or class plans also emit a direct byte-scanning `forEachMatch`
-loop, so traversal does not re-enter the matcher or Lua pattern engine for every
-match. For patterns that safely map to a Lua pattern, automatic literal
-`replaceAll` gets a fused generated path. Typed replacement callbacks retain the
-general search loop for plans that cannot use direct traversal.
+loop, so traversal does not re-enter LPeg for every match. Typed replacement
+callbacks retain the general search loop for plans without a direct traversal.
 
 ## LPeg `re` relationship
 

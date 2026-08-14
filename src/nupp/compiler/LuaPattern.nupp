@@ -1,10 +1,9 @@
 --[[
-Lua-pattern capture analysis, parsed by Nupp's own PEG implementation.
+Lua-pattern capture analysis, parsed by Nupp's typed PEG frontend over LPeg.
 
-The compiler loads the same pure-Lua PEG bootstrap that generated programs use,
-in a private environment. This deliberately keeps the grammar on the public
-`nupp.peg.compile` path: extending the Lua pattern surface exercises the parser,
-validator, bytecode compiler, and VM rather than growing a second hand scanner.
+The compiler loads the same PEG bootstrap that generated programs use in a private
+environment. This deliberately keeps the grammar on the public `nupp.peg.compile`
+path rather than growing a second hand scanner.
 ]]
 
 local stdlib = require("nupp.compiler.stdlib")
@@ -28,7 +27,8 @@ local function parser()
     assert(chunk, why)
     setfenv(chunk, sandbox)
     chunk()
-    matcher = sandbox.nupp.peg.compile([[
+    matcher = sandbox.nupp.peg.compile(
+        [[
         start <- {| (position / opening / closing / balanced / frontier / escaped / class / ordinary)* |} !.
         position <- '()' -> 'position'
         opening <- '(' -> 'string'
@@ -39,7 +39,9 @@ local function parser()
         class <- '[' '^'? ']'? classByte* ']'
         classByte <- '%' . / !']' .
         ordinary <- !'%' !'[' .
-    ]], {backend = "vm"})
+    ]],
+        {backend = "lpeg"}
+    )
 
     return matcher
 end
