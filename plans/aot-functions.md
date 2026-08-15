@@ -447,47 +447,40 @@ Struct fields already provide the safe limited feature: `float`, `int32`, and
 interop and compact component columns, but it is not fixed-width expression
 arithmetic and must not be presented as such.
 
-### Future computed-width value types
+### Checked refinements before AOT
 
-Do not add parallel `f32`, `i32`, or `u32` types while `float`, `int32`, and
-`uint32` remain lookalike storage-only types. Under the one-way rule, the only
-coherent expansion candidate is to promote the existing fixed-width names to
-true semantic value types everywhere:
+The proposed [fixed-width refinement plan](fixed-width-refinements.md) makes
+`float`, `int32`, and `uint32` honest unboxed value refinements without changing
+operator semantics. Arithmetic still widens to `number`; an internal dataflow
+fact records whether a reified load, conversion, intrinsic, literal, or checked
+call actually established the refinement. Erased `as` does not create that
+fact.
 
-- fixed-width assignment and explicit conversion establish a canonical value;
-- operators over two values of the same fixed-width type return that type;
-- integer results wrap with specified signed or unsigned interpretation;
-- `float` operators round each result to binary32;
-- representable numeric literals may be contextually converted;
-- mixing `number` with a fixed-width value requires one explicit conversion;
-- the Lua fallback keeps unboxed canonical Lua numbers and uses static
-  compiler lowering, never scalar cdata wrappers or metatable dispatch;
-- the AOT backend maps the same typed operations directly to verified scalar or
-  vector IR.
+AOT consumes whichever numeric model has already shipped; it does not introduce
+the refinement itself:
 
-This would be a language-version change, not an AOT feature. It changes answers
-for existing expressions over struct fields and can slow exact binary32 work in
-the LuaJIT fallback because LuaJIT has no native scalar-float arithmetic. Do not
-implement it until all of these gates pass:
+- without checked refinements, a scalar `float` annotation on a parameter does
+  not prove a binary32 value and must use the ordinary binary64 ABI semantics;
+  `int32` and `uint32` annotations likewise grant no range assumption;
+- after checked refinements ship, every checked call to a refined parameter
+  requires an established argument, so a private AOT ABI may carry C `float`,
+  `int32_t`, or `uint32_t` without changing the AOT-disabled answer;
+- reified struct, array, and span loads carry their established value types in
+  either build;
+- fixed-width intrinsics consume and produce establishment facts, allowing AOT
+  to lower their explicitly requested semantics directly.
 
-1. Audit existing Nupp and Tecs source to quantify changed expressions and
-   distinguish intentional storage annotations from intended computation.
-2. Specify conversion, mixed-expression, overflow, shift, comparison, NaN,
-   signed-zero, subnormal, and contraction behavior before changing checking.
-3. Measure traced and interpreted fallback loops, including field-heavy Tecs
-   workloads, against current binary64 operators and the released intrinsics.
-4. Demonstrate that ordinary `number` code is byte-for-byte and
-   performance-neutral when it never names a fixed-width type.
-5. Decide explicitly whether the compatibility and fallback costs are
-   acceptable. If not, retain the current storage/computation split rather than
-   landing a second near-duplicate numeric tower.
+Do not repair a missing fact by rounding in the generated AOT wrapper. The
+ordinary-only build has no corresponding wrapper conversion, so that would make
+`@aot` change numeric semantics. The call is rejected before backend work or
+the scalar uses its ordinary wider ABI, according to the released type model.
 
-If promotion is selected, operator-shaped public members such as
-`nupp.math.f32.add` and `nupp.math.u32.mul` are removed in the same language
-version. Their implementations and intrinsic identities become compiler/runtime
-machinery, while only non-operator operations such as `fma`, `sqrt`, bit
-reinterpretation, and rotation remain public. There is never a permanent
-function spelling beside an operator spelling for the same operation.
+Do not add parallel `f32`, `i32`, or `u32` type names, promote ordinary
+operators to fixed-width operations, or attach numeric behavior to a struct or
+`@aot` context. A later proved-identical backend optimization may select a
+native float operation for one binary64 operation over established binary32
+inputs followed by a store, but only under the proof and differential gates in
+the refinement plan.
 
 ## Errors and observable behavior
 

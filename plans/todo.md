@@ -70,11 +70,12 @@ work makes sense in.
       design and its comparison with portable vectors are in
       [aot-functions.md](aot-functions.md). AOT v1 preserves current numeric
       semantics: struct fields specify storage width while ordinary operators
-      use LuaJIT numbers. Before changing that split, reject struct-origin and
-      struct-method arithmetic modes, audit a language-wide promotion of the
-      existing fixed-width types, specify mixed expressions and conversions,
-      and measure both traced and interpreted fallback cost. Do not add a
-      parallel `f32`/`i32`/`u32` tower merely to avoid that decision.
+      use LuaJIT numbers. The
+      [fixed-width refinement plan](fixed-width-refinements.md) may make
+      `float`, `int32`, and `uint32` honest value subsets without changing those
+      operators. AOT consumes its establishment facts if that plan lands; it
+      does not invent them, round only in an AOT wrapper, promote operators, or
+      add a parallel `f32`/`i32`/`u32` type tower.
 
 ## Dialect interop (`import-tl`)
 
