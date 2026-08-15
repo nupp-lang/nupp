@@ -585,6 +585,47 @@ integrate each target vendor compiler, validate prebuilt artifacts, or choose
 direct emission. A required AOT function never falls back merely because a
 compiler is absent.
 
+#### Translation-unit batching
+
+Generated C is compiled in batches rather than one translation unit per AOT
+function. A Clang invocation on one admitted kernel is dominated by process
+startup and by parsing the generated prelude of canonical aggregates, layout
+witnesses, and intrinsic declarations; codegen for the function itself is small
+beside it. Emitting one translation unit per function pays that fixed cost once
+per function and buys nothing.
+
+The batch unit is the module. That matches the granularity the rest of the
+compiler already invalidates at, so editing one body recompiles one batch,
+while a cold build spanning several modules still produces several translation
+units and occupies several cores. One whole-build translation unit is rejected:
+it makes every edit a full rebuild and serializes cold compilation onto one
+core.
+
+Batching is a latency and packaging decision only. It may not change which
+source is admitted or which answer it produces, so:
+
+- Functions sharing a translation unit must not become inlinable into one
+  another merely by sharing it. Any function whose frame is observable is
+  emitted with explicit inlining suppression. Cross-function inlining remains
+  governed by the `frames` contract and the AOT call graph, never by batch
+  membership.
+- Static helpers, constants, and compiler-owned result structs are mangled from
+  the same identities that key their artifacts, so co-tenancy cannot collide
+  two distinct helpers or silently merge them.
+- Batch membership and emission order are deterministic, derived from a stable
+  sort of the batched identities. A rebuild batching the same functions produces
+  a byte-identical translation unit and object.
+
+Measure a precompiled prelude before assuming the batch boundary is the whole
+answer. The prelude is compiler-generated and should be stable across generated
+translation units, so precompiling it removes the same parsing cost without
+making unrelated functions share a compilation. N0 records per-function,
+per-module, and precompiled-prelude compile latency so the production choice
+follows a measurement rather than this paragraph.
+
+`aot=emit-c` emits the same batches. A vendor or console build integrating one
+file per module is a far easier contract than one file per AOT function.
+
 ### Direct DynASM emission
 
 DynASM provides instruction encoding, labels, relocation, and compact runtime
@@ -683,7 +724,9 @@ AOT cache keys include:
 - numeric-contract version;
 - backend and pinned tool revision;
 - optimization level and every behavior-affecting flag;
-- direct callee fingerprints where applicable.
+- direct callee fingerprints where applicable;
+- translation-unit batch membership and order where a batched backend produced
+  the artifact.
 
 Cached data is never load-bearing. Validate it before mapping or linking, and
 regenerate after corruption or version mismatch.
@@ -919,7 +962,9 @@ Measure:
 - short counts from zero through twice the widest vector tier;
 - one direct AOT helper graph;
 - one error-free wrapper and one modeled failing call;
-- cold compile, warm cache lookup, code size, and process cache growth.
+- cold compile, warm cache lookup, code size, and process cache growth;
+- cold compile under per-function, per-module, and precompiled-prelude
+  batching, plus the single-body rebuild each batching admits.
 
 Before making `@aot` supported rather than experimental:
 
