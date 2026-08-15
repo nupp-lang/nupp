@@ -33,6 +33,12 @@ local REGISTRY: {{
     load: Loader
 }} = {
     {
+        name = "init",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.init_command")
+        end
+    },
+    {
         name = "ast",
         load = function(): specMod.Handler
             return require("nupp.compiler.cli.ast")

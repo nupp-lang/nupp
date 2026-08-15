@@ -65,4 +65,55 @@ function bundled.moduleDir(): string
     return moduleDir()
 end
 
+--- Every carried file under one directory, in the same spelling `source` takes.
+---
+--- The counterpart to `source` for a caller that has a directory rather than a
+--- filename: `bundled.source` answers about a path already known, and a project
+--- template is a tree whose shape is the template's business rather than this
+--- compiler's. Both readings are here for the same reason `source` has two -- a
+--- stamped binary is one file and a development tree is a directory -- and they
+--- have to agree, so the disk walk returns the same leading-slash relative
+--- spellings the embedded keys use.
+---
+--- Sorted, so a caller that hashes or prints the result gets one answer.
+---
+--- @param prefix the directory under the compiled modules, beginning with a slash
+--- @return the paths under it, beginning with a slash, or an empty list
+function bundled.list(prefix: string): {string}
+    if embedded == nil then
+        local preloaded = package.preload["nupp.embedded"]
+        embedded = preloaded and preloaded() or false
+    end
+    local found: {string} = {}
+    if embedded then
+        for path in pairs(embedded as {[string]: string}) do
+            if path:sub(1, #prefix + 1) == prefix .. "/" then
+                found[#found + 1] = path
+            end
+        end
+        table.sort(found)
+
+        return found
+    end
+    -- No embedded table means the modules were loaded from a directory, so the
+    -- files are beside them. `nupp.io.files` rather than `nupp.compiler.fs`
+    -- because this module is a leaf on purpose: the checker and the doc
+    -- generator both load it, and a require here would drag one into the other.
+    local pending: {string} = {prefix}
+    while #pending > 0 do
+        local relative = table.remove(pending) as string
+        for _, entry in ipairs(nupp.io.files.list(moduleDir() .. relative) or {}) do
+            local child = relative .. "/" .. entry.name
+            if entry.kind == "directory" then
+                pending[#pending + 1] = child
+            elseif entry.kind == "file" then
+                found[#found + 1] = child
+            end
+        end
+    end
+    table.sort(found)
+
+    return found
+end
+
 return bundled

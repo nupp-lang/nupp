@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Create a project from a template with `nupp init`. A template is a directory
+  tree with one `template.lua` at its root, and the same format serves a
+  built-in, a directory named with `--from`, and a repository spelled
+  `owner/repo`, optionally with a path within it and `@rev`. `${name}` is
+  replaced in file contents and in path components, so `src/${moduleName}.nupp`
+  becomes a file named for the project. The built-in `app` and `lib` travel
+  inside the compiler, so `nupp init` answers with no network and no checkout,
+  and `nupp rock init` now scaffolds `lib` rather than carrying its own copy of
+  the same five files.
+- Run nothing a fetched template supplied. `template.lua` is read in a sandbox
+  with no `io`, `os`, `require` or `load` in it, and a repository template's
+  post-init steps are reduced to `git init`, because `check`, `build` and
+  `test` all load the scaffolded `nupp.lua` and a manifest is ordinary
+  unrestricted Lua. A repository template also names the commit it resolved to
+  and is confirmed before anything is written; a run with nothing at the
+  terminal to answer is refused rather than assumed.
 - Let a loop compile around an owned binding whose body calls something. The
   cached region function is written where it stands and only its instance is
   kept for the module, so a name the chunk's outermost block declares -- which

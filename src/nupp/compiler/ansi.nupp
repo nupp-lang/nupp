@@ -158,7 +158,9 @@ local mode = "auto"
 -- can change under a running process, so it is asked once.
 local decided: {[LuaFile]: boolean} = {}
 
-local DESCRIPTOR = {[io.stdout] = 1, [io.stderr] = 2}
+-- Standard input is here for `isTerminal` rather than for colour: a command that
+-- wants to ask a question first has to know whether anyone is there to answer it.
+local DESCRIPTOR = {[io.stdin] = 0, [io.stdout] = 1, [io.stderr] = 2}
 
 --- Sets what `--color` asked for: "auto" to decide per stream, or "always" or "never"
 --- to answer without looking. Clears what was already decided, so a flag parsed after

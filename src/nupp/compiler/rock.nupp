@@ -33,10 +33,6 @@ type rock.Metadata = {
     rockspec: string
 }
 
-local function validName(name)
-    return name:match("^[a-z0-9][a-z0-9_-]*$") ~= nil
-end
-
 local function moduleName(name)
     return name:gsub("-", "_")
 end
@@ -45,108 +41,37 @@ local function quote(value)
     return string.format("%q", value)
 end
 
-local function manifestText(name, module)
-    return (
-        [[return {
-   include = { "src" },
-   build = {
-      outDir = "build",
-      entries = { %s },
-   },
-   test = {
-      argv = { "luajit", "tests/run.lua" },
-      env = { LUA_PATH = "build/?.lua;;" },
-   },
-}
-]]
-    ):format(quote(module))
-end
-
-local function sourceText(name)
-    return (
-        [[local %s = {}
-
-function %s.greet(name: string): string
-    return "Hello, " .. name .. "!"
-end
-
-return %s
-]]
-    ):format(name, name, name)
-end
-
-local function declarationText()
-    return [[local greet: function(name: string): string
-
-return {greet = greet}
-]]
-end
-
-local function rockspecText(name, module)
-    return (
-        [[rockspec_format = "3.0"
-package = %s
-version = "dev-1"
-
-source = {
-   url = "git+https://example.invalid/%s.git",
-}
-
-description = {
-   summary = "A Nupp library",
-   license = "MIT",
-}
-
-dependencies = {
-   "lua >= 5.1",
-}
-
-build = {
-   type = "builtin",
-   modules = {
-      [%s] = %s,
-   },
-   copy_directories = { "nupp" },
-}
-]]
-    ):format(quote(name), name, quote(module), quote("build/" .. module:gsub("%.", "/") .. ".lua"))
-end
-
-local function testText(module)
-    return ([[local library = require(%s)
-assert(library.greet("Nupp") == "Hello, Nupp!")
-]]):format(quote(module))
-end
-
-local function pathExists(path)
-    if fs.exists(path) then
-        return true
-    end
-    return #fs.listFiles(path) > 0
-end
-
 --- Creates a complete, deliberately small library project.
+---
+--- The layout is the built-in `lib` template, and this scaffolds it rather than
+--- carrying a second copy: `nupp init lib` and `nupp rock init` wrote the same
+--- five files by two routes, which is an arrangement that lasts until one of them
+--- is edited.
+---
+--- What it keeps of its own is the `absent` destination policy. `nupp init` also
+--- accepts an empty directory, and relaxing this command's refusal as a side
+--- effect of moving it onto shared code would be changing a published contract
+--- for a reason that has nothing to do with it. The name constraint is not kept
+--- here: the template declares it, in the same words, which is what a template
+--- being able to declare one is for.
+---
+--- @param name the rock name
+--- @param directory where to write it, defaulting to the name
+--- @return true, or nil when the name or the destination is refused
+--- @return why, ready to print
 function rock.init(name: string, directory: string?): boolean?, string?
-    if not validName(name) then
-        return nil, "rock name must use lowercase letters, digits, hyphens, or underscores"
+    local template = require("nupp.compiler.template")
+    local source, resolveErr = template.resolve("lib")
+    if not source then
+        return nil, resolveErr
     end
-    local root = normalize(directory or name)
-    if pathExists(root) then
-        return nil, root .. " already exists"
+    local plan, planErr = template.plan(source, normalize(directory or name), {name = name, policy = "absent",})
+    if not plan then
+        return nil, planErr
     end
-    local module = moduleName(name)
-    local files = {
-        ["nupp.lua"] = manifestText(name, module),
-        ["src/" .. module .. ".nupp"] = sourceText(module),
-        ["nupp/" .. module .. ".d.nupp"] = declarationText(),
-        ["tests/run.lua"] = testText(module),
-        [name .. "-dev-1.rockspec"] = rockspecText(name, module),
-    }
-    for path, text in pairs(files) do
-        local ok, err = writeFile(join(root, path), text)
-        if not ok then
-            return nil, err
-        end
+    local written, writeErr = template.write(plan)
+    if not written then
+        return nil, writeErr
     end
 
     return true

@@ -270,6 +270,140 @@ function that could be lifted out of its loop unchanged, and
 one that reads the iteration and so cannot be. Neither says anything about a
 closure the compiler's own lowerings put in a loop, which is what this reads.
 
+### `init`
+
+```text [nupp init --help]
+Create a project from a template
+
+Usage:
+  nupp init [TEMPLATE] [DIRECTORY]
+  nupp init --from PATH [DIRECTORY]
+  nupp init --list
+
+Options:
+  --name NAME      Project name; defaults to the directory basename
+  --set KEY=VALUE  Set a template variable; may be given more than once
+  --from PATH      Use a template directory on disk
+  --rev REV        Commit, tag or branch for a repository template
+  --list           List the built-in templates and exit
+  --yes            Do not ask before writing a repository template
+  --dry-run        Print what would be written and write nothing
+  --format FORMAT  Output format: text (default) or json
+  --json           Shorthand for --format json
+  --text           Shorthand for --format text
+  --schema         Print the JSON Schema of --json output and exit
+  --color[=WHEN]   When to colour output: always, never, or auto (default)
+  --no-color       Never colour output; the same as --color=never
+  -h, --help       Show this help
+
+With no TEMPLATE, the built-in `app`. A name with no slash is a built-in,
+a path beginning with `.`, `/` or `~` is a directory, and `owner/repo`, optionally
+followed by a path within it and by `@rev`, is a repository on GitHub; a full URL is
+used as given.
+
+A repository template is fetched with git, named by the commit it resolved to, and
+confirmed before anything is written. Its post-init steps are reduced to `git init`:
+`check`, `build` and `test` all load the scaffolded `nupp.lua`, which is ordinary
+unrestricted Lua, so running them would execute code that was just downloaded.
+```
+
+The built-in templates travel inside the compiler, so this works with no network
+and no checkout:
+
+```text [nupp init --list]
+Built-in templates:
+  app  A runnable program, with a test and a task to start it
+  lib  A typed library packaged as a LuaRocks rock
+```
+
+`nupp init` with no arguments writes the `app` template into a directory named
+for it. Naming the directory names the project:
+
+```text [nupp init app greeter]
+Created greeter from built-in template app
+
+Next:
+  cd greeter
+  nupp check
+  nupp test
+```
+
+```text
+ greeter/
+ ├── .gitignore
+ ├── README.md
+ ├── nupp.lua
+ ├── src/
+ │   ├── greeting.nupp
+ │   └── main.nupp
+ └── tests/
+     └── run.lua
+```
+
+That project checks, builds, tests and runs as it stands, which is what the
+template is for.
+
+#### Where a template comes from
+
+A `TEMPLATE` argument is read lexically, never by looking at the filesystem: the
+same spelling means the same thing in every directory.
+
+```
+ Spelling                     Resolves to
+ ───────────────────────────  ──────────────────────────────────────────
+ app                          a built-in template of that name
+ ./x, ../x, /x, ~/x           a directory on disk
+ owner/repo                   https://github.com/owner/repo
+ owner/repo@v1.2.0            the same, at that revision
+ owner/repo/games/topdown     the games/topdown directory of that repository
+ https://…, git@…             used as given, with --rev for a revision
+```
+
+`--from PATH` forces a directory, for the case where a local path is spelled
+like a repository name. A name with no slash that matches no built-in is
+refused by name rather than guessed at as a repository.
+
+#### Writing a template
+
+A template is a directory tree with one `template.lua` at its root, which is not
+copied. Every other file is carried, `.git` at any depth is not, and `${name}`
+is replaced in both file contents and path components — so `src/${moduleName}.nupp`
+becomes a file named for the project. Write `$${` for a literal `${`.
+
+```lua [template.lua]
+return {
+   description = "A runnable program",
+   variables = {
+      name = {pattern = "^[a-z0-9][a-z0-9_-]*$", invalid = "lowercase, please"},
+      author = {description = "Author", default = "unknown"},
+   },
+   raw = { "assets/**" },
+   after = { "git" },
+}
+```
+
+`name`, `moduleName` — the name with hyphens turned to underscores — and
+`directory` are always defined. A template may declare `name` to constrain it,
+but its value comes from `--name` or the directory. Anything else is declared
+here or it cannot be used, and is supplied with `--set KEY=VALUE`.
+
+`raw` names globs copied byte for byte, for assets that are not text. `after`
+names post-init steps from a closed set: `git`, `check`, `build` and `test`.
+
+#### What a fetched template may do
+
+A repository template is cloned with git, reported by the commit it resolved to,
+and confirmed before anything is written. A run with nothing at the terminal to
+answer is refused rather than assumed; `--yes` accepts it unread.
+
+Its `after` steps are reduced to `git init`. This is not caution about
+`template.lua`, which is loaded in a sandbox with no `io`, `os`, `require` or
+`load` in it. It is that `check`, `build` and `test` all load the `nupp.lua`
+that was just scaffolded, and a manifest is ordinary unrestricted Lua: a
+template allowed to ask for `check` could put its payload in the manifest
+instead, and the sandbox would be decoration. Read the project, then run those
+yourself.
+
 ### `check`
 
 ```text [nupp check --help]
@@ -1393,6 +1527,7 @@ Usage:
   nupp help [command]
 
 Commands:
+  init             Create a project from a template
   ast              Dump a Nupp file's parsed syntax tree
   bc               Show the bytecode a Nupp file compiles to
   check            Type-check source without emitting Lua

@@ -26,6 +26,67 @@ for _, name in ipairs(LEXERS) do
    bundledLexers[#bundledLexers + 1] = "scintillua/lexers/" .. name .. ".lua"
 end
 
+-- The built-in project templates `nupp init` scaffolds from.
+--
+-- They live outside `src` on purpose. A template's filenames carry the
+-- substitutions that make it a template -- `src/${moduleName}.nupp` -- and a
+-- tree under an include root is a tree the compiler tries to compile, so the
+-- one place these cannot go is beside the modules that read them.
+--
+-- Staged under the compiler's own modules so `nupp.compiler.bundled` finds them
+-- by one relative path whether it is reading a directory or a stamped binary's
+-- payload. That is also why each is named rather than globbed: a string
+-- resource derives its output from the include roots, which for a path outside
+-- them means staging beside the build rather than under the modules, and a
+-- resource landing there is dropped from a bundle as unreachable.
+--
+-- `tests/templatetest.lua` holds this list to the directory, so a template file
+-- added without a line here fails the suite rather than going quietly missing
+-- from every released binary.
+local TEMPLATE_FILES = {
+   "app/.gitignore",
+   "app/README.md",
+   "app/nupp.lua",
+   "app/src/greeting.nupp",
+   "app/src/main.nupp",
+   "app/template.lua",
+   "app/tests/run.lua",
+   "lib/${name}-dev-1.rockspec",
+   "lib/nupp.lua",
+   "lib/nupp/${moduleName}.d.nupp",
+   "lib/src/${moduleName}.nupp",
+   "lib/template.lua",
+   "lib/tests/run.lua",
+}
+
+-- What the compiler carries, which both the module build and the stamped binary
+-- want in full. One list because they have never differed and a second copy is
+-- how they would start to.
+local RESOURCES = {
+   "src/nupp/compiler/decls/*.d.nupp",
+   "src/nupp/compiler/decls/jit/*.d.nupp",
+   {source = "src/nupp/resources.nupp", output = "nupp/compiler/nupp/resources.nupp"},
+   {source = "src/nupp/derive.nupp", output = "nupp/compiler/nupp/derive.nupp"},
+   {source = "src/nupp/zone.nupp", output = "nupp/compiler/nupp/zone.nupp"},
+   {source = "src/nupp/profile.nupp", output = "nupp/compiler/nupp/profile.nupp"},
+   {source = "src/nupp/span.nupp", output = "nupp/compiler/nupp/span.nupp"},
+   {source = "src/nupp/heap.nupp", output = "nupp/compiler/nupp/heap.nupp"},
+   {source = "src/nupp/suspension.nupp", output = "nupp/compiler/nupp/suspension.nupp"},
+   {source = "src/nupp/io/process.nupp", output = "nupp/compiler/nupp/io/process.nupp"},
+   {source = "src/nupp/io/processtypes.nupp", output = "nupp/compiler/nupp/io/processtypes.nupp"},
+   {source = "src/nupp/workers.nupp", output = "nupp/compiler/nupp/workers.nupp"},
+   {source = "src/nupp/io/http.nupp", output = "nupp/compiler/nupp/io/http.nupp"},
+   {source = "src/nupp/compiler/decls/processnative.d.nupp", output = "nupp/compiler/decls/processnative.d.nupp"},
+   {source = "src/nupp/compiler/decls/workersnative.d.nupp", output = "nupp/compiler/decls/workersnative.d.nupp"},
+   {source = "src/nupp/compiler/decls/httpnative.d.nupp", output = "nupp/compiler/decls/httpnative.d.nupp"},
+}
+for _, relative in ipairs(TEMPLATE_FILES) do
+   RESOURCES[#RESOURCES + 1] = {
+      source = "templates/" .. relative,
+      output = "nupp/compiler/templates/" .. relative,
+   }
+end
+
 return {
    include = { "src" },
 
@@ -70,24 +131,7 @@ return {
             kind = "modules",
             description = "Build the self-hosted compiler",
             entries = { "nupp.compiler.main" },
-            resources = {
-               "src/nupp/compiler/decls/*.d.nupp",
-               "src/nupp/compiler/decls/jit/*.d.nupp",
-               {source = "src/nupp/resources.nupp", output = "nupp/compiler/nupp/resources.nupp"},
-               {source = "src/nupp/derive.nupp", output = "nupp/compiler/nupp/derive.nupp"},
-               {source = "src/nupp/zone.nupp", output = "nupp/compiler/nupp/zone.nupp"},
-               {source = "src/nupp/profile.nupp", output = "nupp/compiler/nupp/profile.nupp"},
-               {source = "src/nupp/span.nupp", output = "nupp/compiler/nupp/span.nupp"},
-               {source = "src/nupp/heap.nupp", output = "nupp/compiler/nupp/heap.nupp"},
-               {source = "src/nupp/suspension.nupp", output = "nupp/compiler/nupp/suspension.nupp"},
-               {source = "src/nupp/io/process.nupp", output = "nupp/compiler/nupp/io/process.nupp"},
-               {source = "src/nupp/io/processtypes.nupp", output = "nupp/compiler/nupp/io/processtypes.nupp"},
-               {source = "src/nupp/workers.nupp", output = "nupp/compiler/nupp/workers.nupp"},
-               {source = "src/nupp/io/http.nupp", output = "nupp/compiler/nupp/io/http.nupp"},
-               {source = "src/nupp/compiler/decls/processnative.d.nupp", output = "nupp/compiler/decls/processnative.d.nupp"},
-               {source = "src/nupp/compiler/decls/workersnative.d.nupp", output = "nupp/compiler/decls/workersnative.d.nupp"},
-               {source = "src/nupp/compiler/decls/httpnative.d.nupp", output = "nupp/compiler/decls/httpnative.d.nupp"},
-            },
+            resources = RESOURCES,
          },
          -- Nupp stamped into a feature-matched host as one self-contained
          -- executable. It is the first payload the format ever carries, on
@@ -101,24 +145,7 @@ return {
             -- has no rock tree, and `nupp doc` is one of the commands it
             -- claims to have.
             dependencies = { "lunamark", "scintillua" },
-            resources = {
-               "src/nupp/compiler/decls/*.d.nupp",
-               "src/nupp/compiler/decls/jit/*.d.nupp",
-               {source = "src/nupp/resources.nupp", output = "nupp/compiler/nupp/resources.nupp"},
-               {source = "src/nupp/derive.nupp", output = "nupp/compiler/nupp/derive.nupp"},
-               {source = "src/nupp/zone.nupp", output = "nupp/compiler/nupp/zone.nupp"},
-               {source = "src/nupp/profile.nupp", output = "nupp/compiler/nupp/profile.nupp"},
-               {source = "src/nupp/span.nupp", output = "nupp/compiler/nupp/span.nupp"},
-               {source = "src/nupp/heap.nupp", output = "nupp/compiler/nupp/heap.nupp"},
-               {source = "src/nupp/suspension.nupp", output = "nupp/compiler/nupp/suspension.nupp"},
-               {source = "src/nupp/io/process.nupp", output = "nupp/compiler/nupp/io/process.nupp"},
-               {source = "src/nupp/io/processtypes.nupp", output = "nupp/compiler/nupp/io/processtypes.nupp"},
-               {source = "src/nupp/workers.nupp", output = "nupp/compiler/nupp/workers.nupp"},
-               {source = "src/nupp/io/http.nupp", output = "nupp/compiler/nupp/io/http.nupp"},
-               {source = "src/nupp/compiler/decls/processnative.d.nupp", output = "nupp/compiler/decls/processnative.d.nupp"},
-               {source = "src/nupp/compiler/decls/workersnative.d.nupp", output = "nupp/compiler/decls/workersnative.d.nupp"},
-               {source = "src/nupp/compiler/decls/httpnative.d.nupp", output = "nupp/compiler/decls/httpnative.d.nupp"},
-            },
+            resources = RESOURCES,
             stub = "nupp",
             output = "build/dist/nupp",
          },

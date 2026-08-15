@@ -1,0 +1,956 @@
+--[[
+Turning a template into a project.
+
+A template is a directory tree with one `template.lua` at its root saying what
+its variables are. That is the whole format, and it is the same format whether
+the tree is one this compiler carries, one on the user's disk, or one in a
+repository: where it came from is settled by `resolve` and forgotten, so
+everything after that point reads one kind of thing.
+
+Two rules here are not conveniences and should not be relaxed without reading
+why they exist.
+
+The first is that scaffolding does not execute what it scaffolds.
+`template.lua` is loaded with no `io`, `os`, `package`, `require` or `load`
+reachable, so a template cannot act while being read. That sandbox is worth
+something only alongside the second rule, in `nupp.compiler.cli.init_command`:
+a remote template's post-init steps are dropped down to `git`. The generated
+`nupp.lua` is ordinary unrestricted Lua -- `nupp.compiler.build.manifest.load`
+reads it with `loadfile` and a `pcall` -- so a fetched template allowed to ask
+for `check` could simply write its payload into the manifest it just wrote, and
+the sandbox around `template.lua` would be decoration. The boundary is what the
+tree came from, not what it asked for.
+
+The second is that the payload is a filesystem walk, not a Git question. Both
+ways in produce a `.git` -- a clone makes one, and a `--from` pointed at a
+checkout already has one -- so it is pruned by name at any depth. It would be
+tempting to ask `git ls-files` instead for the remote case, and that would make
+the two paths compute their file sets differently, which is exactly what the
+test comparing them is supposed to be able to catch. A shallow clone has no
+untracked files for the two definitions to disagree about anyway.
+]]
+
+local bundled = require("nupp.compiler.bundled")
+local fs = require("nupp.compiler.fs")
+local process = require("nupp.compiler.build.process")
+local syntax = require("nupp.compiler.build.syntax")
+
+local join, normalize = fs.join, fs.normalize
+local basename = fs.basename
+local readFile, writeFile, exists = fs.readFile, fs.writeFile, fs.exists
+
+local template = {}
+
+--- Where the built-in templates sit under the compiled modules.
+const BUILTIN_PREFIX = "/templates"
+
+--- The post-init steps a template may name, and what each is allowed to reach.
+---
+--- `git` is the only one that runs no code the template supplied, which is why it
+--- is the only one a remote template keeps. The other three all load the
+--- scaffolded `nupp.lua`.
+const STEPS = {git = true, check = true, build = true, test = true}
+
+--- The steps that survive for a template nobody here vouched for.
+const REMOTE_STEPS = {git = true}
+
+--- What a variable's value may not contain, whatever the template says about it.
+---
+--- A value reaches both file contents and path components, and a path component
+--- is where it can do harm. Refused here rather than after substitution so the
+--- message names the variable the user typed rather than the path it produced.
+const FORBIDDEN_IN_VALUE = "[/\\%z]"
+
+--- Where a template came from, after resolution and before anything is read.
+record template.Source
+    --- "builtin", "directory" or "remote".
+    kind: string
+
+    --- The built-in's name, for `kind == "builtin"`.
+    name: string?
+
+    --- The directory holding `template.lua`. Filled in for a remote once its
+    --- clone has landed, so reading a remote and reading a directory are the
+    --- same code past that point.
+    path: string?
+
+    --- The clone URL, for `kind == "remote"`.
+    url: string?
+
+    --- The path within the repository, when the template is not at its root.
+    subdir: string?
+
+    --- The revision as the user spelled it, if they did.
+    rev: string?
+
+    --- The commit the fetch actually landed on, filled in by `fetch`.
+    commit: string?
+end
+
+--- One variable a template declares.
+record template.Variable
+    description: string?
+    default: string?
+    required: boolean?
+
+    --- Matched against the whole value.
+    pattern: string?
+
+    --- What to say when `pattern` does not match. Without one the complaint has
+    --- to quote the pattern, which is how a user learns a regular expression
+    --- instead of learning what the name is for.
+    invalid: string?
+end
+
+--- A whole `template.lua`, once it has been loaded and checked.
+record template.Manifest
+    description: string?
+    variables: {[string]: template.Variable}
+    raw: {string}
+    after: {string}
+end
+
+--- One file a scaffold is going to write.
+record template.File
+    --- Relative to the template root, before substitution.
+    source: string
+
+    --- Relative to the destination, after substitution.
+    output: string
+
+    text: string
+
+    --- Copied rather than substituted, because a `raw` glob matched it.
+    verbatim: boolean?
+end
+
+--- Everything a scaffold would do, worked out before any of it is done.
+record template.Plan
+    source: template.Source
+    destination: string
+    files: {template.File}
+    values: {[string]: string}
+
+    --- The steps that will run, after the source-based restriction.
+    steps: {string}
+
+    --- The steps the template asked for and will not get.
+    dropped: {string}
+end
+
+--- How much of an existing destination is tolerated.
+---
+--- `absent` is what `nupp.compiler.rock` has always enforced and is kept for it:
+--- relaxing a published command's refusal as a side effect of moving it onto
+--- shared code is a worse trade than carrying this parameter. `emptyOrGitOnly`
+--- is what `nupp init` takes, because `mkdir g && cd g && git init && nupp init .`
+--- is how people start and refusing it teaches nothing.
+type template.Policy = 'absent' | 'emptyOrGitOnly'
+
+--- Resolution
+---
+--- Lexical on purpose. A rule that consults the filesystem would make the same
+--- spelling mean different things in different directories, and the one thing a
+--- user should be able to predict about `nupp init something/other` is which of
+--- the two places it is about to reach.
+
+local function isPathSpelling(spelling: string): boolean
+    return spelling:sub(
+        1,
+        1
+    ) == "." or spelling:sub(1, 1) == "/" or spelling:sub(1, 1) == "~" or spelling:match("^[A-Za-z]:[/\\]") ~= nil
+end
+
+local function isUrlSpelling(spelling: string): boolean
+    return spelling:match(
+        "^[a-z][a-z0-9+.-]*://"
+    ) ~= nil or spelling:match("^git@") ~= nil or spelling:match("^ssh://") ~= nil
+end
+
+--- The built-in templates this compiler carries, by name.
+---
+--- Derived from what is actually there rather than from a list kept beside it,
+--- so a template added to the tree is one `nupp init --list` shows.
+---
+--- @return the names, sorted
+function template.builtins(): {string}
+    local seen: {[string]: boolean} = {}
+    local names: {string} = {}
+    for _, path in ipairs(bundled.list(BUILTIN_PREFIX)) do
+        local name = path:sub(#BUILTIN_PREFIX + 2):match("^([^/]+)/")
+        if name and not seen[name] then
+            seen[name] = true
+            names[#names + 1] = name
+        end
+    end
+    table.sort(names)
+
+    return names
+end
+
+--- One built-in's own description, for the list `nupp init --list` prints.
+---
+--- Reads that template's `template.lua` and nothing else, so the list says what
+--- each template says about itself rather than what a table here remembers.
+---
+--- @param name the built-in's name
+--- @return the description, or "" when it declares none or cannot be read
+function template.builtinDescription(name: string): string
+    local text = bundled.source(BUILTIN_PREFIX .. "/" .. name .. "/template.lua")
+    if not text then
+        return ""
+    end
+    local manifest = template.manifest(text, name .. "/template.lua")
+
+    return manifest and manifest.description or ""
+end
+
+--- Works out what a `TEMPLATE` argument refers to, without touching the disk.
+---
+--- @param spelling the argument, or nil for the default template
+--- @param from a `--from` path, which forces a directory and refuses the rest
+--- @param rev a `--rev` value, which may not be given alongside an `@rev`
+--- @return the source, or nil when the spelling names nothing
+--- @return why, ready to print
+function template.resolve(spelling: string?, from: string?, rev: string?): template.Source?, string?
+    if from then
+        if spelling then
+            return nil, "--from names the template, so a template argument is one too many"
+        end
+        if rev then
+            return nil, "--rev has no meaning for a template directory"
+        end
+
+        return new template.Source(kind = "directory", path = normalize(from))
+    end
+    spelling = spelling or "app"
+    if isPathSpelling(spelling) then
+        if rev then
+            return nil, "--rev has no meaning for a template directory"
+        end
+
+        return new template.Source(kind = "directory", path = normalize(spelling))
+    end
+    local asked, attached = spelling, nil as string?
+    local base, suffix = spelling:match("^(.-)@([^@/]+)$")
+    if base and not isUrlSpelling(spelling) then
+        asked, attached = base, suffix
+    end
+    if attached and rev then
+        return nil, "the revision is given twice, once as @" .. attached .. " and once as --rev"
+    end
+    local wanted = attached or rev
+    if isUrlSpelling(asked) then
+        return new template.Source(kind = "remote", url = asked, rev = wanted)
+    end
+    if not asked:find("/", 1, true) then
+        if wanted then
+            return nil, "a built-in template has no revisions to choose between"
+        end
+        for _, name in ipairs(template.builtins()) do
+            if name == asked then
+                return new template.Source(kind = "builtin", name = name)
+            end
+        end
+
+        return nil, "no built-in template is called " .. asked .. "\nAvailable: " .. table.concat(
+            template.builtins(),
+            ", "
+        )
+    end
+    local owner, repo, subdir = asked:match("^([^/]+)/([^/]+)/?(.*)$")
+    if not owner or owner == "" or repo == "" then
+        return nil, "a repository template is spelled owner/repo, optionally followed by a path"
+    end
+
+    return new template.Source(
+        kind = "remote",
+        url = "https://github.com/" .. owner .. "/" .. repo,
+        subdir = subdir ~= "" and subdir or nil,
+        rev = wanted
+    )
+end
+
+--- How a source reads in a message, which is also what `--json` reports.
+---
+--- @param source the resolved source
+--- @return one line naming it as precisely as it has been resolved
+function template.describe(source: template.Source): string
+    if source.kind == "builtin" then
+        return "built-in template " .. tostring(source.name)
+    end
+    if source.kind == "directory" then
+        return tostring(source.path)
+    end
+    local where = tostring(source.url)
+    if source.subdir then
+        where = where .. " (" .. source.subdir .. ")"
+    end
+    if source.commit then
+        return where .. " at " .. source.commit
+    end
+
+    return where .. (source.rev and (" at " .. source.rev) or "")
+end
+
+--- Reading a tree
+---
+--- `nupp.compiler.fs.listFiles` cannot do this walk. It resolves a symbolic link
+--- to whatever it points at rather than reporting it as one -- documented
+--- behaviour its callers were written against, since a source tree assembled out
+--- of links is meant to read like a copied one -- and a template walk has to
+--- refuse the link rather than follow it somewhere outside the tree. So this is
+--- a second, stricter walker, and changing the shared one is not the fix.
+
+local function walk(root: string): {string}?, string?
+    local found: {string} = {}
+    local pending: {string} = {""}
+    while #pending > 0 do
+        local relative = table.remove(pending) as string
+        local entries, listErr = nupp.io.files.list(join(root, relative))
+        if not entries then
+            return nil, "cannot read " .. join(root, relative) .. ": " .. tostring(listErr)
+        end
+        for _, entry in ipairs(entries) do
+            local child = relative == "" and entry.name or relative .. "/" .. entry.name
+            if entry.kind == "symlink" then
+                return nil, child .. " is a symbolic link, which a template may not contain"
+
+            elseif entry.kind == "directory" then
+                -- Pruned by name at any depth: the root store a clone leaves, and
+                -- a submodule's, are the same problem and neither belongs in a
+                -- scaffolded project.
+                if entry.name ~= ".git" then
+                    pending[#pending + 1] = child
+                end
+
+            elseif entry.kind == "file" then
+                if child ~= "template.lua" then
+                    found[#found + 1] = child
+                end
+            end
+        end
+    end
+    table.sort(found)
+
+    return found
+end
+
+--- The sandbox a `template.lua` is read in.
+---
+--- Deliberately closed, with no `__index` reaching `_G`. The comparable sandbox
+--- in `nupp.compiler.LuaPattern` does fall through to `_G`, and that one is
+--- loading this compiler's own generated source rather than somebody else's
+--- repository; the difference is the whole point of this one.
+---
+--- What is left is what a data literal uses. A template that needs more than
+--- this is computing, and a template that computes is not a template.
+local function sandbox(): {[string]: any}
+    return {
+        pairs = pairs,
+        ipairs = ipairs,
+        type = type,
+        tostring = tostring,
+        tonumber = tonumber,
+        select = select,
+        error = error,
+        string = string,
+        table = table,
+        math = math,
+    }
+end
+
+--- Fails a chunk that does not return promptly. A template is a literal, so any
+--- budget large enough to load one is large enough; this only has to stop a loop.
+const INSTRUCTION_BUDGET = 200000
+
+local function loadSandboxed(text: string, where: string): any?, string?
+    local chunk, loadErr = loadstring(text, "=" .. where)
+    if not chunk then
+        return nil, where .. " does not parse: " .. tostring(loadErr)
+    end
+    setfenv(chunk, sandbox())
+    -- The budget is a count hook, and LuaJIT does not run hooks from compiled
+    -- code: `while true do end` becomes a trace that never checks, so a template
+    -- with a loop in it hung the command rather than being refused by it. Turning
+    -- the JIT off for this chunk and everything it defines keeps it interpreted,
+    -- which is where the hook is honoured. Guarded because a build without the
+    -- JIT still has to load templates.
+    pcall(jit.off, chunk, true)
+    local hooked = false
+    debug.sethook(
+        function()
+            hooked = true
+            error(where .. " did not finish loading", 0)
+        end,
+        "",
+        INSTRUCTION_BUDGET
+    )
+    local ok, result = pcall(chunk)
+    debug.sethook()
+    if not ok then
+        if hooked then
+            return nil, where .. " runs too long to be a data literal"
+        end
+
+        return nil, where .. ": " .. tostring(result)
+    end
+    if type(result) ~= "table" then
+        return nil, where .. " must return a table"
+    end
+
+    return result
+end
+
+local function stringList(value: any, label: string): {string}?, string?
+    if value == nil then
+        return {}
+    end
+    if type(value) ~= "table" then
+        return nil, label .. " must be a list of strings"
+    end
+    local list: {string} = {}
+    for index, entry in ipairs(value as {any}) do
+        if type(entry) ~= "string" then
+            return nil, label .. "[" .. index .. "] must be a string"
+        end
+        list[#list + 1] = entry as string
+    end
+
+    return list
+end
+
+--- The names filled in for every template, which is why two of them may not be
+--- declared: their values are derived rather than asked for.
+const DERIVED = {moduleName = true, directory = true}
+
+local function readVariables(value: any): {[string]: template.Variable}?, string?
+    if value == nil then
+        return {}
+    end
+    if type(value) ~= "table" then
+        return nil, "variables must be a table"
+    end
+    local variables: {[string]: template.Variable} = {}
+    for name, declared in pairs(value as {[string]: any}) do
+        local label = "variables." .. tostring(name)
+        if type(name) ~= "string" then
+            return nil, "variables must be keyed by name"
+        end
+        if DERIVED[name] then
+            return nil, label .. " is derived from the project name and cannot be declared"
+        end
+        if type(declared) ~= "table" then
+            return nil, label .. " must be a table"
+        end
+        local entry = declared as {[string]: any}
+        for key in pairs(entry) do
+            if key ~= "description"
+                and key ~= "default"
+                and key ~= "required"
+                and key ~= "pattern"
+                and key ~= "invalid"
+            then
+                return nil, label .. "." .. tostring(key) .. " is not a variable field"
+            end
+        end
+        if name == "name" and entry.default ~= nil then
+            return nil, label
+                .. " cannot have a default, since the project name"
+                .. " comes from --name or the directory"
+        end
+        if entry.pattern ~= nil and type(entry.pattern) ~= "string" then
+            return nil, label .. ".pattern must be a string"
+        end
+        variables[
+            name
+        ] = new template.Variable(
+            description = entry.description as string?,
+            default = entry.default as string?,
+            required = entry.required as boolean?,
+            pattern = entry.pattern as string?,
+            invalid = entry.invalid as string?
+        )
+    end
+
+    return variables
+end
+
+--- Loads and validates one `template.lua`.
+---
+--- @param text the file's contents
+--- @param where the path to name in a complaint
+--- @return the manifest, or nil when it does not check out
+--- @return why, naming the path into the returned table
+function template.manifest(text: string, where: string): template.Manifest?, string?
+    local loaded, loadErr = loadSandboxed(text, where)
+    if not loaded then
+        return nil, loadErr
+    end
+    local table_ = loaded as {[string]: any}
+    for key in pairs(table_) do
+        if key ~= "description" and key ~= "variables" and key ~= "raw" and key ~= "after" then
+            return nil, where .. ": " .. tostring(key) .. " is not a template field"
+        end
+    end
+    local variables, variablesErr = readVariables(table_.variables)
+    if not variables then
+        return nil, where .. ": " .. tostring(variablesErr)
+    end
+    local raw, rawErr = stringList(table_.raw, "raw")
+    if not raw then
+        return nil, where .. ": " .. tostring(rawErr)
+    end
+    local after, afterErr = stringList(table_.after, "after")
+    if not after then
+        return nil, where .. ": " .. tostring(afterErr)
+    end
+    for _, step in ipairs(after) do
+        if not STEPS[step] then
+            local known: {string} = {}
+            for name in pairs(STEPS) do
+                known[#known + 1] = name
+            end
+            table.sort(known)
+
+            return nil, where .. ": " .. step .. " is not a post-init step" .. "\nAvailable: " .. table.concat(
+                known,
+                ", "
+            )
+        end
+    end
+
+    return new template.Manifest(
+        description = table_.description as string?,
+        variables = variables,
+        raw = raw,
+        after = after
+    )
+end
+
+--- Substitution
+---
+--- `${name}` and nothing else. `$${` is a literal `${`, which is the only escape
+--- because it is the only ambiguity: a lone `$` means a dollar.
+
+local function substitute(text: string, values: {[string]: string}, where: string): string?, string?
+    local failure: string? = nil
+    -- Split on the escape first so an escaped opener cannot be re-read as one.
+    local parts: {string} = {}
+    local index = 1
+    while index <= #text do
+        local at = text:find("$${", index, true)
+        if not at then
+            parts[#parts + 1] = text:sub(index)
+            break
+        end
+        parts[#parts + 1] = text:sub(index, at - 1)
+        parts[#parts + 1] = "\0ESCAPED\0"
+        index = at + 3
+    end
+    local joined = table.concat(parts)
+    local expanded = joined:gsub("%${([^}]*)}", function(name: string): string
+        if failure then
+            return ""
+        end
+        local replacement = values[name]
+        if replacement == nil then
+            failure = where .. " uses ${" .. name .. "}, which the template does not declare"
+            return ""
+        end
+
+        return replacement
+    end)
+    if failure then
+        return nil, failure
+    end
+
+    return (expanded:gsub("%z" .. "ESCAPED" .. "%z", "${"))
+end
+
+template.substitute = substitute
+
+--- Works out every variable's value from the template's declarations and what the
+--- user supplied.
+---
+--- @param manifest the loaded template manifest
+--- @param name the project name
+--- @param directory the destination, as the user named it
+--- @param supplied values from `--set`
+--- @return the values, or nil when one is missing or refused
+--- @return why, in the template's own words where it gave any
+function template.values(
+    manifest: template.Manifest,
+    name: string,
+    directory: string,
+    supplied: {[string]: string}?
+): {[string]: string}?, string?
+    local given = supplied or {}
+    for key in pairs(given) do
+        -- A template declares `name` to constrain it, never to be given one: the
+        -- value comes from the project name. Refused rather than ignored, since a
+        -- silently dropped `--set name=` is the kind of no-op somebody debugs for
+        -- a while.
+        if key == "name" or DERIVED[key] then
+            return nil, key
+                .. " is derived from the project name"
+                .. "\nName the project with --name, or by naming the directory."
+        end
+        if not manifest.variables[key] then
+            local declared: {string} = {}
+            for declaredName in pairs(manifest.variables) do
+                if declaredName ~= "name" then
+                    declared[#declared + 1] = declaredName
+                end
+            end
+            table.sort(declared)
+            local hint = #declared > 0 and (
+                "\nDeclared: " .. table.concat(declared, ", ")
+            ) or "\nThis template declares no variables to set."
+
+            return nil, key .. " is not a variable of this template" .. hint
+        end
+    end
+    local values: {[string]: string} = {name = name, moduleName = (name:gsub("%-", "_")), directory = directory,}
+    for key, declared in pairs(manifest.variables) do
+        if key ~= "name" then
+            local value = given[key] or declared.default
+            if value == nil then
+                return nil, "this template needs a value for " .. key .. (
+                    declared.description and (": " .. declared.description) or ""
+                ) .. "\nGive one with --set " .. key .. "=VALUE."
+            end
+            values[key] = value
+        end
+    end
+    for key, value in pairs(values) do
+        local declared = manifest.variables[key]
+        -- `directory` is exempt because it is a path: it is where the project is
+        -- going, not something substituted into a name inside it. Every path this
+        -- actually produces is checked by `componentsAreSafe`, so this ban is the
+        -- earlier and better-worded half of the same refusal rather than the only
+        -- one.
+        if key ~= "directory" and value:find(FORBIDDEN_IN_VALUE) then
+            return nil, key .. " may not contain a path separator"
+        end
+        if declared and declared.pattern and not value:match(declared.pattern) then
+            return nil, declared.invalid or (key .. " does not match " .. declared.pattern)
+        end
+    end
+
+    return values
+end
+
+--- Reading and planning
+
+local function readTree(source: template.Source): {[string]: string}?, string?
+    if source.kind == "builtin" then
+        local prefix = BUILTIN_PREFIX .. "/" .. tostring(source.name)
+        local files: {[string]: string} = {}
+        local any = false
+        for _, path in ipairs(bundled.list(prefix)) do
+            local relative = path:sub(#prefix + 2)
+            local text = bundled.source(path)
+            if not text then
+                return nil, "this compiler carries no " .. path
+            end
+            files[relative] = text
+            any = true
+        end
+        if not any then
+            return nil, "this compiler carries no template called " .. tostring(source.name)
+        end
+
+        return files
+    end
+    local root = tostring(source.path)
+    if not exists(join(root, "template.lua")) then
+        return nil, root .. " has no template.lua, so it is not a template"
+    end
+    local paths, walkErr = walk(root)
+    if not paths then
+        return nil, walkErr
+    end
+    local files: {[string]: string} = {}
+    for _, relative in ipairs(paths) do
+        local text, readErr = readFile(join(root, relative))
+        if not text then
+            return nil, tostring(readErr)
+        end
+        files[relative] = text
+    end
+    files["template.lua"] = readFile(join(root, "template.lua")) as string
+
+    return files
+end
+
+local function componentsAreSafe(path: string): boolean, string?
+    if path:sub(1, 1) == "/" or path:match("^[A-Za-z]:") then
+        return false, path .. " is absolute, and a template writes only under its destination"
+    end
+    for component in path:gmatch("[^/]+") do
+        if component == ".." then
+            return false, path .. " leaves the destination directory"
+
+        elseif component == "." then
+            return false, path .. " has an empty path component"
+        end
+    end
+    if path:find("//", 1, true) or path:sub(-1) == "/" then
+        return false, path .. " has an empty path component"
+    end
+
+    return true
+end
+
+local function destinationIsFree(destination: string, policy: template.Policy): boolean, string?
+    local entries = nupp.io.files.list(destination)
+    if not entries then
+        return true
+    end
+    if policy == "absent" then
+        return false, destination .. " already exists"
+    else
+        -- `emptyOrGitOnly`: the repository made a moment before typing this.
+        for _, entry in ipairs(entries) do
+            if entry.name ~= ".git" then
+                return false, destination .. " is not empty"
+            end
+        end
+
+        return true
+    end
+end
+
+--- Works out everything a scaffold would write, and refuses everything it should,
+--- before a byte of it is written.
+---
+--- @param source the resolved source, already fetched when it is remote
+--- @param destination the directory to create
+--- @param opts the project name, `--set` values, and the destination policy
+--- @return the plan, or nil when the template or the destination is refused
+--- @return why, ready to print
+function template.plan(source: template.Source, destination: string, opts: {
+    name: string?,
+    set: {[string]: string}?,
+    policy: template.Policy?
+}?): template.Plan?, string?
+    local asked = opts or {}
+    destination = normalize(destination)
+    local free, freeErr = destinationIsFree(destination, asked.policy or "emptyOrGitOnly")
+    if not free then
+        return nil, freeErr
+    end
+    local tree, treeErr = readTree(source)
+    if not tree then
+        return nil, treeErr
+    end
+    local manifestText = tree["template.lua"]
+    if not manifestText then
+        return nil, template.describe(source) .. " has no template.lua, so it is not a template"
+    end
+    local manifest, manifestErr = template.manifest(manifestText, "template.lua")
+    if not manifest then
+        return nil, manifestErr
+    end
+    local name = asked.name or basename(destination)
+    local values, valuesErr = template.values(manifest, name, destination, asked.set)
+    if not values then
+        return nil, valuesErr
+    end
+    local isRaw: {function(string): boolean} = {}
+    for _, glob in ipairs(manifest.raw) do
+        isRaw[#isRaw + 1] = syntax.glob(glob)
+    end
+    local files: {template.File} = {}
+    local sources: {string} = {}
+    for relative in pairs(tree) do
+        if relative ~= "template.lua" then
+            sources[#sources + 1] = relative
+        end
+    end
+    table.sort(sources)
+    local claimed: {[string]: string} = {}
+    for _, relative in ipairs(sources) do
+        local verbatim = false
+        for _, matches in ipairs(isRaw) do
+            if matches(relative) then
+                verbatim = true
+                break
+            end
+        end
+        local output, outputErr = substitute(relative, values, "the path " .. relative)
+        if not output then
+            return nil, outputErr
+        end
+        local safe, safeErr = componentsAreSafe(output)
+        if not safe then
+            return nil, safeErr
+        end
+        local collision = claimed[output]
+        if collision then
+            return nil, collision .. " and " .. relative .. " both become " .. output
+        end
+        claimed[output] = relative
+        local text = tree[relative] as string
+        if not verbatim then
+            local substituted, textErr = substitute(text, values, relative)
+            if not substituted then
+                return nil, textErr
+            end
+            text = substituted
+        end
+        files[#files + 1] = new template.File(source = relative, output = output, text = text, verbatim = verbatim)
+    end
+    if #files == 0 then
+        return nil, template.describe(source) .. " contains no files to write"
+    end
+    local steps: {string} = {}
+    local dropped: {string} = {}
+    local allowed = source.kind == "remote" and REMOTE_STEPS or STEPS
+    for _, step in ipairs(manifest.after) do
+        if allowed[step] then
+            steps[#steps + 1] = step
+        else
+            dropped[#dropped + 1] = step
+        end
+    end
+
+    return new template.Plan(
+        source = source,
+        destination = destination,
+        files = files,
+        values = values,
+        steps = steps,
+        dropped = dropped
+    )
+end
+
+--- Writes a plan.
+---
+--- Nothing is checked here: `plan` refused everything refusable, and a check
+--- repeated at write time would be a second answer to a question already
+--- settled.
+---
+--- @param plan what `template.plan` worked out
+--- @return the paths written, or nil on the first write that failed
+--- @return why, ready to print
+function template.write(plan: template.Plan): {string}?, string?
+    local written: {string} = {}
+    for _, file in ipairs(plan.files) do
+        local path = join(plan.destination, file.output)
+        local ok, err = writeFile(path, file.text)
+        if not ok then
+            return nil, tostring(err)
+        end
+        written[#written + 1] = path
+    end
+
+    return written
+end
+
+--- Fetching
+
+--- Clones a remote template into a directory the caller owns and will remove.
+---
+--- Shallow, and `git` rather than HTTP because the released compiler carries no
+--- TLS provider -- the same reason `nupp.compiler.build.deps` clones a pinned
+--- dependency rather than downloading it.
+---
+--- @param source the resolved remote source, updated in place with the commit
+--- @param into an empty directory to clone beneath
+--- @return the source, with `path` and `commit` filled in
+--- @return why, ready to print
+function template.fetch(source: template.Source, into: string): template.Source?, string?
+    local url = tostring(source.url)
+    local checkout = join(into, "checkout")
+    -- Captured rather than run: asking for a revision that turns out to be a
+    -- commit rather than a branch is an ordinary path through here, not a
+    -- failure, and git says so on stderr. Output is held back and printed only
+    -- with a complaint that is really one.
+    local clone: {string} = {"git", "-c", "advice.detachedHead=false", "clone", "--quiet", "--depth", "1"}
+    if source.rev then
+        -- A branch or tag can be named at clone time. A commit cannot, and falls
+        -- through to the full clone below.
+        clone[#clone + 1] = "--branch"
+        clone[#clone + 1] = source.rev
+    end
+    clone[#clone + 1] = url
+    clone[#clone + 1] = checkout
+    local code, output = process.capture(clone)
+    if code ~= 0 and source.rev then
+        nupp.io.files.remove(checkout, true)
+        local fullCode, fullOutput = process.capture({
+            "git",
+            "-c",
+            "advice.detachedHead=false",
+            "clone",
+            "--quiet",
+            url,
+            checkout
+        })
+        if fullCode ~= 0 then
+            return nil, "cannot clone " .. url .. "\n" .. fullOutput
+        end
+        -- Resolved before it is checked out, so a revision that is not there is
+        -- reported in these words rather than in git's guess that it must have
+        -- been a filename.
+        local verifyCode, verified = process.capture(
+            {"git", "rev-parse", "--verify", "--quiet", source.rev .. "^{commit}"},
+            {cwd = checkout}
+        )
+        if verifyCode ~= 0 then
+            return nil, url .. " has no revision " .. tostring(source.rev)
+        end
+        local outCode, outOutput = process.capture(
+            {"git", "-c", "advice.detachedHead=false", "checkout", "--quiet", "--detach", (verified:gsub("%s+$", ""))},
+            {cwd = checkout}
+        )
+        if outCode ~= 0 then
+            return nil, "cannot check out " .. tostring(source.rev) .. " of " .. url .. "\n" .. outOutput
+        end
+    elseif code ~= 0 then
+        return nil, "cannot clone " .. url .. "\n" .. output
+    end
+    local revCode, head = process.capture({"git", "rev-parse", "HEAD"}, {cwd = checkout})
+    if revCode ~= 0 then
+        return nil, "cannot read the commit " .. url .. " resolved to"
+    end
+    source.commit = (head:gsub("%s+$", ""))
+    source.path = source.subdir and join(checkout, source.subdir) or checkout
+    if not exists(join(source.path, "template.lua")) then
+        return nil, template.describe(source) .. " has no template.lua, so it is not a template"
+    end
+
+    return source
+end
+
+--- Post-init steps
+
+--- Runs one template-requested step in the scaffolded project.
+---
+--- A step that fails is reported and does not fail the scaffold: the project was
+--- written, and a `check` that found something is news about the project rather
+--- than about `nupp init`.
+---
+--- @param step one of the names in `STEPS`
+--- @param destination the scaffolded directory
+--- @param nupp the compiler to invoke for the steps that need one
+--- @return true when it succeeded
+function template.step(step: string, destination: string, nupp: string): boolean
+    if step == "git" then
+        if exists(join(destination, ".git")) then
+            return true
+        end
+
+        return process.run({"git", "init", "--quiet", destination}) == 0
+    end
+    local argv: {string} = {nupp, step}
+
+    return process.run(argv, {cwd = destination}) == 0
+end
+
+template.STEPS = STEPS
+template.REMOTE_STEPS = REMOTE_STEPS
+
+return template
